@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lockbot"
+version = "2.0.0"
+description = "Cluster resource management bot for IM platforms"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Jianbang Yang", email = "yangjianbang112@gmail.com"},
+]
+keywords = ["bot", "cluster", "resource-management", "gpu", "lock"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Clustering",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    # Core (standalone bot)
+    "pycryptodome",
+    "requests",
+    "flask",
+    "six",
+    # Backend (platform mode)
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy",
+    "pyjwt",
+    "cryptography",
+    "bcrypt",
+    "python-multipart",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/dynamicheart/lockbot"
+Repository = "https://github.com/dynamicheart/lockbot"
+Issues = "https://github.com/dynamicheart/lockbot/issues"
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["SIM108"]
+
+[tool.ruff.lint.per-file-ignores]
+"python/lockbot/backend/**" = ["B008"]  # FastAPI Depends() in defaults is idiomatic
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

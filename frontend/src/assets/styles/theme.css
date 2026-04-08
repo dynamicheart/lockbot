@@ -1,0 +1,112 @@
+/*
+ * LockBot Design Tokens
+ * Light theme: default (:root)
+ * Dark theme: html.dark
+ *
+ * Naming: --lb-{category}-{name}
+ * Element Plus dark mode via element-plus/theme-chalk/dark/css-vars.css
+ */
+
+:root {
+  /* === Background === */
+  --lb-bg-page: #f5f7fa;
+  --lb-bg-card: #ffffff;
+  --lb-bg-header: #ffffff;
+  --lb-bg-hover: #f0f6ff;
+  --lb-bg-code: #f6f8fa;
+
+  /* === Text === */
+  --lb-text-primary: #303133;
+  --lb-text-regular: #606266;
+  --lb-text-secondary: #909399;
+  --lb-text-muted: #c0c4cc;
+  --lb-text-code: #303133;
+
+  /* === Border === */
+  --lb-border-color: #e4e7ed;
+  --lb-border-light: #dcdfe6;
+
+  /* === Accent === */
+  --lb-color-primary: #409eff;
+  --lb-color-success: #67c23a;
+  --lb-color-danger: #f56c6c;
+  --lb-color-warning: #e6a23c;
+  --lb-color-info: #909399;
+
+  /* === Log Terminal === */
+  --lb-bg-terminal: #f6f8fa;
+  --lb-terminal-text: #393a34;
+  --lb-terminal-time: #2e7d32;
+  --lb-terminal-border: #e4e7ed;
+
+  /* === Log Badges === */
+  --lb-log-warning-text: #92400e;
+  --lb-log-warning-bg: #fef3c7;
+  --lb-log-cmd-text: #15803d;
+  --lb-log-cmd-bg: #dcfce7;
+
+  /* === Shadow === */
+  --lb-shadow-card: 0 2px 8px rgb(0 0 0 / 0.08);
+  --lb-shadow-card-hover: 0 4px 12px rgb(0 0 0 / 0.12);
+  --lb-shadow-header: 0 1px 4px rgb(0 0 0 / 0.08);
+
+  /* === Sidebar === */
+  --lb-bg-sidebar: #ffffff;
+  --lb-sidebar-text: #606266;
+  --lb-sidebar-active: #409eff;
+  --lb-sidebar-hover: #f0f6ff;
+  --lb-sidebar-border: #e4e7ed;
+  --lb-shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.06);
+}
+
+html.dark {
+  /* === Background === */
+  --lb-bg-page: #1d1e1f;
+  --lb-bg-card: #2c2c2c;
+  --lb-bg-header: #2c2c2c;
+  --lb-bg-hover: #363637;
+  --lb-bg-code: #2c2c2c;
+
+  /* === Text === */
+  --lb-text-primary: #e5eaf3;
+  --lb-text-regular: #cfd3dc;
+  --lb-text-secondary: #a3a6ad;
+  --lb-text-muted: #6c6e72;
+  --lb-text-code: #cdd6f4;
+
+  /* === Border === */
+  --lb-border-color: #4c4d4f;
+  --lb-border-light: #414243;
+
+  /* === Accent (consistent across themes) === */
+  --lb-color-primary: #409eff;
+  --lb-color-success: #67c23a;
+  --lb-color-danger: #f56c6c;
+  --lb-color-warning: #e6a23c;
+  --lb-color-info: #a3a6ad;
+
+  /* === Log Terminal === */
+  --lb-bg-terminal: #1e1e1e;
+  --lb-terminal-text: #d4d4d4;
+  --lb-terminal-time: #6a9955;
+  --lb-terminal-border: #4c4d4f;
+
+  /* === Log Badges === */
+  --lb-log-warning-text: #fbbf24;
+  --lb-log-warning-bg: #422006;
+  --lb-log-cmd-text: #4ade80;
+  --lb-log-cmd-bg: #052e16;
+
+  /* === Shadow === */
+  --lb-shadow-card: 0 2px 8px rgb(0 0 0 / 0.3);
+  --lb-shadow-card-hover: 0 4px 12px rgb(0 0 0 / 0.4);
+  --lb-shadow-header: 0 1px 4px rgb(0 0 0 / 0.3);
+
+  /* === Sidebar === */
+  --lb-bg-sidebar: #2c2c2c;
+  --lb-sidebar-text: #a3a6ad;
+  --lb-sidebar-active: #409eff;
+  --lb-sidebar-hover: #363637;
+  --lb-sidebar-border: #4c4d4f;
+  --lb-shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.2);
+}

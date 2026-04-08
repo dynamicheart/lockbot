@@ -1,0 +1,190 @@
+r"""
+lockbot - BaseLockBot
+"""
+
+import logging
+import threading
+from importlib.metadata import version as _pkg_version
+
+from lockbot.core.config import Config
+from lockbot.core.i18n import t
+from lockbot.core.platforms.infoflow import InfoflowAdapter
+from lockbot.core.utils import format_duration
+
+
+def _get_version():
+    try:
+        return _pkg_version("lockbot")
+    except Exception:
+        return "unknown"
+
+
+class BotState:
+    """Manages bot state by delegating to a loader function."""
+
+    _loader = None  # Subclasses or instances must set this
+
+    def __init__(self, config=None):
+        self.bot_state = self._loader(config=config)
+
+
+class BaseLockBot:
+    """
+    Base class for all lock bots.  Provides common infrastructure:
+    - construction (config / state / lock / adapter)
+    - show_error
+    - timer_routine
+    - print_help (template-method: header + _help_commands + footer)
+    - _msg_with_usage  convenience helper
+    - _build_alert_header
+    """
+
+    # Subclasses MUST define an inner _state_class(BotState) with a _loader.
+    _state_class = None
+
+    _timer_failure_count = 0
+    _MAX_TIMER_FAILURES = 5
+
+    logger = logging.getLogger("lockbot.timer")
+
+    # ------------------------------------------------------------------ init
+    def __init__(self, config_dict=None, *, config=None, state=None, lock=None, adapter=None):
+        """
+        Create an isolated bot instance.
+
+        Two usage patterns:
+        - config_dict: pass a config dict, auto-creates config/state/lock
+        - config/state/lock: inject existing objects directly (for testing)
+        """
+        if config is not None:
+            self.config = config
+        else:
+            self.config = Config(config_dict or {})
+
+        if state is not None:
+            self.state = state
+        else:
+            self.state = self._state_class(config=self.config)
+
+        self._lock = lock or threading.Lock()
+        self.adapter = adapter or InfoflowAdapter(config=self.config)
+
+    # ---------------------------------------------------------- show_error
+    def show_error(self, user_id, error_msg):
+        """
+        Show error message
+        """
+        return self.adapter.build_reply("\u274c" + error_msg, [user_id])
+
+    # -------------------------------------------------------- timer_routine
+    def timer_routine(self):
+        """
+        Timer routine entrypoint: run _check_and_notify every 5 seconds.
+
+        Self-healing: if _check_and_notify raises, log the error and
+        continue scheduling the next tick.  After _MAX_TIMER_FAILURES
+        consecutive failures, back off to 30-second intervals.
+        """
+        try:
+            self._check_and_notify()
+            self._timer_failure_count = 0
+        except Exception:
+            self._timer_failure_count += 1
+            bot_name = self.config.get_val("BOT_NAME") if self.config else "?"
+            self.logger.exception(
+                "timer_routine crashed for bot %s (failure %d/%d)",
+                bot_name,
+                self._timer_failure_count,
+                self._MAX_TIMER_FAILURES,
+            )
+
+        # Back off when too many consecutive failures
+        interval = 30.0 if self._timer_failure_count >= self._MAX_TIMER_FAILURES else 5.0
+        self._timer = threading.Timer(interval, self.timer_routine)
+        self._timer.daemon = True
+        self._timer.start()
+
+    # ------------------------------------------------------ _msg_with_usage
+    def _msg_with_usage(self, msg_key, *, node_key=None, sep="", **kwargs):
+        """Return ``t(msg_key, ...) + sep + self._current_usage(node_key)``."""
+        return t(msg_key, config=self.config, **kwargs) + sep + self._current_usage(node_key)
+
+    # ------------------------------------------------- _build_alert_header
+    def _build_alert_header(self):
+        """Build the common alert header used by ``_check_and_notify``."""
+        EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
+        TIME_ALERT = self.config.get_val("TIME_ALERT")
+
+        if EARLY_NOTIFY:
+            alert_info = t(
+                "alert.early_time_remaining",
+                config=self.config,
+                time_alert=format_duration(TIME_ALERT, config=self.config),
+            )
+            alert_info += t("alert.early_extend_reminder", config=self.config)
+            alert_info += t("alert.early_resource_list_header", config=self.config)
+        else:
+            alert_info = t("alert.auto_released_title", config=self.config)
+            alert_info += t("alert.auto_released_list_header", config=self.config)
+        return alert_info
+
+    # --------------------------------------------------------- _help_header
+    def _help_header(self):
+        """Return the header section of the help text.  Override in subclasses."""
+        EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
+
+        parts = []
+        parts.append(t("help.title", config=self.config))
+        parts.append(t("help.section1_title", config=self.config))
+        parts.append(
+            t(
+                "help.rule1_default_duration",
+                config=self.config,
+                default_duration=format_duration(self.config.get_val("DEFAULT_DURATION"), config=self.config),
+            )
+        )
+        if EARLY_NOTIFY:
+            parts.append(
+                t(
+                    "help.rule2_early_notification",
+                    config=self.config,
+                    time_alert=format_duration(self.config.get_val("TIME_ALERT"), config=self.config),
+                )
+            )
+        else:
+            parts.append(t("help.rule2_post_expiry_notification", config=self.config))
+        return "".join(parts)
+
+    # ---------------------------------------------------------- print_help
+    def print_help(self, user_id, extra_info=None):
+        """
+        Show help message.  Uses the *template method* pattern:
+        header + ``_help_commands()`` + footer.
+        """
+        reply_info = extra_info + "\n\n" if extra_info else ""
+        # ---- header ----
+        reply_info += self._help_header()
+
+        # ---- commands (subclass hook) ----
+        reply_info += self._help_commands()
+
+        # ---- footer ----
+        max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        if max_dur > 0:
+            reply_info += t(
+                "help.max_duration_warning",
+                config=self.config,
+                max_duration=format_duration(max_dur, config=self.config),
+            )
+
+        reply_info += t("help.bot_version", config=self.config, version=_get_version())
+        bot_id = self.config.get_val("BOT_ID")
+        if bot_id:
+            reply_info += t("help.bot_id", config=self.config, bot_id=bot_id)
+        reply_info += "\n"
+
+        return self.adapter.build_reply(reply_info, [user_id])
+
+    def _help_commands(self):
+        """Return the command-section of the help text.  Override in subclasses."""
+        return ""

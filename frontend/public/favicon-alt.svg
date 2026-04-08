@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 1 28 31" width="32" height="32">
+  <!-- shield body -->
+  <path d="M16 2 L28 7 L28 17 C28 24 22 29 16 31 C10 29 4 24 4 17 L4 7 Z" fill="#409eff"/>
+  <!-- face plate -->
+  <rect x="8" y="10" width="16" height="12" rx="3" fill="#e6f0ff"/>
+  <!-- eyes -->
+  <circle cx="12.5" cy="15" r="2" fill="#409eff"/>
+  <circle cx="19.5" cy="15" r="2" fill="#409eff"/>
+  <!-- eye highlights -->
+  <circle cx="13.2" cy="14.3" r="0.6" fill="#fff"/>
+  <circle cx="20.2" cy="14.3" r="0.6" fill="#fff"/>
+  <!-- mouth -->
+  <path d="M11.5 19.5 Q16 22 20.5 19.5" stroke="#409eff" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment / secrets
+*.env
+.lockbot_config
+
+# Test / Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Node (frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+
+# Database
+*.db
+
+# Backup
+/data/
+_lockbot_backup_*.db_
+
+# Ruff
+.ruff_cache/
+
+# Distribution
+*.whl
+*.tar.gz
+
+# Logs directory
+logs/
+
+# Sensitive data
+python/lockbot/data/.encryption_key
+
+# Evaluation/tools
+.deepeval/
+
+
+# Dev scripts
+dev-backend.sh
+dev-frontend.sh

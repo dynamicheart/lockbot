@@ -1,0 +1,19 @@
+# Core (standalone bot)
+pycryptodome
+requests
+flask
+six
+
+# Backend (platform mode)
+fastapi
+uvicorn[standard]
+sqlalchemy
+pyjwt
+cryptography
+bcrypt
+python-multipart
+httpx
+
+# Dev / Test
+pytest
+ruff
