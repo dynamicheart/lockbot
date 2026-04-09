@@ -56,7 +56,7 @@ class TestStartBot:
 
     def test_start_bot_no_auth(self, client):
         resp = client.post("/api/bots/1/start")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     def test_single_failure_not_error(self, mock_mgr, client, auth_header):

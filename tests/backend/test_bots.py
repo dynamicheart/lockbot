@@ -47,7 +47,7 @@ class TestCreateBot:
 
     def test_create_no_auth(self, client):
         resp = client.post("/api/bots", json=_sample_bot())
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
 
 class TestListBots:
