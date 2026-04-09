@@ -13,6 +13,8 @@ from sqlalchemy.pool import StaticPool
 
 # Enable registration for tests
 _config.ALLOW_REGISTER = True
+# Use in-memory SQLite for tests (must be set before database module import)
+_config.DATABASE_URL = "sqlite://"
 
 from lockbot.backend.app.database import Base, get_db  # noqa: E402
 from lockbot.backend.app.main import create_app  # noqa: E402

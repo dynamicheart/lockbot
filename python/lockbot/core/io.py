@@ -51,7 +51,11 @@ def _cfg_get(config, key, default=None):
 
 def _bot_dir(config):
     """Return {DATA_DIR}/{bot_id} directory."""
+    import tempfile
+
     bot_id = _cfg_get(config, "BOT_ID")
+    if bot_id is None:
+        return tempfile.mkdtemp()
     base = _cfg_get(config, "DATA_DIR") or os.path.join("/data", "bots")
     d = os.path.join(base, str(bot_id))
     os.makedirs(d, exist_ok=True)
