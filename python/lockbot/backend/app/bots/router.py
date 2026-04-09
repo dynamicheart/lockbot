@@ -34,9 +34,12 @@ logger = logging.getLogger(__name__)
 VALID_BOT_TYPES = {"NODE", "DEVICE", "QUEUE"}
 
 
+_DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
+
+
 def _get_log_dir(bot_id: int) -> str:
     """Return the log directory for a bot, creating it if needed."""
-    d = os.path.join("/data", "bots", str(bot_id))
+    d = os.path.join(_DEFAULT_DATA_DIR, "bots", str(bot_id))
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -445,6 +448,16 @@ def set_bot_language(
     return {"id": bot.id, "language": lang}
 
 
+def _get_bot_data_dir(bot: Bot) -> str:
+    """Return the data directory for a bot, preferring config_overrides.DATA_DIR."""
+    try:
+        overrides = json.loads(bot.config_overrides or "{}")
+        data_dir = overrides.get("DATA_DIR") or _DEFAULT_DATA_DIR
+    except (json.JSONDecodeError, AttributeError):
+        data_dir = _DEFAULT_DATA_DIR
+    return os.path.join(data_dir, "bots", str(bot.id))
+
+
 # ── State endpoints ────────────────────────────────────────
 
 
@@ -463,7 +476,7 @@ def get_bot_state(
         return instance.state.bot_state
 
     # Bot not running — try loading persisted state file first
-    state_file = os.path.join("/data", "bots", str(bot_id), "bot_state.json")
+    state_file = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
     if os.path.exists(state_file):
         try:
             with open(state_file, encoding="utf-8") as f:
@@ -691,12 +704,7 @@ def update_bot_state(
         instance.state.bot_state = state
 
     # Persist to state file so it survives restarts
-    try:
-        overrides = json.loads(bot.config_overrides or "{}")
-        data_dir = overrides.get("DATA_DIR", "/data")
-    except (json.JSONDecodeError, AttributeError):
-        data_dir = "/data"
-    state_file = os.path.join(data_dir, "bots", str(bot_id), "bot_state.json")
+    state_file = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
     os.makedirs(os.path.dirname(state_file), exist_ok=True)
     import tempfile
 

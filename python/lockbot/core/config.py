@@ -139,11 +139,12 @@ class Config:
         self._data[key] = value
 
     def _derive_path(self, key, default=None):
-        """Derive computed path keys. Uses BOT_ID-based layout: /data/bots/{bot_id}/."""
+        """Derive computed path keys. Uses BOT_ID-based layout: {DATA_DIR}/bots/{bot_id}/."""
         bot_id = self._data.get("BOT_ID")
         if not bot_id:
             return default
-        base_dir = os.path.join("/data", "bots", str(bot_id))
+        data_dir = self._data.get("DATA_DIR") or os.environ.get("DATA_DIR", "/data")
+        base_dir = os.path.join(data_dir, "bots", str(bot_id))
         if key == "STATE_FILENAME":
             return os.path.join(base_dir, "bot_state.json")
         return default

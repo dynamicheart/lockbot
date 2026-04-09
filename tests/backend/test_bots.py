@@ -317,7 +317,7 @@ class TestUpdateBotState:
     """Tests for PUT /bots/{id}/state validation and alignment."""
 
     @staticmethod
-    def _create_bot(client, admin_header, bot_type="NODE", cluster_configs=None):
+    def _create_bot(client, admin_header, bot_type="NODE", cluster_configs=None, tmp_path=None):
         resp = client.post(
             "/api/bots",
             json={
@@ -331,10 +331,17 @@ class TestUpdateBotState:
             },
             headers=admin_header,
         )
-        return resp.json()["id"]
+        bot_id = resp.json()["id"]
+        if tmp_path is not None:
+            client.put(
+                f"/api/bots/{bot_id}",
+                json={"config_overrides": {"DATA_DIR": str(tmp_path)}},
+                headers=admin_header,
+            )
+        return bot_id
 
-    def test_update_valid_node_state(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header)
+    def test_update_valid_node_state(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(client, admin_header, tmp_path=tmp_path)
         state = {
             "n1": {"status": "idle", "current_users": [], "booking_list": []},
             "n2": {
@@ -347,8 +354,8 @@ class TestUpdateBotState:
         assert resp.status_code == 200
         assert "warnings" not in resp.json() or resp.json()["warnings"] == []
 
-    def test_update_extra_nodes_removed(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header)
+    def test_update_extra_nodes_removed(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(client, admin_header, tmp_path=tmp_path)
         state = {
             "n1": {"status": "idle", "current_users": [], "booking_list": []},
             "n2": {"status": "idle", "current_users": [], "booking_list": []},
@@ -358,15 +365,15 @@ class TestUpdateBotState:
         assert resp.status_code == 200
         assert any("n3" in w for w in resp.json()["warnings"])
 
-    def test_update_missing_nodes_added(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header)
+    def test_update_missing_nodes_added(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(client, admin_header, tmp_path=tmp_path)
         state = {"n1": {"status": "idle", "current_users": [], "booking_list": []}}
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         assert any("n2" in w for w in resp.json()["warnings"])
 
-    def test_update_invalid_status_fixed(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header)
+    def test_update_invalid_status_fixed(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(client, admin_header, tmp_path=tmp_path)
         state = {
             "n1": {"status": "busy", "current_users": [], "booking_list": []},
             "n2": {"status": "idle", "current_users": [], "booking_list": []},
@@ -375,8 +382,8 @@ class TestUpdateBotState:
         assert resp.status_code == 200
         assert any("busy" in w for w in resp.json()["warnings"])
 
-    def test_update_missing_user_info_fields(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header)
+    def test_update_missing_user_info_fields(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(client, admin_header, tmp_path=tmp_path)
         state = {
             "n1": {"status": "exclusive", "current_users": [{"user_id": "u1"}], "booking_list": []},
             "n2": {"status": "idle", "current_users": [], "booking_list": []},
@@ -385,8 +392,14 @@ class TestUpdateBotState:
         assert resp.status_code == 200
         assert any("missing" in w for w in resp.json()["warnings"])
 
-    def test_update_device_valid(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["a100", "a100"]})
+    def test_update_device_valid(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(
+            client,
+            admin_header,
+            bot_type="DEVICE",
+            cluster_configs={"n1": ["a100", "a100"]},
+            tmp_path=tmp_path,
+        )
         state = {
             "n1": [
                 {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
@@ -397,9 +410,9 @@ class TestUpdateBotState:
         assert resp.status_code == 200
         assert resp.json().get("warnings", []) == []
 
-    def test_update_device_count_mismatch(self, client, admin_header):
+    def test_update_device_count_mismatch(self, client, admin_header, tmp_path):
         bot_id = self._create_bot(
-            client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["a100", "a100", "h100"]}
+            client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["a100", "a100", "h100"]}, tmp_path=tmp_path
         )
         state = {
             "n1": [
@@ -410,8 +423,14 @@ class TestUpdateBotState:
         assert resp.status_code == 200
         assert any("missing" in w for w in resp.json()["warnings"])
 
-    def test_update_device_too_many(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["a100"]})
+    def test_update_device_too_many(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(
+            client,
+            admin_header,
+            bot_type="DEVICE",
+            cluster_configs={"n1": ["a100"]},
+            tmp_path=tmp_path,
+        )
         state = {
             "n1": [
                 {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
@@ -422,8 +441,14 @@ class TestUpdateBotState:
         assert resp.status_code == 200
         assert any("excess" in w for w in resp.json()["warnings"])
 
-    def test_update_device_model_synced(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["h100"]})
+    def test_update_device_model_synced(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(
+            client,
+            admin_header,
+            bot_type="DEVICE",
+            cluster_configs={"n1": ["h100"]},
+            tmp_path=tmp_path,
+        )
         state = {
             "n1": [
                 {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
@@ -436,8 +461,8 @@ class TestUpdateBotState:
         devices = resp2.json()["n1"]
         assert devices[0]["dev_model"] == "h100"
 
-    def test_update_not_a_dict(self, client, admin_header):
-        bot_id = self._create_bot(client, admin_header)
+    def test_update_not_a_dict(self, client, admin_header, tmp_path):
+        bot_id = self._create_bot(client, admin_header, tmp_path=tmp_path)
         resp = client.put(f"/api/bots/{bot_id}/state", json="not a dict", headers=admin_header)
         # FastAPI rejects non-dict for body typed as dict
         assert resp.status_code == 422
