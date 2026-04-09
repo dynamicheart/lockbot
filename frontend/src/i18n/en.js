@@ -275,6 +275,7 @@ export default {
     import: 'Import',
     download: 'Download',
     importConfirm: 'This will overwrite the current cluster state. Continue?',
+    validationWarning: '{count} issue(s) found — the following will be auto-corrected on save:',
   },
 
   // === Bot Form ===

@@ -18,7 +18,7 @@ from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET
 from lockbot.backend.app.database import get_db
 
-_security = HTTPBearer()
+_security = HTTPBearer(auto_error=False)
 
 _ROLE_LEVELS = {"super_admin": 0, "admin": 1, "user": 2}
 
@@ -33,9 +33,13 @@ def create_access_token(user_id: int, must_change_password: bool = False) -> str
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_security),
     db: Session = Depends(get_db),
 ) -> User:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
     token = credentials.credentials
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])

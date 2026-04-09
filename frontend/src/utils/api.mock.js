@@ -16,6 +16,7 @@ import {
   appendLog,
   nextBotId,
 } from './mockData'
+import { validateBotState } from './stateValidation'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -412,8 +413,11 @@ function _handlePut(url, data) {
     const bot = mockBots.find((b) => b.id === parseInt(m.id))
     if (!bot) throw _err(404, 'Bot not found')
     if (bot.status === 'running') throw _err(409, 'Stop the bot before editing state')
-    botStates[bot.id] = data
-    return { message: 'State updated' }
+    const { state: alignedState, warnings } = _validateStateForBot(data, bot)
+    botStates[bot.id] = alignedState
+    const result = { message: 'State updated' }
+    if (warnings.length > 0) result.warnings = warnings
+    return result
   }
 
   // PUT /bots/:id/language
@@ -495,6 +499,14 @@ function _handleDelete(url) {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+function _parseClusterConfigs(bot) {
+  return typeof bot.cluster_configs === 'string' ? JSON.parse(bot.cluster_configs) : bot.cluster_configs || {}
+}
+
+function _validateStateForBot(state, bot) {
+  return validateBotState(state, bot.bot_type, _parseClusterConfigs(bot))
+}
 
 function _buildInitialState(bot) {
   try {

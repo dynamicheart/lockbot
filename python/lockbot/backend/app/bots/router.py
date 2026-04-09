@@ -498,6 +498,170 @@ def get_bot_state(
     return {name: {"status": "idle", "current_users": [], "booking_list": []} for name in cluster_configs}
 
 
+# ── State validation ────────────────────────────────────────
+
+_VALID_STATUSES = {"idle", "exclusive", "shared"}
+_REQUIRED_USER_KEYS = {"user_id", "start_time", "duration"}
+
+
+def _validate_user_info(user_info, label):
+    """Validate a single user_info dict, filling missing fields. Returns warnings."""
+    warnings = []
+    for key in _REQUIRED_USER_KEYS:
+        if key not in user_info:
+            user_info[key] = "" if key == "user_id" else 0
+            warnings.append(f"{label}: missing '{key}', set to default")
+    if "is_notified" not in user_info:
+        user_info["is_notified"] = False
+    return warnings
+
+
+def _validate_and_align_state(state, bot_type, cluster_configs):
+    """Validate and normalize bot state against cluster_configs.
+
+    Returns (normalized_state, warnings) where warnings is a list of
+    human-readable strings for issues that were auto-fixed.
+    """
+    if not isinstance(state, dict):
+        return _default_state_for(cluster_configs, bot_type), ["State is not a dict, replaced with defaults"]
+
+    warnings = []
+    if bot_type == "DEVICE":
+        return _validate_device_state(state, cluster_configs, warnings)
+    # NODE and QUEUE share the same structure
+    return _validate_node_queue_state(state, cluster_configs, warnings)
+
+
+def _default_state_for(cluster_configs, bot_type):
+    """Build a fresh default state matching cluster_configs."""
+    if bot_type == "DEVICE":
+        return {
+            node_key: [
+                {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
+                for i, model in enumerate(devices)
+            ]
+            for node_key, devices in cluster_configs.items()
+        }
+    return {name: {"status": "idle", "current_users": [], "booking_list": []} for name in cluster_configs}
+
+
+def _validate_node_queue_state(state, cluster_configs, warnings):
+    result = {}
+    # Add entries for nodes in cluster_configs
+    for name in cluster_configs:
+        if name not in state:
+            warnings.append(f"Node '{name}' missing from state, added with defaults")
+            result[name] = {"status": "idle", "current_users": [], "booking_list": []}
+            continue
+        node = state[name]
+        if not isinstance(node, dict):
+            warnings.append(f"Node '{name}' is not a dict, replaced with defaults")
+            result[name] = {"status": "idle", "current_users": [], "booking_list": []}
+            continue
+        # Validate status
+        status = node.get("status", "idle")
+        if status not in _VALID_STATUSES:
+            warnings.append(f"Node '{name}': invalid status '{status}', reset to 'idle'")
+            status = "idle"
+        # Validate current_users
+        current_users = node.get("current_users", [])
+        if not isinstance(current_users, list):
+            warnings.append(f"Node '{name}': current_users is not a list, reset to []")
+            current_users = []
+        for i, u in enumerate(current_users):
+            if isinstance(u, dict):
+                warnings.extend(_validate_user_info(u, f"Node '{name}', current_users[{i}]"))
+            else:
+                warnings.append(f"Node '{name}', current_users[{i}]: not a dict, removed")
+                current_users[i] = {"user_id": "", "start_time": 0, "duration": 0, "is_notified": False}
+        # Validate booking_list
+        booking_list = node.get("booking_list", [])
+        if not isinstance(booking_list, list):
+            warnings.append(f"Node '{name}': booking_list is not a list, reset to []")
+            booking_list = []
+        for i, u in enumerate(booking_list):
+            if isinstance(u, dict):
+                warnings.extend(_validate_user_info(u, f"Node '{name}', booking_list[{i}]"))
+            else:
+                warnings.append(f"Node '{name}', booking_list[{i}]: not a dict, removed")
+                booking_list[i] = {"user_id": "", "start_time": 0, "duration": 0, "is_notified": False}
+        result[name] = {"status": status, "current_users": current_users, "booking_list": booking_list}
+    # Warn about extra nodes not in cluster_configs
+    for name in state:
+        if name not in cluster_configs:
+            warnings.append(f"Node '{name}' not in cluster_configs, removed")
+    return result, warnings
+
+
+def _validate_device_state(state, cluster_configs, warnings):
+    result = {}
+    for node_key, devices in cluster_configs.items():
+        if node_key not in state:
+            warnings.append(f"Node '{node_key}' missing from state, added with defaults")
+            result[node_key] = [
+                {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
+                for i, model in enumerate(devices)
+            ]
+            continue
+        node_state = state[node_key]
+        if not isinstance(node_state, list):
+            warnings.append(f"Node '{node_key}' is not a list, replaced with defaults")
+            result[node_key] = [
+                {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
+                for i, model in enumerate(devices)
+            ]
+            continue
+        expected_count = len(devices)
+        actual_count = len(node_state)
+        # Trim excess devices
+        if actual_count > expected_count:
+            warnings.append(f"Node '{node_key}': has {actual_count} devices, expected {expected_count}, excess removed")
+            node_state = node_state[:expected_count]
+        # Validate each device
+        device_list = []
+        for i in range(expected_count):
+            if i < len(node_state):
+                dev = node_state[i]
+                if not isinstance(dev, dict):
+                    warnings.append(f"Node '{node_key}', device {i}: not a dict, replaced with default")
+                    dev = {}
+            else:
+                warnings.append(f"Node '{node_key}', device {i}: missing, added with default")
+                dev = {}
+            # Validate dev_id
+            dev.setdefault("dev_id", i)
+            if dev["dev_id"] != i:
+                warnings.append(f"Node '{node_key}', device {i}: dev_id {dev['dev_id']} corrected to {i}")
+                dev["dev_id"] = i
+            # Sync dev_model from cluster_configs
+            dev["dev_model"] = devices[i]
+            # Validate status
+            status = dev.get("status", "idle")
+            if status not in _VALID_STATUSES:
+                warnings.append(f"Node '{node_key}', device {i}: invalid status '{status}', reset to 'idle'")
+                status = "idle"
+            dev["status"] = status
+            # Validate current_users
+            current_users = dev.get("current_users", [])
+            if not isinstance(current_users, list):
+                warnings.append(f"Node '{node_key}', device {i}: current_users is not a list, reset to []")
+                current_users = []
+            for j, u in enumerate(current_users):
+                if isinstance(u, dict):
+                    warnings.extend(_validate_user_info(u, f"Node '{node_key}', device {i}, current_users[{j}]"))
+                else:
+                    warnings.append(f"Node '{node_key}', device {i}, current_users[{j}]: not a dict, removed")
+                    current_users[j] = {"user_id": "", "start_time": 0, "duration": 0, "is_notified": False}
+            dev["current_users"] = current_users
+            device_list.append(dev)
+        result[node_key] = device_list
+    # Warn about extra nodes
+    for name in state:
+        if name not in cluster_configs:
+            warnings.append(f"Node '{name}' not in cluster_configs, removed")
+    return result, warnings
+
+
 @router.put("/{bot_id}/state")
 def update_bot_state(
     bot_id: int,
@@ -518,6 +682,10 @@ def update_bot_state(
     if bot.status == "running":
         raise HTTPException(status_code=409, detail="Stop the bot before editing state")
 
+    # Validate and align state with cluster_configs
+    cluster_configs = _normalize_cluster_configs(json.loads(bot.cluster_configs))
+    state, warnings = _validate_and_align_state(state, bot.bot_type, cluster_configs)
+
     instance = bot_manager.get_instance(bot_id)
     if instance:
         instance.state.bot_state = state
@@ -537,7 +705,10 @@ def update_bot_state(
             os.unlink(tmp_path)
         raise
 
-    return {"message": "State updated"}
+    result = {"message": "State updated"}
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 # ── Logs endpoints ─────────────────────────────────────────

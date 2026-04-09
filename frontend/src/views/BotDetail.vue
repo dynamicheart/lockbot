@@ -261,6 +261,7 @@ import LogViewer from '../components/LogViewer.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, User, Monitor } from '@element-plus/icons-vue'
 import api from '../utils/api'
+import { validateBotState } from '../utils/stateValidation'
 import { useI18n } from 'vue-i18n'
 import { useHelpers } from '../utils/helpers'
 
@@ -540,16 +541,36 @@ function startEditState() {
 }
 
 async function saveState() {
+  let parsed
   try {
-    JSON.parse(stateText.value)
+    parsed = JSON.parse(stateText.value)
   } catch {
     ElMessage.error(t('botCreate.invalidJson'))
     return
   }
+  // Pre-validate on client side
+  const cc = typeof bot.value.cluster_configs === 'string'
+    ? JSON.parse(bot.value.cluster_configs) : (bot.value.cluster_configs || {})
+  const { warnings: clientWarnings } = validateBotState(parsed, bot.value.bot_type, cc)
+  if (clientWarnings.length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        clientWarnings.join('\n'),
+        t('clusterState.validationWarning', { count: clientWarnings.length }),
+        { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+      )
+    } catch {
+      return // user cancelled
+    }
+  }
   stateSaving.value = true
   try {
-    await botsStore.updateBotState(route.params.id, JSON.parse(stateText.value))
-    ElMessage.success(t('common.success'))
+    const res = await botsStore.updateBotState(route.params.id, parsed)
+    if (res.warnings && res.warnings.length > 0) {
+      ElMessage.warning(res.warnings.join('\n'))
+    } else {
+      ElMessage.success(t('common.success'))
+    }
     editingState.value = false
     fetchState()
   } catch {

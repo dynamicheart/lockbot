@@ -275,6 +275,7 @@ export default {
     import: '导入',
     download: '下载',
     importConfirm: '导入将覆盖当前集群状态，确认继续？',
+    validationWarning: '发现 {count} 个问题，保存后将自动修正：',
   },
 
   // === Bot Form ===
