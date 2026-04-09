@@ -30,9 +30,7 @@ _CONFIG_SCHEMA = {
     },
     "CLUSTER_CONFIGS": {
         "default": {},
-        "description": (
-            "Cluster config. NODE/QUEUE: [name_list]; DEVICE: {node_name: [device_model_list]}"
-        ),
+        "description": ("Cluster config. NODE/QUEUE: [name_list]; DEVICE: {node_name: [device_model_list]}"),
         "env": False,
     },
     "BOT_NAME": {
