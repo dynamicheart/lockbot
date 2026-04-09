@@ -25,6 +25,11 @@
         <p class="login-subtitle">{{ $t('auth.platformTitle') }}</p>
       </div>
 
+      <!-- Demo hint -->
+      <el-alert v-if="isDemoMode" type="info" :closable="false" class="demo-hint">
+        {{ $t('auth.demoHint') }}
+      </el-alert>
+
       <!-- Form -->
       <el-form ref="formRef" :model="form" :rules="rules" label-width="0" @submit.prevent="handleLogin">
         <el-form-item prop="username">
@@ -213,6 +218,12 @@ async function handleLogin() {
   margin: 4px 0 0;
   font-size: 14px;
   color: var(--lb-text-secondary);
+}
+.demo-hint {
+  margin-bottom: 20px;
+}
+.demo-hint :deep(.el-alert__description) {
+  font-size: 13px;
 }
 .login-btn {
   width: 100%;

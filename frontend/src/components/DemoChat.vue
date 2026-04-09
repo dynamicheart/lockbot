@@ -206,7 +206,13 @@ let msgIdCounter = 0
 
 const demoUsers = computed(() => mockUsers.map(u => ({ id: u.id, username: u.username })))
 
-const quickCommands = ['@bot', 'help', 'lock']
+const quickCommands = computed(() => {
+  const bot = selectedBot.value
+  const cc = bot ? getClusterConfigs(bot.id) : {}
+  const keys = Array.isArray(cc) ? cc : Object.keys(cc)
+  const firstKey = keys[0] || 'node0'
+  return ['@bot', 'help', `lock ${firstKey}`]
+})
 
 /** Translate bot name via i18n key if available. */
 function botDisplayName(bot) {

@@ -55,6 +55,7 @@ export default {
     registerDisabled: 'Registration is disabled. Please contact the administrator to create an account.',
     usernameLength: '3-64 characters',
     emailInvalid: 'Invalid email format',
+    demoHint: 'This is a demo environment. You can enter any username and password to log in, or register a new account.',
     profileSettings: 'Profile Settings',
     currentPassword: 'Current Password',
     newPassword: 'New Password',

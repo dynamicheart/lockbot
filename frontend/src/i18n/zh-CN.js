@@ -55,6 +55,7 @@ export default {
     registerDisabled: '注册已关闭，如需开通账户请联系管理员',
     usernameLength: '3-64 个字符',
     emailInvalid: '邮箱格式不正确',
+    demoHint: '这是演示环境，您可以输入任意用户名和密码登录，也可以注册新账号。',
     profileSettings: '个人设置',
     currentPassword: '当前密码',
     newPassword: '新密码',

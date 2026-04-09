@@ -15,7 +15,7 @@ export const mockUsers = [
     id: 1,
     username: 'demo_user',
     email: 'demo@example.com',
-    role: 'admin',
+    role: 'super_admin',
     max_running_bots: 10,
     must_change_password: false,
     created_at: now,
@@ -23,6 +23,16 @@ export const mockUsers = [
   },
   {
     id: 2,
+    username: 'admin',
+    email: 'admin@example.com',
+    role: 'admin',
+    max_running_bots: 10,
+    must_change_password: false,
+    created_at: now,
+    updated_at: now,
+  },
+  {
+    id: 3,
     username: 'user1',
     email: 'user1@example.com',
     role: 'user',
@@ -32,7 +42,7 @@ export const mockUsers = [
     updated_at: now,
   },
   {
-    id: 3,
+    id: 4,
     username: 'user2',
     email: 'user2@example.com',
     role: 'user',
@@ -42,7 +52,7 @@ export const mockUsers = [
     updated_at: now,
   },
   {
-    id: 4,
+    id: 5,
     username: 'researcher',
     email: 'researcher@example.com',
     role: 'admin',
@@ -52,7 +62,7 @@ export const mockUsers = [
     updated_at: now,
   },
   {
-    id: 5,
+    id: 6,
     username: 'intern',
     email: 'intern@example.com',
     role: 'user',
@@ -67,7 +77,7 @@ export const mockUsers = [
 // Bots
 // ---------------------------------------------------------------------------
 export const mockBots = [
-  // ── demo_user (id 1, admin) ──
+  // ── demo_user (id 1, super_admin) ──
   {
     id: 1,
     user_id: 1,
@@ -132,10 +142,10 @@ export const mockBots = [
     created_at: now,
     updated_at: now,
   },
-  // ── researcher (id 4, admin) ──
+  // ── researcher (id 5, admin) ──
   {
     id: 5,
-    user_id: 4,
+    user_id: 5,
     name: 'Mixed GPU Cluster',
     name_i18n: 'demoBot.labGpus',
     bot_type: 'DEVICE',
@@ -151,7 +161,7 @@ export const mockBots = [
   },
   {
     id: 6,
-    user_id: 4,
+    user_id: 5,
     name: 'Queue Bot',
     name_i18n: 'demoBot.evalQueue',
     bot_type: 'QUEUE',
@@ -165,10 +175,10 @@ export const mockBots = [
     created_at: now,
     updated_at: now,
   },
-  // ── intern (id 5, user) ──
+  // ── intern (id 6, user) ──
   {
     id: 7,
-    user_id: 5,
+    user_id: 6,
     name: 'Shared Nodes',
     name_i18n: 'demoBot.sharedNodes',
     bot_type: 'NODE',
