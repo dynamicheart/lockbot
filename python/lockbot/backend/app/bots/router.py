@@ -691,7 +691,12 @@ def update_bot_state(
         instance.state.bot_state = state
 
     # Persist to state file so it survives restarts
-    state_file = os.path.join("/data", "bots", str(bot_id), "bot_state.json")
+    try:
+        overrides = json.loads(bot.config_overrides or "{}")
+        data_dir = overrides.get("DATA_DIR", "/data")
+    except (json.JSONDecodeError, AttributeError):
+        data_dir = "/data"
+    state_file = os.path.join(data_dir, "bots", str(bot_id), "bot_state.json")
     os.makedirs(os.path.dirname(state_file), exist_ok=True)
     import tempfile
 

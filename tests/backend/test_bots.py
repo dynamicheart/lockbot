@@ -326,9 +326,8 @@ class TestUpdateBotState:
                 "webhook_url": "https://example.com/webhook",
                 "aes_key": "testaeskey",
                 "token": "testtoken",
-                "cluster_configs": cluster_configs or (
-                    ["n1", "n2"] if bot_type != "DEVICE" else {"n1": ["a100", "a100"]}
-                ),
+                "cluster_configs": cluster_configs
+                or (["n1", "n2"] if bot_type != "DEVICE" else {"n1": ["a100", "a100"]}),
             },
             headers=admin_header,
         )
@@ -350,9 +349,11 @@ class TestUpdateBotState:
 
     def test_update_extra_nodes_removed(self, client, admin_header):
         bot_id = self._create_bot(client, admin_header)
-        state = {"n1": {"status": "idle", "current_users": [], "booking_list": []},
-                 "n2": {"status": "idle", "current_users": [], "booking_list": []},
-                 "n3": {"status": "idle", "current_users": [], "booking_list": []}}
+        state = {
+            "n1": {"status": "idle", "current_users": [], "booking_list": []},
+            "n2": {"status": "idle", "current_users": [], "booking_list": []},
+            "n3": {"status": "idle", "current_users": [], "booking_list": []},
+        }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         assert any("n3" in w for w in resp.json()["warnings"])
@@ -366,26 +367,32 @@ class TestUpdateBotState:
 
     def test_update_invalid_status_fixed(self, client, admin_header):
         bot_id = self._create_bot(client, admin_header)
-        state = {"n1": {"status": "busy", "current_users": [], "booking_list": []},
-                 "n2": {"status": "idle", "current_users": [], "booking_list": []}}
+        state = {
+            "n1": {"status": "busy", "current_users": [], "booking_list": []},
+            "n2": {"status": "idle", "current_users": [], "booking_list": []},
+        }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         assert any("busy" in w for w in resp.json()["warnings"])
 
     def test_update_missing_user_info_fields(self, client, admin_header):
         bot_id = self._create_bot(client, admin_header)
-        state = {"n1": {"status": "exclusive", "current_users": [{"user_id": "u1"}], "booking_list": []},
-                 "n2": {"status": "idle", "current_users": [], "booking_list": []}}
+        state = {
+            "n1": {"status": "exclusive", "current_users": [{"user_id": "u1"}], "booking_list": []},
+            "n2": {"status": "idle", "current_users": [], "booking_list": []},
+        }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         assert any("missing" in w for w in resp.json()["warnings"])
 
     def test_update_device_valid(self, client, admin_header):
         bot_id = self._create_bot(client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["a100", "a100"]})
-        state = {"n1": [
-            {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
-            {"dev_id": 1, "dev_model": "a100", "status": "idle", "current_users": []},
-        ]}
+        state = {
+            "n1": [
+                {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
+                {"dev_id": 1, "dev_model": "a100", "status": "idle", "current_users": []},
+            ]
+        }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         assert resp.json().get("warnings", []) == []
@@ -394,28 +401,34 @@ class TestUpdateBotState:
         bot_id = self._create_bot(
             client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["a100", "a100", "h100"]}
         )
-        state = {"n1": [
-            {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
-        ]}
+        state = {
+            "n1": [
+                {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
+            ]
+        }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         assert any("missing" in w for w in resp.json()["warnings"])
 
     def test_update_device_too_many(self, client, admin_header):
         bot_id = self._create_bot(client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["a100"]})
-        state = {"n1": [
-            {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
-            {"dev_id": 1, "dev_model": "a100", "status": "idle", "current_users": []},
-        ]}
+        state = {
+            "n1": [
+                {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
+                {"dev_id": 1, "dev_model": "a100", "status": "idle", "current_users": []},
+            ]
+        }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         assert any("excess" in w for w in resp.json()["warnings"])
 
     def test_update_device_model_synced(self, client, admin_header):
         bot_id = self._create_bot(client, admin_header, bot_type="DEVICE", cluster_configs={"n1": ["h100"]})
-        state = {"n1": [
-            {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
-        ]}
+        state = {
+            "n1": [
+                {"dev_id": 0, "dev_model": "a100", "status": "idle", "current_users": []},
+            ]
+        }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
         # Fetch state to verify dev_model was synced
@@ -431,6 +444,7 @@ class TestUpdateBotState:
 
     def test_update_running_bot_rejected(self, client, admin_header):
         from unittest.mock import patch
+
         bot_id = self._create_bot(client, admin_header)
         with patch("lockbot.backend.app.bots.router.bot_manager") as mock_mgr:
             mock_mgr.start_bot.return_value = 123
