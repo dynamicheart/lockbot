@@ -1,14 +1,24 @@
 r"""Legacy Flask entry point for standalone bot deployment."""
 
+import warnings
+
 from flask import Flask, request
 
 from lockbot.core.bot_instance import BotInstance
 from lockbot.core.config import Config
 from lockbot.core.handler import handle_request, page_not_found
 
+_DEPRECATION_MSG = (
+    "The legacy Flask entry point is deprecated and will be removed in a future version. "
+    "Use the FastAPI platform mode (lockbot.backend.app.main) instead."
+)
+
 
 def create_app(bot, bot_name, port=8090):
     """Create a Flask app that handles bot webhook requests.
+
+    .. deprecated::
+        Use the FastAPI platform mode (lockbot.backend.app.main) instead.
 
     Args:
         bot: Bot instance (NodeBot / DeviceBot / QueueBot).
@@ -18,6 +28,7 @@ def create_app(bot, bot_name, port=8090):
     Returns:
         flask.Flask: The configured Flask application.
     """
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
     app = Flask(bot_name)
 
     @app.route("/", methods=["POST"])
@@ -45,8 +56,12 @@ def create_app(bot, bot_name, port=8090):
 def run_bot():
     """Load config, create a BotInstance from global Config, and start the server.
 
+    .. deprecated::
+        Use the FastAPI platform mode (lockbot.backend.app.main) instead.
+
     Legacy entry point: compatible with servers/*.py that call Config.set() first.
     """
+    warnings.warn(_DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
     Config.load_from_file()
     Config.load_from_env()
     Config.show_all()

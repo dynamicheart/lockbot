@@ -29,18 +29,13 @@ def bot(tmp_path):
     config_dict = {
         "BOT_ID": test_bot_id,
         "DATA_DIR": data_dir,
-        "CLUSTER_CONFIGS": {"test": "Test Node Fullname"},
+        "CLUSTER_CONFIGS": ["test"],
         "DEFAULT_DURATION": 3600,
-        "DEFAULT_MSG": {
-            "message": {"header": {}, "body": [{"type": "TEXT", "content": ""}, {"type": "AT", "atuserids": [""]}]}
-        },
         "MAX_LOCK_DURATION": 10800,
         "BOT_TYPE": "QUEUE",
         "WEBHOOK_URL": "",
-        "HEADERS": {"Content-Type": "application/json"},
         "EARLY_NOTIFY": False,
         "TIME_ALERT": 300,
-        "DEFAULT_USER_INFO": {"user_id": "xxx", "start_time": 0, "duration": 0, "is_notified": False},
     }
 
     bot = QueueBot(config_dict=config_dict)
@@ -90,7 +85,7 @@ def test_unlock_all(bot):
 
 def test_unlock_all_after_book(bot):
     """Test unlock all after book."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
 
     reply_book = bot.book("user1", "book test 1h")
     assert "🗓️【排队成功】" in reply_book["message"]["body"][0]["content"], "Failed to queue"
@@ -153,7 +148,7 @@ def test_free_cancels_booking(bot):
 
 def test_lock_then_book(bot):
     """Test lock then book."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     user = {"user_id": "user1", "start_time": int(time.time()) - 5000, "duration": 3600, "is_notified": False}
     bot.state.bot_state = {
         "test": {
@@ -179,7 +174,7 @@ def test_lock_then_book(bot):
 
 def test_forbid_duplicate_book(bot):
     """Test forbid duplicate book."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     user = {"user_id": "user1", "start_time": int(time.time()) - 5000, "duration": 3600, "is_notified": False}
     bot.state.bot_state = {
         "test": {
@@ -200,7 +195,7 @@ def test_forbid_duplicate_book(bot):
 
 def test_locked_user_cannot_book_again(bot):
     """Test locked user cannot book again."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
 
     locked_user = {"user_id": "user1", "start_time": int(time.time()) - 5000, "duration": 3600, "is_notified": False}
 
@@ -255,7 +250,7 @@ def test_current_usage_display(bot):
 
 def test_book_when_no_lock(bot):
     """Test book when no lock."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     bot.state.bot_state = {
         "test": {
             "status": "idle",
@@ -271,7 +266,7 @@ def test_book_when_no_lock(bot):
 
 def test_lock_when_free_or_first_in_queue(bot):
     """Test lock when free or first in queue."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     bot.state.bot_state = {
         "test": {
             "status": "idle",
@@ -299,7 +294,7 @@ def test_lock_when_free_or_first_in_queue(bot):
 
 def test_extend_lock_should_notify_waiting_users(bot):
     """Test extend lock should notify waiting users."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     now = int(time.time())
     user_lock = {"user_id": "user1", "start_time": now - 1800, "duration": 3600, "is_notified": False}
     booking_users = [
@@ -328,7 +323,7 @@ def test_extend_lock_should_notify_waiting_users(bot):
 
 def test_first_booking_user_lock_with_larger_duration_notifies_others(bot):
     """Test first booking user lock with larger duration notifies others."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     now = int(time.time())
 
     booking_users = [
@@ -354,7 +349,7 @@ def test_first_booking_user_lock_with_larger_duration_notifies_others(bot):
 
 def test_first_booking_user_lock_within_booking_duration_no_notify(bot):
     """Test first booking user lock within booking duration no notify."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     now = int(time.time())
 
     booking_users = [
@@ -379,7 +374,7 @@ def test_first_booking_user_lock_within_booking_duration_no_notify(bot):
 
 def test_lock_without_duration_uses_booking_duration_and_behaves_accordingly(bot):
     """Test lock without duration uses booking duration and behaves accordingly."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     now = int(time.time())
 
     booking_users = [
@@ -405,7 +400,7 @@ def test_lock_without_duration_uses_booking_duration_and_behaves_accordingly(bot
 
 def test_take_when_no_lock_succeeds_and_notify_all(bot):
     """Test take when no lock succeeds and notify all."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     now = int(time.time())
 
     booking_users = [
@@ -435,7 +430,7 @@ def test_take_when_no_lock_succeeds_and_notify_all(bot):
 
 def test_take_removes_self_from_booking_list_and_notify(bot):
     """Test take removes self from booking list and notify."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     now = int(time.time())
 
     booking_users = [
@@ -466,7 +461,7 @@ def test_take_removes_self_from_booking_list_and_notify(bot):
 
 def test_take_when_lock_exists_preempt_and_notify(bot):
     """Test take when lock exists preempt and notify."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     now = int(time.time())
 
     current_user = {"user_id": "user0", "start_time": now - 900, "duration": 3600, "is_notified": False}
@@ -503,7 +498,7 @@ def test_take_when_lock_exists_preempt_and_notify(bot):
 
 def test_locked_user_cannot_take(bot):
     """Test locked user cannot take."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
 
     locked_user = {"user_id": "user1", "start_time": int(time.time()) - 5000, "duration": 3600, "is_notified": False}
 
@@ -604,7 +599,6 @@ def test_print_help(bot):
 def test_timer_routine_trigger(bot, monkeypatch):
     """Test timer routine trigger."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
 
     user = {"user_id": "user1", "start_time": int(time.time()) - 5000, "duration": 3600, "is_notified": False}
 
@@ -634,7 +628,6 @@ def test_timer_routine_trigger(bot, monkeypatch):
 def test_timer_routine_no_trigger(bot, monkeypatch):
     """Test timer routine no trigger."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
 
     now = int(time.time())
     duration = 3600
@@ -685,7 +678,6 @@ def test_max_lock_duration_exceeded(bot):
 def test_check_and_notify(bot, monkeypatch):
     """Test check and notify."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
 
     sent_payload = {}
 
@@ -760,7 +752,6 @@ def test_check_and_notify(bot, monkeypatch):
 def test_check_and_notify_combined(bot, monkeypatch):
     """Test check and notify combined."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
 
     sent_payload = {}
 
@@ -812,7 +803,6 @@ def test_check_and_notify_combined(bot, monkeypatch):
 def test_check_and_notify_no_duplicate_reminder(bot, monkeypatch):
     """Test check and notify no duplicate reminder."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
 
     sent_payload = {}
 
@@ -862,7 +852,6 @@ def test_release_expired_booking_and_notify_next(bot, monkeypatch):
     TIME_TO_LOCK = 300
 
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
 
     sent_payload = {}
 
@@ -926,7 +915,6 @@ def test_release_expired_booking_and_notify_next(bot, monkeypatch):
 def test_timer_routine_trigger_early_notify(bot, monkeypatch):
     """Test timer routine trigger early notification mode."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", True)
     bot.config.set_val("TIME_ALERT", 300)
 
@@ -964,7 +952,6 @@ def test_timer_routine_trigger_early_notify(bot, monkeypatch):
 def test_timer_routine_no_trigger_early_notification(bot, monkeypatch):
     """Test timer routine no trigger early notification."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", True)
     bot.config.set_val("TIME_ALERT", 300)
 

@@ -24,7 +24,7 @@ from lockbot.core.utils import (
 )
 
 # Regex building blocks for command parsing
-_NODE_LIST = r"([\w\d\.]+)(\s*[,，]\s*[\w\d\.]+)*"  # node1,node2,...
+_NODE_LIST = r"([\w\d]+)(\s*[,，]\s*[\w\d]+)*"  # node1,node2,...
 _DURATION = r"([0-9]+\.?[0-9]*)([dhm])"  # e.g. 3d, 2.5h, 30m
 
 
@@ -65,23 +65,18 @@ class NodeBot(BaseLockBot):
 
         cluster_configs = self.config.get_val("CLUSTER_CONFIGS")
         node_keys = [id.strip() for id in re.split(r"[,，]", m[2])]
-        node_shortnames = list(cluster_configs.keys())
-        node_fullnames = list(cluster_configs.values())
-        for i, node_key in enumerate(node_keys):
-            if node_key not in node_shortnames and node_key not in node_fullnames:
+        for _, node_key in enumerate(node_keys):
+            if node_key not in cluster_configs:
                 error_reply = self.show_error(
                     user_id,
                     t(
                         "error.invalid_node_key",
                         config=self.config,
                         node_key=node_key,
-                        valid_keys=str(list(node_shortnames)),
+                        valid_keys=str(list(cluster_configs.keys())),
                     ),
                 )
                 return _get_return_values()
-            if node_key in node_fullnames:
-                idx = node_fullnames.index(node_key)
-                node_keys[i] = node_shortnames[idx]
 
         node_keys = list(set(node_keys))
 

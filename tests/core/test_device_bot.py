@@ -31,16 +31,11 @@ def bot(tmp_path):
         "DATA_DIR": data_dir,
         "CLUSTER_CONFIGS": {"test": ["A100"] * 4, "test2": ["H100"] * 2, "test3": ["B100"] * 3},
         "DEFAULT_DURATION": 3600,
-        "DEFAULT_MSG": {
-            "message": {"header": {}, "body": [{"type": "TEXT", "content": ""}, {"type": "AT", "atuserids": [""]}]}
-        },
         "MAX_LOCK_DURATION": 10800,
         "EARLY_NOTIFY": True,
         "TIME_ALERT": 300,
         "BOT_TYPE": "DEVICE",
         "WEBHOOK_URL": "",
-        "HEADERS": {"Content-Type": "application/json"},
-        "DEFAULT_USER_INFO": {"user_id": "xxx", "start_time": 0, "duration": 0, "is_notified": False},
     }
 
     bot = DeviceBot(config_dict=config_dict)
@@ -183,10 +178,6 @@ def test_unlock_all(bot):
 def test_usage_display_after_lock_and_slock(bot):
     """Test usage display after lock and slock."""
     bot.config.set_val(
-        "DEFAULT_MSG",
-        {"message": {"header": {}, "body": [{"type": "TEXT", "content": ""}, {"type": "AT", "atuserids": [""]}]}},
-    )
-    bot.config.set_val(
         "DEFAULT_USER_INFO",
         {
             "user_id": "xxx",
@@ -267,7 +258,6 @@ def test_current_usage_hetero_node_hint(bot):
 def test_timer_routine_trigger(bot, monkeypatch):
     """Test timer routine trigger."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", False)
     bot.config.set_val("TIME_ALERT", 300)
 
@@ -307,7 +297,6 @@ def test_timer_routine_trigger(bot, monkeypatch):
 def test_timer_routine_no_trigger_devicebot(bot, monkeypatch):
     """Test timer routine no trigger devicebot."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", False)
     bot.config.set_val("TIME_ALERT", 300)
 
@@ -341,7 +330,6 @@ def test_timer_routine_no_trigger_devicebot(bot, monkeypatch):
 def test_timer_routine_trigger_early_notification_devicebot(bot, monkeypatch):
     """Test timer routine trigger early notification devicebot."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", True)
     bot.config.set_val("TIME_ALERT", 300)
 
@@ -382,7 +370,6 @@ def test_timer_routine_trigger_early_notification_devicebot(bot, monkeypatch):
 def test_timer_routine_no_trigger_early_notification_devicebot(bot, monkeypatch):
     """Test timer routine no trigger early notification devicebot."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", True)
     bot.config.set_val("TIME_ALERT", 300)
 

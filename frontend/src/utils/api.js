@@ -2,13 +2,15 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '../router'
 import i18n from '../i18n'
+import { isDemoMode } from './demoMode'
+import { mockApi } from './api.mock'
 
-const api = axios.create({
+const realApi = axios.create({
   baseURL: '/api',
   timeout: 15000,
 })
 
-api.interceptors.request.use((config) => {
+realApi.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -16,12 +18,11 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-api.interceptors.response.use(
+realApi.interceptors.response.use(
   (res) => res,
   (err) => {
     const status = err.response?.status
     const url = err.config?.url
-    // Login endpoint handles 401 itself — don't redirect or show "session expired"
     if (status === 401 && url !== '/auth/login') {
       localStorage.removeItem('token')
       router.push('/login')
@@ -44,4 +45,4 @@ api.interceptors.response.use(
   }
 )
 
-export default api
+export default isDemoMode ? mockApi : realApi

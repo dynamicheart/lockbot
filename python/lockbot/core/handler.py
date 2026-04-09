@@ -59,12 +59,21 @@ def execute_command(msg_data, bot):
         return bot.print_help(user_id, t("error.unknown_error", config=getattr(bot, "config", None), command=rcv_info))
 
 
+_DEPRECATION_MSG = (
+    "The legacy Flask handler is deprecated and will be removed in a future version. "
+    "Use the FastAPI platform webhook handler (lockbot.backend.app.bots.webhook_handler) instead."
+)
+
+
 # Global adapter for the legacy Flask entry point (uses Config singleton)
 _global_adapter = InfoflowAdapter()
 
 
 def decrypt_message(msg_base64):
-    """Decrypt a base64-encoded message, returning parsed JSON or aborting on failure."""
+    """Decrypt a base64-encoded message, returning parsed JSON or aborting on failure.
+
+    .. deprecated:: Use platform mode webhook handler instead.
+    """
     result = _global_adapter.decrypt_payload(msg_base64)
     if result is None:
         abort(404)
@@ -73,6 +82,8 @@ def decrypt_message(msg_base64):
 
 def handle_request(echostr, signature, rn, timestamp, msg_base64, bot):
     """Handle an incoming request: verify signature, decrypt, execute command, and reply.
+
+    .. deprecated:: Use platform mode webhook handler instead.
 
     Args:
         echostr: Echo string for signature verification handshake; None otherwise.
@@ -107,5 +118,8 @@ def handle_request(echostr, signature, rn, timestamp, msg_base64, bot):
 
 
 def page_not_found(_):
-    """Return a 404 response."""
+    """Return a 404 response.
+
+    .. deprecated:: Use platform mode instead.
+    """
     return "404 - Page not found", 404

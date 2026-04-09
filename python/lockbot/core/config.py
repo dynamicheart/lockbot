@@ -2,6 +2,7 @@
 
 import json
 import os
+import warnings
 
 from lockbot.core.env import get_boolean_env
 
@@ -30,8 +31,7 @@ _CONFIG_SCHEMA = {
     "CLUSTER_CONFIGS": {
         "default": {},
         "description": (
-            "Cluster config. NODE/QUEUE type: {display_name: host} or [name_list]; "
-            "DEVICE type: {node_name: [device_model_list]}"
+            "Cluster config. NODE/QUEUE: [name_list]; DEVICE: {node_name: [device_model_list]}"
         ),
         "env": False,
     },
@@ -79,22 +79,12 @@ _CONFIG_SCHEMA = {
 
 # ── Internal constants (not configurable via file/env) ─────────────────
 _INTERNAL_DEFAULTS = {
-    "DEFAULT_MSG": {
-        "message": {
-            "header": {},
-            "body": [
-                {"type": "TEXT", "content": "hi"},
-                {"atuserids": ["xx"], "type": "AT"},
-            ],
-        }
-    },
     "DEFAULT_USER_INFO": {
         "user_id": "xxx",
         "start_time": 0,
         "duration": 0,
         "is_notified": False,
     },
-    "HEADERS": {"Content-Type": "application/json"},
 }
 
 
@@ -115,6 +105,11 @@ class Config:
     # ── Class-level global config (legacy path) ──────────────────────────
     _config_data = _default_config.copy()
 
+    _DEPRECATION_MSG = (
+        "Class-level Config methods are deprecated and will be removed in a future version. "
+        "Use instance-level methods: config = Config(config_dict); config.get_val() / config.set_val()."
+    )
+
     # ── Instance support (new path) ──────────────────────────────────────
 
     def __init__(self, config_dict=None):
@@ -132,8 +127,7 @@ class Config:
     def _normalize(self):
         """Normalize config values (e.g. list -> dict for CLUSTER_CONFIGS)."""
         cc = self._data.get("CLUSTER_CONFIGS")
-        bot_type = self._data.get("BOT_TYPE", "NODE")
-        if isinstance(cc, list) and bot_type in ("NODE", "QUEUE"):
+        if isinstance(cc, list):
             self._data["CLUSTER_CONFIGS"] = {k: k for k in cc}
 
     def get_val(self, key, default=None):
@@ -156,11 +150,15 @@ class Config:
             return os.path.join(base_dir, "bot_state.json")
         return default
 
-    # ── Class-level methods (legacy path) ────────────────────────────────
+    # ── Class-level methods (deprecated — use instance-level instead) ────
 
     @classmethod
     def load_from_file(cls):
-        """Load configuration from file and validate it."""
+        """Load configuration from file and validate it.
+
+        .. deprecated:: Use instance-level Config(config_dict) instead.
+        """
+        warnings.warn(cls._DEPRECATION_MSG, DeprecationWarning, stacklevel=2)
         filename = cls.get("CONFIG_FILENAME")
         if filename and os.path.exists(filename):
             with open(filename) as f:
@@ -172,7 +170,10 @@ class Config:
 
     @classmethod
     def load_from_env(cls):
-        """Load configuration from environment variables (bool/int/str only)."""
+        """Load configuration from environment variables (bool/int/str only).
+
+        .. deprecated:: Use instance-level Config(config_dict) instead.
+        """
         for key, default_value in cls._default_config.items():
             env_value = os.environ.get(key)
 
@@ -198,29 +199,44 @@ class Config:
 
     @classmethod
     def get(cls, key, default=None):
-        """Get configuration by key."""
+        """Get configuration by key.
+
+        .. deprecated:: Use config.get_val(key, default) instead.
+        """
         if key in cls._config_data:
             return cls._config_data[key]
         return default
 
     @classmethod
     def set(cls, key, value):
-        """Set configuration by key."""
+        """Set configuration by key.
+
+        .. deprecated:: Use config.set_val(key, value) instead.
+        """
         cls._config_data[key] = value
 
     @classmethod
     def get_all(cls):
-        """Return a shallow copy of all class-level config data."""
+        """Return a shallow copy of all class-level config data.
+
+        .. deprecated:: Use config._data instead.
+        """
         return cls._config_data.copy()
 
     @classmethod
     def reset(cls):
-        """Reset to default config (for testing purposes)."""
+        """Reset to default config (for testing purposes).
+
+        .. deprecated:: Create a new Config instance instead.
+        """
         cls._config_data = cls._default_config.copy()
 
     @classmethod
     def validate_config(cls):
-        """Validate critical config fields."""
+        """Validate critical config fields.
+
+        .. deprecated:: Create a new Config instance for validation instead.
+        """
         BOT_TYPE = cls._config_data.get("BOT_TYPE")
         if BOT_TYPE not in cls._ALLOWED_BOT_TYPES:
             raise ConfigValidationError(f"Invalid BOT_TYPE '{BOT_TYPE}', must be one of {cls._ALLOWED_BOT_TYPES}")
@@ -248,7 +264,10 @@ class Config:
 
     @classmethod
     def show_all(cls, as_json=False):
-        """Display all current config key-values."""
+        """Display all current config key-values.
+
+        .. deprecated:: Use config._data directly instead.
+        """
         print("Current Configuration:")
         if as_json:
             return json.dumps(cls._config_data, indent=4, ensure_ascii=False)

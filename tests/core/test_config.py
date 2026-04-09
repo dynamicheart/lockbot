@@ -1,15 +1,24 @@
 import json
 import os
+import warnings
 
 import pytest
 from lockbot.core.config import Config, ConfigValidationError
+
+
+@pytest.fixture(autouse=True)
+def _suppress_deprecation_warnings():
+    """Suppress DeprecationWarnings from legacy Config class methods under test."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        yield
 
 
 def test_set_valid_node_config():
     """Test setting a valid NODE config."""
     Config.reset()
     Config.set("BOT_TYPE", "NODE")
-    Config.set("CLUSTER_CONFIGS", {"短名1": "真实名1"})
+    Config.set("CLUSTER_CONFIGS", ["node1"])
     assert Config.get("BOT_TYPE") == "NODE"
 
 
@@ -102,7 +111,7 @@ def test_load_valid_config_file(tmp_path):
     config_dir.mkdir()
     filename = config_dir / "demo_bot_bot_config.json"
 
-    config_data = {"BOT_TYPE": "NODE", "CLUSTER_CONFIGS": {"节点A": "node-a"}}
+    config_data = {"BOT_TYPE": "NODE", "CLUSTER_CONFIGS": ["节点A"]}
     filename.write_text(json.dumps(config_data))
 
     Config.reset()
@@ -111,7 +120,7 @@ def test_load_valid_config_file(tmp_path):
     Config.load_from_file()
 
     assert Config.get("BOT_TYPE") == "NODE"
-    assert Config.get("CLUSTER_CONFIGS") == {"节点A": "node-a"}
+    assert Config.get("CLUSTER_CONFIGS") == {"节点A": "节点A"}
 
 
 def test_load_config_file_with_invalid_json(tmp_path):

@@ -86,6 +86,7 @@ import { User, Lock, Message } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { setLocale, getLocale } from '../i18n'
+import { isDemoMode } from '../utils/demoMode'
 
 const THEME_KEY = 'lockbot_theme'
 const { t } = useI18n()
@@ -154,12 +155,22 @@ onMounted(() => {
 })
 
 async function handleRegister() {
-  try { await formRef.value.validate() } catch { return }
+  if (!isDemoMode) {
+    try { await formRef.value.validate() } catch { return }
+  }
   loading.value = true
   try {
     await authStore.register(form.username, form.email, form.password)
-    ElMessage.success(t('auth.registerSuccess'))
-    router.push('/login')
+    if (isDemoMode) {
+      // In demo mode, register auto-logs in — go straight to dashboard
+      await authStore.fetchUser()
+      authStore.saveAccount({ token: authStore.token, user: authStore.user })
+      ElMessage.success(t('auth.loginSuccess'))
+      router.push('/')
+    } else {
+      ElMessage.success(t('auth.registerSuccess'))
+      router.push('/login')
+    }
   } catch {
     // error handled by interceptor
   } finally {

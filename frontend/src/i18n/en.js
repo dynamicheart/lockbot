@@ -293,4 +293,37 @@ export default {
     nodeNameInvalid: 'Only letters, digits, underscores and hyphens',
     nodeNameTooLong: 'Max 8 characters',
   },
+
+  // === Demo Chat ===
+  demoChat: {
+    title: 'Demo Chat',
+    placeholder: 'Type a command to interact with the bot (e.g. "help")',
+    inputPlaceholder: 'e.g. lock node1 2h',
+    clear: 'Clear',
+    demoBanner: 'Demo Mode',
+    cmdHelp: 'Show usage guide',
+    cmdLock: 'Exclusive lock a resource',
+    cmdLockDuration: 'Lock with duration (d/h/m)',
+    cmdUnlock: 'Release a resource',
+    cmdFree: 'Release all your resources',
+    cmdKickout: 'Force-release others\' resource',
+    cmdQuery: 'Query resource usage',
+    cmdSlock: 'Shared lock (multi-user)',
+    cmdLockDev: 'Lock specific device',
+    cmdLockDevRange: 'Lock device range',
+    cmdBook: 'Book a queue slot',
+    cmdTake: 'Preempt / take resource',
+    cmdKicklock: 'Force-release lock (keep bookings)',
+  },
+
+  // === Demo Bot Names ===
+  demoBot: {
+    gpuCluster: 'GPU Cluster',
+    computeNodes: 'Compute Nodes',
+    trainingQueue: 'Training Queue',
+    devGpu: 'Dev GPU',
+    labGpus: 'Mixed GPU Cluster',
+    evalQueue: 'Queue Bot',
+    sharedNodes: 'Shared Nodes',
+  },
 }

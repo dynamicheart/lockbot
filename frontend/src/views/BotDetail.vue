@@ -213,7 +213,7 @@
         </el-card>
 
         <!-- Logs -->
-        <el-card>
+        <el-card style="margin-bottom: 20px">
           <template #header><span>{{ $t('botDetail.logs') }}</span></template>
           <LogViewer :bot-id="bot.id" />
         </el-card>

@@ -292,4 +292,37 @@ export default {
     nodeNameInvalid: '仅支持英文、数字、下划线、横杠',
     nodeNameTooLong: '不超过 8 个字符',
   },
+
+  // === Demo Chat ===
+  demoChat: {
+    title: '体验聊天',
+    placeholder: '输入命令与机器人交互（例如 "help"）',
+    inputPlaceholder: '例如 lock node1 2h',
+    clear: '清空',
+    demoBanner: '演示模式',
+    cmdHelp: '显示使用指南',
+    cmdLock: '独占锁定资源',
+    cmdLockDuration: '指定时长锁定 (d/h/m)',
+    cmdUnlock: '释放资源',
+    cmdFree: '释放你的所有资源',
+    cmdKickout: '强制释放他人资源',
+    cmdQuery: '查询资源使用情况',
+    cmdSlock: '共享锁定（多人可用）',
+    cmdLockDev: '锁定指定设备',
+    cmdLockDevRange: '锁定设备范围',
+    cmdBook: '预约排队',
+    cmdTake: '抢占资源',
+    cmdKicklock: '强制释放锁定（保留预约）',
+  },
+
+  // === Demo Bot Names ===
+  demoBot: {
+    gpuCluster: 'GPU 集群',
+    computeNodes: '计算节点',
+    trainingQueue: '训练队列',
+    devGpu: '开发 GPU',
+    labGpus: '异构 GPU 集群',
+    evalQueue: '排队机器人',
+    sharedNodes: '共享节点',
+  },
 }

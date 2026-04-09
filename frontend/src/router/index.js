@@ -10,6 +10,7 @@ import BotMonitor from '../views/admin/BotMonitor.vue'
 import ProfileSettings from '../views/ProfileSettings.vue'
 import ForceChangePassword from '../views/ForceChangePassword.vue'
 import NotFound from '../views/NotFound.vue'
+import { isDemoMode } from '../utils/demoMode'
 
 const routes = [
   {
@@ -111,7 +112,8 @@ router.beforeEach((to, _from, next) => {
     return next('/login')
   }
   // Allow logged-in users to access Login page (for switching accounts)
-  if (to.name === 'Register' && token) {
+  // In demo mode, also allow access to Register page
+  if (to.name === 'Register' && token && !isDemoMode) {
     return next('/')
   }
   if (to.meta.admin && !['admin', 'super_admin'].includes(user?.role)) {

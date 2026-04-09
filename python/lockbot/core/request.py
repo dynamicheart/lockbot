@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 2
 _RETRY_DELAY = 1.0
+_DEFAULT_HEADERS = {"Content-Type": "application/json"}
 
 
 def post_webhook(msg, config=None):
@@ -26,10 +27,8 @@ def post_webhook(msg, config=None):
     MAX_LENGTH = 2000
     if config is not None:
         webhook_url = config.get_val("WEBHOOK_URL")
-        headers = config.get_val("HEADERS")
     else:
         webhook_url = Config.get("WEBHOOK_URL")
-        headers = Config.get("HEADERS")
 
     # Extract the first TEXT body; keep other body entries (e.g. AT) separate
     text_body = None
@@ -71,7 +70,7 @@ def post_webhook(msg, config=None):
 
     responses = []
     for new_msg in new_msgs:
-        resp = _post_with_retry(webhook_url, new_msg, headers)
+        resp = _post_with_retry(webhook_url, new_msg, _DEFAULT_HEADERS)
         responses.append(resp)
     return responses
 

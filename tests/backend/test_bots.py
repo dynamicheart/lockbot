@@ -10,7 +10,7 @@ def _sample_bot(name="mybot"):
         "webhook_url": "https://example.com/webhook",
         "aes_key": "testaeskey",
         "token": "testtoken",
-        "cluster_configs": {"node1": "Machine 1", "node2": "Machine 2"},
+        "cluster_configs": ["node1", "node2"],
     }
 
 
@@ -102,7 +102,7 @@ class TestUpdateBot:
         config_dict = _build_config_dict(bot)
 
         assert config_dict["BOT_ID"] == bot_id
-        assert config_dict["CLUSTER_CONFIGS"] == {"node1": "Machine 1", "node2": "Machine 2"}
+        assert config_dict["CLUSTER_CONFIGS"] == ["node1", "node2"]
         assert config_dict["MAX_LOCK_DURATION"] == 1800
         assert config_dict["EARLY_NOTIFY"] is True
 
@@ -286,7 +286,7 @@ class TestClusterConfigChange:
                 "webhook_url": "https://example.com/hook",
                 "aes_key": "testaeskey",
                 "token": "testtoken",
-                "cluster_configs": {"n1": "machine1"},
+                "cluster_configs": ["n1"],
             },
             headers=auth_header,
         )
@@ -301,7 +301,7 @@ class TestClusterConfigChange:
         bot.lock("user1", "lock n1 1h")
         save_bot_state_to_file(bot.state.bot_state, config=bot.config)
 
-        new_configs = {"n1": "machine1", "n2": "machine2"}
+        new_configs = ["n1", "n2"]
         client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=auth_header)
 
         db_session.expire_all()

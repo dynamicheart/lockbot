@@ -29,17 +29,13 @@ def bot(tmp_path):
     config_dict = {
         "BOT_ID": test_bot_id,
         "DATA_DIR": data_dir,
-        "CLUSTER_CONFIGS": {"test": "Test Node Fullname"},
+        "CLUSTER_CONFIGS": ["test"],
         "DEFAULT_DURATION": 3600,
-        "DEFAULT_MSG": {
-            "message": {"header": {}, "body": [{"type": "TEXT", "content": ""}, {"type": "AT", "atuserids": [""]}]}
-        },
         "MAX_LOCK_DURATION": 10800,
         "EARLY_NOTIFY": True,
         "TIME_ALERT": 300,
         "BOT_TYPE": "NODE",
         "WEBHOOK_URL": "",
-        "HEADERS": {"Content-Type": "application/json"},
     }
 
     bot = NodeBot(config_dict=config_dict)
@@ -95,7 +91,7 @@ def test_unlock_all(bot):
 
 def test_usage_display_after_lock_and_slock(bot):
     """Test usage display after lock and slock."""
-    bot.config.set_val("CLUSTER_CONFIGS", {"test": "Test Node Fullname", "test2": "Test Node 2 Fullname"})
+    bot.config.set_val("CLUSTER_CONFIGS", ["test", "test2"])
     bot.state.bot_state = {
         "test": {
             "status": "idle",
@@ -150,7 +146,6 @@ def test_print_help(bot):
 def test_timer_routine_trigger(bot, monkeypatch):
     """Test timer routine trigger."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", False)
     bot.config.set_val("TIME_ALERT", 300)
 
@@ -182,7 +177,6 @@ def test_timer_routine_trigger(bot, monkeypatch):
 def test_timer_routine_no_trigger(bot, monkeypatch):
     """Test timer routine no trigger."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", False)
     bot.config.set_val("TIME_ALERT", 300)
 
@@ -213,7 +207,6 @@ def test_timer_routine_no_trigger(bot, monkeypatch):
 def test_timer_routine_trigger_early_notify(bot, monkeypatch):
     """Test timer routine trigger early notification mode."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", True)
     bot.config.set_val("TIME_ALERT", 300)
 
@@ -249,7 +242,6 @@ def test_timer_routine_trigger_early_notify(bot, monkeypatch):
 def test_timer_routine_no_trigger_early_notification(bot, monkeypatch):
     """Test timer routine no trigger early notification."""
     bot.config.set_val("WEBHOOK_URL", "http://fake")
-    bot.config.set_val("HEADERS", {"Content-Type": "application/json"})
     bot.config.set_val("EARLY_NOTIFY", True)
     bot.config.set_val("TIME_ALERT", 300)
 

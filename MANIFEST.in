@@ -1,0 +1,3 @@
+include README.md
+include LICENSE
+recursive-include python/lockbot/core/i18n *.py

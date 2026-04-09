@@ -119,7 +119,7 @@ class DeviceBot(BaseLockBot):
                 dev_ids = list(range(len(cluster_configs[node_key])))
                 dev_ids_list.append(dev_ids)
 
-        for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+        for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
             num_devs = len(cluster_configs[node_key])
             if not (all([dev_id >= 0 for dev_id in dev_ids]) and all([dev_id < num_devs for dev_id in dev_ids])):
                 error_reply = self.show_error(
@@ -180,7 +180,7 @@ class DeviceBot(BaseLockBot):
         with self._lock:
             timestamp = int(time.time())
 
-            for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
 
@@ -193,7 +193,7 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_in_use_or_shared", node_key=node_key)
                     )
 
-            for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
 
@@ -243,7 +243,7 @@ class DeviceBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         with self._lock:
             timestamp = int(time.time())
-            for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
 
@@ -252,7 +252,7 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_exclusive_mode", node_key=node_key)
                     )
 
-            for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
                 for device in devices:
@@ -353,7 +353,7 @@ class DeviceBot(BaseLockBot):
             return error_reply
 
         with self._lock:
-            for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
                 if not all(find_user_info(device["current_users"], user_id) for device in devices):
@@ -361,7 +361,7 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_not_requested", node_key=node_key)
                     )
 
-            for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
                 for device in devices:
@@ -390,7 +390,7 @@ class DeviceBot(BaseLockBot):
             content = t("success.resource_force_released", config=self.config, user_id=user_id)
             content += self._msg_with_usage("label.before_release", node_key=node_key_list)
 
-            for node_key, dev_ids in zip(node_key_list, dev_ids_list):
+            for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
                 for device in devices:

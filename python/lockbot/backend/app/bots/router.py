@@ -2,6 +2,8 @@
 Bot CRUD + lifecycle + webhook routes.
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
@@ -110,7 +112,7 @@ def _normalize_cluster_configs(cc):
     return cc
 
 
-def _build_config_dict(bot: Bot) -> dict:
+def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
     """
     Build the full config dict from a DB Bot record.
     Decrypts sensitive fields and merges config_overrides.
@@ -124,6 +126,11 @@ def _build_config_dict(bot: Bot) -> dict:
         "TOKEN": encryption.decrypt(bot.token),
         "CLUSTER_CONFIGS": _normalize_cluster_configs(json.loads(bot.cluster_configs)),
     }
+    # Resolve owner username for help text display
+    if db:
+        owner = db.get(User, bot.user_id)
+        if owner:
+            config["BOT_OWNER"] = owner.username
     if bot.config_overrides:
         overrides = json.loads(bot.config_overrides)
         config.update(overrides)
@@ -330,7 +337,7 @@ def start_bot(
                 detail=f"Running bot limit reached ({user.max_running_bots}). Stop a bot first or contact admin.",
             )
 
-    config_dict = _build_config_dict(bot)
+    config_dict = _build_config_dict(bot, db)
 
     try:
         pid = bot_manager.start_bot(bot_id, config_dict)
@@ -389,7 +396,7 @@ def restart_bot(
 ):
     bot = _get_user_bot(bot_id, user, db)
 
-    config_dict = _build_config_dict(bot)
+    config_dict = _build_config_dict(bot, db)
 
     try:
         pid = bot_manager.restart_bot(bot_id, config_dict)

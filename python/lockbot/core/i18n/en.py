@@ -91,6 +91,7 @@ MESSAGES = {
     "help.max_duration_warning": "Note: consecutive lock/slock cannot exceed {max_duration}\n\n",
     "help.bot_version": "Bot version: {version}\n",
     "help.bot_id": "Bot ID: {bot_id}\n",
+    "help.bot_owner": "Owner: {owner}\n",
     # ── Help text (NODE) command examples ──
     "help.lock_example": "    lock {node} (lock node {node})\n",
     "help.lock_duration_example": "    lock {node} {duration} (lock node {node} for {duration})\n",
@@ -139,5 +140,5 @@ MESSAGES = {
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ Bot {bot_name} is not running. "  # noqa: E501
-    "Please contact the admin @{owner_username} to start it.",
+    "Please contact the owner @{owner_username} to start it.",
 }

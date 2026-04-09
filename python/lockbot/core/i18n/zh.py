@@ -84,7 +84,8 @@ MESSAGES = {
     "help.query_at_bot": "    直接at机器人\n",
     "help.max_duration_warning": "【注意: 目前禁止连续lock/slock超过{max_duration}】\n\n",
     "help.bot_version": "机器人版本: {version}\n",
-    "help.bot_id": "Bot ID: {bot_id}\n",
+    "help.bot_id": "机器人ID: {bot_id}\n",
+    "help.bot_owner": "管理人: {owner}\n",
     # ── Help text (NODE) command examples ──
     "help.lock_example": "    lock {node} (锁定{node}节点)\n",
     "help.lock_duration_example": "    lock {node} {duration} (锁定{node}节点{duration})\n",
@@ -132,5 +133,5 @@ MESSAGES = {
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
     # ── Webhook: bot not running ──
-    "webhook.bot_not_running": "⚠️ 机器人 {bot_name} 尚未启动，请联系管理员 @{owner_username} 启动后再使用。",
+    "webhook.bot_not_running": "⚠️ 机器人 {bot_name} 尚未启动，请联系管理人 @{owner_username} 启动后再使用。",
 }

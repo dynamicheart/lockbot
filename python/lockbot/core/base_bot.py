@@ -181,6 +181,9 @@ class BaseLockBot:
         bot_id = self.config.get_val("BOT_ID")
         if bot_id:
             reply_info += t("help.bot_id", config=self.config, bot_id=bot_id)
+        bot_owner = self.config.get_val("BOT_OWNER")
+        if bot_owner:
+            reply_info += t("help.bot_owner", config=self.config, owner=bot_owner)
         reply_info += "\n"
 
         return self.adapter.build_reply(reply_info, [user_id])

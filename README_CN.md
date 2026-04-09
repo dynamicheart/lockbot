@@ -2,80 +2,21 @@
 
 集群资源管理机器人，支持通过即时通讯平台（如百度如流）的对话命令锁定和释放 GPU 设备、集群节点和队列资源。
 
-支持两种部署方式：单机 Flask 独立部署，以及 FastAPI + Vue.js 前端的管理平台模式。
+支持两种部署方式：FastAPI + Vue.js 前端的管理平台模式（推荐），以及单机 Flask 独立部署。
 
-[English](README.md)
+[English](README.md) | [在线演示](https://dynamicheart.github.io/lockbot/)
 
 ## 功能特性
 
 - **设备锁机器人** — 按单个 GPU/设备维度锁定和释放
 - **节点锁机器人** — 按整个集群节点维度锁定和释放
-- **队列机器人** — 管理资源分配队列
+- **队列机器人** — 管理资源分配队列，支持预约和抢占
 - **平台模式** — Web 管理界面（Vue 3 + Element Plus），支持多机器人管理、
   用户认证（JWT）、角色权限控制和实时日志
 - **状态持久化** — 机器人状态重启后自动恢复（文件存储）
 - **双语支持** — 界面和机器人回复均支持中英文
 
-## 部署方式
-
-### 独立模式（Flask）
-
-适用于单机器人部署，运行轻量级 Flask Webhook 服务。
-
-1. 安装：
-
-```bash
-pip install lockbot
-```
-
-2. 创建机器人脚本（`bot.py`）：
-
-**设备锁机器人**（按 GPU 锁定）：
-
-```python
-from lockbot.core.entry import run_bot
-from lockbot.core.config import Config
-
-Config.set('BOT_TYPE', 'DEVICE')
-Config.set('BOT_NAME', 'my-gpu-bot')
-Config.set("WEBHOOK_URL", "https://your-webhook-url")
-Config.set("TOKEN", "your-bot-token")
-Config.set("AESKEY", "your-aes-key")
-Config.set("PORT", "8000")
-Config.set('CLUSTER_CONFIGS', {
-    'node0': ['a800', 'a800', 'h100'],
-    'node1': ['a800', 'h100'],
-})
-
-if __name__ == '__main__':
-    run_bot()
-```
-
-**节点锁机器人**（按节点锁定）：
-
-```python
-from lockbot.core.entry import run_bot
-from lockbot.core.config import Config
-
-Config.set('BOT_TYPE', 'NODE')
-Config.set('BOT_NAME', 'my-node-bot')
-Config.set("WEBHOOK_URL", "https://your-webhook-url")
-Config.set("TOKEN", "your-bot-token")
-Config.set("AESKEY", "your-aes-key")
-Config.set("PORT", "8000")
-Config.set('CLUSTER_CONFIGS', ['node0', 'node1', 'node2', 'node3'])
-
-if __name__ == '__main__':
-    run_bot()
-```
-
-3. 启动：
-
-```bash
-python bot.py
-```
-
-### 平台模式（FastAPI + 前端）
+## 快速开始 — 平台模式（推荐）
 
 完整管理平台，包含 Web UI、多机器人编排、用户认证和管理员面板。
 
@@ -103,6 +44,8 @@ uvicorn lockbot.backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 cd frontend && npm install && npm run dev
 ```
 
+4. 打开 `http://localhost:8000`。
+
 ### Docker 部署
 
 ```bash
@@ -115,13 +58,6 @@ docker run -d -p 8000:8000 \
   -v lockbot-data:/app/python/lockbot/data \
   -v lockbot-state:/data/bots \
   lockbot
-
-# 独立模式（挂载 bot.py，状态持久化到 /data/bots）
-docker run -d \
-  -v $(pwd)/bot.py:/app/bot.py \
-  -v lockbot-state:/data/bots \
-  lockbot \
-  tmux new-session -d 'python /app/bot.py'
 ```
 
 ## 机器人配置
@@ -141,6 +77,20 @@ docker run -d \
 
 完整配置项参见 `python/lockbot/core/config.py`。
 
+## 命令列表
+
+| 命令 | 说明 |
+|------|------|
+| `lock <node> [时长]` | 独占锁定（如 `lock gpu0 3d`、`lock node1 30m`） |
+| `slock <node> [时长]` | 共享锁定（多人可用） |
+| `unlock <node>` / `free <node>` | 释放指定节点 |
+| `unlock` / `free` | 释放你的所有资源 |
+| `kickout <node>` | 强制释放（管理员） |
+| `book <node> [时长]` | 队列模式：预约排队 |
+| `take <node>` | 队列模式：抢占当前锁定 |
+| `<node>` | 查询资源使用情况 |
+| `help` | 显示使用指南 |
+
 ## 开发
 
 ```bash
@@ -153,6 +103,49 @@ pytest
 # 代码检查 + 格式化
 ruff check python/ tests/
 ruff format --check python/ tests/
+```
+
+## 独立模式
+
+适用于单机器人部署，运行轻量级 Flask Webhook 服务。
+
+**设备锁机器人**（按 GPU 锁定）：
+
+```python
+from lockbot.core.bot_instance import BotInstance
+from lockbot.core.entry import create_app
+
+instance = BotInstance("DEVICE", {
+    "BOT_NAME": "my-gpu-bot",
+    "WEBHOOK_URL": "https://your-webhook-url",
+    "TOKEN": "your-bot-token",
+    "AESKEY": "your-aes-key",
+    "CLUSTER_CONFIGS": {
+        "node0": ["A800", "A800", "H100"],
+        "node1": ["A800", "H100"],
+    },
+})
+
+app = create_app(bot=instance.bot, bot_name="my-gpu-bot", port=8000)
+app.run(host="0.0.0.0", port=8000)
+```
+
+**节点锁 / 排队机器人**（按节点锁定或排队调度）：
+
+```python
+from lockbot.core.bot_instance import BotInstance
+from lockbot.core.entry import create_app
+
+instance = BotInstance("NODE", {       # 改为 "QUEUE" 即为排队模式
+    "BOT_NAME": "my-node-bot",
+    "WEBHOOK_URL": "https://your-webhook-url",
+    "TOKEN": "your-bot-token",
+    "AESKEY": "your-aes-key",
+    "CLUSTER_CONFIGS": ["node0", "node1", "node2", "node3"],
+})
+
+app = create_app(bot=instance.bot, bot_name="my-node-bot", port=8000)
+app.run(host="0.0.0.0", port=8000)
 ```
 
 ## 许可证

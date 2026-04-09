@@ -41,7 +41,10 @@
       </el-form>
 
       <!-- Hint -->
-      <p class="register-hint">{{ $t('auth.registerDisabled') }}</p>
+      <p v-if="isDemoMode" class="register-hint">
+        {{ $t('auth.noAccount') }} <router-link to="/register" class="link">{{ $t('auth.register') }}</router-link>
+      </p>
+      <p v-else class="register-hint">{{ $t('auth.registerDisabled') }}</p>
 
       <!-- Saved accounts -->
       <div v-if="savedAccounts.length > 0" class="saved-accounts">
@@ -98,6 +101,7 @@ import { User, Lock, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { setLocale, getLocale } from '../i18n'
+import { isDemoMode } from '../utils/demoMode'
 
 const THEME_KEY = 'lockbot_theme'
 const { t } = useI18n()
@@ -155,7 +159,9 @@ onMounted(() => {
 })
 
 async function handleLogin() {
-  try { await formRef.value.validate() } catch { return }
+  if (!isDemoMode) {
+    try { await formRef.value.validate() } catch { return }
+  }
   loading.value = true
   try {
     const mustChange = await authStore.login(form.username, form.password)
@@ -217,6 +223,13 @@ async function handleLogin() {
   color: var(--lb-text-secondary);
   margin: 12px 0 0;
   line-height: 1.5;
+}
+.register-hint .link {
+  color: var(--lb-color-primary);
+  text-decoration: none;
+}
+.register-hint .link:hover {
+  text-decoration: underline;
 }
 .login-footer {
   display: flex;

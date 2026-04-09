@@ -3,6 +3,7 @@ FastAPI application entry point
 """
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,6 +16,13 @@ from lockbot.backend.app.admin.router import router as admin_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.bots.router import router as bots_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
+
+# Configure lockbot loggers to output alongside uvicorn logs
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,46 +163,47 @@ async def lifespan(app: FastAPI):
 def _reset_running_bots():
     """On process startup, try to auto-recover bots that were previously running.
 
-    For each bot that was 'running' before the process died, attempt to restart
-    it in-process. If restart fails, reset to 'stopped'.
-    Bots already in 'error' status are always reset to 'stopped'.
+    For each bot that was 'running' or 'error' before the process died, attempt to
+    restart it in-process. If restart fails, reset to 'stopped' and clear error state.
     """
+
+    def _try_recover(bot, db):
+        """Try to start a single bot. Returns True on success."""
+        try:
+            from lockbot.backend.app.bots.router import _build_config_dict
+
+            config_dict = _build_config_dict(bot, db)
+            pid = bot_manager.start_bot(bot.id, config_dict)
+            bot.pid = pid
+            bot.consecutive_failures = 0
+            db.commit()
+            logger.info("Auto-recovered bot %d (%s)", bot.id, bot.name)
+            return True
+        except Exception:
+            logger.exception("Failed to auto-recover bot %d (%s), resetting to stopped", bot.id, bot.name)
+            bot.status = "stopped"
+            bot.pid = None
+            db.commit()
+            return False
+
     from lockbot.backend.app.bots.manager import bot_manager
     from lockbot.backend.app.bots.models import Bot
 
     db = SessionLocal()
     try:
-        # Reset error bots unconditionally
-        error_count = (
-            db.query(Bot)
-            .filter(Bot.status == "error")
-            .update({Bot.status: "stopped", Bot.pid: None}, synchronize_session="fetch")
-        )
-        if error_count:
-            db.commit()
-            logger.info("Reset %d error bot(s) to stopped on startup", error_count)
-
-        # Try to auto-recover previously running bots
-        running_bots = db.query(Bot).filter(Bot.status == "running").all()
-        if not running_bots:
+        # Collect all bots that need recovery (running + error)
+        recover_bots = db.query(Bot).filter(Bot.status.in_(["running", "error"])).all()
+        if not recover_bots:
             return
 
-        logger.info("Attempting to auto-recover %d previously running bot(s)…", len(running_bots))
-        for bot in running_bots:
-            try:
-                from lockbot.backend.app.bots.router import _build_config_dict
-
-                config_dict = _build_config_dict(bot)
-                pid = bot_manager.start_bot(bot.id, config_dict)
-                bot.pid = pid
-                bot.consecutive_failures = 0
-                db.commit()
-                logger.info("Auto-recovered bot %d (%s)", bot.id, bot.name)
-            except Exception:
-                logger.exception("Failed to auto-recover bot %d (%s), resetting to stopped", bot.id, bot.name)
-                bot.status = "stopped"
-                bot.pid = None
-                db.commit()
+        logger.info(
+            "Attempting to auto-recover %d bot(s) (%d running, %d error)…",
+            len(recover_bots),
+            sum(1 for b in recover_bots if b.status == "running"),
+            sum(1 for b in recover_bots if b.status == "error"),
+        )
+        for bot in recover_bots:
+            _try_recover(bot, db)
     finally:
         db.close()
 

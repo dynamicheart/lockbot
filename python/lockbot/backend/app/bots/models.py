@@ -2,6 +2,8 @@
 Bot and BotLog models.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
