@@ -5,6 +5,7 @@ WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ .
+COPY pyproject.toml /pyproject.toml
 RUN npm run build
 
 # ── Stage 2: Production image ──────────────────────────────────────────
