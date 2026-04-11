@@ -99,4 +99,12 @@ def batch_update_settings(
             row.updated_at = datetime.utcnow()
         updated.append(key)
     db.commit()
+
+    # Invalidate bot site-settings cache so bots pick up changes immediately
+    try:
+        from lockbot.core.base_bot import BaseBot
+        BaseBot._invalidate_site_cache()
+    except Exception:
+        pass
+
     return {"updated": updated}

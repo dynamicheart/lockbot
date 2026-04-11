@@ -64,18 +64,18 @@
                 <el-icon v-if="bot.webhook_url_raw" class="secret-icon" @click="copyText(bot.webhook_url_raw)"><CopyDocument /></el-icon>
               </div>
             </el-descriptions-item>
-            <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
-              <div class="secret-field">
-                <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
-                <el-icon class="secret-icon" @click="showAesKey = !showAesKey"><View v-if="!showAesKey" /><Hide v-else /></el-icon>
-                <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"><CopyDocument /></el-icon>
-              </div>
-            </el-descriptions-item>
             <el-descriptions-item :label="$t('botCreate.token')" :span="2">
               <div class="secret-field">
                 <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
                 <el-icon class="secret-icon" @click="showToken = !showToken"><View v-if="!showToken" /><Hide v-else /></el-icon>
                 <el-icon class="secret-icon" @click="copyText(bot.token_raw)"><CopyDocument /></el-icon>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
+              <div class="secret-field">
+                <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
+                <el-icon class="secret-icon" @click="showAesKey = !showAesKey"><View v-if="!showAesKey" /><Hide v-else /></el-icon>
+                <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"><CopyDocument /></el-icon>
               </div>
             </el-descriptions-item>
             <el-descriptions-item :label="$t('botDetail.createdAt')">{{ formatDate(bot.created_at) }}</el-descriptions-item>
@@ -133,11 +133,14 @@
             <div style="display: flex; justify-content: space-between; align-items: center">
               <span>{{ $t('botDetail.clusterState') }}</span>
               <div style="display: flex; gap: 8px">
-                <el-button v-if="authStore.isAdmin && !editingState" size="small" @click="startEditState" :disabled="bot.status === 'running'">
+                <el-button v-if="authStore.isAdmin && !editingState && !viewJson" size="small" @click="startEditState" :disabled="bot.status === 'running'">
                   <el-icon><Edit /></el-icon> {{ $t('common.edit') }}
                 </el-button>
                 <el-button v-if="authStore.isAdmin" size="small" @click="downloadState">
                   <el-icon><Download /></el-icon> {{ $t('clusterState.download') }}
+                </el-button>
+                <el-button v-if="!editingState" size="small" @click="viewJson = !viewJson">
+                  {{ viewJson ? $t('clusterState.visualView') : 'JSON' }}
                 </el-button>
                 <template v-if="editingState">
                   <el-button size="small" type="primary" :loading="stateSaving" @click="saveState">{{ $t('common.save') }}</el-button>
@@ -156,6 +159,9 @@
               @scroll="syncScroll"
             ></textarea>
           </div>
+          <template v-else-if="viewJson">
+            <pre class="json-viewer"><code v-html="viewJsonHighlighted"></code></pre>
+          </template>
           <template v-else>
             <!-- Empty state -->
             <el-empty v-if="!parsedState" :description="$t('clusterState.noState')" :image-size="60" />
@@ -319,6 +325,7 @@ function searchUsers(query, cb) {
 
 // State editor
 const editingState = ref(false)
+const viewJson = ref(false)
 const stateText = ref('')
 const stateData = ref(null)
 const stateSaving = ref(false)
@@ -423,6 +430,11 @@ function highlightJson(text) {
 }
 
 const highlightedJson = computed(() => highlightJson(stateText.value || ''))
+
+const viewJsonHighlighted = computed(() => {
+  if (!stateData.value) return ''
+  return highlightJson(JSON.stringify(stateData.value, null, 2))
+})
 
 function syncScroll(e) {
   const pre = e.target.previousElementSibling
@@ -698,6 +710,20 @@ function formatDate(d) {
   position: relative;
   border: 1px solid var(--lb-border-light, #dcdfe6);
   border-radius: 4px;
+}
+.json-viewer {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 16px;
+  margin: 0;
+  background: var(--lb-bg-code, #f6f8fa);
+  color: var(--lb-text-code, #303133);
+  border-radius: 4px;
+  border: 1px solid var(--lb-border-light, #dcdfe6);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .json-editor-backdrop,
 .json-editor-textarea {

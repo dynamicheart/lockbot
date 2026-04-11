@@ -198,7 +198,35 @@ def create_bot(
     db.add(bot)
     db.commit()
     db.refresh(bot)
-    return bot
+
+    # Auto-start the bot if within quota
+    auto_started = False
+    auto_start_msg = ""
+    if user.role not in ("admin", "super_admin"):
+        running_count = db.query(Bot).filter(Bot.user_id == user.id, Bot.status == "running").count()
+        if running_count >= user.max_running_bots:
+            auto_start_msg = f"Running bot limit reached ({user.max_running_bots}). Bot created but not started."
+        else:
+            auto_started = True
+    else:
+        auto_started = True
+
+    if auto_started:
+        config_dict = _build_config_dict(bot, db)
+        try:
+            pid = bot_manager.start_bot(bot.id, config_dict)
+            bot.status = "running"
+            bot.pid = pid
+            bot.consecutive_failures = 0
+            db.commit()
+            db.refresh(bot)
+            _write_log(bot.id, "Bot created and auto-started")
+        except Exception as e:
+            logger.exception("Failed to auto-start bot %d", bot.id)
+            auto_start_msg = f"Bot created but failed to start: {e}"
+
+    result = BotOut.model_validate(bot)
+    return result
 
 
 # ── Running states (batch) ─────────────────────────────────
@@ -810,6 +838,9 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
         form = dict(form_data)
 
     args = dict(request.query_params)
+
+    logger.debug("Webhook bot=%d content_type=%s form=%s args=%s body_len=%d",
+                 bot_id, content_type, form, args, len(body))
 
     instance = bot_manager.get_instance(bot_id)
     if not instance:

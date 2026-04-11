@@ -38,9 +38,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { Check } from '@element-plus/icons-vue'
 import api from '../../utils/api'
 
+const { t } = useI18n()
 const loading = ref(false)
 const saving = ref(false)
 const form = ref({
@@ -70,7 +72,7 @@ async function handleSave() {
   saving.value = true
   try {
     await api.put('/admin/settings', { settings: form.value })
-    ElMessage.success($t('settings.saved'))
+    ElMessage.success(t('settings.saved'))
   } catch {
     // handled by api interceptor
   } finally {

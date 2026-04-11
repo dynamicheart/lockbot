@@ -169,10 +169,6 @@ class BaseLockBot:
         reply_info += self._help_commands()
 
         # ---- footer ----
-        news = self._get_news_content()
-        if news:
-            reply_info += t("help.news_header", config=self.config)
-            reply_info += news + "\n"
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         if max_dur > 0:
             reply_info += t(
@@ -181,15 +177,25 @@ class BaseLockBot:
                 max_duration=format_duration(max_dur, config=self.config),
             )
 
-        reply_info += t("help.bot_version", config=self.config, version=_get_version())
+        # Compact footer line
+        footer_parts = [f"v{_get_version()}"]
         bot_id = self.config.get_val("BOT_ID")
         if bot_id:
-            reply_info += t("help.bot_id", config=self.config, bot_id=bot_id)
+            footer_parts.append(f"ID: {bot_id}")
         bot_owner = self.config.get_val("BOT_OWNER")
         if bot_owner:
-            reply_info += t("help.bot_owner", config=self.config, owner=bot_owner)
+            footer_parts.append(t("help.bot_owner", config=self.config, owner=bot_owner).strip())
+        reply_info += " | ".join(footer_parts) + "\n"
 
-        # ---- project links (only on explicit help, not on command errors) ----
+        # ---- news (only on explicit help) ----
+        if extra_info is None:
+            news = self._get_news_content()
+            if news:
+                reply_info += "\n"
+                reply_info += t("help.news_header", config=self.config)
+                reply_info += news + "\n"
+
+        # ---- project links (only on explicit help) ----
         help_links = []
         if extra_info is None:
             platform_url = self._get_site_value("platform_url") or self.config.get_val("PLATFORM_URL")
@@ -203,6 +209,11 @@ class BaseLockBot:
 
         if help_links:
             reply_info = [reply_info] + help_links
+        # Ensure a blank line before @mention
+        if isinstance(reply_info, list):
+            reply_info.append("\n")
+        else:
+            reply_info += "\n"
         return self.adapter.build_reply(reply_info, [user_id])
 
     def _help_commands(self):
@@ -212,6 +223,12 @@ class BaseLockBot:
     _site_cache = {}
     _site_cache_ts = 0.0
     _SITE_CACHE_TTL = 6 * 3600  # 6 hours
+
+    @classmethod
+    def _invalidate_site_cache(cls):
+        """Force next _get_site_value call to read from DB."""
+        cls._site_cache = {}
+        cls._site_cache_ts = 0.0
 
     @classmethod
     def _get_site_value(cls, key: str) -> str:

@@ -71,7 +71,7 @@ def post_webhook(msg, config=None):
 
     responses = []
     for i, new_msg in enumerate(new_msgs):
-        logger.info("Webhook payload [%d/%d]: %s", i + 1, len(new_msgs), json.dumps(new_msg, ensure_ascii=False))
+        logger.debug("Webhook payload [%d/%d]: %s", i + 1, len(new_msgs), json.dumps(new_msg, ensure_ascii=False))
         resp = _post_with_retry(webhook_url, new_msg, _DEFAULT_HEADERS)
         responses.append(resp)
     return responses

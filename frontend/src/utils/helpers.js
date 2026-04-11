@@ -7,19 +7,27 @@ import { useI18n } from 'vue-i18n'
 export function useHelpers() {
   const { t } = useI18n()
 
+  /** Parse a datetime string, treating naive strings as UTC. */
+  function _parseDate(d) {
+    if (typeof d === 'string' && !d.endsWith('Z') && !d.includes('+')) {
+      d = d + 'Z'
+    }
+    return new Date(d)
+  }
+
   function formatDate(d) {
     if (!d) return '-'
-    return new Date(d).toLocaleDateString()
+    return _parseDate(d).toLocaleDateString()
   }
 
   function formatDateTime(d) {
     if (!d) return '-'
-    return new Date(d).toLocaleString()
+    return _parseDate(d).toLocaleString()
   }
 
   function formatRelativeTime(d) {
     if (!d) return ''
-    const diff = Date.now() - new Date(d).getTime()
+    const diff = Date.now() - _parseDate(d).getTime()
     const sec = Math.floor(diff / 1000)
     if (sec < 60) return t('botDetail.justNow')
     const min = Math.floor(sec / 60)

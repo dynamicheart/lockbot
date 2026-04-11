@@ -89,7 +89,7 @@ def _seed_dev_admin():
     try:
         existing = db.query(User).filter(User.username == DEV_ADMIN_USERNAME).first()
         if existing:
-            logger.info("Dev admin '%s' already exists, skipping seed.", DEV_ADMIN_USERNAME)
+            logger.debug("Dev admin '%s' already exists, skipping seed.", DEV_ADMIN_USERNAME)
             return
         admin = User(
             username=DEV_ADMIN_USERNAME,
@@ -130,7 +130,7 @@ def _seed_dev_users():
         for username, email, role in test_users:
             existing = db.query(User).filter(User.username == username).first()
             if existing:
-                logger.info("Dev user '%s' already exists, skipping.", username)
+                logger.debug("Dev user '%s' already exists, skipping.", username)
                 continue
             user = User(
                 username=username,

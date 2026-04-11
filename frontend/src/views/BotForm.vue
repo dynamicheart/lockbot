@@ -56,17 +56,17 @@
         <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
           <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
         </el-form-item>
-        <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
-          <el-input
-            v-model="form.aes_key"
-            :placeholder="isEdit && maskedAesKey ? maskedAesKey : (isEdit ? $t('botCreate.leaveBlank') : $t('botCreate.aesKeyPlaceholder'))"
-            show-password
-          />
-        </el-form-item>
         <el-form-item :label="$t('botCreate.token')" prop="token">
           <el-input
             v-model="form.token"
             :placeholder="isEdit && maskedToken ? maskedToken : (isEdit ? $t('botCreate.leaveBlank') : $t('botCreate.tokenPlaceholder'))"
+            show-password
+          />
+        </el-form-item>
+        <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
+          <el-input
+            v-model="form.aes_key"
+            :placeholder="isEdit && maskedAesKey ? maskedAesKey : (isEdit ? $t('botCreate.leaveBlank') : $t('botCreate.aesKeyPlaceholder'))"
             show-password
           />
         </el-form-item>
@@ -214,6 +214,9 @@ async function handleSubmit() {
       data.cluster_configs = clusterConfig.value
       const created = await botsStore.createBot(data)
       ElMessage.success(t('botCreate.createSuccess'))
+      if (created.status === 'stopped') {
+        ElMessage.warning(t('botCreate.autoStartSkipped'))
+      }
       await botsStore.fetchBots()
       router.push(`/bots/${created.id}`)
     }

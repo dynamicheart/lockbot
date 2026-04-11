@@ -435,10 +435,6 @@ class DeviceBot(BaseLockBot):
         text += t("help.query_at_bot", config=self.config)
         text += t("help.query_node_example", config=self.config, node=example_node)
         text += "\n"
-        text += t("help.resource_list_title", config=self.config)
-        for node_key, devices in cluster_configs.items():
-            text += t("help.resource_list_item", config=self.config, node_key=node_key, max_dev=len(devices) - 1)
-        text += "\n"
 
         return text
 

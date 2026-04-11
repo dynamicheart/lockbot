@@ -139,6 +139,7 @@ export default {
     aesKeyRequired: '请输入 AES 密钥',
     tokenRequired: '请输入 Token',
     createSuccess: '机器人创建成功',
+    autoStartSkipped: '机器人已创建但未自动启动，请手动启动',
   },
 
   // === Bot Detail ===
@@ -290,6 +291,7 @@ export default {
     stopBeforeEditState: '请先停止机器人再编辑状态，避免冲突',
     import: '导入',
     download: '下载',
+    visualView: '可视化',
     importConfirm: '导入将覆盖当前集群状态，确认继续？',
     validationWarning: '发现 {count} 个问题，保存后将自动修正：',
   },

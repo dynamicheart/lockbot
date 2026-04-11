@@ -139,6 +139,7 @@ export default {
     aesKeyRequired: 'AES Key is required',
     tokenRequired: 'Token is required',
     createSuccess: 'Bot created successfully',
+    autoStartSkipped: 'Bot created but not auto-started, please start manually',
   },
 
   // === Bot Detail ===
@@ -290,6 +291,7 @@ export default {
     stopBeforeEditState: 'Stop bot before editing state to avoid conflicts',
     import: 'Import',
     download: 'Download',
+    visualView: 'Visual',
     importConfirm: 'This will overwrite the current cluster state. Continue?',
     validationWarning: '{count} issue(s) found — the following will be auto-corrected on save:',
   },
