@@ -3,11 +3,13 @@ FastAPI application entry point
 """
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 # Import models to register them with Base.metadata
 import lockbot.backend.app.auth.models  # noqa: F401
@@ -231,6 +233,17 @@ def create_app() -> FastAPI:
     app.include_router(bots_router)
     app.include_router(admin_router)
     app.include_router(settings_router)
+
+    # Serve frontend static files (built by vite)
+    # In Docker: /app/frontend/dist — locally: project_root/frontend/dist
+    _frontend_dist = os.environ.get("FRONTEND_DIST", "")
+    if not _frontend_dist:
+        _frontend_dist = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "frontend", "dist")
+        )
+    if os.path.isdir(_frontend_dist):
+        app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="static")
+
     return app
 
 
