@@ -289,6 +289,7 @@ export default {
     copyNode: 'Copy',
     deviceModel: 'Device Model (type to enter)',
     deviceRequired: 'DEVICE type requires at least one device',
+    botNotFound: 'Bot not found',
     deviceCount: 'Device Count',
     queueInfo: 'QUEUE mode uses queue scheduling. Only one user can use a resource at a time.',
     duplicateNode: 'Duplicate name',
@@ -316,6 +317,24 @@ export default {
     cmdBook: 'Book a queue slot',
     cmdTake: 'Preempt / take resource',
     cmdKicklock: 'Force-release lock (keep bookings)',
+  },
+
+  // === State Validation ===
+  stateValidation: {
+    stateNotDict: 'State is not a dict, replaced with defaults',
+    nodeMissing: "Node '{name}' missing from state, added with defaults",
+    nodeNotDict: "Node '{name}' is not a dict, replaced with defaults",
+    nodeNotList: "Node '{name}' is not a list, replaced with defaults",
+    invalidStatus: "Node '{name}': invalid status '{status}', reset to 'idle'",
+    currentUsersNotList: "Node '{name}': current_users is not a list, reset to []",
+    bookingListNotList: "Node '{name}': booking_list is not a list, reset to []",
+    userNotDict: "Node '{name}', {field}: not a dict, removed",
+    nodeNotInConfig: "Node '{name}' not in cluster_configs, removed",
+    missingKey: "{label}: missing '{key}', set to default",
+    deviceExcess: "Node '{name}': has {actual} devices, expected {expected}, excess removed",
+    deviceNotDict: "Node '{name}', device {index}: not a dict, replaced with default",
+    deviceMissing: "Node '{name}', device {index}: missing, added with default",
+    devIdCorrected: "Node '{name}', device {index}: dev_id {old} corrected to {new}",
   },
 
   // === Demo Bot Names ===

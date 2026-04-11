@@ -288,6 +288,8 @@ export default {
     quickAdd: '快捷:',
     copyNode: '复制',
     deviceModel: '设备型号（可直接输入）',
+    deviceRequired: 'DEVICE 类型至少需要一个设备',
+    botNotFound: '未找到该 Bot',
     deviceCount: '设备数量',
     queueInfo: 'QUEUE 模式使用排队调度，一次只有一人可以使用资源。',
     duplicateNode: '名称重复',
@@ -315,6 +317,24 @@ export default {
     cmdBook: '预约排队',
     cmdTake: '抢占资源',
     cmdKicklock: '强制释放锁定（保留预约）',
+  },
+
+  // === State Validation ===
+  stateValidation: {
+    stateNotDict: '状态格式错误，已替换为默认值',
+    nodeMissing: "节点 '{name}' 不在状态中，已添加默认值",
+    nodeNotDict: "节点 '{name}' 格式错误（非对象），已替换为默认值",
+    nodeNotList: "节点 '{name}' 格式错误（非数组），已替换为默认值",
+    invalidStatus: "节点 '{name}': 无效状态 '{status}'，已重置为 idle",
+    currentUsersNotList: "节点 '{name}': current_users 不是数组，已重置为 []",
+    bookingListNotList: "节点 '{name}': booking_list 不是数组，已重置为 []",
+    userNotDict: "节点 '{name}', {field}: 格式错误（非对象），已移除",
+    nodeNotInConfig: "节点 '{name}' 不在 cluster_configs 中，已移除",
+    missingKey: "{label}: 缺少 '{key}'，已设为默认值",
+    deviceExcess: "节点 '{name}': 有 {actual} 个设备，期望 {expected} 个，多余已移除",
+    deviceNotDict: "节点 '{name}', 设备 {index}: 格式错误（非对象），已替换为默认值",
+    deviceMissing: "节点 '{name}', 设备 {index}: 缺失，已添加默认值",
+    devIdCorrected: "节点 '{name}', 设备 {index}: dev_id 从 {old} 修正为 {new}",
   },
 
   // === Demo Bot Names ===

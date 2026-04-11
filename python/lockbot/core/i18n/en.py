@@ -138,6 +138,21 @@ MESSAGES = {
     "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
+    # ── State validation warnings ──
+    "state.state_not_dict": "State is not a dict, replaced with defaults",
+    "state.node_missing": "Node '{name}' missing from state, added with defaults",
+    "state.node_not_dict": "Node '{name}' is not a dict, replaced with defaults",
+    "state.node_not_list": "Node '{name}' is not a list, replaced with defaults",
+    "state.invalid_status": "Node '{name}': invalid status '{status}', reset to 'idle'",
+    "state.current_users_not_list": "Node '{name}': current_users is not a list, reset to []",
+    "state.booking_list_not_list": "Node '{name}': booking_list is not a list, reset to []",
+    "state.entry_not_dict": "Node '{name}', {field}: not a dict, removed",
+    "state.node_not_in_config": "Node '{name}' not in cluster_configs, removed",
+    "state.missing_key": "{label}: missing '{key}', set to default",
+    "state.device_excess": "Node '{name}': has {actual} devices, expected {expected}, excess removed",
+    "state.device_not_dict": "Node '{name}', device {index}: not a dict, replaced with default",
+    "state.device_missing": "Node '{name}', device {index}: missing, added with default",
+    "state.dev_id_corrected": "Node '{name}', device {index}: dev_id {old} corrected to {new}",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ Bot {bot_name} is not running. "  # noqa: E501
     "Please contact the owner @{owner_username} to start it.",

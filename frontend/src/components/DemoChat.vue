@@ -363,8 +363,12 @@ const commandHints = computed(() => {
     base.push({ cmd: `slock ${ex}`, tip: t('demoChat.cmdSlock') })
   }
   if (type === 'DEVICE') {
-    base.push({ cmd: `lock ${ex} 0`, tip: t('demoChat.cmdLockDev') })
-    base.push({ cmd: `lock ${ex} 0-3`, tip: t('demoChat.cmdLockDevRange') })
+    const firstDevCount = Array.isArray(Object.values(cc)[0]) ? Object.values(cc)[0].length : 0
+    const lastDev = Math.max(0, firstDevCount - 1)
+    base.push({ cmd: `lock ${ex} dev0`, tip: t('demoChat.cmdLockDev') })
+    if (lastDev > 0) {
+      base.push({ cmd: `lock ${ex} dev0-${lastDev}`, tip: t('demoChat.cmdLockDevRange') })
+    }
   }
   if (type === 'QUEUE') {
     base.push({ cmd: `book ${ex}`, tip: t('demoChat.cmdBook') })

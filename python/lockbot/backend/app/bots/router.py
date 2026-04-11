@@ -517,32 +517,32 @@ _VALID_STATUSES = {"idle", "exclusive", "shared"}
 _REQUIRED_USER_KEYS = {"user_id", "start_time", "duration"}
 
 
-def _validate_user_info(user_info, label):
+def _validate_user_info(user_info, label, config):
     """Validate a single user_info dict, filling missing fields. Returns warnings."""
     warnings = []
     for key in _REQUIRED_USER_KEYS:
         if key not in user_info:
             user_info[key] = "" if key == "user_id" else 0
-            warnings.append(f"{label}: missing '{key}', set to default")
+            warnings.append(t("state.missing_key", config=config, label=label, key=key))
     if "is_notified" not in user_info:
         user_info["is_notified"] = False
     return warnings
 
 
-def _validate_and_align_state(state, bot_type, cluster_configs):
+def _validate_and_align_state(state, bot_type, cluster_configs, config=None):
     """Validate and normalize bot state against cluster_configs.
 
     Returns (normalized_state, warnings) where warnings is a list of
     human-readable strings for issues that were auto-fixed.
     """
     if not isinstance(state, dict):
-        return _default_state_for(cluster_configs, bot_type), ["State is not a dict, replaced with defaults"]
+        return _default_state_for(cluster_configs, bot_type), [t("state.state_not_dict", config=config)]
 
     warnings = []
     if bot_type == "DEVICE":
-        return _validate_device_state(state, cluster_configs, warnings)
+        return _validate_device_state(state, cluster_configs, warnings, config)
     # NODE and QUEUE share the same structure
-    return _validate_node_queue_state(state, cluster_configs, warnings)
+    return _validate_node_queue_state(state, cluster_configs, warnings, config)
 
 
 def _default_state_for(cluster_configs, bot_type):
@@ -558,59 +558,59 @@ def _default_state_for(cluster_configs, bot_type):
     return {name: {"status": "idle", "current_users": [], "booking_list": []} for name in cluster_configs}
 
 
-def _validate_node_queue_state(state, cluster_configs, warnings):
+def _validate_node_queue_state(state, cluster_configs, warnings, config):
     result = {}
     # Add entries for nodes in cluster_configs
     for name in cluster_configs:
         if name not in state:
-            warnings.append(f"Node '{name}' missing from state, added with defaults")
+            warnings.append(t("state.node_missing", config=config, name=name))
             result[name] = {"status": "idle", "current_users": [], "booking_list": []}
             continue
         node = state[name]
         if not isinstance(node, dict):
-            warnings.append(f"Node '{name}' is not a dict, replaced with defaults")
+            warnings.append(t("state.node_not_dict", config=config, name=name))
             result[name] = {"status": "idle", "current_users": [], "booking_list": []}
             continue
         # Validate status
         status = node.get("status", "idle")
         if status not in _VALID_STATUSES:
-            warnings.append(f"Node '{name}': invalid status '{status}', reset to 'idle'")
+            warnings.append(t("state.invalid_status", config=config, name=name, status=status))
             status = "idle"
         # Validate current_users
         current_users = node.get("current_users", [])
         if not isinstance(current_users, list):
-            warnings.append(f"Node '{name}': current_users is not a list, reset to []")
+            warnings.append(t("state.current_users_not_list", config=config, name=name))
             current_users = []
         for i, u in enumerate(current_users):
             if isinstance(u, dict):
-                warnings.extend(_validate_user_info(u, f"Node '{name}', current_users[{i}]"))
+                warnings.extend(_validate_user_info(u, f"Node '{name}', current_users[{i}]", config))
             else:
-                warnings.append(f"Node '{name}', current_users[{i}]: not a dict, removed")
+                warnings.append(t("state.entry_not_dict", config=config, name=name, field=f"current_users[{i}]"))
                 current_users[i] = {"user_id": "", "start_time": 0, "duration": 0, "is_notified": False}
         # Validate booking_list
         booking_list = node.get("booking_list", [])
         if not isinstance(booking_list, list):
-            warnings.append(f"Node '{name}': booking_list is not a list, reset to []")
+            warnings.append(t("state.booking_list_not_list", config=config, name=name))
             booking_list = []
         for i, u in enumerate(booking_list):
             if isinstance(u, dict):
-                warnings.extend(_validate_user_info(u, f"Node '{name}', booking_list[{i}]"))
+                warnings.extend(_validate_user_info(u, f"Node '{name}', booking_list[{i}]", config))
             else:
-                warnings.append(f"Node '{name}', booking_list[{i}]: not a dict, removed")
+                warnings.append(t("state.entry_not_dict", config=config, name=name, field=f"booking_list[{i}]"))
                 booking_list[i] = {"user_id": "", "start_time": 0, "duration": 0, "is_notified": False}
         result[name] = {"status": status, "current_users": current_users, "booking_list": booking_list}
     # Warn about extra nodes not in cluster_configs
     for name in state:
         if name not in cluster_configs:
-            warnings.append(f"Node '{name}' not in cluster_configs, removed")
+            warnings.append(t("state.node_not_in_config", config=config, name=name))
     return result, warnings
 
 
-def _validate_device_state(state, cluster_configs, warnings):
+def _validate_device_state(state, cluster_configs, warnings, config):
     result = {}
     for node_key, devices in cluster_configs.items():
         if node_key not in state:
-            warnings.append(f"Node '{node_key}' missing from state, added with defaults")
+            warnings.append(t("state.node_missing", config=config, name=node_key))
             result[node_key] = [
                 {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
                 for i, model in enumerate(devices)
@@ -618,7 +618,7 @@ def _validate_device_state(state, cluster_configs, warnings):
             continue
         node_state = state[node_key]
         if not isinstance(node_state, list):
-            warnings.append(f"Node '{node_key}' is not a list, replaced with defaults")
+            warnings.append(t("state.node_not_list", config=config, name=node_key))
             result[node_key] = [
                 {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
                 for i, model in enumerate(devices)
@@ -628,7 +628,7 @@ def _validate_device_state(state, cluster_configs, warnings):
         actual_count = len(node_state)
         # Trim excess devices
         if actual_count > expected_count:
-            warnings.append(f"Node '{node_key}': has {actual_count} devices, expected {expected_count}, excess removed")
+            warnings.append(t("state.device_excess", config=config, name=node_key, actual=actual_count, expected=expected_count))
             node_state = node_state[:expected_count]
         # Validate each device
         device_list = []
@@ -636,34 +636,34 @@ def _validate_device_state(state, cluster_configs, warnings):
             if i < len(node_state):
                 dev = node_state[i]
                 if not isinstance(dev, dict):
-                    warnings.append(f"Node '{node_key}', device {i}: not a dict, replaced with default")
+                    warnings.append(t("state.device_not_dict", config=config, name=node_key, index=i))
                     dev = {}
             else:
-                warnings.append(f"Node '{node_key}', device {i}: missing, added with default")
+                warnings.append(t("state.device_missing", config=config, name=node_key, index=i))
                 dev = {}
             # Validate dev_id
             dev.setdefault("dev_id", i)
             if dev["dev_id"] != i:
-                warnings.append(f"Node '{node_key}', device {i}: dev_id {dev['dev_id']} corrected to {i}")
+                warnings.append(t("state.dev_id_corrected", config=config, name=node_key, index=i, old=dev["dev_id"], new=i))
                 dev["dev_id"] = i
             # Sync dev_model from cluster_configs
             dev["dev_model"] = devices[i]
             # Validate status
             status = dev.get("status", "idle")
             if status not in _VALID_STATUSES:
-                warnings.append(f"Node '{node_key}', device {i}: invalid status '{status}', reset to 'idle'")
+                warnings.append(t("state.invalid_status", config=config, name=f"{node_key}, device {i}", status=status))
                 status = "idle"
             dev["status"] = status
             # Validate current_users
             current_users = dev.get("current_users", [])
             if not isinstance(current_users, list):
-                warnings.append(f"Node '{node_key}', device {i}: current_users is not a list, reset to []")
+                warnings.append(t("state.current_users_not_list", config=config, name=f"{node_key}, device {i}"))
                 current_users = []
             for j, u in enumerate(current_users):
                 if isinstance(u, dict):
-                    warnings.extend(_validate_user_info(u, f"Node '{node_key}', device {i}, current_users[{j}]"))
+                    warnings.extend(_validate_user_info(u, f"Node '{node_key}', device {i}, current_users[{j}]", config))
                 else:
-                    warnings.append(f"Node '{node_key}', device {i}, current_users[{j}]: not a dict, removed")
+                    warnings.append(t("state.entry_not_dict", config=config, name=f"{node_key}, device {i}", field=f"current_users[{j}]"))
                     current_users[j] = {"user_id": "", "start_time": 0, "duration": 0, "is_notified": False}
             dev["current_users"] = current_users
             device_list.append(dev)
@@ -671,7 +671,7 @@ def _validate_device_state(state, cluster_configs, warnings):
     # Warn about extra nodes
     for name in state:
         if name not in cluster_configs:
-            warnings.append(f"Node '{name}' not in cluster_configs, removed")
+            warnings.append(t("state.node_not_in_config", config=config, name=name))
     return result, warnings
 
 
@@ -697,7 +697,8 @@ def update_bot_state(
 
     # Validate and align state with cluster_configs
     cluster_configs = _normalize_cluster_configs(json.loads(bot.cluster_configs))
-    state, warnings = _validate_and_align_state(state, bot.bot_type, cluster_configs)
+    config_dict = _build_config_dict(bot, db)
+    state, warnings = _validate_and_align_state(state, bot.bot_type, cluster_configs, config_dict)
 
     instance = bot_manager.get_instance(bot_id)
     if instance:

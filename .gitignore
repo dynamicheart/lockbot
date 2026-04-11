@@ -70,3 +70,4 @@ python/lockbot/data/.encryption_key
 # Dev scripts
 dev-backend.sh
 dev-frontend.sh
+migrations

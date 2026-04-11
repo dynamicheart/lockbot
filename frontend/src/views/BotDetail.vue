@@ -551,7 +551,7 @@ async function saveState() {
   // Pre-validate on client side
   const cc = typeof bot.value.cluster_configs === 'string'
     ? JSON.parse(bot.value.cluster_configs) : (bot.value.cluster_configs || {})
-  const { warnings: clientWarnings } = validateBotState(parsed, bot.value.bot_type, cc)
+  const { warnings: clientWarnings } = validateBotState(parsed, bot.value.bot_type, cc, t)
   if (clientWarnings.length > 0) {
     try {
       await ElMessageBox.confirm(

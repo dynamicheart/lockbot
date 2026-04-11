@@ -158,7 +158,7 @@ onMounted(async () => {
         else nodeClusterConfig.value = {}
       }
     } catch {
-      ElMessage.error('Bot not found')
+      ElMessage.error(t('botForm.notFound'))
       router.replace('/bots')
     }
   }

@@ -132,6 +132,21 @@ MESSAGES = {
     "notify.resource_available_header": "📢【资源可用提醒】\n资源已空闲，请在 {timeout} 内lock:\n\n",
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
+    # ── State validation warnings ──
+    "state.state_not_dict": "状态格式错误，已替换为默认值",
+    "state.node_missing": "节点 '{name}' 不在状态中，已添加默认值",
+    "state.node_not_dict": "节点 '{name}' 格式错误（非对象），已替换为默认值",
+    "state.node_not_list": "节点 '{name}' 格式错误（非数组），已替换为默认值",
+    "state.invalid_status": "节点 '{name}': 无效状态 '{status}'，已重置为 idle",
+    "state.current_users_not_list": "节点 '{name}': current_users 不是数组，已重置为 []",
+    "state.booking_list_not_list": "节点 '{name}': booking_list 不是数组，已重置为 []",
+    "state.entry_not_dict": "节点 '{name}', {field}: 格式错误（非对象），已移除",
+    "state.node_not_in_config": "节点 '{name}' 不在 cluster_configs 中，已移除",
+    "state.missing_key": "{label}: 缺少 '{key}'，已设为默认值",
+    "state.device_excess": "节点 '{name}': 有 {actual} 个设备，期望 {expected} 个，多余已移除",
+    "state.device_not_dict": "节点 '{name}', 设备 {index}: 格式错误（非对象），已替换为默认值",
+    "state.device_missing": "节点 '{name}', 设备 {index}: 缺失，已添加默认值",
+    "state.dev_id_corrected": "节点 '{name}', 设备 {index}: dev_id 从 {old} 修正为 {new}",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ 机器人 {bot_name} 尚未启动，请联系管理人 @{owner_username} 启动后再使用。",
 }
