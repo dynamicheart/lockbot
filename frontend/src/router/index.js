@@ -7,10 +7,11 @@ import BotDetail from '../views/BotDetail.vue'
 import BotForm from '../views/BotForm.vue'
 import UserManage from '../views/admin/UserManage.vue'
 import BotMonitor from '../views/admin/BotMonitor.vue'
+import SiteSettings from '../views/admin/SiteSettings.vue'
 import ProfileSettings from '../views/ProfileSettings.vue'
 import ForceChangePassword from '../views/ForceChangePassword.vue'
 import NotFound from '../views/NotFound.vue'
-import { isDemoMode } from '../utils/demoMode'
+import { isDemoMode, LS_KEYS } from '../utils/demoMode'
 
 const routes = [
   {
@@ -83,6 +84,12 @@ const routes = [
         component: BotMonitor,
         meta: { admin: true },
       },
+      {
+        path: 'admin/settings',
+        name: 'SiteSettings',
+        component: SiteSettings,
+        meta: { admin: true },
+      },
     ],
   },
   {
@@ -98,8 +105,8 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('token')
-  const userStr = localStorage.getItem('user')
+  const token = localStorage.getItem(LS_KEYS.token)
+  const userStr = localStorage.getItem(LS_KEYS.user)
   const user = userStr ? JSON.parse(userStr) : null
   const mustChangePassword = user?.must_change_password === true
 

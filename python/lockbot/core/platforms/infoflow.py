@@ -73,24 +73,35 @@ class InfoflowAdapter(MessageAdapter):
         command_text = extract_msg_body(msg_data["message"]["body"]).strip()
         return user_id, group_id, command_text
 
-    def build_reply(self, content: str, user_ids: list, group_id: str = None) -> dict:
+    def build_reply(self, content, user_ids, group_id=None) -> dict:
         """Build an Infoflow reply message.
 
         Args:
-            content: Text content of the reply.
+            content: str or list. If str, wrapped as a single TEXT body.
+                If list, each item is:
+                - str → TEXT body element
+                - tuple(label, href) → TEXT(label) + LINK(href) body elements
             user_ids: List of user IDs to @mention.
             group_id: Optional group chat ID (toid) for the reply target.
 
         Returns:
-            Infoflow message dict with TEXT and AT body elements.
+            Infoflow message dict with TEXT, optional LINK, and AT body elements.
         """
+        body = []
+        items = [content] if isinstance(content, str) else content
+        for item in items:
+            if isinstance(item, str):
+                body.append({"type": "TEXT", "content": item})
+            elif isinstance(item, tuple):
+                label, url = item
+                body.append({"type": "TEXT", "content": label})
+                body.append({"type": "LINK", "href": url})
+                body.append({"type": "TEXT", "content": "\n"})
+        body.append({"type": "AT", "atuserids": list(user_ids)})
         msg = {
             "message": {
                 "header": {},
-                "body": [
-                    {"type": "TEXT", "content": content},
-                    {"type": "AT", "atuserids": list(user_ids)},
-                ],
+                "body": body,
             }
         }
         if group_id:

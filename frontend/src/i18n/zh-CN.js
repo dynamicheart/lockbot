@@ -52,7 +52,7 @@ export default {
     noAccount: '没有账号？',
     hasAccount: '已有账号？',
     sessionExpired: '登录已过期，请重新登录',
-    registerDisabled: '注册已关闭，如需开通账户请联系管理员',
+    registerDisabled: '注册已关闭，请联系管理员开通账户',
     usernameLength: '3-64 个字符',
     emailInvalid: '邮箱格式不正确',
     demoHint: '这是演示环境，您可以输入任意用户名和密码登录，也可以注册新账号。',
@@ -83,6 +83,7 @@ export default {
     admin: '管理员',
     adminUsers: '用户管理',
     adminBots: '全部机器人',
+    adminSettings: '站点设置',
   },
 
   // === Dashboard ===
@@ -255,6 +256,21 @@ export default {
     adminRole: '管理员',
     userRole: '用户',
     backupDatabase: '备份数据库',
+    siteSettings: '站点设置',
+  },
+
+  // === Site Settings ===
+  settings: {
+    platformUrl: '部署平台 URL',
+    platformUrlPlaceholder: '例如 http://192.168.1.1:8080',
+    githubUrl: 'GitHub 地址',
+    githubUrlPlaceholder: '例如 https://github.com/user/repo',
+    adminContact: '管理员联系方式',
+    adminContactPlaceholder: '例如 飞书/微信/邮箱',
+    newsContent: '公告内容',
+    newsContentPlaceholder: '将显示在机器人 help 命令中',
+    newsHint: '最多 30 字，显示在机器人帮助信息中。留空则不显示公告。',
+    saved: '设置已保存',
   },
 
   // === Cluster State ===

@@ -169,6 +169,10 @@ class BaseLockBot:
         reply_info += self._help_commands()
 
         # ---- footer ----
+        news = self._get_news_content()
+        if news:
+            reply_info += t("help.news_header", config=self.config)
+            reply_info += news + "\n"
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         if max_dur > 0:
             reply_info += t(
@@ -184,10 +188,56 @@ class BaseLockBot:
         bot_owner = self.config.get_val("BOT_OWNER")
         if bot_owner:
             reply_info += t("help.bot_owner", config=self.config, owner=bot_owner)
-        reply_info += "\n"
 
+        # ---- project links (only on explicit help, not on command errors) ----
+        help_links = []
+        if extra_info is None:
+            platform_url = self._get_site_value("platform_url") or self.config.get_val("PLATFORM_URL")
+            github_url = self._get_site_value("github_url") or self.config.get_val("GITHUB_URL")
+            if platform_url or github_url:
+                help_links.append("\n")
+            if platform_url:
+                help_links.append((t("help.platform_url", config=self.config), platform_url))
+            if github_url:
+                help_links.append((t("help.github_url", config=self.config), github_url))
+
+        if help_links:
+            reply_info = [reply_info] + help_links
         return self.adapter.build_reply(reply_info, [user_id])
 
     def _help_commands(self):
         """Return the command-section of the help text.  Override in subclasses."""
         return ""
+
+    _site_cache = {}
+    _site_cache_ts = 0.0
+    _SITE_CACHE_TTL = 6 * 3600  # 6 hours
+
+    @classmethod
+    def _get_site_value(cls, key: str) -> str:
+        """Read a site setting from DB with TTL cache."""
+        import time
+        now = time.time()
+        if now - cls._site_cache_ts > cls._SITE_CACHE_TTL:
+            cls._site_cache = {}
+            cls._site_cache_ts = now
+            try:
+                from lockbot.backend.app.database import SessionLocal
+                from lockbot.backend.app.settings.models import SiteSetting
+
+                db = SessionLocal()
+                try:
+                    for row in db.query(SiteSetting).all():
+                        cls._site_cache[row.key] = row.value.strip() if row.value else ""
+                finally:
+                    db.close()
+            except Exception:
+                pass
+        return cls._site_cache.get(key, "")
+
+    def _get_news_content(self) -> str:
+        """Read news_content from site_settings (max 200 chars)."""
+        text = self._get_site_value("news_content")
+        if len(text) > 30:
+            text = text[:30] + "..."
+        return text

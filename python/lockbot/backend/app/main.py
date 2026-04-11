@@ -12,9 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import models to register them with Base.metadata
 import lockbot.backend.app.auth.models  # noqa: F401
 import lockbot.backend.app.bots.models  # noqa: F401
+import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.bots.router import router as bots_router
+from lockbot.backend.app.settings.router import router as settings_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
 
 # Configure lockbot loggers to output alongside uvicorn logs
@@ -228,6 +230,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(bots_router)
     app.include_router(admin_router)
+    app.include_router(settings_router)
     return app
 
 

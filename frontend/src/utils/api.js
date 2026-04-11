@@ -2,7 +2,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '../router'
 import i18n from '../i18n'
-import { isDemoMode } from './demoMode'
+import { isDemoMode, LS_KEYS } from './demoMode'
 import { mockApi } from './api.mock'
 
 const realApi = axios.create({
@@ -11,7 +11,7 @@ const realApi = axios.create({
 })
 
 realApi.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem(LS_KEYS.token)
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -24,7 +24,7 @@ realApi.interceptors.response.use(
     const status = err.response?.status
     const url = err.config?.url
     if (status === 401 && url !== '/auth/login') {
-      localStorage.removeItem('token')
+      localStorage.removeItem(LS_KEYS.token)
       router.push('/login')
       ElMessage.error(i18n.global.t('auth.sessionExpired'))
     } else if (status === 401 && url === '/auth/login') {

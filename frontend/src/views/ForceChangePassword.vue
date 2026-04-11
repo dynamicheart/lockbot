@@ -43,6 +43,7 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { setLocale, getLocale } from '../i18n'
 import api from '../utils/api'
+import { LS_KEYS } from '../utils/demoMode'
 
 const THEME_KEY = 'lockbot_theme'
 const { t } = useI18n()
@@ -102,7 +103,7 @@ async function handleSubmit() {
   try {
     const res = await api.put('/auth/force-change-password', form)
     authStore.token = res.data.access_token
-    localStorage.setItem('token', res.data.access_token)
+    localStorage.setItem(LS_KEYS.token, res.data.access_token)
     await authStore.fetchUser()
     ElMessage.success(t('auth.passwordChanged'))
     router.push('/')

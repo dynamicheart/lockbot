@@ -44,6 +44,10 @@
               <el-icon><Setting /></el-icon>
               <template #title>{{ $t('nav.adminBots') }}</template>
             </el-menu-item>
+            <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/settings">
+              <el-icon><Tools /></el-icon>
+              <template #title>{{ $t('nav.adminSettings') }}</template>
+            </el-menu-item>
           </el-menu-item-group>
         </template>
       </el-menu>
@@ -184,6 +188,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { setLocale, getLocale } from '../i18n'
 import DemoChat from '../components/DemoChat.vue'
+import { LS_KEYS } from '../utils/demoMode'
 import { isDemoMode } from '../utils/demoMode'
 
 const THEME_KEY = 'lockbot_theme'
@@ -244,7 +249,9 @@ function switchLocale(locale) {
 // --- Logout & Switch User ---
 const showSwitchDialog = ref(false)
 
-const savedAccounts = computed(() => authStore.getSavedAccounts())
+const savedAccounts = computed(() =>
+  authStore.getSavedAccounts().filter(a => isDemoMode || !a.token?.startsWith('demo:'))
+)
 
 async function handleUserCommand(cmd) {
   if (cmd === 'logout') {
@@ -278,8 +285,8 @@ function goToLogin() {
   // Clear active session but keep saved accounts for quick switch
   authStore.token = ''
   authStore.user = null
-  localStorage.removeItem('token')
-  localStorage.removeItem('user')
+  localStorage.removeItem(LS_KEYS.token)
+  localStorage.removeItem(LS_KEYS.user)
   router.push('/login')
 }
 

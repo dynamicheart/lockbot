@@ -57,6 +57,7 @@ def execute_command(msg_data, bot):
         return bot.print_help(user_id)
     else:
         return bot.print_help(user_id, t("error.unknown_error", config=getattr(bot, "config", None), command=rcv_info))
+        return bot.print_help(user_id, t("error.unknown_error", config=getattr(bot, "config", None), command=rcv_info))
 
 
 _DEPRECATION_MSG = (

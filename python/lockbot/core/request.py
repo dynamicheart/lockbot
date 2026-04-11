@@ -1,5 +1,6 @@
 """HTTP webhook request utilities."""
 
+import json
 import logging
 import time
 
@@ -30,14 +31,14 @@ def post_webhook(msg, config=None):
     else:
         webhook_url = Config.get("WEBHOOK_URL")
 
-    # Extract the first TEXT body; keep other body entries (e.g. AT) separate
+    # Extract the first TEXT body; everything after it goes to the last chunk only
     text_body = None
-    other_bodies = []
+    trailing_bodies = []
     for body in msg["message"]["body"]:
         if body.get("type") == "TEXT" and text_body is None:
             text_body = body
         else:
-            other_bodies.append(body)
+            trailing_bodies.append(body)
 
     new_msgs = []
     if text_body:
@@ -52,7 +53,7 @@ def post_webhook(msg, config=None):
                 {
                     "message": {
                         "header": msg["message"]["header"],
-                        "body": [{"type": "TEXT", "content": part}] + other_bodies,
+                        "body": [{"type": "TEXT", "content": part}],
                     }
                 }
             )
@@ -61,7 +62,7 @@ def post_webhook(msg, config=None):
             {
                 "message": {
                     "header": msg["message"]["header"],
-                    "body": [{"type": "TEXT", "content": content}] + other_bodies,
+                    "body": [{"type": "TEXT", "content": content}] + trailing_bodies,
                 }
             }
         )
@@ -69,7 +70,8 @@ def post_webhook(msg, config=None):
         new_msgs.append(msg)
 
     responses = []
-    for new_msg in new_msgs:
+    for i, new_msg in enumerate(new_msgs):
+        logger.info("Webhook payload [%d/%d]: %s", i + 1, len(new_msgs), json.dumps(new_msg, ensure_ascii=False))
         resp = _post_with_retry(webhook_url, new_msg, _DEFAULT_HEADERS)
         responses.append(resp)
     return responses

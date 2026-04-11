@@ -52,7 +52,7 @@ export default {
     noAccount: "Don't have an account?",
     hasAccount: 'Already have an account?',
     sessionExpired: 'Session expired, please login again',
-    registerDisabled: 'Registration is disabled. Please contact the administrator to create an account.',
+    registerDisabled: 'Registration is disabled. Contact admin to create an account.',
     usernameLength: '3-64 characters',
     emailInvalid: 'Invalid email format',
     demoHint: 'This is a demo environment. You can enter any username and password to log in, or register a new account.',
@@ -83,6 +83,7 @@ export default {
     admin: 'Admin',
     adminUsers: 'Users',
     adminBots: 'All Bots',
+    adminSettings: 'Site Settings',
   },
 
   // === Dashboard ===
@@ -255,6 +256,21 @@ export default {
     adminRole: 'Admin',
     userRole: 'User',
     backupDatabase: 'Backup Database',
+    siteSettings: 'Site Settings',
+  },
+
+  // === Site Settings ===
+  settings: {
+    platformUrl: 'Platform URL',
+    platformUrlPlaceholder: 'e.g. http://192.168.1.1:8080',
+    githubUrl: 'GitHub URL',
+    githubUrlPlaceholder: 'e.g. https://github.com/user/repo',
+    adminContact: 'Admin Contact',
+    adminContactPlaceholder: 'e.g. Feishu / WeChat / Email',
+    newsContent: 'Announcement',
+    newsContentPlaceholder: 'Displayed in bot help command',
+    newsHint: 'Max 30 chars. Shown in bot help. Leave empty to hide.',
+    saved: 'Settings saved',
   },
 
   // === Cluster State ===

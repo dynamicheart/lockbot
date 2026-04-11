@@ -49,7 +49,10 @@
       <p v-if="isDemoMode" class="register-hint">
         {{ $t('auth.noAccount') }} <router-link to="/register" class="link">{{ $t('auth.register') }}</router-link>
       </p>
-      <p v-else class="register-hint">{{ $t('auth.registerDisabled') }}</p>
+      <p v-else class="register-hint">
+        {{ $t('auth.registerDisabled') }}
+        <span v-if="adminContact" class="admin-contact"> {{ adminContact }}</span>
+      </p>
 
       <!-- Saved accounts -->
       <div v-if="savedAccounts.length > 0" class="saved-accounts">
@@ -121,7 +124,19 @@ const rules = {
   password: [{ required: true, message: () => t('auth.passwordRequired'), trigger: 'blur' }],
 }
 
-const savedAccounts = computed(() => authStore.getSavedAccounts())
+const savedAccounts = computed(() =>
+  authStore.getSavedAccounts().filter(a => isDemoMode || !a.token?.startsWith('demo:'))
+)
+const adminContact = ref('')
+
+async function fetchSettings() {
+  try {
+    const res = await fetch('/api/settings')
+    const list = await res.json()
+    const contact = list.find(s => s.key === 'admin_contact')
+    if (contact?.value) adminContact.value = contact.value
+  } catch { /* ignore */ }
+}
 
 async function handleSwitchTo(username) {
   const ok = await authStore.switchAccount(username)
@@ -161,6 +176,7 @@ function switchLocale(locale) {
 
 onMounted(() => {
   applyTheme(themeMode.value)
+  fetchSettings()
 })
 
 async function handleLogin() {
@@ -241,6 +257,10 @@ async function handleLogin() {
 }
 .register-hint .link:hover {
   text-decoration: underline;
+}
+.admin-contact {
+  font-weight: 500;
+  color: var(--lb-text-primary);
 }
 .login-footer {
   display: flex;

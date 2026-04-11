@@ -15,8 +15,10 @@ import {
   mockLogs,
   appendLog,
   nextBotId,
+  mockSettings,
 } from './mockData'
 import { validateBotState } from './stateValidation'
+import { LS_KEYS } from './demoMode'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,11 +48,12 @@ function _match(url, pattern) {
 
 /** Return the currently logged-in user (via the mock token). */
 function _currentUser() {
-  const token = localStorage.getItem('token')
-  if (token === 'demo-token') return mockUsers.find((u) => u.username === 'demo_user')
-  // If a different user token is stored, try to find them
-  const userId = parseInt(token, 10)
-  if (userId && !isNaN(userId)) return mockUsers.find((u) => u.id === userId)
+  const token = localStorage.getItem(LS_KEYS.token) || ''
+  if (token.startsWith('demo:')) {
+    const userId = parseInt(token.slice(5), 10)
+    if (userId && !isNaN(userId)) return mockUsers.find((u) => u.id === userId)
+    return null
+  }
   return null
 }
 
@@ -203,6 +206,21 @@ function _handleGet(url, params) {
     }
   }
 
+  // Public settings
+  if (url === '/settings') {
+    return [
+      { key: 'platform_url', value: mockSettings.platform_url },
+      { key: 'admin_contact', value: mockSettings.admin_contact },
+    ]
+  }
+
+  // Admin settings
+  if (url === '/admin/settings') {
+    const user = _currentUser()
+    if (!_isSuperAdmin(user)) throw _err(403, 'Permission denied')
+    return Object.entries(mockSettings).map(([key, value]) => ({ key, value }))
+  }
+
   throw _err(404, `GET ${url} not implemented in demo mode`)
 }
 
@@ -231,8 +249,8 @@ function _handlePost(url, data) {
       mockUsers.push(target)
     }
     if (!target) target = mockUsers[0]
-    const tokenVal = target.username === 'demo_user' ? 'demo-token' : String(target.id)
-    localStorage.setItem('token', tokenVal)
+    const tokenVal = 'demo:' + String(target.id)
+    localStorage.setItem(LS_KEYS.token, tokenVal)
     return {
       access_token: tokenVal,
       token_type: 'bearer',
@@ -257,8 +275,8 @@ function _handlePost(url, data) {
       updated_at: new Date().toISOString(),
     }
     mockUsers.push(newUser)
-    const token = String(newId)
-    localStorage.setItem('token', token)
+    const token = 'demo:' + String(newId)
+    localStorage.setItem(LS_KEYS.token, token)
     return {
       access_token: token,
       token_type: 'bearer',
@@ -470,6 +488,20 @@ function _handlePut(url, data) {
     target.max_running_bots = data.max_running_bots
     target.updated_at = new Date().toISOString()
     return { id: target.id, max_running_bots: target.max_running_bots }
+  }
+
+  // PUT /admin/settings
+  if (url === '/admin/settings') {
+    const user = _currentUser()
+    if (!_isSuperAdmin(user)) throw _err(403, 'Permission denied')
+    const updated = []
+    for (const [key, value] of Object.entries(data.settings || {})) {
+      if (key in mockSettings) {
+        mockSettings[key] = value || ''
+        updated.push(key)
+      }
+    }
+    return { updated }
   }
 
   throw _err(404, `PUT ${url} not implemented in demo mode`)

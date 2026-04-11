@@ -1,20 +1,19 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '../utils/api'
-
-const ACCOUNTS_KEY = 'lockbot_accounts'
+import { LS_KEYS } from '../utils/demoMode'
 
 function loadAccounts() {
-  try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '[]') } catch { return [] }
+  try { return JSON.parse(localStorage.getItem(LS_KEYS.accounts) || '[]') } catch { return [] }
 }
 
 function saveAccounts(accounts) {
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts))
+  localStorage.setItem(LS_KEYS.accounts, JSON.stringify(accounts))
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('token') || '')
-  const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
+  const token = ref(localStorage.getItem(LS_KEYS.token) || '')
+  const user = ref(JSON.parse(localStorage.getItem(LS_KEYS.user) || 'null'))
 
   // Auto-save current session to accounts list on init
   if (token.value && user.value) {
@@ -34,7 +33,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(username, password) {
     const res = await api.post('/auth/login', { username, password })
     token.value = res.data.access_token
-    localStorage.setItem('token', token.value)
+    localStorage.setItem(LS_KEYS.token, token.value)
     await fetchUser()
     // Save to account list (upsert by username)
     saveAccount({ token: token.value, user: user.value })
@@ -47,12 +46,12 @@ export const useAuthStore = defineStore('auth', () => {
     const account = accounts.find(a => a.user?.username === username)
     if (!account) return false
     token.value = account.token
-    localStorage.setItem('token', token.value)
+    localStorage.setItem(LS_KEYS.token, token.value)
     try {
       // Verify token is still valid by fetching user
       const res = await api.get('/auth/me')
       user.value = res.data
-      localStorage.setItem('user', JSON.stringify(user.value))
+      localStorage.setItem(LS_KEYS.user, JSON.stringify(user.value))
       // Update saved token in case it was refreshed
       account.token = token.value
       account.user = user.value
@@ -101,7 +100,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function fetchUser() {
     const res = await api.get('/auth/me')
     user.value = res.data
-    localStorage.setItem('user', JSON.stringify(user.value))
+    localStorage.setItem(LS_KEYS.user, JSON.stringify(user.value))
   }
 
   async function changePassword(currentPassword, newPassword) {
@@ -110,7 +109,7 @@ export const useAuthStore = defineStore('auth', () => {
       new_password: newPassword,
     })
     token.value = res.data.access_token
-    localStorage.setItem('token', token.value)
+    localStorage.setItem(LS_KEYS.token, token.value)
     await fetchUser()
     updateCurrentAccount()
   }
@@ -118,7 +117,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function changeEmail(newEmail) {
     const res = await api.put('/auth/change-email', { new_email: newEmail })
     user.value = res.data
-    localStorage.setItem('user', JSON.stringify(user.value))
+    localStorage.setItem(LS_KEYS.user, JSON.stringify(user.value))
     updateCurrentAccount()
   }
 
@@ -127,8 +126,8 @@ export const useAuthStore = defineStore('auth', () => {
     if (user.value) removeAccount(user.value.username)
     token.value = ''
     user.value = null
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
+    localStorage.removeItem(LS_KEYS.token)
+    localStorage.removeItem(LS_KEYS.user)
   }
 
   return {

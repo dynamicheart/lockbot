@@ -132,6 +132,11 @@ MESSAGES = {
     "notify.resource_available_header": "📢【资源可用提醒】\n资源已空闲，请在 {timeout} 内lock:\n\n",
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
+    # ── Help: news (inline) ──
+    "help.news_header": "📢 公告:\n",
+    # ── Help: project links ──
+    "help.platform_url": "部署平台: ",
+    "help.github_url": "GitHub: ",
     # ── State validation warnings ──
     "state.state_not_dict": "状态格式错误，已替换为默认值",
     "state.node_missing": "节点 '{name}' 不在状态中，已添加默认值",

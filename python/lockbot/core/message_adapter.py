@@ -25,11 +25,13 @@ class MessageAdapter(ABC):
         """Extract (user_id, group_id, command_text) from a parsed message."""
 
     @abstractmethod
-    def build_reply(self, content: str, user_ids: list, group_id: str = None) -> dict:
+    def build_reply(self, content, user_ids, group_id=None) -> dict:
         """Build a platform-specific reply message.
 
         Args:
-            content: Text content of the reply.
+            content: Text content (str) or list of mixed items:
+                - str → TEXT body element
+                - tuple(str, str) → TEXT(label) + LINK(href) body elements
             user_ids: List of user IDs to mention/notify.
             group_id: Optional group/channel ID to send the reply to.
 

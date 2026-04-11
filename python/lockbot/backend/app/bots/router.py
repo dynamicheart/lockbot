@@ -118,7 +118,7 @@ def _normalize_cluster_configs(cc):
 def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
     """
     Build the full config dict from a DB Bot record.
-    Decrypts sensitive fields and merges config_overrides.
+    Decrypts sensitive fields and merges config_overrides + site settings.
     """
     config = {
         "BOT_ID": bot.id,
@@ -137,7 +137,26 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
     if bot.config_overrides:
         overrides = json.loads(bot.config_overrides)
         config.update(overrides)
+    # Inject site-wide settings (lower priority than bot-level overrides)
+    _inject_site_settings(config, db)
     return config
+
+
+def _inject_site_settings(config: dict, db: Session | None = None):
+    """Merge site_settings into bot config if not already set."""
+    if db is None:
+        return
+    try:
+        from lockbot.backend.app.settings.router import get_all_settings
+
+        site = get_all_settings(db)
+        for key in ("github_url", "platform_url"):
+            if key not in config or not config[key]:
+                val = site.get(key, "")
+                if val:
+                    config[key.upper()] = val
+    except Exception:
+        pass  # don't break bot startup if settings table is unavailable
 
 
 # ── CRUD endpoints ───────────────────────────────────────────

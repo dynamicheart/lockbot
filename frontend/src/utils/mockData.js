@@ -455,3 +455,14 @@ export function appendLog(botId, category, level, message) {
 export function nextBotId() {
   return Math.max(...mockBots.map((b) => b.id), 0) + 1
 }
+
+// ---------------------------------------------------------------------------
+// Mock Site Settings
+// ---------------------------------------------------------------------------
+
+export const mockSettings = {
+  platform_url: '',
+  github_url: 'https://github.com/dynamicheart/lockbot',
+  admin_contact: '',
+  news_content: '',
+}

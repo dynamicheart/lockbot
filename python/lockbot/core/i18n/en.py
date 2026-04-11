@@ -138,6 +138,11 @@ MESSAGES = {
     "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
+    # ── Help: news (inline) ──
+    "help.news_header": "📢 Announcement:\n",
+    # ── Help: project links ──
+    "help.platform_url": "Platform: ",
+    "help.github_url": "GitHub: ",
     # ── State validation warnings ──
     "state.state_not_dict": "State is not a dict, replaced with defaults",
     "state.node_missing": "Node '{name}' missing from state, added with defaults",
