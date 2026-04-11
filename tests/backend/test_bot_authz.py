@@ -13,9 +13,21 @@ BOT_PAYLOAD = {
 
 
 def _create_bot(client, auth_header):
+    """Create a bot (auto-start mocked by conftest, stays stopped)."""
     resp = client.post("/api/bots", json=BOT_PAYLOAD, headers=auth_header)
     assert resp.status_code == 201
     return resp.json()["id"]
+
+
+def _create_running_bot(client, auth_header):
+    """Create a bot then start it via a dedicated mock (for stop tests)."""
+    bot_id = _create_bot(client, auth_header)
+    with patch("lockbot.backend.app.bots.router.bot_manager") as mock_mgr:
+        mock_mgr.is_running.return_value = False
+        mock_mgr.start_bot.return_value = 1000
+        resp = client.post(f"/api/bots/{bot_id}/start", headers=auth_header)
+        assert resp.status_code == 200
+    return bot_id
 
 
 def _register_user(client, username, email, password):
@@ -60,10 +72,8 @@ class TestOwnerAccess:
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     def test_owner_can_stop_bot(self, mock_mgr, client, auth_header):
-        bot_id = _create_bot(client, auth_header)
-        mock_mgr.is_running.return_value = False
-        mock_mgr.start_bot.return_value = 1000
-        client.post(f"/api/bots/{bot_id}/start", headers=auth_header)
+        bot_id = _create_running_bot(client, auth_header)
+        mock_mgr.is_running.return_value = True
         resp = client.post(f"/api/bots/{bot_id}/stop", headers=auth_header)
         assert resp.status_code == 200
 
@@ -113,10 +123,8 @@ class TestOtherUserDenied:
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     def test_other_user_cannot_stop_bot(self, mock_mgr, client, auth_header):
-        bot_id = _create_bot(client, auth_header)
-        mock_mgr.is_running.return_value = False
-        mock_mgr.start_bot.return_value = 1000
-        client.post(f"/api/bots/{bot_id}/start", headers=auth_header)
+        bot_id = _create_running_bot(client, auth_header)
+        mock_mgr.is_running.return_value = True
         other = _register_user(client, "other", "other@test.com", "pass123")
         resp = client.post(f"/api/bots/{bot_id}/stop", headers=other)
         assert resp.status_code == 404
@@ -153,10 +161,8 @@ class TestAdminAccess:
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     def test_admin_can_stop_other_bot(self, mock_mgr, client, auth_header, admin_header):
-        bot_id = _create_bot(client, auth_header)
-        mock_mgr.is_running.return_value = False
-        mock_mgr.start_bot.return_value = 2000
-        client.post(f"/api/bots/{bot_id}/start", headers=admin_header)
+        bot_id = _create_running_bot(client, auth_header)
+        mock_mgr.is_running.return_value = True
         resp = client.post(f"/api/bots/{bot_id}/stop", headers=admin_header)
         assert resp.status_code == 200
         assert resp.json()["status"] == "stopped"

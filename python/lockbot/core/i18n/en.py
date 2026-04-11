@@ -153,7 +153,7 @@ MESSAGES = {
     "state.booking_list_not_list": "Node '{name}': booking_list is not a list, reset to []",
     "state.entry_not_dict": "Node '{name}', {field}: not a dict, removed",
     "state.node_not_in_config": "Node '{name}' not in cluster_configs, removed",
-    "state.missing_key": "{label}: missing '{key}', set to default",
+    "state.missing_key": "{label}: missing '{field_name}', set to default",
     "state.device_excess": "Node '{name}': has {actual} devices, expected {expected}, excess removed",
     "state.device_not_dict": "Node '{name}', device {index}: not a dict, replaced with default",
     "state.device_missing": "Node '{name}', device {index}: missing, added with default",

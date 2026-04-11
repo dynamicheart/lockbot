@@ -16,8 +16,8 @@ import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.bots.router import router as bots_router
-from lockbot.backend.app.settings.router import router as settings_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
+from lockbot.backend.app.settings.router import router as settings_router
 
 # Configure lockbot loggers to output alongside uvicorn logs
 logging.basicConfig(

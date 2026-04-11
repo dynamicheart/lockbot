@@ -3,7 +3,7 @@
 Create a super_admin user for the LockBot platform.
 
 Usage:
-    python scripts/create_admin.py [--username USERNAME] [--email EMAIL] [--password PASSWORD]
+    python tools/create_super_admin.py [--username USERNAME] [--email EMAIL] [--password PASSWORD]
 
 If --password is not provided, a random password will be generated and printed.
 """

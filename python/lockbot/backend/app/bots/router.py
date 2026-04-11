@@ -201,11 +201,10 @@ def create_bot(
 
     # Auto-start the bot if within quota
     auto_started = False
-    auto_start_msg = ""
     if user.role not in ("admin", "super_admin"):
         running_count = db.query(Bot).filter(Bot.user_id == user.id, Bot.status == "running").count()
         if running_count >= user.max_running_bots:
-            auto_start_msg = f"Running bot limit reached ({user.max_running_bots}). Bot created but not started."
+            pass  # Quota reached — bot created but not started
         else:
             auto_started = True
     else:
@@ -221,9 +220,9 @@ def create_bot(
             db.commit()
             db.refresh(bot)
             _write_log(bot.id, "Bot created and auto-started")
-        except Exception as e:
+        except Exception:
+            db.rollback()
             logger.exception("Failed to auto-start bot %d", bot.id)
-            auto_start_msg = f"Bot created but failed to start: {e}"
 
     result = BotOut.model_validate(bot)
     return result
@@ -570,7 +569,7 @@ def _validate_user_info(user_info, label, config):
     for key in _REQUIRED_USER_KEYS:
         if key not in user_info:
             user_info[key] = "" if key == "user_id" else 0
-            warnings.append(t("state.missing_key", config=config, label=label, key=key))
+            warnings.append(t("state.missing_key", config=config, label=label, field_name=key))
     if "is_notified" not in user_info:
         user_info["is_notified"] = False
     return warnings
@@ -675,7 +674,9 @@ def _validate_device_state(state, cluster_configs, warnings, config):
         actual_count = len(node_state)
         # Trim excess devices
         if actual_count > expected_count:
-            warnings.append(t("state.device_excess", config=config, name=node_key, actual=actual_count, expected=expected_count))
+            warnings.append(
+                t("state.device_excess", config=config, name=node_key, actual=actual_count, expected=expected_count)
+            )
             node_state = node_state[:expected_count]
         # Validate each device
         device_list = []
@@ -691,7 +692,9 @@ def _validate_device_state(state, cluster_configs, warnings, config):
             # Validate dev_id
             dev.setdefault("dev_id", i)
             if dev["dev_id"] != i:
-                warnings.append(t("state.dev_id_corrected", config=config, name=node_key, index=i, old=dev["dev_id"], new=i))
+                warnings.append(
+                    t("state.dev_id_corrected", config=config, name=node_key, index=i, old=dev["dev_id"], new=i)
+                )
                 dev["dev_id"] = i
             # Sync dev_model from cluster_configs
             dev["dev_model"] = devices[i]
@@ -708,9 +711,18 @@ def _validate_device_state(state, cluster_configs, warnings, config):
                 current_users = []
             for j, u in enumerate(current_users):
                 if isinstance(u, dict):
-                    warnings.extend(_validate_user_info(u, f"Node '{node_key}', device {i}, current_users[{j}]", config))
+                    warnings.extend(
+                        _validate_user_info(u, f"Node '{node_key}', device {i}, current_users[{j}]", config)
+                    )
                 else:
-                    warnings.append(t("state.entry_not_dict", config=config, name=f"{node_key}, device {i}", field=f"current_users[{j}]"))
+                    warnings.append(
+                        t(
+                            "state.entry_not_dict",
+                            config=config,
+                            name=f"{node_key}, device {i}",
+                            field=f"current_users[{j}]",
+                        )
+                    )
                     current_users[j] = {"user_id": "", "start_time": 0, "duration": 0, "is_notified": False}
             dev["current_users"] = current_users
             device_list.append(dev)
@@ -745,7 +757,10 @@ def update_bot_state(
     # Validate and align state with cluster_configs
     cluster_configs = _normalize_cluster_configs(json.loads(bot.cluster_configs))
     config_dict = _build_config_dict(bot, db)
-    state, warnings = _validate_and_align_state(state, bot.bot_type, cluster_configs, config_dict)
+    from lockbot.core.config import Config
+
+    config_obj = Config(config_dict)
+    state, warnings = _validate_and_align_state(state, bot.bot_type, cluster_configs, config_obj)
 
     instance = bot_manager.get_instance(bot_id)
     if instance:
@@ -839,8 +854,9 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     args = dict(request.query_params)
 
-    logger.debug("Webhook bot=%d content_type=%s form=%s args=%s body_len=%d",
-                 bot_id, content_type, form, args, len(body))
+    logger.debug(
+        "Webhook bot=%d content_type=%s form=%s args=%s body_len=%d", bot_id, content_type, form, args, len(body)
+    )
 
     instance = bot_manager.get_instance(bot_id)
     if not instance:

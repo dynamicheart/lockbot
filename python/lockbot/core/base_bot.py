@@ -234,6 +234,7 @@ class BaseLockBot:
     def _get_site_value(cls, key: str) -> str:
         """Read a site setting from DB with TTL cache."""
         import time
+
         now = time.time()
         if now - cls._site_cache_ts > cls._SITE_CACHE_TTL:
             cls._site_cache = {}

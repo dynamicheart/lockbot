@@ -147,7 +147,7 @@ MESSAGES = {
     "state.booking_list_not_list": "节点 '{name}': booking_list 不是数组，已重置为 []",
     "state.entry_not_dict": "节点 '{name}', {field}: 格式错误（非对象），已移除",
     "state.node_not_in_config": "节点 '{name}' 不在 cluster_configs 中，已移除",
-    "state.missing_key": "{label}: 缺少 '{key}'，已设为默认值",
+    "state.missing_key": "{label}: 缺少 '{field_name}'，已设为默认值",
     "state.device_excess": "节点 '{name}': 有 {actual} 个设备，期望 {expected} 个，多余已移除",
     "state.device_not_dict": "节点 '{name}', 设备 {index}: 格式错误（非对象），已替换为默认值",
     "state.device_missing": "节点 '{name}', 设备 {index}: 缺失，已添加默认值",

@@ -32,8 +32,19 @@ _TestSession = sessionmaker(bind=_engine, autoflush=False, autocommit=False)
 @pytest.fixture(autouse=True)
 def _setup_db(tmp_path):
     """Create tables before each test, drop after. Use tmp_path for log files."""
+    from unittest.mock import patch
+
     import lockbot.backend.app.auth.models  # noqa: F401
     import lockbot.backend.app.bots.models  # noqa: F401
+
+    # Patch bot_manager so auto-start on bot creation is safely caught.
+    # Tests that explicitly test start/stop use their own @patch which overrides this.
+    _patcher = patch("lockbot.backend.app.bots.router.bot_manager")
+    _mock = _patcher.start()
+    _mock.start_bot.side_effect = RuntimeError("no-auto-start")
+    _mock.is_running.return_value = False
+    _mock.stop_bot.return_value = None
+    _mock.restart_bot.return_value = 9999
 
     # Redirect bot logs to a temp directory so tests don't pollute /data
     log_base = str(tmp_path / "bots")
@@ -50,6 +61,7 @@ def _setup_db(tmp_path):
 
     Base.metadata.create_all(bind=_engine)
     yield
+    _patcher.stop()
     Base.metadata.drop_all(bind=_engine)
 
     if original_get_log_dir is not None:

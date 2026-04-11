@@ -25,6 +25,7 @@
 - [ ] DingTalk adapter
 - [ ] Feishu/Lark adapter
 - [ ] WeChat Official Account adapter
+- [ ] Audit log system (operation history, super_admin only)
 
 ## 2026 Q4 — Cloud & Scale
 

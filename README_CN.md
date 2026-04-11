@@ -49,16 +49,25 @@ cd frontend && npm install && npm run dev
 ### Docker 部署
 
 ```bash
-docker build -f docker/Dockerfile -t lockbot .
+# 1. 生成 ENCRYPTION_KEY 和 JWT_SECRET
+python tools/gen_keys.py
 
-# 平台模式（默认）
-docker run -d -p 8000:8000 \
+# 2. 拉取预构建镜像（或从源码构建）
+docker pull ghcr.io/dynamicheart/lockbot:latest
+# docker build -f docker/Dockerfile -t lockbot .
+
+# 3. 运行（将密钥替换为生成的值）
+docker run -d --name lockbot -p 8000:8000 \
   -e JWT_SECRET=your-secret \
   -e ENCRYPTION_KEY=your-fernet-key \
   -v lockbot-data:/app/python/lockbot/data \
-  -v lockbot-state:/data/bots \
-  lockbot
+  ghcr.io/dynamicheart/lockbot:latest
+
+# 4. 创建 super_admin（密码自动生成并打印）
+docker exec -it lockbot python tools/create_super_admin.py --username admin --email admin@example.com
 ```
+
+> **数据库**：SQLite 文件自动创建于 `DATA_DIR/lockbot.db`（默认：`python/lockbot/data/lockbot.db`），可通过 `DATA_DIR` 环境变量自定义。
 
 ## 机器人配置
 

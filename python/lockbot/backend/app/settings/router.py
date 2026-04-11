@@ -2,14 +2,15 @@
 Settings API — public read + admin write.
 """
 
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.auth.dependencies import require_super_admin
+from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.settings.models import SiteSetting
 
@@ -19,8 +20,6 @@ router = APIRouter(tags=["settings"])
 PUBLIC_KEYS = {"platform_url", "admin_contact"}
 
 # --- Env-var fallbacks ---
-import os
-
 _DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
 
 _ENV_FALLBACKS = {
@@ -103,6 +102,7 @@ def batch_update_settings(
     # Invalidate bot site-settings cache so bots pick up changes immediately
     try:
         from lockbot.core.base_bot import BaseBot
+
         BaseBot._invalidate_site_cache()
     except Exception:
         pass

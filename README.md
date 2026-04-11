@@ -49,16 +49,25 @@ cd frontend && npm install && npm run dev
 ### Docker
 
 ```bash
-docker build -f docker/Dockerfile -t lockbot .
+# 1. Generate ENCRYPTION_KEY and JWT_SECRET
+python tools/gen_keys.py
 
-# Platform mode (default)
-docker run -d -p 8000:8000 \
+# 2. Pull pre-built image (or build from source)
+docker pull ghcr.io/dynamicheart/lockbot:latest
+# docker build -f docker/Dockerfile -t lockbot .
+
+# 3. Run (replace the keys with generated values)
+docker run -d --name lockbot -p 8000:8000 \
   -e JWT_SECRET=your-secret \
   -e ENCRYPTION_KEY=your-fernet-key \
   -v lockbot-data:/app/python/lockbot/data \
-  -v lockbot-state:/data/bots \
-  lockbot
+  ghcr.io/dynamicheart/lockbot:latest
+
+# 4. Create super_admin (password auto-generated and printed)
+docker exec -it lockbot python tools/create_super_admin.py --username admin --email admin@example.com
 ```
+
+> **Database**: SQLite file auto-created at `DATA_DIR/lockbot.db` (default: `python/lockbot/data/lockbot.db`). Override with `DATA_DIR` env var.
 
 ## Bot Configuration
 

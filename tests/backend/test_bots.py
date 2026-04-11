@@ -390,7 +390,7 @@ class TestUpdateBotState:
         }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
-        assert any("missing" in w for w in resp.json()["warnings"])
+        assert any("start_time" in w or "duration" in w for w in resp.json()["warnings"])
 
     def test_update_device_valid(self, client, admin_header, tmp_path):
         bot_id = self._create_bot(
@@ -421,7 +421,7 @@ class TestUpdateBotState:
         }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
-        assert any("missing" in w for w in resp.json()["warnings"])
+        assert any("缺失" in w or "missing" in w for w in resp.json()["warnings"])
 
     def test_update_device_too_many(self, client, admin_header, tmp_path):
         bot_id = self._create_bot(
@@ -439,7 +439,7 @@ class TestUpdateBotState:
         }
         resp = client.put(f"/api/bots/{bot_id}/state", json=state, headers=admin_header)
         assert resp.status_code == 200
-        assert any("excess" in w for w in resp.json()["warnings"])
+        assert any("多余" in w or "excess" in w for w in resp.json()["warnings"])
 
     def test_update_device_model_synced(self, client, admin_header, tmp_path):
         bot_id = self._create_bot(
