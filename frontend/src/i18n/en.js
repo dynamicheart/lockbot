@@ -53,6 +53,7 @@ export default {
     hasAccount: 'Already have an account?',
     sessionExpired: 'Session expired, please login again',
     registerDisabled: 'Registration is disabled. Contact admin to create an account.',
+    tryDemo: 'Try the demo',
     usernameLength: '3-64 characters',
     emailInvalid: 'Invalid email format',
     demoHint: 'This is a demo environment. You can enter any username and password to log in, or register a new account.',

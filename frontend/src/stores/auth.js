@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '../utils/api'
-import { LS_KEYS } from '../utils/demoMode'
+import { LS_KEYS, isDemoMode } from '../utils/demoMode'
 
 function loadAccounts() {
   try { return JSON.parse(localStorage.getItem(LS_KEYS.accounts) || '[]') } catch { return [] }
@@ -122,8 +122,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
-    // Remove current account from saved list
-    if (user.value) removeAccount(user.value.username)
+    // In demo mode, keep saved accounts so user can easily re-login
+    if (!isDemoMode && user.value) removeAccount(user.value.username)
     token.value = ''
     user.value = null
     localStorage.removeItem(LS_KEYS.token)

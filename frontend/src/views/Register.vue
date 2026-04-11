@@ -56,44 +56,21 @@
         {{ $t('auth.hasAccount') }} <router-link to="/login" class="link">{{ $t('auth.login') }}</router-link>
       </p>
 
-      <!-- Theme & locale -->
-      <div class="login-footer">
-        <el-tooltip :content="themeLabel">
-          <el-button text circle @click="cycleTheme">
-            <el-icon :size="18">
-              <Sunny v-if="themeMode === 'light'" />
-              <Moon v-else-if="themeMode === 'dark'" />
-              <Monitor v-else />
-            </el-icon>
-          </el-button>
-        </el-tooltip>
-        <el-dropdown @command="switchLocale" trigger="click">
-          <el-button text circle>
-            <span style="font-size: 13px; font-weight: 600">{{ currentLocale === 'zh-CN' ? '中' : 'En' }}</span>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="zh-CN" :disabled="currentLocale === 'zh-CN'">中文</el-dropdown-item>
-              <el-dropdown-item command="en" :disabled="currentLocale === 'en'">English</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
+      <AuthFooter />
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { User, Lock, Message } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { setLocale, getLocale } from '../i18n'
 import { isDemoMode } from '../utils/demoMode'
+import AuthFooter from '../components/AuthFooter.vue'
 
-const THEME_KEY = 'lockbot_theme'
 const { t } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -128,36 +105,6 @@ const rules = {
     { validator: validateConfirm, trigger: 'blur' },
   ],
 }
-
-// --- Theme (sync with MainLayout & Login) ---
-const themeMode = ref(localStorage.getItem(THEME_KEY) || 'light')
-const themeLabel = ref('')
-
-function applyTheme(mode) {
-  themeMode.value = mode
-  localStorage.setItem(THEME_KEY, mode)
-  const dark = mode === 'dark' || (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', dark)
-  themeLabel.value = t(`theme.${mode}`)
-}
-
-function cycleTheme() {
-  const order = ['light', 'dark', 'auto']
-  const next = order[(order.indexOf(themeMode.value) + 1) % order.length]
-  applyTheme(next)
-}
-
-// --- Locale ---
-const currentLocale = ref(getLocale())
-
-function switchLocale(locale) {
-  setLocale(locale)
-  currentLocale.value = locale
-}
-
-onMounted(() => {
-  applyTheme(themeMode.value)
-})
 
 async function handleRegister() {
   if (!isDemoMode) {
@@ -241,11 +188,5 @@ async function handleRegister() {
 }
 .register-hint .link:hover {
   text-decoration: underline;
-}
-.login-footer {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  margin-top: 8px;
 }
 </style>

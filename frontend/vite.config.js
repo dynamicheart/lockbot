@@ -1,5 +1,11 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+
+// Read version from pyproject.toml (single source of truth)
+const pyproject = readFileSync(resolve(__dirname, '../pyproject.toml'), 'utf-8')
+const version = pyproject.match(/version\s*=\s*"([^"]+)"/)?.[1] ?? '0.0.0'
 
 export default defineConfig(({ mode }) => {
   const isDemo = mode === 'demo'
@@ -8,6 +14,7 @@ export default defineConfig(({ mode }) => {
     base: isDemo ? '/lockbot/' : '/',
     define: {
       'import.meta.env.VITE_DEMO_MODE': JSON.stringify(isDemo ? 'true' : ''),
+      __APP_VERSION__: JSON.stringify(version),
     },
     server: {
       port: 3000,

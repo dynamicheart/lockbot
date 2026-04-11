@@ -120,7 +120,7 @@ router.beforeEach((to, _from, next) => {
   }
   // Allow logged-in users to access Login page (for switching accounts)
   // In demo mode, also allow access to Register page
-  if (to.name === 'Register' && token && !isDemoMode) {
+  if (to.name === 'Register' && !isDemoMode) {
     return next('/')
   }
   if (to.meta.admin && !['admin', 'super_admin'].includes(user?.role)) {

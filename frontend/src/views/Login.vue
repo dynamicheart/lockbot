@@ -53,6 +53,9 @@
         {{ $t('auth.registerDisabled') }}
         <span v-if="adminContact" class="admin-contact"> {{ adminContact }}</span>
       </p>
+      <p v-if="!isDemoMode" class="register-hint">
+        <a :href="demoUrl" target="_blank" class="link">{{ $t('auth.tryDemo') }}</a>
+      </p>
 
       <!-- Saved accounts -->
       <div v-if="savedAccounts.length > 0" class="saved-accounts">
@@ -75,28 +78,7 @@
       </div>
 
       <!-- Theme & locale -->
-      <div class="login-footer">
-        <el-tooltip :content="themeLabel">
-          <el-button text circle @click="cycleTheme">
-            <el-icon :size="18">
-              <Sunny v-if="themeMode === 'light'" />
-              <Moon v-else-if="themeMode === 'dark'" />
-              <Monitor v-else />
-            </el-icon>
-          </el-button>
-        </el-tooltip>
-        <el-dropdown @command="switchLocale" trigger="click">
-          <el-button text circle>
-            <span style="font-size: 13px; font-weight: 600">{{ currentLocale === 'zh-CN' ? '中' : 'En' }}</span>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="zh-CN" :disabled="currentLocale === 'zh-CN'">中文</el-dropdown-item>
-              <el-dropdown-item command="en" :disabled="currentLocale === 'en'">English</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
-      </div>
+      <AuthFooter />
     </div>
   </div>
 </template>
@@ -108,8 +90,8 @@ import { useAuthStore } from '../stores/auth'
 import { User, Lock, ArrowRight } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { setLocale, getLocale } from '../i18n'
 import { isDemoMode } from '../utils/demoMode'
+import AuthFooter from '../components/AuthFooter.vue'
 
 const THEME_KEY = 'lockbot_theme'
 const { t } = useI18n()
@@ -128,6 +110,7 @@ const savedAccounts = computed(() =>
   authStore.getSavedAccounts().filter(a => isDemoMode || !a.token?.startsWith('demo:'))
 )
 const adminContact = ref('')
+const demoUrl = import.meta.env.VITE_DEMO_URL || 'https://dynamicheart.github.io/lockbot/'
 
 async function fetchSettings() {
   try {
@@ -148,34 +131,7 @@ async function handleSwitchTo(username) {
   }
 }
 
-// --- Theme (sync with MainLayout) ---
-const themeMode = ref(localStorage.getItem(THEME_KEY) || 'light')
-const themeLabel = ref('')
-
-function applyTheme(mode) {
-  themeMode.value = mode
-  localStorage.setItem(THEME_KEY, mode)
-  const dark = mode === 'dark' || (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', dark)
-  themeLabel.value = t(`theme.${mode}`)
-}
-
-function cycleTheme() {
-  const order = ['light', 'dark', 'auto']
-  const next = order[(order.indexOf(themeMode.value) + 1) % order.length]
-  applyTheme(next)
-}
-
-// --- Locale ---
-const currentLocale = ref(getLocale())
-
-function switchLocale(locale) {
-  setLocale(locale)
-  currentLocale.value = locale
-}
-
 onMounted(() => {
-  applyTheme(themeMode.value)
   fetchSettings()
 })
 
@@ -261,12 +217,6 @@ async function handleLogin() {
 .admin-contact {
   font-weight: 500;
   color: var(--lb-text-primary);
-}
-.login-footer {
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  margin-top: 8px;
 }
 .saved-accounts {
   margin-top: 20px;

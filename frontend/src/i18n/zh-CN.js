@@ -53,6 +53,7 @@ export default {
     hasAccount: '已有账号？',
     sessionExpired: '登录已过期，请重新登录',
     registerDisabled: '注册已关闭，请联系管理员开通账户',
+    tryDemo: '体验 Demo',
     usernameLength: '3-64 个字符',
     emailInvalid: '邮箱格式不正确',
     demoHint: '这是演示环境，您可以输入任意用户名和密码登录，也可以注册新账号。',
