@@ -112,12 +112,13 @@
               <template v-if="getBotStats(row).utilization">
                 <div class="list-usage-bar-container">
                   <div class="list-usage-bar">
-                    <div class="usage-bar-fill inuse" :style="{ width: getUsagePercent(row) + '%' }"></div>
+                    <div class="usage-bar-fill idle" :style="{ width: getIdlePercent(row) + '%' }"></div>
+                    <div class="usage-bar-fill inuse" :style="{ width: getInUsePercent(row) + '%' }"></div>
                   </div>
                   <span class="usage-label">{{ getUsageText(row) }}</span>
                 </div>
               </template>
-              <span v-else>-</span>
+              <span v-else class="usage-label">-</span>
             </template>
           </el-table-column>
           <el-table-column :label="$t('botCard.lastActive')" width="110">
@@ -202,10 +203,16 @@ function getResourceLabel(row) {
   return `${rc.nodes} nodes`
 }
 
-function getUsagePercent(row) {
+function getInUsePercent(row) {
   const u = getBotStats(row).utilization
   if (!u || u.total === 0) return 0
   return Math.round((u.inUse / u.total) * 100)
+}
+
+function getIdlePercent(row) {
+  const u = getBotStats(row).utilization
+  if (!u || u.total === 0) return 100
+  return Math.round((u.idle / u.total) * 100)
 }
 
 function getUsageText(row) {
@@ -309,6 +316,11 @@ function getUsageText(row) {
   border-radius: 3px;
   background: var(--el-fill-color-light);
   overflow: hidden;
+  display: flex;
+}
+.list-usage-bar .usage-bar-fill.idle {
+  background: var(--el-color-info-light-5);
+  transition: width 0.3s;
 }
 .list-usage-bar .usage-bar-fill.inuse {
   background: var(--el-color-success);

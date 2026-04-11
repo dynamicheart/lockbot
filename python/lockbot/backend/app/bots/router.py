@@ -236,13 +236,25 @@ def get_running_states(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return live state for all running bots owned by the user."""
-    user_bots = db.query(Bot).filter(Bot.user_id == user.id, Bot.status == "running").all()
+    """Return state for all bots owned by the user (running from memory, stopped from file)."""
+    user_bots = db.query(Bot).filter(Bot.user_id == user.id).all()
     result = {}
     for bot in user_bots:
         instance = bot_manager.get_instance(bot.id)
         if instance:
             result[bot.id] = instance.state.bot_state
+        else:
+            # Bot not running — try loading persisted state file
+            state_file = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
+            if os.path.exists(state_file):
+                try:
+                    with open(state_file, encoding="utf-8") as f:
+                        raw = json.load(f)
+                        state = raw.get("bot_state") or raw.get("cluster_state") or raw.get("cluster_status")
+                        if state:
+                            result[bot.id] = state
+                except Exception:
+                    pass
     return result
 
 
