@@ -28,8 +28,9 @@ RUN pip install --no-cache-dir -e .
 # Copy built frontend assets for platform mode
 COPY --from=frontend-builder /build/dist /app/frontend/dist
 
-# Copy project metadata
+# Copy project metadata and tools
 COPY README.md LICENSE ./
+COPY tools/ /app/tools/
 
 # Data directory for SQLite and encryption key
 RUN mkdir -p /app/python/lockbot/data

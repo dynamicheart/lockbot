@@ -22,7 +22,7 @@ from sqlalchemy.orm import sessionmaker
 
 from lockbot.backend.app.auth.router import _hash_password
 from lockbot.backend.app.config import BASE_DIR
-from lockbot.backend.app.database import Base, get_db_url
+from lockbot.backend.app.database import Base
 from lockbot.backend.app.auth.models import User
 
 
