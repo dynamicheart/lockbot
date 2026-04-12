@@ -6,6 +6,9 @@
 
 [English](README.md) | [在线演示](https://dynamicheart.github.io/lockbot/)
 
+[![PyPI version](https://img.shields.io/pypi/v/lockbot?color=blue)](https://pypi.org/project/lockbot/)
+[![Docker Image](https://img.shields.io/badge/ghcr.io-dynamicheart%2Flockbot-blue?logo=docker)](https://github.com/DynamicHeart/lockbot/pkgs/container/lockbot)
+
 ## 功能特性
 
 - **设备锁机器人** — 按单个 GPU/设备维度锁定和释放
@@ -60,14 +63,14 @@ docker pull ghcr.io/dynamicheart/lockbot:latest
 docker run -d --name lockbot -p 8000:8000 \
   -e JWT_SECRET=your-secret \
   -e ENCRYPTION_KEY=your-fernet-key \
-  -v lockbot-data:/app/python/lockbot/data \
+  -v lockbot-data:/data \
   ghcr.io/dynamicheart/lockbot:latest
 
 # 4. 创建 super_admin（密码自动生成并打印）
 docker exec -it lockbot python tools/create_super_admin.py --username admin --email admin@example.com
 ```
 
-> **数据库**：SQLite 文件自动创建于 `DATA_DIR/lockbot.db`（默认：`python/lockbot/data/lockbot.db`），可通过 `DATA_DIR` 环境变量自定义。
+> **数据持久化**：所有数据（SQLite 数据库、机器人状态文件）统一存储在 `/data` 目录下，可通过 `DATA_DIR` 环境变量自定义。
 
 ## 机器人配置
 
