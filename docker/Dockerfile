@@ -32,15 +32,11 @@ COPY --from=frontend-builder /build/dist /app/frontend/dist
 COPY README.md LICENSE ./
 COPY tools/ /app/tools/
 
-# Data directory for SQLite and encryption key
-RUN mkdir -p /app/python/lockbot/data
-
 # Default environment
 ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai \
-    FRONTEND_DIST=/app/frontend/dist \
-    DATA_DIR=/app/python/lockbot/data
+    FRONTEND_DIST=/app/frontend/dist
 
 # Default: platform mode (FastAPI + frontend)
 EXPOSE 8000

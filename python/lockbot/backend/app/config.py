@@ -8,10 +8,12 @@ from pathlib import Path
 # Project root directory (lockbot/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
+DATA_DIR = os.environ.get("DATA_DIR", "/data")
+
 # Database
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
-    f"sqlite:///{BASE_DIR / 'data' / 'lockbot.db'}",
+    f"sqlite:///{os.path.join(DATA_DIR, 'lockbot.db')}",
 )
 
 # JWT
