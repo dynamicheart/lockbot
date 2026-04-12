@@ -39,7 +39,8 @@ RUN mkdir -p /app/python/lockbot/data
 ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai \
-    FRONTEND_DIST=/app/frontend/dist
+    FRONTEND_DIST=/app/frontend/dist \
+    DATA_DIR=/app/python/lockbot/data
 
 # Default: platform mode (FastAPI + frontend)
 EXPOSE 8000
