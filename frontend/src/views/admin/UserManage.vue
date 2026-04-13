@@ -3,7 +3,7 @@
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
       <h2 style="margin: 0">{{ $t('admin.userManagement') }} <span style="font-size: 14px; font-weight: 400; color: var(--lb-text-secondary)">({{ users.length }})</span></h2>
       <div style="display: flex; gap: 8px">
-        <el-button v-if="authStore.isSuperAdmin" type="primary" @click="openCreateDialog">
+        <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon> {{ $t('admin.addUser') }}
         </el-button>
         <el-button v-if="authStore.isSuperAdmin" @click="handleBackup">
