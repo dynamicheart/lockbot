@@ -30,6 +30,12 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserOutWithStats(UserOut):
+    """User info with bot statistics."""
+    bot_count: int = 0
+    running_count: int = 0
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"

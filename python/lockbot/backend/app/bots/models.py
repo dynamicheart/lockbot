@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lockbot.backend.app.database import Base
@@ -34,6 +34,10 @@ class Bot(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
     last_request_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     config_overrides: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+
+    # Soft delete
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

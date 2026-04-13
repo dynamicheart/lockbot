@@ -3,13 +3,16 @@ Admin API routes.
 """
 
 import contextlib
+import io
+import json
 import os
 import shutil
 import tempfile
+import zipfile
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -21,6 +24,7 @@ from lockbot.backend.app.auth.schemas import (
     AdminEditUser,
     PasswordResetOut,
     UserOut,
+    UserOutWithStats,
 )
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
@@ -68,18 +72,30 @@ def admin_create_user(
     return PasswordResetOut(id=user.id, username=user.username, new_password=raw_password)
 
 
-@router.get("/users", response_model=list[UserOut])
+@router.get("/users", response_model=list[UserOutWithStats])
 def list_users(
     operator: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """List users visible to the operator.
-    Super_admin sees all; admin sees only users (not admins/super_admins)."""
+    Super_admin sees all; admin sees only users (not admins/super_admins).
+    Includes bot_count and running_count for each user."""
     if operator.role == "super_admin":
-        return db.query(User).all()
+        users = db.query(User).all()
+    else:
+        # admin: see regular users + self
+        users = db.query(User).filter((User.role == "user") | (User.id == operator.id)).all()
 
-    # admin: see regular users + self
-    return db.query(User).filter((User.role == "user") | (User.id == operator.id)).all()
+    # Attach bot stats for each user
+    result = []
+    for u in users:
+        data = UserOut.model_validate(u)
+        bot_count = db.query(Bot).filter(Bot.user_id == u.id, Bot.is_deleted.is_(False)).count()
+        running_count = db.query(Bot).filter(
+            Bot.user_id == u.id, Bot.status == "running", Bot.is_deleted.is_(False),
+        ).count()
+        result.append({**data.model_dump(), "bot_count": bot_count, "running_count": running_count})
+    return result
 
 
 @router.put("/users/{user_id}", response_model=UserOut)
@@ -169,7 +185,7 @@ def list_all_bots(
     _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    rows = db.query(Bot, User.username).join(User, Bot.user_id == User.id).all()
+    rows = db.query(Bot, User.username).join(User, Bot.user_id == User.id).filter(Bot.is_deleted.is_(False)).all()
     return [
         {c.name: getattr(bot, c.name) for c in bot.__table__.columns} | {"owner": username} for bot, username in rows
     ]
@@ -181,7 +197,7 @@ def platform_stats(
     db: Session = Depends(get_db),
 ):
     total_users = db.query(User).count()
-    bots = db.query(Bot).all()
+    bots = db.query(Bot).filter(Bot.is_deleted.is_(False)).all()
     return {
         "totalUsers": total_users,
         "totalBots": len(bots),
@@ -221,4 +237,44 @@ def download_backup(
         filename=filename,
         media_type="application/x-sqlite3",
         background=BackgroundTask(os.unlink, tmp_path),
+    )
+
+
+_DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
+
+
+@router.get("/bot-states")
+def download_all_bot_states(
+    _admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Download all bot state files as a zip archive (super_admin only)."""
+    bots = db.query(Bot).filter(Bot.is_deleted.is_(False)).all()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for bot in bots:
+            # Determine data dir from config_overrides or default
+            data_dir = _DEFAULT_DATA_DIR
+            try:
+                overrides = json.loads(bot.config_overrides or "{}")
+                data_dir = overrides.get("DATA_DIR") or _DEFAULT_DATA_DIR
+            except (json.JSONDecodeError, AttributeError):
+                pass
+            state_file = os.path.join(data_dir, "bots", str(bot.id), "bot_state.json")
+            folder_name = f"bot_{bot.id}_{bot.name}"
+            if os.path.exists(state_file):
+                zf.write(state_file, f"{folder_name}/bot_state.json")
+            else:
+                # Create an empty placeholder so the admin knows the bot has no state
+                zf.writestr(f"{folder_name}/bot_state.json", "{}")
+
+    buf.seek(0)
+    content = buf.read()
+
+    filename = f"lockbot_states_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

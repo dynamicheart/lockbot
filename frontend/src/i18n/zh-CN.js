@@ -166,7 +166,7 @@ export default {
     start: '启动',
     stop: '停止',
     deleteBot: '删除机器人',
-    confirmDelete: '确定要删除这个机器人吗？此操作不可撤销。',
+    confirmDelete: '确定要删除这个机器人吗？',
     clusterState: '集群状态',
     editConfig: '编辑配置',
     saveWillRestart: '保存后机器人将自动重启',
@@ -258,6 +258,9 @@ export default {
     adminRole: '管理员',
     userRole: '用户',
     backupDatabase: '备份数据库',
+    downloadAllStates: '下载全部 State',
+    botCount: '机器人总数',
+    runningCount: '运行中',
     siteSettings: '站点设置',
   },
 

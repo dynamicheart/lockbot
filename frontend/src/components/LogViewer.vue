@@ -101,6 +101,10 @@ function loadMore() {
 
 function formatTime(t) {
   if (!t) return ''
+  // Treat naive datetime strings as UTC (old logs may lack 'Z')
+  if (typeof t === 'string' && !t.endsWith('Z') && !t.includes('+')) {
+    t = t + 'Z'
+  }
   return new Date(t).toLocaleString()
 }
 

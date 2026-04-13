@@ -343,21 +343,16 @@ const botOwnerRole = computed(() => bot.value?.owner_role || 'user')
 
 // Permission rules:
 // - super_admin: can do anything
-// - admin: can edit/delete/transfer own + regular users' bots
-//   CANNOT operate on other admins' or super_admin's bots
+// - admin: can only view/start/stop other users' bots, cannot edit/delete/transfer
 // - user: can only edit/delete own bots, no transfer
 const canEdit = computed(() => {
   if (isOwner.value) return true
   if (authStore.isSuperAdmin) return true
-  if (authStore.isAdmin && !['admin', 'super_admin'].includes(botOwnerRole.value)) return true
   return false
 })
 const canDelete = computed(() => canEdit.value)
 const canTransfer = computed(() => {
-  if (!authStore.isAdmin) return false
-  if (authStore.isSuperAdmin) return true
-  // Admin cannot transfer other admins' or super_admin's bots
-  if (!isOwner.value && ['admin', 'super_admin'].includes(botOwnerRole.value)) return false
+  if (!authStore.isSuperAdmin) return false
   return true
 })
 
@@ -666,7 +661,7 @@ async function handleDelete() {
   try {
     await botsStore.deleteBot(bot.value.id)
     ElMessage.success(t('common.success'))
-    router.back()
+    router.push('/bots')
   } catch {
     // handled by interceptor
   } finally {

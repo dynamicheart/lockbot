@@ -72,6 +72,25 @@ def _migrate_users_must_change_password():
         logger.info("Migrated users: added 'must_change_password' column")
 
 
+def _migrate_bot_soft_delete():
+    """Add 'is_deleted' and 'deleted_at' columns to bots if they don't exist (SQLite migration)."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    insp = sa_inspect(engine)
+    if "bots" not in insp.get_table_names():
+        return
+    columns = [c["name"] for c in insp.get_columns("bots")]
+    if "is_deleted" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bots ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT 0"))
+        logger.info("Migrated bots: added 'is_deleted' column")
+    if "deleted_at" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bots ADD COLUMN deleted_at DATETIME"))
+        logger.info("Migrated bots: added 'deleted_at' column")
+
+
 def _seed_dev_admin():
     """Create admin user in dev mode if it doesn't exist."""
     from lockbot.backend.app.config import (
@@ -153,6 +172,7 @@ async def lifespan(app: FastAPI):
     _migrate_bot_logs_category()
     _migrate_bot_consecutive_failures()
     _migrate_users_must_change_password()
+    _migrate_bot_soft_delete()
     _seed_dev_admin()
     _seed_dev_users()
     _reset_running_bots()
@@ -196,7 +216,9 @@ def _reset_running_bots():
     db = SessionLocal()
     try:
         # Collect all bots that need recovery (running + error)
-        recover_bots = db.query(Bot).filter(Bot.status.in_(["running", "error"])).all()
+        recover_bots = db.query(Bot).filter(
+            Bot.status.in_(["running", "error"]), Bot.is_deleted.is_(False),
+        ).all()
         if not recover_bots:
             return
 

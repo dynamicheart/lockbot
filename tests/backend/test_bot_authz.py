@@ -137,18 +137,17 @@ class TestOtherUserDenied:
 
 
 class TestAdminAccess:
-    """Admin can access and control any bot regardless of ownership."""
+    """Admin can view/start/stop any bot, but cannot edit/delete/transfer other users' bots."""
 
     def test_admin_can_get_other_bot(self, client, auth_header, admin_header):
         bot_id = _create_bot(client, auth_header)
         resp = client.get(f"/api/bots/{bot_id}", headers=admin_header)
         assert resp.status_code == 200
 
-    def test_admin_can_update_other_bot(self, client, auth_header, admin_header):
+    def test_admin_cannot_update_other_bot(self, client, auth_header, admin_header):
         bot_id = _create_bot(client, auth_header)
         resp = client.put(f"/api/bots/{bot_id}", json={"name": "admin_renamed"}, headers=admin_header)
-        assert resp.status_code == 200
-        assert resp.json()["name"] == "admin_renamed"
+        assert resp.status_code == 403
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     def test_admin_can_start_other_bot(self, mock_mgr, client, auth_header, admin_header):
@@ -167,10 +166,10 @@ class TestAdminAccess:
         assert resp.status_code == 200
         assert resp.json()["status"] == "stopped"
 
-    def test_admin_can_delete_other_bot(self, client, auth_header, admin_header):
+    def test_admin_cannot_delete_other_bot(self, client, auth_header, admin_header):
         bot_id = _create_bot(client, auth_header)
         resp = client.delete(f"/api/bots/{bot_id}", headers=admin_header)
-        assert resp.status_code == 204
+        assert resp.status_code == 403
 
     def test_admin_can_get_other_bot_logs(self, client, auth_header, admin_header):
         bot_id = _create_bot(client, auth_header)

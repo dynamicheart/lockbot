@@ -144,6 +144,40 @@ class TestDeleteBot:
         resp = client.get(f"/api/bots/{bot_id}", headers=admin_header)
         assert resp.status_code == 404
 
+    def test_delete_soft(self, client, admin_header, db_session):
+        """Soft delete: record still exists in DB with is_deleted=True."""
+        from lockbot.backend.app.bots.models import Bot
+
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        resp = client.delete(f"/api/bots/{bot_id}", headers=admin_header)
+        assert resp.status_code == 204
+
+        bot = db_session.get(Bot, bot_id)
+        assert bot is not None
+        assert bot.is_deleted is True
+        assert bot.deleted_at is not None
+
+    def test_deleted_bot_not_in_list(self, client, admin_header):
+        """Deleted bot should not appear in the bot list."""
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+
+        client.delete(f"/api/bots/{bot_id}", headers=admin_header)
+
+        resp = client.get("/api/bots", headers=admin_header)
+        assert resp.status_code == 200
+        assert not any(b["id"] == bot_id for b in resp.json())
+
+    def test_deleted_bot_name_reusable(self, client, admin_header):
+        """After soft delete, the same name can be reused."""
+        client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        client.delete("/api/bots/1", headers=admin_header)
+
+        resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        assert resp.status_code == 201
+        assert resp.json()["name"] == "mybot"
+
     def test_delete_not_found(self, client, admin_header):
         resp = client.delete("/api/bots/99999", headers=admin_header)
         assert resp.status_code == 404

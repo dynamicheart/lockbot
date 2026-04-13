@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.auth.dependencies import get_current_user, require_admin
+from lockbot.backend.app.auth.dependencies import get_current_user, require_admin, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.bots.manager import bot_manager
@@ -57,7 +57,7 @@ def _write_log(bot_id: int, message: str, level: str = "INFO", category: str = "
         "category": category,
         "level": level,
         "message": message,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.utcnow().isoformat() + "Z",
     }
     try:
         with open(log_path, "a", encoding="utf-8") as f:
@@ -101,7 +101,7 @@ def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
 def _get_user_bot(bot_id: int, user: User, db: Session) -> Bot:
     """Fetch a bot owned by the user (or any bot if admin), or raise 404."""
     bot = db.get(Bot, bot_id)
-    if not bot or (bot.user_id != user.id and user.role not in ("admin", "super_admin")):
+    if not bot or bot.is_deleted or (bot.user_id != user.id and user.role not in ("admin", "super_admin")):
         raise HTTPException(status_code=404, detail="Bot not found")
     return bot
 
@@ -167,7 +167,7 @@ def list_bots(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(Bot).filter(Bot.user_id == user.id).all()
+    return db.query(Bot).filter(Bot.user_id == user.id, Bot.is_deleted.is_(False)).all()
 
 
 @router.post("", response_model=BotOut, status_code=status.HTTP_201_CREATED)
@@ -179,7 +179,9 @@ def create_bot(
     if body.bot_type.upper() not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
 
-    exists = db.query(Bot).filter(Bot.user_id == user.id, Bot.name == body.name).first()
+    exists = db.query(Bot).filter(
+        Bot.user_id == user.id, Bot.name == body.name, Bot.is_deleted.is_(False),
+    ).first()
     if exists:
         raise HTTPException(status_code=409, detail="Bot name already exists")
 
@@ -202,7 +204,9 @@ def create_bot(
     # Auto-start the bot if within quota
     auto_started = False
     if user.role not in ("admin", "super_admin"):
-        running_count = db.query(Bot).filter(Bot.user_id == user.id, Bot.status == "running").count()
+        running_count = db.query(Bot).filter(
+            Bot.user_id == user.id, Bot.status == "running", Bot.is_deleted.is_(False),
+        ).count()
         if running_count >= user.max_running_bots:
             pass  # Quota reached — bot created but not started
         else:
@@ -237,7 +241,7 @@ def get_running_states(
     db: Session = Depends(get_db),
 ):
     """Return state for all bots owned by the user (running from memory, stopped from file)."""
-    user_bots = db.query(Bot).filter(Bot.user_id == user.id).all()
+    user_bots = db.query(Bot).filter(Bot.user_id == user.id, Bot.is_deleted.is_(False)).all()
     result = {}
     for bot in user_bots:
         instance = bot_manager.get_instance(bot.id)
@@ -277,16 +281,21 @@ def update_bot(
 ):
     bot = _get_user_bot(bot_id, user, db)
 
-    # Admin cannot edit other admins' bots
-    if user.role == "admin" and bot.user_id != user.id:
-        owner = db.get(User, bot.user_id)
-        if owner and owner.role in ("admin", "super_admin"):
-            raise HTTPException(status_code=403, detail="Cannot edit another admin's bot")
+    # Only owner or super_admin can edit
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot edit another user's bot")
 
     if bot.status == "running":
         raise HTTPException(status_code=409, detail="Cannot update a running bot. Stop it first.")
 
     if body.name is not None:
+        # Check for duplicate name (excluding current bot and deleted bots)
+        dup = db.query(Bot).filter(
+            Bot.user_id == bot.user_id, Bot.name == body.name,
+            Bot.id != bot_id, Bot.is_deleted.is_(False),
+        ).first()
+        if dup:
+            raise HTTPException(status_code=409, detail="Bot name already exists")
         bot.name = body.name
     if body.group_id is not None:
         bot.group_id = body.group_id
@@ -314,16 +323,19 @@ def delete_bot(
 ):
     bot = _get_user_bot(bot_id, user, db)
 
-    # Admin cannot delete other admins' bots
-    if user.role == "admin" and bot.user_id != user.id:
-        owner = db.get(User, bot.user_id)
-        if owner and owner.role in ("admin", "super_admin"):
-            raise HTTPException(status_code=403, detail="Cannot delete another admin's bot")
+    # Only owner or super_admin can delete
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot delete another user's bot")
 
-    if bot.status == "running":
-        raise HTTPException(status_code=409, detail="Cannot delete a running bot. Stop it first.")
+    # Stop the bot first if running
+    if bot.status in ("running", "error"):
+        with contextlib.suppress(RuntimeError):
+            bot_manager.stop_bot(bot_id)
+        bot.status = "stopped"
+        bot.pid = None
 
-    db.delete(bot)
+    bot.is_deleted = True
+    bot.deleted_at = datetime.utcnow()
     db.commit()
 
 
@@ -331,19 +343,13 @@ def delete_bot(
 def transfer_bot_owner(
     bot_id: int,
     body: dict,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    """Transfer bot ownership. Admin can transfer regular users' bots, super_admin can transfer all."""
+    """Transfer bot ownership. Super_admin can transfer all bots."""
     bot = db.get(Bot, bot_id)
-    if not bot:
+    if not bot or bot.is_deleted:
         raise HTTPException(status_code=404, detail="Bot not found")
-
-    # Permission: admin cannot transfer other admins' bots
-    if user.role == "admin" and bot.user_id != user.id:
-        owner = db.get(User, bot.user_id)
-        if owner and owner.role in ("admin", "super_admin"):
-            raise HTTPException(status_code=403, detail="Cannot transfer another admin's bot")
 
     target_username = (body.get("username") or "").strip()
     if not target_username:
@@ -352,10 +358,6 @@ def transfer_bot_owner(
     target_user = db.query(User).filter(User.username == target_username).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Target user not found")
-
-    # Admin cannot transfer bot to another admin
-    if user.role == "admin" and target_user.role in ("admin", "super_admin"):
-        raise HTTPException(status_code=403, detail="Cannot transfer bot to an admin")
 
     old_owner = db.get(User, bot.user_id)
     old_name = old_owner.username if old_owner else "unknown"
@@ -391,7 +393,9 @@ def start_bot(
 
     # Enforce max_running_bots quota (admins are exempt)
     if user.role not in ("admin", "super_admin"):
-        running_count = db.query(Bot).filter(Bot.user_id == user.id, Bot.status == "running").count()
+        running_count = db.query(Bot).filter(
+            Bot.user_id == user.id, Bot.status == "running", Bot.is_deleted.is_(False),
+        ).count()
         if running_count >= user.max_running_bots:
             raise HTTPException(
                 status_code=403,
@@ -889,7 +893,7 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     # Update last_request_at
     bot = db.get(Bot, bot_id)
-    if bot:
+    if bot and not bot.is_deleted:
         bot.last_request_at = datetime.utcnow()
         db.commit()
 
@@ -921,7 +925,7 @@ async def _reply_bot_not_running(
 ) -> PlainTextResponse:
     """When a bot is not running, POST a 'not started' message back to the IM platform."""
     bot = db.get(Bot, bot_id)
-    if not bot:
+    if not bot or bot.is_deleted:
         raise HTTPException(status_code=404, detail="Bot not found")
 
     # URL verification must still work even when the bot is stopped

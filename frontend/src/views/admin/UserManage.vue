@@ -34,6 +34,14 @@
             <span v-else>{{ row.max_running_bots }}</span>
           </template>
         </el-table-column>
+        <el-table-column :label="$t('admin.botCount')" width="100" align="center">
+          <template #default="{ row }">{{ row.bot_count ?? 0 }}</template>
+        </el-table-column>
+        <el-table-column :label="$t('admin.runningCount')" width="110" align="center">
+          <template #default="{ row }">
+            <span :class="{ 'running-highlight': (row.running_count ?? 0) > 0 }">{{ row.running_count ?? 0 }}</span>
+          </template>
+        </el-table-column>
         <el-table-column :label="$t('common.actions')" width="210" align="center">
           <template #default="{ row }">
             <el-tooltip :content="$t('admin.editUser')">
@@ -355,5 +363,9 @@ async function handleBackup() {
 }
 .user-dialog :deep(.el-form-item__label) {
   font-weight: 500;
+}
+.running-highlight {
+  color: var(--el-color-success);
+  font-weight: 600;
 }
 </style>

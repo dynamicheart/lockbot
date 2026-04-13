@@ -166,7 +166,7 @@ export default {
     start: 'Start',
     stop: 'Stop',
     deleteBot: 'Delete Bot',
-    confirmDelete: 'Are you sure to delete this bot? This action cannot be undone.',
+    confirmDelete: 'Are you sure to delete this bot?',
     clusterState: 'Cluster State',
     editConfig: 'Edit Config',
     saveWillRestart: 'Bot will auto-restart after saving',
@@ -258,6 +258,9 @@ export default {
     adminRole: 'Admin',
     userRole: 'User',
     backupDatabase: 'Backup Database',
+    downloadAllStates: 'Download All States',
+    botCount: 'Total Bots',
+    runningCount: 'Running',
     siteSettings: 'Site Settings',
   },
 
