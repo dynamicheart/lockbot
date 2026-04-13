@@ -30,7 +30,7 @@
           <div class="platform-stat-card quota-card">
             <div class="quota-header">{{ $t('botList.myQuota') }}</div>
             <div class="quota-value">
-              <template v-if="authStore.user?.max_running_bots">
+              <template v-if="!authStore.isAdmin && authStore.user?.max_running_bots">
                 {{ $t('botList.quotaUsage', { running: stats.running, max: authStore.user.max_running_bots }) }}
               </template>
               <template v-else>
