@@ -55,7 +55,24 @@
             <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
               <div class="secret-field">
                 <code>{{ callbackUrl }}</code>
-                <el-icon class="secret-icon" @click="copyText(callbackUrl)"><CopyDocument /></el-icon>
+                <el-popover
+                  v-if="showCallbackHint"
+                  :visible="true"
+                  placement="bottom"
+                  :width="240"
+                  trigger="manual"
+                >
+                  <template #reference>
+                    <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
+                  </template>
+                  <div class="callback-hint">
+                    <div class="callback-hint-title">{{ $t('botCreate.callbackHintTitle') }}</div>
+                    <div>{{ $t('botCreate.callbackHintStep1') }}</div>
+                    <div>{{ $t('botCreate.callbackHintStep2') }}</div>
+                    <div>{{ $t('botCreate.callbackHintStep3') }}</div>
+                  </div>
+                </el-popover>
+                <el-icon v-else class="secret-icon" @click="copyText(callbackUrl)"><CopyDocument /></el-icon>
               </div>
             </el-descriptions-item>
             <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
@@ -358,6 +375,30 @@ const callbackUrl = computed(() => {
   const origin = window.location.origin
   return `${origin}/api/bots/webhook/${bot.value.id}`
 })
+
+const CALLBACK_COPIED_KEY = 'lockbot_callback_copied'
+const callbackCopied = ref(false)
+
+const showCallbackHint = computed(() => {
+  if (!bot.value) return false
+  if (bot.value.last_request_at) return false
+  if (callbackCopied.value) return false
+  try {
+    const cache = JSON.parse(localStorage.getItem(CALLBACK_COPIED_KEY) || '{}')
+    if (cache[bot.value.id]) return false
+  } catch { /* ignore */ }
+  return true
+})
+
+function copyCallbackUrl() {
+  copyText(callbackUrl.value)
+  callbackCopied.value = true
+  try {
+    const cache = JSON.parse(localStorage.getItem(CALLBACK_COPIED_KEY) || '{}')
+    cache[bot.value.id] = true
+    localStorage.setItem(CALLBACK_COPIED_KEY, JSON.stringify(cache))
+  } catch { /* ignore */ }
+}
 
 const botType = computed(() => bot.value?.bot_type || 'NODE')
 
@@ -778,6 +819,13 @@ html.dark .json-null { color: #d2a8ff; }
 }
 .secret-icon:hover {
   color: var(--el-color-primary);
+}
+.callback-hint {
+  line-height: 1.8;
+}
+.callback-hint-title {
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 .detail-stat-box {
   text-align: center;
