@@ -216,9 +216,14 @@ def _reset_running_bots():
     db = SessionLocal()
     try:
         # Collect all bots that need recovery (running + error)
-        recover_bots = db.query(Bot).filter(
-            Bot.status.in_(["running", "error"]), Bot.is_deleted.is_(False),
-        ).all()
+        recover_bots = (
+            db.query(Bot)
+            .filter(
+                Bot.status.in_(["running", "error"]),
+                Bot.is_deleted.is_(False),
+            )
+            .all()
+        )
         if not recover_bots:
             return
 

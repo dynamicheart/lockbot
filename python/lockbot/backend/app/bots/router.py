@@ -179,9 +179,15 @@ def create_bot(
     if body.bot_type.upper() not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
 
-    exists = db.query(Bot).filter(
-        Bot.user_id == user.id, Bot.name == body.name, Bot.is_deleted.is_(False),
-    ).first()
+    exists = (
+        db.query(Bot)
+        .filter(
+            Bot.user_id == user.id,
+            Bot.name == body.name,
+            Bot.is_deleted.is_(False),
+        )
+        .first()
+    )
     if exists:
         raise HTTPException(status_code=409, detail="Bot name already exists")
 
@@ -204,9 +210,15 @@ def create_bot(
     # Auto-start the bot if within quota
     auto_started = False
     if user.role not in ("admin", "super_admin"):
-        running_count = db.query(Bot).filter(
-            Bot.user_id == user.id, Bot.status == "running", Bot.is_deleted.is_(False),
-        ).count()
+        running_count = (
+            db.query(Bot)
+            .filter(
+                Bot.user_id == user.id,
+                Bot.status == "running",
+                Bot.is_deleted.is_(False),
+            )
+            .count()
+        )
         if running_count >= user.max_running_bots:
             pass  # Quota reached — bot created but not started
         else:
@@ -290,10 +302,16 @@ def update_bot(
 
     if body.name is not None:
         # Check for duplicate name (excluding current bot and deleted bots)
-        dup = db.query(Bot).filter(
-            Bot.user_id == bot.user_id, Bot.name == body.name,
-            Bot.id != bot_id, Bot.is_deleted.is_(False),
-        ).first()
+        dup = (
+            db.query(Bot)
+            .filter(
+                Bot.user_id == bot.user_id,
+                Bot.name == body.name,
+                Bot.id != bot_id,
+                Bot.is_deleted.is_(False),
+            )
+            .first()
+        )
         if dup:
             raise HTTPException(status_code=409, detail="Bot name already exists")
         bot.name = body.name
@@ -393,9 +411,15 @@ def start_bot(
 
     # Enforce max_running_bots quota (admins are exempt)
     if user.role not in ("admin", "super_admin"):
-        running_count = db.query(Bot).filter(
-            Bot.user_id == user.id, Bot.status == "running", Bot.is_deleted.is_(False),
-        ).count()
+        running_count = (
+            db.query(Bot)
+            .filter(
+                Bot.user_id == user.id,
+                Bot.status == "running",
+                Bot.is_deleted.is_(False),
+            )
+            .count()
+        )
         if running_count >= user.max_running_bots:
             raise HTTPException(
                 status_code=403,

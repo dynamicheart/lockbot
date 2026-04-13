@@ -91,9 +91,15 @@ def list_users(
     for u in users:
         data = UserOut.model_validate(u)
         bot_count = db.query(Bot).filter(Bot.user_id == u.id, Bot.is_deleted.is_(False)).count()
-        running_count = db.query(Bot).filter(
-            Bot.user_id == u.id, Bot.status == "running", Bot.is_deleted.is_(False),
-        ).count()
+        running_count = (
+            db.query(Bot)
+            .filter(
+                Bot.user_id == u.id,
+                Bot.status == "running",
+                Bot.is_deleted.is_(False),
+            )
+            .count()
+        )
         result.append({**data.model_dump(), "bot_count": bot_count, "running_count": running_count})
     return result
 

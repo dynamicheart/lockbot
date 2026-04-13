@@ -32,6 +32,7 @@ class UserOut(BaseModel):
 
 class UserOutWithStats(UserOut):
     """User info with bot statistics."""
+
     bot_count: int = 0
     running_count: int = 0
 
