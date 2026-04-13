@@ -54,6 +54,20 @@
       <!-- Credentials -->
       <div class="credentials-card">
         <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
+          <template #label>
+            <span>{{ $t('botCreate.webhookUrl') }}</span>
+            <el-tooltip placement="top" effect="light">
+              <template #content>
+                <div class="help-tooltip">
+                  <div class="help-title">{{ $t('botCreate.webhookHelpTitle') }}</div>
+                  <div>{{ $t('botCreate.webhookHelpStep1') }}</div>
+                  <div>{{ $t('botCreate.webhookHelpStep2') }}</div>
+                  <div>{{ $t('botCreate.webhookHelpStep3') }}</div>
+                </div>
+              </template>
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
         </el-form-item>
         <el-form-item :label="$t('botCreate.token')" prop="token">
@@ -88,7 +102,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
+import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
 import { useBotsStore } from '../stores/bots'
 import NodeBotForm from '../components/BotForm/NodeBotForm.vue'
 import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
@@ -263,6 +277,18 @@ async function handleSubmit() {
   justify-content: flex-end;
   gap: 12px;
   padding-top: 24px;
+}
+.help-icon {
+  margin-left: 4px;
+  cursor: pointer;
+  color: var(--lb-text-secondary);
+}
+.help-tooltip {
+  line-height: 1.8;
+}
+.help-title {
+  font-weight: 600;
+  margin-bottom: 4px;
 }
 @media (max-width: 768px) {
   .bot-form-page {

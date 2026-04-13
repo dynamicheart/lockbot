@@ -400,6 +400,10 @@ def start_bot(
 ):
     bot = _get_user_bot(bot_id, user, db)
 
+    # Only owner or super_admin can start
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot start another user's bot")
+
     if bot.status == "running":
         return BotStatusOut(
             id=bot.id,
@@ -462,6 +466,10 @@ def stop_bot(
 ):
     bot = _get_user_bot(bot_id, user, db)
 
+    # Only owner or super_admin can stop
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot stop another user's bot")
+
     if bot.status not in ("running", "error"):
         raise HTTPException(status_code=409, detail=f"Bot is not running (status={bot.status})")
 
@@ -484,6 +492,10 @@ def restart_bot(
     db: Session = Depends(get_db),
 ):
     bot = _get_user_bot(bot_id, user, db)
+
+    # Only owner or super_admin can restart
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot restart another user's bot")
 
     config_dict = _build_config_dict(bot, db)
 
@@ -785,11 +797,9 @@ def update_bot_state(
 
     bot = _get_user_bot(bot_id, user, db)
 
-    # Admin cannot edit other admins' bot state
-    if user.role == "admin" and bot.user_id != user.id:
-        owner = db.get(User, bot.user_id)
-        if owner and owner.role in ("admin", "super_admin"):
-            raise HTTPException(status_code=403, detail="Cannot edit another admin's bot state")
+    # Admin can only edit own bot state, super_admin can edit any
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Cannot edit another user's bot state")
 
     if bot.status == "running":
         raise HTTPException(status_code=409, detail="Stop the bot before editing state")

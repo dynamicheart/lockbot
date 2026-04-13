@@ -153,12 +153,9 @@ const { copyText } = useHelpers()
 const users = ref([])
 const loading = ref(false)
 
-const ROLE_LEVELS = { super_admin: 0, admin: 1, user: 2 }
-
+// Use unified permission function from authStore
 function canManage(row) {
-  const opLevel = ROLE_LEVELS[authStore.user?.role] ?? 3
-  const tgtLevel = ROLE_LEVELS[row.role] ?? 3
-  return opLevel < tgtLevel
+  return authStore.canManageUser(row.role)
 }
 
 // --- Search ---

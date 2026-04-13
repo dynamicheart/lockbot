@@ -9,10 +9,10 @@
         <StatusBadge v-if="bot" :status="bot.status" />
       </div>
       <div class="detail-header-actions">
-        <el-button v-if="bot?.status === 'stopped' || bot?.status === 'error'" type="success" round :loading="actionLoading" :disabled="actionLoading" @click="handleStart">
+        <el-button v-if="canOperate && (bot?.status === 'stopped' || bot?.status === 'error')" type="success" round :loading="actionLoading" :disabled="actionLoading" @click="handleStart">
           <el-icon><VideoPlay /></el-icon> {{ $t('botDetail.start') }}
         </el-button>
-        <el-button v-if="bot?.status === 'running'" type="warning" round :loading="actionLoading" :disabled="actionLoading" @click="handleStop">
+        <el-button v-if="canOperate && bot?.status === 'running'" type="warning" round :loading="actionLoading" :disabled="actionLoading" @click="handleStop">
           <el-icon><SwitchButton /></el-icon> {{ $t('botDetail.stop') }}
         </el-button>
         <el-button v-if="canEdit" type="primary" round @click="$router.push(`/bots/${bot.id}/edit`)">
@@ -133,7 +133,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center">
               <span>{{ $t('botDetail.clusterState') }}</span>
               <div style="display: flex; gap: 8px">
-                <el-button v-if="authStore.isAdmin && !editingState && !viewJson" size="small" @click="startEditState" :disabled="bot.status === 'running'">
+                <el-button v-if="canEdit && !editingState && !viewJson" size="small" @click="startEditState" :disabled="bot.status === 'running'">
                   <el-icon><Edit /></el-icon> {{ $t('common.edit') }}
                 </el-button>
                 <el-button v-if="authStore.isAdmin" size="small" @click="downloadState">
@@ -342,19 +342,13 @@ const isOwner = computed(() => bot.value?.user_id === authStore.user?.id)
 const botOwnerRole = computed(() => bot.value?.owner_role || 'user')
 
 // Permission rules:
-// - super_admin: can do anything
-// - admin: can only view/start/stop other users' bots, cannot edit/delete/transfer
-// - user: can only edit/delete own bots, no transfer
-const canEdit = computed(() => {
-  if (isOwner.value) return true
-  if (authStore.isSuperAdmin) return true
-  return false
-})
+// - super_admin: can do anything (edit/delete/start/stop/transfer)
+// - admin: can only VIEW other users' bots, cannot start/stop/edit/delete
+// - user: can only operate own bots, no transfer
+const canEdit = computed(() => authStore.canEditBot(bot.value))
 const canDelete = computed(() => canEdit.value)
-const canTransfer = computed(() => {
-  if (!authStore.isSuperAdmin) return false
-  return true
-})
+const canOperate = computed(() => authStore.canOperateBot(bot.value))
+const canTransfer = computed(() => authStore.isSuperAdmin)
 
 // Command logs for statistics
 const commandLogs = ref([])

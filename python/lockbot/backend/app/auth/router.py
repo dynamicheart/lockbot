@@ -75,7 +75,7 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
     if not user or not _verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     return TokenOut(
-        access_token=create_access_token(user.id, user.must_change_password),
+        access_token=create_access_token(user.id, user.effective_token_version, user.must_change_password),
         must_change_password=user.must_change_password,
     )
 
@@ -99,7 +99,7 @@ def change_password(
     user.must_change_password = False
     db.commit()
     return TokenOut(
-        access_token=create_access_token(user.id, False),
+        access_token=create_access_token(user.id, user.effective_token_version, False),
         must_change_password=False,
     )
 
@@ -120,7 +120,7 @@ def force_change_password(
     user.must_change_password = False
     db.commit()
     return TokenOut(
-        access_token=create_access_token(user.id, False),
+        access_token=create_access_token(user.id, user.effective_token_version, False),
         must_change_password=False,
     )
 

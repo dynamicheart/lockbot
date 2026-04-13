@@ -3,6 +3,9 @@ import { ref, computed } from 'vue'
 import api from '../utils/api'
 import { LS_KEYS, isDemoMode } from '../utils/demoMode'
 
+// Role levels for permission hierarchy (lower = more powerful)
+const ROLE_LEVELS = { super_admin: 0, admin: 1, user: 2 }
+
 function loadAccounts() {
   try { return JSON.parse(localStorage.getItem(LS_KEYS.accounts) || '[]') } catch { return [] }
 }
@@ -23,6 +26,77 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value)
   const isAdmin = computed(() => user.value?.role === 'admin' || user.value?.role === 'super_admin')
   const isSuperAdmin = computed(() => user.value?.role === 'super_admin')
+
+  // --- Permission helper functions ---
+
+  /**
+   * Check if current user can manage a user with the given role.
+   * @param {string} targetRole - The role of the user to be managed
+   * @returns {boolean}
+   */
+  function canManageUser(targetRole) {
+    const opLevel = ROLE_LEVELS[user.value?.role] ?? 3
+    const tgtLevel = ROLE_LEVELS[targetRole] ?? 3
+    return opLevel < tgtLevel
+  }
+
+  /**
+   * Check if current user can create a user with the given role.
+   * Matches backend can_create_user_with_role: valid roles are admin/user only.
+   * @param {string} role - The role to assign to new user
+   * @returns {boolean}
+   */
+  function canCreateUserWithRole(role) {
+    const CREATABLE_ROLES = ['admin', 'user']
+    if (!CREATABLE_ROLES.includes(role)) return false
+    // Only super_admin can create admin
+    if (role === 'admin') {
+      return user.value?.role === 'super_admin'
+    }
+    return isAdmin.value
+  }
+
+  /**
+   * Check if current user can assign a role to another user.
+   * @param {string} currentTargetRole - The target user's current role
+   * @param {string} newRole - The new role to assign
+   * @returns {boolean}
+   */
+  function canAssignRole(currentTargetRole, newRole) {
+    // Must be able to manage the target first
+    if (!canManageUser(currentTargetRole)) return false
+    // Only super_admin can assign admin or super_admin role
+    if (newRole === 'admin' || newRole === 'super_admin') {
+      return user.value?.role === 'super_admin'
+    }
+    return true
+  }
+
+  /**
+   * Check if current user can edit a bot owned by another user.
+   * @param {object} bot - The bot object with owner info
+   * @returns {boolean}
+   */
+  function canEditBot(bot) {
+    if (!bot) return false
+    // Owner can always edit
+    if (bot.user_id === user.value?.id) return true
+    // Only super_admin can edit others' bots
+    return user.value?.role === 'super_admin'
+  }
+
+  /**
+   * Check if current user can start/stop/restart a bot.
+   * @param {object} bot - The bot object with owner info
+   * @returns {boolean}
+   */
+  function canOperateBot(bot) {
+    if (!bot) return false
+    // Owner can always operate
+    if (bot.user_id === user.value?.id) return true
+    // Only super_admin can operate others' bots
+    return user.value?.role === 'super_admin'
+  }
 
   // --- Multi-account: get all saved accounts ---
   function getSavedAccounts() {
@@ -132,6 +206,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     token, user, isLoggedIn, isAdmin, isSuperAdmin,
+    // Permission helpers
+    canManageUser, canCreateUserWithRole, canAssignRole, canEditBot, canOperateBot,
+    // Auth actions
     login, register, fetchUser, changePassword, changeEmail, logout,
     getSavedAccounts, switchAccount, removeAccount, saveAccount,
   }

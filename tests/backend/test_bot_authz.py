@@ -137,7 +137,7 @@ class TestOtherUserDenied:
 
 
 class TestAdminAccess:
-    """Admin can view/start/stop any bot, but cannot edit/delete/transfer other users' bots."""
+    """Admin can view any bot, but cannot start/stop/edit/delete other users' bots."""
 
     def test_admin_can_get_other_bot(self, client, auth_header, admin_header):
         bot_id = _create_bot(client, auth_header)
@@ -150,21 +150,19 @@ class TestAdminAccess:
         assert resp.status_code == 403
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
-    def test_admin_can_start_other_bot(self, mock_mgr, client, auth_header, admin_header):
+    def test_admin_cannot_start_other_bot(self, mock_mgr, client, auth_header, admin_header):
         bot_id = _create_bot(client, auth_header)
         mock_mgr.is_running.return_value = False
         mock_mgr.start_bot.return_value = 2000
         resp = client.post(f"/api/bots/{bot_id}/start", headers=admin_header)
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "running"
+        assert resp.status_code == 403
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
-    def test_admin_can_stop_other_bot(self, mock_mgr, client, auth_header, admin_header):
+    def test_admin_cannot_stop_other_bot(self, mock_mgr, client, auth_header, admin_header):
         bot_id = _create_running_bot(client, auth_header)
         mock_mgr.is_running.return_value = True
         resp = client.post(f"/api/bots/{bot_id}/stop", headers=admin_header)
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "stopped"
+        assert resp.status_code == 403
 
     def test_admin_cannot_delete_other_bot(self, client, auth_header, admin_header):
         bot_id = _create_bot(client, auth_header)

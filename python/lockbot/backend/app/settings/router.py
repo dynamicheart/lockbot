@@ -7,10 +7,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.auth.dependencies import require_super_admin
+from lockbot.backend.app.auth.dependencies import get_current_user, require_super_admin
 from lockbot.backend.app.auth.models import User
+from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.settings.models import SiteSetting
 
@@ -62,6 +64,30 @@ def get_all_settings(db: Session) -> dict[str, str | None]:
 def public_settings(db: Session = Depends(get_db)):
     """Return public-facing settings (no auth required)."""
     return [SettingOut(key=k, value=_get_setting(db, k)) for k in sorted(PUBLIC_KEYS)]
+
+
+class PlatformStats(BaseModel):
+    """Public platform statistics."""
+
+    total_users: int
+    total_bots: int
+    running_bots: int
+
+
+@router.get("/api/public/stats", response_model=PlatformStats)
+def get_public_stats(
+    _user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return platform statistics (requires login)."""
+    total_users = db.query(sa_func.count(User.id)).scalar()
+    total_bots = db.query(sa_func.count(Bot.id)).filter(Bot.is_deleted.is_(False)).scalar()
+    running_bots = db.query(sa_func.count(Bot.id)).filter(Bot.is_deleted.is_(False), Bot.status == "running").scalar()
+    return PlatformStats(
+        total_users=total_users,
+        total_bots=total_bots,
+        running_bots=running_bots,
+    )
 
 
 # ── Admin endpoints (super_admin only) ──────────────────

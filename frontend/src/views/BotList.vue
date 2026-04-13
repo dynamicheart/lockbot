@@ -1,9 +1,51 @@
 <template>
   <div>
+    <!-- Platform Stats -->
+    <div class="stats-toggle" @click="showPlatformStats = !showPlatformStats">
+      <el-icon><TrendCharts /></el-icon>
+      <span>{{ $t('botList.platformStats') }}</span>
+      <el-icon class="stats-arrow" :class="{ expanded: showPlatformStats }"><ArrowDown /></el-icon>
+    </div>
+    <el-collapse-transition>
+      <el-row v-show="showPlatformStats" :gutter="16" class="platform-stats-row">
+        <el-col :xs="8" :sm="6">
+          <div class="platform-stat-card">
+            <div class="platform-stat-value">{{ platformStats.total_users }}</div>
+            <div class="platform-stat-label">{{ $t('botList.platformUsers') }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="8" :sm="6">
+          <div class="platform-stat-card">
+            <div class="platform-stat-value">{{ platformStats.total_bots }}</div>
+            <div class="platform-stat-label">{{ $t('botList.platformBots') }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="8" :sm="6">
+          <div class="platform-stat-card">
+            <div class="platform-stat-value success">{{ platformStats.running_bots }}</div>
+            <div class="platform-stat-label">{{ $t('botList.platformRunning') }}</div>
+          </div>
+        </el-col>
+        <el-col :xs="24" :sm="6">
+          <div class="platform-stat-card quota-card">
+            <div class="quota-header">{{ $t('botList.myQuota') }}</div>
+            <div class="quota-value">
+              <template v-if="authStore.user?.max_running_bots">
+                {{ $t('botList.quotaUsage', { running: stats.running, max: authStore.user.max_running_bots }) }}
+              </template>
+              <template v-else>
+                {{ $t('botList.quotaUnlimited') }}
+              </template>
+            </div>
+          </div>
+        </el-col>
+      </el-row>
+    </el-collapse-transition>
+
     <!-- Stats panel (toggleable) -->
     <div class="stats-toggle" @click="showStats = !showStats">
       <el-icon><TrendCharts /></el-icon>
-      <span>{{ $t('botList.stats') }}</span>
+      <span>{{ $t('botList.myStats') }}</span>
       <el-icon class="stats-arrow" :class="{ expanded: showStats }"><ArrowDown /></el-icon>
     </div>
     <el-collapse-transition>
@@ -137,6 +179,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
+import { useAuthStore } from '../stores/auth'
+import api from '../utils/api'
 import BotCard from '../components/BotCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { Search } from '@element-plus/icons-vue'
@@ -146,28 +190,40 @@ import { useHelpers } from '../utils/helpers'
 
 const VIEW_KEY = 'lockbot_view_mode'
 const STATS_KEY = 'lockbot_show_stats'
+const PLATFORM_STATS_KEY = 'lockbot_show_platform_stats'
 
 const { t } = useI18n()
 const { formatDate, formatRelativeTime, copyText } = useHelpers()
 const router = useRouter()
 const botsStore = useBotsStore()
+const authStore = useAuthStore()
+const platformStats = ref({ total_users: 0, total_bots: 0, running_bots: 0 })
 const search = ref('')
 const statusFilter = ref('')
 const typeFilter = ref('')
 const viewMode = ref(localStorage.getItem(VIEW_KEY) || 'card')
 const showStats = ref(localStorage.getItem(STATS_KEY) !== 'false')
+const showPlatformStats = ref(localStorage.getItem(PLATFORM_STATS_KEY) !== 'false')
 let stateRefreshTimer = null
 
 // Persist preferences
 watch(viewMode, v => localStorage.setItem(VIEW_KEY, v))
 watch(showStats, v => localStorage.setItem(STATS_KEY, v))
+watch(showPlatformStats, v => localStorage.setItem(PLATFORM_STATS_KEY, v))
 
-onMounted(() => {
+onMounted(async () => {
   botsStore.fetchBots()
   botsStore.fetchRunningStates()
   stateRefreshTimer = setInterval(() => {
     botsStore.fetchRunningStates()
   }, 15000)
+  // Fetch platform stats
+  try {
+    const res = await api.get('/public/stats')
+    platformStats.value = res.data
+  } catch (e) {
+    console.error('Failed to fetch platform stats', e)
+  }
 })
 
 onUnmounted(() => {
@@ -223,6 +279,44 @@ function getUsageText(row) {
 </script>
 
 <style scoped>
+.platform-stats-row {
+  margin-bottom: 20px;
+}
+.platform-stat-card {
+  text-align: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--lb-bg-card);
+  border: 1px solid var(--lb-border-light);
+}
+.platform-stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--lb-text-primary);
+}
+.platform-stat-value.success {
+  color: var(--lb-color-success);
+}
+.platform-stat-label {
+  font-size: 12px;
+  color: var(--lb-text-secondary);
+  margin-top: 4px;
+}
+.quota-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.quota-header {
+  font-size: 12px;
+  color: var(--lb-text-secondary);
+  margin-bottom: 4px;
+}
+.quota-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lb-color-primary);
+}
 .group-tag {
   cursor: pointer;
   margin-right: 4px;

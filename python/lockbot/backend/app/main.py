@@ -91,6 +91,21 @@ def _migrate_bot_soft_delete():
         logger.info("Migrated bots: added 'deleted_at' column")
 
 
+def _migrate_users_token_version():
+    """Add 'token_version' column to users if it doesn't exist (SQLite migration)."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    insp = sa_inspect(engine)
+    if "users" not in insp.get_table_names():
+        return
+    columns = [c["name"] for c in insp.get_columns("users")]
+    if "token_version" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"))
+        logger.info("Migrated users: added 'token_version' column")
+
+
 def _seed_dev_admin():
     """Create admin user in dev mode if it doesn't exist."""
     from lockbot.backend.app.config import (
@@ -172,6 +187,7 @@ async def lifespan(app: FastAPI):
     _migrate_bot_logs_category()
     _migrate_bot_consecutive_failures()
     _migrate_users_must_change_password()
+    _migrate_users_token_version()
     _migrate_bot_soft_delete()
     _seed_dev_admin()
     _seed_dev_users()

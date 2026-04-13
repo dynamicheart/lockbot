@@ -69,7 +69,7 @@ function _isSuperAdmin(user) {
 // Mock API
 // ---------------------------------------------------------------------------
 
-const mockApi = {
+const _mockApiHandlers = {
   async get(url, config) {
     await _delay()
     const params = (config && config.params) || {}
@@ -92,6 +92,31 @@ const mockApi = {
     return { data: null }
   },
 }
+
+// Wrap handlers with error handling similar to real axios interceptor
+const mockApi = new Proxy(_mockApiHandlers, {
+  get(target, method) {
+    const handler = target[method]
+    if (typeof handler !== 'function') return handler
+    return async (...args) => {
+      try {
+        return await handler(...args)
+      } catch (err) {
+        // Simulate axios error response structure
+        const status = err.response?.status || err.status || 500
+        if (status === 401 && args[0] !== '/auth/login') {
+          localStorage.removeItem(LS_KEYS.token)
+          localStorage.removeItem(LS_KEYS.user)
+          // Import router dynamically to avoid circular dependency
+          import('../router').then(({ default: router }) => {
+            router.push('/login')
+          })
+        }
+        return Promise.reject(err)
+      }
+    }
+  },
+})
 
 // ---------------------------------------------------------------------------
 // GET handler
@@ -212,6 +237,17 @@ function _handleGet(url, params) {
       { key: 'platform_url', value: mockSettings.platform_url },
       { key: 'admin_contact', value: mockSettings.admin_contact },
     ]
+  }
+
+  // Platform stats (requires login)
+  if (url === '/public/stats') {
+    const user = _currentUser()
+    if (!user) throw _err(401, 'Not authenticated')
+    return {
+      total_users: mockUsers.length,
+      total_bots: mockBots.length,
+      running_bots: mockBots.filter((b) => b.status === 'running').length,
+    }
   }
 
   // Admin settings

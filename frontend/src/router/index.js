@@ -88,7 +88,7 @@ const routes = [
         path: 'admin/settings',
         name: 'SiteSettings',
         component: SiteSettings,
-        meta: { admin: true },
+        meta: { admin: true, superAdminOnly: true },
       },
     ],
   },
@@ -123,7 +123,12 @@ router.beforeEach((to, _from, next) => {
   if (to.name === 'Register' && !isDemoMode) {
     return next('/')
   }
+  // Use unified role check: admin or super_admin
   if (to.meta.admin && !['admin', 'super_admin'].includes(user?.role)) {
+    return next('/')
+  }
+  // SiteSettings requires super_admin only
+  if (to.meta.superAdminOnly && user?.role !== 'super_admin') {
     return next('/')
   }
   next()

@@ -16,7 +16,13 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from lockbot.backend.app.auth.dependencies import can_manage_user, require_admin, require_super_admin
+from lockbot.backend.app.auth.dependencies import (
+    can_assign_role,
+    can_create_user_with_role,
+    can_manage_user,
+    require_admin,
+    require_super_admin,
+)
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.auth.router import _generate_password, _hash_password
 from lockbot.backend.app.auth.schemas import (
@@ -31,10 +37,6 @@ from lockbot.backend.app.database import get_db
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-ADMIN_VISIBLE_ROLES = ("admin", "user")
-SUPER_ADMIN_VISIBLE_ROLES = ("super_admin", "admin", "user")
-ADMIN_CREATABLE_ROLES = ("user",)
-
 
 @router.post("/users", response_model=PasswordResetOut, status_code=201)
 def admin_create_user(
@@ -43,12 +45,10 @@ def admin_create_user(
     db: Session = Depends(get_db),
 ):
     """Admin creates a user. Super_admin can create admin/user; admin can only create user."""
-    # Non-super_admin can only create regular users
-    if operator.role != "super_admin" and body.role not in ADMIN_CREATABLE_ROLES:
-        raise HTTPException(status_code=403, detail="Cannot create user with this role")
-
-    if body.role not in SUPER_ADMIN_VISIBLE_ROLES:
-        raise HTTPException(status_code=400, detail=f"Invalid role, must be one of {SUPER_ADMIN_VISIBLE_ROLES}")
+    # Use unified permission check
+    allowed, status_code, error_msg = can_create_user_with_role(operator, body.role)
+    if not allowed:
+        raise HTTPException(status_code=status_code, detail=error_msg)
 
     exists = db.query(User).filter(User.username == body.username).first()
     if exists:
@@ -133,11 +133,13 @@ def admin_edit_user(
         target.email = body.email
 
     if body.role is not None:
-        if body.role not in SUPER_ADMIN_VISIBLE_ROLES:
-            raise HTTPException(status_code=400, detail="Invalid role")
-        # Only super_admin can promote to admin
-        if body.role in ("admin", "super_admin") and operator.role != "super_admin":
-            raise HTTPException(status_code=403, detail="Only super admin can set this role")
+        # Use unified permission check
+        allowed, status_code, error_msg = can_assign_role(operator, target, body.role)
+        if not allowed:
+            raise HTTPException(status_code=status_code, detail=error_msg)
+        # Force logout when role changes
+        if target.role != body.role:
+            target.token_version = target.effective_token_version + 1
         target.role = body.role
 
     if body.max_running_bots is not None:
@@ -181,9 +183,28 @@ def admin_reset_password(
     raw_password = _generate_password()
     target.password_hash = _hash_password(raw_password)
     target.must_change_password = True
+    # Force logout - invalidate all existing tokens
+    target.token_version = target.effective_token_version + 1
     db.commit()
     db.refresh(target)
     return PasswordResetOut(id=target.id, username=target.username, new_password=raw_password)
+
+
+@router.post("/users/{user_id}/force-logout")
+def force_logout_user(
+    user_id: int,
+    operator: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Force a user to logout by invalidating all their tokens."""
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not can_manage_user(operator, target.role):
+        raise HTTPException(status_code=403, detail="Cannot manage this user")
+    target.token_version = target.effective_token_version + 1
+    db.commit()
+    return {"id": target.id, "username": target.username, "message": "User logged out successfully"}
 
 
 @router.get("/bots")
