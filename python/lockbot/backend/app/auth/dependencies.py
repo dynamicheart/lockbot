@@ -85,9 +85,17 @@ def can_assign_role(operator: User, target: User, new_role: str) -> tuple[bool, 
 
     Returns (allowed, http_status_code, error_message).
     This consolidates all role assignment permission checks in one place.
+
+    NOTE: super_admin can only be created/promoted via CLI tool (create_super_admin),
+    not through the web API, to prevent permission escalation and ensure a single
+    source of truth for the highest privilege level.
     """
+    # super_admin cannot be assigned via API
+    if new_role == "super_admin":
+        return False, 403, "Super admin can only be managed via CLI tool"
+
     # Validate role
-    valid_roles = ("super_admin", "admin", "user")
+    valid_roles = ("admin", "user")
     if new_role not in valid_roles:
         return False, 400, f"Invalid role, must be one of {valid_roles}"
 
@@ -95,8 +103,8 @@ def can_assign_role(operator: User, target: User, new_role: str) -> tuple[bool, 
     if not can_manage_user(operator, target.role):
         return False, 403, "Cannot manage this user"
 
-    # Only super_admin can assign admin or super_admin role
-    if new_role in ("admin", "super_admin") and operator.role != "super_admin":
+    # Only super_admin can assign admin role
+    if new_role == "admin" and operator.role != "super_admin":
         return False, 403, "Only super admin can assign this role"
 
     return True, 200, ""

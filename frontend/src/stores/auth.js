@@ -58,15 +58,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * Check if current user can assign a role to another user.
+   * NOTE: super_admin can only be managed via CLI tool, not through the web UI.
    * @param {string} currentTargetRole - The target user's current role
    * @param {string} newRole - The new role to assign
    * @returns {boolean}
    */
   function canAssignRole(currentTargetRole, newRole) {
+    // super_admin cannot be assigned via UI
+    if (newRole === 'super_admin') return false
     // Must be able to manage the target first
     if (!canManageUser(currentTargetRole)) return false
-    // Only super_admin can assign admin or super_admin role
-    if (newRole === 'admin' || newRole === 'super_admin') {
+    // Only super_admin can assign admin role
+    if (newRole === 'admin') {
       return user.value?.role === 'super_admin'
     }
     return true

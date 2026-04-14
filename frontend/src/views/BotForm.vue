@@ -53,6 +53,9 @@
 
       <!-- Credentials -->
       <div class="credentials-card">
+        <el-alert type="info" :closable="false" show-icon class="credentials-alert">
+          <template #title>{{ $t('botCreate.credentialsHint') }}</template>
+        </el-alert>
         <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
           <template #label>
             <span>{{ $t('botCreate.webhookUrl') }}</span>
@@ -71,6 +74,15 @@
           <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
         </el-form-item>
         <el-form-item :label="$t('botCreate.token')" prop="token">
+          <template #label>
+            <span>{{ $t('botCreate.token') }}</span>
+            <el-tooltip placement="top" effect="light">
+              <template #content>
+                <div class="help-tooltip">{{ $t('botCreate.tokenHelp') }}</div>
+              </template>
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-input
             v-model="form.token"
             :placeholder="isEdit && maskedToken ? maskedToken : (isEdit ? $t('botCreate.leaveBlank') : $t('botCreate.tokenPlaceholder'))"
@@ -78,6 +90,15 @@
           />
         </el-form-item>
         <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
+          <template #label>
+            <span>{{ $t('botCreate.aesKey') }}</span>
+            <el-tooltip placement="top" effect="light">
+              <template #content>
+                <div class="help-tooltip">{{ $t('botCreate.aesKeyHelp') }}</div>
+              </template>
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-input
             v-model="form.aes_key"
             :placeholder="isEdit && maskedAesKey ? maskedAesKey : (isEdit ? $t('botCreate.leaveBlank') : $t('botCreate.aesKeyPlaceholder'))"
@@ -271,6 +292,9 @@ async function handleSubmit() {
   border-radius: 8px;
   padding: 16px 20px 4px;
   border: 1px solid var(--lb-border-light);
+}
+.credentials-alert {
+  margin-bottom: 16px;
 }
 .form-actions {
   display: flex;

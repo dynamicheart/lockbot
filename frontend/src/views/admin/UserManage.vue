@@ -85,8 +85,8 @@
           <el-select v-model="createForm.role" style="width: 100%">
             <el-option :label="$t('admin.userRole')" value="user" />
             <el-option v-if="authStore.isSuperAdmin" :label="$t('admin.adminRole')" value="admin" />
-            <el-option v-if="authStore.isSuperAdmin" :label="$t('admin.superAdmin')" value="super_admin" />
           </el-select>
+          <div v-if="authStore.isSuperAdmin" class="field-hint">{{ $t('admin.superAdminHint') }}</div>
         </el-form-item>
         <el-form-item :label="$t('admin.maxBots')" prop="max_running_bots">
           <el-input v-if="createForm.role !== 'user'" model-value="∞" disabled class="infinity-input" style="width: 120px" />
@@ -121,8 +121,8 @@
           <el-select v-model="editForm.role" style="width: 100%">
             <el-option :label="$t('admin.userRole')" value="user" />
             <el-option v-if="authStore.isSuperAdmin" :label="$t('admin.adminRole')" value="admin" />
-            <el-option v-if="authStore.isSuperAdmin" :label="$t('admin.superAdmin')" value="super_admin" />
           </el-select>
+          <div v-if="authStore.isSuperAdmin" class="field-hint">{{ $t('admin.superAdminHint') }}</div>
         </el-form-item>
         <el-form-item :label="$t('admin.maxBots')" prop="max_running_bots" style="margin-bottom: 2px">
           <el-input v-if="editForm.role !== 'user'" model-value="∞" disabled class="infinity-input" style="width: 120px" />

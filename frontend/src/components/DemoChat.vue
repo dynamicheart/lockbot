@@ -133,7 +133,6 @@
               v-model="inputText"
               :placeholder="$t('demoChat.inputPlaceholder')"
               @keyup.enter="sendMessage"
-              @input="onInputChange"
               size="default"
             >
               <template #append>
@@ -211,6 +210,13 @@ const quickCommands = computed(() => {
   const cc = bot ? getClusterConfigs(bot.id) : {}
   const keys = Array.isArray(cc) ? cc : Object.keys(cc)
   const firstKey = keys[0] || 'node0'
+  const type = bot?.bot_type || 'NODE'
+  if (type === 'DEVICE') {
+    return ['@bot', 'help', `lock ${firstKey} dev0`]
+  }
+  if (type === 'QUEUE') {
+    return ['@bot', 'help', `book ${firstKey}`]
+  }
   return ['@bot', 'help', `lock ${firstKey}`]
 })
 
@@ -263,14 +269,6 @@ function runQuickCommand(cmd) {
   }
   inputText.value = cmd
   sendMessage()
-}
-
-/** When user types '@', treat it as a query trigger (like IM @bot). */
-function onInputChange(val) {
-  if (val === '@') {
-    inputText.value = ''
-    sendQueryAsAt()
-  }
 }
 
 function sendQueryAsAt() {
@@ -350,6 +348,7 @@ const commandHints = computed(() => {
   const ex = keys[0] || 'node'
 
   const base = [
+    { cmd: `@${bot ? botDisplayName(bot) : 'bot'}`, tip: t('demoChat.cmdAtBot'), isAt: true },
     { cmd: 'help',           tip: t('demoChat.cmdHelp') },
     { cmd: `lock ${ex}`,     tip: t('demoChat.cmdLock') },
     { cmd: `lock ${ex} 2h`,  tip: t('demoChat.cmdLockDuration') },
@@ -385,6 +384,11 @@ const filteredSuggestions = computed(() => {
 })
 
 function applySuggestion(suggestion) {
+  if (suggestion.isAt) {
+    inputText.value = ''
+    sendQueryAsAt()
+    return
+  }
   inputText.value = suggestion.cmd
   nextTick(() => {
     inputRef.value?.focus?.()

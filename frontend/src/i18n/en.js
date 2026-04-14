@@ -152,6 +152,9 @@ export default {
     webhookHelpStep1: '1. Create a bot application in Ruliu',
     webhookHelpStep2: '2. Go to bot settings → Receive Messages → Enable',
     webhookHelpStep3: '3. Copy the Webhook URL, Token and AES Key',
+    credentialsHint: 'How to get credentials: Create a bot app in Ruliu → Settings → Receive Messages → Enable, then copy the Webhook URL, Token and AES Key',
+    tokenHelp: 'Token for verifying message source, obtained from the Receive Messages page in Ruliu bot settings',
+    aesKeyHelp: 'AES key for message encryption/decryption, obtained from the Receive Messages page in Ruliu bot settings',
     callbackHintTitle: 'Important: Configure Callback URL',
     callbackHintStep1: 'Copy the callback URL below',
     callbackHintStep2: 'Paste it in Ruliu bot settings',
@@ -279,6 +282,7 @@ export default {
     botCount: 'Total Bots',
     runningCount: 'Running',
     siteSettings: 'Site Settings',
+    superAdminHint: 'Super admin can only be managed via CLI tool (create_super_admin)',
   },
 
   // === Site Settings ===
@@ -343,6 +347,7 @@ export default {
     inputPlaceholder: 'e.g. lock node1 2h',
     clear: 'Clear',
     demoBanner: 'Demo Mode',
+    cmdAtBot: 'Mention bot to query status',
     cmdHelp: 'Show usage guide',
     cmdLock: 'Exclusive lock a resource',
     cmdLockDuration: 'Lock with duration (d/h/m)',
