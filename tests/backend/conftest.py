@@ -34,9 +34,9 @@ def _setup_db(tmp_path):
     """Create tables before each test, drop after. Use tmp_path for log files."""
     from unittest.mock import patch
 
+    import lockbot.backend.app.audit.models  # noqa: F401
     import lockbot.backend.app.auth.models  # noqa: F401
     import lockbot.backend.app.bots.models  # noqa: F401
-    import lockbot.backend.app.audit.models  # noqa: F401
 
     # Disable rate limiting in tests — the in-memory limiter state persists
     # across fixture calls within a session and causes spurious 429 errors.
@@ -45,6 +45,7 @@ def _setup_db(tmp_path):
     # Also reset any existing storage counters
     try:
         from lockbot.backend.app.rate_limit import limiter as _limiter
+
         _limiter._storage.reset()
     except Exception:
         pass

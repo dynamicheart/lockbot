@@ -9,10 +9,10 @@ Covers:
 """
 
 # Import audit models so Base registers the table before _setup_db runs create_all
-import lockbot.backend.app.audit.models  # noqa: F401
-
 import importlib.util
 import os
+
+import lockbot.backend.app.audit.models  # noqa: F401
 import pytest
 from lockbot.backend.app.audit.models import AuditLog
 
@@ -31,6 +31,7 @@ def _get_test_session():
     if _TestSession is None:
         # conftest is already loaded by pytest; find it in sys.modules
         import sys
+
         for _key, _mod in sys.modules.items():
             if "conftest" in _key and hasattr(_mod, "_TestSession"):
                 _TestSession = _mod._TestSession
@@ -222,7 +223,7 @@ class TestBotAudit:
         bot_id = resp.json()["id"]
 
         # Force status to running via DB so stop is allowed
-        import sys
+
         from lockbot.backend.app.bots.models import Bot
 
         with _get_test_session()() as s:
@@ -256,9 +257,7 @@ class TestAuditVisibility:
         assert "adminuser" in usernames
         assert "superadmin" in usernames
 
-    def test_admin_cannot_see_super_admin_actions(
-        self, client, super_admin_header, admin_header, db_session
-    ):
+    def test_admin_cannot_see_super_admin_actions(self, client, super_admin_header, admin_header, db_session):
         # super_admin performed login — admin should NOT see it
         resp = client.get("/api/audit/logs", headers=admin_header)
         assert resp.status_code == 200
