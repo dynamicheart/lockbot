@@ -388,6 +388,10 @@ export default {
     startDate: 'Start Date',
     endDate: 'End Date',
     noData: 'No audit records',
+    noActivity: 'No activity records yet',
+    securityAlertTitle: 'Security Notice: Failed Login Attempts Detected',
+    securityAlertDesc:
+      '{count} failed login attempt(s) detected from IP(s): {ips}. If this was not you, please change your password immediately.',
     actions: {
       'auth.login': 'Login',
       'auth.change_password': 'Change Password',

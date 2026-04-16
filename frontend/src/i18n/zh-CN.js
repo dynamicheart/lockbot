@@ -382,6 +382,10 @@ export default {
     startDate: '开始时间',
     endDate: '结束时间',
     noData: '暂无审计记录',
+    noActivity: '暂无操作记录',
+    securityAlertTitle: '安全提醒：检测到账号登录失败',
+    securityAlertDesc:
+      '近期检测到 {count} 次登录失败，来自 IP：{ips}。如非本人操作，建议立即修改密码。',
     actions: {
       'auth.login': '登录',
       'auth.change_password': '修改密码',

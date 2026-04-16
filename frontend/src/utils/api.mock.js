@@ -281,8 +281,15 @@ function _handleGetAuditLogs(params, user) {
 
   // Visibility scoping
   if (isRegularUser) {
-    // Regular users only see their own records
-    logs = logs.filter((l) => l.operator_id === user.id)
+    // Own authenticated records + anonymous failed-login attempts with matching username
+    logs = logs.filter(
+      (l) =>
+        l.operator_id === user.id ||
+        (l.operator_id === null &&
+          l.operator_username === user.username &&
+          l.action === 'auth.login' &&
+          l.result === 'failure')
+    )
   } else if (!_isSuperAdmin(user)) {
     // admin: own + user-role operators + anonymous (null)
     const userRoleIds = new Set(mockUsers.filter((u) => u.role === 'user').map((u) => u.id))

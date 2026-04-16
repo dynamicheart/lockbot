@@ -6,7 +6,9 @@ Visibility rules:
   - admin       : sees records where operator_id is in the set of
                   {own id} ∪ {ids of users with role="user"}
                   (admins cannot see each other's actions)
-  - user        : sees only their own records (operator_id == self)
+  - user        : sees own records (operator_id == self) PLUS anonymous
+                  failed-login attempts where operator_username == self
+                  (so users can detect brute-force attempts on their account)
 """
 
 import json
@@ -15,6 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.audit.models import AuditLog
@@ -91,14 +94,22 @@ def list_audit_logs(
     operator: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from sqlalchemy import or_
-
     q = db.query(AuditLog)
 
     # --- Visibility scope ---
     if operator.role == "user":
-        # Regular users can only see their own records
-        q = q.filter(AuditLog.operator_id == operator.id)
+        # Own authenticated actions + anonymous failed-login attempts targeting this account
+        q = q.filter(
+            or_(
+                AuditLog.operator_id == operator.id,
+                and_(
+                    AuditLog.operator_id.is_(None),
+                    AuditLog.operator_username == operator.username,
+                    AuditLog.action == "auth.login",
+                    AuditLog.result == "failure",
+                ),
+            )
+        )
     elif operator.role != "super_admin":
         # admin: own actions + actions of users they manage (role="user")
         # Also include anonymous records (operator_id IS NULL, e.g. failed logins)

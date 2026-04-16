@@ -19,10 +19,26 @@
       </el-button>
     </div>
 
+    <!-- Security alert banner (userMode only) -->
+    <el-alert
+      v-if="userMode && failedLoginIps.length"
+      :title="$t('audit.securityAlertTitle')"
+      type="warning"
+      show-icon
+      :closable="false"
+      style="margin-bottom: 16px"
+    >
+      <template #default>
+        {{
+          $t('audit.securityAlertDesc', { count: failedLoginCount, ips: failedLoginIps.join(', ') })
+        }}
+      </template>
+    </el-alert>
+
     <!-- Filters -->
     <el-card style="margin-bottom: 16px">
       <el-row :gutter="12">
-        <el-col :xs="24" :sm="8" :md="6">
+        <el-col :xs="24" :sm="8" :md="userMode ? 8 : 6">
           <el-select
             v-model="filters.action"
             :placeholder="$t('audit.allActions')"
@@ -31,14 +47,14 @@
             @change="onFilterChange"
           >
             <el-option
-              v-for="(label, key) in actionOptions"
+              v-for="(label, key) in visibleActionOptions"
               :key="key"
               :label="label"
               :value="key"
             />
           </el-select>
         </el-col>
-        <el-col :xs="24" :sm="8" :md="5">
+        <el-col :xs="24" :sm="8" :md="userMode ? 8 : 5">
           <el-select
             v-model="filters.result"
             :placeholder="$t('audit.allResults')"
@@ -50,9 +66,8 @@
             <el-option :label="$t('audit.failure')" value="failure" />
           </el-select>
         </el-col>
-        <el-col :xs="24" :sm="8" :md="6">
+        <el-col v-if="!userMode" :xs="24" :sm="8" :md="6">
           <el-input
-            v-if="!userMode"
             v-model="filters.operator"
             :placeholder="$t('audit.filterByOperator')"
             clearable
@@ -65,7 +80,7 @@
             ></template>
           </el-input>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="7">
+        <el-col :xs="24" :sm="12" :md="userMode ? 8 : 7">
           <el-date-picker
             v-model="dateRange"
             type="datetimerange"
@@ -90,7 +105,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('audit.operator')" min-width="120">
+        <el-table-column v-if="!userMode" :label="$t('audit.operator')" min-width="120">
           <template #default="{ row }">
             <div>
               <span style="font-weight: 500">{{ row.operator_username }}</span>
@@ -120,7 +135,14 @@
               <el-tag size="small" effect="plain" style="margin-right: 4px">
                 {{ row.target_type }}
               </el-tag>
-              {{ row.target_name }}
+              <router-link
+                v-if="row.target_type === 'bot' && row.target_id"
+                :to="`/bots/${row.target_id}`"
+                style="color: var(--el-color-primary); text-decoration: none"
+              >
+                {{ row.target_name }}
+              </router-link>
+              <span v-else>{{ row.target_name }}</span>
               <span style="color: var(--lb-text-muted); font-size: 12px">
                 #{{ row.target_id }}</span
               >
@@ -163,6 +185,16 @@
             <span v-else style="color: var(--lb-text-muted)">—</span>
           </template>
         </el-table-column>
+
+        <!-- Empty state -->
+        <template #empty>
+          <div style="padding: 40px 0; color: var(--lb-text-secondary)">
+            <el-icon style="font-size: 40px; display: block; margin: 0 auto 12px"
+              ><Document
+            /></el-icon>
+            {{ userMode ? $t('audit.noActivity') : $t('audit.noData') }}
+          </div>
+        </template>
       </el-table>
 
       <div style="display: flex; justify-content: flex-end; margin-top: 16px">
@@ -182,7 +214,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Refresh, InfoFilled, User } from '@element-plus/icons-vue'
+import { Refresh, InfoFilled, User, Document } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import api from '../../utils/api'
 
@@ -199,6 +231,10 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
 
+// Failed-login security alert state (userMode only)
+const failedLoginCount = ref(0)
+const failedLoginIps = ref([])
+
 const filters = ref({
   action: '',
   result: '',
@@ -207,6 +243,15 @@ const filters = ref({
 const dateRange = ref(null)
 
 const actionOptions = computed(() => tm('audit.actions'))
+
+// In userMode show only auth.* and bot.* actions (relevant to regular users)
+const visibleActionOptions = computed(() => {
+  const all = actionOptions.value
+  if (!props.userMode) return all
+  return Object.fromEntries(
+    Object.entries(all).filter(([k]) => k.startsWith('auth.') || k.startsWith('bot.'))
+  )
+})
 
 function onFilterChange() {
   page.value = 1
@@ -232,6 +277,22 @@ async function fetchLogs() {
     total.value = res.data.total
   } finally {
     loading.value = false
+  }
+}
+
+// Fetch recent failed login attempts for the security banner (userMode only)
+async function fetchSecurityAlerts() {
+  if (!props.userMode) return
+  try {
+    const res = await api.get('/audit/logs', {
+      params: { action: 'auth.login', result: 'failure', limit: 50 },
+    })
+    const failures = res.data.items
+    failedLoginCount.value = failures.length
+    const ips = [...new Set(failures.map((f) => f.ip_address).filter(Boolean))]
+    failedLoginIps.value = ips
+  } catch {
+    // non-blocking
   }
 }
 
@@ -267,5 +328,8 @@ function actionTagType(action) {
   return 'info'
 }
 
-onMounted(fetchLogs)
+onMounted(() => {
+  fetchLogs()
+  fetchSecurityAlerts()
+})
 </script>
