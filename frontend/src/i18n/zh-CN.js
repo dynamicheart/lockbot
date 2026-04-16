@@ -105,6 +105,7 @@ export default {
     searchPlaceholder: '按名称搜索...',
     filterByStatus: '按状态筛选',
     myStats: '我的概览',
+    stats: '概览',
     filterByType: '按类型筛选',
     filterByOwner: '按所有者筛选',
     platformStats: '平台概览',

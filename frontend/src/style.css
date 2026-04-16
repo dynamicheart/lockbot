@@ -74,4 +74,15 @@ body {
   .el-descriptions {
     --el-descriptions-table-border: 1px solid var(--lb-border-light);
   }
+  /* Hide desktop-only dropdown items on mobile */
+  .el-dropdown-menu .desktop-only {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  /* Hide mobile-only dropdown items on desktop */
+  .el-dropdown-menu .mobile-only {
+    display: none !important;
+  }
 }

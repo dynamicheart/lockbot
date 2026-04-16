@@ -105,6 +105,7 @@ export default {
     searchPlaceholder: 'Search by name...',
     filterByStatus: 'Filter by status',
     myStats: 'My Overview',
+    stats: 'Overview',
     filterByType: 'Filter by type',
     filterByOwner: 'Filter by owner',
     platformStats: 'Platform Overview',

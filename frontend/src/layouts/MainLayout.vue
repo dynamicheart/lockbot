@@ -1,6 +1,7 @@
 <template>
   <el-container class="main-layout">
-    <el-aside :width="isCollapsed ? '64px' : '200px'" class="sidebar">
+    <!-- Desktop sidebar -->
+    <el-aside :width="isCollapsed ? '64px' : '200px'" class="sidebar desktop-sidebar">
       <div class="logo" @click="$router.push('/')">
         <div class="logo-main" :class="{ collapsed: isCollapsed }">
           <svg class="logo-icon" viewBox="0 0 32 32" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
@@ -56,12 +57,74 @@
       </el-menu>
     </el-aside>
 
+    <!-- Mobile drawer -->
+    <el-drawer
+      v-model="drawerOpen"
+      direction="ltr"
+      :with-header="false"
+      size="220px"
+      class="mobile-drawer"
+    >
+      <div class="logo" @click="$router.push('/'); drawerOpen = false">
+        <div class="logo-main">
+          <svg class="logo-icon" viewBox="0 0 32 32" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
+            <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
+            <rect x="5" y="8" width="22" height="19" rx="4" fill="#e6f0ff" stroke="#409eff" stroke-width="1.8"/>
+            <circle cx="12" cy="16" r="2.5" fill="#409eff"/>
+            <circle cx="20" cy="16" r="2.5" fill="#409eff"/>
+            <circle cx="13" cy="15" r="0.8" fill="#fff"/>
+            <circle cx="21" cy="15" r="0.8" fill="#fff"/>
+            <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
+            <line x1="16" y1="8" x2="16" y2="3.5" stroke="#409eff" stroke-width="1.8" stroke-linecap="round"/>
+            <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
+          </svg>
+          <span class="logo-text">LockBot</span>
+        </div>
+        <span class="logo-version">v{{ version }}</span>
+      </div>
+      <el-menu
+        :default-active="$route.path"
+        router
+        background-color="var(--lb-bg-sidebar)"
+        text-color="var(--lb-sidebar-text)"
+        active-text-color="var(--lb-sidebar-active)"
+        @select="drawerOpen = false"
+      >
+        <el-menu-item index="/bots">
+          <el-icon><Monitor /></el-icon>
+          <template #title>{{ $t('nav.myBots') }}</template>
+        </el-menu-item>
+        <template v-if="authStore.isAdmin">
+          <el-menu-item-group :title="$t('nav.admin')">
+            <el-menu-item index="/admin/users">
+              <el-icon><User /></el-icon>
+              <template #title>{{ $t('nav.adminUsers') }}</template>
+            </el-menu-item>
+            <el-menu-item index="/admin/bots">
+              <el-icon><Setting /></el-icon>
+              <template #title>{{ $t('nav.adminBots') }}</template>
+            </el-menu-item>
+            <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/settings">
+              <el-icon><Tools /></el-icon>
+              <template #title>{{ $t('nav.adminSettings') }}</template>
+            </el-menu-item>
+          </el-menu-item-group>
+        </template>
+      </el-menu>
+    </el-drawer>
+
     <el-container>
       <el-header class="header">
         <div class="header-left">
-          <el-icon class="collapse-btn" @click="isCollapsed = !isCollapsed">
+          <!-- Desktop: collapse/expand -->
+          <el-icon class="collapse-btn desktop-only" @click="isCollapsed = !isCollapsed">
             <Fold v-if="!isCollapsed" />
             <Expand v-else />
+          </el-icon>
+          <!-- Mobile: open drawer -->
+          <el-icon class="collapse-btn mobile-only" @click="drawerOpen = true">
+            <Expand />
           </el-icon>
           <el-breadcrumb separator="/" class="breadcrumb">
             <el-breadcrumb-item v-for="item in breadcrumbs" :key="item.path" :to="item.to">
@@ -70,16 +133,16 @@
           </el-breadcrumb>
         </div>
         <div class="header-right">
-          <!-- GitHub link -->
-          <el-tooltip content="GitHub">
+          <!-- Desktop: GitHub link -->
+          <el-tooltip content="GitHub" class="desktop-only">
             <a href="https://github.com/dynamicheart/lockbot" target="_blank" rel="noopener noreferrer" class="github-link">
               <svg viewBox="0 0 16 16" width="20" height="20" fill="currentColor">
                 <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
               </svg>
             </a>
           </el-tooltip>
-          <!-- Theme toggle -->
-          <el-tooltip :content="themeLabel">
+          <!-- Desktop: Theme toggle -->
+          <el-tooltip :content="themeLabel" class="desktop-only">
             <el-button text circle @click="cycleTheme">
               <el-icon :size="20">
                 <Sunny v-if="themeMode === 'light'" />
@@ -88,8 +151,8 @@
               </el-icon>
             </el-button>
           </el-tooltip>
-          <!-- Locale switcher -->
-          <el-dropdown @command="switchLocale" trigger="click">
+          <!-- Desktop: Locale switcher -->
+          <el-dropdown @command="switchLocale" trigger="click" class="desktop-only">
             <el-button text circle>
               <span style="font-size: 14px; font-weight: 600">{{ currentLocale === 'zh-CN' ? '中' : 'En' }}</span>
             </el-button>
@@ -107,9 +170,9 @@
               <el-avatar :size="28" style="background: var(--lb-color-primary)">
                 {{ authStore.user?.username?.charAt(0)?.toUpperCase() }}
               </el-avatar>
-              <span class="username">{{ authStore.user?.username }}</span>
-              <el-tag v-if="authStore.isSuperAdmin" size="small" type="danger">{{ $t('admin.superAdmin') }}</el-tag>
-              <el-tag v-else-if="authStore.isAdmin" size="small" type="warning">{{ $t('admin.adminRole') }}</el-tag>
+              <span class="username desktop-only">{{ authStore.user?.username }}</span>
+              <el-tag v-if="authStore.isSuperAdmin" size="small" type="danger" class="desktop-only">{{ $t('admin.superAdmin') }}</el-tag>
+              <el-tag v-else-if="authStore.isAdmin" size="small" type="warning" class="desktop-only">{{ $t('admin.adminRole') }}</el-tag>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
@@ -121,7 +184,24 @@
                   <el-icon><Sort /></el-icon>
                   {{ $t('common.switchUser') }}
                 </el-dropdown-item>
-                <el-dropdown-item command="logout">
+                <!-- Mobile-only: theme, locale, GitHub inside user menu -->
+                <el-dropdown-item divided command="cycleTheme" class="mobile-only">
+                  <el-icon>
+                    <Sunny v-if="themeMode === 'light'" />
+                    <Moon v-else-if="themeMode === 'dark'" />
+                    <Monitor v-else />
+                  </el-icon>
+                  {{ themeLabel }}
+                </el-dropdown-item>
+                <el-dropdown-item command="toggleLocale" class="mobile-only">
+                  <el-icon><Operation /></el-icon>
+                  {{ currentLocale === 'zh-CN' ? 'English' : '中文' }}
+                </el-dropdown-item>
+                <el-dropdown-item command="github" class="mobile-only">
+                  <el-icon><Link /></el-icon>
+                  GitHub
+                </el-dropdown-item>
+                <el-dropdown-item divided command="logout">
                   <el-icon><SwitchButton /></el-icon>
                   {{ $t('common.logout') }}
                 </el-dropdown-item>
@@ -188,7 +268,7 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, Plus } from '@element-plus/icons-vue'
+import { Close, Plus, Operation, Link } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { setLocale, getLocale } from '../i18n'
@@ -202,6 +282,7 @@ const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 const isCollapsed = ref(false)
+const drawerOpen = ref(false)
 const version = __APP_VERSION__
 
 // --- Breadcrumbs ---
@@ -271,6 +352,12 @@ async function handleUserCommand(cmd) {
     router.push('/profile')
   } else if (cmd === 'switchUser') {
     showSwitchDialog.value = true
+  } else if (cmd === 'cycleTheme') {
+    cycleTheme()
+  } else if (cmd === 'toggleLocale') {
+    switchLocale(currentLocale.value === 'zh-CN' ? 'en' : 'zh-CN')
+  } else if (cmd === 'github') {
+    window.open('https://github.com/dynamicheart/lockbot', '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -496,5 +583,39 @@ function handleRemoveAccount(username) {
   width: 100%;
   margin-top: 8px;
   border-style: dashed;
+}
+
+/* Responsive: desktop-only elements hidden on mobile */
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+  .desktop-sidebar {
+    display: none !important;
+  }
+  .header {
+    padding: 0 12px;
+  }
+}
+
+/* Mobile-only elements hidden on desktop */
+@media (min-width: 769px) {
+  .mobile-only {
+    display: none !important;
+  }
+}
+
+/* Drawer sidebar styles */
+.mobile-drawer :deep(.el-drawer) {
+  background: var(--lb-bg-sidebar) !important;
+  border-right: 1px solid var(--lb-sidebar-border);
+  padding: 0;
+}
+.mobile-drawer :deep(.el-drawer__body) {
+  padding: 0;
+  overflow: hidden;
+}
+.mobile-drawer :deep(.el-menu) {
+  border-right: none;
 }
 </style>
