@@ -88,13 +88,7 @@
       size="220px"
       class="mobile-drawer"
     >
-      <div
-        class="logo"
-        @click="
-          $router.push('/')
-          drawerOpen = false
-        "
-      >
+      <div class="logo" @click="goHome">
         <div class="logo-main">
           <svg
             class="logo-icon"
@@ -363,6 +357,11 @@ const { t } = useI18n()
 const isCollapsed = ref(false)
 const drawerOpen = ref(false)
 const version = __APP_VERSION__
+
+function goHome() {
+  router.push('/')
+  drawerOpen.value = false
+}
 
 // --- Breadcrumbs ---
 const breadcrumbs = computed(() => {
