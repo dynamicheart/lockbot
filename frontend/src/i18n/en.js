@@ -88,6 +88,7 @@ export default {
     adminBots: 'All Bots',
     adminSettings: 'Site Settings',
     auditLogs: 'Audit Logs',
+    myActivity: 'My Activity',
   },
 
   // === Dashboard ===

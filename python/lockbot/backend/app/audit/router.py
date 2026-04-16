@@ -6,6 +6,7 @@ Visibility rules:
   - admin       : sees records where operator_id is in the set of
                   {own id} ∪ {ids of users with role="user"}
                   (admins cannot see each other's actions)
+  - user        : sees only their own records (operator_id == self)
 """
 
 import json
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.audit.models import AuditLog
-from lockbot.backend.app.auth.dependencies import require_admin
+from lockbot.backend.app.auth.dependencies import get_current_user
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.database import get_db
 
@@ -87,19 +88,22 @@ def list_audit_logs(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     # Auth
-    operator: User = Depends(require_admin),
+    operator: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    from sqlalchemy import or_
+
     q = db.query(AuditLog)
 
     # --- Visibility scope ---
-    if operator.role != "super_admin":
+    if operator.role == "user":
+        # Regular users can only see their own records
+        q = q.filter(AuditLog.operator_id == operator.id)
+    elif operator.role != "super_admin":
         # admin: own actions + actions of users they manage (role="user")
         # Also include anonymous records (operator_id IS NULL, e.g. failed logins)
         managed_ids = [u.id for u in db.query(User.id).filter(User.role == "user").all()]
         visible_ids = list({operator.id, *managed_ids})
-        from sqlalchemy import or_
-
         q = q.filter(or_(AuditLog.operator_id.in_(visible_ids), AuditLog.operator_id.is_(None)))
 
     # --- Filters ---

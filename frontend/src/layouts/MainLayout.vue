@@ -61,6 +61,10 @@
           <el-icon><Monitor /></el-icon>
           <template #title>{{ $t('nav.myBots') }}</template>
         </el-menu-item>
+        <el-menu-item v-if="!authStore.isAdmin" index="/my-activity">
+          <el-icon><DocumentChecked /></el-icon>
+          <template #title>{{ $t('nav.myActivity') }}</template>
+        </el-menu-item>
         <template v-if="authStore.isAdmin">
           <el-menu-item-group :title="$t('nav.admin')">
             <el-menu-item index="/admin/users">
@@ -144,6 +148,10 @@
         <el-menu-item index="/bots">
           <el-icon><Monitor /></el-icon>
           <template #title>{{ $t('nav.myBots') }}</template>
+        </el-menu-item>
+        <el-menu-item v-if="!authStore.isAdmin" index="/my-activity">
+          <el-icon><DocumentChecked /></el-icon>
+          <template #title>{{ $t('nav.myActivity') }}</template>
         </el-menu-item>
         <template v-if="authStore.isAdmin">
           <el-menu-item-group :title="$t('nav.admin')">
@@ -381,6 +389,7 @@ const breadcrumbs = computed(() => {
     '/admin/users': () => t('nav.adminUsers'),
     '/admin/bots': () => t('nav.adminBots'),
     '/admin/audit': () => t('nav.auditLogs'),
+    '/my-activity': () => t('nav.myActivity'),
   }
   if (path.match(/^\/bots\/\d+/)) {
     items.push({ path: '/bots', title: t('nav.myBots'), to: '/bots' })

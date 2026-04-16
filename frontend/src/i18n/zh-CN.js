@@ -87,6 +87,7 @@ export default {
     adminBots: '全部机器人',
     adminSettings: '站点设置',
     auditLogs: '审计日志',
+    myActivity: '操作记录',
   },
 
   // === Dashboard ===

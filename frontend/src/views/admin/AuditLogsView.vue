@@ -9,7 +9,7 @@
       "
     >
       <h2 style="margin: 0">
-        {{ $t('audit.title') }}
+        {{ userMode ? $t('nav.myActivity') : $t('audit.title') }}
         <span style="font-size: 14px; font-weight: 400; color: var(--lb-text-secondary)"
           >({{ total }})</span
         >
@@ -52,6 +52,7 @@
         </el-col>
         <el-col :xs="24" :sm="8" :md="6">
           <el-input
+            v-if="!userMode"
             v-model="filters.operator"
             :placeholder="$t('audit.filterByOperator')"
             clearable
@@ -182,9 +183,15 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled, User } from '@element-plus/icons-vue'
+import { useAuthStore } from '../../stores/auth'
 import api from '../../utils/api'
 
+const props = defineProps({
+  userMode: { type: Boolean, default: false },
+})
+
 const { tm } = useI18n()
+const authStore = useAuthStore()
 
 const loading = ref(false)
 const logs = ref([])
@@ -215,7 +222,8 @@ async function fetchLogs() {
     }
     if (filters.value.action) params.action = filters.value.action
     if (filters.value.result) params.result = filters.value.result
-    if (filters.value.operator) params.operator_username = filters.value.operator
+    if (!props.userMode && filters.value.operator) params.operator_username = filters.value.operator
+    if (props.userMode && authStore.user?.id) params.operator_id = authStore.user.id
     if (dateRange.value?.[0]) params.start_date = dateRange.value[0].toISOString()
     if (dateRange.value?.[1]) params.end_date = dateRange.value[1].toISOString()
 

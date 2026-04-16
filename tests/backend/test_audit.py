@@ -273,9 +273,14 @@ class TestAuditVisibility:
         own = [i for i in items if i["operator_username"] == "adminuser"]
         assert len(own) >= 1
 
-    def test_regular_user_cannot_access_audit_logs(self, client, auth_header):
+    def test_regular_user_sees_only_own_records(self, client, auth_header, db_session):
+        # Regular users can access audit logs but only see their own records
         resp = client.get("/api/audit/logs", headers=auth_header)
-        assert resp.status_code == 403
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        # All returned items must belong to the regular user
+        for item in items:
+            assert item["operator_username"] == "testuser"
 
     def test_unauthenticated_cannot_access_audit_logs(self, client):
         resp = client.get("/api/audit/logs")

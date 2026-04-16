@@ -273,12 +273,18 @@ function _handleGet(url, params) {
 // ---------------------------------------------------------------------------
 
 function _handleGetAuditLogs(params, user) {
-  if (!_isAdmin(user)) throw _err(403, 'Permission denied')
+  if (!user) throw _err(401, 'Not authenticated')
 
   let logs = [...mockAuditLogs]
 
-  // Visibility: admin sees own + user-role operators; super_admin sees all
-  if (!_isSuperAdmin(user)) {
+  const isRegularUser = user.role === 'user'
+
+  // Visibility scoping
+  if (isRegularUser) {
+    // Regular users only see their own records
+    logs = logs.filter((l) => l.operator_id === user.id)
+  } else if (!_isSuperAdmin(user)) {
+    // admin: own + user-role operators + anonymous (null)
     const userRoleIds = new Set(mockUsers.filter((u) => u.role === 'user').map((u) => u.id))
     logs = logs.filter(
       (l) => l.operator_id === user.id || userRoleIds.has(l.operator_id) || l.operator_id === null

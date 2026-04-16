@@ -70,6 +70,12 @@ const routes = [
         component: ProfileSettings,
       },
       {
+        path: 'my-activity',
+        name: 'MyActivity',
+        component: AuditLogsView,
+        props: { userMode: true },
+      },
+      {
         path: 'admin',
         redirect: '/admin/users',
       },
