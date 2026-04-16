@@ -130,26 +130,26 @@
 
         <el-table-column :label="$t('audit.action')" width="150">
           <template #default="{ row }">
-            <el-tag
-              size="small"
-              :type="actionTagType(row.action)"
-              :effect="actionTagType(row.action) === 'danger' ? 'light' : 'plain'"
+            <span
+              v-if="actionTagType(row.action) === 'danger'"
+              style="color: var(--el-color-danger); font-weight: 500; font-size: 13px"
             >
               {{ translateAction(row.action) }}
-            </el-tag>
+            </span>
+            <span v-else style="font-size: 13px">{{ translateAction(row.action) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column :label="$t('audit.target')" min-width="140">
           <template #default="{ row }">
             <span v-if="row.target_name">
-              <el-tag size="small" effect="plain" style="margin-right: 4px">
-                {{ row.target_type }}
-              </el-tag>
+              <span style="font-size: 11px; color: var(--lb-text-muted); margin-right: 4px">
+                [{{ row.target_type }}]
+              </span>
               <router-link
                 v-if="row.target_type === 'bot' && row.target_id"
                 :to="`/bots/${row.target_id}`"
-                style="color: var(--el-color-primary); text-decoration: none"
+                style="color: var(--lb-text-primary); text-decoration: none"
               >
                 {{ row.target_name }}
               </router-link>
