@@ -71,10 +71,7 @@
               class="device-select"
               clearable
               @select="() => mergeDevices(node)"
-              @blur="
-                dev.model = (dev.model || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
-                mergeDevices(node)
-              "
+              @blur="handleDeviceModelBlur(dev, node)"
             />
             <el-input-number v-model="dev.count" :min="1" :max="64" class="device-count-input" />
             <el-button
@@ -163,6 +160,11 @@ function groupDevices(arr) {
 
 function totalDevices(node) {
   return node.devices.reduce((sum, d) => sum + (d.count || 0), 0)
+}
+
+function handleDeviceModelBlur(dev, node) {
+  dev.model = (dev.model || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+  mergeDevices(node)
 }
 
 function mergeDevices(node) {
