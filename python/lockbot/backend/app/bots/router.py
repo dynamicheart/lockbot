@@ -1123,7 +1123,10 @@ async def _reply_bot_not_running(
     owner_username = owner.username if owner else ""
 
     # Build and send "bot not running" reply
-    content = t("webhook.bot_not_running", lang=lang, bot_name=bot.name, owner_username=owner_username)
+    if bot.status == "error":
+        content = t("webhook.bot_error", lang=lang, bot_name=bot.name, owner_username=owner_username)
+    else:
+        content = t("webhook.bot_not_running", lang=lang, bot_name=bot.name, owner_username=owner_username)
     reply = adapter.build_reply(content, [user_id], group_id=group_id)
     toid = msg_data["message"]["header"].get("toid")
     if toid:

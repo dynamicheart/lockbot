@@ -285,10 +285,12 @@ class QueueBot(NodeBot):
         parts.append(f"    {example_node0}\n\n")
         return "".join(parts)
 
-    def _check_and_notify(self):
+    def _check_and_notify(self) -> float | None:
         """
         Check resource expiration and booking timeouts, release expired resources,
         and send notifications. Persist state only when changes occur.
+
+        Returns: seconds until next interesting event, or None if no active locks/bookings.
         """
         trigger_time_alert = False
         trigger_notify_alert = False
@@ -385,6 +387,31 @@ class QueueBot(NodeBot):
             if state_changed:
                 save_bot_state_to_file(self.state.bot_state, config=self.config)
 
+            # Compute next wakeup after mutations
+            min_next = float("inf")
+            now_ts = int(time.time())
+            for node in self.state.bot_state.values():
+                # Active users
+                if node["status"] != "idle":
+                    for user_info in node["current_users"]:
+                        remaining = remaining_duration(user_info["start_time"], user_info["duration"])
+                        if remaining <= 0:
+                            continue
+                        if EARLY_NOTIFY and not user_info["is_notified"]:
+                            next_event = remaining - TIME_ALERT
+                        else:
+                            next_event = remaining
+                        min_next = min(min_next, next_event)
+                # Booking list: first notified user may time out after TIME_TO_LOCK
+                booking_list = node.get("booking_list", [])
+                if booking_list:
+                    first = booking_list[0]
+                    if first.get("is_notified") and first.get("start_time"):
+                        until_timeout = TIME_TO_LOCK - (now_ts - first["start_time"])
+                        min_next = min(min_next, max(0.0, until_timeout))
+                    else:
+                        min_next = min(min_next, 1.0)  # unnotified booking → check soon
+
         # Aggregate expired bookings into expired_notify
         if expired_users:
             expired_notify = t("notify.booking_expired_header", config=self.config)
@@ -409,7 +436,12 @@ class QueueBot(NodeBot):
             if trigger_notify_alert:
                 content += notify_info + "\n"
             msg = self.adapter.build_reply(content, list(user_ids))
-            self.adapter.send(msg)
+            try:
+                self.adapter.send(msg)
+            except Exception:
+                self.logger.exception("Failed to send alert for bot %s", self.config.get_val("BOT_NAME"))
+
+        return max(1.0, min_next) if min_next != float("inf") else None
 
     def _current_usage(self, node_filter=None):
         """

@@ -16,6 +16,8 @@ _BOT_CLASS_MAP = {
     "DEVICE": DeviceBot,
 }
 
+_STANDALONE_KEY = 0  # internal scheduler key used in standalone mode
+
 
 class BotInstance:
     """
@@ -27,11 +29,18 @@ class BotInstance:
         instance.bot.config # Config instance
         instance.bot.state  # State instance
 
-    The timer routine (periodic lock expiry check) starts automatically
-    unless auto_start=False is passed.
+    Scheduling:
+        Standalone mode (scheduler=None, default):
+            A private BotScheduler is created and started automatically.
+            Call instance.shutdown() to stop it when done.
+
+        Managed mode (scheduler provided by BotManager):
+            No scheduler is created here.  BotManager calls
+            scheduler.add(bot_id, instance) after construction and
+            scheduler.remove(bot_id) on teardown.
     """
 
-    def __init__(self, bot_type, config_dict=None, auto_start=True):
+    def __init__(self, bot_type, config_dict=None, scheduler=None, auto_start=True):
         if bot_type not in _BOT_CLASS_MAP:
             raise ValueError(f"Invalid bot_type '{bot_type}', must be one of {list(_BOT_CLASS_MAP.keys())}")
 
@@ -45,5 +54,25 @@ class BotInstance:
         self.config = self.bot.config
         self.state = self.bot.state
 
-        if auto_start:
-            self.bot.timer_routine()
+        if not auto_start:
+            # Testing/manual mode: no scheduler
+            self._scheduler = None
+            self._owns_scheduler = False
+        elif scheduler is None:
+            # Standalone mode: own scheduler, start immediately
+            from lockbot.core.scheduler import BotScheduler
+
+            self._scheduler = BotScheduler()
+            self._scheduler.start()
+            self._owns_scheduler = True
+            self._scheduler.add(_STANDALONE_KEY, self, delay=0.0)
+        else:
+            # Managed mode: shared scheduler injected by BotManager
+            self._scheduler = scheduler
+            self._owns_scheduler = False
+
+    def shutdown(self) -> None:
+        """Stop scheduling (standalone mode only). No-op in managed mode."""
+        if self._owns_scheduler:
+            self._scheduler.remove(_STANDALONE_KEY)
+            self._scheduler.stop()

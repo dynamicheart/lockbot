@@ -42,9 +42,6 @@ class BaseLockBot:
     # Subclasses MUST define an inner _state_class(BotState) with a _loader.
     _state_class = None
 
-    _timer_failure_count = 0
-    _MAX_TIMER_FAILURES = 5
-
     logger = logging.getLogger("lockbot.timer")
 
     # ------------------------------------------------------------------ init
@@ -75,34 +72,6 @@ class BaseLockBot:
         Show error message
         """
         return self.adapter.build_reply("\u274c" + error_msg, [user_id])
-
-    # -------------------------------------------------------- timer_routine
-    def timer_routine(self):
-        """
-        Timer routine entrypoint: run _check_and_notify every 5 seconds.
-
-        Self-healing: if _check_and_notify raises, log the error and
-        continue scheduling the next tick.  After _MAX_TIMER_FAILURES
-        consecutive failures, back off to 30-second intervals.
-        """
-        try:
-            self._check_and_notify()
-            self._timer_failure_count = 0
-        except Exception:
-            self._timer_failure_count += 1
-            bot_name = self.config.get_val("BOT_NAME") if self.config else "?"
-            self.logger.exception(
-                "timer_routine crashed for bot %s (failure %d/%d)",
-                bot_name,
-                self._timer_failure_count,
-                self._MAX_TIMER_FAILURES,
-            )
-
-        # Back off when too many consecutive failures
-        interval = 30.0 if self._timer_failure_count >= self._MAX_TIMER_FAILURES else 5.0
-        self._timer = threading.Timer(interval, self.timer_routine)
-        self._timer.daemon = True
-        self._timer.start()
 
     # ------------------------------------------------------ _msg_with_usage
     def _msg_with_usage(self, msg_key, *, node_key=None, sep="", **kwargs):

@@ -37,7 +37,7 @@ class TestStartBot:
         assert pid == os.getpid()
         assert manager.is_running(1)
         assert manager.get_pid(1) == os.getpid()
-        mock_cls.assert_called_once_with("NODE", sample_config)
+        mock_cls.assert_called_once_with("NODE", sample_config, scheduler=manager._scheduler)
 
     @patch("lockbot.backend.app.bots.manager.BotInstance")
     def test_start_bot_already_running(self, mock_cls, manager, sample_config):

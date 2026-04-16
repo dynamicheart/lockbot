@@ -161,4 +161,6 @@ MESSAGES = {
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ Bot {bot_name} is not running. "  # noqa: E501
     "Please contact the owner @{owner_username} to start it.",
+    "webhook.bot_error": "❌ Bot {bot_name} encountered an error. "  # noqa: E501
+    "Please contact the owner @{owner_username} for assistance.",
 }

@@ -154,4 +154,5 @@ MESSAGES = {
     "state.dev_id_corrected": "节点 '{name}', 设备 {index}: dev_id 从 {old} 修正为 {new}",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ 机器人 {bot_name} 尚未启动，请联系管理人 @{owner_username} 启动后再使用。",
+    "webhook.bot_error": "❌ 机器人 {bot_name} 运行异常，请联系管理人 @{owner_username} 处理。",
 }

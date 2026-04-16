@@ -438,13 +438,13 @@ class DeviceBot(BaseLockBot):
 
         return text
 
-    def _check_and_notify(self):
+    def _check_and_notify(self) -> float | None:
         """
         Check and notify when resource availability time is running low or resources have been released.
         If EARLY_NOTIFY is set, sends an early notification when remaining time is less than TIME_ALERT.
         Otherwise, notifies after resources are automatically released.
 
-        Returns: None. Modifies bot_state and user_ids as side effects.
+        Returns: seconds until next interesting event, or None if no active locks.
         """
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
@@ -503,13 +503,33 @@ class DeviceBot(BaseLockBot):
             if state_changed:
                 save_bot_state_to_file(self.state.bot_state, config=self.config)
 
+            # Compute next wakeup: scan remaining active users after mutations
+            min_next = float("inf")
+            for devices in self.state.bot_state.values():
+                for device in devices:
+                    if device["status"] != "idle":
+                        for user_info in device["current_users"]:
+                            remaining = remaining_duration(user_info["start_time"], user_info["duration"])
+                            if remaining <= 0:
+                                continue
+                            if EARLY_NOTIFY and not user_info.get("is_notified"):
+                                next_event = remaining - TIME_ALERT
+                            else:
+                                next_event = remaining
+                            min_next = min(min_next, next_event)
+
         grouped_devices = group_devices_by_node_user_and_mode(alert_tuples)
         for node_key, user_id, (dev_start, dev_end), status, remaining_time in grouped_devices:
             alert_info += format_alert_info(node_key, user_id, dev_start, dev_end, status, remaining_time)
 
         if trigger_time_alert:
             msg = self.adapter.build_reply(alert_info + "\n", list(user_ids))
-            self.adapter.send(msg)
+            try:
+                self.adapter.send(msg)
+            except Exception:
+                self.logger.exception("Failed to send alert for bot %s", self.config.get_val("BOT_NAME"))
+
+        return max(1.0, min_next) if min_next != float("inf") else None
 
     def _current_usage(self, node_filter=None):
         """

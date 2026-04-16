@@ -301,10 +301,12 @@ class NodeBot(BaseLockBot):
         reply_info += f"    {example_node0}\n\n"
         return reply_info
 
-    def _check_and_notify(self):
+    def _check_and_notify(self) -> float | None:
         """
         Check resource expiration, release expired resources, and send notifications.
         Persists state only when changes occur.
+
+        Returns: seconds until next interesting event, or None if no active locks.
         """
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
@@ -352,9 +354,28 @@ class NodeBot(BaseLockBot):
             if state_changed:
                 save_bot_state_to_file(self.state.bot_state, config=self.config)
 
+            # Compute next wakeup: scan remaining active users after mutations
+            min_next = float("inf")
+            for node in self.state.bot_state.values():
+                if node["status"] != "idle":
+                    for user_info in node["current_users"]:
+                        remaining = remaining_duration(user_info["start_time"], user_info["duration"])
+                        if remaining <= 0:
+                            continue
+                        if EARLY_NOTIFY and not user_info["is_notified"]:
+                            next_event = remaining - TIME_ALERT
+                        else:
+                            next_event = remaining
+                        min_next = min(min_next, next_event)
+
         if trigger_time_alert:
             msg = self.adapter.build_reply(alert_info + "\n", list(user_ids))
-            self.adapter.send(msg)
+            try:
+                self.adapter.send(msg)
+            except Exception:
+                self.logger.exception("Failed to send alert for bot %s", self.config.get_val("BOT_NAME"))
+
+        return max(1.0, min_next) if min_next != float("inf") else None
 
     def _current_usage(self, node_filter=None):
         """

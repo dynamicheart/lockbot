@@ -204,11 +204,12 @@ async def lifespan(app: FastAPI):
     _migrate_audit_logs()
     _seed_dev_admin()
     _seed_dev_users()
-    _reset_running_bots()
-    yield
-    # Shutdown: cancel all bot timers and clean up
     from lockbot.backend.app.bots.manager import bot_manager
 
+    bot_manager.start_scheduler()
+    _reset_running_bots()
+    yield
+    # Shutdown: stop scheduler and clean up all bots
     logger.info("Shutting down all bots…")
     bot_manager.shutdown_all()
 
