@@ -11,11 +11,12 @@ import tempfile
 import zipfile
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import (
     can_assign_role,
     can_create_user_with_role,
@@ -40,6 +41,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 @router.post("/users", response_model=PasswordResetOut, status_code=201)
 def admin_create_user(
+    request: Request,
     body: AdminCreateUser,
     operator: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -67,6 +69,17 @@ def admin_create_user(
         must_change_password=True,
     )
     db.add(user)
+    db.flush()
+    write_audit_log(
+        db,
+        operator,
+        "user.create",
+        target_type="user",
+        target_id=user.id,
+        target_name=user.username,
+        detail={"role": body.role},
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(user)
     return PasswordResetOut(id=user.id, username=user.username, new_password=raw_password)
@@ -108,6 +121,7 @@ def list_users(
 def admin_edit_user(
     user_id: int,
     body: AdminEditUser,
+    request: Request,
     operator: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -120,16 +134,19 @@ def admin_edit_user(
     if not can_manage_user(operator, target.role):
         raise HTTPException(status_code=403, detail="Cannot manage this user")
 
+    changes: dict = {}
     if body.username is not None and body.username != target.username:
         dup = db.query(User).filter(User.username == body.username).first()
         if dup:
             raise HTTPException(status_code=409, detail="Username already taken")
+        changes["username"] = {"old": target.username, "new": body.username}
         target.username = body.username
 
     if body.email is not None and body.email != target.email:
         dup = db.query(User).filter(User.email == body.email).first()
         if dup:
             raise HTTPException(status_code=409, detail="Email already taken")
+        changes["email"] = {"old": target.email, "new": body.email}
         target.email = body.email
 
     if body.role is not None:
@@ -139,12 +156,24 @@ def admin_edit_user(
             raise HTTPException(status_code=status_code, detail=error_msg)
         # Force logout when role changes
         if target.role != body.role:
+            changes["role"] = {"old": target.role, "new": body.role}
             target.token_version = target.effective_token_version + 1
         target.role = body.role
 
     if body.max_running_bots is not None:
+        changes["max_running_bots"] = {"old": target.max_running_bots, "new": body.max_running_bots}
         target.max_running_bots = body.max_running_bots
 
+    write_audit_log(
+        db,
+        operator,
+        "user.edit",
+        target_type="user",
+        target_id=target.id,
+        target_name=target.username,
+        detail=changes,
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(target)
     return target
@@ -154,6 +183,7 @@ def admin_edit_user(
 def set_max_bots(
     user_id: int,
     body: dict,
+    request: Request,
     operator: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -162,7 +192,18 @@ def set_max_bots(
         raise HTTPException(status_code=404, detail="User not found")
     if not can_manage_user(operator, user.role):
         raise HTTPException(status_code=403, detail="Cannot manage this user")
+    old_val = user.max_running_bots
     user.max_running_bots = body["max_running_bots"]
+    write_audit_log(
+        db,
+        operator,
+        "user.set_max_bots",
+        target_type="user",
+        target_id=user.id,
+        target_name=user.username,
+        detail={"old": old_val, "new": user.max_running_bots},
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(user)
     return {"id": user.id, "max_running_bots": user.max_running_bots}
@@ -171,6 +212,7 @@ def set_max_bots(
 @router.post("/users/{user_id}/reset-password", response_model=PasswordResetOut)
 def admin_reset_password(
     user_id: int,
+    request: Request,
     operator: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -185,6 +227,15 @@ def admin_reset_password(
     target.must_change_password = True
     # Force logout - invalidate all existing tokens
     target.token_version = target.effective_token_version + 1
+    write_audit_log(
+        db,
+        operator,
+        "user.reset_password",
+        target_type="user",
+        target_id=target.id,
+        target_name=target.username,
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(target)
     return PasswordResetOut(id=target.id, username=target.username, new_password=raw_password)
@@ -193,6 +244,7 @@ def admin_reset_password(
 @router.post("/users/{user_id}/force-logout")
 def force_logout_user(
     user_id: int,
+    request: Request,
     operator: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -203,6 +255,15 @@ def force_logout_user(
     if not can_manage_user(operator, target.role):
         raise HTTPException(status_code=403, detail="Cannot manage this user")
     target.token_version = target.effective_token_version + 1
+    write_audit_log(
+        db,
+        operator,
+        "user.force_logout",
+        target_type="user",
+        target_id=target.id,
+        target_name=target.username,
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     return {"id": target.id, "username": target.username, "message": "User logged out successfully"}
 
@@ -235,7 +296,9 @@ def platform_stats(
 
 @router.get("/backup")
 def download_backup(
+    request: Request,
     _admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
 ):
     """Download full SQLite database backup (super_admin only)."""
     from lockbot.backend.app.config import DATABASE_URL
@@ -258,6 +321,9 @@ def download_backup(
             os.unlink(tmp_path)
         raise
 
+    write_audit_log(db, _admin, "admin.backup", ip=request.client.host if request.client else None)
+    db.commit()
+
     filename = f"lockbot_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
     return FileResponse(
         path=tmp_path,
@@ -272,6 +338,7 @@ _DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
 @router.get("/bot-states")
 def download_all_bot_states(
+    request: Request,
     _admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -298,6 +365,9 @@ def download_all_bot_states(
 
     buf.seek(0)
     content = buf.read()
+
+    write_audit_log(db, _admin, "admin.bot_states", ip=request.client.host if request.client else None)
+    db.commit()
 
     filename = f"lockbot_states_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
     return Response(

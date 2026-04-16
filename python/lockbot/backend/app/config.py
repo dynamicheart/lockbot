@@ -27,6 +27,10 @@ ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "")
 # Activity monitoring
 INACTIVE_THRESHOLD_DAYS = 7
 
+# Rate limiting — Redis storage URI (optional, falls back to in-memory)
+# Example: redis://localhost:6379
+REDIS_URL = os.environ.get("REDIS_URL", "")
+
 # Feature flags
 ALLOW_REGISTER = os.environ.get("ALLOW_REGISTER", "false").lower() in ("true", "1", "yes")
 

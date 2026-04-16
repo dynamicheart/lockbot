@@ -12,10 +12,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 # Import models to register them with Base.metadata
+import lockbot.backend.app.audit.models  # noqa: F401
 import lockbot.backend.app.auth.models  # noqa: F401
 import lockbot.backend.app.bots.models  # noqa: F401
 import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
+from lockbot.backend.app.audit.router import router as audit_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.bots.router import router as bots_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
@@ -106,6 +108,16 @@ def _migrate_users_token_version():
         logger.info("Migrated users: added 'token_version' column")
 
 
+def _migrate_audit_logs():
+    """Create audit_logs table if it doesn't exist (backward-compatible migration)."""
+    from sqlalchemy import inspect as sa_inspect
+
+    insp = sa_inspect(engine)
+    if "audit_logs" not in insp.get_table_names():
+        Base.metadata.tables["audit_logs"].create(bind=engine)
+        logger.info("Created audit_logs table")
+
+
 def _seed_dev_admin():
     """Create admin user in dev mode if it doesn't exist."""
     from lockbot.backend.app.config import (
@@ -189,6 +201,7 @@ async def lifespan(app: FastAPI):
     _migrate_users_must_change_password()
     _migrate_users_token_version()
     _migrate_bot_soft_delete()
+    _migrate_audit_logs()
     _seed_dev_admin()
     _seed_dev_users()
     _reset_running_bots()
@@ -258,11 +271,20 @@ def _reset_running_bots():
 def create_app() -> FastAPI:
     from importlib.metadata import version as _pkg_version
 
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+
+    from lockbot.backend.app.rate_limit import limiter
+
     try:
         _ver = _pkg_version("lockbot")
     except Exception:
         _ver = "unknown"
     app = FastAPI(title="LockBot Platform", version=_ver, lifespan=lifespan)
+
+    # Rate limiting
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     app.add_middleware(
         CORSMiddleware,
@@ -276,6 +298,7 @@ def create_app() -> FastAPI:
     app.include_router(bots_router)
     app.include_router(admin_router)
     app.include_router(settings_router)
+    app.include_router(audit_router)
 
     # Serve frontend static files (built by vite)
     # In Docker: /app/frontend/dist — locally: project_root/frontend/dist

@@ -6,11 +6,12 @@ import secrets
 import string
 
 import bcrypt as _bcrypt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import lockbot.backend.app.config as _config
+from lockbot.backend.app.audit.service import _anon_operator, write_audit_log
 from lockbot.backend.app.auth.dependencies import create_access_token, get_current_user
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.auth.schemas import (
@@ -23,6 +24,7 @@ from lockbot.backend.app.auth.schemas import (
     UserRegister,
 )
 from lockbot.backend.app.database import get_db
+from lockbot.backend.app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -50,7 +52,8 @@ def _generate_password(length: int = 12) -> str:
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(body: UserRegister, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(request: Request, body: UserRegister, db: Session = Depends(get_db)):
     if not _config.ALLOW_REGISTER:
         raise HTTPException(status_code=403, detail="Registration is disabled. Contact admin.")
 
@@ -70,10 +73,24 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenOut)
-def login(body: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, body: UserLogin, db: Session = Depends(get_db)):
+    ip = request.client.host if request.client else None
     user = db.query(User).filter(User.username == body.username).first()
     if not user or not _verify_password(body.password, user.password_hash):
+        write_audit_log(
+            db,
+            _anon_operator(body.username),
+            "auth.login",
+            ip=ip,
+            result="failure",
+            detail={"reason": "invalid credentials"},
+        )
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    write_audit_log(db, user, "auth.login", ip=ip)
+    db.commit()
     return TokenOut(
         access_token=create_access_token(user.id, user.effective_token_version, user.must_change_password),
         must_change_password=user.must_change_password,
@@ -87,6 +104,7 @@ def me(user: User = Depends(get_current_user)):
 
 @router.put("/change-password", response_model=TokenOut)
 def change_password(
+    request: Request,
     body: ChangePassword,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -97,6 +115,7 @@ def change_password(
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user.password_hash = _hash_password(body.new_password)
     user.must_change_password = False
+    write_audit_log(db, user, "auth.change_password", ip=request.client.host if request.client else None)
     db.commit()
     return TokenOut(
         access_token=create_access_token(user.id, user.effective_token_version, False),
@@ -106,6 +125,7 @@ def change_password(
 
 @router.put("/force-change-password", response_model=TokenOut)
 def force_change_password(
+    request: Request,
     body: ForceChangePassword,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -118,6 +138,13 @@ def force_change_password(
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user.password_hash = _hash_password(body.new_password)
     user.must_change_password = False
+    write_audit_log(
+        db,
+        user,
+        "auth.change_password",
+        ip=request.client.host if request.client else None,
+        detail={"type": "force_change"},
+    )
     db.commit()
     return TokenOut(
         access_token=create_access_token(user.id, user.effective_token_version, False),
@@ -127,6 +154,7 @@ def force_change_password(
 
 @router.put("/change-email", response_model=UserOut)
 def change_email(
+    request: Request,
     body: ChangeEmail,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -134,7 +162,15 @@ def change_email(
     exists = db.query(User).filter(User.email == body.new_email).filter(User.id != user.id).first()
     if exists:
         raise HTTPException(status_code=409, detail="Email already taken")
+    old_email = user.email
     user.email = body.new_email
+    write_audit_log(
+        db,
+        user,
+        "auth.change_email",
+        ip=request.client.host if request.client else None,
+        detail={"old_email": old_email, "new_email": body.new_email},
+    )
     db.commit()
     db.refresh(user)
     return user

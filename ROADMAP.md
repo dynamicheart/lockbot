@@ -25,11 +25,11 @@
 - [ ] DingTalk adapter
 - [ ] Feishu/Lark adapter
 - [ ] WeChat Official Account adapter
-- [ ] Audit log system (operation history, super_admin only)
+- [x] Audit log system (operation history, admin/super_admin visible)
 
 ## 2026 Q4 — Cloud & Scale
 
 - [ ] Serverless deployment (Vercel / Cloud Functions)
 - [ ] Cloud database support (PostgreSQL / PlanetScale / Neon)
 - [ ] Redis-based state persistence for distributed deployment
-- [ ] Rate limiting and abuse prevention
+- [x] Rate limiting and abuse prevention (slowapi, Redis-optional)

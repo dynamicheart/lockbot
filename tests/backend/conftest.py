@@ -36,6 +36,18 @@ def _setup_db(tmp_path):
 
     import lockbot.backend.app.auth.models  # noqa: F401
     import lockbot.backend.app.bots.models  # noqa: F401
+    import lockbot.backend.app.audit.models  # noqa: F401
+
+    # Disable rate limiting in tests — the in-memory limiter state persists
+    # across fixture calls within a session and causes spurious 429 errors.
+    _limiter_patcher = patch("lockbot.backend.app.rate_limit.limiter.limit", return_value=lambda f: f)
+    _limiter_patcher.start()
+    # Also reset any existing storage counters
+    try:
+        from lockbot.backend.app.rate_limit import limiter as _limiter
+        _limiter._storage.reset()
+    except Exception:
+        pass
 
     # Patch bot_manager so auto-start on bot creation is safely caught.
     # Tests that explicitly test start/stop use their own @patch which overrides this.
@@ -61,6 +73,7 @@ def _setup_db(tmp_path):
 
     Base.metadata.create_all(bind=_engine)
     yield
+    _limiter_patcher.stop()
     _patcher.stop()
     Base.metadata.drop_all(bind=_engine)
 

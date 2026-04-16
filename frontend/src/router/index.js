@@ -8,6 +8,7 @@ import BotForm from '../views/BotForm.vue'
 import UserManage from '../views/admin/UserManage.vue'
 import BotMonitor from '../views/admin/BotMonitor.vue'
 import SiteSettings from '../views/admin/SiteSettings.vue'
+import AuditLogsView from '../views/admin/AuditLogsView.vue'
 import ProfileSettings from '../views/ProfileSettings.vue'
 import ForceChangePassword from '../views/ForceChangePassword.vue'
 import NotFound from '../views/NotFound.vue'
@@ -89,6 +90,12 @@ const routes = [
         name: 'SiteSettings',
         component: SiteSettings,
         meta: { admin: true, superAdminOnly: true },
+      },
+      {
+        path: 'admin/audit',
+        name: 'AuditLogs',
+        component: AuditLogsView,
+        meta: { admin: true },
       },
     ],
   },

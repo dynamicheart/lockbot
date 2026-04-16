@@ -1112,7 +1112,7 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
       BOT_ID,
       BOT_OWNER
     )
-  )  
+  )
 }
 
 // ---------------------------------------------------------------------------

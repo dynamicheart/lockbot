@@ -124,6 +124,116 @@
         </el-form-item>
       </div>
 
+      <el-divider />
+
+      <!-- Advanced Config -->
+      <el-collapse>
+        <el-collapse-item :title="$t('botCreate.advancedConfig')" name="advanced">
+          <el-row :gutter="16">
+            <el-col :xs="24" :sm="12">
+              <el-form-item prop="cfg_default_duration">
+                <template #label>
+                  {{ $t('botCreate.defaultDuration') }}
+                  <el-tooltip
+                    :content="$t('botCreate.defaultDurationHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-input-number
+                  v-model="advancedConfig.DEFAULT_DURATION"
+                  :min="60"
+                  :max="604800"
+                  :step="300"
+                  style="width: 100%"
+                />
+                <div class="cfg-unit">{{ $t('botCreate.defaultDurationUnit') }}</div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item prop="cfg_max_lock_duration">
+                <template #label>
+                  {{ $t('botCreate.maxLockDuration') }}
+                  <el-tooltip
+                    :content="$t('botCreate.maxLockDurationHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-input-number
+                  v-model="advancedConfig.MAX_LOCK_DURATION"
+                  :min="-1"
+                  :max="604800"
+                  :step="3600"
+                  style="width: 100%"
+                />
+                <div class="cfg-unit">{{ $t('botCreate.defaultDurationUnit') }}</div>
+                <el-alert
+                  v-if="advancedConfig.MAX_LOCK_DURATION > 86400"
+                  :title="$t('botCreate.maxLockDurationWarning')"
+                  type="warning"
+                  :closable="false"
+                  show-icon
+                  style="margin-top: 6px"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item prop="cfg_time_alert">
+                <template #label>
+                  {{ $t('botCreate.timeAlert') }}
+                  <el-tooltip
+                    :content="$t('botCreate.timeAlertHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-input-number
+                  v-model="advancedConfig.TIME_ALERT"
+                  :min="30"
+                  :max="3600"
+                  :step="60"
+                  style="width: 100%"
+                />
+                <div class="cfg-unit">{{ $t('botCreate.timeAlertUnit') }}</div>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.language') }}
+                </template>
+                <el-select v-model="advancedConfig.LANGUAGE" style="width: 100%">
+                  <el-option :label="$t('botCreate.langZh')" value="zh" />
+                  <el-option :label="$t('botCreate.langEn')" value="en" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.earlyNotify') }}
+                  <el-tooltip
+                    :content="$t('botCreate.earlyNotifyHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-collapse-item>
+      </el-collapse>
+
       <!-- Actions -->
       <div class="form-actions">
         <el-button @click="$router.back()">{{ $t('common.cancel') }}</el-button>
@@ -176,6 +286,15 @@ const form = reactive({
   token: '',
 })
 
+// Advanced runtime config — maps to Bot.config_overrides
+const advancedConfig = reactive({
+  DEFAULT_DURATION: 7200,
+  MAX_LOCK_DURATION: -1,
+  TIME_ALERT: 300,
+  EARLY_NOTIFY: false,
+  LANGUAGE: 'zh',
+})
+
 const rules = computed(() => ({
   name: [{ required: true, message: () => t('botCreate.nameRequired'), trigger: 'blur' }],
   bot_type: [{ required: true, message: () => t('botCreate.typeRequired'), trigger: 'change' }],
@@ -203,6 +322,22 @@ onMounted(async () => {
       form.token = ''
       maskedAesKey.value = bot.value.aes_key_masked || ''
       maskedToken.value = bot.value.token_masked || ''
+      // Load config_overrides into advancedConfig
+      try {
+        const overrides =
+          typeof bot.value.config_overrides === 'string'
+            ? JSON.parse(bot.value.config_overrides)
+            : bot.value.config_overrides || {}
+        if (overrides.DEFAULT_DURATION != null)
+          advancedConfig.DEFAULT_DURATION = overrides.DEFAULT_DURATION
+        if (overrides.MAX_LOCK_DURATION != null)
+          advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
+        if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
+        if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
+        if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
+      } catch {
+        // keep defaults
+      }
       try {
         const parsed =
           typeof bot.value.cluster_configs === 'string'
@@ -256,6 +391,8 @@ async function handleSubmit() {
   saving.value = true
   try {
     const data = { ...form }
+    // Always include advanced config_overrides
+    data.config_overrides = { ...advancedConfig }
     if (isEdit.value) {
       if (!data.aes_key) delete data.aes_key
       if (!data.token) delete data.token
@@ -347,6 +484,11 @@ async function handleSubmit() {
 .help-title {
   font-weight: 600;
   margin-bottom: 4px;
+}
+.cfg-unit {
+  font-size: 12px;
+  color: var(--lb-text-secondary);
+  margin-top: 2px;
 }
 @media (max-width: 768px) {
   .bot-form-page {

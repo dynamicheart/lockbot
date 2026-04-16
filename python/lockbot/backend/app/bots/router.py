@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
+from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user, require_admin, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
@@ -23,6 +24,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.schemas import BotCreate, BotDetail, BotOut, BotStatusOut, BotUpdate
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
 from lockbot.backend.app.database import get_db
+from lockbot.backend.app.rate_limit import limiter
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
 from lockbot.core.msg_utils import check_signature
@@ -172,6 +174,7 @@ def list_bots(
 
 @router.post("", response_model=BotOut, status_code=status.HTTP_201_CREATED)
 def create_bot(
+    request: Request,
     body: BotCreate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -204,6 +207,17 @@ def create_bot(
         config_overrides=json.dumps(body.config_overrides or {}, ensure_ascii=False),
     )
     db.add(bot)
+    db.flush()
+    write_audit_log(
+        db,
+        user,
+        "bot.create",
+        target_type="bot",
+        target_id=bot.id,
+        target_name=bot.name,
+        detail={"bot_type": bot.bot_type, "platform": bot.platform},
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(bot)
 
@@ -287,6 +301,7 @@ def get_bot(
 @router.put("/{bot_id}", response_model=BotOut)
 def update_bot(
     bot_id: int,
+    request: Request,
     body: BotUpdate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -300,6 +315,7 @@ def update_bot(
     if bot.status == "running":
         raise HTTPException(status_code=409, detail="Cannot update a running bot. Stop it first.")
 
+    changes = {}
     if body.name is not None:
         # Check for duplicate name (excluding current bot and deleted bots)
         dup = (
@@ -314,20 +330,36 @@ def update_bot(
         )
         if dup:
             raise HTTPException(status_code=409, detail="Bot name already exists")
+        changes["name"] = [bot.name, body.name]
         bot.name = body.name
     if body.group_id is not None:
         bot.group_id = body.group_id
     if body.webhook_url is not None:
+        changes["webhook_url"] = True
         bot.webhook_url = encryption.encrypt(body.webhook_url)
     if body.aes_key is not None:
+        changes["aes_key"] = True
         bot.aes_key = encryption.encrypt(body.aes_key)
     if body.token is not None:
+        changes["token"] = True
         bot.token = encryption.encrypt(body.token)
     if body.cluster_configs is not None:
+        changes["cluster_configs"] = True
         bot.cluster_configs = json.dumps(body.cluster_configs, ensure_ascii=False)
     if body.config_overrides is not None:
+        changes["config_overrides"] = True
         bot.config_overrides = json.dumps(body.config_overrides, ensure_ascii=False)
 
+    write_audit_log(
+        db,
+        user,
+        "bot.update",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        detail={"changed": list(changes.keys())},
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(bot)
     return bot
@@ -336,6 +368,7 @@ def update_bot(
 @router.delete("/{bot_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_bot(
     bot_id: int,
+    request: Request,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -352,8 +385,18 @@ def delete_bot(
         bot.status = "stopped"
         bot.pid = None
 
+    bot_name = bot.name
     bot.is_deleted = True
     bot.deleted_at = datetime.utcnow()
+    write_audit_log(
+        db,
+        user,
+        "bot.delete",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot_name,
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
 
 
@@ -361,6 +404,7 @@ def delete_bot(
 def transfer_bot_owner(
     bot_id: int,
     body: dict,
+    request: Request,
     user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -380,6 +424,16 @@ def transfer_bot_owner(
     old_owner = db.get(User, bot.user_id)
     old_name = old_owner.username if old_owner else "unknown"
     bot.user_id = target_user.id
+    write_audit_log(
+        db,
+        user,
+        "bot.transfer",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        detail={"from": old_name, "to": target_username},
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
 
     _write_log(bot_id, f"Owner transferred from {old_name} to {target_username} by {user.username}")
@@ -393,7 +447,9 @@ MAX_CONSECUTIVE_FAILURES = 3
 
 
 @router.post("/{bot_id}/start", response_model=BotStatusOut)
+@limiter.limit("10/minute")
 def start_bot(
+    request: Request,
     bot_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -451,6 +507,15 @@ def start_bot(
     bot.status = "running"
     bot.pid = pid
     bot.consecutive_failures = 0
+    write_audit_log(
+        db,
+        user,
+        "bot.start",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(bot)
     _write_log(bot_id, "Bot 已启动")
@@ -459,7 +524,9 @@ def start_bot(
 
 
 @router.post("/{bot_id}/stop", response_model=BotStatusOut)
+@limiter.limit("10/minute")
 def stop_bot(
+    request: Request,
     bot_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -479,6 +546,15 @@ def stop_bot(
     bot.status = "stopped"
     bot.pid = None
     bot.consecutive_failures = 0
+    write_audit_log(
+        db,
+        user,
+        "bot.stop",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     _write_log(bot_id, "Bot 已停止")
 
@@ -486,7 +562,9 @@ def stop_bot(
 
 
 @router.post("/{bot_id}/restart", response_model=BotStatusOut)
+@limiter.limit("10/minute")
 def restart_bot(
+    request: Request,
     bot_id: int,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -507,6 +585,15 @@ def restart_bot(
 
     bot.status = "running"
     bot.pid = pid
+    write_audit_log(
+        db,
+        user,
+        "bot.restart",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
     db.refresh(bot)
     _write_log(bot_id, "Bot 已重启")
@@ -520,6 +607,7 @@ def restart_bot(
 @router.put("/{bot_id}/language")
 def set_bot_language(
     bot_id: int,
+    request: Request,
     body: dict,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -535,6 +623,17 @@ def set_bot_language(
     overrides = json.loads(bot.config_overrides or "{}")
     overrides["LANGUAGE"] = lang
     bot.config_overrides = json.dumps(overrides, ensure_ascii=False)
+
+    write_audit_log(
+        db,
+        user,
+        "bot.set_language",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        detail={"language": lang},
+        ip=request.client.host if request.client else None,
+    )
     db.commit()
 
     # Hot-apply to running instance (no restart)
@@ -789,6 +888,7 @@ def _validate_device_state(state, cluster_configs, warnings, config):
 @router.put("/{bot_id}/state")
 def update_bot_state(
     bot_id: int,
+    request: Request,
     state: dict,
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
@@ -834,6 +934,17 @@ def update_bot_state(
     result = {"message": "State updated"}
     if warnings:
         result["warnings"] = warnings
+    write_audit_log(
+        db,
+        user,
+        "bot.edit_state",
+        target_type="bot",
+        target_id=bot_id,
+        target_name=bot.name,
+        detail={"warnings": warnings} if warnings else None,
+        ip=request.client.host if request.client else None,
+    )
+    db.commit()
     return result
 
 
@@ -885,6 +996,7 @@ def get_bot_logs(
 
 
 @router.post("/webhook/{bot_id}")
+@limiter.limit("120/minute")
 async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     """
     IM callback endpoint.

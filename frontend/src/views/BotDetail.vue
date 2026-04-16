@@ -167,6 +167,31 @@
               <el-radio-button value="en">English</el-radio-button>
             </el-radio-group>
           </el-descriptions-item>
+          <!-- Runtime config overrides -->
+          <template v-if="hasAdvancedConfig">
+            <el-descriptions-item :label="$t('botCreate.defaultDuration')">
+              {{ formatDuration(botConfig.DEFAULT_DURATION) }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.maxLockDuration')">
+              {{
+                botConfig.MAX_LOCK_DURATION === -1
+                  ? $t('botCreate.maxLockDurationUnlimited')
+                  : formatDuration(botConfig.MAX_LOCK_DURATION)
+              }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.timeAlert')">
+              {{ formatDuration(botConfig.TIME_ALERT) }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.earlyNotify')">
+              <el-tag :type="botConfig.EARLY_NOTIFY ? 'warning' : 'info'" size="small">
+                {{
+                  botConfig.EARLY_NOTIFY
+                    ? $t('botCreate.earlyNotifyOn')
+                    : $t('botCreate.earlyNotifyOff')
+                }}
+              </el-tag>
+            </el-descriptions-item>
+          </template>
         </el-descriptions>
       </el-card>
 
@@ -415,12 +440,7 @@ import { useI18n } from 'vue-i18n'
 import { useHelpers } from '../utils/helpers'
 
 const { t } = useI18n()
-const {
-  formatDateTime,
-  formatRelativeTime,
-  maskText,
-  copyText,
-} = useHelpers()
+const { formatDateTime, formatRelativeTime, maskText, copyText } = useHelpers()
 const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
@@ -490,6 +510,48 @@ const showToken = ref(false)
 // Bot language
 const botLanguage = ref('zh')
 const botOwner = computed(() => bot.value?.owner || '-')
+
+const botConfig = computed(() => {
+  try {
+    const overrides =
+      typeof bot.value?.config_overrides === 'string'
+        ? JSON.parse(bot.value.config_overrides)
+        : bot.value?.config_overrides || {}
+    return {
+      DEFAULT_DURATION: overrides.DEFAULT_DURATION ?? 7200,
+      MAX_LOCK_DURATION: overrides.MAX_LOCK_DURATION ?? -1,
+      TIME_ALERT: overrides.TIME_ALERT ?? 300,
+      EARLY_NOTIFY: overrides.EARLY_NOTIFY ?? false,
+    }
+  } catch {
+    return { DEFAULT_DURATION: 7200, MAX_LOCK_DURATION: -1, TIME_ALERT: 300, EARLY_NOTIFY: false }
+  }
+})
+
+// Show advanced config block only when any value differs from default
+const hasAdvancedConfig = computed(() => {
+  if (!bot.value) return false
+  const c = botConfig.value
+  return (
+    c.DEFAULT_DURATION !== 7200 ||
+    c.MAX_LOCK_DURATION !== -1 ||
+    c.TIME_ALERT !== 300 ||
+    c.EARLY_NOTIFY !== false
+  )
+})
+
+function formatDuration(seconds) {
+  if (seconds == null || seconds < 0) return '-'
+  if (seconds === 0) return '0s'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  const parts = []
+  if (h > 0) parts.push(`${h}h`)
+  if (m > 0) parts.push(`${m}m`)
+  if (s > 0 || parts.length === 0) parts.push(`${s}s`)
+  return parts.join(' ')
+}
 
 // Permission rules:
 // - super_admin: can do anything (edit/delete/start/stop/transfer)

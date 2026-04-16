@@ -16,6 +16,7 @@ import {
   appendLog,
   nextBotId,
   mockSettings,
+  mockAuditLogs,
 } from './mockData'
 import { validateBotState } from './stateValidation'
 import { LS_KEYS } from './demoMode'
@@ -257,7 +258,52 @@ function _handleGet(url, params) {
     return Object.entries(mockSettings).map(([key, value]) => ({ key, value }))
   }
 
+  // ── Audit logs ──
+  if (url === '/audit/logs') {
+    const user = _currentUser()
+    if (!user) throw _err(401, 'Not authenticated')
+    return _handleGetAuditLogs(params, user)
+  }
+
   throw _err(404, `GET ${url} not implemented in demo mode`)
+}
+
+// ---------------------------------------------------------------------------
+// Audit logs helper (called from _handleGet)
+// ---------------------------------------------------------------------------
+
+function _handleGetAuditLogs(params, user) {
+  if (!_isAdmin(user)) throw _err(403, 'Permission denied')
+
+  let logs = [...mockAuditLogs]
+
+  // Visibility: admin sees own + user-role operators; super_admin sees all
+  if (!_isSuperAdmin(user)) {
+    const userRoleIds = new Set(mockUsers.filter((u) => u.role === 'user').map((u) => u.id))
+    logs = logs.filter(
+      (l) => l.operator_id === user.id || userRoleIds.has(l.operator_id) || l.operator_id === null
+    )
+  }
+
+  if (params.action) logs = logs.filter((l) => l.action === params.action)
+  if (params.result) logs = logs.filter((l) => l.result === params.result)
+  if (params.operator_username) {
+    const q = params.operator_username.toLowerCase()
+    logs = logs.filter((l) => l.operator_username.toLowerCase().includes(q))
+  }
+  if (params.start_date) logs = logs.filter((l) => l.created_at >= params.start_date)
+  if (params.end_date) logs = logs.filter((l) => l.created_at <= params.end_date)
+
+  logs.sort((a, b) => (b.created_at > a.created_at ? 1 : -1))
+
+  const page = parseInt(params.page) || 1
+  const limit = Math.min(parseInt(params.limit) || 50, 200)
+  const total = logs.length
+  const items = logs.slice((page - 1) * limit, page * limit).map((l) => ({
+    ...l,
+    detail: l.detail ? JSON.parse(l.detail) : null,
+  }))
+  return { total, items }
 }
 
 // ---------------------------------------------------------------------------
