@@ -109,21 +109,32 @@
           <template #default="{ row }">
             <div>
               <span style="font-weight: 500">{{ row.operator_username }}</span>
-              <el-tag
-                :type="roleTagType(row.operator_role)"
-                size="small"
-                effect="plain"
-                style="margin-left: 6px"
+              <span
+                v-if="row.operator_role !== 'user'"
+                style="
+                  margin-left: 6px;
+                  font-size: 11px;
+                  color: var(--lb-text-secondary);
+                  border: 1px solid var(--lb-border-light);
+                  border-radius: 3px;
+                  padding: 0 4px;
+                  line-height: 18px;
+                  display: inline-block;
+                "
               >
                 {{ translateRole(row.operator_role) }}
-              </el-tag>
+              </span>
             </div>
           </template>
         </el-table-column>
 
         <el-table-column :label="$t('audit.action')" width="150">
           <template #default="{ row }">
-            <el-tag size="small" :type="actionTagType(row.action)">
+            <el-tag
+              size="small"
+              :type="actionTagType(row.action)"
+              :effect="actionTagType(row.action) === 'danger' ? 'light' : 'plain'"
+            >
               {{ translateAction(row.action) }}
             </el-tag>
           </template>
@@ -153,9 +164,10 @@
 
         <el-table-column :label="$t('audit.result')" width="90" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.result === 'success' ? 'success' : 'danger'" size="small">
-              {{ row.result === 'success' ? $t('audit.success') : $t('audit.failure') }}
+            <el-tag v-if="row.result === 'failure'" type="danger" size="small">
+              {{ $t('audit.failure') }}
             </el-tag>
+            <span v-else style="color: var(--lb-text-secondary); font-size: 13px">✓</span>
           </template>
         </el-table-column>
 
@@ -306,12 +318,6 @@ function formatDetail(detail) {
   return detail
 }
 
-function roleTagType(role) {
-  if (role === 'super_admin') return 'danger'
-  if (role === 'admin') return 'warning'
-  return 'info'
-}
-
 function translateRole(role) {
   return tm('audit.roles')?.[role] || role
 }
@@ -321,11 +327,8 @@ function translateAction(action) {
 }
 
 function actionTagType(action) {
-  if (action?.startsWith('auth.')) return ''
-  if (action?.startsWith('bot.delete') || action?.startsWith('user.force_logout')) return 'danger'
-  if (action?.startsWith('bot.') || action?.startsWith('user.')) return 'primary'
-  if (action?.startsWith('admin.')) return 'warning'
-  return 'info'
+  if (action === 'bot.delete' || action === 'user.force_logout') return 'danger'
+  return ''
 }
 
 onMounted(() => {
