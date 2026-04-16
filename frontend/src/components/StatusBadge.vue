@@ -1,5 +1,11 @@
 <template>
-  <el-tag :type="tagType" :effect="effect" size="small" class="status-badge" :class="{ 'is-running': status === 'running' }">
+  <el-tag
+    :type="tagType"
+    :effect="effect"
+    size="small"
+    class="status-badge"
+    :class="{ 'is-running': status === 'running' }"
+  >
     <span v-if="status === 'running'" class="pulse-dot"></span>
     {{ $t(`status.${status}`) }}
   </el-tag>
@@ -38,7 +44,14 @@ const tagType = computed(() => {
   margin-right: 2px;
 }
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.75); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
 }
 </style>

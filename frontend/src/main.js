@@ -12,7 +12,10 @@ import './style.css'
 // Restore theme preference
 const THEME_KEY = 'lockbot_theme'
 const saved = localStorage.getItem(THEME_KEY) || 'light'
-if (saved === 'dark' || (saved === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+if (
+  saved === 'dark' ||
+  (saved === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+) {
   document.documentElement.classList.add('dark')
 }
 

@@ -153,7 +153,8 @@ export default {
     webhookHelpStep1: '1. 在如流中创建机器人应用',
     webhookHelpStep2: '2. 进入机器人设置 → 接收消息 → 开启',
     webhookHelpStep3: '3. 复制显示的 Webhook URL、Token 和 AES Key',
-    credentialsHint: '凭证获取：在如流中创建机器人应用 → 设置 → 接收消息 → 开启，然后复制 Webhook URL、Token 和 AES Key',
+    credentialsHint:
+      '凭证获取：在如流中创建机器人应用 → 设置 → 接收消息 → 开启，然后复制 Webhook URL、Token 和 AES Key',
     tokenHelp: '用于验证消息来源的 Token，在如流机器人设置的接收消息页面获取',
     aesKeyHelp: '用于消息加解密的 AES 密钥，在如流机器人设置的接收消息页面获取',
     callbackHintTitle: '重要：配置回调地址',

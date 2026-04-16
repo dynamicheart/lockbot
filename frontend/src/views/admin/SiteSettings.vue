@@ -1,21 +1,40 @@
 <template>
   <div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
+    <div
+      style="
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      "
+    >
       <h2 style="margin: 0">{{ $t('admin.siteSettings') }}</h2>
-      <el-button type="primary" @click="handleSave" :loading="saving">
+      <el-button type="primary" :loading="saving" @click="handleSave">
         <el-icon><Check /></el-icon> {{ $t('common.save') }}
       </el-button>
     </div>
     <el-card>
-      <el-form label-width="140px" v-loading="loading">
+      <el-form v-loading="loading" label-width="140px">
         <el-form-item :label="$t('settings.platformUrl')">
-          <el-input v-model="form.platform_url" :placeholder="$t('settings.platformUrlPlaceholder')" clearable />
+          <el-input
+            v-model="form.platform_url"
+            :placeholder="$t('settings.platformUrlPlaceholder')"
+            clearable
+          />
         </el-form-item>
         <el-form-item :label="$t('settings.githubUrl')">
-          <el-input v-model="form.github_url" :placeholder="$t('settings.githubUrlPlaceholder')" clearable />
+          <el-input
+            v-model="form.github_url"
+            :placeholder="$t('settings.githubUrlPlaceholder')"
+            clearable
+          />
         </el-form-item>
         <el-form-item :label="$t('settings.adminContact')">
-          <el-input v-model="form.admin_contact" :placeholder="$t('settings.adminContactPlaceholder')" clearable />
+          <el-input
+            v-model="form.admin_contact"
+            :placeholder="$t('settings.adminContactPlaceholder')"
+            clearable
+          />
         </el-form-item>
         <el-form-item :label="$t('settings.newsContent')">
           <el-input

@@ -51,7 +51,7 @@ export function useHelpers() {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
         () => ElMessage.success(msg),
-        () => fallbackCopy(text, msg),
+        () => fallbackCopy(text, msg)
       )
     } else {
       fallbackCopy(text, msg)

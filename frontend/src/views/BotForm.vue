@@ -28,7 +28,12 @@
       <el-row :gutter="16">
         <el-col :span="14">
           <el-form-item :label="$t('botCreate.botName')" prop="name">
-            <el-input v-model="form.name" :placeholder="$t('botCreate.botNamePlaceholder')" :maxlength="64" show-word-limit />
+            <el-input
+              v-model="form.name"
+              :placeholder="$t('botCreate.botNamePlaceholder')"
+              :maxlength="64"
+              show-word-limit
+            />
           </el-form-item>
         </el-col>
         <el-col :span="10">
@@ -85,7 +90,13 @@
           </template>
           <el-input
             v-model="form.token"
-            :placeholder="isEdit && maskedToken ? maskedToken : (isEdit ? $t('botCreate.leaveBlank') : $t('botCreate.tokenPlaceholder'))"
+            :placeholder="
+              isEdit && maskedToken
+                ? maskedToken
+                : isEdit
+                  ? $t('botCreate.leaveBlank')
+                  : $t('botCreate.tokenPlaceholder')
+            "
             show-password
           />
         </el-form-item>
@@ -101,7 +112,13 @@
           </template>
           <el-input
             v-model="form.aes_key"
-            :placeholder="isEdit && maskedAesKey ? maskedAesKey : (isEdit ? $t('botCreate.leaveBlank') : $t('botCreate.aesKeyPlaceholder'))"
+            :placeholder="
+              isEdit && maskedAesKey
+                ? maskedAesKey
+                : isEdit
+                  ? $t('botCreate.leaveBlank')
+                  : $t('botCreate.aesKeyPlaceholder')
+            "
             show-password
           />
         </el-form-item>
@@ -143,7 +160,7 @@ const maskedToken = ref('')
 const nodeClusterConfig = ref({})
 const deviceClusterConfig = ref({})
 const clusterConfig = computed({
-  get: () => form.bot_type === 'DEVICE' ? deviceClusterConfig.value : nodeClusterConfig.value,
+  get: () => (form.bot_type === 'DEVICE' ? deviceClusterConfig.value : nodeClusterConfig.value),
   set: (v) => {
     if (form.bot_type === 'DEVICE') deviceClusterConfig.value = v
     else nodeClusterConfig.value = v
@@ -166,8 +183,12 @@ const rules = computed(() => ({
     { required: true, message: () => t('botCreate.webhookRequired'), trigger: 'blur' },
     { type: 'url', message: () => t('botCreate.webhookInvalid'), trigger: 'blur' },
   ],
-  aes_key: [{ required: !isEdit.value, message: () => t('botCreate.aesKeyRequired'), trigger: 'blur' }],
-  token: [{ required: !isEdit.value, message: () => t('botCreate.tokenRequired'), trigger: 'blur' }],
+  aes_key: [
+    { required: !isEdit.value, message: () => t('botCreate.aesKeyRequired'), trigger: 'blur' },
+  ],
+  token: [
+    { required: !isEdit.value, message: () => t('botCreate.tokenRequired'), trigger: 'blur' },
+  ],
 }))
 
 onMounted(async () => {
@@ -183,9 +204,10 @@ onMounted(async () => {
       maskedAesKey.value = bot.value.aes_key_masked || ''
       maskedToken.value = bot.value.token_masked || ''
       try {
-        const parsed = typeof bot.value.cluster_configs === 'string'
-          ? JSON.parse(bot.value.cluster_configs)
-          : bot.value.cluster_configs || {}
+        const parsed =
+          typeof bot.value.cluster_configs === 'string'
+            ? JSON.parse(bot.value.cluster_configs)
+            : bot.value.cluster_configs || {}
         if (form.bot_type === 'DEVICE') deviceClusterConfig.value = parsed
         else nodeClusterConfig.value = parsed
       } catch {
@@ -200,7 +222,11 @@ onMounted(async () => {
 })
 
 async function handleSubmit() {
-  try { await formRef.value.validate() } catch { return }
+  try {
+    await formRef.value.validate()
+  } catch {
+    return
+  }
 
   if (!isEdit.value) {
     const cc = clusterConfig.value
@@ -237,12 +263,20 @@ async function handleSubmit() {
       if (cc && Object.keys(cc).length > 0) data.cluster_configs = cc
       const needRestart = bot.value.status !== 'stopped'
       if (needRestart) {
-        try { await botsStore.stopBot(bot.value.id) } catch { /* non-blocking */ }
+        try {
+          await botsStore.stopBot(bot.value.id)
+        } catch {
+          /* non-blocking */
+        }
       }
       await botsStore.updateBot(bot.value.id, data)
       ElMessage.success(t('common.success'))
       if (needRestart) {
-        try { await botsStore.startBot(bot.value.id) } catch { /* non-blocking */ }
+        try {
+          await botsStore.startBot(bot.value.id)
+        } catch {
+          /* non-blocking */
+        }
       }
       router.push(`/bots/${bot.value.id}`)
     } else {

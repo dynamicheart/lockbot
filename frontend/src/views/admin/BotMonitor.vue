@@ -38,16 +38,38 @@
     <!-- Toolbar -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <el-input v-model="search" :placeholder="$t('botList.searchPlaceholder')" clearable :prefix-icon="Search" style="width: 220px" />
-        <el-select v-model="ownerFilter" :placeholder="$t('botList.filterByOwner')" clearable filterable style="width: 160px">
+        <el-input
+          v-model="search"
+          :placeholder="$t('botList.searchPlaceholder')"
+          clearable
+          :prefix-icon="Search"
+          style="width: 220px"
+        />
+        <el-select
+          v-model="ownerFilter"
+          :placeholder="$t('botList.filterByOwner')"
+          clearable
+          filterable
+          style="width: 160px"
+        >
           <el-option v-for="owner in ownerOptions" :key="owner" :label="owner" :value="owner" />
         </el-select>
-        <el-select v-model="statusFilter" :placeholder="$t('botList.filterByStatus')" clearable style="width: 150px">
+        <el-select
+          v-model="statusFilter"
+          :placeholder="$t('botList.filterByStatus')"
+          clearable
+          style="width: 150px"
+        >
           <el-option :label="$t('status.running')" value="running" />
           <el-option :label="$t('status.stopped')" value="stopped" />
           <el-option :label="$t('status.error')" value="error" />
         </el-select>
-        <el-select v-model="typeFilter" :placeholder="$t('botList.filterByType')" clearable style="width: 140px">
+        <el-select
+          v-model="typeFilter"
+          :placeholder="$t('botList.filterByType')"
+          clearable
+          style="width: 140px"
+        >
           <el-option label="NODE" value="NODE" />
           <el-option label="DEVICE" value="DEVICE" />
           <el-option label="QUEUE" value="QUEUE" />
@@ -65,9 +87,20 @@
     <el-skeleton :loading="loading" :rows="6" animated>
       <template #default>
         <el-empty v-if="filtered.length === 0" :description="$t('common.noData')" />
-        <el-table v-else :data="filtered" stripe @row-click="row => $router.push(`/bots/${row.id}`)" class="bot-table">
+        <el-table
+          v-else
+          :data="filtered"
+          stripe
+          class="bot-table"
+          @row-click="(row) => $router.push(`/bots/${row.id}`)"
+        >
           <el-table-column prop="id" label="ID" width="70" />
-          <el-table-column prop="name" :label="$t('admin.botName')" min-width="140" show-overflow-tooltip />
+          <el-table-column
+            prop="name"
+            :label="$t('admin.botName')"
+            min-width="140"
+            show-overflow-tooltip
+          />
           <el-table-column :label="$t('botDetail.type')" width="160">
             <template #default="{ row }">
               <el-tag size="small" type="primary" effect="plain">{{ row.bot_type }}</el-tag>
@@ -83,8 +116,22 @@
           <el-table-column :label="$t('botCard.group')" width="180">
             <template #default="{ row }">
               <template v-if="row.group_id">
-                <el-tag v-for="gid in row.group_id.split(',').slice(0, 2)" :key="gid" size="small" effect="plain" class="group-tag" @click.stop="copyText(gid)">{{ gid }}</el-tag>
-                <el-tag v-if="row.group_id.split(',').length > 2" size="small" type="info" effect="plain">+{{ row.group_id.split(',').length - 2 }}</el-tag>
+                <el-tag
+                  v-for="gid in row.group_id.split(',').slice(0, 2)"
+                  :key="gid"
+                  size="small"
+                  effect="plain"
+                  class="group-tag"
+                  @click.stop="copyText(gid)"
+                  >{{ gid }}</el-tag
+                >
+                <el-tag
+                  v-if="row.group_id.split(',').length > 2"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                  >+{{ row.group_id.split(',').length - 2 }}</el-tag
+                >
               </template>
               <span v-else>-</span>
             </template>
@@ -95,7 +142,9 @@
             </template>
           </el-table-column>
           <el-table-column :label="$t('botCard.lastActive')" width="110">
-            <template #default="{ row }">{{ formatRelativeTime(row.last_request_at) || '-' }}</template>
+            <template #default="{ row }">{{
+              formatRelativeTime(row.last_request_at) || '-'
+            }}</template>
           </el-table-column>
           <el-table-column prop="created_at" :label="$t('botCard.created')" width="130">
             <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
@@ -142,21 +191,22 @@ onMounted(async () => {
 const stats = computed(() => {
   return {
     total: allBots.value.length,
-    running: allBots.value.filter(b => b.status === 'running').length,
-    stopped: allBots.value.filter(b => b.status === 'stopped').length,
-    error: allBots.value.filter(b => b.status === 'error').length,
+    running: allBots.value.filter((b) => b.status === 'running').length,
+    stopped: allBots.value.filter((b) => b.status === 'stopped').length,
+    error: allBots.value.filter((b) => b.status === 'error').length,
   }
 })
 
 const ownerOptions = computed(() => {
-  const owners = [...new Set(allBots.value.map(b => b.owner).filter(Boolean))]
+  const owners = [...new Set(allBots.value.map((b) => b.owner).filter(Boolean))]
   return owners.sort()
 })
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
   return allBots.value.filter((b) => {
-    if (q && !b.name.toLowerCase().includes(q) && !(b.owner || '').toLowerCase().includes(q)) return false
+    if (q && !b.name.toLowerCase().includes(q) && !(b.owner || '').toLowerCase().includes(q))
+      return false
     if (ownerFilter.value && b.owner !== ownerFilter.value) return false
     if (statusFilter.value && b.status !== statusFilter.value) return false
     if (typeFilter.value && b.bot_type !== typeFilter.value) return false
@@ -166,7 +216,10 @@ const filtered = computed(() => {
 
 function getResourceLabel(row) {
   try {
-    const configs = typeof row.cluster_configs === 'string' ? JSON.parse(row.cluster_configs) : (row.cluster_configs || {})
+    const configs =
+      typeof row.cluster_configs === 'string'
+        ? JSON.parse(row.cluster_configs)
+        : row.cluster_configs || {}
     const nodes = Object.keys(configs).length
     if (row.bot_type === 'DEVICE') {
       let totalDevices = 0
@@ -249,7 +302,9 @@ async function handleDownloadStates() {
   background: var(--lb-bg-card);
   border: 1px solid var(--lb-border-light);
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 .stat-card:hover {
   border-color: var(--lb-color-primary);
@@ -259,10 +314,18 @@ async function handleDownloadStates() {
   font-size: 28px;
   font-weight: 700;
 }
-.stat-value.primary { color: var(--lb-color-primary); }
-.stat-value.success { color: var(--lb-color-success); }
-.stat-value.muted { color: var(--lb-text-secondary); }
-.stat-value.danger { color: var(--lb-color-danger); }
+.stat-value.primary {
+  color: var(--lb-color-primary);
+}
+.stat-value.success {
+  color: var(--lb-color-success);
+}
+.stat-value.muted {
+  color: var(--lb-text-secondary);
+}
+.stat-value.danger {
+  color: var(--lb-color-danger);
+}
 .stat-label {
   font-size: 13px;
   color: var(--lb-text-secondary);

@@ -30,7 +30,15 @@
         {{ $t('botCard.lastActive') }}: {{ bot.last_user_id }}
       </span>
       <span v-if="bot.group_id" class="group-ids" @click.stop>
-        <el-tag v-for="gid in bot.group_id.split(',')" :key="gid" size="small" effect="plain" class="group-tag" @click="copyText(gid)">{{ gid }}</el-tag>
+        <el-tag
+          v-for="gid in bot.group_id.split(',')"
+          :key="gid"
+          size="small"
+          effect="plain"
+          class="group-tag"
+          @click="copyText(gid)"
+          >{{ gid }}</el-tag
+        >
       </span>
     </div>
   </el-card>
@@ -71,15 +79,14 @@ const inUsePercent = computed(() => {
   if (!u || u.total === 0) return 0
   return Math.round((u.inUse / u.total) * 100)
 })
-
-
-
 </script>
 
 <style scoped>
 .bot-card {
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 .bot-card:hover {
   transform: translateY(-2px);

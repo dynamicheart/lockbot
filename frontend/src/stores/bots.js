@@ -30,7 +30,7 @@ export const useBotsStore = defineStore('bots', () => {
 
   function parseClusterConfigs(configsStr) {
     try {
-      return typeof configsStr === 'string' ? JSON.parse(configsStr) : (configsStr || {})
+      return typeof configsStr === 'string' ? JSON.parse(configsStr) : configsStr || {}
     } catch {
       return {}
     }
@@ -58,7 +58,8 @@ export const useBotsStore = defineStore('bots', () => {
       const values = Object.values(state)
       if (values.length > 0) {
         if (bot.bot_type === 'DEVICE') {
-          let total = 0, inUse = 0
+          let total = 0,
+            inUse = 0
           for (const devices of values) {
             if (Array.isArray(devices)) {
               for (const d of devices) {
@@ -70,7 +71,7 @@ export const useBotsStore = defineStore('bots', () => {
           if (total > 0) utilization = { total, inUse, idle: total - inUse }
         } else {
           const total = values.length
-          const inUse = values.filter(n => n && n.status !== 'idle').length
+          const inUse = values.filter((n) => n && n.status !== 'idle').length
           utilization = { total, inUse, idle: total - inUse }
         }
       }
@@ -88,7 +89,6 @@ export const useBotsStore = defineStore('bots', () => {
     const res = await api.get(`/bots/${id}`)
     return res.data
   }
-
 
   async function updateBot(id, data) {
     const res = await api.put(`/bots/${id}`, data)
@@ -140,11 +140,24 @@ export const useBotsStore = defineStore('bots', () => {
   }
 
   return {
-    bots, loading, runningStates,
-    fetchBots, fetchRunningStates,
-    computeBotStats, parseClusterConfigs,
-    createBot, getBot, updateBot, deleteBot,
-    startBot, stopBot, restartBot,
-    getBotState, updateBotState, transferOwner, getBotLogs, setBotLanguage,
+    bots,
+    loading,
+    runningStates,
+    fetchBots,
+    fetchRunningStates,
+    computeBotStats,
+    parseClusterConfigs,
+    createBot,
+    getBot,
+    updateBot,
+    deleteBot,
+    startBot,
+    stopBot,
+    restartBot,
+    getBotState,
+    updateBotState,
+    transferOwner,
+    getBotLogs,
+    setBotLanguage,
   }
 })

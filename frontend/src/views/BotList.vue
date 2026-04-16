@@ -31,7 +31,12 @@
             <div class="quota-header">{{ $t('botList.myQuota') }}</div>
             <div class="quota-value">
               <template v-if="!authStore.isAdmin && authStore.user?.max_running_bots">
-                {{ $t('botList.quotaUsage', { running: stats.running, max: authStore.user.max_running_bots }) }}
+                {{
+                  $t('botList.quotaUsage', {
+                    running: stats.running,
+                    max: authStore.user.max_running_bots,
+                  })
+                }}
               </template>
               <template v-else>
                 {{ $t('botList.quotaUnlimited') }}
@@ -80,13 +85,29 @@
     <!-- Toolbar -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <el-input v-model="search" :placeholder="$t('botList.searchPlaceholder')" clearable :prefix-icon="Search" style="width: 220px" />
-        <el-select v-model="statusFilter" :placeholder="$t('botList.filterByStatus')" clearable style="width: 150px">
+        <el-input
+          v-model="search"
+          :placeholder="$t('botList.searchPlaceholder')"
+          clearable
+          :prefix-icon="Search"
+          style="width: 220px"
+        />
+        <el-select
+          v-model="statusFilter"
+          :placeholder="$t('botList.filterByStatus')"
+          clearable
+          style="width: 150px"
+        >
           <el-option :label="$t('status.running')" value="running" />
           <el-option :label="$t('status.stopped')" value="stopped" />
           <el-option :label="$t('status.error')" value="error" />
         </el-select>
-        <el-select v-model="typeFilter" :placeholder="$t('botList.filterByType')" clearable style="width: 140px">
+        <el-select
+          v-model="typeFilter"
+          :placeholder="$t('botList.filterByType')"
+          clearable
+          style="width: 140px"
+        >
           <el-option label="NODE" value="NODE" />
           <el-option label="DEVICE" value="DEVICE" />
           <el-option label="QUEUE" value="QUEUE" />
@@ -115,15 +136,34 @@
 
         <!-- Card view -->
         <el-row v-else-if="viewMode === 'card'" :gutter="16">
-          <el-col v-for="bot in filtered" :key="bot.id" :xs="24" :sm="12" :md="8" :lg="6" style="margin-bottom: 16px">
+          <el-col
+            v-for="bot in filtered"
+            :key="bot.id"
+            :xs="24"
+            :sm="12"
+            :md="8"
+            :lg="6"
+            style="margin-bottom: 16px"
+          >
             <BotCard :bot="bot" />
           </el-col>
         </el-row>
 
         <!-- List view -->
-        <el-table v-else :data="filtered" stripe @row-click="row => $router.push(`/bots/${row.id}`)" class="bot-table">
+        <el-table
+          v-else
+          :data="filtered"
+          stripe
+          class="bot-table"
+          @row-click="(row) => $router.push(`/bots/${row.id}`)"
+        >
           <el-table-column prop="id" label="ID" width="70" />
-          <el-table-column prop="name" :label="$t('admin.botName')" min-width="140" show-overflow-tooltip />
+          <el-table-column
+            prop="name"
+            :label="$t('admin.botName')"
+            min-width="140"
+            show-overflow-tooltip
+          />
           <el-table-column :label="$t('botDetail.type')" width="160">
             <template #default="{ row }">
               <el-tag size="small" type="primary" effect="plain">{{ row.bot_type }}</el-tag>
@@ -138,8 +178,22 @@
           <el-table-column :label="$t('botCard.group')" width="180">
             <template #default="{ row }">
               <template v-if="row.group_id">
-                <el-tag v-for="gid in row.group_id.split(',').slice(0, 2)" :key="gid" size="small" effect="plain" class="group-tag" @click="copyText(gid)">{{ gid }}</el-tag>
-                <el-tag v-if="row.group_id.split(',').length > 2" size="small" type="info" effect="plain">+{{ row.group_id.split(',').length - 2 }}</el-tag>
+                <el-tag
+                  v-for="gid in row.group_id.split(',').slice(0, 2)"
+                  :key="gid"
+                  size="small"
+                  effect="plain"
+                  class="group-tag"
+                  @click="copyText(gid)"
+                  >{{ gid }}</el-tag
+                >
+                <el-tag
+                  v-if="row.group_id.split(',').length > 2"
+                  size="small"
+                  type="info"
+                  effect="plain"
+                  >+{{ row.group_id.split(',').length - 2 }}</el-tag
+                >
               </template>
               <span v-else>-</span>
             </template>
@@ -154,8 +208,14 @@
               <template v-if="getBotStats(row).utilization">
                 <div class="list-usage-bar-container">
                   <div class="list-usage-bar">
-                    <div class="usage-bar-fill idle" :style="{ width: getIdlePercent(row) + '%' }"></div>
-                    <div class="usage-bar-fill inuse" :style="{ width: getInUsePercent(row) + '%' }"></div>
+                    <div
+                      class="usage-bar-fill idle"
+                      :style="{ width: getIdlePercent(row) + '%' }"
+                    ></div>
+                    <div
+                      class="usage-bar-fill inuse"
+                      :style="{ width: getInUsePercent(row) + '%' }"
+                    ></div>
                   </div>
                   <span class="usage-label">{{ getUsageText(row) }}</span>
                 </div>
@@ -164,7 +224,9 @@
             </template>
           </el-table-column>
           <el-table-column :label="$t('botCard.lastActive')" width="110">
-            <template #default="{ row }">{{ formatRelativeTime(row.last_request_at) || '-' }}</template>
+            <template #default="{ row }">{{
+              formatRelativeTime(row.last_request_at) || '-'
+            }}</template>
           </el-table-column>
           <el-table-column prop="created_at" :label="$t('botCard.created')" width="130">
             <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
@@ -177,24 +239,19 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import api from '../utils/api'
 import BotCard from '../components/BotCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { Search } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
-import { useI18n } from 'vue-i18n'
 import { useHelpers } from '../utils/helpers'
 
 const VIEW_KEY = 'lockbot_view_mode'
 const STATS_KEY = 'lockbot_show_stats'
 const PLATFORM_STATS_KEY = 'lockbot_show_platform_stats'
 
-const { t } = useI18n()
 const { formatDate, formatRelativeTime, copyText } = useHelpers()
-const router = useRouter()
 const botsStore = useBotsStore()
 const authStore = useAuthStore()
 const platformStats = ref({ total_users: 0, total_bots: 0, running_bots: 0 })
@@ -207,9 +264,9 @@ const showPlatformStats = ref(localStorage.getItem(PLATFORM_STATS_KEY) !== 'fals
 let stateRefreshTimer = null
 
 // Persist preferences
-watch(viewMode, v => localStorage.setItem(VIEW_KEY, v))
-watch(showStats, v => localStorage.setItem(STATS_KEY, v))
-watch(showPlatformStats, v => localStorage.setItem(PLATFORM_STATS_KEY, v))
+watch(viewMode, (v) => localStorage.setItem(VIEW_KEY, v))
+watch(showStats, (v) => localStorage.setItem(STATS_KEY, v))
+watch(showPlatformStats, (v) => localStorage.setItem(PLATFORM_STATS_KEY, v))
 
 onMounted(async () => {
   botsStore.fetchBots()
@@ -234,14 +291,14 @@ const stats = computed(() => {
   const all = botsStore.bots
   return {
     total: all.length,
-    running: all.filter(b => b.status === 'running').length,
-    stopped: all.filter(b => b.status === 'stopped').length,
-    error: all.filter(b => b.status === 'error').length,
+    running: all.filter((b) => b.status === 'running').length,
+    stopped: all.filter((b) => b.status === 'stopped').length,
+    error: all.filter((b) => b.status === 'error').length,
   }
 })
 
 const filtered = computed(() => {
-  return botsStore.bots.filter(b => {
+  return botsStore.bots.filter((b) => {
     if (search.value && !b.name.toLowerCase().includes(search.value.toLowerCase())) return false
     if (statusFilter.value && b.status !== statusFilter.value) return false
     if (typeFilter.value && b.bot_type !== typeFilter.value) return false
@@ -351,7 +408,9 @@ function getUsageText(row) {
   background: var(--lb-bg-card);
   border: 1px solid var(--lb-border-light);
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 .stat-card:hover {
   border-color: var(--lb-color-primary);
@@ -361,10 +420,18 @@ function getUsageText(row) {
   font-size: 28px;
   font-weight: 700;
 }
-.stat-value.primary { color: var(--lb-color-primary); }
-.stat-value.success { color: var(--lb-color-success); }
-.stat-value.muted { color: var(--lb-text-secondary); }
-.stat-value.danger { color: var(--lb-color-danger); }
+.stat-value.primary {
+  color: var(--lb-color-primary);
+}
+.stat-value.success {
+  color: var(--lb-color-success);
+}
+.stat-value.muted {
+  color: var(--lb-text-secondary);
+}
+.stat-value.danger {
+  color: var(--lb-color-danger);
+}
 .stat-label {
   font-size: 13px;
   color: var(--lb-text-secondary);

@@ -154,7 +154,10 @@ export const mockBots = [
     last_user_id: null,
     status: 'running',
     last_request_at: null,
-    cluster_configs: JSON.stringify({ 'srv-a': ['H20', 'H20', 'A100', 'A100'], 'srv-b': ['H100', 'H100', 'A100'] }),
+    cluster_configs: JSON.stringify({
+      'srv-a': ['H20', 'H20', 'A100', 'A100'],
+      'srv-b': ['H100', 'H100', 'A100'],
+    }),
     config_overrides: JSON.stringify({ LANGUAGE: 'en' }),
     created_at: now,
     updated_at: now,
@@ -235,7 +238,12 @@ const _deviceStateBot1 = {
       dev_model: 'A100',
       status: 'exclusive',
       current_users: [
-        { user_id: 'demo_user', start_time: _ts - _twoHours, duration: _threeHours, is_notified: false },
+        {
+          user_id: 'demo_user',
+          start_time: _ts - _twoHours,
+          duration: _threeHours,
+          is_notified: false,
+        },
       ],
     },
   ],
@@ -306,7 +314,12 @@ const _deviceStateBot5 = {
       dev_model: 'A100',
       status: 'shared',
       current_users: [
-        { user_id: 'researcher', start_time: _ts - 1800, duration: _threeHours, is_notified: false },
+        {
+          user_id: 'researcher',
+          start_time: _ts - 1800,
+          duration: _threeHours,
+          is_notified: false,
+        },
         { user_id: 'user1', start_time: _ts - 600, duration: _oneHour, is_notified: false },
       ],
     },
@@ -323,7 +336,12 @@ const _deviceStateBot5 = {
       dev_model: 'H100',
       status: 'exclusive',
       current_users: [
-        { user_id: 'demo_user', start_time: _ts - _twoHours, duration: _threeHours, is_notified: false },
+        {
+          user_id: 'demo_user',
+          start_time: _ts - _twoHours,
+          duration: _threeHours,
+          is_notified: false,
+        },
       ],
     },
     {

@@ -7,7 +7,10 @@
       show-icon
       style="margin-bottom: 16px"
     />
-    <NodeBotForm :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" />
+    <NodeBotForm
+      :model-value="modelValue"
+      @update:model-value="$emit('update:modelValue', $event)"
+    />
   </div>
 </template>
 

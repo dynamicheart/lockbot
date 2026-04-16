@@ -21,7 +21,8 @@
           draggable="true"
           @dragstart="onDragStart(i, $event)"
           @dragend="onDragEnd"
-        ><Rank /></el-icon>
+          ><Rank
+        /></el-icon>
         <el-input
           v-model="node.name"
           :placeholder="$t('botForm.nodeNamePlaceholder')"
@@ -30,10 +31,19 @@
           class="node-input"
         />
         <span v-if="isDuplicate(i)" class="dup-tip">{{ $t('botForm.duplicateNode') }}</span>
-        <span v-else-if="isInvalidName(i)" class="dup-tip">{{ $t('botForm.nodeNameInvalid') }}</span>
-        <el-button class="node-remove" :icon="Delete" text type="danger" :disabled="nodes.length <= 1" @click="removeNode(i)" />
+        <span v-else-if="isInvalidName(i)" class="dup-tip">{{
+          $t('botForm.nodeNameInvalid')
+        }}</span>
+        <el-button
+          class="node-remove"
+          :icon="Delete"
+          text
+          type="danger"
+          :disabled="nodes.length <= 1"
+          @click="removeNode(i)"
+        />
       </div>
-      <div v-if="!nodes.length || nodes.length === 1 && !nodes[0].name" class="node-empty">
+      <div v-if="!nodes.length || (nodes.length === 1 && !nodes[0].name)" class="node-empty">
         {{ $t('botForm.noNodes') }}
       </div>
     </div>
@@ -72,7 +82,7 @@ function parseInit() {
       names = keys.length ? keys : ['']
     }
   }
-  return names.map(name => ({ id: ++nodeIdSeq, name }))
+  return names.map((name) => ({ id: ++nodeIdSeq, name }))
 }
 
 const NODE_NAME_RE = /^[a-zA-Z0-9_-]*$/
@@ -122,7 +132,7 @@ function onDragLeave(i) {
 function onDrop(i) {
   const from = dragIndex.value
   if (from === -1 || from === i) return
-  const target = dropPos.value === 'bottom' ? (from < i ? i : i + 1) : (from < i ? i - 1 : i)
+  const target = dropPos.value === 'bottom' ? (from < i ? i : i + 1) : from < i ? i - 1 : i
   const item = nodes.value.splice(from, 1)[0]
   nodes.value.splice(target, 0, item)
   dragIndex.value = -1
@@ -138,34 +148,49 @@ function onDragEnd() {
 
 let syncing = false
 
-watch(() => props.modelValue, (newVal) => {
-  if (syncing) return
-  syncing = true
-  const newNodes = (() => {
-    const cfg = newVal
-    let names = ['']
-    if (cfg) {
-      if (Array.isArray(cfg)) {
-        names = cfg.length ? [...cfg] : ['']
-      } else if (cfg.clusters) {
-        names = cfg.clusters.map((c) => c.name || c.full_name || '')
-      } else if (typeof cfg === 'object') {
-        const keys = Object.keys(cfg)
-        names = keys.length ? keys : ['']
+watch(
+  () => props.modelValue,
+  (newVal) => {
+    if (syncing) return
+    syncing = true
+    const newNodes = (() => {
+      const cfg = newVal
+      let names = ['']
+      if (cfg) {
+        if (Array.isArray(cfg)) {
+          names = cfg.length ? [...cfg] : ['']
+        } else if (cfg.clusters) {
+          names = cfg.clusters.map((c) => c.name || c.full_name || '')
+        } else if (typeof cfg === 'object') {
+          const keys = Object.keys(cfg)
+          names = keys.length ? keys : ['']
+        }
       }
-    }
-    return names.map(name => ({ id: ++nodeIdSeq, name }))
-  })()
-  nodes.value = newNodes
-  nextTick(() => { syncing = false })
-}, { deep: true })
+      return names.map((name) => ({ id: ++nodeIdSeq, name }))
+    })()
+    nodes.value = newNodes
+    nextTick(() => {
+      syncing = false
+    })
+  },
+  { deep: true }
+)
 
-watch(nodes, () => {
-  const filtered = nodes.value.filter((n) => n.name?.trim() && NODE_NAME_RE.test(n.name.trim()))
-  syncing = true
-  emit('update:modelValue', filtered.map(n => n.name.trim()))
-  nextTick(() => { syncing = false })
-}, { deep: true })
+watch(
+  nodes,
+  () => {
+    const filtered = nodes.value.filter((n) => n.name?.trim() && NODE_NAME_RE.test(n.name.trim()))
+    syncing = true
+    emit(
+      'update:modelValue',
+      filtered.map((n) => n.name.trim())
+    )
+    nextTick(() => {
+      syncing = false
+    })
+  },
+  { deep: true }
+)
 </script>
 
 <style scoped>
@@ -182,11 +207,13 @@ watch(nodes, () => {
   border: 1px solid var(--lb-border-light);
   border-radius: 8px;
   background: var(--el-bg-color);
-  transition: opacity 0.2s, box-shadow 0.2s;
+  transition:
+    opacity 0.2s,
+    box-shadow 0.2s;
   position: relative;
 }
 .node-item:hover {
-  box-shadow: var(--lb-shadow-card-hover, 0 2px 8px rgba(0,0,0,0.06));
+  box-shadow: var(--lb-shadow-card-hover, 0 2px 8px rgba(0, 0, 0, 0.06));
 }
 .node-item--dragging {
   opacity: 0.4;
@@ -230,7 +257,9 @@ watch(nodes, () => {
   flex-shrink: 0;
   padding: 4px;
   border-radius: 4px;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
 }
 .drag-handle:hover {
   background-color: var(--el-fill-color-light);

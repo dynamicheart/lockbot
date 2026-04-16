@@ -20,8 +20,8 @@ export const LS_KEYS = {
   token: _prefix + 'token',
   user: _prefix + 'user',
   accounts: _prefix + 'accounts',
-  locale: 'lockbot_locale',    // shared — UI preference
-  theme: 'lockbot_theme',      // shared — UI preference
+  locale: 'lockbot_locale', // shared — UI preference
+  theme: 'lockbot_theme', // shared — UI preference
   mode: 'lockbot_mode',
 }
 
@@ -38,11 +38,13 @@ if (isDemoMode) {
   if (!localStorage.getItem(LS_KEYS.accounts)) {
     try {
       const old = JSON.parse(localStorage.getItem('lockbot_accounts') || '[]')
-      const demoOnly = old.filter(a => a.token?.startsWith('demo:'))
+      const demoOnly = old.filter((a) => a.token?.startsWith('demo:'))
       if (demoOnly.length > 0) {
         localStorage.setItem(LS_KEYS.accounts, JSON.stringify(demoOnly))
       }
-    } catch { /* ignore corrupt data */ }
+    } catch {
+      /* ignore corrupt data */
+    }
   }
 }
 
@@ -52,13 +54,25 @@ if (isDemoMode) {
  */
 if (isDemoMode) {
   const existing = JSON.parse(localStorage.getItem(LS_KEYS.accounts) || '[]')
-  const existingNames = new Set(existing.map(a => a.user?.username))
+  const existingNames = new Set(existing.map((a) => a.user?.username))
   const seedUsers = [
-    { id: 1, username: 'demo_user', email: 'demo@example.com', role: 'super_admin', max_running_bots: 10 },
+    {
+      id: 1,
+      username: 'demo_user',
+      email: 'demo@example.com',
+      role: 'super_admin',
+      max_running_bots: 10,
+    },
     { id: 2, username: 'admin', email: 'admin@example.com', role: 'admin', max_running_bots: 10 },
     { id: 3, username: 'user1', email: 'user1@example.com', role: 'user', max_running_bots: 5 },
     { id: 4, username: 'user2', email: 'user2@example.com', role: 'user', max_running_bots: 3 },
-    { id: 5, username: 'researcher', email: 'researcher@example.com', role: 'admin', max_running_bots: 8 },
+    {
+      id: 5,
+      username: 'researcher',
+      email: 'researcher@example.com',
+      role: 'admin',
+      max_running_bots: 8,
+    },
     { id: 6, username: 'intern', email: 'intern@example.com', role: 'user', max_running_bots: 2 },
   ]
   let changed = false

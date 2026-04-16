@@ -56,7 +56,8 @@ export default {
     tryDemo: 'Try the demo',
     usernameLength: '3-64 characters',
     emailInvalid: 'Invalid email format',
-    demoHint: 'This is a demo environment. You can enter any username and password to log in, or register a new account.',
+    demoHint:
+      'This is a demo environment. You can enter any username and password to log in, or register a new account.',
     profileSettings: 'Profile Settings',
     currentPassword: 'Current Password',
     newPassword: 'New Password',
@@ -153,9 +154,12 @@ export default {
     webhookHelpStep1: '1. Create a bot application in Ruliu',
     webhookHelpStep2: '2. Go to bot settings → Receive Messages → Enable',
     webhookHelpStep3: '3. Copy the Webhook URL, Token and AES Key',
-    credentialsHint: 'How to get credentials: Create a bot app in Ruliu → Settings → Receive Messages → Enable, then copy the Webhook URL, Token and AES Key',
-    tokenHelp: 'Token for verifying message source, obtained from the Receive Messages page in Ruliu bot settings',
-    aesKeyHelp: 'AES key for message encryption/decryption, obtained from the Receive Messages page in Ruliu bot settings',
+    credentialsHint:
+      'How to get credentials: Create a bot app in Ruliu → Settings → Receive Messages → Enable, then copy the Webhook URL, Token and AES Key',
+    tokenHelp:
+      'Token for verifying message source, obtained from the Receive Messages page in Ruliu bot settings',
+    aesKeyHelp:
+      'AES key for message encryption/decryption, obtained from the Receive Messages page in Ruliu bot settings',
     callbackHintTitle: 'Important: Configure Callback URL',
     callbackHintStep1: 'Copy the callback URL below',
     callbackHintStep2: 'Paste it in Ruliu bot settings',
@@ -207,7 +211,7 @@ export default {
     transferOwnerConfirm: 'Transfer this bot to user "{username}"?',
     transferOwnerSuccess: 'Bot transferred to {username}',
     transferOwnerPlaceholder: 'Target username',
-    cannotDeleteAdminBot: 'Cannot delete another admin\'s bot',
+    cannotDeleteAdminBot: "Cannot delete another admin's bot",
   },
 
   // === Bot Card ===
@@ -264,7 +268,7 @@ export default {
     usernamePlaceholder: 'Enter username',
     emailPlaceholder: 'Enter email',
     resetPassword: 'Reset Password',
-    resetPasswordConfirm: 'Reset this user\'s password? A new random password will be generated.',
+    resetPasswordConfirm: "Reset this user's password? A new random password will be generated.",
     passwordGenerated: 'User created. Initial password:',
     passwordReset: 'Password has been reset. New password:',
     passwordCopied: 'Password copied to clipboard',
@@ -354,7 +358,7 @@ export default {
     cmdLockDuration: 'Lock with duration (d/h/m)',
     cmdUnlock: 'Release a resource',
     cmdFree: 'Release all your resources',
-    cmdKickout: 'Force-release others\' resource',
+    cmdKickout: "Force-release others' resource",
     cmdQuery: 'Query resource usage',
     cmdSlock: 'Shared lock (multi-user)',
     cmdLockDev: 'Lock specific device',

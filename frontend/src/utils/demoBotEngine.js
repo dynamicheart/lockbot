@@ -67,9 +67,12 @@ const _MSGS = {
     // Help
     'help.title': '📖 Usage Guide\n',
     'help.section1_title': '1. Request resource\n',
-    'help.rule1_default_duration': '    Rule 1: Default duration {default_duration}, repeated lock extends time, d(day),h(hour),m(min)\n',
-    'help.rule2_post_expiry_notification': '    Rule 2: A reminder will be sent after resource expires\n',
-    'help.rule3_lock_modes': '    Rule 3: lock for exclusive, slock for shared (multiple users can slock)\n',
+    'help.rule1_default_duration':
+      '    Rule 1: Default duration {default_duration}, repeated lock extends time, d(day),h(hour),m(min)\n',
+    'help.rule2_post_expiry_notification':
+      '    Rule 2: A reminder will be sent after resource expires\n',
+    'help.rule3_lock_modes':
+      '    Rule 3: lock for exclusive, slock for shared (multiple users can slock)\n',
     'help.section2_title': '2. Release resource (unlock and free are interchangeable)\n',
     'help.free_all': '    free (release all your resources)\n',
     'help.section3_title': "3. Force release others' resource (will notify affected users)\n",
@@ -98,8 +101,10 @@ const _MSGS = {
     'help.free_device_range_example': '    free {node} 0-3 (release devices 0-3 on {node})\n',
     'help.free_node_all_example': '    free {node} (release all your devices on {node})\n',
     'help.kickout_device_example': '    kickout {node} (force-release all devices on node)\n',
-    'help.kickout_device_range_example': '    kickout {node} 0-3 (force-release devices 0-3 on {node})\n',
-    'help.kickout_device_range2_example': '    kickout {node} 0 (force-release device 0 on {node})\n',
+    'help.kickout_device_range_example':
+      '    kickout {node} 0-3 (force-release devices 0-3 on {node})\n',
+    'help.kickout_device_range2_example':
+      '    kickout {node} 0 (force-release device 0 on {node})\n',
     'help.resource_list_title': 'Resource list:\n',
     'help.resource_list_item': '    {node_key}: dev_id 0~{max_dev}\n',
     // Help QUEUE extras
@@ -110,7 +115,8 @@ const _MSGS = {
     'help.section_take_title': '3. Take (preempt)\n',
     'help.take_example': '    take {node} (take node {node})\n',
     'help.section_release_title': '4. Release resource (unlock and free are interchangeable)\n',
-    'help.section_kickout_title': "5. Force release others' resource (will notify affected users)\n",
+    'help.section_kickout_title':
+      "5. Force release others' resource (will notify affected users)\n",
     'help.section_cancel_booking_title': '5. Cancel booking\n',
     'help.section_kicklock_title': '7. Force release lock (booking info preserved)\n',
     'help.section_help_title_queue': '6. Help: help or h\n',
@@ -168,7 +174,8 @@ const _MSGS = {
     // Help
     'help.title': '📖【使用方法】\n',
     'help.section1_title': '1. 申请资源\n',
-    'help.rule1_default_duration': '    规则1: 默认时间{default_duration}, 重复lock增加时间, d(天),h(时),m(分)\n',
+    'help.rule1_default_duration':
+      '    规则1: 默认时间{default_duration}, 重复lock增加时间, d(天),h(时),m(分)\n',
     'help.rule2_post_expiry_notification': '    规则2: 资源时间用时耗尽后,会进行提醒\n',
     'help.rule3_lock_modes': '    规则3: lock申请独占资源, slock申请共享资源(可多人同时slock)\n',
     'help.section2_title': '2. 释放资源 (unlock和free通用)\n',
@@ -244,10 +251,14 @@ export function durationToSeconds(str) {
   const val = parseFloat(m[1])
   const unit = m[2].toLowerCase()
   switch (unit) {
-    case 'd': return Math.round(val * 86400)
-    case 'h': return Math.round(val * 3600)
-    case 'm': return Math.round(val * 60)
-    default: return -1
+    case 'd':
+      return Math.round(val * 86400)
+    case 'h':
+      return Math.round(val * 3600)
+    case 'm':
+      return Math.round(val * 60)
+    default:
+      return -1
   }
 }
 
@@ -298,13 +309,19 @@ const DURATION_RE = /([0-9]+\.?[0-9]*)([dhm])\s*$/
 // ---------------------------------------------------------------------------
 
 function splitNodeList(raw) {
-  return raw.split(/[,，]/).map((s) => s.trim()).filter(Boolean)
+  return raw
+    .split(/[,，]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
 }
 
 function parseDurationTail(command) {
   const m = command.match(DURATION_RE)
   if (!m) return null
-  return { seconds: durationToSeconds(`${m[1]}${m[2]}`), rest: command.slice(0, command.lastIndexOf(m[0])).trim() }
+  return {
+    seconds: durationToSeconds(`${m[1]}${m[2]}`),
+    rest: command.slice(0, command.lastIndexOf(m[0])).trim(),
+  }
 }
 
 function parseDevSpec(rest, clusterConfigs, nodeKey) {
@@ -385,7 +402,7 @@ function queueUsageText(state, nodeFilter, lang) {
       text += _t(lang, 'label.queue_list')
       // Calculate max remaining lock time as base wait
       let maxLockRemaining = 0
-      for (const u of (node.current_users || [])) {
+      for (const u of node.current_users || []) {
         const rem = remainingDuration(u.start_time, u.duration)
         if (rem > maxLockRemaining) maxLockRemaining = rem
       }
@@ -460,7 +477,9 @@ export function executeCommand(state, userId, command, botType, config, lang = '
   const CLUSTER_CONFIGS = config.CLUSTER_CONFIGS || {}
   const BOT_ID = config.BOT_ID || ''
   const BOT_OWNER = config.BOT_OWNER || ''
-  const clusterKeys = Array.isArray(CLUSTER_CONFIGS) ? CLUSTER_CONFIGS : Object.keys(CLUSTER_CONFIGS)
+  const clusterKeys = Array.isArray(CLUSTER_CONFIGS)
+    ? CLUSTER_CONFIGS
+    : Object.keys(CLUSTER_CONFIGS)
 
   // Helper: get usage text for this bot type
   const usageText = (filter) => {
@@ -479,14 +498,36 @@ export function executeCommand(state, userId, command, botType, config, lang = '
   const rest = trimmed.slice(trimmed.indexOf(cmd) + cmd.length).trim()
 
   // Bare known node key -> query that node (matches Python handler.py)
-  if (!['lock', 'slock', 'unlock', 'free', 'kickout', 'kicklock', 'book', 'take', 'help', 'h', 'query'].includes(cmd)
-    && clusterKeys.includes(trimmed)) {
+  if (
+    ![
+      'lock',
+      'slock',
+      'unlock',
+      'free',
+      'kickout',
+      'kicklock',
+      'book',
+      'take',
+      'help',
+      'h',
+      'query',
+    ].includes(cmd) &&
+    clusterKeys.includes(trimmed)
+  ) {
     return `${_t(lang, 'query.cluster_usage_title')}${usageText(trimmed)}`
   }
 
   // ---- help ----
   if (cmd === 'help' || cmd === 'h') {
-    return _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+    return _buildHelp(
+      botType,
+      CLUSTER_CONFIGS,
+      DEFAULT_DURATION,
+      MAX_LOCK_DURATION,
+      lang,
+      BOT_ID,
+      BOT_OWNER
+    )
   }
 
   // ---- query ----
@@ -499,16 +540,37 @@ export function executeCommand(state, userId, command, botType, config, lang = '
 
   // For NODE / QUEUE: commands operate on node names
   if (botType === 'NODE' || botType === 'QUEUE') {
-    return _executeNodeQueueCommand(state, userId, cmd, rest, botType, {
-      DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS,
-    }, usageText, lang)
+    return _executeNodeQueueCommand(
+      state,
+      userId,
+      cmd,
+      rest,
+      botType,
+      {
+        DEFAULT_DURATION,
+        MAX_LOCK_DURATION,
+        CLUSTER_CONFIGS,
+      },
+      usageText,
+      lang
+    )
   }
 
   // For DEVICE: commands operate on node/dev pairs
   if (botType === 'DEVICE') {
-    return _executeDeviceCommand(state, userId, cmd, rest, {
-      DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS,
-    }, usageText, lang)
+    return _executeDeviceCommand(
+      state,
+      userId,
+      cmd,
+      rest,
+      {
+        DEFAULT_DURATION,
+        MAX_LOCK_DURATION,
+        CLUSTER_CONFIGS,
+      },
+      usageText,
+      lang
+    )
   }
 
   return `Unknown bot type: ${botType}`
@@ -520,8 +582,10 @@ export function executeCommand(state, userId, command, botType, config, lang = '
 
 function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageText, lang) {
   const { DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS } = cfg
-  const clusterKeys = Array.isArray(CLUSTER_CONFIGS) ? CLUSTER_CONFIGS : Object.keys(CLUSTER_CONFIGS)
-  const validKeysStr = `[${clusterKeys.map(k => `'${k}'`).join(', ')}]`
+  const clusterKeys = Array.isArray(CLUSTER_CONFIGS)
+    ? CLUSTER_CONFIGS
+    : Object.keys(CLUSTER_CONFIGS)
+  const validKeysStr = `[${clusterKeys.map((k) => `'${k}'`).join(', ')}]`
 
   // Helper: show error (matches Python show_error which prepends error prefix)
   const showError = (msg) => `❌${msg}`
@@ -534,13 +598,26 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     const commandHasDuration = !!durResult
 
     if (!nodePart) {
-      return _t(lang, 'error.invalid_command_format', { command: `lock ${rest}\n\n` }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: `lock ${rest}\n\n` }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const nodeKeys = splitNodeList(nodePart)
     for (const nk of nodeKeys) {
       if (!clusterKeys.includes(nk)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -562,7 +639,10 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
         }
       } else {
         if (
-          !(node.status === 'idle' || (findUser(node.current_users, userId) && node.status === 'exclusive'))
+          !(
+            node.status === 'idle' ||
+            (findUser(node.current_users, userId) && node.status === 'exclusive')
+          )
         ) {
           return showError(_t(lang, 'error.node_in_use_or_shared') + usageText())
         }
@@ -592,16 +672,23 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
       } else {
         totalDuration += user.duration
         if (botType === 'QUEUE') {
-          for (const bu of (node.booking_list || [])) usersToNotify.add(bu.user_id)
+          for (const bu of node.booking_list || []) usersToNotify.add(bu.user_id)
         }
       }
 
       if (botType === 'QUEUE' && bookingInfo && totalDuration > bookingInfo.duration) {
-        for (const bu of (node.booking_list || [])) usersToNotify.add(bu.user_id)
+        for (const bu of node.booking_list || []) usersToNotify.add(bu.user_id)
       }
 
-      if (MAX_LOCK_DURATION > 0 && remainingDuration(user.start_time, totalDuration) > MAX_LOCK_DURATION) {
-        return showError(_t(lang, 'error.lock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+      if (
+        MAX_LOCK_DURATION > 0 &&
+        remainingDuration(user.start_time, totalDuration) > MAX_LOCK_DURATION
+      ) {
+        return showError(
+          _t(lang, 'error.lock_max_duration_exceeded', {
+            max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+          })
+        )
       }
       user.duration = totalDuration
       user.is_notified = false
@@ -625,13 +712,26 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     const duration = durResult ? durResult.seconds : DEFAULT_DURATION
 
     if (!nodePart) {
-      return _t(lang, 'error.invalid_command_format', { command: `slock ${rest}\n\n` }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: `slock ${rest}\n\n` }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const nodeKeys = splitNodeList(nodePart)
     for (const nk of nodeKeys) {
       if (!clusterKeys.includes(nk)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -652,13 +752,27 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
       let user = findUser(node.current_users, userId)
       if (!user) {
         user = createUser(userId, duration, timestamp)
-        if (MAX_LOCK_DURATION > 0 && remainingDuration(user.start_time, user.duration) > MAX_LOCK_DURATION) {
-          return showError(_t(lang, 'error.slock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+        if (
+          MAX_LOCK_DURATION > 0 &&
+          remainingDuration(user.start_time, user.duration) > MAX_LOCK_DURATION
+        ) {
+          return showError(
+            _t(lang, 'error.slock_max_duration_exceeded', {
+              max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+            })
+          )
         }
         node.current_users.push(user)
       } else {
-        if (MAX_LOCK_DURATION > 0 && remainingDuration(user.start_time, user.duration + duration) > MAX_LOCK_DURATION) {
-          return showError(_t(lang, 'error.slock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+        if (
+          MAX_LOCK_DURATION > 0 &&
+          remainingDuration(user.start_time, user.duration + duration) > MAX_LOCK_DURATION
+        ) {
+          return showError(
+            _t(lang, 'error.slock_max_duration_exceeded', {
+              max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+            })
+          )
         }
         user.duration += duration
         user.is_notified = false
@@ -684,7 +798,9 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     const nodeKeys = splitNodeList(rest)
     for (const nk of nodeKeys) {
       if (!clusterKeys.includes(nk)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -707,12 +823,25 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
   // ---- kickout ----
   if (cmd === 'kickout') {
     if (!rest) {
-      return _t(lang, 'error.invalid_command_format', { command: 'kickout\n\n' }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: 'kickout\n\n' }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
     const nodeKeys = splitNodeList(rest)
     for (const nk of nodeKeys) {
       if (!clusterKeys.includes(nk)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -721,8 +850,8 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     // Collect affected users for @notification
     const affected = new Set()
     for (const nk of uniqueKeys) {
-      for (const u of (state[nk].current_users || [])) affected.add(u.user_id)
-      for (const u of (state[nk].booking_list || [])) affected.add(u.user_id)
+      for (const u of state[nk].current_users || []) affected.add(u.user_id)
+      for (const u of state[nk].booking_list || []) affected.add(u.user_id)
     }
     affected.delete(userId)
 
@@ -736,7 +865,7 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
 
     let reply = `${before}${_t(lang, 'label.after_release')}${usageText()}`
     if (affected.size > 0) {
-      reply += [...affected].map(u => `@${u}`).join(' ') + '\n'
+      reply += [...affected].map((u) => `@${u}`).join(' ') + '\n'
     }
     return reply
   }
@@ -744,17 +873,41 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
   // ---- kicklock (QUEUE only) ----
   if (cmd === 'kicklock') {
     if (botType !== 'QUEUE') {
-      return _t(lang, 'error.unrecognized_command', { command: cmd + '\n\n' }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.unrecognized_command', { command: cmd + '\n\n' }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     if (!rest) {
-      return _t(lang, 'error.invalid_command_format', { command: 'kicklock\n\n' }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: 'kicklock\n\n' }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const nodeKeys = splitNodeList(rest)
     for (const nk of nodeKeys) {
       if (!clusterKeys.includes(nk)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -763,7 +916,7 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     // Collect affected locked users for @notification
     const affected = new Set()
     for (const nk of uniqueKeys) {
-      for (const u of (state[nk].current_users || [])) affected.add(u.user_id)
+      for (const u of state[nk].current_users || []) affected.add(u.user_id)
     }
     affected.delete(userId)
 
@@ -777,7 +930,7 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
 
     let reply = `${before}${_t(lang, 'label.after_release')}${usageText()}`
     if (affected.size > 0) {
-      reply += [...affected].map(u => `@${u}`).join(' ') + '\n'
+      reply += [...affected].map((u) => `@${u}`).join(' ') + '\n'
     }
     return reply
   }
@@ -785,7 +938,18 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
   // ---- book (QUEUE only) ----
   if (cmd === 'book') {
     if (botType !== 'QUEUE') {
-      return _t(lang, 'error.unrecognized_command', { command: 'book\n\n' }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.unrecognized_command', { command: 'book\n\n' }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const durResult = parseDurationTail(rest)
@@ -793,13 +957,26 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     const duration = durResult ? durResult.seconds : DEFAULT_DURATION
 
     if (!nodePart) {
-      return _t(lang, 'error.invalid_command_format', { command: `book ${rest}\n\n` }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: `book ${rest}\n\n` }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const nodeKeys = splitNodeList(nodePart)
     for (const nk of nodeKeys) {
       if (!clusterKeys.includes(nk)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -812,7 +989,11 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
         return showError(_t(lang, 'error.already_locked') + `\n${usageText()}`)
       }
       if (MAX_LOCK_DURATION > 0 && duration > MAX_LOCK_DURATION) {
-        return showError(_t(lang, 'error.lock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+        return showError(
+          _t(lang, 'error.lock_max_duration_exceeded', {
+            max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+          })
+        )
       }
       if (!node.booking_list) node.booking_list = []
       node.booking_list.push(createUser(userId, duration, timestamp))
@@ -824,7 +1005,18 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
   // ---- take (QUEUE only) ----
   if (cmd === 'take') {
     if (botType !== 'QUEUE') {
-      return _t(lang, 'error.unrecognized_command', { command: 'take\n\n' }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.unrecognized_command', { command: 'take\n\n' }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const durResult = parseDurationTail(rest)
@@ -832,13 +1024,26 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     const duration = durResult ? durResult.seconds : DEFAULT_DURATION
 
     if (!nodePart) {
-      return _t(lang, 'error.invalid_command_format', { command: `take ${rest}\n\n` }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: `take ${rest}\n\n` }) +
+        _buildHelp(
+          botType,
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const nodeKeys = splitNodeList(nodePart)
     for (const nk of nodeKeys) {
       if (!clusterKeys.includes(nk)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -875,7 +1080,11 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
       for (const u of node.booking_list) u.is_notified = false
 
       if (MAX_LOCK_DURATION > 0 && remainingDuration(timestamp, duration) > MAX_LOCK_DURATION) {
-        return showError(_t(lang, 'error.lock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+        return showError(
+          _t(lang, 'error.lock_max_duration_exceeded', {
+            max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+          })
+        )
       }
 
       const user = createUser(userId, duration, timestamp)
@@ -885,13 +1094,25 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
     preempted.delete(userId)
     let reply = `${_t(lang, 'success.take_success_by', { user_id: userId })}${_t(lang, 'label.before_take')}${beforeText}\n${_t(lang, 'label.after_take')}${usageText()}`
     if (preempted.size > 0) {
-      reply += [...preempted].map(u => `@${u}`).join(' ') + '\n'
+      reply += [...preempted].map((u) => `@${u}`).join(' ') + '\n'
     }
     return reply
   }
 
   // Unrecognized command -> show help
-  return _t(lang, 'error.unrecognized_command', { command: trimmed + '\n\n' }) + _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+  return (
+    // eslint-disable-next-line no-undef
+    _t(lang, 'error.unrecognized_command', { command: trimmed + '\n\n' }) +
+    _buildHelp(
+      botType,
+      CLUSTER_CONFIGS,
+      DEFAULT_DURATION,
+      MAX_LOCK_DURATION,
+      lang,
+      BOT_ID,
+      BOT_OWNER
+    )
+  )  
 }
 
 // ---------------------------------------------------------------------------
@@ -900,7 +1121,9 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
 
 function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
   const { DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS } = cfg
-  const validKeysStr = `[${Object.keys(CLUSTER_CONFIGS).map(k => `'${k}'`).join(', ')}]`
+  const validKeysStr = `[${Object.keys(CLUSTER_CONFIGS)
+    .map((k) => `'${k}'`)
+    .join(', ')}]`
 
   const showError = (msg) => `❌${msg}`
 
@@ -913,7 +1136,18 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
 
     const tokens = nodePart.match(/^([\w-]+)((\s*[,，、]\s*[\w-]+)*)\s*(.*)?$/)
     if (!tokens) {
-      return _t(lang, 'error.invalid_command_format', { command: '\n\n' }) + _buildHelp('DEVICE', CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: '\n\n' }) +
+        _buildHelp(
+          'DEVICE',
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const rawNodes = (tokens[1] + (tokens[2] || '')).trim()
@@ -922,7 +1156,9 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
 
     for (const nk of nodeKeys) {
       if (!(nk in CLUSTER_CONFIGS)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -931,8 +1167,8 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
 
     const nodeDevIds = {}
     for (const nk of uniqueKeys) {
-      nodeDevIds[nk] = parseDevSpec(devRemainder, CLUSTER_CONFIGS, nk)
-        || CLUSTER_CONFIGS[nk].map((_, i) => i)
+      nodeDevIds[nk] =
+        parseDevSpec(devRemainder, CLUSTER_CONFIGS, nk) || CLUSTER_CONFIGS[nk].map((_, i) => i)
     }
 
     // Pass 1: Validate
@@ -946,7 +1182,12 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
             return showError(_t(lang, 'error.device_exclusive_mode') + usageText([nk]))
           }
         } else {
-          if (!(dev.status === 'idle' || (findUser(dev.current_users, userId) && dev.status === 'exclusive'))) {
+          if (
+            !(
+              dev.status === 'idle' ||
+              (findUser(dev.current_users, userId) && dev.status === 'exclusive')
+            )
+          ) {
             return showError(_t(lang, 'error.device_in_use_or_shared') + usageText([nk]))
           }
         }
@@ -965,13 +1206,27 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
           let user = findUser(dev.current_users, userId)
           if (!user) {
             user = createUser(userId, duration, timestamp)
-            if (MAX_LOCK_DURATION > 0 && remainingDuration(user.start_time, user.duration) > MAX_LOCK_DURATION) {
-              return showError(_t(lang, 'error.slock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+            if (
+              MAX_LOCK_DURATION > 0 &&
+              remainingDuration(user.start_time, user.duration) > MAX_LOCK_DURATION
+            ) {
+              return showError(
+                _t(lang, 'error.slock_max_duration_exceeded', {
+                  max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+                })
+              )
             }
             dev.current_users.push(user)
           } else {
-            if (MAX_LOCK_DURATION > 0 && remainingDuration(user.start_time, user.duration + duration) > MAX_LOCK_DURATION) {
-              return showError(_t(lang, 'error.slock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+            if (
+              MAX_LOCK_DURATION > 0 &&
+              remainingDuration(user.start_time, user.duration + duration) > MAX_LOCK_DURATION
+            ) {
+              return showError(
+                _t(lang, 'error.slock_max_duration_exceeded', {
+                  max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+                })
+              )
             }
             user.duration += duration
             user.is_notified = false
@@ -986,8 +1241,15 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
           } else {
             totalDuration += user.duration
           }
-          if (MAX_LOCK_DURATION > 0 && remainingDuration(user.start_time, totalDuration) > MAX_LOCK_DURATION) {
-            return showError(_t(lang, 'error.lock_max_duration_exceeded', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) }))
+          if (
+            MAX_LOCK_DURATION > 0 &&
+            remainingDuration(user.start_time, totalDuration) > MAX_LOCK_DURATION
+          ) {
+            return showError(
+              _t(lang, 'error.lock_max_duration_exceeded', {
+                max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+              })
+            )
           }
           user.duration = totalDuration
           user.is_notified = false
@@ -1014,7 +1276,18 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
 
     const tokens = rest.match(/^([\w-]+)((\s*[,，、]\s*[\w-]+)*)\s*(.*)?$/)
     if (!tokens) {
-      return _t(lang, 'error.invalid_command_format', { command: '\n\n' }) + _buildHelp('DEVICE', CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: '\n\n' }) +
+        _buildHelp(
+          'DEVICE',
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const rawNodes = (tokens[1] + (tokens[2] || '')).trim()
@@ -1023,7 +1296,9 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
 
     for (const nk of nodeKeys) {
       if (!(nk in CLUSTER_CONFIGS)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -1060,7 +1335,18 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
   if (cmd === 'kickout') {
     const tokens = rest.match(/^([\w-]+)((\s*[,，、]\s*[\w-]+)*)\s*(.*)?$/)
     if (!tokens) {
-      return _t(lang, 'error.invalid_command_format', { command: '\n\n' }) + _buildHelp('DEVICE', CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+      return (
+        _t(lang, 'error.invalid_command_format', { command: '\n\n' }) +
+        _buildHelp(
+          'DEVICE',
+          CLUSTER_CONFIGS,
+          DEFAULT_DURATION,
+          MAX_LOCK_DURATION,
+          lang,
+          BOT_ID,
+          BOT_OWNER
+        )
+      )
     }
 
     const rawNodes = (tokens[1] + (tokens[2] || '')).trim()
@@ -1069,7 +1355,9 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
 
     for (const nk of nodeKeys) {
       if (!(nk in CLUSTER_CONFIGS)) {
-        return showError(_t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr }))
+        return showError(
+          _t(lang, 'error.invalid_node_key', { node_key: nk, valid_keys: validKeysStr })
+        )
       }
     }
 
@@ -1117,27 +1405,50 @@ function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
 
     let reply = `${before}\n${_t(lang, 'label.after_release')}${usageText(uniqueKeys)}`
     if (affected.size > 0) {
-      reply += [...affected].map(u => `@${u}`).join(' ') + '\n'
+      reply += [...affected].map((u) => `@${u}`).join(' ') + '\n'
     }
     return reply
   }
 
   // Unrecognized command
-  return _t(lang, 'error.unrecognized_command', { command: cmd + '\n\n' }) + _buildHelp('DEVICE', CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, BOT_ID, BOT_OWNER)
+  return (
+    _t(lang, 'error.unrecognized_command', { command: cmd + '\n\n' }) +
+    _buildHelp(
+      'DEVICE',
+      CLUSTER_CONFIGS,
+      DEFAULT_DURATION,
+      MAX_LOCK_DURATION,
+      lang,
+      BOT_ID,
+      BOT_OWNER
+    )
+  )
 }
 
 // ---------------------------------------------------------------------------
 // Help text builder  (matches Python print_help / _help_header / _help_commands)
 // ---------------------------------------------------------------------------
 
-function _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATION, lang, botId, botOwner) {
-  const clusterKeys = Array.isArray(CLUSTER_CONFIGS) ? CLUSTER_CONFIGS : Object.keys(CLUSTER_CONFIGS)
+function _buildHelp(
+  botType,
+  CLUSTER_CONFIGS,
+  DEFAULT_DURATION,
+  MAX_LOCK_DURATION,
+  lang,
+  botId,
+  botOwner
+) {
+  const clusterKeys = Array.isArray(CLUSTER_CONFIGS)
+    ? CLUSTER_CONFIGS
+    : Object.keys(CLUSTER_CONFIGS)
   const ex0 = clusterKeys[0] || 'node0'
   const ex1 = clusterKeys[1] || null
 
   let text = _t(lang, 'help.title')
   text += _t(lang, 'help.section1_title')
-  text += _t(lang, 'help.rule1_default_duration', { default_duration: formatDuration(DEFAULT_DURATION, lang) })
+  text += _t(lang, 'help.rule1_default_duration', {
+    default_duration: formatDuration(DEFAULT_DURATION, lang),
+  })
   text += _t(lang, 'help.rule2_post_expiry_notification')
 
   if (botType === 'DEVICE') {
@@ -1169,7 +1480,8 @@ function _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATIO
     text += _t(lang, 'help.rule3_lock_exclusive')
     text += _t(lang, 'help.lock_example', { node: ex0 })
     text += _t(lang, 'help.lock_duration_example', { node: ex0, duration: '3d' })
-    if (ex1) text += _t(lang, 'help.lock_duration_example', { node: `${ex0},${ex1}`, duration: '2h' })
+    if (ex1)
+      text += _t(lang, 'help.lock_duration_example', { node: `${ex0},${ex1}`, duration: '2h' })
     text += _t(lang, 'help.slock_example', { node: ex0 })
     text += _t(lang, 'help.section2_title')
     text += _t(lang, 'help.unlock_example', { node: ex0 })
@@ -1195,7 +1507,8 @@ function _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATIO
     text += _t(lang, 'help.rule3_lock_modes')
     text += _t(lang, 'help.lock_example', { node: ex0 })
     text += _t(lang, 'help.lock_duration_example', { node: ex0, duration: '3d' })
-    if (ex1) text += _t(lang, 'help.lock_duration_example', { node: `${ex0},${ex1}`, duration: '2h' })
+    if (ex1)
+      text += _t(lang, 'help.lock_duration_example', { node: `${ex0},${ex1}`, duration: '2h' })
     text += _t(lang, 'help.slock_example', { node: ex0 })
     text += _t(lang, 'help.section2_title')
     text += _t(lang, 'help.unlock_example', { node: ex0 })
@@ -1212,7 +1525,9 @@ function _buildHelp(botType, CLUSTER_CONFIGS, DEFAULT_DURATION, MAX_LOCK_DURATIO
 
   text += '\n'
   if (MAX_LOCK_DURATION > 0) {
-    text += _t(lang, 'help.max_duration_warning', { max_duration: formatDuration(MAX_LOCK_DURATION, lang) })
+    text += _t(lang, 'help.max_duration_warning', {
+      max_duration: formatDuration(MAX_LOCK_DURATION, lang),
+    })
   }
   text += _t(lang, 'help.bot_version', { version: '2.0.0' })
   if (botId) {

@@ -24,7 +24,8 @@
               draggable="true"
               @dragstart="onDragStart(i, $event)"
               @dragend="onDragEnd"
-            ><Rank /></el-icon>
+              ><Rank
+            /></el-icon>
             <el-input
               v-model="node.name"
               :placeholder="$t('botForm.nodeNamePlaceholder')"
@@ -33,12 +34,23 @@
               class="node-name-input"
             />
             <span v-if="isDuplicate(i)" class="dup-tip">{{ $t('botForm.duplicateNode') }}</span>
-            <span v-else-if="isInvalidName(i)" class="dup-tip">{{ $t('botForm.nodeNameInvalid') }}</span>
+            <span v-else-if="isInvalidName(i)" class="dup-tip">{{
+              $t('botForm.nodeNameInvalid')
+            }}</span>
             <span class="device-count-badge">{{ totalDevices(node) }}</span>
           </div>
           <div class="device-card-header-right">
-            <el-button :icon="CopyDocument" text size="small" @click="copyNode(i)">{{ $t('botForm.copyNode') }}</el-button>
-            <el-button class="node-remove" :icon="Delete" text type="danger" :disabled="nodes.length <= 1" @click="removeNode(i)" />
+            <el-button :icon="CopyDocument" text size="small" @click="copyNode(i)">{{
+              $t('botForm.copyNode')
+            }}</el-button>
+            <el-button
+              class="node-remove"
+              :icon="Delete"
+              text
+              type="danger"
+              :disabled="nodes.length <= 1"
+              @click="removeNode(i)"
+            />
           </div>
         </div>
 
@@ -47,33 +59,54 @@
           <div v-for="(dev, j) in node.devices" :key="j" class="device-row">
             <el-autocomplete
               v-model="dev.model"
-              :fetch-suggestions="(q, cb) => cb(PRESET_MODELS.filter(m => m.toLowerCase().includes(q.toLowerCase())).map(m => ({ value: m })))"
+              :fetch-suggestions="
+                (q, cb) =>
+                  cb(
+                    PRESET_MODELS.filter((m) => m.toLowerCase().includes(q.toLowerCase())).map(
+                      (m) => ({ value: m })
+                    )
+                  )
+              "
               :placeholder="$t('botForm.deviceModel')"
               class="device-select"
               clearable
               @select="() => mergeDevices(node)"
-              @blur="dev.model = (dev.model || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase(); mergeDevices(node)"
+              @blur="
+                dev.model = (dev.model || '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+                mergeDevices(node)
+              "
             />
-            <el-input-number
-              v-model="dev.count"
-              :min="1"
-              :max="64"
-              class="device-count-input"
+            <el-input-number v-model="dev.count" :min="1" :max="64" class="device-count-input" />
+            <el-button
+              :icon="Delete"
+              text
+              type="danger"
+              size="small"
+              :disabled="node.devices.length <= 1"
+              @click="node.devices.splice(j, 1)"
             />
-            <el-button :icon="Delete" text type="danger" size="small" :disabled="node.devices.length <= 1" @click="node.devices.splice(j, 1)" />
           </div>
         </div>
 
         <div class="quick-add">
-          <el-button class="add-device-btn" text type="primary" @click="node.devices.push({ model: '', count: 1 })">
+          <el-button
+            class="add-device-btn"
+            text
+            type="primary"
+            @click="node.devices.push({ model: '', count: 1 })"
+          >
             <el-icon><Plus /></el-icon>
           </el-button>
           <span class="quick-add-label">{{ $t('botForm.quickAdd') }}</span>
           <el-button
-            v-for="model in quickModels" :key="model"
-            size="small" round effect="plain"
+            v-for="model in quickModels"
+            :key="model"
+            size="small"
+            round
+            effect="plain"
             @click="quickAddDevice(node, model)"
-          >{{ model }}</el-button>
+            >{{ model }}</el-button
+          >
         </div>
       </div>
     </div>
@@ -103,15 +136,15 @@ const quickModels = ['h20', 'a800', 'p800']
 
 function parseInit() {
   const cfg = props.modelValue
-  if (!cfg || typeof cfg !== 'object') return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
+  if (!cfg || typeof cfg !== 'object')
+    return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
   const entries = Object.entries(cfg)
-  if (entries.length === 0) return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
+  if (entries.length === 0)
+    return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
   return entries.map(([name, devices]) => ({
     id: ++nodeIdSeq,
     name,
-    devices: Array.isArray(devices)
-      ? groupDevices(devices)
-      : [{ model: '', count: 1 }],
+    devices: Array.isArray(devices) ? groupDevices(devices) : [{ model: '', count: 1 }],
   }))
 }
 
@@ -173,7 +206,7 @@ function quickAddDevice(node, model) {
   if (last && last.model === model) {
     last.count++
   } else {
-    const empty = devs.find(d => !d.model)
+    const empty = devs.find((d) => !d.model)
     if (empty) empty.model = model
     else devs.push({ model, count: 1 })
   }
@@ -182,7 +215,7 @@ function quickAddDevice(node, model) {
 function copyNode(i) {
   const src = nodes.value[i]
   if (!src) return
-  const newDevices = src.devices.map(d => ({ ...d }))
+  const newDevices = src.devices.map((d) => ({ ...d }))
   nodes.value.splice(i + 1, 0, { id: ++nodeIdSeq, name: '', devices: newDevices })
 }
 
@@ -215,7 +248,7 @@ function onDragLeave(i) {
 function onDrop(i) {
   const from = dragIndex.value
   if (from === -1 || from === i) return
-  const target = dropPos.value === 'bottom' ? (from < i ? i : i + 1) : (from < i ? i - 1 : i)
+  const target = dropPos.value === 'bottom' ? (from < i ? i : i + 1) : from < i ? i - 1 : i
   const item = nodes.value.splice(from, 1)[0]
   nodes.value.splice(target, 0, item)
   dragIndex.value = -1
@@ -229,21 +262,25 @@ function onDragEnd() {
   dropPos.value = ''
 }
 
-watch(nodes, () => {
-  const result = {}
-  for (const node of nodes.value) {
-    if (!node.name || !NODE_NAME_RE.test(node.name.trim())) continue
-    const devices = []
-    for (const dev of node.devices) {
-      if (dev.model) {
-        const m = dev.model.toLowerCase()
-        for (let k = 0; k < dev.count; k++) devices.push(m)
+watch(
+  nodes,
+  () => {
+    const result = {}
+    for (const node of nodes.value) {
+      if (!node.name || !NODE_NAME_RE.test(node.name.trim())) continue
+      const devices = []
+      for (const dev of node.devices) {
+        if (dev.model) {
+          const m = dev.model.toLowerCase()
+          for (let k = 0; k < dev.count; k++) devices.push(m)
+        }
       }
+      result[node.name] = devices
     }
-    result[node.name] = devices
-  }
-  emit('update:modelValue', result)
-}, { deep: true })
+    emit('update:modelValue', result)
+  },
+  { deep: true }
+)
 </script>
 
 <style scoped>
@@ -257,11 +294,13 @@ watch(nodes, () => {
   border-radius: 10px;
   padding: 14px 16px;
   background: var(--el-bg-color);
-  transition: opacity 0.2s, box-shadow 0.2s;
+  transition:
+    opacity 0.2s,
+    box-shadow 0.2s;
   position: relative;
 }
 .device-card:hover {
-  box-shadow: var(--lb-shadow-card-hover, 0 2px 8px rgba(0,0,0,0.06));
+  box-shadow: var(--lb-shadow-card-hover, 0 2px 8px rgba(0, 0, 0, 0.06));
 }
 .device-card--dragging {
   opacity: 0.4;
@@ -317,7 +356,9 @@ watch(nodes, () => {
   flex-shrink: 0;
   padding: 4px;
   border-radius: 4px;
-  transition: background-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
 }
 .drag-handle:hover {
   background-color: var(--el-fill-color-light);

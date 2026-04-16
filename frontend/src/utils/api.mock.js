@@ -76,17 +76,17 @@ const _mockApiHandlers = {
     return { data: _handleGet(url, params) }
   },
 
-  async post(url, data, config) {
+  async post(url, data, _config) {
     await _delay()
     return { data: _handlePost(url, data || {}) }
   },
 
-  async put(url, data, config) {
+  async put(url, data, _config) {
     await _delay()
     return { data: _handlePut(url, data || {}) }
   },
 
-  async delete(url, config) {
+  async delete(url, _config) {
     await _delay()
     _handleDelete(url)
     return { data: null }
@@ -352,7 +352,13 @@ function _handlePost(url, data) {
     const bot = mockBots.find((b) => b.id === parseInt(m.id))
     if (!bot) throw _err(404, 'Bot not found')
     if (bot.status === 'running') {
-      return { id: bot.id, status: 'running', pid: 12345, consecutive_failures: 0, message: 'Bot is already running' }
+      return {
+        id: bot.id,
+        status: 'running',
+        pid: 12345,
+        consecutive_failures: 0,
+        message: 'Bot is already running',
+      }
     }
     bot.status = 'running'
     bot.updated_at = new Date().toISOString()
@@ -361,7 +367,13 @@ function _handlePost(url, data) {
       botStates[bot.id] = _buildInitialState(bot)
     }
     appendLog(bot.id, 'system', 'INFO', 'Bot started')
-    return { id: bot.id, status: 'running', pid: 12345, consecutive_failures: 0, message: 'Bot started' }
+    return {
+      id: bot.id,
+      status: 'running',
+      pid: 12345,
+      consecutive_failures: 0,
+      message: 'Bot started',
+    }
   }
 
   // POST /bots/:id/stop
@@ -375,7 +387,13 @@ function _handlePost(url, data) {
     bot.status = 'stopped'
     bot.updated_at = new Date().toISOString()
     appendLog(bot.id, 'system', 'INFO', 'Bot stopped')
-    return { id: bot.id, status: 'stopped', pid: null, consecutive_failures: 0, message: 'Bot stopped' }
+    return {
+      id: bot.id,
+      status: 'stopped',
+      pid: null,
+      consecutive_failures: 0,
+      message: 'Bot stopped',
+    }
   }
 
   // POST /bots/:id/restart
@@ -389,7 +407,13 @@ function _handlePost(url, data) {
       botStates[bot.id] = _buildInitialState(bot)
     }
     appendLog(bot.id, 'system', 'INFO', 'Bot restarted')
-    return { id: bot.id, status: 'running', pid: 12346, consecutive_failures: 0, message: 'Bot restarted' }
+    return {
+      id: bot.id,
+      status: 'running',
+      pid: 12346,
+      consecutive_failures: 0,
+      message: 'Bot restarted',
+    }
   }
 
   // ── Admin ──
@@ -455,8 +479,10 @@ function _handlePut(url, data) {
     if (bot.status === 'running') throw _err(409, 'Cannot update a running bot. Stop it first.')
     if (data.name !== undefined) bot.name = data.name
     if (data.group_id !== undefined) bot.group_id = data.group_id
-    if (data.cluster_configs !== undefined) bot.cluster_configs = JSON.stringify(data.cluster_configs)
-    if (data.config_overrides !== undefined) bot.config_overrides = JSON.stringify(data.config_overrides || {})
+    if (data.cluster_configs !== undefined)
+      bot.cluster_configs = JSON.stringify(data.cluster_configs)
+    if (data.config_overrides !== undefined)
+      bot.config_overrides = JSON.stringify(data.config_overrides || {})
     bot.updated_at = new Date().toISOString()
     return bot
   }
@@ -569,7 +595,9 @@ function _handleDelete(url) {
 // ---------------------------------------------------------------------------
 
 function _parseClusterConfigs(bot) {
-  return typeof bot.cluster_configs === 'string' ? JSON.parse(bot.cluster_configs) : bot.cluster_configs || {}
+  return typeof bot.cluster_configs === 'string'
+    ? JSON.parse(bot.cluster_configs)
+    : bot.cluster_configs || {}
 }
 
 function _validateStateForBot(state, bot) {
@@ -578,7 +606,10 @@ function _validateStateForBot(state, bot) {
 
 function _buildInitialState(bot) {
   try {
-    const cc = typeof bot.cluster_configs === 'string' ? JSON.parse(bot.cluster_configs) : bot.cluster_configs || {}
+    const cc =
+      typeof bot.cluster_configs === 'string'
+        ? JSON.parse(bot.cluster_configs)
+        : bot.cluster_configs || {}
     if (bot.bot_type === 'DEVICE') {
       const state = {}
       for (const [nodeKey, devices] of Object.entries(cc)) {

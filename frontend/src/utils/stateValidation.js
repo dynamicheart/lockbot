@@ -57,8 +57,14 @@ function _validateNodeQueueState(state, clusterConfigs, warnings, t) {
       currentUsers = []
     }
     for (let i = 0; i < currentUsers.length; i++) {
-      if (typeof currentUsers[i] === 'object' && currentUsers[i] !== null && !Array.isArray(currentUsers[i])) {
-        warnings.push(..._validateUserInfo(currentUsers[i], `Node '${name}', current_users[${i}]`, t))
+      if (
+        typeof currentUsers[i] === 'object' &&
+        currentUsers[i] !== null &&
+        !Array.isArray(currentUsers[i])
+      ) {
+        warnings.push(
+          ..._validateUserInfo(currentUsers[i], `Node '${name}', current_users[${i}]`, t)
+        )
       } else {
         warnings.push(_w('stateValidation.userNotDict', { name, field: `current_users[${i}]` }, t))
         currentUsers[i] = { user_id: '', start_time: 0, duration: 0, is_notified: false }
@@ -70,7 +76,11 @@ function _validateNodeQueueState(state, clusterConfigs, warnings, t) {
       bookingList = []
     }
     for (let i = 0; i < bookingList.length; i++) {
-      if (typeof bookingList[i] === 'object' && bookingList[i] !== null && !Array.isArray(bookingList[i])) {
+      if (
+        typeof bookingList[i] === 'object' &&
+        bookingList[i] !== null &&
+        !Array.isArray(bookingList[i])
+      ) {
         warnings.push(..._validateUserInfo(bookingList[i], `Node '${name}', booking_list[${i}]`, t))
       } else {
         warnings.push(_w('stateValidation.userNotDict', { name, field: `booking_list[${i}]` }, t))
@@ -94,7 +104,10 @@ function _validateDeviceState(state, clusterConfigs, warnings, t) {
     if (!(nodeKey in state)) {
       warnings.push(_w('stateValidation.nodeMissing', { name: nodeKey }, t))
       result[nodeKey] = devices.map((model, i) => ({
-        dev_id: i, dev_model: model, status: 'idle', current_users: [],
+        dev_id: i,
+        dev_model: model,
+        status: 'idle',
+        current_users: [],
       }))
       continue
     }
@@ -102,13 +115,22 @@ function _validateDeviceState(state, clusterConfigs, warnings, t) {
     if (!Array.isArray(nodeState)) {
       warnings.push(_w('stateValidation.nodeNotList', { name: nodeKey }, t))
       result[nodeKey] = devices.map((model, i) => ({
-        dev_id: i, dev_model: model, status: 'idle', current_users: [],
+        dev_id: i,
+        dev_model: model,
+        status: 'idle',
+        current_users: [],
       }))
       continue
     }
     const expectedCount = devices.length
     if (nodeState.length > expectedCount) {
-      warnings.push(_w('stateValidation.deviceExcess', { name: nodeKey, actual: nodeState.length, expected: expectedCount }, t))
+      warnings.push(
+        _w(
+          'stateValidation.deviceExcess',
+          { name: nodeKey, actual: nodeState.length, expected: expectedCount },
+          t
+        )
+      )
       nodeState = nodeState.slice(0, expectedCount)
     }
     const deviceList = []
@@ -126,26 +148,52 @@ function _validateDeviceState(state, clusterConfigs, warnings, t) {
       }
       if (!('dev_id' in dev)) dev.dev_id = i
       if (dev.dev_id !== i) {
-        warnings.push(_w('stateValidation.devIdCorrected', { name: nodeKey, index: i, old: dev.dev_id, new: i }, t))
+        warnings.push(
+          _w(
+            'stateValidation.devIdCorrected',
+            { name: nodeKey, index: i, old: dev.dev_id, new: i },
+            t
+          )
+        )
         dev.dev_id = i
       }
       dev.dev_model = devices[i]
       let st = dev.status || 'idle'
       if (!VALID_STATUSES.has(st)) {
-        warnings.push(_w('stateValidation.invalidStatus', { name: `${nodeKey}, device ${i}`, status: st }, t))
+        warnings.push(
+          _w('stateValidation.invalidStatus', { name: `${nodeKey}, device ${i}`, status: st }, t)
+        )
         st = 'idle'
       }
       dev.status = st
       let currentUsers = dev.current_users || []
       if (!Array.isArray(currentUsers)) {
-        warnings.push(_w('stateValidation.currentUsersNotList', { name: `${nodeKey}, device ${i}` }, t))
+        warnings.push(
+          _w('stateValidation.currentUsersNotList', { name: `${nodeKey}, device ${i}` }, t)
+        )
         currentUsers = []
       }
       for (let j = 0; j < currentUsers.length; j++) {
-        if (typeof currentUsers[j] === 'object' && currentUsers[j] !== null && !Array.isArray(currentUsers[j])) {
-          warnings.push(..._validateUserInfo(currentUsers[j], `Node '${nodeKey}', device ${i}, current_users[${j}]`, t))
+        if (
+          typeof currentUsers[j] === 'object' &&
+          currentUsers[j] !== null &&
+          !Array.isArray(currentUsers[j])
+        ) {
+          warnings.push(
+            ..._validateUserInfo(
+              currentUsers[j],
+              `Node '${nodeKey}', device ${i}, current_users[${j}]`,
+              t
+            )
+          )
         } else {
-          warnings.push(_w('stateValidation.userNotDict', { name: `${nodeKey}, device ${i}`, field: `current_users[${j}]` }, t))
+          warnings.push(
+            _w(
+              'stateValidation.userNotDict',
+              { name: `${nodeKey}, device ${i}`, field: `current_users[${j}]` },
+              t
+            )
+          )
           currentUsers[j] = { user_id: '', start_time: 0, duration: 0, is_notified: false }
         }
       }
@@ -173,14 +221,18 @@ function _validateDeviceState(state, clusterConfigs, warnings, t) {
  */
 export function validateBotState(state, botType, clusterConfigs, t) {
   if (typeof state !== 'object' || state === null || Array.isArray(state)) {
-    return { state: _buildDefaultState(clusterConfigs, botType), warnings: [_w('stateValidation.stateNotDict', {}, t)] }
+    return {
+      state: _buildDefaultState(clusterConfigs, botType),
+      warnings: [_w('stateValidation.stateNotDict', {}, t)],
+    }
   }
   // Deep clone to avoid mutating the input
   const cloned = JSON.parse(JSON.stringify(state))
   const warnings = []
-  const normalized = botType === 'DEVICE'
-    ? _validateDeviceState(cloned, clusterConfigs, warnings, t)
-    : _validateNodeQueueState(cloned, clusterConfigs, warnings, t)
+  const normalized =
+    botType === 'DEVICE'
+      ? _validateDeviceState(cloned, clusterConfigs, warnings, t)
+      : _validateNodeQueueState(cloned, clusterConfigs, warnings, t)
   return { state: normalized, warnings }
 }
 
@@ -189,7 +241,10 @@ function _buildDefaultState(clusterConfigs, botType) {
     const state = {}
     for (const [nodeKey, devices] of Object.entries(clusterConfigs)) {
       state[nodeKey] = devices.map((model, i) => ({
-        dev_id: i, dev_model: model, status: 'idle', current_users: [],
+        dev_id: i,
+        dev_model: model,
+        status: 'idle',
+        current_users: [],
       }))
     }
     return state

@@ -1,7 +1,19 @@
 <template>
   <div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
-      <h2 style="margin: 0">{{ $t('admin.userManagement') }} <span style="font-size: 14px; font-weight: 400; color: var(--lb-text-secondary)">({{ users.length }})</span></h2>
+    <div
+      style="
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+      "
+    >
+      <h2 style="margin: 0">
+        {{ $t('admin.userManagement') }}
+        <span style="font-size: 14px; font-weight: 400; color: var(--lb-text-secondary)"
+          >({{ users.length }})</span
+        >
+      </h2>
       <div style="display: flex; gap: 8px">
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon> {{ $t('admin.addUser') }}
@@ -14,21 +26,34 @@
     <el-card>
       <div style="margin-bottom: 16px">
         <el-input v-model="searchQuery" :placeholder="$t('admin.searchPlaceholder')" clearable>
-          <template #prefix><el-icon><Search /></el-icon></template>
+          <template #prefix
+            ><el-icon><Search /></el-icon
+          ></template>
         </el-input>
       </div>
-      <el-table :data="filteredUsers" stripe v-loading="loading">
+      <el-table v-loading="loading" :data="filteredUsers" stripe>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="username" :label="$t('auth.username')" min-width="120" />
         <el-table-column prop="email" :label="$t('auth.email')" min-width="180" />
         <el-table-column prop="role" :label="$t('admin.role')" width="120">
           <template #default="{ row }">
-            <el-tag v-if="row.role === 'super_admin'" type="danger" size="small" effect="plain">{{ $t('admin.superAdmin') }}</el-tag>
-            <el-tag v-else-if="row.role === 'admin'" type="warning" size="small" effect="plain">{{ $t('admin.adminRole') }}</el-tag>
-            <el-tag v-else type="info" size="small" effect="plain">{{ $t('admin.userRole') }}</el-tag>
+            <el-tag v-if="row.role === 'super_admin'" type="danger" size="small" effect="plain">{{
+              $t('admin.superAdmin')
+            }}</el-tag>
+            <el-tag v-else-if="row.role === 'admin'" type="warning" size="small" effect="plain">{{
+              $t('admin.adminRole')
+            }}</el-tag>
+            <el-tag v-else type="info" size="small" effect="plain">{{
+              $t('admin.userRole')
+            }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="max_running_bots" :label="$t('admin.maxBots')" width="110" align="center">
+        <el-table-column
+          prop="max_running_bots"
+          :label="$t('admin.maxBots')"
+          width="110"
+          align="center"
+        >
           <template #default="{ row }">
             <span v-if="row.role === 'admin' || row.role === 'super_admin'">∞</span>
             <span v-else>{{ row.max_running_bots }}</span>
@@ -39,13 +64,20 @@
         </el-table-column>
         <el-table-column :label="$t('admin.runningCount')" width="110" align="center">
           <template #default="{ row }">
-            <span :class="{ 'running-highlight': (row.running_count ?? 0) > 0 }">{{ row.running_count ?? 0 }}</span>
+            <span :class="{ 'running-highlight': (row.running_count ?? 0) > 0 }">{{
+              row.running_count ?? 0
+            }}</span>
           </template>
         </el-table-column>
         <el-table-column :label="$t('common.actions')" width="210" align="center">
           <template #default="{ row }">
             <el-tooltip :content="$t('admin.editUser')">
-              <el-button type="primary" size="small" @click="openEditDialog(row)" :disabled="!canManage(row)">
+              <el-button
+                type="primary"
+                size="small"
+                :disabled="!canManage(row)"
+                @click="openEditDialog(row)"
+              >
                 <el-icon><EditPen /></el-icon>
               </el-button>
             </el-tooltip>
@@ -55,7 +87,12 @@
               </el-button>
             </el-tooltip>
             <el-tooltip :content="$t('admin.resetPassword')">
-              <el-button type="warning" size="small" @click="handleResetPassword(row)" :disabled="!canManage(row)">
+              <el-button
+                type="warning"
+                size="small"
+                :disabled="!canManage(row)"
+                @click="handleResetPassword(row)"
+              >
                 <el-icon><RefreshRight /></el-icon>
               </el-button>
             </el-tooltip>
@@ -67,46 +104,94 @@
     <!-- Create User Dialog -->
     <el-dialog v-model="showCreate" :title="$t('admin.addUser')" width="480px" class="user-dialog">
       <div class="dialog-avatar-section">
-        <el-avatar :size="56" class="dialog-avatar">{{ createForm.username?.charAt(0)?.toUpperCase() || '?' }}</el-avatar>
-        <div class="dialog-avatar-name" :class="{ placeholder: !createForm.username }">{{ createForm.username || $t('admin.usernamePlaceholder') }}</div>
-        <el-tag v-if="createForm.role === 'super_admin'" type="danger" size="small" effect="plain">{{ $t('admin.superAdmin') }}</el-tag>
-        <el-tag v-else-if="createForm.role === 'admin'" type="warning" size="small" effect="plain">{{ $t('admin.adminRole') }}</el-tag>
+        <el-avatar :size="56" class="dialog-avatar">{{
+          createForm.username?.charAt(0)?.toUpperCase() || '?'
+        }}</el-avatar>
+        <div class="dialog-avatar-name" :class="{ placeholder: !createForm.username }">
+          {{ createForm.username || $t('admin.usernamePlaceholder') }}
+        </div>
+        <el-tag
+          v-if="createForm.role === 'super_admin'"
+          type="danger"
+          size="small"
+          effect="plain"
+          >{{ $t('admin.superAdmin') }}</el-tag
+        >
+        <el-tag
+          v-else-if="createForm.role === 'admin'"
+          type="warning"
+          size="small"
+          effect="plain"
+          >{{ $t('admin.adminRole') }}</el-tag
+        >
         <el-tag v-else type="info" size="small" effect="plain">{{ $t('admin.userRole') }}</el-tag>
       </div>
       <el-divider />
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item :label="$t('auth.username')" prop="username">
-          <el-input v-model="createForm.username" :prefix-icon="UserIcon" :placeholder="$t('admin.usernamePlaceholder')" />
+          <el-input
+            v-model="createForm.username"
+            :prefix-icon="UserIcon"
+            :placeholder="$t('admin.usernamePlaceholder')"
+          />
         </el-form-item>
         <el-form-item :label="$t('auth.email')" prop="email">
-          <el-input v-model="createForm.email" :prefix-icon="MessageIcon" :placeholder="$t('admin.emailPlaceholder')" />
+          <el-input
+            v-model="createForm.email"
+            :prefix-icon="MessageIcon"
+            :placeholder="$t('admin.emailPlaceholder')"
+          />
         </el-form-item>
         <el-form-item :label="$t('admin.role')" prop="role">
           <el-select v-model="createForm.role" style="width: 100%">
             <el-option :label="$t('admin.userRole')" value="user" />
             <el-option v-if="authStore.isSuperAdmin" :label="$t('admin.adminRole')" value="admin" />
           </el-select>
-          <div v-if="authStore.isSuperAdmin" class="field-hint">{{ $t('admin.superAdminHint') }}</div>
+          <div v-if="authStore.isSuperAdmin" class="field-hint">
+            {{ $t('admin.superAdminHint') }}
+          </div>
         </el-form-item>
         <el-form-item :label="$t('admin.maxBots')" prop="max_running_bots">
-          <el-input v-if="createForm.role !== 'user'" model-value="∞" disabled class="infinity-input" style="width: 120px" />
-          <el-input-number v-else v-model="createForm.max_running_bots" :min="0" :max="999" style="width: 120px" />
-          <div v-if="createForm.role !== 'user'" class="field-hint">{{ $t('admin.adminNoLimit') }}</div>
+          <el-input
+            v-if="createForm.role !== 'user'"
+            model-value="∞"
+            disabled
+            class="infinity-input"
+            style="width: 120px"
+          />
+          <el-input-number
+            v-else
+            v-model="createForm.max_running_bots"
+            :min="0"
+            :max="999"
+            style="width: 120px"
+          />
+          <div v-if="createForm.role !== 'user'" class="field-hint">
+            {{ $t('admin.adminNoLimit') }}
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCreate = false">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="createLoading" @click="handleCreate">{{ $t('common.create') }}</el-button>
+        <el-button type="primary" :loading="createLoading" @click="handleCreate">{{
+          $t('common.create')
+        }}</el-button>
       </template>
     </el-dialog>
 
     <!-- Edit User Dialog -->
     <el-dialog v-model="showEdit" :title="$t('admin.editUser')" width="480px" class="user-dialog">
       <div class="dialog-avatar-section">
-        <el-avatar :size="56" class="dialog-avatar">{{ editForm.username?.charAt(0)?.toUpperCase() || '?' }}</el-avatar>
+        <el-avatar :size="56" class="dialog-avatar">{{
+          editForm.username?.charAt(0)?.toUpperCase() || '?'
+        }}</el-avatar>
         <div class="dialog-avatar-name">{{ editForm.username || '—' }}</div>
-        <el-tag v-if="editForm.role === 'super_admin'" type="danger" size="small" effect="plain">{{ $t('admin.superAdmin') }}</el-tag>
-        <el-tag v-else-if="editForm.role === 'admin'" type="warning" size="small" effect="plain">{{ $t('admin.adminRole') }}</el-tag>
+        <el-tag v-if="editForm.role === 'super_admin'" type="danger" size="small" effect="plain">{{
+          $t('admin.superAdmin')
+        }}</el-tag>
+        <el-tag v-else-if="editForm.role === 'admin'" type="warning" size="small" effect="plain">{{
+          $t('admin.adminRole')
+        }}</el-tag>
         <el-tag v-else type="info" size="small" effect="plain">{{ $t('admin.userRole') }}</el-tag>
       </div>
       <el-divider />
@@ -122,17 +207,39 @@
             <el-option :label="$t('admin.userRole')" value="user" />
             <el-option v-if="authStore.isSuperAdmin" :label="$t('admin.adminRole')" value="admin" />
           </el-select>
-          <div v-if="authStore.isSuperAdmin" class="field-hint">{{ $t('admin.superAdminHint') }}</div>
+          <div v-if="authStore.isSuperAdmin" class="field-hint">
+            {{ $t('admin.superAdminHint') }}
+          </div>
         </el-form-item>
-        <el-form-item :label="$t('admin.maxBots')" prop="max_running_bots" style="margin-bottom: 2px">
-          <el-input v-if="editForm.role !== 'user'" model-value="∞" disabled class="infinity-input" style="width: 120px" />
-          <el-input-number v-else v-model="editForm.max_running_bots" :min="0" :max="999" style="width: 120px" />
+        <el-form-item
+          :label="$t('admin.maxBots')"
+          prop="max_running_bots"
+          style="margin-bottom: 2px"
+        >
+          <el-input
+            v-if="editForm.role !== 'user'"
+            model-value="∞"
+            disabled
+            class="infinity-input"
+            style="width: 120px"
+          />
+          <el-input-number
+            v-else
+            v-model="editForm.max_running_bots"
+            :min="0"
+            :max="999"
+            style="width: 120px"
+          />
         </el-form-item>
-        <div v-if="editForm.role !== 'user'" class="field-hint" style="margin-bottom: 18px">{{ $t('admin.adminNoLimit') }}</div>
+        <div v-if="editForm.role !== 'user'" class="field-hint" style="margin-bottom: 18px">
+          {{ $t('admin.adminNoLimit') }}
+        </div>
       </el-form>
       <template #footer>
         <el-button @click="showEdit = false">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="editLoading" @click="handleEdit">{{ $t('common.save') }}</el-button>
+        <el-button type="primary" :loading="editLoading" @click="handleEdit">{{
+          $t('common.save')
+        }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -163,14 +270,16 @@ const searchQuery = ref('')
 const filteredUsers = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return users.value
-  return users.value.filter(u =>
-    u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+  return users.value.filter(
+    (u) => u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
   )
 })
 
 // --- Copy helpers ---
 function copyAccountInfo(username, email, password) {
-  copyText(`${t('auth.username')}: ${username}\n${t('auth.email')}: ${email}\n${t('auth.password')}: ${password}`)
+  copyText(
+    `${t('auth.username')}: ${username}\n${t('auth.email')}: ${email}\n${t('auth.password')}: ${password}`
+  )
 }
 
 function copyPassword(password) {
@@ -179,7 +288,10 @@ function copyPassword(password) {
 
 // --- Copy user info ---
 function handleCopyUserInfo(user) {
-  copyText(`${t('auth.username')}: ${user.username}\n${t('auth.email')}: ${user.email}`, t('admin.infoCopied'))
+  copyText(
+    `${t('auth.username')}: ${user.username}\n${t('auth.email')}: ${user.email}`,
+    t('admin.infoCopied')
+  )
 }
 
 // --- Create ---
@@ -189,7 +301,9 @@ const createFormRef = ref()
 const createForm = ref({ username: '', email: '', role: 'user', max_running_bots: 10 })
 const createRules = {
   username: [{ required: true, message: () => t('auth.usernameRequired'), trigger: 'blur' }],
-  email: [{ required: true, type: 'email', message: () => t('admin.emailRequired'), trigger: 'blur' }],
+  email: [
+    { required: true, type: 'email', message: () => t('admin.emailRequired'), trigger: 'blur' },
+  ],
 }
 
 function openCreateDialog() {
@@ -198,7 +312,11 @@ function openCreateDialog() {
 }
 
 async function handleCreate() {
-  try { await createFormRef.value.validate() } catch { return }
+  try {
+    await createFormRef.value.validate()
+  } catch {
+    return
+  }
   createLoading.value = true
   try {
     const res = await api.post('/admin/users', createForm.value)
@@ -206,19 +324,15 @@ async function handleCreate() {
     const email = createForm.value.email
     showCreate.value = false
     fetchUsers()
-    ElMessageBox.alert(
-      `${t('admin.passwordGenerated')}\n\n${new_password}`,
-      t('common.success'),
-      {
-        confirmButtonText: t('admin.copyAll'),
-        showCancelButton: true,
-        cancelButtonText: t('admin.copyPassword'),
-        callback: (action) => {
-          if (action === 'confirm') copyAccountInfo(username, email, new_password)
-          else if (action === 'cancel') copyPassword(new_password)
-        },
-      }
-    )
+    ElMessageBox.alert(`${t('admin.passwordGenerated')}\n\n${new_password}`, t('common.success'), {
+      confirmButtonText: t('admin.copyAll'),
+      showCancelButton: true,
+      cancelButtonText: t('admin.copyPassword'),
+      callback: (action) => {
+        if (action === 'confirm') copyAccountInfo(username, email, new_password)
+        else if (action === 'cancel') copyPassword(new_password)
+      },
+    })
   } catch {
     // handled by interceptor (409 duplicate, etc.)
   } finally {
@@ -234,7 +348,9 @@ const editTarget = ref(null)
 const editForm = ref({ username: '', email: '', role: 'user', max_running_bots: 10 })
 const editRules = {
   username: [{ required: true, message: () => t('auth.usernameRequired'), trigger: 'blur' }],
-  email: [{ required: true, type: 'email', message: () => t('admin.emailRequired'), trigger: 'blur' }],
+  email: [
+    { required: true, type: 'email', message: () => t('admin.emailRequired'), trigger: 'blur' },
+  ],
 }
 
 function openEditDialog(user) {
@@ -249,7 +365,11 @@ function openEditDialog(user) {
 }
 
 async function handleEdit() {
-  try { await editFormRef.value.validate() } catch { return }
+  try {
+    await editFormRef.value.validate()
+  } catch {
+    return
+  }
   editLoading.value = true
   try {
     const res = await api.put(`/admin/users/${editTarget.value.id}`, editForm.value)
@@ -267,24 +387,24 @@ async function handleEdit() {
 // --- Reset Password ---
 async function handleResetPassword(user) {
   try {
-    await ElMessageBox.confirm(t('admin.resetPasswordConfirm'), t('common.confirm'), { type: 'warning' })
-  } catch { return }
+    await ElMessageBox.confirm(t('admin.resetPasswordConfirm'), t('common.confirm'), {
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
   try {
     const res = await api.post(`/admin/users/${user.id}/reset-password`)
     const pw = res.data.new_password
-    ElMessageBox.alert(
-      `${t('admin.passwordReset')}\n\n${pw}`,
-      t('common.success'),
-      {
-        confirmButtonText: t('admin.copyAll'),
-        showCancelButton: true,
-        cancelButtonText: t('admin.copyPassword'),
-        callback: (action) => {
-          if (action === 'confirm') copyAccountInfo(user.username, user.email, pw)
-          else if (action === 'cancel') copyPassword(pw)
-        },
-      }
-    )
+    ElMessageBox.alert(`${t('admin.passwordReset')}\n\n${pw}`, t('common.success'), {
+      confirmButtonText: t('admin.copyAll'),
+      showCancelButton: true,
+      cancelButtonText: t('admin.copyPassword'),
+      callback: (action) => {
+        if (action === 'confirm') copyAccountInfo(user.username, user.email, pw)
+        else if (action === 'cancel') copyPassword(pw)
+      },
+    })
   } catch {
     // handled by interceptor
   }

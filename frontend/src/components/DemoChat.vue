@@ -7,15 +7,30 @@
           <!-- Header: title row -->
           <div class="demo-panel-header">
             <div class="demo-panel-header-left">
-              <svg class="demo-panel-icon" viewBox="0 0 32 32" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
-                <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
-                <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
-                <rect x="5" y="8" width="22" height="19" rx="4" fill="#e6f0ff" stroke="#409eff" stroke-width="1.8"/>
-                <circle cx="12" cy="16" r="2.5" fill="#409eff"/>
-                <circle cx="20" cy="16" r="2.5" fill="#409eff"/>
-                <circle cx="13" cy="15" r="0.8" fill="#fff"/>
-                <circle cx="21" cy="15" r="0.8" fill="#fff"/>
-                <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
+              <svg
+                class="demo-panel-icon"
+                viewBox="0 0 32 32"
+                width="20"
+                height="20"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7" />
+                <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7" />
+                <rect
+                  x="5"
+                  y="8"
+                  width="22"
+                  height="19"
+                  rx="4"
+                  fill="#e6f0ff"
+                  stroke="#409eff"
+                  stroke-width="1.8"
+                />
+                <circle cx="12" cy="16" r="2.5" fill="#409eff" />
+                <circle cx="20" cy="16" r="2.5" fill="#409eff" />
+                <circle cx="13" cy="15" r="0.8" fill="#fff" />
+                <circle cx="21" cy="15" r="0.8" fill="#fff" />
+                <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff" />
               </svg>
               <div>
                 <div class="demo-panel-title">{{ $t('demoChat.title') }}</div>
@@ -26,7 +41,7 @@
               <el-button text size="small" :title="$t('demoChat.clear')" @click="clearMessages">
                 <el-icon><Delete /></el-icon>
               </el-button>
-              <el-button text size="small" @click="isOpen = false" aria-label="Close chat">
+              <el-button text size="small" aria-label="Close chat" @click="isOpen = false">
                 <el-icon><Close /></el-icon>
               </el-button>
             </div>
@@ -34,7 +49,12 @@
 
           <!-- Toolbar: bot & user selectors -->
           <div class="demo-panel-toolbar">
-            <el-select v-model="selectedBotId" size="small" class="demo-select-bot" popper-class="demo-select-popper">
+            <el-select
+              v-model="selectedBotId"
+              size="small"
+              class="demo-select-bot"
+              popper-class="demo-select-popper"
+            >
               <el-option
                 v-for="b in runningBots"
                 :key="b.id"
@@ -42,8 +62,18 @@
                 :value="b.id"
               />
             </el-select>
-            <el-select v-model="demoUserId" size="small" class="demo-select-user" popper-class="demo-select-popper">
-              <el-option v-for="u in demoUsers" :key="u.id" :label="u.username" :value="u.username" />
+            <el-select
+              v-model="demoUserId"
+              size="small"
+              class="demo-select-user"
+              popper-class="demo-select-popper"
+            >
+              <el-option
+                v-for="u in demoUsers"
+                :key="u.id"
+                :label="u.username"
+                :value="u.username"
+              />
             </el-select>
           </div>
 
@@ -54,19 +84,40 @@
                 v-for="(msg, idx) in currentMessages"
                 :key="msg._id || idx"
                 class="demo-msg"
-                :class="{ 'demo-msg--bot': msg.role === 'bot', 'demo-msg--user': msg.role === 'user' }"
+                :class="{
+                  'demo-msg--bot': msg.role === 'bot',
+                  'demo-msg--user': msg.role === 'user',
+                }"
               >
                 <!-- Bot avatar -->
                 <div v-if="msg.role === 'bot'" class="demo-avatar demo-avatar--bot">
-                  <svg viewBox="0 0 32 32" width="18" height="18" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="5" y="8" width="22" height="19" rx="4" fill="#e6f0ff" stroke="#409eff" stroke-width="1.5"/>
-                    <circle cx="12" cy="16" r="2.2" fill="#409eff"/>
-                    <circle cx="20" cy="16" r="2.2" fill="#409eff"/>
-                    <rect x="11" y="21.5" width="10" height="1.8" rx="0.9" fill="#409eff"/>
+                  <svg
+                    viewBox="0 0 32 32"
+                    width="18"
+                    height="18"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <rect
+                      x="5"
+                      y="8"
+                      width="22"
+                      height="19"
+                      rx="4"
+                      fill="#e6f0ff"
+                      stroke="#409eff"
+                      stroke-width="1.5"
+                    />
+                    <circle cx="12" cy="16" r="2.2" fill="#409eff" />
+                    <circle cx="20" cy="16" r="2.2" fill="#409eff" />
+                    <rect x="11" y="21.5" width="10" height="1.8" rx="0.9" fill="#409eff" />
                   </svg>
                 </div>
                 <div class="demo-bubble">
-                  <pre v-if="msg.role === 'bot'" class="demo-msg-text" v-html="highlightMentions(msg.text)"></pre>
+                  <pre
+                    v-if="msg.role === 'bot'"
+                    class="demo-msg-text"
+                    v-html="highlightMentions(msg.text)"
+                  ></pre>
                   <span v-else class="demo-msg-text">{{ msg.text }}</span>
                 </div>
                 <!-- User avatar -->
@@ -91,12 +142,21 @@
             <div v-if="!currentMessages.length && !isTyping" class="demo-placeholder">
               <div class="demo-placeholder-icon">
                 <svg viewBox="0 0 32 32" width="40" height="40" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.4"/>
-                  <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.4"/>
-                  <rect x="5" y="8" width="22" height="19" rx="4" fill="#f0f5ff" stroke="#409eff" stroke-width="1.2"/>
-                  <circle cx="12" cy="16" r="2.5" fill="#409eff" opacity="0.6"/>
-                  <circle cx="20" cy="16" r="2.5" fill="#409eff" opacity="0.6"/>
-                  <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff" opacity="0.6"/>
+                  <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.4" />
+                  <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.4" />
+                  <rect
+                    x="5"
+                    y="8"
+                    width="22"
+                    height="19"
+                    rx="4"
+                    fill="#f0f5ff"
+                    stroke="#409eff"
+                    stroke-width="1.2"
+                  />
+                  <circle cx="12" cy="16" r="2.5" fill="#409eff" opacity="0.6" />
+                  <circle cx="20" cy="16" r="2.5" fill="#409eff" opacity="0.6" />
+                  <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff" opacity="0.6" />
                 </svg>
               </div>
               <div class="demo-placeholder-text">{{ $t('demoChat.placeholder') }}</div>
@@ -106,7 +166,9 @@
                   :key="cmd"
                   class="demo-quick-btn"
                   @click="runQuickCommand(cmd)"
-                >{{ cmd }}</button>
+                >
+                  {{ cmd }}
+                </button>
               </div>
             </div>
           </div>
@@ -132,8 +194,8 @@
               ref="inputRef"
               v-model="inputText"
               :placeholder="$t('demoChat.inputPlaceholder')"
-              @keyup.enter="sendMessage"
               size="default"
+              @keyup.enter="sendMessage"
             >
               <template #append>
                 <el-button :icon="Promotion" @click="sendMessage" />
@@ -156,14 +218,14 @@
           @keydown.space.prevent="openChat"
         >
           <svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
-            <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#fff" opacity="0.9"/>
-            <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#fff" opacity="0.9"/>
-            <rect x="5" y="8" width="22" height="19" rx="4" fill="#fff" stroke="none"/>
-            <circle cx="12" cy="16" r="2.5" fill="#409eff"/>
-            <circle cx="20" cy="16" r="2.5" fill="#409eff"/>
-            <circle cx="13" cy="15" r="0.8" fill="#409eff"/>
-            <circle cx="21" cy="15" r="0.8" fill="#409eff"/>
-            <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
+            <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#fff" opacity="0.9" />
+            <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#fff" opacity="0.9" />
+            <rect x="5" y="8" width="22" height="19" rx="4" fill="#fff" stroke="none" />
+            <circle cx="12" cy="16" r="2.5" fill="#409eff" />
+            <circle cx="20" cy="16" r="2.5" fill="#409eff" />
+            <circle cx="13" cy="15" r="0.8" fill="#409eff" />
+            <circle cx="21" cy="15" r="0.8" fill="#409eff" />
+            <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff" />
           </svg>
           <!-- Pulse ring -->
           <div class="demo-fab-pulse"></div>
@@ -203,7 +265,7 @@ const chatBoxRef = ref(null)
 const isTyping = ref(false)
 let msgIdCounter = 0
 
-const demoUsers = computed(() => mockUsers.map(u => ({ id: u.id, username: u.username })))
+const demoUsers = computed(() => mockUsers.map((u) => ({ id: u.id, username: u.username })))
 
 const quickCommands = computed(() => {
   const bot = selectedBot.value
@@ -226,16 +288,20 @@ function botDisplayName(bot) {
   return bot.name_i18n ? t(bot.name_i18n) : bot.name
 }
 
-const runningBots = computed(() => mockBots.filter(b => b.status === 'running'))
-const selectedBot = computed(() => mockBots.find(b => b.id === selectedBotId.value))
+const runningBots = computed(() => mockBots.filter((b) => b.status === 'running'))
+const selectedBot = computed(() => mockBots.find((b) => b.id === selectedBotId.value))
 const selectedBotName = computed(() => botDisplayName(selectedBot.value))
 const currentMessages = computed(() => messages.value[selectedBotId.value] || [])
 
-watch(runningBots, (bots) => {
-  if (bots.length > 0 && !selectedBotId.value) {
-    selectedBotId.value = bots[0].id
-  }
-}, { immediate: true })
+watch(
+  runningBots,
+  (bots) => {
+    if (bots.length > 0 && !selectedBotId.value) {
+      selectedBotId.value = bots[0].id
+    }
+  },
+  { immediate: true }
+)
 
 function openChat() {
   isOpen.value = true
@@ -252,10 +318,13 @@ function clearMessages() {
 }
 
 function getClusterConfigs(botId) {
-  const bot = mockBots.find(b => b.id === botId)
+  const bot = mockBots.find((b) => b.id === botId)
   if (!bot) return {}
-  try { return JSON.parse(bot.cluster_configs || '{}') }
-  catch { return {} }
+  try {
+    return JSON.parse(bot.cluster_configs || '{}')
+  } catch {
+    return {}
+  }
 }
 
 function getState(botId) {
@@ -282,7 +351,7 @@ function sendQueryAsAt() {
   if (!state) return
 
   const cc = getClusterConfigs(botId)
-  const owner = mockUsers.find(u => u.id === bot.user_id)
+  const owner = mockUsers.find((u) => u.id === bot.user_id)
   const config = {
     CLUSTER_CONFIGS: cc,
     DEFAULT_DURATION: 7200,
@@ -300,12 +369,15 @@ function sendQueryAsAt() {
 
   isTyping.value = true
   nextTick(scrollToBottom)
-  setTimeout(() => {
-    isTyping.value = false
-    const reply = executeCommand(state, demoUserId.value, '', bot.bot_type, config, engineLang())
-    pushBotReply(botId, reply)
-    appendLog(botId, 'command', 'INFO', `[${demoUserId.value}] @query`)
-  }, 400 + Math.random() * 300)
+  setTimeout(
+    () => {
+      isTyping.value = false
+      const reply = executeCommand(state, demoUserId.value, '', bot.bot_type, config, engineLang())
+      pushBotReply(botId, reply)
+      appendLog(botId, 'command', 'INFO', `[${demoUserId.value}] @query`)
+    },
+    400 + Math.random() * 300
+  )
 }
 
 /**
@@ -322,7 +394,7 @@ function highlightMentions(text) {
     .replace(/"/g, '&quot;')
 
   // Only match literal @username (not bare usernames in status output)
-  const usernames = mockUsers.map(u => u.username).sort((a, b) => b.length - a.length)
+  const usernames = mockUsers.map((u) => u.username).sort((a, b) => b.length - a.length)
   for (const uname of usernames) {
     const isSelf = uname === demoUserId.value
     const cls = isSelf ? 'demo-mention-self' : 'demo-mention-other'
@@ -349,13 +421,13 @@ const commandHints = computed(() => {
 
   const base = [
     { cmd: `@${bot ? botDisplayName(bot) : 'bot'}`, tip: t('demoChat.cmdAtBot'), isAt: true },
-    { cmd: 'help',           tip: t('demoChat.cmdHelp') },
-    { cmd: `lock ${ex}`,     tip: t('demoChat.cmdLock') },
-    { cmd: `lock ${ex} 2h`,  tip: t('demoChat.cmdLockDuration') },
-    { cmd: `unlock ${ex}`,   tip: t('demoChat.cmdUnlock') },
-    { cmd: 'free',            tip: t('demoChat.cmdFree') },
-    { cmd: `kickout ${ex}`,  tip: t('demoChat.cmdKickout') },
-    { cmd: `query ${ex}`,    tip: t('demoChat.cmdQuery') },
+    { cmd: 'help', tip: t('demoChat.cmdHelp') },
+    { cmd: `lock ${ex}`, tip: t('demoChat.cmdLock') },
+    { cmd: `lock ${ex} 2h`, tip: t('demoChat.cmdLockDuration') },
+    { cmd: `unlock ${ex}`, tip: t('demoChat.cmdUnlock') },
+    { cmd: 'free', tip: t('demoChat.cmdFree') },
+    { cmd: `kickout ${ex}`, tip: t('demoChat.cmdKickout') },
+    { cmd: `query ${ex}`, tip: t('demoChat.cmdQuery') },
   ]
 
   if (type === 'NODE' || type === 'DEVICE') {
@@ -380,7 +452,7 @@ const commandHints = computed(() => {
 const filteredSuggestions = computed(() => {
   const val = inputText.value.trim().toLowerCase()
   if (!val) return []
-  return commandHints.value.filter(h => h.cmd.toLowerCase().startsWith(val)).slice(0, 6)
+  return commandHints.value.filter((h) => h.cmd.toLowerCase().startsWith(val)).slice(0, 6)
 })
 
 function applySuggestion(suggestion) {
@@ -421,7 +493,7 @@ function sendMessage() {
   }
 
   const cc = getClusterConfigs(botId)
-  const owner = mockUsers.find(u => u.id === bot.user_id)
+  const owner = mockUsers.find((u) => u.id === bot.user_id)
   const config = {
     CLUSTER_CONFIGS: cc,
     DEFAULT_DURATION: 7200,
@@ -435,12 +507,15 @@ function sendMessage() {
   // Show typing indicator, then reply
   isTyping.value = true
   nextTick(scrollToBottom)
-  setTimeout(() => {
-    isTyping.value = false
-    const reply = executeCommand(state, demoUserId.value, cmd, bot.bot_type, config, engineLang())
-    pushBotReply(botId, reply)
-    appendLog(botId, 'command', 'INFO', `[${demoUserId.value}] ${cmd}`)
-  }, 400 + Math.random() * 300)
+  setTimeout(
+    () => {
+      isTyping.value = false
+      const reply = executeCommand(state, demoUserId.value, cmd, bot.bot_type, config, engineLang())
+      pushBotReply(botId, reply)
+      appendLog(botId, 'command', 'INFO', `[${demoUserId.value}] ${cmd}`)
+    },
+    400 + Math.random() * 300
+  )
 }
 
 function pushBotReply(botId, text) {
@@ -475,7 +550,9 @@ function scrollToBottom() {
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 4px 20px rgba(64, 158, 255, 0.4);
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+  transition:
+    transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.25s;
   position: relative;
   outline: none;
 }
@@ -497,8 +574,14 @@ function scrollToBottom() {
   pointer-events: none;
 }
 @keyframes demo-pulse {
-  0% { transform: scale(1); opacity: 0.6; }
-  100% { transform: scale(1.5); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
 }
 
 /* ── Badge ── */
@@ -530,7 +613,9 @@ function scrollToBottom() {
   background: var(--el-bg-color);
   border: 1px solid var(--el-border-color-light);
   border-radius: 16px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.12), 0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 12px 48px rgba(0, 0, 0, 0.12),
+    0 4px 16px rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -575,7 +660,7 @@ function scrollToBottom() {
   flex-shrink: 0;
 }
 .demo-panel-header-actions :deep(.el-button) {
-  color: rgba(255,255,255,0.7);
+  color: rgba(255, 255, 255, 0.7);
 }
 .demo-panel-header-actions :deep(.el-button:hover) {
   color: #fff;
@@ -622,8 +707,13 @@ function scrollToBottom() {
   animation: demo-float 3s ease-in-out infinite;
 }
 @keyframes demo-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
 }
 .demo-placeholder-text {
   font-size: 13px;
@@ -665,8 +755,12 @@ function scrollToBottom() {
   align-items: flex-start;
   gap: 8px;
 }
-.demo-msg--user { justify-content: flex-end; }
-.demo-msg--bot { justify-content: flex-start; }
+.demo-msg--user {
+  justify-content: flex-end;
+}
+.demo-msg--bot {
+  justify-content: flex-start;
+}
 
 /* ── Avatars ── */
 .demo-avatar {
@@ -746,11 +840,23 @@ function scrollToBottom() {
   background: var(--el-color-primary-light-5);
   animation: demo-typing-bounce 1.4s ease-in-out infinite;
 }
-.demo-typing-dot:nth-child(2) { animation-delay: 0.16s; }
-.demo-typing-dot:nth-child(3) { animation-delay: 0.32s; }
+.demo-typing-dot:nth-child(2) {
+  animation-delay: 0.16s;
+}
+.demo-typing-dot:nth-child(3) {
+  animation-delay: 0.32s;
+}
 @keyframes demo-typing-bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-  30% { transform: translateY(-6px); opacity: 1; }
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
 }
 
 /* ── Input ── */

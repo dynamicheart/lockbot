@@ -6,7 +6,13 @@
         <el-radio-button value="command">{{ $t('log.commandLog') }}</el-radio-button>
         <el-radio-button value="system">{{ $t('log.systemLog') }}</el-radio-button>
       </el-radio-group>
-      <el-select v-model="level" :placeholder="$t('log.allLevels')" clearable size="small" style="width: 120px">
+      <el-select
+        v-model="level"
+        :placeholder="$t('log.allLevels')"
+        clearable
+        size="small"
+        style="width: 120px"
+      >
         <el-option label="INFO" value="INFO" />
         <el-option label="WARNING" value="WARNING" />
         <el-option label="ERROR" value="ERROR" />
@@ -15,15 +21,18 @@
       <el-button size="small" @click="fetchLogs">
         <el-icon><Refresh /></el-icon> {{ $t('log.refresh') }}
       </el-button>
-      <el-button size="small" @click="downloadLogs" :disabled="logs.length === 0">
+      <el-button size="small" :disabled="logs.length === 0" @click="downloadLogs">
         <el-icon><Download /></el-icon> {{ $t('log.download') }}
       </el-button>
     </div>
-    <div class="log-container" ref="logContainer">
+    <div ref="logContainer" class="log-container">
       <div v-if="loading" style="text-align: center; padding: 20px">
         <el-icon class="is-loading"><Loading /></el-icon> {{ $t('common.loading') }}
       </div>
-      <div v-else-if="logs.length === 0" style="text-align: center; padding: 20px; color: var(--lb-text-secondary)">
+      <div
+        v-else-if="logs.length === 0"
+        style="text-align: center; padding: 20px; color: var(--lb-text-secondary)"
+      >
         {{ $t('log.noLogs') }}
       </div>
       <div v-else>
@@ -41,7 +50,14 @@
       </div>
     </div>
     <div v-if="hasMore" style="text-align: center; padding: 8px">
-      <el-button size="small" text :loading="loadingMore" :disabled="loadingMore" @click="loadMore">{{ $t('log.loadMore') }}</el-button>
+      <el-button
+        size="small"
+        text
+        :loading="loadingMore"
+        :disabled="loadingMore"
+        @click="loadMore"
+        >{{ $t('log.loadMore') }}</el-button
+      >
     </div>
   </div>
 </template>
@@ -49,9 +65,6 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useBotsStore } from '../stores/bots'
-import { useI18n } from 'vue-i18n'
-
-const { t } = useI18n()
 
 const props = defineProps({
   botId: { type: [Number, String], required: true },
@@ -116,9 +129,11 @@ async function downloadLogs() {
     if (category.value) params.category = category.value
     const allLogs = await botsStore.getBotLogs(props.botId, params)
 
-    const text = allLogs.map(log =>
-      `[${formatTime(log.created_at)}] [${log.category}] ${log.level}: ${log.message}`
-    ).join('\n')
+    const text = allLogs
+      .map(
+        (log) => `[${formatTime(log.created_at)}] [${log.category}] ${log.level}: ${log.message}`
+      )
+      .join('\n')
 
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
@@ -151,8 +166,12 @@ watch(autoRefresh, (val) => {
   }
 })
 
-onMounted(() => { fetchLogs() })
-onUnmounted(() => { clearInterval(timer) })
+onMounted(() => {
+  fetchLogs()
+})
+onUnmounted(() => {
+  clearInterval(timer)
+})
 </script>
 
 <style scoped>

@@ -9,241 +9,364 @@
         <StatusBadge v-if="bot" :status="bot.status" />
       </div>
       <div class="detail-header-actions">
-        <el-button v-if="canOperate && (bot?.status === 'stopped' || bot?.status === 'error')" type="success" round :loading="actionLoading" :disabled="actionLoading" @click="handleStart">
+        <el-button
+          v-if="canOperate && (bot?.status === 'stopped' || bot?.status === 'error')"
+          type="success"
+          round
+          :loading="actionLoading"
+          :disabled="actionLoading"
+          @click="handleStart"
+        >
           <el-icon><VideoPlay /></el-icon> {{ $t('botDetail.start') }}
         </el-button>
-        <el-button v-if="canOperate && bot?.status === 'running'" type="warning" round :loading="actionLoading" :disabled="actionLoading" @click="handleStop">
+        <el-button
+          v-if="canOperate && bot?.status === 'running'"
+          type="warning"
+          round
+          :loading="actionLoading"
+          :disabled="actionLoading"
+          @click="handleStop"
+        >
           <el-icon><SwitchButton /></el-icon> {{ $t('botDetail.stop') }}
         </el-button>
-        <el-button v-if="canEdit" type="primary" round @click="$router.push(`/bots/${bot.id}/edit`)">
+        <el-button
+          v-if="canEdit"
+          type="primary"
+          round
+          @click="$router.push(`/bots/${bot.id}/edit`)"
+        >
           <el-icon><Edit /></el-icon> {{ $t('botDetail.editConfig') }}
         </el-button>
-        <el-button v-if="canDelete" type="danger" round :loading="actionLoading" :disabled="actionLoading" @click="handleDelete">
+        <el-button
+          v-if="canDelete"
+          type="danger"
+          round
+          :loading="actionLoading"
+          :disabled="actionLoading"
+          @click="handleDelete"
+        >
           <el-icon><Delete /></el-icon> {{ $t('common.delete') }}
         </el-button>
       </div>
     </div>
 
     <div v-if="bot">
-        <el-card style="margin-bottom: 20px">
-          <template #header><span>{{ $t('botDetail.config') }}</span></template>
-          <el-descriptions :column="2" border>
-            <el-descriptions-item :label="$t('botDetail.botId')">{{ bot.id }}</el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.type')">
-              <el-tag size="small" type="primary" effect="plain">{{ bot.bot_type }}</el-tag>
-              <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.status')">
-              <StatusBadge :status="bot.status" />
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.groupId')">
-              <template v-if="bot.group_id">
-                <el-tag v-for="gid in bot.group_id.split(',')" :key="gid" size="small" effect="plain" class="group-tag" @click="copyText(gid)">{{ gid }}</el-tag>
-              </template>
-              <span v-else>-</span>
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.owner')">
-              <div style="display: flex; align-items: center; gap: 8px">
-                <span>{{ botOwner }}</span>
-                <el-button
-                  v-if="canTransfer"
-                  text size="small" type="primary"
-                  @click="showTransferOwner = true"
-                >{{ $t('botDetail.transferOwner') }}</el-button>
-              </div>
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
-              <div class="secret-field">
-                <code>{{ callbackUrl }}</code>
-                <el-popover
-                  v-if="showCallbackHint"
-                  :visible="true"
-                  placement="bottom"
-                  :width="240"
-                  trigger="manual"
-                >
-                  <template #reference>
-                    <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
-                  </template>
-                  <div class="callback-hint">
-                    <div class="callback-hint-title">{{ $t('botCreate.callbackHintTitle') }}</div>
-                    <div>{{ $t('botCreate.callbackHintStep1') }}</div>
-                    <div>{{ $t('botCreate.callbackHintStep2') }}</div>
-                    <div>{{ $t('botCreate.callbackHintStep3') }}</div>
-                  </div>
-                </el-popover>
-                <el-icon v-else class="secret-icon" @click="copyText(callbackUrl)"><CopyDocument /></el-icon>
-              </div>
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
-              <div class="secret-field">
-                <code>{{ bot.webhook_url_raw || '-' }}</code>
-                <el-icon v-if="bot.webhook_url_raw" class="secret-icon" @click="copyText(bot.webhook_url_raw)"><CopyDocument /></el-icon>
-              </div>
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botCreate.token')" :span="2">
-              <div class="secret-field">
-                <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
-                <el-icon class="secret-icon" @click="showToken = !showToken"><View v-if="!showToken" /><Hide v-else /></el-icon>
-                <el-icon class="secret-icon" @click="copyText(bot.token_raw)"><CopyDocument /></el-icon>
-              </div>
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
-              <div class="secret-field">
-                <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
-                <el-icon class="secret-icon" @click="showAesKey = !showAesKey"><View v-if="!showAesKey" /><Hide v-else /></el-icon>
-                <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"><CopyDocument /></el-icon>
-              </div>
-            </el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.createdAt')">{{ formatDate(bot.created_at) }}</el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.updatedAt')">{{ formatDate(bot.updated_at) }}</el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.lastActive')">{{ bot.last_request_at ? formatRelativeTime(bot.last_request_at) : '-' }}</el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.lastOperator')">{{ bot.last_user_id || '-' }}</el-descriptions-item>
-            <el-descriptions-item :label="$t('botDetail.botLanguage')">
-              <el-radio-group v-model="botLanguage" size="small" @change="handleLanguageChange">
-                <el-radio-button value="zh">中文</el-radio-button>
-                <el-radio-button value="en">English</el-radio-button>
-              </el-radio-group>
-            </el-descriptions-item>
-          </el-descriptions>
-        </el-card>
-
-        <!-- Statistics -->
-        <el-card style="margin-bottom: 20px">
-          <template #header><span>{{ $t('botDetail.statistics') }}</span></template>
-          <el-row :gutter="20">
-            <el-col :span="8">
-              <div class="detail-stat-box">
-                <div class="detail-stat-number">{{ activeUserCount }}</div>
-                <div class="detail-stat-desc">{{ $t('botDetail.activeUsers') }}</div>
-              </div>
-            </el-col>
-            <el-col :span="8">
-              <div class="detail-stat-box">
-                <div class="detail-stat-number">{{ totalCommands }}</div>
-                <div class="detail-stat-desc">{{ $t('botDetail.totalCommands') }}</div>
-              </div>
-            </el-col>
-            <el-col :span="8">
-              <div class="detail-stat-box">
-                <div class="detail-stat-number">{{ currentUtilization }}%</div>
-                <div class="detail-stat-desc">{{ $t('botDetail.utilization') }}</div>
-              </div>
-            </el-col>
-          </el-row>
-          <div v-if="displayedUsers.length > 0" class="active-users-section">
-            <div class="active-users-title">{{ $t('botDetail.activeUsers') }}</div>
-            <div class="active-users-chips">
-              <el-tag v-for="user in displayedUsers" :key="user" size="small" effect="plain" style="margin: 2px">
-                {{ user }}
-              </el-tag>
-              <el-tag v-if="overflowUserCount > 0" size="small" type="info" effect="plain" style="margin: 2px">
-                +{{ overflowUserCount }}
-              </el-tag>
+      <el-card style="margin-bottom: 20px">
+        <template #header
+          ><span>{{ $t('botDetail.config') }}</span></template
+        >
+        <el-descriptions :column="2" border>
+          <el-descriptions-item :label="$t('botDetail.botId')">{{ bot.id }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.type')">
+            <el-tag size="small" type="primary" effect="plain">{{ bot.bot_type }}</el-tag>
+            <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.status')">
+            <StatusBadge :status="bot.status" />
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.groupId')">
+            <template v-if="bot.group_id">
+              <el-tag
+                v-for="gid in bot.group_id.split(',')"
+                :key="gid"
+                size="small"
+                effect="plain"
+                class="group-tag"
+                @click="copyText(gid)"
+                >{{ gid }}</el-tag
+              >
+            </template>
+            <span v-else>-</span>
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.owner')">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span>{{ botOwner }}</span>
+              <el-button
+                v-if="canTransfer"
+                text
+                size="small"
+                type="primary"
+                @click="showTransferOwner = true"
+                >{{ $t('botDetail.transferOwner') }}</el-button
+              >
             </div>
-          </div>
-        </el-card>
-
-        <!-- Cluster State -->
-        <el-card style="margin-bottom: 20px">
-          <template #header>
-            <div style="display: flex; justify-content: space-between; align-items: center">
-              <span>{{ $t('botDetail.clusterState') }}</span>
-              <div style="display: flex; gap: 8px">
-                <el-button v-if="canEdit && !editingState && !viewJson" size="small" @click="startEditState" :disabled="bot.status === 'running'">
-                  <el-icon><Edit /></el-icon> {{ $t('common.edit') }}
-                </el-button>
-                <el-button v-if="authStore.isAdmin" size="small" @click="downloadState">
-                  <el-icon><Download /></el-icon> {{ $t('clusterState.download') }}
-                </el-button>
-                <el-button v-if="!editingState" size="small" @click="viewJson = !viewJson">
-                  {{ viewJson ? $t('clusterState.visualView') : 'JSON' }}
-                </el-button>
-                <template v-if="editingState">
-                  <el-button size="small" type="primary" :loading="stateSaving" @click="saveState">{{ $t('common.save') }}</el-button>
-                  <el-button size="small" @click="editingState = false">{{ $t('common.cancel') }}</el-button>
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
+            <div class="secret-field">
+              <code>{{ callbackUrl }}</code>
+              <el-popover
+                v-if="showCallbackHint"
+                :visible="true"
+                placement="bottom"
+                :width="240"
+                trigger="manual"
+              >
+                <template #reference>
+                  <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
                 </template>
-                <!-- <el-switch v-if="bot.status === 'running'" v-model="stateAutoRefresh" :active-text="$t('log.autoRefresh')" size="small" /> -->
-              </div>
+                <div class="callback-hint">
+                  <div class="callback-hint-title">{{ $t('botCreate.callbackHintTitle') }}</div>
+                  <div>{{ $t('botCreate.callbackHintStep1') }}</div>
+                  <div>{{ $t('botCreate.callbackHintStep2') }}</div>
+                  <div>{{ $t('botCreate.callbackHintStep3') }}</div>
+                </div>
+              </el-popover>
+              <el-icon v-else class="secret-icon" @click="copyText(callbackUrl)"
+                ><CopyDocument
+              /></el-icon>
             </div>
-          </template>
-          <div v-if="editingState" class="json-editor">
-            <pre class="json-editor-backdrop" aria-hidden="true"><code v-html="highlightedJson"></code></pre>
-            <textarea
-              v-model="stateText"
-              class="json-editor-textarea"
-              spellcheck="false"
-              @scroll="syncScroll"
-            ></textarea>
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
+            <div class="secret-field">
+              <code>{{ bot.webhook_url_raw || '-' }}</code>
+              <el-icon
+                v-if="bot.webhook_url_raw"
+                class="secret-icon"
+                @click="copyText(bot.webhook_url_raw)"
+                ><CopyDocument
+              /></el-icon>
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botCreate.token')" :span="2">
+            <div class="secret-field">
+              <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
+              <el-icon class="secret-icon" @click="showToken = !showToken"
+                ><View v-if="!showToken" /><Hide v-else
+              /></el-icon>
+              <el-icon class="secret-icon" @click="copyText(bot.token_raw)"
+                ><CopyDocument
+              /></el-icon>
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
+            <div class="secret-field">
+              <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
+              <el-icon class="secret-icon" @click="showAesKey = !showAesKey"
+                ><View v-if="!showAesKey" /><Hide v-else
+              /></el-icon>
+              <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"
+                ><CopyDocument
+              /></el-icon>
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.createdAt')">{{
+            formatDate(bot.created_at)
+          }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.updatedAt')">{{
+            formatDate(bot.updated_at)
+          }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.lastActive')">{{
+            bot.last_request_at ? formatRelativeTime(bot.last_request_at) : '-'
+          }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.lastOperator')">{{
+            bot.last_user_id || '-'
+          }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.botLanguage')">
+            <el-radio-group v-model="botLanguage" size="small" @change="handleLanguageChange">
+              <el-radio-button value="zh">中文</el-radio-button>
+              <el-radio-button value="en">English</el-radio-button>
+            </el-radio-group>
+          </el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
+      <!-- Statistics -->
+      <el-card style="margin-bottom: 20px">
+        <template #header
+          ><span>{{ $t('botDetail.statistics') }}</span></template
+        >
+        <el-row :gutter="20">
+          <el-col :span="8">
+            <div class="detail-stat-box">
+              <div class="detail-stat-number">{{ activeUserCount }}</div>
+              <div class="detail-stat-desc">{{ $t('botDetail.activeUsers') }}</div>
+            </div>
+          </el-col>
+          <el-col :span="8">
+            <div class="detail-stat-box">
+              <div class="detail-stat-number">{{ totalCommands }}</div>
+              <div class="detail-stat-desc">{{ $t('botDetail.totalCommands') }}</div>
+            </div>
+          </el-col>
+          <el-col :span="8">
+            <div class="detail-stat-box">
+              <div class="detail-stat-number">{{ currentUtilization }}%</div>
+              <div class="detail-stat-desc">{{ $t('botDetail.utilization') }}</div>
+            </div>
+          </el-col>
+        </el-row>
+        <div v-if="displayedUsers.length > 0" class="active-users-section">
+          <div class="active-users-title">{{ $t('botDetail.activeUsers') }}</div>
+          <div class="active-users-chips">
+            <el-tag
+              v-for="user in displayedUsers"
+              :key="user"
+              size="small"
+              effect="plain"
+              style="margin: 2px"
+            >
+              {{ user }}
+            </el-tag>
+            <el-tag
+              v-if="overflowUserCount > 0"
+              size="small"
+              type="info"
+              effect="plain"
+              style="margin: 2px"
+            >
+              +{{ overflowUserCount }}
+            </el-tag>
           </div>
-          <template v-else-if="viewJson">
-            <pre class="json-viewer"><code v-html="viewJsonHighlighted"></code></pre>
-          </template>
-          <template v-else>
-            <!-- Empty state -->
-            <el-empty v-if="!parsedState" :description="$t('clusterState.noState')" :image-size="60" />
+        </div>
+      </el-card>
 
-            <!-- DEVICE bot: card list -->
-            <div v-else-if="botType === 'DEVICE'" class="cluster-cards">
-              <div v-for="node in parsedState" :key="node.nodeName" class="cluster-node-card">
-                <div class="cluster-node-header">
-                  <span class="cluster-node-name">
-                    <el-icon :size="16"><Monitor /></el-icon>
-                    {{ node.nodeName }}
-                  </span>
-                  <span class="cluster-node-summary">{{ $t('clusterState.summary', { total: node.devices.length, inUse: node.devices.filter(d => d.status === 'exclusive' || d.status === 'shared').length }) }}</span>
-                </div>
-                <div class="cluster-device-list">
-                  <div v-for="dev in node.devices" :key="dev.devId" class="cluster-device-item">
-                    <div class="cluster-device-left">
-                      <span class="status-dot" :class="'status-dot--' + (dev.status || 'idle')"></span>
-                      <span class="cluster-device-model">{{ dev.devModel || dev.devId }}</span>
-                    </div>
-                    <div class="cluster-device-users">
-                      <template v-if="dev.currentUsers && dev.currentUsers.length">
-                        <el-tag v-for="u in dev.currentUsers" :key="u.user_id || u" size="small" effect="plain">{{ u.user_id || u.userId || u }}</el-tag>
-                      </template>
-                    </div>
-                  </div>
-                </div>
-              </div>
+      <!-- Cluster State -->
+      <el-card style="margin-bottom: 20px">
+        <template #header>
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <span>{{ $t('botDetail.clusterState') }}</span>
+            <div style="display: flex; gap: 8px">
+              <el-button
+                v-if="canEdit && !editingState && !viewJson"
+                size="small"
+                :disabled="bot.status === 'running'"
+                @click="startEditState"
+              >
+                <el-icon><Edit /></el-icon> {{ $t('common.edit') }}
+              </el-button>
+              <el-button v-if="authStore.isAdmin" size="small" @click="downloadState">
+                <el-icon><Download /></el-icon> {{ $t('clusterState.download') }}
+              </el-button>
+              <el-button v-if="!editingState" size="small" @click="viewJson = !viewJson">
+                {{ viewJson ? $t('clusterState.visualView') : 'JSON' }}
+              </el-button>
+              <template v-if="editingState">
+                <el-button size="small" type="primary" :loading="stateSaving" @click="saveState">{{
+                  $t('common.save')
+                }}</el-button>
+                <el-button size="small" @click="editingState = false">{{
+                  $t('common.cancel')
+                }}</el-button>
+              </template>
+              <!-- <el-switch v-if="bot.status === 'running'" v-model="stateAutoRefresh" :active-text="$t('log.autoRefresh')" size="small" /> -->
             </div>
+          </div>
+        </template>
+        <div v-if="editingState" class="json-editor">
+          <pre
+            class="json-editor-backdrop"
+            aria-hidden="true"
+          ><code v-html="highlightedJson"></code></pre>
+          <textarea
+            v-model="stateText"
+            class="json-editor-textarea"
+            spellcheck="false"
+            @scroll="syncScroll"
+          ></textarea>
+        </div>
+        <template v-else-if="viewJson">
+          <pre class="json-viewer"><code v-html="viewJsonHighlighted"></code></pre>
+        </template>
+        <template v-else>
+          <!-- Empty state -->
+          <el-empty
+            v-if="!parsedState"
+            :description="$t('clusterState.noState')"
+            :image-size="60"
+          />
 
-            <!-- NODE / QUEUE bot: card list -->
-            <div v-else class="cluster-cards">
-              <div v-for="row in parsedState" :key="row.nodeName" class="cluster-node-card">
-                <div class="cluster-node-header">
-                  <span class="cluster-node-name">
-                    <el-icon :size="16"><Monitor /></el-icon>
-                    {{ row.nodeName }}
-                  </span>
-                  <el-tag size="small" :type="statusTagType(row.status)" effect="light">{{ $t('clusterState.' + row.status) }}</el-tag>
-                </div>
-                <div class="cluster-node-body">
-                  <div class="cluster-node-users">
-                    <template v-if="row.currentUsers && row.currentUsers.length">
-                      <el-tag v-for="u in row.currentUsers" :key="u.user_id || u" size="small" effect="plain">{{ u.user_id || u.userId || u }}</el-tag>
+          <!-- DEVICE bot: card list -->
+          <div v-else-if="botType === 'DEVICE'" class="cluster-cards">
+            <div v-for="node in parsedState" :key="node.nodeName" class="cluster-node-card">
+              <div class="cluster-node-header">
+                <span class="cluster-node-name">
+                  <el-icon :size="16"><Monitor /></el-icon>
+                  {{ node.nodeName }}
+                </span>
+                <span class="cluster-node-summary">{{
+                  $t('clusterState.summary', {
+                    total: node.devices.length,
+                    inUse: node.devices.filter(
+                      (d) => d.status === 'exclusive' || d.status === 'shared'
+                    ).length,
+                  })
+                }}</span>
+              </div>
+              <div class="cluster-device-list">
+                <div v-for="dev in node.devices" :key="dev.devId" class="cluster-device-item">
+                  <div class="cluster-device-left">
+                    <span
+                      class="status-dot"
+                      :class="'status-dot--' + (dev.status || 'idle')"
+                    ></span>
+                    <span class="cluster-device-model">{{ dev.devModel || dev.devId }}</span>
+                  </div>
+                  <div class="cluster-device-users">
+                    <template v-if="dev.currentUsers && dev.currentUsers.length">
+                      <el-tag
+                        v-for="u in dev.currentUsers"
+                        :key="u.user_id || u"
+                        size="small"
+                        effect="plain"
+                        >{{ u.user_id || u.userId || u }}</el-tag
+                      >
                     </template>
-                    <span v-else class="cluster-empty-text">-</span>
-                  </div>
-                  <div v-if="botType === 'QUEUE' && row.bookingCount" class="cluster-node-booking">
-                    {{ $t('clusterState.bookingList') }}: {{ row.bookingCount }}
                   </div>
                 </div>
               </div>
             </div>
-          </template>
-        </el-card>
+          </div>
 
-        <!-- Logs -->
-        <el-card style="margin-bottom: 20px">
-          <template #header><span>{{ $t('botDetail.logs') }}</span></template>
-          <LogViewer :bot-id="bot.id" />
-        </el-card>
+          <!-- NODE / QUEUE bot: card list -->
+          <div v-else class="cluster-cards">
+            <div v-for="row in parsedState" :key="row.nodeName" class="cluster-node-card">
+              <div class="cluster-node-header">
+                <span class="cluster-node-name">
+                  <el-icon :size="16"><Monitor /></el-icon>
+                  {{ row.nodeName }}
+                </span>
+                <el-tag size="small" :type="statusTagType(row.status)" effect="light">{{
+                  $t('clusterState.' + row.status)
+                }}</el-tag>
+              </div>
+              <div class="cluster-node-body">
+                <div class="cluster-node-users">
+                  <template v-if="row.currentUsers && row.currentUsers.length">
+                    <el-tag
+                      v-for="u in row.currentUsers"
+                      :key="u.user_id || u"
+                      size="small"
+                      effect="plain"
+                      >{{ u.user_id || u.userId || u }}</el-tag
+                    >
+                  </template>
+                  <span v-else class="cluster-empty-text">-</span>
+                </div>
+                <div v-if="botType === 'QUEUE' && row.bookingCount" class="cluster-node-booking">
+                  {{ $t('clusterState.bookingList') }}: {{ row.bookingCount }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </el-card>
+
+      <!-- Logs -->
+      <el-card style="margin-bottom: 20px">
+        <template #header
+          ><span>{{ $t('botDetail.logs') }}</span></template
+        >
+        <LogViewer :bot-id="bot.id" />
+      </el-card>
     </div>
 
     <!-- Transfer Owner Dialog -->
-    <el-dialog v-model="showTransferOwner" :title="$t('botDetail.transferOwner')" width="440px" class="transfer-dialog">
+    <el-dialog
+      v-model="showTransferOwner"
+      :title="$t('botDetail.transferOwner')"
+      width="440px"
+      class="transfer-dialog"
+    >
       <el-alert
         :title="$t('botDetail.transferOwnerWarning')"
         type="warning"
@@ -257,9 +380,11 @@
         :placeholder="$t('botDetail.transferOwnerPlaceholder')"
         clearable
         style="width: 100%"
-        @select="(item) => transferUsername = item.value"
+        @select="(item) => (transferUsername = item.value)"
       >
-        <template #prefix><el-icon><User /></el-icon></template>
+        <template #prefix
+          ><el-icon><User /></el-icon
+        ></template>
       </el-autocomplete>
       <template #footer>
         <el-button @click="showTransferOwner = false">{{ $t('common.cancel') }}</el-button>
@@ -268,7 +393,8 @@
           :loading="transferLoading"
           :disabled="!transferUsername.trim()"
           @click="handleTransferOwner"
-        >{{ $t('common.confirm') }}</el-button>
+          >{{ $t('common.confirm') }}</el-button
+        >
       </template>
     </el-dialog>
   </div>
@@ -289,7 +415,12 @@ import { useI18n } from 'vue-i18n'
 import { useHelpers } from '../utils/helpers'
 
 const { t } = useI18n()
-const { formatDate: formatDateShort, formatDateTime, formatRelativeTime, maskText, copyText } = useHelpers()
+const {
+  formatDateTime,
+  formatRelativeTime,
+  maskText,
+  copyText,
+} = useHelpers()
 const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
@@ -322,21 +453,26 @@ function startStateTimer() {
 
 watch(stateAutoRefresh, (val) => {
   if (val) startStateTimer()
-  else { clearInterval(stateTimer); stateTimer = null }
+  else {
+    clearInterval(stateTimer)
+    stateTimer = null
+  }
 })
 async function fetchUsers() {
   if (cachedUsers.value.length) return
   try {
     const res = await api.get('/admin/users')
     cachedUsers.value = res.data || []
-  } catch { /* non-admin, no suggestions */ }
+  } catch {
+    /* non-admin, no suggestions */
+  }
 }
 function searchUsers(query, cb) {
   fetchUsers()
   const q = query.toLowerCase()
   const results = cachedUsers.value
-    .filter(u => u.username.toLowerCase().includes(q))
-    .map(u => ({ value: u.username, label: `${u.username} (${u.email})` }))
+    .filter((u) => u.username.toLowerCase().includes(q))
+    .map((u) => ({ value: u.username, label: `${u.username} (${u.email})` }))
   cb(results)
 }
 
@@ -354,9 +490,6 @@ const showToken = ref(false)
 // Bot language
 const botLanguage = ref('zh')
 const botOwner = computed(() => bot.value?.owner || '-')
-
-const isOwner = computed(() => bot.value?.user_id === authStore.user?.id)
-const botOwnerRole = computed(() => bot.value?.owner_role || 'user')
 
 // Permission rules:
 // - super_admin: can do anything (edit/delete/start/stop/transfer)
@@ -386,7 +519,9 @@ const showCallbackHint = computed(() => {
   try {
     const cache = JSON.parse(localStorage.getItem(CALLBACK_COPIED_KEY) || '{}')
     if (cache[bot.value.id]) return false
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return true
 })
 
@@ -397,7 +532,9 @@ function copyCallbackUrl() {
     const cache = JSON.parse(localStorage.getItem(CALLBACK_COPIED_KEY) || '{}')
     cache[bot.value.id] = true
     localStorage.setItem(CALLBACK_COPIED_KEY, JSON.stringify(cache))
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
 const botType = computed(() => bot.value?.bot_type || 'NODE')
@@ -414,7 +551,8 @@ const isValidState = (data) => {
   // NODE/QUEUE state has objects with 'status' field
   // DEVICE state has arrays of objects with 'status' field
   const first = values[0]
-  if (Array.isArray(first)) return first.length > 0 && typeof first[0] === 'object' && 'status' in first[0]
+  if (Array.isArray(first))
+    return first.length > 0 && typeof first[0] === 'object' && 'status' in first[0]
   return typeof first === 'object' && first !== null && 'status' in first
 }
 
@@ -424,12 +562,14 @@ const parsedState = computed(() => {
   if (botType.value === 'DEVICE') {
     return Object.entries(data).map(([nodeName, devices]) => ({
       nodeName,
-      devices: Array.isArray(devices) ? devices.map(d => ({
-        devId: d.dev_id,
-        devModel: d.dev_model,
-        status: d.status,
-        currentUsers: d.current_users || [],
-      })) : [],
+      devices: Array.isArray(devices)
+        ? devices.map((d) => ({
+            devId: d.dev_id,
+            devModel: d.dev_model,
+            status: d.status,
+            currentUsers: d.current_users || [],
+          }))
+        : [],
     }))
   }
   // NODE / QUEUE
@@ -443,20 +583,24 @@ const parsedState = computed(() => {
 
 // --- JSON syntax highlighting ---
 function highlightJson(text) {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(
-    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-    (match) => {
-      let cls = 'json-number'
-      if (/^"/.test(match)) {
-        cls = /:$/.test(match) ? 'json-key' : 'json-string'
-      } else if (/true|false/.test(match)) {
-        cls = 'json-boolean'
-      } else if (/null/.test(match)) {
-        cls = 'json-null'
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(
+      /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+      (match) => {
+        let cls = 'json-number'
+        if (/^"/.test(match)) {
+          cls = /:$/.test(match) ? 'json-key' : 'json-string'
+        } else if (/true|false/.test(match)) {
+          cls = 'json-boolean'
+        } else if (/null/.test(match)) {
+          cls = 'json-null'
+        }
+        return `<span class="${cls}">${match}</span>`
       }
-      return `<span class="${cls}">${match}</span>`
-    }
-  )
+    )
 }
 
 const highlightedJson = computed(() => highlightJson(stateText.value || ''))
@@ -491,7 +635,9 @@ async function refreshBot() {
     try {
       const overrides = JSON.parse(bot.value.config_overrides || '{}')
       botLanguage.value = overrides.LANGUAGE || 'zh'
-    } catch { botLanguage.value = 'zh' }
+    } catch {
+      botLanguage.value = 'zh'
+    }
   } catch (e) {
     if (e.response?.status === 404) {
       router.replace({ name: 'NotFound' })
@@ -512,7 +658,9 @@ async function handleLanguageChange(lang) {
     try {
       const overrides = JSON.parse(bot.value.config_overrides || '{}')
       botLanguage.value = overrides.LANGUAGE || 'zh'
-    } catch { botLanguage.value = 'zh' }
+    } catch {
+      botLanguage.value = 'zh'
+    }
   }
 }
 
@@ -559,7 +707,8 @@ const totalCommands = computed(() => commandLogs.value.length)
 const currentUtilization = computed(() => {
   if (!stateData.value || !isValidState(stateData.value)) return 0
   const data = stateData.value
-  let total = 0, inUse = 0
+  let total = 0,
+    inUse = 0
   if (botType.value === 'DEVICE') {
     for (const devices of Object.values(data)) {
       if (Array.isArray(devices)) {
@@ -572,7 +721,7 @@ const currentUtilization = computed(() => {
   } else {
     const entries = Object.values(data)
     total = entries.length
-    inUse = entries.filter(n => n && n.status !== 'idle').length
+    inUse = entries.filter((n) => n && n.status !== 'idle').length
   }
   return total === 0 ? 0 : Math.round((inUse / total) * 100)
 })
@@ -591,15 +740,21 @@ async function saveState() {
     return
   }
   // Pre-validate on client side
-  const cc = typeof bot.value.cluster_configs === 'string'
-    ? JSON.parse(bot.value.cluster_configs) : (bot.value.cluster_configs || {})
+  const cc =
+    typeof bot.value.cluster_configs === 'string'
+      ? JSON.parse(bot.value.cluster_configs)
+      : bot.value.cluster_configs || {}
   const { warnings: clientWarnings } = validateBotState(parsed, bot.value.bot_type, cc, t)
   if (clientWarnings.length > 0) {
     try {
       await ElMessageBox.confirm(
         clientWarnings.join('\n'),
         t('clusterState.validationWarning', { count: clientWarnings.length }),
-        { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') }
+        {
+          type: 'warning',
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
+        }
       )
     } catch {
       return // user cancelled
@@ -669,9 +824,15 @@ async function handleTransferOwner() {
     await ElMessageBox.confirm(
       t('botDetail.transferOwnerConfirm', { username }),
       t('botDetail.transferOwner'),
-      { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+      }
     )
-  } catch { return }
+  } catch {
+    return
+  }
   transferLoading.value = true
   try {
     await botsStore.transferOwner(bot.value.id, username)
@@ -688,7 +849,9 @@ async function handleTransferOwner() {
 
 async function handleDelete() {
   try {
-    await ElMessageBox.confirm(t('botDetail.confirmDelete'), t('common.warning'), { type: 'warning' })
+    await ElMessageBox.confirm(t('botDetail.confirmDelete'), t('common.warning'), {
+      type: 'warning',
+    })
   } catch {
     return // user cancelled
   }
@@ -792,16 +955,36 @@ function formatDate(d) {
 /* JSON syntax highlighting (unscoped for v-html) */
 </style>
 <style>
-.json-key { color: #d73a49; }
-.json-string { color: #032f62; }
-.json-number { color: #005cc5; }
-.json-boolean { color: #005cc5; }
-.json-null { color: #6f42c1; }
-html.dark .json-key { color: #ff7b72; }
-html.dark .json-string { color: #a5d6ff; }
-html.dark .json-number { color: #79c0ff; }
-html.dark .json-boolean { color: #79c0ff; }
-html.dark .json-null { color: #d2a8ff; }
+.json-key {
+  color: #d73a49;
+}
+.json-string {
+  color: #032f62;
+}
+.json-number {
+  color: #005cc5;
+}
+.json-boolean {
+  color: #005cc5;
+}
+.json-null {
+  color: #6f42c1;
+}
+html.dark .json-key {
+  color: #ff7b72;
+}
+html.dark .json-string {
+  color: #a5d6ff;
+}
+html.dark .json-number {
+  color: #79c0ff;
+}
+html.dark .json-boolean {
+  color: #79c0ff;
+}
+html.dark .json-null {
+  color: #d2a8ff;
+}
 </style>
 
 <style scoped>
@@ -871,7 +1054,7 @@ html.dark .json-null { color: #d2a8ff; }
   transition: box-shadow 0.2s;
 }
 .cluster-node-card:hover {
-  box-shadow: var(--lb-shadow-card-hover, 0 2px 8px rgba(0,0,0,0.06));
+  box-shadow: var(--lb-shadow-card-hover, 0 2px 8px rgba(0, 0, 0, 0.06));
 }
 .cluster-node-header {
   display: flex;

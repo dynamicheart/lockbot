@@ -16,10 +16,16 @@
             <span>{{ authStore.user?.username }}</span>
           </div>
         </el-descriptions-item>
-        <el-descriptions-item :label="$t('auth.email')">{{ authStore.user?.email || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="$t('auth.email')">{{
+          authStore.user?.email || '-'
+        }}</el-descriptions-item>
         <el-descriptions-item :label="$t('admin.role')">
-          <el-tag v-if="authStore.isSuperAdmin" type="danger" size="small" effect="plain">{{ $t('admin.superAdmin') }}</el-tag>
-          <el-tag v-else-if="authStore.isAdmin" type="warning" size="small" effect="plain">{{ $t('admin.adminRole') }}</el-tag>
+          <el-tag v-if="authStore.isSuperAdmin" type="danger" size="small" effect="plain">{{
+            $t('admin.superAdmin')
+          }}</el-tag>
+          <el-tag v-else-if="authStore.isAdmin" type="warning" size="small" effect="plain">{{
+            $t('admin.adminRole')
+          }}</el-tag>
           <el-tag v-else type="info" size="small" effect="plain">{{ $t('admin.userRole') }}</el-tag>
         </el-descriptions-item>
       </el-descriptions>
@@ -41,7 +47,9 @@
           <el-input v-model="pwdForm.confirm_password" type="password" show-password />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">{{ $t('common.save') }}</el-button>
+          <el-button type="primary" :loading="pwdLoading" @click="handleChangePassword">{{
+            $t('common.save')
+          }}</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -62,8 +70,12 @@ const pwdLoading = ref(false)
 const pwdForm = reactive({ current_password: '', new_password: '', confirm_password: '' })
 
 const pwdRules = {
-  current_password: [{ required: true, message: () => t('auth.passwordRequired'), trigger: 'blur' }],
-  new_password: [{ required: true, min: 6, message: () => t('profile.passwordMin'), trigger: 'blur' }],
+  current_password: [
+    { required: true, message: () => t('auth.passwordRequired'), trigger: 'blur' },
+  ],
+  new_password: [
+    { required: true, min: 6, message: () => t('profile.passwordMin'), trigger: 'blur' },
+  ],
   confirm_password: [
     { required: true, message: () => t('auth.passwordRequired'), trigger: 'blur' },
     {
@@ -77,7 +89,11 @@ const pwdRules = {
 }
 
 async function handleChangePassword() {
-  try { await pwdFormRef.value.validate() } catch { return }
+  try {
+    await pwdFormRef.value.validate()
+  } catch {
+    return
+  }
   pwdLoading.value = true
   try {
     await authStore.changePassword(pwdForm.current_password, pwdForm.new_password)

@@ -7,7 +7,11 @@ import { LS_KEYS, isDemoMode } from '../utils/demoMode'
 const ROLE_LEVELS = { super_admin: 0, admin: 1, user: 2 }
 
 function loadAccounts() {
-  try { return JSON.parse(localStorage.getItem(LS_KEYS.accounts) || '[]') } catch { return [] }
+  try {
+    return JSON.parse(localStorage.getItem(LS_KEYS.accounts) || '[]')
+  } catch {
+    return []
+  }
 }
 
 function saveAccounts(accounts) {
@@ -120,7 +124,7 @@ export const useAuthStore = defineStore('auth', () => {
   // --- Multi-account: switch to another account ---
   async function switchAccount(username) {
     const accounts = loadAccounts()
-    const account = accounts.find(a => a.user?.username === username)
+    const account = accounts.find((a) => a.user?.username === username)
     if (!account) return false
     token.value = account.token
     localStorage.setItem(LS_KEYS.token, token.value)
@@ -143,14 +147,14 @@ export const useAuthStore = defineStore('auth', () => {
 
   // --- Multi-account: remove account from list ---
   function removeAccount(username) {
-    const accounts = loadAccounts().filter(a => a.user?.username !== username)
+    const accounts = loadAccounts().filter((a) => a.user?.username !== username)
     saveAccounts(accounts)
   }
 
   // --- Multi-account: save current session ---
   function saveAccount(data) {
     const accounts = loadAccounts()
-    const idx = accounts.findIndex(a => a.user?.username === data.user?.username)
+    const idx = accounts.findIndex((a) => a.user?.username === data.user?.username)
     if (idx >= 0) {
       accounts[idx] = data
     } else {
@@ -163,7 +167,7 @@ export const useAuthStore = defineStore('auth', () => {
   function updateCurrentAccount() {
     if (!user.value) return
     const accounts = loadAccounts()
-    const idx = accounts.findIndex(a => a.user?.username === user.value.username)
+    const idx = accounts.findIndex((a) => a.user?.username === user.value.username)
     if (idx >= 0) {
       accounts[idx] = { token: token.value, user: user.value }
       saveAccounts(accounts)
@@ -208,11 +212,27 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    token, user, isLoggedIn, isAdmin, isSuperAdmin,
+    token,
+    user,
+    isLoggedIn,
+    isAdmin,
+    isSuperAdmin,
     // Permission helpers
-    canManageUser, canCreateUserWithRole, canAssignRole, canEditBot, canOperateBot,
+    canManageUser,
+    canCreateUserWithRole,
+    canAssignRole,
+    canEditBot,
+    canOperateBot,
     // Auth actions
-    login, register, fetchUser, changePassword, changeEmail, logout,
-    getSavedAccounts, switchAccount, removeAccount, saveAccount,
+    login,
+    register,
+    fetchUser,
+    changePassword,
+    changeEmail,
+    logout,
+    getSavedAccounts,
+    switchAccount,
+    removeAccount,
+    saveAccount,
   }
 })
