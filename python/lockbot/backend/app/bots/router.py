@@ -1005,7 +1005,7 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     No JWT auth required — the IM platform authenticates via signature.
     """
-    # Parse request data (matching Flask's request interface)
+    # Parse request data
     body = await request.body()
     form = {}
     content_type = request.headers.get("content-type", "")
@@ -1014,6 +1014,7 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
         form = dict(form_data)
 
     args = dict(request.query_params)
+    headers = dict(request.headers)
 
     logger.debug(
         "Webhook bot=%d content_type=%s form=%s args=%s body_len=%d", bot_id, content_type, form, args, len(body)
@@ -1022,18 +1023,20 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     instance = bot_manager.get_instance(bot_id)
     if not instance:
         # Bot not running — try to reply "not started" via IM
-        return await _reply_bot_not_running(bot_id, form, args, body, db)
+        return await _reply_bot_not_running(bot_id, form, args, body, headers, db)
 
     try:
-        text, code, meta = handle_webhook(instance.bot, raw_form=form, raw_args=args, raw_body=body)
+        text, code, meta = handle_webhook(
+            instance.bot, raw_form=form, raw_args=args, raw_body=body, raw_headers=headers
+        )
     except Exception as e:
         tb = traceback.format_exc()
         logger.exception("Webhook handler crashed for bot %d", bot_id)
         _write_log(bot_id, f"Webhook 处理异常: {e}\n{tb}", level="ERROR")
         return PlainTextResponse(content="internal error", status_code=500)
 
-    # URL verification: Ruliu expects raw echostr as plain text, not JSON
-    if form.get("echostr"):
+    # For verification events just return immediately (no DB updates needed)
+    if meta.get("event") in ("url_verification", "url_verification_failed", "signature_failed"):
         return PlainTextResponse(content=text, status_code=code)
 
     # Update last_request_at
@@ -1066,6 +1069,7 @@ async def _reply_bot_not_running(
     form: dict,
     args: dict,
     body: bytes,
+    headers: dict,
     db: Session,
 ) -> PlainTextResponse:
     """When a bot is not running, POST a 'not started' message back to the IM platform."""
@@ -1073,16 +1077,7 @@ async def _reply_bot_not_running(
     if not bot or bot.is_deleted:
         raise HTTPException(status_code=404, detail="Bot not found")
 
-    # URL verification must still work even when the bot is stopped
-    echostr = form.get("echostr")
-    if echostr:
-        token = encryption.decrypt(bot.token)
-        sig = form.get("signature")
-        rn = form.get("rn")
-        ts = form.get("timestamp")
-        if check_signature(sig, rn, ts, token):
-            return PlainTextResponse(content=echostr, status_code=200)
-        return PlainTextResponse(content="check signature fail", status_code=401)
+    body_str = body.decode("utf-8") if body else ""
 
     # Build a lightweight adapter from DB credentials
     config_dict = {
@@ -1097,12 +1092,43 @@ async def _reply_bot_not_running(
     adapter_cls = PLATFORM_REGISTRY.get(bot.platform or "Infoflow", PLATFORM_REGISTRY["Infoflow"])
     adapter = adapter_cls(config=config)
 
-    # Verify signature
-    signature = args.get("signature")
-    rn = args.get("rn")
-    timestamp = args.get("timestamp")
-    if not adapter.verify_request(signature, rn=rn, timestamp=timestamp):
+    # URL verification must still work even when the bot is stopped
+    # Slack: JSON body with type == "url_verification"
+    if body_str:
+        try:
+            maybe_json = json.loads(body_str)
+            if maybe_json.get("type") == "url_verification":
+                ts = headers.get("x-slack-request-timestamp", "")
+                sig = headers.get("x-slack-signature", "")
+                if adapter.verify_request(sig, timestamp=ts, body=body_str):
+                    return PlainTextResponse(content=maybe_json["challenge"], status_code=200)
+                return PlainTextResponse(content="check signature fail", status_code=401)
+        except (ValueError, KeyError):
+            pass
+
+    # Infoflow: echostr handshake
+    echostr = form.get("echostr")
+    if echostr:
+        token = encryption.decrypt(bot.token)
+        sig = form.get("signature")
+        rn = form.get("rn")
+        ts = form.get("timestamp")
+        if check_signature(sig, rn, ts, token):
+            return PlainTextResponse(content=echostr, status_code=200)
         return PlainTextResponse(content="check signature fail", status_code=401)
+
+    # Verify signature
+    slack_sig = headers.get("x-slack-signature")
+    if slack_sig:
+        ts = headers.get("x-slack-request-timestamp", "")
+        if not adapter.verify_request(slack_sig, timestamp=ts, body=body_str):
+            return PlainTextResponse(content="check signature fail", status_code=401)
+    else:
+        signature = args.get("signature")
+        rn = args.get("rn")
+        timestamp = args.get("timestamp")
+        if not adapter.verify_request(signature, rn=rn, timestamp=timestamp):
+            return PlainTextResponse(content="check signature fail", status_code=401)
 
     # Decrypt the incoming message to get user_id and group_id
     msg_data = adapter.decrypt_payload(body)
@@ -1131,9 +1157,7 @@ async def _reply_bot_not_running(
     else:
         content = t("webhook.bot_not_running", lang=lang, bot_name=bot.name, owner_username=owner_username)
     reply = adapter.build_reply(content, [user_id], group_id=group_id)
-    toid = msg_data["message"]["header"].get("toid")
-    if toid:
-        reply["message"]["header"]["toid"] = toid
+    adapter.set_reply_target(reply, group_id)
 
     try:
         adapter.send(reply)
