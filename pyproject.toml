@@ -42,6 +42,7 @@ dependencies = [
     "python-multipart",
     "httpx",
     "slowapi",
+    "slack_sdk>=3.0",
 ]
 
 [project.optional-dependencies]

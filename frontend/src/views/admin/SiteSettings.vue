@@ -49,6 +49,18 @@
             {{ $t('settings.newsHint') }}
           </div>
         </el-form-item>
+
+        <el-divider />
+
+        <!-- Enabled IM Platforms — visible to super_admin -->
+        <el-form-item :label="$t('settings.enabledPlatforms')">
+          <el-checkbox-group v-model="form.enabled_platforms">
+            <el-checkbox v-for="p in allPlatforms" :key="p" :value="p">{{ p }}</el-checkbox>
+          </el-checkbox-group>
+          <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
+            {{ $t('settings.enabledPlatformsHint') }}
+          </div>
+        </el-form-item>
       </el-form>
     </el-card>
   </div>
@@ -64,22 +76,34 @@ import api from '../../utils/api'
 const { t } = useI18n()
 const loading = ref(false)
 const saving = ref(false)
+const allPlatforms = ref([])
 const form = ref({
   platform_url: '',
   github_url: '',
   admin_contact: '',
   news_content: '',
+  enabled_platforms: ['Infoflow'],
 })
 
 async function fetchSettings() {
   loading.value = true
   try {
-    const res = await api.get('/admin/settings')
-    for (const item of res.data) {
-      if (item.key in form.value) {
+    const [settingsRes, platformsRes] = await Promise.all([
+      api.get('/admin/settings'),
+      api.get('/platforms?all=true'),
+    ])
+    for (const item of settingsRes.data) {
+      if (item.key === 'enabled_platforms') {
+        try {
+          form.value.enabled_platforms = JSON.parse(item.value || '["Infoflow"]')
+        } catch {
+          form.value.enabled_platforms = ['Infoflow']
+        }
+      } else if (item.key in form.value) {
         form.value[item.key] = item.value || ''
       }
     }
+    allPlatforms.value = platformsRes.data.platforms || []
   } catch {
     // handled by api interceptor
   } finally {
@@ -90,7 +114,11 @@ async function fetchSettings() {
 async function handleSave() {
   saving.value = true
   try {
-    await api.put('/admin/settings', { settings: form.value })
+    const payload = {
+      ...form.value,
+      enabled_platforms: JSON.stringify(form.value.enabled_platforms),
+    }
+    await api.put('/admin/settings', { settings: payload })
     ElMessage.success(t('settings.saved'))
   } catch {
     // handled by api interceptor

@@ -8,14 +8,97 @@ Implements MessageAdapter for the Infoflow IM platform, handling:
 - Webhook-based message sending with automatic text splitting
 """
 
+import base64
+import binascii
+import hashlib
 import json
 import logging
 
+import six
+from Crypto.Cipher import AES
+
 from lockbot.core.message_adapter import MessageAdapter
-from lockbot.core.msg_utils import AESCipher, base64_urlsafe_decode, check_signature, extract_msg_body
 from lockbot.core.request import post_webhook
 
 logger = logging.getLogger(__name__)
+
+
+# ── Infoflow crypto / format helpers ─────────────────────────────────────────
+
+
+def _base64_urlsafe_decode(s):
+    """Base64 decode with URL-safe character replacement and padding."""
+    s = s.replace("-", "+").replace("_", "/") + "=" * (len(s) % 4)
+    return base64.b64decode(s)
+
+
+def _check_signature(signature, rn, timestamp, token):
+    """Verify Infoflow request signature using MD5(rn + timestamp + token)."""
+    md5 = hashlib.md5()
+    md5.update(f"{rn}{timestamp}{token}".encode())
+    return md5.hexdigest() == signature
+
+
+def _extract_msg_body(body):
+    """Extract text/link content from Infoflow message body, ignoring AT mentions."""
+    rcv_info = ""
+    for info in body:
+        if info["type"] == "AT":
+            pass
+        elif info["type"] == "TEXT":
+            rcv_info += info["content"]
+        elif info["type"] == "LINK":
+            rcv_info += info["label"]
+        else:
+            raise Exception("unknown message format" + str(info))
+    return rcv_info
+
+
+class _AESCipher:
+    """AES encryption/decryption helper (Infoflow-specific)."""
+
+    def __init__(self, key, mode=AES.MODE_ECB, padding="PKCS7", encode="base64", **kwargs):
+        self.key = key
+        self.mode = mode
+        self.padding = padding
+        self.encode = encode
+        self.kwargs = kwargs
+        self.bs = AES.block_size
+        self.IV = self.kwargs.get("IV", None)
+        if self.IV and self.mode in (AES.MODE_ECB, AES.MODE_CTR):
+            raise TypeError("ECB and CTR mode does not use IV")
+
+    def _aes(self):
+        return AES.new(self.key, self.mode, **self.kwargs)
+
+    def decrypt(self, ciphertext):
+        """Decrypt ciphertext and return unpadded plaintext."""
+        if not ciphertext:
+            return None
+        if self.padding == "PKCS7":
+            if six.PY3:
+
+                def unpad(s):
+                    return s[0 : -s[-1]]
+            else:
+
+                def unpad(s):
+                    return s[0 : -ord(s[-1])]
+        else:
+
+            def unpad(s):
+                return s.rstrip("\x00")
+
+        if isinstance(ciphertext, six.binary_type) and self.encode != "raw":
+            ciphertext = ciphertext.decode("utf-8")
+        if self.encode == "hex":
+            ciphertext = binascii.unhexlify(ciphertext)
+        if self.encode == "base64":
+            ciphertext = _base64_urlsafe_decode(ciphertext)
+        return unpad(self._aes().decrypt(ciphertext))
+
+
+# ── Adapter ───────────────────────────────────────────────────────────────────
 
 
 class InfoflowAdapter(MessageAdapter):
@@ -29,10 +112,10 @@ class InfoflowAdapter(MessageAdapter):
         """
         self.config = config
 
-    def verify_request(self, signature: str, rn: str = None, timestamp: str = None) -> bool:
+    def verify_request(self, signature: str, rn: str = None, timestamp: str = None, **kwargs) -> bool:
         """Verify request signature using MD5(rn + timestamp + TOKEN)."""
         token = self._get_config("TOKEN", "")
-        return check_signature(signature, rn, timestamp, token)
+        return _check_signature(signature, rn, timestamp, token)
 
     def decrypt_payload(self, encrypted_data, **kwargs):
         """Decrypt an AES-encrypted message payload.
@@ -48,7 +131,7 @@ class InfoflowAdapter(MessageAdapter):
 
         aes_key = self._get_config("AESKEY", "")
         try:
-            encrypter = AESCipher(base64_urlsafe_decode(aes_key))
+            encrypter = _AESCipher(_base64_urlsafe_decode(aes_key))
             decrypted = encrypter.decrypt(encrypted_data)
             return json.loads(decrypted)
         except Exception as e:
@@ -62,15 +145,12 @@ class InfoflowAdapter(MessageAdapter):
     def extract_command(self, msg_data: dict) -> tuple:
         """Extract user_id, group_id, and command text from an Infoflow message.
 
-        Args:
-            msg_data: Parsed Infoflow message dict.
-
         Returns:
             (user_id, group_id, command_text) tuple.
         """
         user_id = msg_data["message"]["header"]["fromuserid"]
         group_id = msg_data["message"]["header"].get("toid", "")
-        command_text = extract_msg_body(msg_data["message"]["body"]).strip()
+        command_text = _extract_msg_body(msg_data["message"]["body"]).strip()
         return user_id, group_id, command_text
 
     def build_reply(self, content, user_ids, group_id=None) -> dict:
@@ -128,3 +208,9 @@ class InfoflowAdapter(MessageAdapter):
         from lockbot.core.config import Config
 
         return Config.get(key, default)
+
+
+# Public helpers — used by bots/router.py for Infoflow URL verification
+def check_signature(signature, rn, timestamp, token):
+    """Verify Infoflow request signature (public alias for backwards compat)."""
+    return _check_signature(signature, rn, timestamp, token)

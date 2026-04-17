@@ -324,6 +324,8 @@ export default {
     newsContentPlaceholder: '将显示在机器人 help 命令中',
     newsHint: '最多 30 字，显示在机器人帮助信息中。留空则不显示公告。',
     saved: '设置已保存',
+    enabledPlatforms: '启用的 IM 平台',
+    enabledPlatformsHint: '勾选后用户可在创建机器人时选择该平台',
   },
 
   // === Cluster State ===

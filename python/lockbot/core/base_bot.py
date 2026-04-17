@@ -9,7 +9,6 @@ from importlib.metadata import version as _pkg_version
 
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
-from lockbot.core.platforms.infoflow import InfoflowAdapter
 from lockbot.core.utils import format_duration
 
 
@@ -65,7 +64,14 @@ class BaseLockBot:
             self.state = self._state_class(config=self.config)
 
         self._lock = lock or threading.Lock()
-        self.adapter = adapter or InfoflowAdapter(config=self.config)
+        if adapter is not None:
+            self.adapter = adapter
+        else:
+            from lockbot.core.platforms import PLATFORM_REGISTRY
+
+            platform = self.config.get_val("PLATFORM") or "Infoflow"
+            adapter_cls = PLATFORM_REGISTRY.get(platform, PLATFORM_REGISTRY["Infoflow"])
+            self.adapter = adapter_cls(config=self.config)
         # Optional callback: invoked after a successful lock/slock so the
         # scheduler can recalculate its next wakeup without waiting for idle.
         self._on_state_changed: Callable[[], None] | None = None
