@@ -4,6 +4,7 @@ lockbot - BaseLockBot
 
 import logging
 import threading
+from collections.abc import Callable
 from importlib.metadata import version as _pkg_version
 
 from lockbot.core.config import Config
@@ -65,6 +66,14 @@ class BaseLockBot:
 
         self._lock = lock or threading.Lock()
         self.adapter = adapter or InfoflowAdapter(config=self.config)
+        # Optional callback: invoked after a successful lock/slock so the
+        # scheduler can recalculate its next wakeup without waiting for idle.
+        self._on_state_changed: Callable[[], None] | None = None
+
+    def _notify_state_changed(self) -> None:
+        """Call _on_state_changed if wired up (no-op otherwise)."""
+        if self._on_state_changed is not None:
+            self._on_state_changed()
 
     # ---------------------------------------------------------- show_error
     def show_error(self, user_id, error_msg):

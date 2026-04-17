@@ -101,6 +101,21 @@ class BotScheduler:
             self._failure_counts.pop(bot_id, None)
             self._callbacks.pop(bot_id, None)
 
+    def reschedule_soon(self, bot_id: int) -> None:
+        """Wake the scheduler to re-evaluate *bot_id* within ~1 s.
+
+        Call this after any state change (e.g. a new lock was added) so the
+        scheduler recalculates its sleep duration instead of waiting until the
+        next idle wakeup.  Safe to call from any thread; no-op if the bot is
+        not registered.
+        """
+        with self._lock:
+            if bot_id not in self._instances:
+                return
+            gen = self._gens.get(bot_id, 0)
+            heapq.heappush(self._heap, (time.monotonic() + _MIN_INTERVAL, gen, bot_id))
+        self._wake.set()
+
     # ----------------------------------------------------------------- private
 
     def _run(self) -> None:

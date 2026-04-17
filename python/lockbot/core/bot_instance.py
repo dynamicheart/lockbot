@@ -66,6 +66,7 @@ class BotInstance:
             self._scheduler.start()
             self._owns_scheduler = True
             self._scheduler.add(_STANDALONE_KEY, self, delay=0.0)
+            self.bot._on_state_changed = lambda: self._scheduler.reschedule_soon(_STANDALONE_KEY)
         else:
             # Managed mode: shared scheduler injected by BotManager
             self._scheduler = scheduler

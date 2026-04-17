@@ -1047,3 +1047,50 @@ def test_io_log_to_file(bot):
     with open(log_file, encoding="utf-8") as f:
         lines = f.readlines()
     assert any("user1" in line and "lock" in line and "test" in line for line in lines), "Log file content incorrect"
+
+
+# ── _notify_state_changed callback ───────────────────────────────────────────
+
+
+def test_lock_calls_notify_state_changed(bot):
+    """Successful lock() must invoke _on_state_changed so the scheduler wakes up."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    bot.lock("user1", "lock test 1h")
+    assert len(calls) == 1, "lock() should have called _on_state_changed once"
+
+
+def test_take_calls_notify_state_changed(bot):
+    """Successful take() must invoke _on_state_changed (new active lock added)."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    # user1 locks, user2 books, then user1 unlocks so user2 can take
+    bot.lock("user1", "lock test 1h")
+    bot.book("user2", "book test 1h")
+    bot.unlock("user1", "unlock test")
+
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    bot.take("user2", "take test 1h")
+    assert len(calls) == 1, "take() should have called _on_state_changed once"
+
+
+def test_failed_lock_does_not_call_notify(bot):
+    """An error lock must NOT call _on_state_changed."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    bot.lock("user1", "lock test 1h")  # test held
+
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    bot.lock("user2", "lock test 1h")  # conflicts → error
+    assert len(calls) == 0, "failed lock() must not call _on_state_changed"
+
+
+def test_notify_not_set_does_not_raise(bot):
+    """lock() must not raise when _on_state_changed is None (default)."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    assert bot._on_state_changed is None
+    bot.lock("user1", "lock test 1h")  # must not raise

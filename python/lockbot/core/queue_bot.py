@@ -102,6 +102,7 @@ class QueueBot(NodeBot):
             reply = self.adapter.build_reply(content, list(users_to_notify))
             save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
+            self._notify_state_changed()
             return reply
 
     def slock(self, user_id, command):
@@ -207,6 +208,7 @@ class QueueBot(NodeBot):
             reply = self.adapter.build_reply(content, list(users_to_notify))
             save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
+            self._notify_state_changed()
             return reply
 
     def kicklock(self, user_id, command):

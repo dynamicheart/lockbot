@@ -78,6 +78,8 @@ class BotManager:
             delay=0.0,
             on_fatal_error=self._make_fatal_error_handler(bot_id),
         )
+        # Wire up state-change callback so new locks wake the scheduler immediately
+        instance.bot._on_state_changed = lambda: self._scheduler.reschedule_soon(bot_id)
         logger.info("Started bot %d in-process (type=%s)", bot_id, instance.bot_type)
         return os.getpid()
 

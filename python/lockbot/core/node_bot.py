@@ -148,6 +148,7 @@ class NodeBot(BaseLockBot):
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
             save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
+            self._notify_state_changed()
             return reply
 
     def slock(self, user_id, command):
@@ -195,6 +196,7 @@ class NodeBot(BaseLockBot):
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
             save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "slock", node_keys, duration, config=self.config)
+            self._notify_state_changed()
             return reply
 
     def unlock(self, user_id, command):

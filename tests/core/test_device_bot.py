@@ -518,3 +518,42 @@ def test_io_log_to_file(bot):
     with open(log_file, encoding="utf-8") as f:
         lines = f.readlines()
     assert any("user1" in line and "lock" in line for line in lines)
+
+
+# ── _notify_state_changed callback ───────────────────────────────────────────
+
+
+def test_lock_calls_notify_state_changed(bot):
+    """Successful lock() must invoke _on_state_changed so the scheduler wakes up."""
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    bot.lock("user1", "lock test dev0 1h")
+    assert len(calls) == 1, "lock() should have called _on_state_changed once"
+
+
+def test_slock_calls_notify_state_changed(bot):
+    """Successful slock() must invoke _on_state_changed."""
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    bot.slock("user1", "slock test dev0 1h")
+    assert len(calls) == 1, "slock() should have called _on_state_changed once"
+
+
+def test_failed_lock_does_not_call_notify(bot):
+    """An error lock (e.g. device already held) must NOT call _on_state_changed."""
+    bot.lock("user1", "lock test dev0 1h")  # dev0 now held by user1
+
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    # user2 tries to take an exclusively held device → error
+    bot.lock("user2", "lock test dev0 1h")
+    assert len(calls) == 0, "failed lock() must not call _on_state_changed"
+
+
+def test_notify_not_set_does_not_raise(bot):
+    """lock() must not raise when _on_state_changed is None (default)."""
+    assert bot._on_state_changed is None
+    bot.lock("user1", "lock test dev0 1h")  # must not raise

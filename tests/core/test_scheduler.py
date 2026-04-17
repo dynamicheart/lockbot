@@ -281,3 +281,49 @@ class TestMultipleBots:
                 assert 2 in sched._instances
             finally:
                 sched.stop()
+
+
+# ── reschedule_soon ───────────────────────────────────────────────────────────
+
+
+class TestRescheduleSoon:
+    def test_reschedule_soon_wakes_idle_scheduler(self):
+        """reschedule_soon() should trigger a check well before _IDLE_INTERVAL elapses."""
+        fired_at = []
+
+        inst = _make_instance()
+
+        def recording_check():
+            fired_at.append(time.monotonic())
+            return None  # → scheduler would sleep _IDLE_INTERVAL next
+
+        inst.bot._check_and_notify.side_effect = recording_check
+
+        sched = BotScheduler()
+        sched.start()
+        try:
+            sched.add(1, inst, delay=0.0)
+            # Wait for the first natural check
+            assert _wait_for(lambda: len(fired_at) >= 1, timeout=3.0)
+            t0 = time.monotonic()
+            # Scheduler is now sleeping for _IDLE_INTERVAL; poke it
+            sched.reschedule_soon(1)
+            # Should fire within 2s, not _IDLE_INTERVAL
+            assert _wait_for(lambda: len(fired_at) >= 2, timeout=2.0), (
+                "reschedule_soon() did not wake the scheduler promptly"
+            )
+            elapsed = fired_at[-1] - t0
+            assert elapsed < _IDLE_INTERVAL / 2, (
+                f"Expected wakeup well before {_IDLE_INTERVAL}s, got {elapsed:.1f}s"
+            )
+        finally:
+            sched.stop()
+
+    def test_reschedule_soon_noop_for_unknown_bot(self):
+        """reschedule_soon() on an unregistered bot_id should not raise."""
+        sched = BotScheduler()
+        sched.start()
+        try:
+            sched.reschedule_soon(999)  # not registered — must not raise
+        finally:
+            sched.stop()

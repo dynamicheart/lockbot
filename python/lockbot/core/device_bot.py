@@ -228,6 +228,7 @@ class DeviceBot(BaseLockBot):
             save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_key, dev_ids, duration, config=self.config)
 
+            self._notify_state_changed()
             return reply
 
     def slock(self, user_id, command):
@@ -293,6 +294,7 @@ class DeviceBot(BaseLockBot):
 
             save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "slock", node_key_list, dev_ids_list, duration, config=self.config)
+            self._notify_state_changed()
             return reply
 
     def unlock(self, user_id, command):
