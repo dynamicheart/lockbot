@@ -6,12 +6,16 @@ To add a new IM platform:
 3. Super admin enables it in Site Settings → it appears in BotForm
 """
 
+from lockbot.core.platforms.dingtalk import DingTalkAdapter
+from lockbot.core.platforms.feishu import FeishuAdapter
 from lockbot.core.platforms.infoflow import InfoflowAdapter
 from lockbot.core.platforms.slack import SlackAdapter
 
 # Maps the platform name (stored in Bot.platform DB field) to its adapter class.
 # Only platforms listed here can be enabled by admins.
 PLATFORM_REGISTRY: dict[str, type] = {
+    "DingTalk": DingTalkAdapter,
+    "Feishu": FeishuAdapter,
     "Infoflow": InfoflowAdapter,
     "Slack": SlackAdapter,
 }
