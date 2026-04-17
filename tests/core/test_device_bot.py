@@ -400,6 +400,69 @@ def test_timer_routine_no_trigger_early_notification_devicebot(bot, monkeypatch)
     assert sent_payload == {}, "should not send notification before early reminder time"
 
 
+def test_early_notify_no_double_notification_on_expiry(bot, monkeypatch):
+    """EARLY_NOTIFY=True: once early warning is sent (is_notified=True), expiry must NOT send a second notification."""
+    bot.config.set_val("WEBHOOK_URL", "http://fake")
+    bot.config.set_val("EARLY_NOTIFY", True)
+    bot.config.set_val("TIME_ALERT", 300)
+
+    now = int(time.time())
+    duration = 3600
+    user = {
+        "user_id": "userX",
+        "start_time": now - duration - 10,  # already expired
+        "duration": duration,
+        "is_notified": True,  # early warning was already sent on a previous tick
+    }
+
+    bot.state.bot_state = {
+        "test": [{"dev_id": 0, "dev_model": "A100", "status": "exclusive", "current_users": [copy.deepcopy(user)]}]
+    }
+
+    send_count = {"n": 0}
+
+    def fake_send(msg):
+        send_count["n"] += 1
+        return type("Resp", (), {"status_code": 200})()
+
+    monkeypatch.setattr(bot.adapter, "send", fake_send)
+    bot._check_and_notify()
+
+    assert send_count["n"] == 0, "should NOT send a second notification at expiry when early warning was already sent"
+
+
+def test_early_notify_fallback_on_scheduler_delay(bot, monkeypatch):
+    """EARLY_NOTIFY=True: if scheduler delayed past early window without notifying, send one notification at expiry."""
+    bot.config.set_val("WEBHOOK_URL", "http://fake")
+    bot.config.set_val("EARLY_NOTIFY", True)
+    bot.config.set_val("TIME_ALERT", 300)
+
+    now = int(time.time())
+    duration = 3600
+    user = {
+        "user_id": "userY",
+        "start_time": now - duration - 10,  # expired, early window already passed
+        "duration": duration,
+        "is_notified": False,  # early warning was never sent due to scheduler delay
+    }
+
+    bot.state.bot_state = {
+        "test": [{"dev_id": 0, "dev_model": "A100", "status": "exclusive", "current_users": [copy.deepcopy(user)]}]
+    }
+
+    sent_payload = {}
+
+    def fake_send(msg):
+        sent_payload["msg"] = msg
+        return type("Resp", (), {"status_code": 200})()
+
+    monkeypatch.setattr(bot.adapter, "send", fake_send)
+    bot._check_and_notify()
+
+    assert "msg" in sent_payload, "should send fallback notification at expiry when early warning was never sent"
+    assert "userY" in sent_payload["msg"]["message"]["body"][1]["atuserids"]
+
+
 def test_io_create_and_save(bot):
     """Test io create and save."""
     status = create_or_load_device_state(config=bot.config)

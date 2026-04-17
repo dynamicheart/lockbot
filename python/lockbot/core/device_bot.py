@@ -466,7 +466,12 @@ class DeviceBot(BaseLockBot):
                             if remaining_time <= 0:
                                 removed_users_id.append(user_info["user_id"])
                                 state_changed = True
-                                if not EARLY_NOTIFY:
+
+                                # Send expiry notification only if early warning was never sent.
+                                # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
+                                # When EARLY_NOTIFY=False, is_notified is always False → always notify here.
+                                # Fallback: EARLY_NOTIFY=True but scheduler delayed past expiry → notify here instead.
+                                if not user_info.get("is_notified"):
                                     trigger_time_alert = True
                                     user_ids.add(user_info["user_id"])
                                     alert_tuples.append(
@@ -478,7 +483,7 @@ class DeviceBot(BaseLockBot):
                                             remaining_time,
                                         )
                                     )
-                            if EARLY_NOTIFY and not user_info.get("is_notified") and remaining_time <= TIME_ALERT:
+                            if EARLY_NOTIFY and not user_info.get("is_notified") and 0 < remaining_time <= TIME_ALERT:
                                 trigger_time_alert = True
                                 user_ids.add(user_info["user_id"])
                                 user_info["is_notified"] = True
