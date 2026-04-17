@@ -313,9 +313,7 @@ class TestRescheduleSoon:
                 "reschedule_soon() did not wake the scheduler promptly"
             )
             elapsed = fired_at[-1] - t0
-            assert elapsed < _IDLE_INTERVAL / 2, (
-                f"Expected wakeup well before {_IDLE_INTERVAL}s, got {elapsed:.1f}s"
-            )
+            assert elapsed < _IDLE_INTERVAL / 2, f"Expected wakeup well before {_IDLE_INTERVAL}s, got {elapsed:.1f}s"
         finally:
             sched.stop()
 

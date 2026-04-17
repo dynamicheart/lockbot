@@ -9,9 +9,9 @@ from pydantic import BaseModel, field_validator
 # ── config_overrides value bounds ─────────────────────────────────────────────
 _CFG_RULES: dict[str, tuple[int, int] | None] = {
     # (min, max); None means special-cased below
-    "DEFAULT_DURATION": (60, 604800),   # 1 min – 7 days
-    "TIME_ALERT": (30, 3600),           # 30 s – 1 h
-    "MAX_LOCK_DURATION": None,          # -1 (unlimited) or 300–604800
+    "DEFAULT_DURATION": (60, 604800),  # 1 min – 7 days
+    "TIME_ALERT": (30, 3600),  # 30 s – 1 h
+    "MAX_LOCK_DURATION": None,  # -1 (unlimited) or 300–604800
 }
 
 

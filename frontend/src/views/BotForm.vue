@@ -310,8 +310,7 @@ const rules = computed(() => ({
   ],
   cfg_default_duration: [
     {
-      validator: (_, val, cb) =>
-        val >= 60 && val <= 604800 ? cb() : cb(new Error('60 ~ 604800')),
+      validator: (_, val, cb) => (val >= 60 && val <= 604800 ? cb() : cb(new Error('60 ~ 604800'))),
       trigger: 'change',
     },
   ],
@@ -324,8 +323,7 @@ const rules = computed(() => ({
   ],
   cfg_time_alert: [
     {
-      validator: (_, val, cb) =>
-        val >= 30 && val <= 3600 ? cb() : cb(new Error('30 ~ 3600')),
+      validator: (_, val, cb) => (val >= 30 && val <= 3600 ? cb() : cb(new Error('30 ~ 3600'))),
       trigger: 'change',
     },
   ],
