@@ -136,6 +136,21 @@ export default {
     token: 'Token',
     tokenPlaceholder: 'IM 平台 Token (SECRET_KEY)',
     leaveBlank: '留空则不修改',
+    // 各平台字段映射说明（字段复用，仅语义不同）
+    // Infoflow:  token=App Token, aes_key=AES 密钥,       webhook_url=Webhook URL
+    // Slack:     token=Bot Token, aes_key=Signing Secret, webhook_url=Event URL（展示用）
+    // DingTalk:  token=App Secret（验签）, aes_key 和 webhook_url 不使用
+    // Feishu:    token=App Secret（验签）, aes_key=App ID, webhook_url 不使用
+    credentialFieldLabels: {
+      Infoflow: { token: 'App Token', aesKey: 'AES 密钥', webhookUrl: 'Webhook 地址' },
+      Slack: {
+        token: 'Bot Token (xoxb-...)',
+        aesKey: 'Signing Secret',
+        webhookUrl: 'Event Subscription URL（展示用）',
+      },
+      DingTalk: { token: 'App Secret' },
+      Feishu: { token: 'App Secret', aesKey: 'App ID' },
+    },
     clusterConfig: '集群配置',
     rawJson: 'Raw JSON',
     rawJsonPlaceholder: '粘贴集群配置 JSON',

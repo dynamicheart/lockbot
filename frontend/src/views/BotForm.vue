@@ -70,33 +70,18 @@
         <el-alert type="info" :closable="false" show-icon class="credentials-alert">
           <template #title>{{ $t('botCreate.credentialsHint') }}</template>
         </el-alert>
-        <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
-          <template #label>
-            <span>{{ $t('botCreate.webhookUrl') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">
-                  <div class="help-title">{{ $t('botCreate.webhookHelpTitle') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep1') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep2') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep3') }}</div>
-                </div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
+
+        <!-- webhook_url: Infoflow (required) / Slack (optional) only -->
+        <el-form-item
+          v-if="credFields.webhookUrl"
+          :label="credFields.webhookUrl.label"
+          :prop="credFields.webhookUrl.required ? 'webhook_url' : undefined"
+        >
           <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
         </el-form-item>
-        <el-form-item :label="$t('botCreate.token')" prop="token">
-          <template #label>
-            <span>{{ $t('botCreate.token') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">{{ $t('botCreate.tokenHelp') }}</div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
+
+        <!-- token: all platforms -->
+        <el-form-item :label="credFields.token.label" prop="token">
           <el-input
             v-model="form.token"
             :placeholder="
@@ -104,21 +89,18 @@
                 ? maskedToken
                 : isEdit
                   ? $t('botCreate.leaveBlank')
-                  : $t('botCreate.tokenPlaceholder')
+                  : credFields.token.placeholder
             "
             show-password
           />
         </el-form-item>
-        <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
-          <template #label>
-            <span>{{ $t('botCreate.aesKey') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">{{ $t('botCreate.aesKeyHelp') }}</div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
+
+        <!-- aes_key: Infoflow / Slack / Feishu only -->
+        <el-form-item
+          v-if="credFields.aesKey"
+          :label="credFields.aesKey.label"
+          :prop="credFields.aesKey.required ? 'aes_key' : undefined"
+        >
           <el-input
             v-model="form.aes_key"
             :placeholder="
@@ -126,7 +108,7 @@
                 ? maskedAesKey
                 : isEdit
                   ? $t('botCreate.leaveBlank')
-                  : $t('botCreate.aesKeyPlaceholder')
+                  : credFields.aesKey.placeholder
             "
             show-password
           />
@@ -279,6 +261,36 @@ const bot = ref(null)
 const availablePlatforms = ref(['Infoflow'])
 const maskedAesKey = ref('')
 const maskedToken = ref('')
+
+// Per-platform credential field definitions.
+// DB fields are reused with different semantics per platform:
+//   Infoflow:  token=App Token,   aes_key=AES Key,        webhook_url=Webhook URL
+//   Slack:     token=Bot Token,   aes_key=Signing Secret, webhook_url=Event URL (display only)
+//   DingTalk:  token=App Secret   (aes_key and webhook_url not used)
+//   Feishu:    token=App Secret,  aes_key=App ID          (webhook_url not used)
+const PLATFORM_CRED_CONFIG = {
+  Infoflow: {
+    token: { label: 'App Token', placeholder: 'App Token', required: true },
+    aesKey: { label: 'AES Key', placeholder: 'AES Key', required: true },
+    webhookUrl: { label: 'Webhook URL', required: true },
+  },
+  Slack: {
+    token: { label: 'Bot Token', placeholder: 'xoxb-...', required: true },
+    aesKey: { label: 'Signing Secret', placeholder: 'Signing Secret', required: true },
+    webhookUrl: { label: 'Event Subscription URL', required: false },
+  },
+  DingTalk: {
+    token: { label: 'App Secret', placeholder: 'App Secret', required: true },
+  },
+  Feishu: {
+    token: { label: 'App Secret', placeholder: 'App Secret', required: true },
+    aesKey: { label: 'App ID', placeholder: 'App ID', required: true },
+  },
+}
+
+const credFields = computed(() => {
+  return PLATFORM_CRED_CONFIG[form.platform] || PLATFORM_CRED_CONFIG['Infoflow']
+})
 const nodeClusterConfig = ref({})
 const deviceClusterConfig = ref({})
 const clusterConfig = computed({
@@ -309,13 +321,15 @@ const advancedConfig = reactive({
 const rules = computed(() => ({
   name: [{ required: true, message: () => t('botCreate.nameRequired'), trigger: 'blur' }],
   bot_type: [{ required: true, message: () => t('botCreate.typeRequired'), trigger: 'change' }],
-  webhook_url: [
-    { required: true, message: () => t('botCreate.webhookRequired'), trigger: 'blur' },
-    { type: 'url', message: () => t('botCreate.webhookInvalid'), trigger: 'blur' },
-  ],
-  aes_key: [
-    { required: !isEdit.value, message: () => t('botCreate.aesKeyRequired'), trigger: 'blur' },
-  ],
+  webhook_url: credFields.value.webhookUrl?.required
+    ? [
+        { required: true, message: () => t('botCreate.webhookRequired'), trigger: 'blur' },
+        { type: 'url', message: () => t('botCreate.webhookInvalid'), trigger: 'blur' },
+      ]
+    : [],
+  aes_key: credFields.value.aesKey?.required
+    ? [{ required: !isEdit.value, message: () => t('botCreate.aesKeyRequired'), trigger: 'blur' }]
+    : [],
   token: [
     { required: !isEdit.value, message: () => t('botCreate.tokenRequired'), trigger: 'blur' },
   ],
