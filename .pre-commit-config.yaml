@@ -5,3 +5,19 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: eslint-frontend
+        name: ESLint (frontend)
+        entry: bash -c 'cd frontend && npm run lint:fix'
+        language: system
+        files: ^frontend/src/.*\.(vue|js)$
+        pass_filenames: false
+
+      - id: prettier-frontend
+        name: Prettier (frontend)
+        entry: bash -c 'cd frontend && npm run format'
+        language: system
+        files: ^frontend/src/.*\.(vue|js|css)$
+        pass_filenames: false
