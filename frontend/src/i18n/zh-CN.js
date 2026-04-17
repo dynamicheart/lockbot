@@ -136,21 +136,19 @@ export default {
     token: 'Token',
     tokenPlaceholder: 'IM 平台 Token (SECRET_KEY)',
     leaveBlank: '留空则不修改',
-    // 各平台字段映射说明（字段复用，仅语义不同）
-    // Infoflow:  token=App Token, aes_key=AES 密钥,       webhook_url=Webhook URL
-    // Slack:     token=Bot Token, aes_key=Signing Secret, webhook_url=Event URL（展示用）
-    // DingTalk:  token=App Secret（验签）, aes_key 和 webhook_url 不使用
-    // Feishu:    token=App Secret（验签）, aes_key=App ID, webhook_url 不使用
-    credentialFieldLabels: {
-      Infoflow: { token: 'App Token', aesKey: 'AES 密钥', webhookUrl: 'Webhook 地址' },
-      Slack: {
-        token: 'Bot Token (xoxb-...)',
-        aesKey: 'Signing Secret',
-        webhookUrl: 'Event Subscription URL（展示用）',
+    credFieldHints: {
+      Infoflow: {
+        token: '用于验证消息来源的 Token，在如流机器人设置的接收消息页面获取',
+        aesKey: '用于消息加解密的 AES 密钥，在如流机器人设置的接收消息页面获取',
+        webhookUrl: '在如流机器人设置的接收消息页面获取的 Webhook 地址',
+        hintTitle: '如何获取凭证信息？',
+        step1: '1. 在如流平台创建机器人应用',
+        step2: '2. 进入机器人设置 → 接收消息，开启消息接收',
+        step3: '3. 复制 Webhook URL、Token 和 AES Key 填入下方',
       },
-      DingTalk: { token: 'App Secret' },
-      Feishu: { token: 'App Secret', aesKey: 'App ID' },
     },
+    tokenHelp: '用于验证消息来源或调用 API 的凭证，具体含义因平台而异',
+    aesKeyHelp: '用于消息加解密或应用身份的密钥，具体含义因平台而异',
     clusterConfig: '集群配置',
     rawJson: 'Raw JSON',
     rawJsonPlaceholder: '粘贴集群配置 JSON',
@@ -190,8 +188,6 @@ export default {
     webhookHelpStep2: '2. 进入机器人设置，开启消息接收',
     webhookHelpStep3: '3. 复制所需的凭证填入下方',
     credentialsHint: '请在对应 IM 平台的机器人设置中获取凭证，各字段含义因平台而异',
-    tokenHelp: '用于验证消息来源或调用 API 的凭证，具体含义因平台而异',
-    aesKeyHelp: '用于消息加解密或标识应用身份的密钥，具体含义因平台而异',
     callbackHintTitle: '重要：配置回调地址',
     callbackHintStep1: '复制下方的回调地址',
     callbackHintStep2: '在如流机器人设置中粘贴此地址',

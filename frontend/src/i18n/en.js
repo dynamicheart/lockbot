@@ -142,6 +142,19 @@ export default {
     // Slack:     token=Bot Token, aes_key=Signing Secret,   webhook_url=Event URL (display only)
     // DingTalk:  token=App Secret (signing), aes_key and webhook_url not used
     // Feishu:    token=App Secret (signing), aes_key=App ID, webhook_url not used
+    credFieldHints: {
+      Infoflow: {
+        token:
+          'Token for verifying message source, obtained from the Receive Messages page in Ruliu bot settings',
+        aesKey:
+          'AES key for message encryption/decryption, obtained from the Receive Messages page in Ruliu bot settings',
+        webhookUrl: 'Webhook URL obtained from the Receive Messages page in Ruliu bot settings',
+        hintTitle: 'How to get credentials?',
+        step1: '1. Create a bot application on the Ruliu (Infoflow) platform',
+        step2: '2. Go to bot settings → Receive Messages and enable message receiving',
+        step3: '3. Copy the Webhook URL, Token, and AES Key into the fields below',
+      },
+    },
     credentialFieldLabels: {
       Infoflow: { token: 'App Token', aesKey: 'AES Key', webhookUrl: 'Webhook URL' },
       Slack: {
