@@ -137,6 +137,21 @@ export default {
     token: 'Token',
     tokenPlaceholder: 'IM platform token (SECRET_KEY)',
     leaveBlank: 'Leave blank to keep unchanged',
+    // Per-platform credential field mapping (DB fields reused with different semantics)
+    // Infoflow:  token=App Token, aes_key=AES Key,          webhook_url=Webhook URL
+    // Slack:     token=Bot Token, aes_key=Signing Secret,   webhook_url=Event URL (display only)
+    // DingTalk:  token=App Secret (signing), aes_key and webhook_url not used
+    // Feishu:    token=App Secret (signing), aes_key=App ID, webhook_url not used
+    credentialFieldLabels: {
+      Infoflow: { token: 'App Token', aesKey: 'AES Key', webhookUrl: 'Webhook URL' },
+      Slack: {
+        token: 'Bot Token (xoxb-...)',
+        aesKey: 'Signing Secret',
+        webhookUrl: 'Event Subscription URL (display only)',
+      },
+      DingTalk: { token: 'App Secret' },
+      Feishu: { token: 'App Secret', aesKey: 'App ID' },
+    },
     clusterConfig: 'Cluster Configuration',
     rawJson: 'Raw JSON',
     rawJsonPlaceholder: 'Paste cluster config JSON here',

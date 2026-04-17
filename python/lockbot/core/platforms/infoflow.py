@@ -6,6 +6,11 @@ Implements MessageAdapter for the Infoflow IM platform, handling:
 - AES-ECB message decryption
 - Infoflow message format (TEXT/AT/LINK body types)
 - Webhook-based message sending with automatic text splitting
+
+Credential mapping (reuses existing DB fields):
+    token       → App Token  — for MD5 signature verification
+    aes_key     → AES Key    — for AES-ECB message decryption
+    webhook_url → Webhook URL — for sending reply messages
 """
 
 import base64
