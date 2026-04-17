@@ -92,7 +92,7 @@ async function fetchSettings() {
   try {
     const [settingsRes, platformsRes] = await Promise.allSettled([
       api.get('/admin/settings'),
-      api.get('/platforms?all=true'),
+      api.get('/platforms', { params: { all: true } }),
     ])
     if (settingsRes.status === 'fulfilled') {
       for (const item of settingsRes.value.data) {
