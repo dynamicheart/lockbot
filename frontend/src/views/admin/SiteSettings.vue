@@ -54,11 +54,13 @@
 
         <!-- Enabled IM Platforms — visible to super_admin -->
         <el-form-item :label="$t('settings.enabledPlatforms')">
-          <el-checkbox-group v-model="form.enabled_platforms">
-            <el-checkbox v-for="p in allPlatforms" :key="p" :value="p">{{ p }}</el-checkbox>
-          </el-checkbox-group>
-          <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
-            {{ $t('settings.enabledPlatformsHint') }}
+          <div>
+            <el-checkbox-group v-model="form.enabled_platforms">
+              <el-checkbox v-for="p in allPlatforms" :key="p" :value="p">{{ p }}</el-checkbox>
+            </el-checkbox-group>
+            <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
+              {{ $t('settings.enabledPlatformsHint') }}
+            </div>
           </div>
         </el-form-item>
       </el-form>
