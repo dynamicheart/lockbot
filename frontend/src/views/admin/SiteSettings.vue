@@ -88,24 +88,26 @@ const form = ref({
 async function fetchSettings() {
   loading.value = true
   try {
-    const [settingsRes, platformsRes] = await Promise.all([
+    const [settingsRes, platformsRes] = await Promise.allSettled([
       api.get('/admin/settings'),
       api.get('/platforms?all=true'),
     ])
-    for (const item of settingsRes.data) {
-      if (item.key === 'enabled_platforms') {
-        try {
-          form.value.enabled_platforms = JSON.parse(item.value || '["Infoflow"]')
-        } catch {
-          form.value.enabled_platforms = ['Infoflow']
+    if (settingsRes.status === 'fulfilled') {
+      for (const item of settingsRes.value.data) {
+        if (item.key === 'enabled_platforms') {
+          try {
+            form.value.enabled_platforms = JSON.parse(item.value || '["Infoflow"]')
+          } catch {
+            form.value.enabled_platforms = ['Infoflow']
+          }
+        } else if (item.key in form.value) {
+          form.value[item.key] = item.value || ''
         }
-      } else if (item.key in form.value) {
-        form.value[item.key] = item.value || ''
       }
     }
-    allPlatforms.value = platformsRes.data.platforms || []
-  } catch {
-    // handled by api interceptor
+    if (platformsRes.status === 'fulfilled') {
+      allPlatforms.value = platformsRes.value.data.platforms || []
+    }
   } finally {
     loading.value = false
   }
