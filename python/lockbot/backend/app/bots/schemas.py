@@ -38,6 +38,15 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     return v
 
 
+def _validate_platform(v: str) -> str:
+    from lockbot.core.platforms import PLATFORM_REGISTRY
+
+    if v not in PLATFORM_REGISTRY:
+        allowed = ", ".join(sorted(PLATFORM_REGISTRY.keys()))
+        raise ValueError(f"Unsupported platform '{v}'. Allowed: {allowed}")
+    return v
+
+
 class BotCreate(BaseModel):
     name: str
     bot_type: str  # NODE / DEVICE / QUEUE
@@ -48,6 +57,11 @@ class BotCreate(BaseModel):
     token: str = ""
     cluster_configs: dict | list
     config_overrides: dict | None = None
+
+    @field_validator("platform")
+    @classmethod
+    def validate_platform(cls, v: str) -> str:
+        return _validate_platform(v)
 
     @field_validator("config_overrides")
     @classmethod

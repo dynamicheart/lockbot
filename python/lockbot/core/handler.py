@@ -2,17 +2,16 @@
 
 import re
 
-from flask import abort
-
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
 from lockbot.core.message_adapter import MessageAdapter
-from lockbot.core.platforms.infoflow import InfoflowAdapter
 
 
 def execute_command(msg_data, bot):
     adapter = getattr(bot, "adapter", None)
     if not isinstance(adapter, MessageAdapter):
+        from lockbot.core.platforms.infoflow import InfoflowAdapter
+
         adapter = InfoflowAdapter()
     user_id, _, rcv_info = adapter.extract_command(msg_data)
     config = getattr(bot, "config", None)
@@ -57,64 +56,48 @@ def execute_command(msg_data, bot):
         return bot.print_help(user_id)
     else:
         return bot.print_help(user_id, t("error.unknown_error", config=getattr(bot, "config", None), command=rcv_info))
-        return bot.print_help(user_id, t("error.unknown_error", config=getattr(bot, "config", None), command=rcv_info))
 
 
-_DEPRECATION_MSG = (
-    "The legacy Flask handler is deprecated and will be removed in a future version. "
-    "Use the FastAPI platform webhook handler (lockbot.backend.app.bots.webhook_handler) instead."
-)
-
-
-# Global adapter for the legacy Flask entry point (uses Config singleton)
-_global_adapter = InfoflowAdapter()
+# ── Legacy Flask entry point (deprecated) ────────────────────────────────────
+# The functions below are used by lockbot.core.entry (legacy Flask mode).
+# New deployments should use the FastAPI platform mode (lockbot.backend.app.main).
 
 
 def decrypt_message(msg_base64):
     """Decrypt a base64-encoded message, returning parsed JSON or aborting on failure.
 
-    .. deprecated:: Use platform mode webhook handler instead.
+    .. deprecated:: Use the FastAPI webhook handler instead.
     """
-    result = _global_adapter.decrypt_payload(msg_base64)
+    from flask import abort
+
+    from lockbot.core.platforms.infoflow import InfoflowAdapter
+
+    result = InfoflowAdapter().decrypt_payload(msg_base64)
     if result is None:
         abort(404)
     return result
 
 
 def handle_request(echostr, signature, rn, timestamp, msg_base64, bot):
-    """Handle an incoming request: verify signature, decrypt, execute command, and reply.
+    """Handle an incoming Flask request for the legacy Infoflow standalone mode.
 
-    .. deprecated:: Use platform mode webhook handler instead.
-
-    Args:
-        echostr: Echo string for signature verification handshake; None otherwise.
-        signature: Request signature for verification.
-        rn: Random nonce from the server.
-        timestamp: Request timestamp.
-        msg_base64: Encrypted message payload.
-        bot: Bot instance for command execution.
-
-    Returns:
-        tuple: (response_body, http_status_code)
+    .. deprecated:: Use the FastAPI webhook handler instead.
     """
-    if echostr:
-        if _global_adapter.verify_request(signature, rn=rn, timestamp=timestamp):
-            return echostr
-        else:
-            return "check signature fail", 401
+    from lockbot.core.platforms.infoflow import InfoflowAdapter
 
-    if not _global_adapter.verify_request(signature, rn=rn, timestamp=timestamp):
+    adapter = InfoflowAdapter()
+    if echostr:
+        if adapter.verify_request(signature, rn=rn, timestamp=timestamp):
+            return echostr
+        return "check signature fail", 401
+
+    if not adapter.verify_request(signature, rn=rn, timestamp=timestamp):
         return "check signature fail", 401
 
     msg_data = decrypt_message(msg_base64)
-    print(msg_data)
     reply = execute_command(msg_data, bot)
-
-    toid = msg_data["message"]["header"].get("toid", None)
-    if toid:
-        reply["message"]["header"]["toid"] = toid
-
-    _global_adapter.send(reply)
+    reply = adapter.set_reply_target(reply, msg_data["message"]["header"].get("toid", ""))
+    adapter.send(reply)
     return "command succeed"
 
 
