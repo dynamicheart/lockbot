@@ -75,6 +75,19 @@ class BaseLockBot:
         if self._on_state_changed is not None:
             self._on_state_changed()
 
+    def _save_and_notify(self) -> None:
+        """Persist bot state to disk and wake the scheduler (if wired).
+
+        Use this in every command handler that mutates state so it's
+        impossible to forget either step.  The scheduler's
+        ``_check_and_notify`` loop should still call ``save_bot_state_to_file``
+        directly to avoid an unwanted reschedule from the timer thread.
+        """
+        from lockbot.core.io import save_bot_state_to_file
+
+        save_bot_state_to_file(self.state.bot_state, config=self.config)
+        self._notify_state_changed()
+
     # ---------------------------------------------------------- show_error
     def show_error(self, user_id, error_msg):
         """

@@ -100,9 +100,8 @@ class QueueBot(NodeBot):
             if len(users_to_notify) > 1:
                 content += t("notify.wait_time_increased", config=self.config)
             reply = self.adapter.build_reply(content, list(users_to_notify))
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
-            self._notify_state_changed()
+            self._save_and_notify()
             return reply
 
     def slock(self, user_id, command):
@@ -142,8 +141,8 @@ class QueueBot(NodeBot):
                 node["booking_list"].append(user_info)
 
             reply = self.adapter.build_reply(self._msg_with_usage("success.booking_added"), [user_id])
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
+            self._save_and_notify()
             return reply
 
     def take(self, user_id, command):
@@ -206,9 +205,8 @@ class QueueBot(NodeBot):
 
             content += self._msg_with_usage("label.after_take")
             reply = self.adapter.build_reply(content, list(users_to_notify))
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
-            self._notify_state_changed()
+            self._save_and_notify()
             return reply
 
     def kicklock(self, user_id, command):
@@ -231,9 +229,8 @@ class QueueBot(NodeBot):
                 node["current_users"] = []
             content += self._msg_with_usage("label.after_release")
             reply = self.adapter.build_reply(content, list(users))
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "kicklock", node_keys, config=self.config)
-
+            self._save_and_notify()
             return reply
 
     def _help_header(self):

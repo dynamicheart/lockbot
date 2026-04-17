@@ -225,10 +225,8 @@ class DeviceBot(BaseLockBot):
                 self._msg_with_usage("success.resource_locked", node_key=node_key_list), [user_id]
             )
 
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "lock", node_key, dev_ids, duration, config=self.config)
-
-            self._notify_state_changed()
+            self._save_and_notify()
             return reply
 
     def slock(self, user_id, command):
@@ -292,9 +290,8 @@ class DeviceBot(BaseLockBot):
                 self._msg_with_usage("success.resource_locked", node_key=node_key_list), [user_id]
             )
 
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "slock", node_key_list, dev_ids_list, duration, config=self.config)
-            self._notify_state_changed()
+            self._save_and_notify()
             return reply
 
     def unlock(self, user_id, command):
@@ -313,8 +310,8 @@ class DeviceBot(BaseLockBot):
                             if len(device["current_users"]) == 0:
                                 device["status"] = "idle"
                 reply = self.adapter.build_reply(self._msg_with_usage("success.resource_released"), [user_id])
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
                 log_to_file(user_id, "unlock", "all", "all", config=self.config)
+                self._save_and_notify()
                 return reply
 
         m = re.match(r"^\s*(unlock|free)\s+([\w\d]+)(\s*[,，、]\s*([\w\d])+)*\s*$", command)
@@ -345,8 +342,8 @@ class DeviceBot(BaseLockBot):
                             if len(device["current_users"]) == 0:
                                 device["status"] = "idle"
                 reply = self.adapter.build_reply(self._msg_with_usage("success.resource_released"), [user_id])
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
                 log_to_file(user_id, "unlock", node_key, "all", config=self.config)
+                self._save_and_notify()
                 return reply
 
         # Case 3: Release specific devices requested by the user
@@ -374,8 +371,8 @@ class DeviceBot(BaseLockBot):
             reply = self.adapter.build_reply(
                 self._msg_with_usage("success.resource_released", node_key=node_key_list), [user_id]
             )
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "unlock", node_key_list, dev_ids_list, config=self.config)
+            self._save_and_notify()
             return reply
 
     def kickout(self, user_id, command):
@@ -404,9 +401,8 @@ class DeviceBot(BaseLockBot):
             content += self._msg_with_usage("label.after_release", node_key=node_key_list)
             reply = self.adapter.build_reply(content, list(users))
 
-            save_bot_state_to_file(self.state.bot_state, config=self.config)
             log_to_file(user_id, "kickout", node_key_list, dev_ids_list, config=self.config)
-
+            self._save_and_notify()
             return reply
 
     def _help_commands(self):
