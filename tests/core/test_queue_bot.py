@@ -1089,6 +1089,31 @@ def test_failed_lock_does_not_call_notify(bot):
     assert len(calls) == 0, "failed lock() must not call _on_state_changed"
 
 
+def test_book_calls_notify_state_changed(bot):
+    """book() must invoke _on_state_changed so the scheduler wakes up."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    bot.lock("user1", "lock test 1h")  # test is held
+
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    bot.book("user2", "book test 1h")
+    assert len(calls) == 1, "book() should have called _on_state_changed once"
+
+
+def test_kicklock_calls_notify_state_changed(bot):
+    """kicklock() must invoke _on_state_changed so the first queued user is notified."""
+    bot.config.set_val("CLUSTER_CONFIGS", ["test"])
+    bot.lock("user1", "lock test 1h")
+    bot.book("user2", "book test 1h")
+
+    calls = []
+    bot._on_state_changed = lambda: calls.append(1)
+
+    bot.kicklock("admin", "kicklock test")
+    assert len(calls) == 1, "kicklock() should have called _on_state_changed once"
+
+
 def test_notify_not_set_does_not_raise(bot):
     """lock() must not raise when _on_state_changed is None (default)."""
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])
