@@ -483,6 +483,7 @@ export const mockSettings = {
   github_url: 'https://github.com/dynamicheart/lockbot',
   admin_contact: '',
   news_content: '',
+  enabled_platforms: '["Infoflow"]',
 }
 
 // ---------------------------------------------------------------------------

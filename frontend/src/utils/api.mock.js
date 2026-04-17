@@ -240,6 +240,20 @@ function _handleGet(url, params) {
     ]
   }
 
+  // Platforms list
+  if (url === '/platforms') {
+    const allPlatforms = ['DingTalk', 'Feishu', 'Infoflow', 'Slack']
+    if (params.all) {
+      return { platforms: allPlatforms }
+    }
+    try {
+      const enabled = JSON.parse(mockSettings.enabled_platforms || '["Infoflow"]')
+      return { platforms: enabled.filter((p) => allPlatforms.includes(p)) }
+    } catch {
+      return { platforms: ['Infoflow'] }
+    }
+  }
+
   // Platform stats (requires login)
   if (url === '/public/stats') {
     const user = _currentUser()
