@@ -49,3 +49,18 @@ class MessageAdapter(ABC):
         Returns:
             List of (status_code, response_text) tuples.
         """
+
+    def set_reply_target(self, reply: dict, group_id: str) -> dict:
+        """Patch a reply dict so it is directed to the given group/channel.
+
+        Called after build_reply when the group/channel ID is known.
+        The default implementation is a no-op — override in platform adapters.
+
+        Args:
+            reply: Message dict as returned by build_reply.
+            group_id: Group or channel ID to direct the reply to.
+
+        Returns:
+            The (possibly mutated) reply dict.
+        """
+        return reply

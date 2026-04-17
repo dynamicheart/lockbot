@@ -42,6 +42,12 @@ class SlackAdapter(MessageAdapter):
         """
         self.config = config
 
+    def set_reply_target(self, reply: dict, group_id: str) -> dict:
+        """Override the Slack channel with the given channel/group ID."""
+        if group_id:
+            reply["channel"] = group_id
+        return reply
+
     def _get_config(self, key: str, default="") -> str:
         if self.config is not None:
             try:

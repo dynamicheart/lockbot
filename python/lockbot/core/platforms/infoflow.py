@@ -201,6 +201,12 @@ class InfoflowAdapter(MessageAdapter):
         """
         return post_webhook(msg, config=self.config)
 
+    def set_reply_target(self, reply: dict, group_id: str) -> dict:
+        """Set the Infoflow reply target to the given group chat (toid)."""
+        if group_id:
+            reply["message"]["header"]["toid"] = group_id
+        return reply
+
     def _get_config(self, key, default=None):
         """Get config value from instance config or global Config."""
         if self.config:
