@@ -27,8 +27,7 @@ from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
-from lockbot.core.msg_utils import check_signature
-from lockbot.core.platforms.infoflow import InfoflowAdapter
+from lockbot.core.platforms.infoflow import check_signature
 
 router = APIRouter(prefix="/api/bots", tags=["bots"])
 logger = logging.getLogger(__name__)
@@ -1087,12 +1086,16 @@ async def _reply_bot_not_running(
 
     # Build a lightweight adapter from DB credentials
     config_dict = {
+        "PLATFORM": bot.platform or "Infoflow",
         "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
         "AESKEY": encryption.decrypt(bot.aes_key),
         "TOKEN": encryption.decrypt(bot.token),
     }
     config = Config(config_dict)
-    adapter = InfoflowAdapter(config=config)
+    from lockbot.core.platforms import PLATFORM_REGISTRY
+
+    adapter_cls = PLATFORM_REGISTRY.get(bot.platform or "Infoflow", PLATFORM_REGISTRY["Infoflow"])
+    adapter = adapter_cls(config=config)
 
     # Verify signature
     signature = args.get("signature")

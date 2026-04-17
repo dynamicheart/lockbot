@@ -2,6 +2,7 @@
 Settings API — public read + admin write.
 """
 
+import json
 import os
 from datetime import datetime
 
@@ -29,6 +30,7 @@ _ENV_FALLBACKS = {
     "admin_contact": os.environ.get("ADMIN_CONTACT", ""),
     "github_url": os.environ.get("GITHUB_URL", "https://github.com/dynamicheart/lockbot"),
     "news_content": "",
+    "enabled_platforms": '["Infoflow"]',  # JSON array; default: only Infoflow
 }
 
 
@@ -134,3 +136,34 @@ def batch_update_settings(
         pass
 
     return {"updated": updated}
+
+
+# ── Platforms endpoint ────────────────────────────────────
+
+
+class PlatformsOut(BaseModel):
+    platforms: list[str]
+
+
+@router.get("/api/platforms", response_model=PlatformsOut)
+def get_platforms(
+    all: bool = False,
+    db: Session = Depends(get_db),
+):
+    """Return available IM platforms.
+
+    - all=False (default, no auth): enabled platforms ∩ PLATFORM_REGISTRY (for BotForm)
+    - all=True (super_admin only): full PLATFORM_REGISTRY keys (for admin settings checkbox)
+    """
+    from lockbot.core.platforms import PLATFORM_REGISTRY
+
+    if all:
+        return PlatformsOut(platforms=sorted(PLATFORM_REGISTRY.keys()))
+
+    raw = _get_setting(db, "enabled_platforms") or '["Infoflow"]'
+    try:
+        enabled: list[str] = json.loads(raw)
+    except Exception:
+        enabled = ["Infoflow"]
+
+    return PlatformsOut(platforms=[p for p in enabled if p in PLATFORM_REGISTRY])

@@ -330,6 +330,8 @@ export default {
     newsContentPlaceholder: 'Displayed in bot help command',
     newsHint: 'Max 30 chars. Shown in bot help. Leave empty to hide.',
     saved: 'Settings saved',
+    enabledPlatforms: 'Enabled IM Platforms',
+    enabledPlatformsHint: 'Checked platforms appear in the bot creation form',
   },
 
   // === Cluster State ===

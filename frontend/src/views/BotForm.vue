@@ -45,6 +45,13 @@
             </el-select>
           </el-form-item>
         </el-col>
+        <el-col :span="10">
+          <el-form-item :label="$t('botCreate.platform')" prop="platform">
+            <el-select v-model="form.platform" :disabled="isEdit" style="width: 100%">
+              <el-option v-for="p in availablePlatforms" :key="p" :label="p" :value="p" />
+            </el-select>
+          </el-form-item>
+        </el-col>
       </el-row>
 
       <el-divider />
@@ -254,6 +261,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
 import { useBotsStore } from '../stores/bots'
+import api from '../utils/api'
 import NodeBotForm from '../components/BotForm/NodeBotForm.vue'
 import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
 import QueueBotForm from '../components/BotForm/QueueBotForm.vue'
@@ -268,6 +276,7 @@ const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
 const saving = ref(false)
 const bot = ref(null)
+const availablePlatforms = ref(['Infoflow'])
 const maskedAesKey = ref('')
 const maskedToken = ref('')
 const nodeClusterConfig = ref({})
@@ -288,7 +297,6 @@ const form = reactive({
   aes_key: '',
   token: '',
 })
-
 // Advanced runtime config — maps to Bot.config_overrides
 const advancedConfig = reactive({
   DEFAULT_DURATION: 7200,
@@ -333,6 +341,17 @@ const rules = computed(() => ({
 }))
 
 onMounted(async () => {
+  // Load available platforms
+  try {
+    const res = await api.get('/platforms')
+    if (res.data.platforms?.length) {
+      availablePlatforms.value = res.data.platforms
+      if (!isEdit.value) form.platform = res.data.platforms[0]
+    }
+  } catch {
+    // keep default ['Infoflow']
+  }
+
   if (isEdit.value) {
     try {
       bot.value = await botsStore.getBot(route.params.id)
