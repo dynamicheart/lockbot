@@ -190,15 +190,14 @@ export default {
     createSuccess: 'Bot created successfully',
     autoStartSkipped: 'Bot created but not auto-started, please start manually',
     webhookHelpTitle: 'How to get credentials?',
-    webhookHelpStep1: '1. Create a bot application in Ruliu',
-    webhookHelpStep2: '2. Go to bot settings → Receive Messages → Enable',
-    webhookHelpStep3: '3. Copy the Webhook URL, Token and AES Key',
+    webhookHelpStep1: '1. Create a bot application on your IM platform',
+    webhookHelpStep2: '2. Go to bot settings and enable message receiving',
+    webhookHelpStep3: '3. Copy the required credentials into the fields below',
     credentialsHint:
-      'How to get credentials: Create a bot app in Ruliu → Settings → Receive Messages → Enable, then copy the Webhook URL, Token and AES Key',
+      'Obtain credentials from your IM platform bot settings — field meanings vary by platform',
     tokenHelp:
-      'Token for verifying message source, obtained from the Receive Messages page in Ruliu bot settings',
-    aesKeyHelp:
-      'AES key for message encryption/decryption, obtained from the Receive Messages page in Ruliu bot settings',
+      'Credential for verifying message source or calling the API — meaning varies by platform',
+    aesKeyHelp: 'Key for message encryption or application identity — meaning varies by platform',
     callbackHintTitle: 'Important: Configure Callback URL',
     callbackHintStep1: 'Copy the callback URL below',
     callbackHintStep2: 'Paste it in Ruliu bot settings',
