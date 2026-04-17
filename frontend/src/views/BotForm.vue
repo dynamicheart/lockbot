@@ -54,6 +54,8 @@
       <DeviceBotForm v-else-if="form.bot_type === 'DEVICE'" v-model="clusterConfig" />
       <QueueBotForm v-else-if="form.bot_type === 'QUEUE'" v-model="clusterConfig" />
 
+      <ClusterPreview :bot-type="form.bot_type" :cluster-configs="clusterConfig" />
+
       <el-divider />
 
       <!-- Credentials -->
@@ -255,6 +257,7 @@ import { useBotsStore } from '../stores/bots'
 import NodeBotForm from '../components/BotForm/NodeBotForm.vue'
 import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
 import QueueBotForm from '../components/BotForm/QueueBotForm.vue'
+import ClusterPreview from '../components/BotForm/ClusterPreview.vue'
 
 const { t } = useI18n()
 const route = useRoute()
