@@ -358,9 +358,11 @@ function formatAccessMode(status, lang = 'en') {
 /**
  * Build NODE usage text. Matches Python NodeBot._current_usage.
  */
-function nodeUsageText(state, nodeFilter, lang) {
+function nodeUsageText(state, nodeFilter, lang, orderedKeys) {
   let text = ''
-  for (const [key, node] of Object.entries(state)) {
+  const keys = orderedKeys ? orderedKeys.filter((k) => k in state) : Object.keys(state)
+  for (const key of keys) {
+    const node = state[key]
     if (nodeFilter && key !== nodeFilter) continue
     if (node.status === 'idle') {
       text += `${key} ${_t(lang, 'status.idle')}\n`
@@ -382,9 +384,11 @@ function nodeUsageText(state, nodeFilter, lang) {
  * - No access mode on locked users
  * - Shows booking queue with estimated wait times
  */
-function queueUsageText(state, nodeFilter, lang) {
+function queueUsageText(state, nodeFilter, lang, orderedKeys) {
   let text = ''
-  for (const [key, node] of Object.entries(state)) {
+  const keys = orderedKeys ? orderedKeys.filter((k) => k in state) : Object.keys(state)
+  for (const key of keys) {
+    const node = state[key]
     if (nodeFilter && key !== nodeFilter) continue
     if (node.status === 'idle') {
       text += `${key} ${_t(lang, 'status.idle')}\n`
@@ -427,9 +431,11 @@ function queueUsageText(state, nodeFilter, lang) {
  * Build DEVICE usage text. Matches Python get_current_usage format.
  * Uses per-node headers and merged device display.
  */
-function deviceUsageText(state, nodeFilter, lang) {
+function deviceUsageText(state, nodeFilter, lang, orderedKeys) {
   let text = ''
-  for (const [nodeKey, devices] of Object.entries(state)) {
+  const keys = orderedKeys ? orderedKeys.filter((k) => k in state) : Object.keys(state)
+  for (const nodeKey of keys) {
+    const devices = state[nodeKey]
     if (nodeFilter && !nodeFilter.includes(nodeKey)) continue
     text += _t(lang, 'device_usage.node_header', { node_key: nodeKey })
     // Check if heterogeneous
@@ -483,9 +489,9 @@ export function executeCommand(state, userId, command, botType, config, lang = '
 
   // Helper: get usage text for this bot type
   const usageText = (filter) => {
-    if (botType === 'DEVICE') return deviceUsageText(state, filter, lang)
-    if (botType === 'QUEUE') return queueUsageText(state, filter, lang)
-    return nodeUsageText(state, filter, lang)
+    if (botType === 'DEVICE') return deviceUsageText(state, filter, lang, clusterKeys)
+    if (botType === 'QUEUE') return queueUsageText(state, filter, lang, clusterKeys)
+    return nodeUsageText(state, filter, lang, clusterKeys)
   }
 
   // Empty input -> query (matches Python handler.py)

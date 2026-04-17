@@ -6,7 +6,15 @@ MessageAdapter to provide platform-specific message construction,
 signature verification, payload decryption, and sending.
 """
 
+import logging
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
+
+_OK = ("command succeed", 200)
+_BAD_SIG = ("check signature fail", 401)
+_DECRYPT_FAIL = ("decrypt failed", 400)
+_PARSE_ERR = ("parse error", 400)
 
 
 class MessageAdapter(ABC):
@@ -50,6 +58,31 @@ class MessageAdapter(ABC):
             List of (status_code, response_text) tuples.
         """
 
+    @abstractmethod
+    def handle_webhook(
+        self,
+        bot,
+        raw_form: dict,
+        raw_args: dict,
+        raw_body: bytes,
+        headers: dict,
+    ) -> tuple:
+        """Handle a full incoming HTTP webhook request for this platform.
+
+        Each platform adapter owns its complete request lifecycle:
+        challenge handshake → signature verification → decryption → command execution.
+
+        Args:
+            bot: Bot instance (has .adapter, .config attributes).
+            raw_form: Parsed form data (application/x-www-form-urlencoded).
+            raw_args: Query string parameters.
+            raw_body: Raw request body bytes.
+            headers: HTTP request headers (lower-cased keys).
+
+        Returns:
+            Tuple of (response_text, status_code, meta_dict).
+        """
+
     def set_reply_target(self, reply: dict, group_id: str) -> dict:
         """Patch a reply dict so it is directed to the given group/channel.
 
@@ -64,3 +97,25 @@ class MessageAdapter(ABC):
             The (possibly mutated) reply dict.
         """
         return reply
+
+    def _run_command(self, bot, msg_data: dict, platform: str) -> tuple:
+        """Extract command from msg_data, execute it, send reply.
+
+        Returns:
+            (response_text, status_code, meta_dict)
+        """
+        from lockbot.core.handler import execute_command
+
+        try:
+            user_id, group_id, command_text = bot.adapter.extract_command(msg_data)
+        except Exception:
+            logger.exception("Failed to extract command (%s)", platform)
+            return *_PARSE_ERR, {"event": "parse_error"}
+
+        meta = {"user_id": user_id, "group_id": group_id, "command": command_text}
+        logger.debug("%s webhook bot %s: cmd=%s", platform, bot.config.get_val("BOT_NAME"), command_text)
+
+        reply = execute_command(msg_data, bot)
+        reply = bot.adapter.set_reply_target(reply, group_id)
+        bot.adapter.send(reply)
+        return *_OK, meta

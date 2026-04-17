@@ -46,7 +46,7 @@
           </el-form-item>
         </el-col>
         <el-col :span="10">
-          <el-form-item :label="$t('botCreate.platform')" prop="platform">
+          <el-form-item :label="$t('botCreate.platform')">
             <el-select v-model="form.platform" :disabled="isEdit" style="width: 100%">
               <el-option v-for="p in availablePlatforms" :key="p" :label="p" :value="p" />
             </el-select>
@@ -85,7 +85,10 @@
               <el-icon class="help-icon"><QuestionFilled /></el-icon>
             </el-tooltip>
           </template>
-          <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
+          <el-input
+            v-model="form.webhook_url"
+            :placeholder="credFields.webhookUrl.placeholder || $t('botCreate.webhookPlaceholder')"
+          />
         </el-form-item>
 
         <!-- token: all platforms -->
@@ -256,7 +259,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -297,27 +300,28 @@ const form = reactive({
 
 // Per-platform credential field definitions.
 // DB fields are reused with different semantics per platform:
-//   Infoflow:  token=App Token,   aes_key=AES Key,        webhook_url=Webhook URL
-//   Slack:     token=Bot Token,   aes_key=Signing Secret, webhook_url=Event URL (display only)
-//   DingTalk:  token=App Secret   (aes_key and webhook_url not used)
-//   Feishu:    token=App Secret,  aes_key=App ID          (webhook_url not used)
+//   Infoflow:  webhook_url=Webhook URL,  token=App Token,   aes_key=AES Key
+//   Slack:     webhook_url=Event URL,    token=Bot Token,   aes_key=Signing Secret
+//   DingTalk:  token=App Secret          (webhook_url and aes_key not used)
+//   Feishu:    webhook_url=App ID,       token=App Secret,  aes_key=Encrypt Key (optional)
 const PLATFORM_CRED_CONFIG = {
   Infoflow: {
     token: { label: 'App Token', placeholder: 'App Token', required: true },
     aesKey: { label: 'AES Key', placeholder: 'AES Key', required: true },
-    webhookUrl: { label: 'Webhook URL', required: true },
+    webhookUrl: { label: 'Webhook URL', required: true, isUrl: true },
   },
   Slack: {
     token: { label: 'Bot Token', placeholder: 'xoxb-...', required: true },
     aesKey: { label: 'Signing Secret', placeholder: 'Signing Secret', required: true },
-    webhookUrl: { label: 'Event Subscription URL', required: false },
+    webhookUrl: { label: 'Event Subscription URL', required: false, isUrl: true },
   },
   DingTalk: {
     token: { label: 'App Secret', placeholder: 'App Secret', required: true },
   },
   Feishu: {
+    webhookUrl: { label: 'App ID', placeholder: 'App ID', required: true, isUrl: false },
     token: { label: 'App Secret', placeholder: 'App Secret', required: true },
-    aesKey: { label: 'App ID', placeholder: 'App ID', required: true },
+    aesKey: { label: 'Encrypt Key', placeholder: t('botCreate.optional'), required: false },
   },
 }
 
@@ -343,6 +347,8 @@ watch(
     form.webhook_url = stored.webhook_url
     form.token = stored.token
     form.aes_key = stored.aes_key
+    // Clear validation errors when switching platform — rules change per platform
+    nextTick(() => formRef.value?.clearValidate())
   }
 )
 
@@ -398,8 +404,28 @@ const rules = computed(() => ({
   bot_type: [{ required: true, message: () => t('botCreate.typeRequired'), trigger: 'change' }],
   webhook_url: credFields.value.webhookUrl?.required
     ? [
-        { required: true, message: () => t('botCreate.webhookRequired'), trigger: 'blur' },
-        { type: 'url', message: () => t('botCreate.webhookInvalid'), trigger: 'blur' },
+        {
+          required: true,
+          message: () =>
+            `${t('botCreate.fieldRequired', { field: credFields.value.webhookUrl?.label }) || t('botCreate.webhookRequired')}`,
+          trigger: 'blur',
+        },
+        ...(credFields.value.webhookUrl?.isUrl
+          ? [
+              {
+                validator: (_, val, cb) => {
+                  if (!val) return cb()
+                  try {
+                    new URL(val)
+                    cb()
+                  } catch {
+                    cb(new Error(t('botCreate.webhookInvalid')))
+                  }
+                },
+                trigger: 'blur',
+              },
+            ]
+          : []),
       ]
     : [],
   aes_key: credFields.value.aesKey?.required

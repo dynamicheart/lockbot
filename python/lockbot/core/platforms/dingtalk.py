@@ -155,3 +155,26 @@ class DingTalkAdapter(MessageAdapter):
         except Exception:
             logger.exception("Failed to send DingTalk message")
             return []
+
+    def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:
+        """Handle a DingTalk HTTP callback event.
+
+        1. Signature verification: timestamp + sign from HTTP headers.
+        2. Parse JSON payload (no encryption).
+        3. Extract command and execute.
+        """
+        from lockbot.core.message_adapter import _BAD_SIG, _DECRYPT_FAIL
+
+        # Step 1 — signature verification
+        ts = headers.get("timestamp", "")
+        sig = headers.get("sign", "")
+        if not self.verify_request(sig, timestamp=ts):
+            return *_BAD_SIG, {"event": "signature_failed"}
+
+        # Step 2 — parse payload
+        msg_data = self.decrypt_payload(raw_body)
+        if msg_data is None:
+            return *_DECRYPT_FAIL, {"event": "decrypt_failed"}
+
+        # Step 3 — execute
+        return self._run_command(bot, msg_data, "DingTalk")

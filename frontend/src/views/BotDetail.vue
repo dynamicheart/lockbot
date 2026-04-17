@@ -116,7 +116,13 @@
               /></el-icon>
             </div>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
+          <el-descriptions-item
+            v-if="credFields.webhookUrl"
+            :label="
+              credFields.webhookUrl ? credFields.webhookUrl.label : $t('botDetail.webhookUrl')
+            "
+            :span="2"
+          >
             <div class="secret-field">
               <code>{{ bot.webhook_url_raw || '-' }}</code>
               <el-icon
@@ -127,7 +133,10 @@
               /></el-icon>
             </div>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('botCreate.token')" :span="2">
+          <el-descriptions-item
+            :label="credFields.token ? credFields.token.label : $t('botCreate.token')"
+            :span="2"
+          >
             <div class="secret-field">
               <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
               <el-icon class="secret-icon" @click="showToken = !showToken"
@@ -138,7 +147,11 @@
               /></el-icon>
             </div>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
+          <el-descriptions-item
+            v-if="credFields.aesKey"
+            :label="credFields.aesKey ? credFields.aesKey.label : $t('botCreate.aesKey')"
+            :span="2"
+          >
             <div class="secret-field">
               <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
               <el-icon class="secret-icon" @click="showAesKey = !showAesKey"
@@ -506,6 +519,35 @@ const stateSaving = ref(false)
 // Secret field visibility
 const showAesKey = ref(false)
 const showToken = ref(false)
+
+// Per-platform credential field labels (mirrors BotForm PLATFORM_CRED_CONFIG)
+// Infoflow:  webhook_url=Webhook URL,  token=App Token,   aes_key=AES Key
+// Slack:     webhook_url=Event URL,    token=Bot Token,   aes_key=Signing Secret
+// DingTalk:  token=App Secret          (webhook_url and aes_key not used)
+// Feishu:    webhook_url=App ID,       token=App Secret,  aes_key=Encrypt Key (optional)
+const PLATFORM_CRED_CONFIG = {
+  Infoflow: {
+    token: { label: 'App Token' },
+    aesKey: { label: 'AES Key' },
+    webhookUrl: { label: 'Webhook URL' },
+  },
+  Slack: {
+    token: { label: 'Bot Token' },
+    aesKey: { label: 'Signing Secret' },
+    webhookUrl: { label: 'Event Subscription URL' },
+  },
+  DingTalk: {
+    token: { label: 'App Secret' },
+  },
+  Feishu: {
+    webhookUrl: { label: 'App ID' },
+    token: { label: 'App Secret' },
+    aesKey: { label: 'Encrypt Key' },
+  },
+}
+const credFields = computed(
+  () => PLATFORM_CRED_CONFIG[bot.value?.platform] || PLATFORM_CRED_CONFIG['Infoflow']
+)
 
 // Bot language
 const botLanguage = ref('zh')

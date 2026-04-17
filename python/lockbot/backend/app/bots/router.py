@@ -12,7 +12,7 @@ import traceback
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.audit.service import write_audit_log
@@ -1035,8 +1035,11 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
         _write_log(bot_id, f"Webhook 处理异常: {e}\n{tb}", level="ERROR")
         return PlainTextResponse(content="internal error", status_code=500)
 
-    # For verification events just return immediately (no DB updates needed)
+    # For verification events just return immediately (no DB updates needed).
+    # Feishu challenge response must be JSON {"challenge": "..."}; detect by content shape.
     if meta.get("event") in ("url_verification", "url_verification_failed", "signature_failed"):
+        if text.startswith("{") and "challenge" in text:
+            return JSONResponse(content=json.loads(text), status_code=code)
         return PlainTextResponse(content=text, status_code=code)
 
     # Update last_request_at
