@@ -68,20 +68,34 @@
       <!-- Credentials -->
       <div class="credentials-card">
         <el-alert type="info" :closable="false" show-icon class="credentials-alert">
-          <template #title>{{ $t('botCreate.credentialsHint') }}</template>
+          <template #default>
+            <div>{{ credHints.title }}</div>
+            <div v-for="step in credHints.steps" :key="step">{{ step }}</div>
+          </template>
         </el-alert>
 
         <!-- webhook_url: Infoflow (required) / Slack (optional) only -->
         <el-form-item
           v-if="credFields.webhookUrl"
-          :label="credFields.webhookUrl.label"
           :prop="credFields.webhookUrl.required ? 'webhook_url' : undefined"
         >
+          <template #label>
+            <span>{{ credFields.webhookUrl.label }}</span>
+            <el-tooltip placement="top" effect="light" :content="fieldHints.webhookUrl">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
         </el-form-item>
 
         <!-- token: all platforms -->
-        <el-form-item :label="credFields.token.label" prop="token">
+        <el-form-item prop="token">
+          <template #label>
+            <span>{{ credFields.token.label }}</span>
+            <el-tooltip placement="top" effect="light" :content="fieldHints.token">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-input
             v-model="form.token"
             :placeholder="
@@ -98,9 +112,14 @@
         <!-- aes_key: Infoflow / Slack / Feishu only -->
         <el-form-item
           v-if="credFields.aesKey"
-          :label="credFields.aesKey.label"
           :prop="credFields.aesKey.required ? 'aes_key' : undefined"
         >
+          <template #label>
+            <span>{{ credFields.aesKey.label }}</span>
+            <el-tooltip placement="top" effect="light" :content="fieldHints.aesKey">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-input
             v-model="form.aes_key"
             :placeholder="
@@ -134,7 +153,7 @@
                   </el-tooltip>
                 </template>
                 <el-input-number
-                  v-model="advancedConfig.DEFAULT_DURATION"
+                  v-model="form.cfg_default_duration"
                   :min="60"
                   :max="604800"
                   :step="300"
@@ -156,7 +175,7 @@
                   </el-tooltip>
                 </template>
                 <el-input-number
-                  v-model="advancedConfig.MAX_LOCK_DURATION"
+                  v-model="form.cfg_max_lock_duration"
                   :min="-1"
                   :max="604800"
                   :step="3600"
@@ -164,7 +183,7 @@
                 />
                 <div class="cfg-unit">{{ $t('botCreate.defaultDurationUnit') }}</div>
                 <el-alert
-                  v-if="advancedConfig.MAX_LOCK_DURATION > 86400"
+                  v-if="form.cfg_max_lock_duration > 86400"
                   :title="$t('botCreate.maxLockDurationWarning')"
                   type="warning"
                   :closable="false"
@@ -186,7 +205,7 @@
                   </el-tooltip>
                 </template>
                 <el-input-number
-                  v-model="advancedConfig.TIME_ALERT"
+                  v-model="form.cfg_time_alert"
                   :min="30"
                   :max="3600"
                   :step="60"
@@ -200,7 +219,7 @@
                 <template #label>
                   {{ $t('botCreate.language') }}
                 </template>
-                <el-select v-model="advancedConfig.LANGUAGE" style="width: 100%">
+                <el-select v-model="form.cfg_language" style="width: 100%">
                   <el-option :label="$t('botCreate.langZh')" value="zh" />
                   <el-option :label="$t('botCreate.langEn')" value="en" />
                 </el-select>
@@ -218,7 +237,7 @@
                     <el-icon class="help-icon"><QuestionFilled /></el-icon>
                   </el-tooltip>
                 </template>
-                <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
+                <el-switch v-model="form.cfg_early_notify" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -237,7 +256,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -249,7 +268,7 @@ import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
 import QueueBotForm from '../components/BotForm/QueueBotForm.vue'
 import ClusterPreview from '../components/BotForm/ClusterPreview.vue'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
@@ -261,6 +280,20 @@ const bot = ref(null)
 const availablePlatforms = ref(['Infoflow'])
 const maskedAesKey = ref('')
 const maskedToken = ref('')
+
+const form = reactive({
+  name: '',
+  bot_type: 'NODE',
+  platform: 'Infoflow',
+  webhook_url: '',
+  aes_key: '',
+  token: '',
+  cfg_default_duration: 7200,
+  cfg_max_lock_duration: -1,
+  cfg_time_alert: 300,
+  cfg_early_notify: false,
+  cfg_language: 'zh',
+})
 
 // Per-platform credential field definitions.
 // DB fields are reused with different semantics per platform:
@@ -291,6 +324,65 @@ const PLATFORM_CRED_CONFIG = {
 const credFields = computed(() => {
   return PLATFORM_CRED_CONFIG[form.platform] || PLATFORM_CRED_CONFIG['Infoflow']
 })
+
+// Per-platform credential storage — switching platforms preserves each platform's own values
+const platformCreds = reactive(
+  Object.fromEntries(
+    ['Infoflow', 'Slack', 'DingTalk', 'Feishu'].map((p) => [
+      p,
+      { webhook_url: '', token: '', aes_key: '' },
+    ])
+  )
+)
+
+// When platform switches: load that platform's stored creds into form
+watch(
+  () => form.platform,
+  (newPlatform) => {
+    const stored = platformCreds[newPlatform] || { webhook_url: '', token: '', aes_key: '' }
+    form.webhook_url = stored.webhook_url
+    form.token = stored.token
+    form.aes_key = stored.aes_key
+  }
+)
+
+// Auto-save current creds back to per-platform storage as user types
+watch(
+  () => [form.webhook_url, form.token, form.aes_key],
+  ([webhook_url, token, aes_key]) => {
+    const p = form.platform
+    if (platformCreds[p]) {
+      platformCreds[p].webhook_url = webhook_url
+      platformCreds[p].token = token
+      platformCreds[p].aes_key = aes_key
+    }
+  }
+)
+
+// Per-platform tooltip hints (Infoflow-specific; others fall back to generic)
+const fieldHints = computed(() => ({
+  token: te(`botCreate.credFieldHints.${form.platform}.token`)
+    ? t(`botCreate.credFieldHints.${form.platform}.token`)
+    : t('botCreate.tokenHelp'),
+  aesKey: te(`botCreate.credFieldHints.${form.platform}.aesKey`)
+    ? t(`botCreate.credFieldHints.${form.platform}.aesKey`)
+    : t('botCreate.aesKeyHelp'),
+  webhookUrl: te(`botCreate.credFieldHints.${form.platform}.webhookUrl`)
+    ? t(`botCreate.credFieldHints.${form.platform}.webhookUrl`)
+    : t('botCreate.webhookUrl'),
+}))
+
+// Credential alert: use platform-specific steps if available, else generic
+const credHints = computed(() => {
+  const prefix = `botCreate.credFieldHints.${form.platform}`
+  if (te(`${prefix}.step1`)) {
+    return {
+      title: t(`${prefix}.hintTitle`),
+      steps: [t(`${prefix}.step1`), t(`${prefix}.step2`), t(`${prefix}.step3`)],
+    }
+  }
+  return { title: t('botCreate.credentialsHint'), steps: null }
+})
 const nodeClusterConfig = ref({})
 const deviceClusterConfig = ref({})
 const clusterConfig = computed({
@@ -299,23 +391,6 @@ const clusterConfig = computed({
     if (form.bot_type === 'DEVICE') deviceClusterConfig.value = v
     else nodeClusterConfig.value = v
   },
-})
-
-const form = reactive({
-  name: '',
-  bot_type: 'NODE',
-  platform: 'Infoflow',
-  webhook_url: '',
-  aes_key: '',
-  token: '',
-})
-// Advanced runtime config — maps to Bot.config_overrides
-const advancedConfig = reactive({
-  DEFAULT_DURATION: 7200,
-  MAX_LOCK_DURATION: -1,
-  TIME_ALERT: 300,
-  EARLY_NOTIFY: false,
-  LANGUAGE: 'zh',
 })
 
 const rules = computed(() => ({
@@ -377,19 +452,19 @@ onMounted(async () => {
       form.token = ''
       maskedAesKey.value = bot.value.aes_key_masked || ''
       maskedToken.value = bot.value.token_masked || ''
-      // Load config_overrides into advancedConfig
+      // Load config_overrides into form
       try {
         const overrides =
           typeof bot.value.config_overrides === 'string'
             ? JSON.parse(bot.value.config_overrides)
             : bot.value.config_overrides || {}
         if (overrides.DEFAULT_DURATION != null)
-          advancedConfig.DEFAULT_DURATION = overrides.DEFAULT_DURATION
+          form.cfg_default_duration = overrides.DEFAULT_DURATION
         if (overrides.MAX_LOCK_DURATION != null)
-          advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
-        if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
-        if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
-        if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
+          form.cfg_max_lock_duration = overrides.MAX_LOCK_DURATION
+        if (overrides.TIME_ALERT != null) form.cfg_time_alert = overrides.TIME_ALERT
+        if (overrides.EARLY_NOTIFY != null) form.cfg_early_notify = overrides.EARLY_NOTIFY
+        if (overrides.LANGUAGE != null) form.cfg_language = overrides.LANGUAGE
       } catch {
         // keep defaults
       }
@@ -446,8 +521,14 @@ async function handleSubmit() {
   saving.value = true
   try {
     const data = { ...form }
-    // Always include advanced config_overrides
-    data.config_overrides = { ...advancedConfig }
+    // Build config_overrides from cfg_* fields
+    data.config_overrides = {
+      DEFAULT_DURATION: form.cfg_default_duration,
+      MAX_LOCK_DURATION: form.cfg_max_lock_duration,
+      TIME_ALERT: form.cfg_time_alert,
+      EARLY_NOTIFY: form.cfg_early_notify,
+      LANGUAGE: form.cfg_language,
+    }
     if (isEdit.value) {
       if (!data.aes_key) delete data.aes_key
       if (!data.token) delete data.token
