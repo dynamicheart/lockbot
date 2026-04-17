@@ -138,10 +138,10 @@ export default {
     tokenPlaceholder: 'IM platform token (SECRET_KEY)',
     leaveBlank: 'Leave blank to keep unchanged',
     // Per-platform credential field mapping (DB fields reused with different semantics)
-    // Infoflow:  token=App Token, aes_key=AES Key,          webhook_url=Webhook URL
-    // Slack:     token=Bot Token, aes_key=Signing Secret,   webhook_url=Event URL (display only)
-    // DingTalk:  token=App Secret (signing), aes_key and webhook_url not used
-    // Feishu:    token=App Secret (signing), aes_key=App ID, webhook_url not used
+    // Infoflow:  webhook_url=Webhook URL,  token=App Token,   aes_key=AES Key
+    // Slack:     webhook_url=Event URL,    token=Bot Token,   aes_key=Signing Secret
+    // DingTalk:  token=App Secret          (webhook_url and aes_key not used)
+    // Feishu:    webhook_url=App ID,       token=App Secret,  aes_key=Encrypt Key (optional)
     credFieldHints: {
       Infoflow: {
         token:
@@ -154,7 +154,22 @@ export default {
         step2: '2. Go to bot settings → Receive Messages and enable message receiving',
         step3: '3. Copy the Webhook URL, Token, and AES Key into the fields below',
       },
+      Feishu: {
+        webhookUrl:
+          'App ID, found in the app detail page under "Credentials & Basic Info" on Feishu Open Platform',
+        token:
+          'App Secret, found in the app detail page under "Credentials & Basic Info" on Feishu Open Platform',
+        aesKey:
+          'Encrypt Key (optional) — set in "Development Config → Events & Callbacks → Encryption Strategy"; leave blank to disable encryption',
+        hintTitle: 'How to get credentials?',
+        step1: '1. Create a custom app on Feishu Open Platform and enable the "Bot" feature',
+        step2:
+          '2. Under "Development Config → Events & Callbacks", set this bot\'s callback URL and subscribe to im.message.receive_v1',
+        step3:
+          '3. Fill in App ID and App Secret below; optionally set Encrypt Key for encrypted mode',
+      },
     },
+    optional: 'Optional',
     credentialFieldLabels: {
       Infoflow: { token: 'App Token', aesKey: 'AES Key', webhookUrl: 'Webhook URL' },
       Slack: {
@@ -196,6 +211,8 @@ export default {
     langEn: 'English',
     nameRequired: 'Bot name is required',
     typeRequired: 'Please select bot type',
+    fieldRequired: '{field} is required',
+    nameConflict: 'Bot name already exists, please choose another',
     webhookRequired: 'Webhook URL is required',
     webhookInvalid: 'Invalid URL format',
     aesKeyRequired: 'AES Key is required',

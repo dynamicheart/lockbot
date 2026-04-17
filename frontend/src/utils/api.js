@@ -38,6 +38,13 @@ realApi.interceptors.response.use(
       } else if (typeof detail === 'string') {
         ElMessage.error(detail)
       }
+    } else if (status === 409) {
+      const detail = err.response?.data?.detail || ''
+      if (detail === 'Bot name already exists') {
+        ElMessage.error(i18n.global.t('botCreate.nameConflict'))
+      } else {
+        ElMessage.error(detail || i18n.global.t('common.requestFailed'))
+      }
     } else {
       ElMessage.error(err.response?.data?.detail || i18n.global.t('common.requestFailed'))
     }

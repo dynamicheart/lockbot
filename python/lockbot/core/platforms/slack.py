@@ -171,3 +171,40 @@ class SlackAdapter(MessageAdapter):
         except Exception:
             logger.exception("Failed to send Slack message")
             return []
+
+    def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:
+        """Handle a Slack HTTP callback event.
+
+        1. Challenge handshake: body JSON has type=="url_verification" → verify sig + respond.
+        2. Signature verification: X-Slack-Signature + X-Slack-Request-Timestamp + raw body.
+        3. Parse payload (Slack uses plaintext JSON, no encryption).
+        4. Extract command and execute.
+        """
+        from lockbot.core.message_adapter import _BAD_SIG, _DECRYPT_FAIL
+
+        body_str = raw_body.decode("utf-8") if raw_body else ""
+        ts = headers.get("x-slack-request-timestamp", "")
+        sig = headers.get("x-slack-signature", "")
+
+        # Step 1 — challenge handshake
+        if raw_body:
+            try:
+                maybe_json = json.loads(body_str)
+                if maybe_json.get("type") == "url_verification":
+                    if self.verify_request(sig, timestamp=ts, body=body_str):
+                        return maybe_json["challenge"], 200, {"event": "url_verification"}
+                    return *_BAD_SIG, {"event": "url_verification_failed"}
+            except (ValueError, KeyError):
+                pass
+
+        # Step 2 — signature verification
+        if not self.verify_request(sig, timestamp=ts, body=body_str):
+            return *_BAD_SIG, {"event": "signature_failed"}
+
+        # Step 3 — parse payload
+        msg_data = self.decrypt_payload(raw_body)
+        if msg_data is None:
+            return *_DECRYPT_FAIL, {"event": "decrypt_failed"}
+
+        # Step 4 — execute
+        return self._run_command(bot, msg_data, "Slack")

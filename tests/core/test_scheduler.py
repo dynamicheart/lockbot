@@ -9,7 +9,6 @@ import time
 from unittest.mock import MagicMock, patch
 
 from lockbot.core.scheduler import (
-    _BACKOFF_SEC,
     _IDLE_INTERVAL,
     _MAX_CONSECUTIVE_FAILURES,
     BotScheduler,
@@ -66,14 +65,15 @@ class TestBasicScheduling:
         inst.bot._check_and_notify.side_effect = recording_check
 
         sched.start()
-        try:
-            sched.add(1, inst, delay=0.0)
-            # Wait for 2 checks
-            assert _wait_for(lambda: len(fired_at) >= 2, timeout=_IDLE_INTERVAL * 2 + 2)
-            gap = fired_at[1] - fired_at[0]
-            assert gap >= _IDLE_INTERVAL * 0.9, f"Expected ~{_IDLE_INTERVAL}s gap, got {gap:.1f}s"
-        finally:
-            sched.stop()
+        with patch("lockbot.core.scheduler._IDLE_INTERVAL", 0.2):
+            try:
+                sched.add(1, inst, delay=0.0)
+                # Wait for 2 checks — timeout generous at 3s
+                assert _wait_for(lambda: len(fired_at) >= 2, timeout=3.0)
+                gap = fired_at[1] - fired_at[0]
+                assert gap >= 0.2 * 0.9, f"Expected ~0.2s gap, got {gap:.3f}s"
+            finally:
+                sched.stop()
 
     def test_active_bot_uses_returned_delay(self):
         """Bot returning N seconds should be checked again in ~N seconds."""
@@ -167,15 +167,16 @@ class TestFailureHandling:
 
         sched = BotScheduler()
         sched.start()
-        try:
-            sched.add(1, inst, delay=0.0)
-            # First call raises, second should come after _BACKOFF_SEC
-            assert _wait_for(lambda: len(calls) >= 2, timeout=_BACKOFF_SEC + 5)
-            gap = calls[1] - calls[0]
-            assert gap >= _BACKOFF_SEC * 0.8, f"Backoff too short: {gap:.1f}s"
-            assert 1 in sched._instances, "Bot should still be registered after 1 failure"
-        finally:
-            sched.stop()
+        with patch("lockbot.core.scheduler._BACKOFF_SEC", 0.2):
+            try:
+                sched.add(1, inst, delay=0.0)
+                # First call raises, second should come after _BACKOFF_SEC
+                assert _wait_for(lambda: len(calls) >= 2, timeout=3.0)
+                gap = calls[1] - calls[0]
+                assert gap >= 0.2 * 0.8, f"Backoff too short: {gap:.3f}s"
+                assert 1 in sched._instances, "Bot should still be registered after 1 failure"
+            finally:
+                sched.stop()
 
     def test_max_failures_triggers_fatal_callback(self):
         """After _MAX_CONSECUTIVE_FAILURES, on_fatal_error is called once."""

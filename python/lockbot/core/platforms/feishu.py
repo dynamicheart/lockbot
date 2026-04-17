@@ -1,23 +1,36 @@
 """
 Feishu (飞书) platform adapter for LockBot.
 
-Implements MessageAdapter for Feishu enterprise bots, handling:
-- Request verification via X-Lark-Signature HMAC-SHA256 header
-- Challenge handshake (url_verification event type)
-- JSON event payload (no encryption in v2 event framework)
-- Send text messages via POST /open-apis/im/v1/messages with tenant_access_token
-- Token caching (2-hour TTL, refreshed on expiry)
+Implements MessageAdapter for Feishu enterprise bots (HTTP webhook mode).
+Feishu sends HTTP POST events to our /api/bots/webhook/{bot_id} endpoint.
+
+Reference docs:
+  - feishu1.md: Callback configuration, challenge handshake, Encrypt Key
+  - feishu2.md: Signature verification and AES-256-CBC decryption
+  - feishu.md:  Message content formats
 
 Credential mapping (reuses existing DB fields):
-    token       → App Secret  — for HMAC-SHA256 request verification
-    aes_key     → App ID      — for fetching tenant_access_token
-    webhook_url → (not used;  displayed to user as Event Subscription callback URL)
+    webhook_url → App ID       — identifies the application; used to fetch tenant_access_token
+    token       → App Secret   — authenticates the application; used to fetch tenant_access_token
+    aes_key     → Encrypt Key  — optional; if set, enables AES-256-CBC decryption
+                                 and SHA-256 signature verification of incoming events
+
+If aes_key (Encrypt Key) is empty:
+  - Incoming requests are accepted without signature verification
+  - Event bodies are expected as plaintext JSON
+
+If aes_key (Encrypt Key) is set:
+  - Incoming bodies arrive as {"encrypt": "<base64-ciphertext>"}
+  - Signature: sha256(timestamp + nonce + encrypt_key + raw_body_bytes) == X-Lark-Signature
+  - Payload is AES-256-CBC decrypted (key=sha256(encrypt_key), iv=first 16 bytes of decoded data)
 """
 
+import base64
 import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 
 import requests
@@ -65,8 +78,35 @@ def _get_tenant_access_token(app_id: str, app_secret: str) -> str:
         return ""
 
 
+def _decrypt_aes_cbc(encrypt_key: str, encrypted_b64: str) -> dict | None:
+    """AES-256-CBC decrypt a Feishu encrypted payload.
+
+    Per feishu2.md:
+      key = SHA256(encrypt_key)          # 32 bytes
+      buf = base64_decode(encrypted_b64)
+      iv  = buf[:16]
+      ciphertext = buf[16:]
+      plaintext = AES-CBC-decrypt(ciphertext, key, iv)  with PKCS7 unpadding
+    """
+    try:
+        from Crypto.Cipher import AES  # pycryptodome
+
+        key = hashlib.sha256(encrypt_key.encode("utf-8")).digest()
+        buf = base64.b64decode(encrypted_b64)
+        iv = buf[:16]
+        cipher = AES.new(key, AES.MODE_CBC, iv)
+        decrypted = cipher.decrypt(buf[16:])
+        # PKCS7 unpad
+        pad_len = decrypted[-1]
+        decrypted = decrypted[:-pad_len]
+        return json.loads(decrypted.decode("utf-8"))
+    except Exception:
+        logger.exception("Failed to AES-decrypt Feishu payload")
+        return None
+
+
 class FeishuAdapter(MessageAdapter):
-    """MessageAdapter implementation for Feishu enterprise bots."""
+    """MessageAdapter implementation for Feishu enterprise bots (HTTP webhook mode)."""
 
     def __init__(self, config=None):
         self.config = config
@@ -83,15 +123,24 @@ class FeishuAdapter(MessageAdapter):
 
         return str(Config.get(key) or default)
 
-    def verify_request(self, signature: str = None, timestamp: str = None, body: str = None, **kwargs) -> bool:
-        """Verify Feishu request via X-Lark-Signature.
+    def verify_request(self, signature: str = None, timestamp: str = None, body: bytes | str = None, **kwargs) -> bool:
+        """Verify Feishu request signature.
 
-        Feishu signs requests as:
-            HMAC-SHA256(app_secret, timestamp + nonce + body_string)
-        where nonce comes from the request header X-Lark-Nonce.
-        The hex digest is compared against X-Lark-Signature.
+        Per feishu2.md (签名校验), when Encrypt Key is configured:
+            content = (timestamp + nonce + encrypt_key).encode('utf-8') + raw_body_bytes
+            expected = sha256(content).hexdigest()
+            compare with X-Lark-Signature header
+
+        If no Encrypt Key is configured (webhook_url empty), skip verification and
+        return True — Feishu sends plaintext events without a signature in that case.
         """
+        encrypt_key = self._get_config("AES_KEY", "")
+        if not encrypt_key:
+            # No Encrypt Key configured → accept all requests (no signature to check)
+            return True
+
         if not signature or not timestamp:
+            logger.warning("Feishu request missing signature or timestamp headers")
             return False
 
         try:
@@ -102,29 +151,44 @@ class FeishuAdapter(MessageAdapter):
         except (ValueError, TypeError):
             return False
 
-        app_secret = self._get_config("TOKEN", "")
         nonce = kwargs.get("nonce", "")
-        string_to_sign = f"{timestamp}{nonce}{body or ''}"
-        mac = hmac.new(
-            app_secret.encode("utf-8"),
-            string_to_sign.encode("utf-8"),
-            hashlib.sha256,
-        )
-        expected = mac.hexdigest()
+        # Build content: string part + raw body bytes
+        string_part = (timestamp + nonce + encrypt_key).encode("utf-8")
+        if isinstance(body, bytes):
+            body_bytes = body
+        else:
+            body_bytes = (body or "").encode("utf-8")
+        content = string_part + body_bytes
+        expected = hashlib.sha256(content).hexdigest()
         return hmac.compare_digest(expected, signature)
 
-    def decrypt_payload(self, encrypted_data, **kwargs):
-        """Parse Feishu JSON payload (no encryption in HTTP callback v2)."""
+    def decrypt_payload(self, encrypted_data: bytes | str, **kwargs) -> dict | None:
+        """Parse or decrypt a Feishu event body.
+
+        Without Encrypt Key: body is plaintext JSON → just parse.
+        With Encrypt Key: body is {"encrypt": "<base64>"} → AES-256-CBC decrypt.
+        """
         if not encrypted_data:
             return None
+
         if isinstance(encrypted_data, bytes):
-            encrypted_data = encrypted_data.decode("utf-8")
-        if isinstance(encrypted_data, str):
-            try:
-                return json.loads(encrypted_data)
-            except Exception:
+            body_str = encrypted_data.decode("utf-8")
+        else:
+            body_str = encrypted_data
+
+        try:
+            data = json.loads(body_str)
+        except Exception:
+            return None
+
+        if "encrypt" in data:
+            encrypt_key = self._get_config("AES_KEY", "")
+            if not encrypt_key:
+                logger.warning("Feishu encrypted payload received but Encrypt Key (aes_key) is not configured")
                 return None
-        return encrypted_data
+            return _decrypt_aes_cbc(encrypt_key, data["encrypt"])
+
+        return data
 
     def extract_command(self, msg_data: dict) -> tuple:
         """Extract (user_id, conversation_id, command_text) from a Feishu event.
@@ -134,7 +198,7 @@ class FeishuAdapter(MessageAdapter):
             "schema": "2.0",
             "header": {"event_type": "im.message.receive_v1", ...},
             "event": {
-                "sender": {"sender_id": {"open_id": "...", "user_id": "..."}},
+                "sender": {"sender_id": {"open_id": "ou_...", "user_id": "..."}},
                 "message": {
                     "chat_id": "oc_...",
                     "message_type": "text",
@@ -162,8 +226,6 @@ class FeishuAdapter(MessageAdapter):
                 text = ""
 
         # Strip @mention tags: <at user_id="xxx">name</at>
-        import re
-
         text = re.sub(r"<at[^>]*>[^<]*</at>", "", text).strip()
 
         return user_id, chat_id, text
@@ -171,9 +233,11 @@ class FeishuAdapter(MessageAdapter):
     def build_reply(self, content, user_ids, group_id=None) -> dict:
         """Build a Feishu text message payload.
 
-        Feishu send message format:
+        Feishu send message format (feishu.md):
             POST /open-apis/im/v1/messages?receive_id_type=chat_id
             body: {"receive_id": "<chat_id>", "msg_type": "text", "content": "{...}"}
+
+        Hyperlinks use Markdown syntax: [label](url)
         """
         if isinstance(content, list):
             parts = []
@@ -187,7 +251,6 @@ class FeishuAdapter(MessageAdapter):
         else:
             text = str(content) if content is not None else ""
 
-        # receive_id will be set by set_reply_target; default to first user_id
         receive_id = group_id or (user_ids[0] if user_ids else "")
         receive_id_type = "chat_id" if group_id else "open_id"
 
@@ -209,7 +272,7 @@ class FeishuAdapter(MessageAdapter):
         """Send a message via Feishu REST API."""
         receive_id_type = msg.pop("_feishu_receive_id_type", "chat_id")
 
-        app_id = self._get_config("AES_KEY", "")
+        app_id = self._get_config("WEBHOOK_URL", "")
         app_secret = self._get_config("TOKEN", "")
 
         token = _get_tenant_access_token(app_id, app_secret)
@@ -228,3 +291,43 @@ class FeishuAdapter(MessageAdapter):
         except Exception:
             logger.exception("Failed to send Feishu message")
             return []
+
+    def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:
+        """Handle a Feishu HTTP callback event.
+
+        Per feishu1.md / feishu2.md:
+        1. Challenge handshake: body has type=="url_verification" → respond immediately
+           with JSON {"challenge": "..."} before any signature check (must be <1 s).
+        2. Signature verification (only when Encrypt Key / aes_key is configured):
+           sha256(timestamp + nonce + encrypt_key + raw_body_bytes) == X-Lark-Signature
+        3. Decrypt payload: plaintext JSON or {"encrypt": "..."} AES-256-CBC.
+        4. Extract command and execute.
+        """
+        from lockbot.core.message_adapter import _BAD_SIG, _DECRYPT_FAIL
+
+        body_str = raw_body.decode("utf-8") if raw_body else ""
+
+        # Step 1 — challenge handshake (must respond before signature check)
+        if raw_body:
+            try:
+                maybe_json = json.loads(body_str)
+                if maybe_json.get("type") == "url_verification":
+                    challenge = maybe_json.get("challenge", "")
+                    return json.dumps({"challenge": challenge}), 200, {"event": "url_verification"}
+            except (ValueError, KeyError):
+                pass
+
+        # Step 2 — signature verification
+        ts = headers.get("x-lark-request-timestamp", "")
+        nonce = headers.get("x-lark-request-nonce", "")
+        sig = headers.get("x-lark-signature", "")
+        if not self.verify_request(sig, timestamp=ts, nonce=nonce, body=raw_body):
+            return *_BAD_SIG, {"event": "signature_failed"}
+
+        # Step 3 — decrypt / parse payload
+        msg_data = self.decrypt_payload(raw_body)
+        if msg_data is None:
+            return *_DECRYPT_FAIL, {"event": "decrypt_failed"}
+
+        # Step 4 — execute
+        return self._run_command(bot, msg_data, "Feishu")

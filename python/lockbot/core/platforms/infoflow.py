@@ -212,6 +212,41 @@ class InfoflowAdapter(MessageAdapter):
             reply["message"]["header"]["toid"] = group_id
         return reply
 
+    def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:
+        """Handle an Infoflow HTTP callback event.
+
+        1. Challenge handshake: 'echostr' in form data → verify sig + echo back.
+        2. Signature verification: signature/rn/timestamp from query params.
+        3. Decrypt payload (AES-ECB encrypted body).
+        4. Extract command and execute.
+        """
+        from lockbot.core.message_adapter import _BAD_SIG, _DECRYPT_FAIL
+
+        # Step 1 — challenge handshake
+        echostr = raw_form.get("echostr")
+        if echostr:
+            signature = raw_form.get("signature")
+            rn = raw_form.get("rn")
+            timestamp = raw_form.get("timestamp")
+            if self.verify_request(signature, rn=rn, timestamp=timestamp):
+                return echostr, 200, {"event": "url_verification"}
+            return *_BAD_SIG, {"event": "url_verification_failed"}
+
+        # Step 2 — signature verification
+        signature = raw_args.get("signature")
+        rn = raw_args.get("rn")
+        timestamp = raw_args.get("timestamp")
+        if not self.verify_request(signature, rn=rn, timestamp=timestamp):
+            return *_BAD_SIG, {"event": "signature_failed"}
+
+        # Step 3 — decrypt / parse payload
+        msg_data = self.decrypt_payload(raw_body)
+        if msg_data is None:
+            return *_DECRYPT_FAIL, {"event": "decrypt_failed"}
+
+        # Step 4 — execute
+        return self._run_command(bot, msg_data, "Infoflow")
+
     def _get_config(self, key, default=None):
         """Get config value from instance config or global Config."""
         if self.config:
