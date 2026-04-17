@@ -17,18 +17,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from lockbot.backend.app.auth.router import _hash_password
-from lockbot.backend.app.config import BASE_DIR
-from lockbot.backend.app.database import Base
-from lockbot.backend.app.auth.models import User
+from lockbot.backend.app.auth.models import User  # noqa: E402
+from lockbot.backend.app.auth.router import _hash_password  # noqa: E402
+from lockbot.backend.app.config import BASE_DIR  # noqa: E402
+from lockbot.backend.app.database import Base  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 
 def get_db_url() -> str:
     """Resolve database URL, respecting DATA_DIR env var."""
     import os
+
     data_dir = os.environ.get("DATA_DIR", str(BASE_DIR / "data"))
     db_path = Path(data_dir)
     if not db_path.is_absolute():
@@ -76,12 +76,12 @@ def main():
         db.commit()
         db.refresh(user)
 
-        print(f"✓ Super admin created successfully!")
+        print("✓ Super admin created successfully!")
         print(f"  Username: {user.username}")
         print(f"  Email:    {user.email}")
         print(f"  Password: {password}")
         if args.password is None:
-            print(f"  ⚠️  Please change the password after first login (--must-change-password)")
+            print("  ⚠️  Please change the password after first login (--must-change-password)")
     finally:
         db.close()
 
