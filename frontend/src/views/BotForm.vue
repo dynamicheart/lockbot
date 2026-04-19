@@ -525,10 +525,16 @@ async function handleSubmit() {
       EARLY_NOTIFY: form.cfg_early_notify,
       LANGUAGE: form.cfg_language,
     }
-    // Remove empty credential values (don't overwrite existing on edit)
-    data.credentials = Object.fromEntries(Object.entries(data.credentials).filter(([, v]) => v))
+    // On edit: send all credential fields including empty strings (to allow clearing optional fields)
+    // On create: remove empty credential values
     if (isEdit.value) {
-      if (Object.keys(data.credentials).length === 0) delete data.credentials
+      const allCredKeys = credFieldOrder.value
+      data.credentials = Object.fromEntries(allCredKeys.map((k) => [k, data.credentials[k] || '']))
+    } else {
+      data.credentials = Object.fromEntries(Object.entries(data.credentials).filter(([, v]) => v))
+    }
+    if (isEdit.value && Object.keys(data.credentials).length === 0) delete data.credentials
+    if (isEdit.value) {
       const cc = clusterConfig.value
       if (cc && Object.keys(cc).length > 0) data.cluster_configs = cc
       const needRestart = bot.value.status !== 'stopped'

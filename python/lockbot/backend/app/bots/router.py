@@ -327,9 +327,13 @@ def update_bot(
         bot.group_id = body.group_id
     if body.credentials is not None:
         changes["credentials"] = True
-        # Merge changed fields into existing credentials
+        # Merge changed fields into existing credentials; empty strings clear the key
         creds = decrypt_credentials(bot)
-        creds.update(body.credentials)
+        for k, v in body.credentials.items():
+            if v:
+                creds[k] = v
+            else:
+                creds.pop(k, None)
         bot.credentials = encrypt_credentials(creds)
     if body.cluster_configs is not None:
         changes["cluster_configs"] = True
