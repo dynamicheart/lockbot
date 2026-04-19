@@ -10,11 +10,16 @@ from lockbot.core.platforms.slack import SlackAdapter
 
 
 def _make_adapter(token="xoxb-test", signing_secret="test-secret"):
-    """Return a SlackAdapter with given credentials via config mock."""
+    """Return a SlackAdapter with given credentials via config mock.
+
+    Slack credential mapping (new):
+        bot_token       → Bot Token (xoxb-...)
+        signing_secret  → Signing Secret
+    """
     config = MagicMock()
 
     def get_val(key, default=None):
-        return {"TOKEN": token, "AESKEY": signing_secret}.get(key, default)
+        return {"bot_token": token, "signing_secret": signing_secret}.get(key, default)
 
     config.get_val.side_effect = get_val
     return SlackAdapter(config=config)

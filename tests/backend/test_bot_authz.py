@@ -7,7 +7,10 @@ from unittest.mock import patch
 BOT_PAYLOAD = {
     "name": "auth_bot",
     "bot_type": "NODE",
-    "webhook_url": "https://example.com/hook",
+    "platform": "Infoflow",
+    "credentials": {
+        "webhook_url": "https://example.com/hook",
+    },
     "cluster_configs": {"n1": "n1"},
 }
 

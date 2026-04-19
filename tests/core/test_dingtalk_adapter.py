@@ -11,11 +11,15 @@ from lockbot.core.platforms.dingtalk import DingTalkAdapter
 
 
 def _make_adapter(app_secret: str = "test-secret") -> DingTalkAdapter:
-    """Return a DingTalkAdapter with given credentials via config mock."""
+    """Return a DingTalkAdapter with given credentials via config mock.
+
+    DingTalk credential mapping (new):
+        app_secret → App Secret
+    """
     config = MagicMock()
 
     def get_val(key, default=None):
-        return {"TOKEN": app_secret}.get(key, default)
+        return {"app_secret": app_secret}.get(key, default)
 
     config.get_val.side_effect = get_val
     return DingTalkAdapter(config=config)

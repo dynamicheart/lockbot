@@ -7,9 +7,12 @@ def _sample_bot(name="mybot"):
     return {
         "name": name,
         "bot_type": "NODE",
-        "webhook_url": "https://example.com/webhook",
-        "aes_key": "testaeskey",
-        "token": "testtoken",
+        "platform": "Infoflow",
+        "credentials": {
+            "webhook_url": "https://example.com/webhook",
+            "aes_key": "testaeskey",
+            "token": "testtoken",
+        },
         "cluster_configs": ["node1", "node2"],
     }
 
@@ -70,8 +73,11 @@ class TestGetBot:
         resp = client.get(f"/api/bots/{bot_id}", headers=admin_header)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["webhook_url_masked"].startswith("***")
-        assert data["token_masked"].startswith("***")
+        # credentials_masked is a dict with masked values
+        assert "credentials_masked" in data
+        masked = data["credentials_masked"]
+        assert masked.get("webhook_url", "").startswith("***")
+        assert masked.get("token", "").startswith("***")
 
     def test_get_not_found(self, client, admin_header):
         resp = client.get("/api/bots/99999", headers=admin_header)
@@ -195,9 +201,12 @@ def _build_device_bot(client, admin_header, db_session, tmp_path, name="devbot",
         json={
             "name": name,
             "bot_type": "DEVICE",
-            "webhook_url": "https://example.com/hook",
-            "aes_key": "testaeskey",
-            "token": "testtoken",
+            "platform": "Infoflow",
+            "credentials": {
+                "webhook_url": "https://example.com/hook",
+                "aes_key": "testaeskey",
+                "token": "testtoken",
+            },
             "cluster_configs": configs,
         },
         headers=admin_header,
@@ -317,9 +326,12 @@ class TestClusterConfigChange:
             json={
                 "name": "nodebot",
                 "bot_type": "NODE",
-                "webhook_url": "https://example.com/hook",
-                "aes_key": "testaeskey",
-                "token": "testtoken",
+                "platform": "Infoflow",
+                "credentials": {
+                    "webhook_url": "https://example.com/hook",
+                    "aes_key": "testaeskey",
+                    "token": "testtoken",
+                },
                 "cluster_configs": ["n1"],
             },
             headers=admin_header,
@@ -357,9 +369,12 @@ class TestUpdateBotState:
             json={
                 "name": "statetest",
                 "bot_type": bot_type,
-                "webhook_url": "https://example.com/webhook",
-                "aes_key": "testaeskey",
-                "token": "testtoken",
+                "platform": "Infoflow",
+                "credentials": {
+                    "webhook_url": "https://example.com/webhook",
+                    "aes_key": "testaeskey",
+                    "token": "testtoken",
+                },
                 "cluster_configs": cluster_configs
                 or (["n1", "n2"] if bot_type != "DEVICE" else {"n1": ["a100", "a100"]}),
             },
