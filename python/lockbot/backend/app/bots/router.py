@@ -19,6 +19,7 @@ from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user, require_admin, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
+from lockbot.backend.app.bots.credentials import decrypt_credentials, encrypt_credentials
 from lockbot.backend.app.bots.manager import bot_manager
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.schemas import BotCreate, BotDetail, BotOut, BotStatusOut, BotUpdate
@@ -81,16 +82,9 @@ def _write_log(bot_id: int, message: str, level: str = "INFO", category: str = "
 def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
     """Build detail dict with masked sensitive fields."""
     data = {c.name: getattr(bot, c.name) for c in bot.__table__.columns}
-    # Decrypt to raw values (separate field names to avoid overwriting DB columns)
-    raw_webhook = encryption.decrypt(bot.webhook_url)
-    raw_aes_key = encryption.decrypt(bot.aes_key)
-    raw_token = encryption.decrypt(bot.token)
-    data["webhook_url_raw"] = raw_webhook
-    data["aes_key_raw"] = raw_aes_key
-    data["token_raw"] = raw_token
-    data["webhook_url_masked"] = encryption.mask(raw_webhook)
-    data["aes_key_masked"] = encryption.mask(raw_aes_key)
-    data["token_masked"] = encryption.mask(raw_token)
+    creds = decrypt_credentials(bot)
+    data["credentials_raw"] = creds
+    data["credentials_masked"] = {k: encryption.mask(v) for k, v in creds.items()}
     # Include owner username and role if db session available
     if db:
         owner = db.get(User, bot.user_id)
@@ -126,11 +120,10 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         "BOT_NAME": bot.name,
         "BOT_TYPE": bot.bot_type,
         "PLATFORM": bot.platform or "Infoflow",
-        "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
-        "AESKEY": encryption.decrypt(bot.aes_key),
-        "TOKEN": encryption.decrypt(bot.token),
         "CLUSTER_CONFIGS": _normalize_cluster_configs(json.loads(bot.cluster_configs)),
     }
+    # Merge platform-specific credentials into config dict
+    config.update(decrypt_credentials(bot))
     # Resolve owner username for help text display
     if db:
         owner = db.get(User, bot.user_id)
@@ -200,9 +193,7 @@ def create_bot(
         bot_type=body.bot_type.upper(),
         platform=body.platform,
         group_id=body.group_id,
-        webhook_url=encryption.encrypt(body.webhook_url),
-        aes_key=encryption.encrypt(body.aes_key),
-        token=encryption.encrypt(body.token),
+        credentials=encrypt_credentials(body.credentials),
         cluster_configs=json.dumps(body.cluster_configs, ensure_ascii=False),
         config_overrides=json.dumps(body.config_overrides or {}, ensure_ascii=False),
     )
@@ -334,15 +325,12 @@ def update_bot(
         bot.name = body.name
     if body.group_id is not None:
         bot.group_id = body.group_id
-    if body.webhook_url is not None:
-        changes["webhook_url"] = True
-        bot.webhook_url = encryption.encrypt(body.webhook_url)
-    if body.aes_key is not None:
-        changes["aes_key"] = True
-        bot.aes_key = encryption.encrypt(body.aes_key)
-    if body.token is not None:
-        changes["token"] = True
-        bot.token = encryption.encrypt(body.token)
+    if body.credentials is not None:
+        changes["credentials"] = True
+        # Merge changed fields into existing credentials
+        creds = decrypt_credentials(bot)
+        creds.update(body.credentials)
+        bot.credentials = encrypt_credentials(creds)
     if body.cluster_configs is not None:
         changes["cluster_configs"] = True
         bot.cluster_configs = json.dumps(body.cluster_configs, ensure_ascii=False)
@@ -1100,10 +1088,8 @@ async def _reply_bot_not_running(
     # Build a lightweight adapter from DB credentials
     config_dict = {
         "PLATFORM": bot.platform or "Infoflow",
-        "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
-        "AESKEY": encryption.decrypt(bot.aes_key),
-        "TOKEN": encryption.decrypt(bot.token),
     }
+    config_dict.update(decrypt_credentials(bot))
     config = Config(config_dict)
     from lockbot.core.platforms import PLATFORM_REGISTRY
 
@@ -1127,7 +1113,8 @@ async def _reply_bot_not_running(
     # Infoflow: echostr handshake
     echostr = form.get("echostr")
     if echostr:
-        token = encryption.decrypt(bot.token)
+        creds = decrypt_credentials(bot)
+        token = creds.get("token", "")
         sig = form.get("signature")
         rn = form.get("rn")
         ts = form.get("timestamp")

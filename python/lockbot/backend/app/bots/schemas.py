@@ -52,9 +52,7 @@ class BotCreate(BaseModel):
     bot_type: str  # NODE / DEVICE / QUEUE
     platform: str = "Infoflow"
     group_id: str | None = None
-    webhook_url: str
-    aes_key: str = ""
-    token: str = ""
+    credentials: dict  # platform-specific keys, e.g. {"app_id": "...", "app_secret": "..."}
     cluster_configs: dict | list
     config_overrides: dict | None = None
 
@@ -72,9 +70,7 @@ class BotCreate(BaseModel):
 class BotUpdate(BaseModel):
     name: str | None = None
     group_id: str | None = None
-    webhook_url: str | None = None
-    aes_key: str | None = None
-    token: str | None = None
+    credentials: dict | None = None  # partial update; merged with existing
     cluster_configs: dict | list | None = None
     config_overrides: dict | None = None
 
@@ -107,12 +103,8 @@ class BotDetail(BotOut):
 
     owner: str = ""
     owner_role: str = ""
-    webhook_url_raw: str = ""
-    aes_key_raw: str = ""
-    token_raw: str = ""
-    webhook_url_masked: str = ""
-    aes_key_masked: str = ""
-    token_masked: str = ""
+    credentials_raw: dict = {}
+    credentials_masked: dict = {}
 
 
 class BotStatusOut(BaseModel):

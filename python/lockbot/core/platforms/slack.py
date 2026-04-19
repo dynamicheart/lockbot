@@ -37,7 +37,7 @@ class SlackAdapter(MessageAdapter):
     def __init__(self, config=None):
         """
         Args:
-            config: Config instance for platform credentials (TOKEN, AESKEY, WEBHOOK_URL).
+            config: Config instance for platform credentials (bot_token, signing_secret, event_url).
                     If None, falls back to global Config singleton.
         """
         self.config = config
@@ -79,7 +79,7 @@ class SlackAdapter(MessageAdapter):
         except (ValueError, TypeError):
             return False
 
-        signing_secret = self._get_config("AESKEY", "")
+        signing_secret = self._get_config("signing_secret", "")
         base = f"v0:{timestamp}:{body}"
         expected = "v0=" + hmac.new(signing_secret.encode("utf-8"), base.encode("utf-8"), hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)
@@ -156,9 +156,9 @@ class SlackAdapter(MessageAdapter):
         Returns:
             List of (status_code, response_text) tuples.
         """
-        token = self._get_config("TOKEN", "")
+        token = self._get_config("bot_token", "")
         if not token:
-            logger.error("Slack Bot Token (TOKEN) is not configured")
+            logger.error("Slack Bot Token (bot_token) is not configured")
             return []
 
         client = WebClient(token=token)

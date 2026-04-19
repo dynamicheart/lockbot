@@ -112,14 +112,14 @@ class InfoflowAdapter(MessageAdapter):
     def __init__(self, config=None):
         """
         Args:
-            config: Config instance for platform credentials (TOKEN, AESKEY, WEBHOOK_URL).
+            config: Config instance for platform credentials (token, aes_key, webhook_url).
                     If None, the global Config singleton is used for sending.
         """
         self.config = config
 
     def verify_request(self, signature: str, rn: str = None, timestamp: str = None, **kwargs) -> bool:
         """Verify request signature using MD5(rn + timestamp + TOKEN)."""
-        token = self._get_config("TOKEN", "")
+        token = self._get_config("token", "")
         return _check_signature(signature, rn, timestamp, token)
 
     def decrypt_payload(self, encrypted_data, **kwargs):
@@ -134,7 +134,7 @@ class InfoflowAdapter(MessageAdapter):
         if not encrypted_data:
             return None
 
-        aes_key = self._get_config("AESKEY", "")
+        aes_key = self._get_config("aes_key", "")
         try:
             encrypter = _AESCipher(_base64_urlsafe_decode(aes_key))
             decrypted = encrypter.decrypt(encrypted_data)

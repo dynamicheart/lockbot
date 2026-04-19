@@ -69,7 +69,7 @@ class DingTalkAdapter(MessageAdapter):
         except (ValueError, TypeError):
             return False
 
-        app_secret = self._get_config("TOKEN", "")
+        app_secret = self._get_config("app_secret", "")
         string_to_sign = f"{timestamp}\n{app_secret}"
         mac = hmac.new(
             app_secret.encode("utf-8"),

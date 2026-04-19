@@ -21,9 +21,9 @@
 ## 2026 Q3 — Multi-Platform Support
 
 - [x] IM adapter abstraction layer (`core/platforms/`)
-- [x] Slack adapter
-- [x] DingTalk adapter
-- [x] Feishu/Lark adapter
+- [] Slack adapter
+- [] DingTalk adapter
+- [] Feishu/Lark adapter
 - [x] Audit log system (operation history, admin/super_admin visible)
 
 ## 2026 Q4 — Cloud & Scale
