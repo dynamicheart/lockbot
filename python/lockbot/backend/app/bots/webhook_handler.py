@@ -8,6 +8,10 @@ can coexist in a single process.
 Platform dispatch is owned entirely by each adapter via handle_webhook().
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def handle_webhook(
     bot,
@@ -36,4 +40,5 @@ def handle_webhook(
     """
     headers = {k.lower(): v for k, v in (raw_headers or {}).items()}
     body = raw_body or b""
+    logger.debug("[Webhook] adapter=%s", type(bot.adapter).__name__)
     return bot.adapter.handle_webhook(bot, raw_form, raw_args, body, headers)

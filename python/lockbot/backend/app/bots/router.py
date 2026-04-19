@@ -125,6 +125,7 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         "BOT_ID": bot.id,
         "BOT_NAME": bot.name,
         "BOT_TYPE": bot.bot_type,
+        "PLATFORM": bot.platform or "Infoflow",
         "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
         "AESKEY": encryption.decrypt(bot.aes_key),
         "TOKEN": encryption.decrypt(bot.token),
