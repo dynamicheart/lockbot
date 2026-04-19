@@ -1017,11 +1017,16 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     headers = dict(request.headers)
 
     logger.debug(
-        "Webhook bot=%d content_type=%s form=%s args=%s body_len=%d", bot_id, content_type, form, args, len(body)
+        "[Webhook] bot=%d content_type=%s body_len=%d client=%s",
+        bot_id,
+        content_type,
+        len(body),
+        request.client.host if request.client else "?",
     )
 
     instance = bot_manager.get_instance(bot_id)
     if not instance:
+        logger.debug("[Webhook] bot=%d not running, replying 'not started'", bot_id)
         # Bot not running — try to reply "not started" via IM
         return await _reply_bot_not_running(bot_id, form, args, body, headers, db)
 
@@ -1031,9 +1036,18 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
         )
     except Exception as e:
         tb = traceback.format_exc()
-        logger.exception("Webhook handler crashed for bot %d", bot_id)
+        logger.exception("[Webhook] handler crashed for bot %d: %s", bot_id, e)
         _write_log(bot_id, f"Webhook 处理异常: {e}\n{tb}", level="ERROR")
         return PlainTextResponse(content="internal error", status_code=500)
+
+    logger.debug(
+        "[Webhook] bot=%d response: code=%d, event=%s, user=%s, cmd=%s",
+        bot_id,
+        code,
+        meta.get("event", ""),
+        meta.get("user_id", ""),
+        meta.get("command", ""),
+    )
 
     # For verification events just return immediately (no DB updates needed).
     # Feishu challenge response must be JSON {"challenge": "..."}; detect by content shape.

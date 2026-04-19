@@ -66,15 +66,17 @@ def _get_tenant_access_token(app_id: str, app_secret: str) -> str:
             timeout=10,
         )
         data = resp.json()
-        if data.get("code") != 0:
-            logger.error("Failed to get Feishu tenant_access_token: %s", data)
+        code = data.get("code")
+        if code != 0:
+            logger.error("[Feishu] tenant_access_token failed: app_id=%s, resp=%s", app_id, data)
             return ""
         token = data["tenant_access_token"]
         expire = int(data.get("expire", 7200))
         _TOKEN_CACHE[key] = (token, time.time() + expire)
+        logger.debug("[Feishu] tenant_access_token obtained: app_id=%s, expire_in=%ds", app_id, expire)
         return token
     except Exception:
-        logger.exception("Exception fetching Feishu tenant_access_token")
+        logger.exception("[Feishu] Exception fetching tenant_access_token: app_id=%s", app_id)
         return ""
 
 
@@ -137,16 +139,21 @@ class FeishuAdapter(MessageAdapter):
         encrypt_key = self._get_config("AES_KEY", "")
         if not encrypt_key:
             # No Encrypt Key configured → accept all requests (no signature to check)
+            logger.debug("[Feishu] verify_request: no encrypt_key configured, skipping verification")
             return True
 
         if not signature or not timestamp:
-            logger.warning("Feishu request missing signature or timestamp headers")
+            logger.warning(
+                "[Feishu] verify_request: missing signature or timestamp (sig=%s, ts=%s)", signature, timestamp
+            )
             return False
 
         try:
             ts = int(timestamp)
             if abs(time.time() - ts) > _MAX_TIMESTAMP_AGE:
-                logger.warning("Feishu request timestamp too old: %s", timestamp)
+                logger.warning(
+                    "[Feishu] verify_request: timestamp too old: %s (age=%ds)", timestamp, abs(time.time() - ts)
+                )
                 return False
         except (ValueError, TypeError):
             return False
@@ -160,7 +167,20 @@ class FeishuAdapter(MessageAdapter):
             body_bytes = (body or "").encode("utf-8")
         content = string_part + body_bytes
         expected = hashlib.sha256(content).hexdigest()
-        return hmac.compare_digest(expected, signature)
+
+        match = hmac.compare_digest(expected, signature)
+        if not match:
+            logger.warning(
+                "[Feishu] verify_request: signature mismatch: expected=%s, got=%s, ts=%s, nonce=%s, body_len=%d",
+                expected[:16],
+                signature[:16] if signature else "None",
+                timestamp,
+                nonce,
+                len(body_bytes),
+            )
+        else:
+            logger.debug("[Feishu] verify_request: signature OK")
+        return match
 
     def decrypt_payload(self, encrypted_data: bytes | str, **kwargs) -> dict | None:
         """Parse or decrypt a Feishu event body.
@@ -169,6 +189,7 @@ class FeishuAdapter(MessageAdapter):
         With Encrypt Key: body is {"encrypt": "<base64>"} → AES-256-CBC decrypt.
         """
         if not encrypted_data:
+            logger.warning("[Feishu] decrypt_payload: empty payload")
             return None
 
         if isinstance(encrypted_data, bytes):
@@ -179,15 +200,25 @@ class FeishuAdapter(MessageAdapter):
         try:
             data = json.loads(body_str)
         except Exception:
+            logger.warning(
+                "[Feishu] decrypt_payload: invalid JSON, body_len=%d, body_preview=%s", len(body_str), body_str[:200]
+            )
             return None
 
         if "encrypt" in data:
             encrypt_key = self._get_config("AES_KEY", "")
             if not encrypt_key:
-                logger.warning("Feishu encrypted payload received but Encrypt Key (aes_key) is not configured")
+                logger.warning("[Feishu] decrypt_payload: encrypted payload received but AES_KEY is not configured")
                 return None
-            return _decrypt_aes_cbc(encrypt_key, data["encrypt"])
+            logger.debug("[Feishu] decrypt_payload: decrypting AES-CBC encrypted payload")
+            result = _decrypt_aes_cbc(encrypt_key, data["encrypt"])
+            if result is None:
+                logger.error("[Feishu] decrypt_payload: AES-CBC decryption returned None")
+            return result
 
+        logger.debug(
+            "[Feishu] decrypt_payload: plaintext JSON, event_type=%s", data.get("header", {}).get("event_type", "N/A")
+        )
         return data
 
     def extract_command(self, msg_data: dict) -> tuple:
@@ -277,19 +308,37 @@ class FeishuAdapter(MessageAdapter):
 
         token = _get_tenant_access_token(app_id, app_secret)
         if not token:
-            logger.error("Feishu tenant_access_token unavailable — cannot send reply")
+            logger.error("[Feishu] send: tenant_access_token unavailable — cannot send reply")
             return []
 
         url = f"{_FEISHU_MSG_URL}?receive_id_type={receive_id_type}"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json; charset=utf-8",
-        }
+        logger.debug(
+            "[Feishu] send: receive_id_type=%s, receive_id=%s, msg_type=%s",
+            receive_id_type,
+            msg.get("receive_id", ""),
+            msg.get("msg_type", ""),
+        )
         try:
-            resp = requests.post(url, json=msg, headers=headers, timeout=10)
-            return [(resp.status_code, resp.text)]
+            resp = requests.post(
+                url,
+                json=msg,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                timeout=10,
+            )
+            status = resp.status_code
+            try:
+                resp_json = resp.json()
+            except Exception:
+                resp_json = resp.text
+            logger.debug("[Feishu] send response: status=%d, body=%s", status, resp_json)
+            if status != 200:
+                logger.warning("[Feishu] send failed: status=%d, body=%s", status, resp_json)
+            return [(status, resp.text)]
         except Exception:
-            logger.exception("Failed to send Feishu message")
+            logger.exception("[Feishu] send: exception while sending message")
             return []
 
     def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:
@@ -306,6 +355,14 @@ class FeishuAdapter(MessageAdapter):
         from lockbot.core.message_adapter import _BAD_SIG, _DECRYPT_FAIL
 
         body_str = raw_body.decode("utf-8") if raw_body else ""
+        bot_name = self._get_config("BOT_NAME", "?")
+
+        logger.debug(
+            "[Feishu] handle_webhook: bot=%s, body_len=%d, headers={%s}",
+            bot_name,
+            len(body_str),
+            ", ".join(f"{k}={v}" for k, v in sorted(headers.items()) if k.startswith("x-lark-")),
+        )
 
         # Step 1 — challenge handshake (must respond before signature check)
         if raw_body:
@@ -313,6 +370,7 @@ class FeishuAdapter(MessageAdapter):
                 maybe_json = json.loads(body_str)
                 if maybe_json.get("type") == "url_verification":
                     challenge = maybe_json.get("challenge", "")
+                    logger.debug("[Feishu] handle_webhook: challenge handshake OK, bot=%s", bot_name)
                     return json.dumps({"challenge": challenge}), 200, {"event": "url_verification"}
             except (ValueError, KeyError):
                 pass
@@ -321,13 +379,31 @@ class FeishuAdapter(MessageAdapter):
         ts = headers.get("x-lark-request-timestamp", "")
         nonce = headers.get("x-lark-request-nonce", "")
         sig = headers.get("x-lark-signature", "")
+        encrypt_key = self._get_config("AES_KEY", "")
+        logger.debug(
+            "[Feishu] handle_webhook: verifying sig, encrypt_key=%s, ts=%s, nonce=%s, sig=%s",
+            "configured" if encrypt_key else "empty",
+            ts,
+            nonce,
+            (sig[:16] + "...") if sig else "None",
+        )
         if not self.verify_request(sig, timestamp=ts, nonce=nonce, body=raw_body):
+            logger.warning("[Feishu] handle_webhook: signature verification FAILED, bot=%s", bot_name)
             return *_BAD_SIG, {"event": "signature_failed"}
 
         # Step 3 — decrypt / parse payload
         msg_data = self.decrypt_payload(raw_body)
         if msg_data is None:
+            logger.warning("[Feishu] handle_webhook: decrypt/parse FAILED, bot=%s", bot_name)
             return *_DECRYPT_FAIL, {"event": "decrypt_failed"}
 
+        # Log the event type and key fields for debugging
+        event_type = msg_data.get("header", {}).get("event_type", "N/A")
+        logger.debug("[Feishu] handle_webhook: payload OK, event_type=%s, bot=%s", event_type, bot_name)
+
         # Step 4 — execute
-        return self._run_command(bot, msg_data, "Feishu")
+        result = self._run_command(bot, msg_data, "Feishu")
+        logger.debug(
+            "[Feishu] handle_webhook: command done, bot=%s, meta=%s", bot_name, result[2] if len(result) > 2 else {}
+        )
+        return result
