@@ -73,9 +73,12 @@ def _sample_bot(name="testbot"):
     return {
         "name": name,
         "bot_type": "NODE",
-        "webhook_url": "https://example.com/webhook",
-        "aes_key": "key",
-        "token": "tok",
+        "platform": "Infoflow",
+        "credentials": {
+            "webhook_url": "https://example.com/webhook",
+            "aes_key": "key",
+            "token": "tok",
+        },
         "cluster_configs": ["node1"],
     }
 

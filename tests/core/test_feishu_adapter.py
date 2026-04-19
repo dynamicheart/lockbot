@@ -16,15 +16,15 @@ def _make_adapter(
 ) -> FeishuAdapter:
     """Return a FeishuAdapter with given credentials via config mock.
 
-    Feishu credential mapping:
-        WEBHOOK_URL → App ID
-        TOKEN       → App Secret
-        AES_KEY     → Encrypt Key (optional; empty = skip signature verification)
+    Feishu credential mapping (new):
+        app_id      → App ID
+        app_secret  → App Secret
+        encrypt_key → Encrypt Key (optional; empty = skip signature verification)
     """
     config = MagicMock()
 
     def get_val(key, default=None):
-        return {"TOKEN": app_secret, "WEBHOOK_URL": app_id, "AES_KEY": encrypt_key}.get(key, default)
+        return {"app_secret": app_secret, "app_id": app_id, "encrypt_key": encrypt_key}.get(key, default)
 
     config.get_val.side_effect = get_val
     return FeishuAdapter(config=config)
