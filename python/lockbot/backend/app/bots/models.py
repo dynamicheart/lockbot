@@ -24,7 +24,10 @@ class Bot(Base):
     last_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # Sensitive fields (Fernet encrypted)
-    webhook_url: Mapped[str] = mapped_column(Text, nullable=False)
+    # credentials: unified encrypted JSON with platform-specific keys
+    # webhook_url/token/aes_key: legacy columns, kept for migration compatibility
+    credentials: Mapped[str] = mapped_column(Text, nullable=False, default="")  # JSON, encrypted
+    webhook_url: Mapped[str] = mapped_column(Text, nullable=False, default="")
     aes_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
     token: Mapped[str] = mapped_column(Text, nullable=False, default="")
 

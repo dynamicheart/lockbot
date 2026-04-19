@@ -80,65 +80,29 @@
           </template>
         </el-alert>
 
-        <!-- webhook_url: Infoflow (required) / Slack (optional) only -->
         <el-form-item
-          v-if="credFields.webhookUrl"
-          :prop="credFields.webhookUrl.required ? 'webhook_url' : undefined"
+          v-for="fieldKey in credFieldOrder"
+          :key="fieldKey"
+          :prop="credFields[fieldKey]?.required ? `credentials.${fieldKey}` : undefined"
         >
           <template #label>
-            <span>{{ credFields.webhookUrl.label }}</span>
-            <el-tooltip placement="top" effect="light" :content="fieldHints.webhookUrl">
+            <span>{{ credFields[fieldKey].label }}</span>
+            <el-tooltip placement="top" effect="light" :content="fieldHints[fieldKey]">
               <el-icon class="help-icon"><QuestionFilled /></el-icon>
             </el-tooltip>
           </template>
           <el-input
-            v-model="form.webhook_url"
-            :placeholder="credFields.webhookUrl.placeholder || $t('botCreate.webhookPlaceholder')"
-          />
-        </el-form-item>
-
-        <!-- token: all platforms -->
-        <el-form-item prop="token">
-          <template #label>
-            <span>{{ credFields.token.label }}</span>
-            <el-tooltip placement="top" effect="light" :content="fieldHints.token">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input
-            v-model="form.token"
+            v-model="form.credentials[fieldKey]"
             :placeholder="
-              isEdit && maskedToken
-                ? maskedToken
-                : isEdit
-                  ? $t('botCreate.leaveBlank')
-                  : credFields.token.placeholder
+              credFields[fieldKey]?.isUrl
+                ? credFields[fieldKey].placeholder
+                : isEdit && maskedCreds[fieldKey]
+                  ? maskedCreds[fieldKey]
+                  : isEdit
+                    ? $t('botCreate.leaveBlank')
+                    : credFields[fieldKey].placeholder
             "
-            show-password
-          />
-        </el-form-item>
-
-        <!-- aes_key: Infoflow / Slack / Feishu only -->
-        <el-form-item
-          v-if="credFields.aesKey"
-          :prop="credFields.aesKey.required ? 'aes_key' : undefined"
-        >
-          <template #label>
-            <span>{{ credFields.aesKey.label }}</span>
-            <el-tooltip placement="top" effect="light" :content="fieldHints.aesKey">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input
-            v-model="form.aes_key"
-            :placeholder="
-              isEdit && maskedAesKey
-                ? maskedAesKey
-                : isEdit
-                  ? $t('botCreate.leaveBlank')
-                  : credFields.aesKey.placeholder
-            "
-            show-password
+            :show-password="!credFields[fieldKey]?.isUrl"
           />
         </el-form-item>
       </div>
@@ -287,16 +251,13 @@ const formRef = ref()
 const saving = ref(false)
 const bot = ref(null)
 const availablePlatforms = ref(['Infoflow'])
-const maskedAesKey = ref('')
-const maskedToken = ref('')
+const maskedCreds = ref({})
 
 const form = reactive({
   name: '',
   bot_type: 'NODE',
   platform: 'Infoflow',
-  webhook_url: '',
-  aes_key: '',
-  token: '',
+  credentials: {},
   cfg_default_duration: 7200,
   cfg_max_lock_duration: -1,
   cfg_time_alert: 300,
@@ -305,84 +266,89 @@ const form = reactive({
 })
 
 // Per-platform credential field definitions.
-// DB fields are reused with different semantics per platform:
-//   Infoflow:  webhook_url=Webhook URL,  token=App Token,   aes_key=AES Key
-//   Slack:     webhook_url=Event URL,    token=Bot Token,   aes_key=Signing Secret
-//   DingTalk:  token=App Secret          (webhook_url and aes_key not used)
-//   Feishu:    webhook_url=App ID,       token=App Secret,  aes_key=Encrypt Key (optional)
+// Each platform defines its own keys with labels, placeholders, and requirements.
 const PLATFORM_CRED_CONFIG = {
   Infoflow: {
     token: { label: 'App Token', placeholder: 'App Token', required: true },
-    aesKey: { label: 'AES Key', placeholder: 'AES Key', required: true },
-    webhookUrl: { label: 'Webhook URL', required: true, isUrl: true },
+    aes_key: { label: 'AES Key', placeholder: 'AES Key', required: true },
+    webhook_url: {
+      label: 'Webhook URL',
+      placeholder: 'https://example.com/webhook',
+      required: true,
+      isUrl: true,
+    },
   },
   Slack: {
-    token: { label: 'Bot Token', placeholder: 'xoxb-...', required: true },
-    aesKey: { label: 'Signing Secret', placeholder: 'Signing Secret', required: true },
-    webhookUrl: { label: 'Event Subscription URL', required: false, isUrl: true },
+    bot_token: { label: 'Bot Token', placeholder: 'xoxb-...', required: true },
+    signing_secret: { label: 'Signing Secret', placeholder: 'Signing Secret', required: true },
+    event_url: {
+      label: 'Event Subscription URL',
+      placeholder: 'https://example.com/slack/events',
+      required: false,
+      isUrl: true,
+    },
   },
   DingTalk: {
-    token: { label: 'App Secret', placeholder: 'App Secret', required: true },
+    app_secret: { label: 'App Secret', placeholder: 'App Secret', required: true },
   },
   Feishu: {
-    webhookUrl: { label: 'App ID', placeholder: 'App ID', required: true, isUrl: false },
-    token: { label: 'App Secret', placeholder: 'App Secret', required: true },
-    aesKey: { label: 'Encrypt Key', placeholder: t('botCreate.optional'), required: false },
+    app_id: { label: 'App ID', placeholder: 'App ID', required: true, isUrl: false },
+    app_secret: { label: 'App Secret', placeholder: 'App Secret', required: true },
+    encrypt_key: { label: 'Encrypt Key', placeholder: t('botCreate.optional'), required: false },
   },
+}
+
+// Ordered field keys for rendering (preserves UI order per platform)
+const PLATFORM_CRED_ORDER = {
+  Infoflow: ['webhook_url', 'token', 'aes_key'],
+  Slack: ['bot_token', 'signing_secret', 'event_url'],
+  DingTalk: ['app_secret'],
+  Feishu: ['app_id', 'app_secret', 'encrypt_key'],
 }
 
 const credFields = computed(() => {
   return PLATFORM_CRED_CONFIG[form.platform] || PLATFORM_CRED_CONFIG['Infoflow']
 })
 
+const credFieldOrder = computed(() => {
+  return PLATFORM_CRED_ORDER[form.platform] || PLATFORM_CRED_ORDER['Infoflow']
+})
+
 // Per-platform credential storage — switching platforms preserves each platform's own values
 const platformCreds = reactive(
-  Object.fromEntries(
-    ['Infoflow', 'Slack', 'DingTalk', 'Feishu'].map((p) => [
-      p,
-      { webhook_url: '', token: '', aes_key: '' },
-    ])
-  )
+  Object.fromEntries(['Infoflow', 'Slack', 'DingTalk', 'Feishu'].map((p) => [p, {}]))
 )
 
 // When platform switches: load that platform's stored creds into form
 watch(
   () => form.platform,
   (newPlatform) => {
-    const stored = platformCreds[newPlatform] || { webhook_url: '', token: '', aes_key: '' }
-    form.webhook_url = stored.webhook_url
-    form.token = stored.token
-    form.aes_key = stored.aes_key
-    // Clear validation errors when switching platform — rules change per platform
+    form.credentials = { ...(platformCreds[newPlatform] || {}) }
     nextTick(() => formRef.value?.clearValidate())
   }
 )
 
 // Auto-save current creds back to per-platform storage as user types
 watch(
-  () => [form.webhook_url, form.token, form.aes_key],
-  ([webhook_url, token, aes_key]) => {
+  () => form.credentials,
+  (creds) => {
     const p = form.platform
     if (platformCreds[p]) {
-      platformCreds[p].webhook_url = webhook_url
-      platformCreds[p].token = token
-      platformCreds[p].aes_key = aes_key
+      platformCreds[p] = { ...creds }
     }
-  }
+  },
+  { deep: true }
 )
 
-// Per-platform tooltip hints (Infoflow-specific; others fall back to generic)
-const fieldHints = computed(() => ({
-  token: te(`botCreate.credFieldHints.${form.platform}.token`)
-    ? t(`botCreate.credFieldHints.${form.platform}.token`)
-    : t('botCreate.tokenHelp'),
-  aesKey: te(`botCreate.credFieldHints.${form.platform}.aesKey`)
-    ? t(`botCreate.credFieldHints.${form.platform}.aesKey`)
-    : t('botCreate.aesKeyHelp'),
-  webhookUrl: te(`botCreate.credFieldHints.${form.platform}.webhookUrl`)
-    ? t(`botCreate.credFieldHints.${form.platform}.webhookUrl`)
-    : t('botCreate.webhookUrl'),
-}))
+// Per-platform tooltip hints
+const fieldHints = computed(() => {
+  const hints = {}
+  for (const key of credFieldOrder.value) {
+    const i18nKey = `botCreate.credFieldHints.${form.platform}.${key}`
+    hints[key] = te(i18nKey) ? t(i18nKey) : t('botCreate.tokenHelp')
+  }
+  return hints
+})
 
 // Credential alert: use platform-specific steps if available, else generic
 const credHints = computed(() => {
@@ -405,61 +371,61 @@ const clusterConfig = computed({
   },
 })
 
-const rules = computed(() => ({
-  name: [{ required: true, message: () => t('botCreate.nameRequired'), trigger: 'blur' }],
-  bot_type: [{ required: true, message: () => t('botCreate.typeRequired'), trigger: 'change' }],
-  webhook_url: credFields.value.webhookUrl?.required
-    ? [
-        {
-          required: true,
-          message: () =>
-            `${t('botCreate.fieldRequired', { field: credFields.value.webhookUrl?.label }) || t('botCreate.webhookRequired')}`,
-          trigger: 'blur',
+const rules = computed(() => {
+  const r = {
+    name: [{ required: true, message: () => t('botCreate.nameRequired'), trigger: 'blur' }],
+    bot_type: [{ required: true, message: () => t('botCreate.typeRequired'), trigger: 'change' }],
+  }
+  // Dynamic credential field rules
+  for (const key of credFieldOrder.value) {
+    const field = credFields.value[key]
+    if (!field) continue
+    const prop = `credentials.${key}`
+    const validators = []
+    if (field.required && !isEdit.value) {
+      validators.push({
+        required: true,
+        message: () => t('botCreate.fieldRequired', { field: field.label }),
+        trigger: 'blur',
+      })
+    }
+    if (field.isUrl) {
+      validators.push({
+        validator: (_, val, cb) => {
+          if (!val) return cb()
+          try {
+            new URL(val)
+            cb()
+          } catch {
+            cb(new Error(t('botCreate.webhookInvalid')))
+          }
         },
-        ...(credFields.value.webhookUrl?.isUrl
-          ? [
-              {
-                validator: (_, val, cb) => {
-                  if (!val) return cb()
-                  try {
-                    new URL(val)
-                    cb()
-                  } catch {
-                    cb(new Error(t('botCreate.webhookInvalid')))
-                  }
-                },
-                trigger: 'blur',
-              },
-            ]
-          : []),
-      ]
-    : [],
-  aes_key: credFields.value.aesKey?.required
-    ? [{ required: !isEdit.value, message: () => t('botCreate.aesKeyRequired'), trigger: 'blur' }]
-    : [],
-  token: [
-    { required: !isEdit.value, message: () => t('botCreate.tokenRequired'), trigger: 'blur' },
-  ],
-  cfg_default_duration: [
+        trigger: 'blur',
+      })
+    }
+    if (validators.length) r[prop] = validators
+  }
+  r.cfg_default_duration = [
     {
       validator: (_, val, cb) => (val >= 60 && val <= 604800 ? cb() : cb(new Error('60 ~ 604800'))),
       trigger: 'change',
     },
-  ],
-  cfg_max_lock_duration: [
+  ]
+  r.cfg_max_lock_duration = [
     {
       validator: (_, val, cb) =>
         val === -1 || (val >= 300 && val <= 604800) ? cb() : cb(new Error('-1 或 300 ~ 604800')),
       trigger: 'change',
     },
-  ],
-  cfg_time_alert: [
+  ]
+  r.cfg_time_alert = [
     {
       validator: (_, val, cb) => (val >= 30 && val <= 3600 ? cb() : cb(new Error('30 ~ 3600'))),
       trigger: 'change',
     },
-  ],
-}))
+  ]
+  return r
+})
 
 onMounted(async () => {
   // Load available platforms
@@ -479,11 +445,9 @@ onMounted(async () => {
       form.name = bot.value.name
       form.bot_type = bot.value.bot_type
       form.platform = bot.value.platform
-      form.webhook_url = bot.value.webhook_url_raw || ''
-      form.aes_key = ''
-      form.token = ''
-      maskedAesKey.value = bot.value.aes_key_masked || ''
-      maskedToken.value = bot.value.token_masked || ''
+      // On edit, credentials are empty (user must re-enter); masked values shown as placeholders
+      form.credentials = {}
+      maskedCreds.value = bot.value.credentials_masked || {}
       // Load config_overrides into form
       try {
         const overrides =
@@ -561,9 +525,10 @@ async function handleSubmit() {
       EARLY_NOTIFY: form.cfg_early_notify,
       LANGUAGE: form.cfg_language,
     }
+    // Remove empty credential values (don't overwrite existing on edit)
+    data.credentials = Object.fromEntries(Object.entries(data.credentials).filter(([, v]) => v))
     if (isEdit.value) {
-      if (!data.aes_key) delete data.aes_key
-      if (!data.token) delete data.token
+      if (Object.keys(data.credentials).length === 0) delete data.credentials
       const cc = clusterConfig.value
       if (cc && Object.keys(cc).length > 0) data.cluster_configs = cc
       const needRestart = bot.value.status !== 'stopped'

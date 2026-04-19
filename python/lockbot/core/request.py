@@ -27,7 +27,7 @@ def post_webhook(msg, config=None):
     """
     MAX_LENGTH = 2000
     if config is not None:
-        webhook_url = config.get_val("WEBHOOK_URL")
+        webhook_url = config.get_val("webhook_url") or config.get_val("WEBHOOK_URL")
     else:
         webhook_url = Config.get("WEBHOOK_URL")
 

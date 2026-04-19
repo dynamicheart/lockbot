@@ -118,6 +118,53 @@ def _migrate_audit_logs():
         logger.info("Created audit_logs table")
 
 
+def _migrate_bot_credentials():
+    """Add 'credentials' column and migrate existing Infoflow bots from old columns."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    insp = sa_inspect(engine)
+    if "bots" not in insp.get_table_names():
+        return
+    columns = [c["name"] for c in insp.get_columns("bots")]
+
+    if "credentials" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bots ADD COLUMN credentials TEXT NOT NULL DEFAULT ''"))
+        logger.info("Migrated bots: added 'credentials' column")
+
+    # Migrate existing Infoflow bots from old columns
+    import json
+
+    from lockbot.backend.app.bots import encryption
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, webhook_url, token, aes_key FROM bots "
+                "WHERE credentials = '' AND "
+                "(platform = 'Infoflow' OR platform IS NULL OR platform = '') "
+                "AND (webhook_url != '' OR token != '' OR aes_key != '')"
+            )
+        ).fetchall()
+        for bot_id, enc_webhook, enc_token, enc_aes in rows:
+            creds = {}
+            w = encryption.decrypt(enc_webhook)
+            t = encryption.decrypt(enc_token)
+            a = encryption.decrypt(enc_aes)
+            if w:
+                creds["webhook_url"] = w
+            if t:
+                creds["token"] = t
+            if a:
+                creds["aes_key"] = a
+            if creds:
+                enc_creds = encryption.encrypt(json.dumps(creds, ensure_ascii=False))
+                conn.execute(text("UPDATE bots SET credentials = :c WHERE id = :id"), {"c": enc_creds, "id": bot_id})
+        if rows:
+            logger.info("Migrated %d bot(s) from old credential columns to 'credentials'", len(rows))
+
+
 def _seed_dev_admin():
     """Create admin user in dev mode if it doesn't exist."""
     from lockbot.backend.app.config import (
@@ -202,6 +249,7 @@ async def lifespan(app: FastAPI):
     _migrate_users_token_version()
     _migrate_bot_soft_delete()
     _migrate_audit_logs()
+    _migrate_bot_credentials()
     _seed_dev_admin()
     _seed_dev_users()
     from lockbot.backend.app.bots.manager import bot_manager

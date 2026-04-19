@@ -117,47 +117,28 @@
             </div>
           </el-descriptions-item>
           <el-descriptions-item
-            v-if="credFields.webhookUrl"
-            :label="
-              credFields.webhookUrl ? credFields.webhookUrl.label : $t('botDetail.webhookUrl')
-            "
+            v-for="fieldKey in credFieldOrder"
+            :key="fieldKey"
+            :label="credFields[fieldKey]?.label || fieldKey"
             :span="2"
           >
             <div class="secret-field">
-              <code>{{ bot.webhook_url_raw || '-' }}</code>
+              <code v-if="credFields[fieldKey]?.isUrl">
+                {{ bot.credentials_raw?.[fieldKey] || '-' }}
+              </code>
+              <code v-else-if="showSecrets[fieldKey]">
+                {{ bot.credentials_raw?.[fieldKey] || '-' }}
+              </code>
+              <code v-else>
+                {{ maskText(bot.credentials_raw?.[fieldKey]) }}
+              </code>
               <el-icon
-                v-if="bot.webhook_url_raw"
+                v-if="!credFields[fieldKey]?.isUrl"
                 class="secret-icon"
-                @click="copyText(bot.webhook_url_raw)"
-                ><CopyDocument
+                @click="showSecrets[fieldKey] = !showSecrets[fieldKey]"
+                ><View v-if="!showSecrets[fieldKey]" /><Hide v-else
               /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item
-            :label="credFields.token ? credFields.token.label : $t('botCreate.token')"
-            :span="2"
-          >
-            <div class="secret-field">
-              <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
-              <el-icon class="secret-icon" @click="showToken = !showToken"
-                ><View v-if="!showToken" /><Hide v-else
-              /></el-icon>
-              <el-icon class="secret-icon" @click="copyText(bot.token_raw)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="credFields.aesKey"
-            :label="credFields.aesKey ? credFields.aesKey.label : $t('botCreate.aesKey')"
-            :span="2"
-          >
-            <div class="secret-field">
-              <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
-              <el-icon class="secret-icon" @click="showAesKey = !showAesKey"
-                ><View v-if="!showAesKey" /><Hide v-else
-              /></el-icon>
-              <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"
+              <el-icon class="secret-icon" @click="copyText(bot.credentials_raw?.[fieldKey] || '')"
                 ><CopyDocument
               /></el-icon>
             </div>
@@ -439,7 +420,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
@@ -517,36 +498,40 @@ const stateData = ref(null)
 const stateSaving = ref(false)
 
 // Secret field visibility
-const showAesKey = ref(false)
-const showToken = ref(false)
+const showSecrets = reactive({})
 
-// Per-platform credential field labels (mirrors BotForm PLATFORM_CRED_CONFIG)
-// Infoflow:  webhook_url=Webhook URL,  token=App Token,   aes_key=AES Key
-// Slack:     webhook_url=Event URL,    token=Bot Token,   aes_key=Signing Secret
-// DingTalk:  token=App Secret          (webhook_url and aes_key not used)
-// Feishu:    webhook_url=App ID,       token=App Secret,  aes_key=Encrypt Key (optional)
+// Per-platform credential field definitions (mirrors BotForm PLATFORM_CRED_CONFIG)
 const PLATFORM_CRED_CONFIG = {
   Infoflow: {
     token: { label: 'App Token' },
-    aesKey: { label: 'AES Key' },
-    webhookUrl: { label: 'Webhook URL' },
+    aes_key: { label: 'AES Key' },
+    webhook_url: { label: 'Webhook URL', isUrl: true },
   },
   Slack: {
-    token: { label: 'Bot Token' },
-    aesKey: { label: 'Signing Secret' },
-    webhookUrl: { label: 'Event Subscription URL' },
+    bot_token: { label: 'Bot Token' },
+    signing_secret: { label: 'Signing Secret' },
+    event_url: { label: 'Event Subscription URL', isUrl: true },
   },
   DingTalk: {
-    token: { label: 'App Secret' },
+    app_secret: { label: 'App Secret' },
   },
   Feishu: {
-    webhookUrl: { label: 'App ID' },
-    token: { label: 'App Secret' },
-    aesKey: { label: 'Encrypt Key' },
+    app_id: { label: 'App ID' },
+    app_secret: { label: 'App Secret' },
+    encrypt_key: { label: 'Encrypt Key' },
   },
+}
+const PLATFORM_CRED_ORDER = {
+  Infoflow: ['webhook_url', 'token', 'aes_key'],
+  Slack: ['bot_token', 'signing_secret', 'event_url'],
+  DingTalk: ['app_secret'],
+  Feishu: ['app_id', 'app_secret', 'encrypt_key'],
 }
 const credFields = computed(
   () => PLATFORM_CRED_CONFIG[bot.value?.platform] || PLATFORM_CRED_CONFIG['Infoflow']
+)
+const credFieldOrder = computed(
+  () => PLATFORM_CRED_ORDER[bot.value?.platform] || PLATFORM_CRED_ORDER['Infoflow']
 )
 
 // Bot language
