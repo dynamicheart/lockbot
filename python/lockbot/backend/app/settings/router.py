@@ -117,6 +117,13 @@ def batch_update_settings(
     for key, value in body.settings.items():
         if key not in allowed:
             raise HTTPException(status_code=422, detail=f"Unknown setting key: {key}")
+        if key == "enabled_platforms" and value is not None:
+            try:
+                platforms = json.loads(value)
+                if not isinstance(platforms, list) or len(platforms) == 0:
+                    raise HTTPException(status_code=422, detail="At least one platform must be enabled")
+            except json.JSONDecodeError as e:
+                raise HTTPException(status_code=422, detail="Invalid JSON for enabled_platforms") from e
         row = db.get(SiteSetting, key)
         if row is None:
             row = SiteSetting(key=key, value=value, updated_at=datetime.utcnow())

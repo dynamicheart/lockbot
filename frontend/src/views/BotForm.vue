@@ -47,9 +47,15 @@
         </el-col>
         <el-col :span="10">
           <el-form-item :label="$t('botCreate.platform')">
-            <el-select v-model="form.platform" :disabled="isEdit" style="width: 100%">
+            <el-select
+              v-if="availablePlatforms.length > 1"
+              v-model="form.platform"
+              :disabled="isEdit"
+              style="width: 100%"
+            >
               <el-option v-for="p in availablePlatforms" :key="p" :label="p" :value="p" />
             </el-select>
+            <el-input v-else v-model="form.platform" disabled style="width: 100%" />
           </el-form-item>
         </el-col>
       </el-row>

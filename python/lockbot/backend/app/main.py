@@ -25,7 +25,7 @@ from lockbot.backend.app.settings.router import router as settings_router
 
 # Configure lockbot loggers to output alongside uvicorn logs
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
     format="%(levelname)s:%(name)s: %(message)s",
     stream=sys.stdout,
 )
