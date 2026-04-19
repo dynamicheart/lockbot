@@ -433,10 +433,12 @@ function switchLocale(locale) {
 
 // --- Logout & Switch User ---
 const showSwitchDialog = ref(false)
+const accountListVersion = ref(0)
 
-const savedAccounts = computed(() =>
-  authStore.getSavedAccounts().filter((a) => isDemoMode || !a.token?.startsWith('demo:'))
-)
+const savedAccounts = computed(() => {
+  accountListVersion.value // reactive dependency so list refreshes after removing expired account
+  return authStore.getSavedAccounts().filter((a) => isDemoMode || !a.token?.startsWith('demo:'))
+})
 
 async function handleUserCommand(cmd) {
   if (cmd === 'logout') {
@@ -471,6 +473,7 @@ async function handleSwitchTo(username) {
     ElMessage.success(t('common.switchUserSuccess'))
     location.reload()
   } else {
+    accountListVersion.value++
     ElMessage.warning(t('common.accountExpired'))
   }
 }
