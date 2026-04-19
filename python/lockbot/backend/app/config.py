@@ -19,7 +19,7 @@ DATABASE_URL = os.environ.get(
 # JWT
 JWT_SECRET = os.environ.get("JWT_SECRET", "lockbot-dev-secret-change-me")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+JWT_EXPIRE_MINUTES = 60 * 24 * 90  # 90 days (~3 months)
 
 # Fernet encryption key (for sensitive fields)
 ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "")
