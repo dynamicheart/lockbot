@@ -136,7 +136,7 @@ class FeishuAdapter(MessageAdapter):
         If no Encrypt Key is configured (webhook_url empty), skip verification and
         return True — Feishu sends plaintext events without a signature in that case.
         """
-        encrypt_key = self._get_config("AES_KEY", "")
+        encrypt_key = self._get_config("AESKEY", "")
         if not encrypt_key:
             # No Encrypt Key configured → accept all requests (no signature to check)
             logger.debug("[Feishu] verify_request: no encrypt_key configured, skipping verification")
@@ -206,7 +206,7 @@ class FeishuAdapter(MessageAdapter):
             return None
 
         if "encrypt" in data:
-            encrypt_key = self._get_config("AES_KEY", "")
+            encrypt_key = self._get_config("AESKEY", "")
             if not encrypt_key:
                 logger.warning("[Feishu] decrypt_payload: encrypted payload received but AES_KEY is not configured")
                 return None
@@ -379,7 +379,7 @@ class FeishuAdapter(MessageAdapter):
         ts = headers.get("x-lark-request-timestamp", "")
         nonce = headers.get("x-lark-request-nonce", "")
         sig = headers.get("x-lark-signature", "")
-        encrypt_key = self._get_config("AES_KEY", "")
+        encrypt_key = self._get_config("AESKEY", "")
         logger.debug(
             "[Feishu] handle_webhook: verifying sig, encrypt_key=%s, ts=%s, nonce=%s, sig=%s",
             "configured" if encrypt_key else "empty",
