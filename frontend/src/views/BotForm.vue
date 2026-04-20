@@ -133,7 +133,7 @@
         <el-collapse-item :title="$t('botCreate.advancedConfig')" name="advanced">
           <el-row :gutter="16">
             <el-col :xs="24" :sm="12">
-              <el-form-item prop="cfg_default_duration">
+              <el-form-item>
                 <template #label>
                   {{ $t('botCreate.defaultDuration') }}
                   <el-tooltip
@@ -155,7 +155,7 @@
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item prop="cfg_max_lock_duration">
+              <el-form-item>
                 <template #label>
                   {{ $t('botCreate.maxLockDuration') }}
                   <el-tooltip
@@ -185,7 +185,7 @@
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
-              <el-form-item prop="cfg_time_alert">
+              <el-form-item>
                 <template #label>
                   {{ $t('botCreate.timeAlert') }}
                   <el-tooltip
@@ -310,25 +310,6 @@ const rules = computed(() => ({
   ],
   token: [
     { required: !isEdit.value, message: () => t('botCreate.tokenRequired'), trigger: 'blur' },
-  ],
-  cfg_default_duration: [
-    {
-      validator: (_, val, cb) => (val >= 60 && val <= 604800 ? cb() : cb(new Error('60 ~ 604800'))),
-      trigger: 'change',
-    },
-  ],
-  cfg_max_lock_duration: [
-    {
-      validator: (_, val, cb) =>
-        val === -1 || (val >= 300 && val <= 604800) ? cb() : cb(new Error('-1 或 300 ~ 604800')),
-      trigger: 'change',
-    },
-  ],
-  cfg_time_alert: [
-    {
-      validator: (_, val, cb) => (val >= 30 && val <= 3600 ? cb() : cb(new Error('30 ~ 3600'))),
-      trigger: 'change',
-    },
   ],
 }))
 
