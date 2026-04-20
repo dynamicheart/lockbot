@@ -164,12 +164,18 @@ function _handleGet(url, params) {
       ...bot,
       owner: owner ? owner.username : '',
       owner_role: owner ? owner.role : '',
-      webhook_url_raw: 'https://demo.example.com/webhook',
-      aes_key_raw: 'demo_aes_key_placeholder',
-      token_raw: 'demo_token_placeholder',
-      webhook_url_masked: 'https://***.com/webhook',
-      aes_key_masked: 'dem***ceholder',
-      token_masked: 'dem***ceholder',
+      credentials_raw: bot.credentials || {
+        webhook_url: 'https://demo.example.com/webhook',
+        aes_key: 'demo_aes_key_placeholder',
+        token: 'demo_token_placeholder',
+      },
+      credentials_masked: bot.credentials
+        ? Object.fromEntries(Object.keys(bot.credentials).map((k) => [k, '***']))
+        : {
+            webhook_url: 'https://***.com/webhook',
+            aes_key: 'dem***ceholder',
+            token: 'dem***ceholder',
+          },
     }
   }
 
@@ -410,6 +416,7 @@ function _handlePost(url, data) {
       last_request_at: null,
       cluster_configs: JSON.stringify(data.cluster_configs || {}),
       config_overrides: JSON.stringify(data.config_overrides || {}),
+      credentials: data.credentials || {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }
@@ -556,6 +563,7 @@ function _handlePut(url, data) {
       bot.cluster_configs = JSON.stringify(data.cluster_configs)
     if (data.config_overrides !== undefined)
       bot.config_overrides = JSON.stringify(data.config_overrides || {})
+    if (data.credentials !== undefined) bot.credentials = data.credentials
     bot.updated_at = new Date().toISOString()
     return bot
   }

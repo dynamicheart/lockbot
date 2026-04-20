@@ -658,7 +658,7 @@ export const mockAuditLogs = [
     target_type: 'bot',
     target_id: 1,
     target_name: 'gpu-bot-01',
-    detail: '{"changed":["webhook_url","token"]}',
+    detail: '{"changed":["credentials.webhook_url","credentials.token"]}',
     result: 'success',
     ip_address: '127.0.0.1',
     created_at: _ago(120),
