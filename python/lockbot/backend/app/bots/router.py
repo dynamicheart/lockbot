@@ -303,9 +303,6 @@ def update_bot(
     if user.role != "super_admin" and bot.user_id != user.id:
         raise HTTPException(status_code=403, detail="Cannot edit another user's bot")
 
-    if bot.status == "running":
-        raise HTTPException(status_code=409, detail="Cannot update a running bot. Stop it first.")
-
     changes = {}
     if body.name is not None:
         # Check for duplicate name (excluding current bot and deleted bots)
@@ -950,6 +947,7 @@ def get_bot_logs(
     limit: int = 50,
     level: str | None = None,
     category: str | None = None,
+    since: str | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -977,6 +975,8 @@ def get_bot_logs(
         entries = [e for e in entries if e.get("level", "").upper() == level_upper]
     if category:
         entries = [e for e in entries if e.get("category") == category]
+    if since:
+        entries = [e for e in entries if e.get("created_at", "") > since]
 
     # Sort newest first, paginate
     entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)

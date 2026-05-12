@@ -106,6 +106,29 @@ async function fetchLogs(append = false) {
   }
 }
 
+async function pollNewLogs() {
+  if (logs.value.length === 0) {
+    return fetchLogs()
+  }
+  try {
+    const since = logs.value[0]?.created_at
+    if (!since) return
+    const params = { page: 1, limit: 50, since }
+    if (level.value) params.level = level.value
+    if (category.value) params.category = category.value
+    const data = await botsStore.getBotLogs(props.botId, params)
+    if (data.length > 0) {
+      const existingIds = new Set(logs.value.map((l) => l.id))
+      const newLogs = data.filter((l) => !existingIds.has(l.id))
+      if (newLogs.length > 0) {
+        logs.value = [...newLogs, ...logs.value]
+      }
+    }
+  } catch {
+    // handled by interceptor
+  }
+}
+
 function loadMore() {
   if (loadingMore.value) return
   page.value++
@@ -160,7 +183,7 @@ watch(category, () => {
 
 watch(autoRefresh, (val) => {
   if (val) {
-    timer = setInterval(() => fetchLogs(), 5000)
+    timer = setInterval(() => pollNewLogs(), 5000)
   } else {
     clearInterval(timer)
   }

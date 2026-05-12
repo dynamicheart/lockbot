@@ -465,7 +465,7 @@ def test_early_notify_fallback_on_scheduler_delay(bot, monkeypatch):
 
 def test_io_create_and_save(bot):
     """Test io create and save."""
-    status = create_or_load_device_state(config=bot.config)
+    status, _ = create_or_load_device_state(config=bot.config)
     assert "test" in status
     save_bot_state_to_file(status, config=bot.config)
     data_dir = bot.config.get_val("DATA_DIR")
@@ -494,7 +494,27 @@ def test_max_slock_duration_exceeded(bot):
     assert "❌" in reply2["message"]["body"][0]["content"]
 
 
-def test_slock_multiple_users(bot):
+def test_lock_duration_exceeded_no_state_pollution(bot):
+    """After max duration rejection, device state must remain idle so subsequent lock succeeds."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+
+    reply1 = bot.lock("user1", "lock test 2h")
+    assert "❌" in reply1["message"]["body"][0]["content"]
+
+    # Device should still be lockable by the same or another user
+    reply2 = bot.lock("user1", "lock test 30m")
+    assert "✅【资源申请成功】" in reply2["message"]["body"][0]["content"]
+
+
+def test_slock_duration_exceeded_no_state_pollution(bot):
+    """After max slock duration rejection, device state must remain idle so subsequent slock succeeds."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+
+    reply1 = bot.slock("user1", "slock test dev0 2h")
+    assert "❌" in reply1["message"]["body"][0]["content"]
+
+    reply2 = bot.slock("user2", "slock test dev0 30m")
+    assert "✅【资源申请成功】" in reply2["message"]["body"][0]["content"]
     """Test slock multiple users."""
     reply1 = bot.slock("userA", "slock test dev2 20m")
     assert "✅【资源申请成功】" in reply1["message"]["body"][0]["content"]
@@ -557,3 +577,102 @@ def test_notify_not_set_does_not_raise(bot):
     """lock() must not raise when _on_state_changed is None (default)."""
     assert bot._on_state_changed is None
     bot.lock("user1", "lock test dev0 1h")  # must not raise
+
+
+def test_notify_clamped_users_on_init(tmp_path):
+    """Bot init sends notification to users whose locks were clamped by reduced max_duration."""
+    from unittest.mock import patch
+
+    config_dict = {
+        "BOT_ID": "test_clamp_notify",
+        "DATA_DIR": str(tmp_path),
+        "CLUSTER_CONFIGS": {"node1": ["A100"] * 2},
+        "DEFAULT_DURATION": 3600,
+        "MAX_LOCK_DURATION": 1800,
+        "EARLY_NOTIFY": False,
+        "TIME_ALERT": 300,
+        "BOT_TYPE": "DEVICE",
+        "WEBHOOK_URL": "http://fake",
+    }
+
+    # Pre-create a state file with a user holding a 5000s lock (exceeds new 1800s max)
+    import json
+
+    from lockbot.core.config import Config
+    from lockbot.core.io import _bot_dir
+
+    cfg = Config(config_dict)
+    bot_dir = _bot_dir(cfg)
+    os.makedirs(bot_dir, exist_ok=True)
+    state_file = os.path.join(bot_dir, "bot_state.json")
+    state_data = {
+        "cluster_status": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "A100",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "clamped_user", "start_time": int(time.time()), "duration": 5000}],
+                },
+                {"dev_id": 1, "dev_model": "A100", "status": "idle", "current_users": []},
+            ]
+        }
+    }
+    with open(state_file, "w") as f:
+        json.dump(state_data, f)
+
+    with patch("lockbot.core.platforms.infoflow.post_webhook") as mock_post:
+        mock_post.return_value = [(200, "ok")]
+        DeviceBot(config_dict=config_dict)
+
+    assert mock_post.called
+    sent_msg = mock_post.call_args[0][0]
+    body_text = sent_msg["message"]["body"][0]["content"]
+    assert "锁定时长调整" in body_text or "Lock Duration Adjusted" in body_text
+
+
+def test_no_notify_when_no_clamping(tmp_path):
+    """Bot init does NOT send notification when no locks are clamped."""
+    from unittest.mock import patch
+
+    config_dict = {
+        "BOT_ID": "test_no_clamp",
+        "DATA_DIR": str(tmp_path),
+        "CLUSTER_CONFIGS": {"node1": ["A100"]},
+        "DEFAULT_DURATION": 3600,
+        "MAX_LOCK_DURATION": 7200,
+        "EARLY_NOTIFY": False,
+        "TIME_ALERT": 300,
+        "BOT_TYPE": "DEVICE",
+        "WEBHOOK_URL": "http://fake",
+    }
+
+    import json
+
+    from lockbot.core.config import Config
+    from lockbot.core.io import _bot_dir
+
+    cfg = Config(config_dict)
+    bot_dir = _bot_dir(cfg)
+    os.makedirs(bot_dir, exist_ok=True)
+    state_file = os.path.join(bot_dir, "bot_state.json")
+    state_data = {
+        "cluster_status": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "A100",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "safe_user", "start_time": int(time.time()), "duration": 3600}],
+                },
+            ]
+        }
+    }
+    with open(state_file, "w") as f:
+        json.dump(state_data, f)
+
+    with patch("lockbot.core.platforms.infoflow.post_webhook") as mock_post:
+        mock_post.return_value = [(200, "ok")]
+        DeviceBot(config_dict=config_dict)
+
+    assert not mock_post.called

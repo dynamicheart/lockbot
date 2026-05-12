@@ -25,7 +25,12 @@ class BotState:
     _loader = None  # Subclasses or instances must set this
 
     def __init__(self, config=None):
-        self.bot_state = self._loader(config=config)
+        result = self._loader(config=config)
+        if isinstance(result, tuple):
+            self.bot_state, self.clamped_user_ids = result
+        else:
+            self.bot_state = result
+            self.clamped_user_ids = set()
 
 
 class BaseLockBot:
@@ -75,6 +80,22 @@ class BaseLockBot:
         # Optional callback: invoked after a successful lock/slock so the
         # scheduler can recalculate its next wakeup without waiting for idle.
         self._on_state_changed: Callable[[], None] | None = None
+
+        self._notify_clamped_users()
+
+    def _notify_clamped_users(self):
+        """Send notification to users whose locks were shortened by max_duration reduction."""
+        clamped = getattr(self.state, "clamped_user_ids", set())
+        if not clamped:
+            return
+        max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        dur_str = format_duration(max_dur, config=self.config)
+        msg = t("notify.duration_clamped", config=self.config, max_duration=dur_str)
+        reply = self.adapter.build_reply(msg, list(clamped))
+        try:
+            self.adapter.send(reply)
+        except Exception:
+            self.logger.warning("Failed to notify clamped users: %s", clamped)
 
     def _notify_state_changed(self) -> None:
         """Call _on_state_changed if wired up (no-op otherwise)."""

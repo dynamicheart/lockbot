@@ -33,6 +33,12 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
             lo, hi = bounds  # type: ignore[misc]
             if not (lo <= val <= hi):
                 errors.append(f"{key} must be between {lo} and {hi}")
+
+    max_dur = v.get("MAX_LOCK_DURATION")
+    default_dur = v.get("DEFAULT_DURATION")
+    if isinstance(max_dur, int) and isinstance(default_dur, int) and max_dur != -1 and default_dur > max_dur:
+        errors.append("DEFAULT_DURATION must not exceed MAX_LOCK_DURATION")
+
     if errors:
         raise ValueError("; ".join(errors))
     return v

@@ -196,7 +196,12 @@ export default {
     maxLockDuration: 'Max Lock Duration',
     maxLockDurationHelp: 'Maximum allowed lock time in seconds. -1 means unlimited.',
     maxLockDurationUnlimited: 'Unlimited (-1)',
+    unlimited: 'Unlimited',
+    hours: 'h',
+    minutes: 'min',
+    seconds: 's',
     maxLockDurationWarning: 'Over 86400s (24h) may cause resources to be held for a long time',
+    defaultExceedsMax: 'Default duration must not exceed max lock duration',
     timeAlert: 'Expiry Alert Threshold',
     timeAlertUnit: 'seconds',
     timeAlertHelp:

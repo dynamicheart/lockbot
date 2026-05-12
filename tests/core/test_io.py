@@ -53,7 +53,7 @@ def test_create_or_load_device_state_file_not_exist(tmp_path):
     if os.path.exists(state_file):
         os.unlink(state_file)
 
-    result = create_or_load_device_state(config=config)
+    result, _ = create_or_load_device_state(config=config)
     expected = {
         "node1": [
             {"dev_id": 0, "dev_model": "deviceA", "status": "idle", "current_users": []},
@@ -86,7 +86,7 @@ def test_create_or_load_device_state_file_exists(tmp_path):
         json.dump(config_data, f)
 
     with patch("time.time", return_value=2000):
-        result = create_or_load_device_state(config=config)
+        result, _ = create_or_load_device_state(config=config)
 
     expected = {
         "node1": [
@@ -125,7 +125,7 @@ def test_create_or_load_device_state_new_node(tmp_path):
         json.dump(config_data, f)
 
     with patch("time.time", return_value=2000):
-        result = create_or_load_device_state(config=config)
+        result, _ = create_or_load_device_state(config=config)
 
     expected = {
         "node1": [
@@ -160,7 +160,7 @@ def test_create_or_load_device_state_removed_node(tmp_path):
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(config_data, f)
 
-    result = create_or_load_device_state(config=config)
+    result, _ = create_or_load_device_state(config=config)
 
     expected = {
         "node1": [
@@ -180,7 +180,7 @@ def test_create_or_load_node_state_file_not_exist(tmp_path):
     if os.path.exists(state_file):
         os.unlink(state_file)
 
-    result = create_or_load_node_state(config=config)
+    result, _ = create_or_load_node_state(config=config)
     expected = {"node1": {"status": "idle", "current_users": [], "booking_list": []}}
     assert result == expected
 
@@ -204,7 +204,7 @@ def test_create_or_load_node_state_file_exists(tmp_path):
         json.dump(config_data, f)
 
     with patch("time.time", return_value=2000):
-        result = create_or_load_node_state(config=config)
+        result, _ = create_or_load_node_state(config=config)
 
     expected = {
         "node1": {
@@ -235,7 +235,7 @@ def test_create_or_load_node_state_new_node(tmp_path):
         json.dump(config_data, f)
 
     with patch("time.time", return_value=2000):
-        result = create_or_load_node_state(config=config)
+        result, _ = create_or_load_node_state(config=config)
 
     expected = {
         "node1": {
@@ -263,7 +263,7 @@ def test_create_or_load_node_state_removed_node(tmp_path):
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(config_data, f)
 
-    result = create_or_load_node_state(config=config)
+    result, _ = create_or_load_node_state(config=config)
 
     expected = {"node1": {"status": "shared", "current_users": [], "booking_list": []}}
     assert result == expected
@@ -279,7 +279,7 @@ def test_create_or_load_node_state_no_booking_list_field(tmp_path):
     with open(state_file, "w", encoding="utf-8") as f:
         json.dump(config_data, f)
 
-    result = create_or_load_node_state(config=config)
+    result, _ = create_or_load_node_state(config=config)
 
     expected = {"node1": {"status": "shared", "current_users": [], "booking_list": []}}
     assert result == expected
@@ -300,3 +300,140 @@ def test_save_bot_state_to_file(tmp_path):
         file_data = json.load(f)
     assert "bot_state" in file_data
     assert file_data["bot_state"] == data
+
+
+def test_create_or_load_device_state_returns_clamped_users(tmp_path):
+    """When max_duration is reduced, clamped user IDs are returned."""
+    cluster_configs = {"node1": ["deviceA"]}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=1800)
+
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "cluster_status": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "deviceA",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "userX", "start_time": 1000, "duration": 5000}],
+                },
+            ]
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        _, clamped = create_or_load_device_state(config=config)
+
+    assert "userX" in clamped
+
+
+def test_create_or_load_device_state_no_clamped_when_within_limit(tmp_path):
+    """No clamped users when durations are within the limit."""
+    cluster_configs = {"node1": ["deviceA"]}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=7200)
+
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "cluster_status": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "deviceA",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "userY", "start_time": 1000, "duration": 3600}],
+                },
+            ]
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        _, clamped = create_or_load_device_state(config=config)
+
+    assert len(clamped) == 0
+
+
+def test_create_or_load_node_state_returns_clamped_users(tmp_path):
+    """When max_duration is reduced, clamped node user IDs are returned."""
+    cluster_configs = {"node1": "Node One"}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=1800)
+
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "cluster_status": {
+            "node1": {
+                "status": "exclusive",
+                "current_users": [{"user_id": "userZ", "start_time": 1000, "duration": 5000}],
+                "booking_list": [],
+            }
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        _, clamped = create_or_load_node_state(config=config)
+
+    assert "userZ" in clamped
+
+
+def test_device_state_clamped_persisted_no_repeat(tmp_path):
+    """After clamping, state is saved so next load doesn't clamp again."""
+    cluster_configs = {"node1": ["deviceA"]}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=1800)
+
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "bot_state": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "deviceA",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "userX", "start_time": 1000, "duration": 5000}],
+                },
+            ]
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        _, clamped = create_or_load_device_state(config=config)
+    assert "userX" in clamped
+
+    # Second load should NOT clamp again (state was persisted)
+    with patch("time.time", return_value=1000):
+        _, clamped2 = create_or_load_device_state(config=config)
+    assert len(clamped2) == 0
+
+
+def test_node_state_clamped_persisted_no_repeat(tmp_path):
+    """After clamping, node state is saved so next load doesn't clamp again."""
+    cluster_configs = {"node1": "Node One"}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=1800)
+
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "bot_state": {
+            "node1": {
+                "status": "exclusive",
+                "current_users": [{"user_id": "userZ", "start_time": 1000, "duration": 5000}],
+                "booking_list": [],
+            }
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        _, clamped = create_or_load_node_state(config=config)
+    assert "userZ" in clamped
+
+    # Second load should NOT clamp again
+    with patch("time.time", return_value=1000):
+        _, clamped2 = create_or_load_node_state(config=config)
+    assert len(clamped2) == 0

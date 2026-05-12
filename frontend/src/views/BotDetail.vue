@@ -256,6 +256,13 @@
               <el-button v-if="authStore.isAdmin" size="small" @click="downloadState">
                 <el-icon><Download /></el-icon> {{ $t('clusterState.download') }}
               </el-button>
+              <el-button
+                v-if="bot.status === 'running' && !editingState"
+                size="small"
+                @click="fetchState"
+              >
+                <el-icon><Refresh /></el-icon> {{ $t('log.refresh') }}
+              </el-button>
               <el-button v-if="!editingState" size="small" @click="viewJson = !viewJson">
                 {{ viewJson ? $t('clusterState.visualView') : 'JSON' }}
               </el-button>

@@ -655,7 +655,7 @@ def test_timer_routine_no_trigger(bot, monkeypatch):
 
 def test_io_create_and_save(bot):
     """Test io create and save."""
-    status = create_or_load_node_state(config=bot.config)
+    status, _ = create_or_load_node_state(config=bot.config)
     assert "test" in status, "Missing test node in created state"
     save_bot_state_to_file(status, config=bot.config)
     data_dir = bot.config.get_val("DATA_DIR")
@@ -673,6 +673,17 @@ def test_max_lock_duration_exceeded(bot):
 
     reply2 = bot.lock("user1", "lock test 45m")
     assert "❌" in reply2["message"]["body"][0]["content"], "Exceeding max lock duration not rejected"
+
+
+def test_lock_duration_exceeded_no_state_pollution(bot):
+    """After max duration rejection, node state must remain idle so subsequent lock succeeds."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+
+    reply1 = bot.lock("user1", "lock test 2h")
+    assert "❌" in reply1["message"]["body"][0]["content"]
+
+    reply2 = bot.lock("user1", "lock test 30m")
+    assert "✅【资源申请成功】" in reply2["message"]["body"][0]["content"]
 
 
 def test_check_and_notify(bot, monkeypatch):

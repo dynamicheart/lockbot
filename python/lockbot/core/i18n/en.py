@@ -138,6 +138,11 @@ MESSAGES = {
     "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
+    "notify.duration_clamped": (
+        "⚠️ [Lock Duration Adjusted]\n"
+        "The admin has set max lock duration to {max_duration}. "
+        "Your remaining lock time has been automatically shortened.\n"
+    ),
     # ── Help: news (inline) ──
     "help.news_header": "📢 Announcement:\n",
     # ── Help: project links ──

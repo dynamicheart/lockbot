@@ -60,6 +60,30 @@ class QueueBot(NodeBot):
             timestamp = int(time.time())
             users_to_notify = set()
             users_to_notify.add(user_id)
+
+            if max_dur > 0:
+                for node in nodes:
+                    booking_info = find_user_info(node["booking_list"], user_id)
+                    if not command_has_duration and booking_info:
+                        check_duration = booking_info["duration"]
+                    else:
+                        check_duration = duration
+                    user_info = find_user_info(node["current_users"], user_id)
+                    if user_info:
+                        check_duration += user_info["duration"]
+                        start_time = user_info["start_time"]
+                    else:
+                        start_time = timestamp
+                    if remaining_duration(start_time, check_duration) > max_dur:
+                        return self.show_error(
+                            user_id,
+                            t(
+                                "error.lock_max_duration_exceeded",
+                                config=self.config,
+                                max_duration=format_duration(max_dur, config=self.config),
+                            ),
+                        )
+
             for node in nodes:
                 node["status"] = "exclusive"
                 booking_info = find_user_info(node["booking_list"], user_id)
@@ -81,16 +105,6 @@ class QueueBot(NodeBot):
                     total_duration += user_info["duration"]
                     for booking_user in node["booking_list"]:
                         users_to_notify.add(booking_user["user_id"])
-
-                if max_dur > 0 and remaining_duration(user_info["start_time"], total_duration) > max_dur:
-                    return self.show_error(
-                        user_id,
-                        t(
-                            "error.lock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(max_dur, config=self.config),
-                        ),
-                    )
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
@@ -125,19 +139,19 @@ class QueueBot(NodeBot):
                 return self.show_error(user_id, self._msg_with_usage("error.already_locked", sep="\n"))
 
             timestamp = int(time.time())
+
+            if max_dur > 0 and duration > max_dur:
+                return self.show_error(
+                    user_id,
+                    t(
+                        "error.lock_max_duration_exceeded",
+                        config=self.config,
+                        max_duration=format_duration(max_dur, config=self.config),
+                    ),
+                )
+
             for node in nodes:
                 user_info = create_user_info(user_id, duration, timestamp, config=self.config)
-
-                if max_dur > 0 and duration > max_dur:
-                    return self.show_error(
-                        user_id,
-                        t(
-                            "error.lock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(max_dur, config=self.config),
-                        ),
-                    )
-
                 node["booking_list"].append(user_info)
 
             reply = self.adapter.build_reply(self._msg_with_usage("success.booking_added"), [user_id])
@@ -165,6 +179,17 @@ class QueueBot(NodeBot):
             users_to_notify = set()
             users_to_notify.add(user_id)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+
+            if max_dur > 0 and remaining_duration(timestamp, duration) > max_dur:
+                return self.show_error(
+                    user_id,
+                    t(
+                        "error.lock_max_duration_exceeded",
+                        config=self.config,
+                        max_duration=format_duration(max_dur, config=self.config),
+                    ),
+                )
+
             for node in nodes:
                 node["status"] = "exclusive"
                 remove_user_info(node["booking_list"], user_id)
@@ -189,15 +214,6 @@ class QueueBot(NodeBot):
                 for user in node["booking_list"]:
                     user["is_notified"] = False
                     users_to_notify.add(user["user_id"])
-                if max_dur > 0 and remaining_duration(user_info["start_time"], total_duration) > max_dur:
-                    return self.show_error(
-                        user_id,
-                        t(
-                            "error.lock_max_duration_exceeded",
-                            config=self.config,
-                            max_duration=format_duration(max_dur, config=self.config),
-                        ),
-                    )
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False

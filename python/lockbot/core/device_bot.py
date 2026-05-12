@@ -193,6 +193,25 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_in_use_or_shared", node_key=node_key)
                     )
 
+                if max_dur > 0:
+                    for device in devices:
+                        total_duration = duration
+                        user_info = find_user_info(device["current_users"], user_id)
+                        if user_info:
+                            total_duration += user_info["duration"]
+                            start_time = user_info["start_time"]
+                        else:
+                            start_time = timestamp
+                        if remaining_duration(start_time, total_duration) > max_dur:
+                            return self.show_error(
+                                user_id,
+                                t(
+                                    "error.lock_max_duration_exceeded",
+                                    config=self.config,
+                                    max_duration=format_duration(max_dur, config=self.config),
+                                ),
+                            )
+
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
@@ -206,16 +225,6 @@ class DeviceBot(BaseLockBot):
                         user_info = create_user_info(user_id, total_duration, timestamp, config=self.config)
                     else:
                         total_duration += user_info["duration"]
-
-                    if max_dur > 0 and remaining_duration(user_info["start_time"], total_duration) > max_dur:
-                        return self.show_error(
-                            user_id,
-                            t(
-                                "error.lock_max_duration_exceeded",
-                                config=self.config,
-                                max_duration=format_duration(max_dur, config=self.config),
-                            ),
-                        )
 
                     user_info["duration"] = total_duration
                     user_info["is_notified"] = False
@@ -251,6 +260,25 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_exclusive_mode", node_key=node_key)
                     )
 
+                if max_dur > 0:
+                    for device in devices:
+                        user_info = find_user_info(device["current_users"], user_id)
+                        if user_info:
+                            total_duration = user_info["duration"] + duration
+                            start_time = user_info["start_time"]
+                        else:
+                            total_duration = duration
+                            start_time = timestamp
+                        if remaining_duration(start_time, total_duration) > max_dur:
+                            return self.show_error(
+                                user_id,
+                                t(
+                                    "error.slock_max_duration_exceeded",
+                                    config=self.config,
+                                    max_duration=format_duration(max_dur, config=self.config),
+                                ),
+                            )
+
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
@@ -260,29 +288,8 @@ class DeviceBot(BaseLockBot):
                     user_info = find_user_info(device["current_users"], user_id)
                     if not user_info:
                         user_info = create_user_info(user_id, duration, timestamp, config=self.config)
-                        if max_dur > 0 and remaining_duration(user_info["start_time"], user_info["duration"]) > max_dur:
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.slock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                ),
-                            )
                         device["current_users"].append(user_info)
                     else:
-                        if (
-                            max_dur > 0
-                            and remaining_duration(user_info["start_time"], user_info["duration"] + duration) > max_dur
-                        ):
-                            return self.show_error(
-                                user_id,
-                                t(
-                                    "error.slock_max_duration_exceeded",
-                                    config=self.config,
-                                    max_duration=format_duration(max_dur, config=self.config),
-                                ),
-                            )
                         user_info["duration"] += duration
                         user_info["is_notified"] = False
 

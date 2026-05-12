@@ -72,11 +72,17 @@ def remaining_duration(start_time, duration):
 
 
 def apply_max_duration_limit(user_list, max_duration):
-    """Clamp each user's remaining duration to max_duration in place."""
+    """Clamp each user's remaining duration to max_duration in place.
+
+    Returns a list of user_ids whose durations were clamped.
+    """
+    clamped_users = []
     for user_info in user_list:
         final_duration = remaining_duration(user_info["start_time"], user_info["duration"])
         if max_duration > 0 and final_duration > max_duration:
             user_info["duration"] = user_info["duration"] - final_duration + max_duration
+            clamped_users.append(user_info["user_id"])
+    return clamped_users
 
 
 def format_access_mode(status: str, config=None) -> str:

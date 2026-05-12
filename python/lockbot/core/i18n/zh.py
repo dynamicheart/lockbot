@@ -132,6 +132,9 @@ MESSAGES = {
     "notify.resource_available_header": "📢【资源可用提醒】\n资源已空闲，请在 {timeout} 内lock:\n\n",
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
+    "notify.duration_clamped": (
+        "⚠️【锁定时长调整通知】\n管理员已将最大锁定时长调整为 {max_duration}，您的锁定剩余时长已被自动缩短，请知悉。\n"
+    ),
     # ── Help: news (inline) ──
     "help.news_header": "📢 公告:\n",
     # ── Help: project links ──

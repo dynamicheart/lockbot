@@ -330,7 +330,7 @@ def test_early_notify_fallback_on_scheduler_delay(bot, monkeypatch):
 
 def test_io_create_and_save(bot):
     """Test io create and save."""
-    status = create_or_load_node_state(config=bot.config)
+    status, _ = create_or_load_node_state(config=bot.config)
     assert "test" in status, "created state missing 'test' node"
     save_bot_state_to_file(status, config=bot.config)
     data_dir = bot.config.get_val("DATA_DIR")
@@ -359,6 +359,28 @@ def test_max_slock_duration_exceeded(bot):
 
     reply2 = bot.slock("user1", "slock test 45m")
     assert "❌" in reply2["message"]["body"][0]["content"], "exceeding max shared lock duration was not rejected"
+
+
+def test_lock_duration_exceeded_no_state_pollution(bot):
+    """After max duration rejection, node state must remain idle so subsequent lock succeeds."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+
+    reply1 = bot.lock("user1", "lock test 2h")
+    assert "❌" in reply1["message"]["body"][0]["content"]
+
+    reply2 = bot.lock("user1", "lock test 30m")
+    assert "✅【资源申请成功】" in reply2["message"]["body"][0]["content"]
+
+
+def test_slock_duration_exceeded_no_state_pollution(bot):
+    """After max slock duration rejection, node state must remain idle so subsequent slock succeeds."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+
+    reply1 = bot.slock("user1", "slock test 2h")
+    assert "❌" in reply1["message"]["body"][0]["content"]
+
+    reply2 = bot.slock("user2", "slock test 30m")
+    assert "✅【资源申请成功】" in reply2["message"]["body"][0]["content"]
 
 
 def test_slock_multiple_users(bot):

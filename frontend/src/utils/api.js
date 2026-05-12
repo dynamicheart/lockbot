@@ -21,6 +21,7 @@ realApi.interceptors.request.use((config) => {
 realApi.interceptors.response.use(
   (res) => res,
   (err) => {
+    if (err.config?._silent) return Promise.reject(err)
     const status = err.response?.status
     const url = err.config?.url
     if (status === 401 && url !== '/auth/login') {

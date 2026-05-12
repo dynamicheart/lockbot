@@ -310,6 +310,9 @@ async function fetchSecurityAlerts() {
 
 function formatTime(iso) {
   if (!iso) return '—'
+  if (typeof iso === 'string' && !iso.endsWith('Z') && !iso.includes('+')) {
+    iso = iso + 'Z'
+  }
   return new Date(iso).toLocaleString()
 }
 

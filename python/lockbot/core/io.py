@@ -106,7 +106,11 @@ def log_to_file(user_id, command, node_key, dev_ids="", duration="", config=None
 
 
 def create_or_load_device_state(config=None):
-    """Create or load device cluster state, applying max-duration limits."""
+    """Create or load device cluster state, applying max-duration limits.
+
+    Returns (state_dict, clamped_user_ids) where clamped_user_ids is a set of
+    user IDs whose lock durations were shortened by max_duration enforcement.
+    """
     state_filename = os.path.join(_bot_dir(config), "bot_state.json")
     cluster_configs = _cfg_get(config, "CLUSTER_CONFIGS")
     max_duration = _cfg_get(config, "MAX_LOCK_DURATION", -1)
@@ -126,11 +130,13 @@ def create_or_load_device_state(config=None):
 
     _migrate_old_state_file(state_filename, config)
 
+    clamped_user_ids = set()
+
     if os.path.exists(state_filename):
         loaded_state = _load_state_from_file(state_filename)
 
         if not loaded_state:
-            return default_state
+            return default_state, clamped_user_ids
 
         for node_key, node_status in loaded_state.items():
             if node_key not in cluster_configs:
@@ -144,20 +150,28 @@ def create_or_load_device_state(config=None):
                     device_status = old_by_id[dev_id]
                     _migrate_status_fields(device_status)
                     _migrate_user_info_fields(device_status["current_users"])
-                    apply_max_duration_limit(device_status["current_users"], max_duration)
+                    clamped = apply_max_duration_limit(device_status["current_users"], max_duration)
+                    clamped_user_ids.update(clamped)
                     default_device.update(**device_status)
 
-        return default_state
+        if clamped_user_ids:
+            save_bot_state_to_file(default_state, config)
+
+        return default_state, clamped_user_ids
 
     else:
-        return default_state
+        return default_state, clamped_user_ids
 
 
 # ── Node state ─────────────────────────────────────────────────
 
 
 def create_or_load_node_state(config=None):
-    """Create or load node state, applying max-duration limits."""
+    """Create or load node state, applying max-duration limits.
+
+    Returns (state_dict, clamped_user_ids) where clamped_user_ids is a set of
+    user IDs whose lock durations were shortened by max_duration enforcement.
+    """
     state_filename = os.path.join(_bot_dir(config), "bot_state.json")
     cluster_configs = _cfg_get(config, "CLUSTER_CONFIGS")
     max_duration = _cfg_get(config, "MAX_LOCK_DURATION", -1)
@@ -173,11 +187,13 @@ def create_or_load_node_state(config=None):
 
     _migrate_old_state_file(state_filename, config)
 
+    clamped_user_ids = set()
+
     if os.path.exists(state_filename):
         loaded_state = _load_state_from_file(state_filename)
 
         if not loaded_state:
-            return default_state
+            return default_state, clamped_user_ids
 
         for node_key, node_status in loaded_state.items():
             if node_key not in default_state:
@@ -186,13 +202,17 @@ def create_or_load_node_state(config=None):
             node_status.pop("fullname", None)
             _migrate_user_info_fields(node_status.get("current_users", []))
             _migrate_user_info_fields(node_status.get("booking_list", []))
-            apply_max_duration_limit(node_status.get("current_users", []), max_duration)
+            clamped = apply_max_duration_limit(node_status.get("current_users", []), max_duration)
+            clamped_user_ids.update(clamped)
             default_state[node_key].update(**node_status)
 
-        return default_state
+        if clamped_user_ids:
+            save_bot_state_to_file(default_state, config)
+
+        return default_state, clamped_user_ids
 
     else:
-        return default_state
+        return default_state, clamped_user_ids
 
 
 # ── State persistence ──────────────────────────────────────────
