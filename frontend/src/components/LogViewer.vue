@@ -18,7 +18,7 @@
         <el-option label="ERROR" value="ERROR" />
       </el-select>
       <!-- <el-switch v-model="autoRefresh" :active-text="$t('log.autoRefresh')" size="small" /> -->
-      <el-button size="small" @click="fetchLogs">
+      <el-button size="small" @click="fetchLogs()">
         <el-icon><Refresh /></el-icon> {{ $t('log.refresh') }}
       </el-button>
       <el-button size="small" :disabled="logs.length === 0" @click="downloadLogs">

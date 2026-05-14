@@ -318,12 +318,12 @@ def update_bot(
         )
         if dup:
             raise HTTPException(status_code=409, detail="Bot name already exists")
-        changes["name"] = [bot.name, body.name]
+        changes["name"] = {"from": bot.name, "to": body.name}
         bot.name = body.name
     if body.group_id is not None:
         bot.group_id = body.group_id
     if body.credentials is not None:
-        changes["credentials"] = True
+        changes["credentials"] = "updated"
         # Merge changed fields into existing credentials; empty strings clear the key
         creds = decrypt_credentials(bot)
         for k, v in body.credentials.items():
@@ -333,10 +333,20 @@ def update_bot(
                 creds.pop(k, None)
         bot.credentials = encrypt_credentials(creds)
     if body.cluster_configs is not None:
-        changes["cluster_configs"] = True
+        if isinstance(body.cluster_configs, dict):
+            node_summary = {k: len(v) if isinstance(v, list) else v for k, v in body.cluster_configs.items()}
+            changes["cluster_configs"] = node_summary
+        else:
+            changes["cluster_configs"] = f"{len(body.cluster_configs)} nodes"
         bot.cluster_configs = json.dumps(body.cluster_configs, ensure_ascii=False)
     if body.config_overrides is not None:
-        changes["config_overrides"] = True
+        old_overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}
+        diff = {}
+        for k, v in body.config_overrides.items():
+            old_v = old_overrides.get(k)
+            if old_v != v:
+                diff[k] = {"from": old_v, "to": v}
+        changes["config_overrides"] = diff if diff else "no change"
         bot.config_overrides = json.dumps(body.config_overrides, ensure_ascii=False)
 
     write_audit_log(
