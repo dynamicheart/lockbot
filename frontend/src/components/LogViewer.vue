@@ -18,7 +18,7 @@
         <el-option label="ERROR" value="ERROR" />
       </el-select>
       <!-- <el-switch v-model="autoRefresh" :active-text="$t('log.autoRefresh')" size="small" /> -->
-      <el-button size="small" @click="fetchLogs()">
+      <el-button size="small" :loading="refreshing" @click="refreshLogs">
         <el-icon><Refresh /></el-icon> {{ $t('log.refresh') }}
       </el-button>
       <el-button size="small" :disabled="logs.length === 0" @click="downloadLogs">
@@ -126,6 +126,37 @@ async function pollNewLogs() {
     }
   } catch {
     // handled by interceptor
+  }
+}
+
+const refreshing = ref(false)
+
+async function refreshLogs() {
+  if (logs.value.length === 0) {
+    return fetchLogs()
+  }
+  refreshing.value = true
+  try {
+    const since = logs.value[0]?.created_at
+    if (!since) {
+      refreshing.value = false
+      return fetchLogs()
+    }
+    const params = { page: 1, limit: 50, since }
+    if (level.value) params.level = level.value
+    if (category.value) params.category = category.value
+    const data = await botsStore.getBotLogs(props.botId, params)
+    if (data.length > 0) {
+      const existingIds = new Set(logs.value.map((l) => l.id))
+      const newLogs = data.filter((l) => !existingIds.has(l.id))
+      if (newLogs.length > 0) {
+        logs.value = [...newLogs, ...logs.value]
+      }
+    }
+  } catch {
+    // handled by interceptor
+  } finally {
+    refreshing.value = false
   }
 }
 

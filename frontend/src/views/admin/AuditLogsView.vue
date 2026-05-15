@@ -189,7 +189,14 @@
                   </el-link>
                 </template>
                 <pre
-                  style="margin: 0; font-size: 12px; white-space: pre-wrap; word-break: break-all"
+                  style="
+                    margin: 0;
+                    font-size: 12px;
+                    white-space: pre-wrap;
+                    word-break: break-all;
+                    max-height: 300px;
+                    overflow-y: auto;
+                  "
                   >{{ formatDetail(row.detail) }}</pre
                 >
               </el-popover>
