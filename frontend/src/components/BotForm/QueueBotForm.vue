@@ -10,6 +10,7 @@
     <NodeBotForm
       :model-value="modelValue"
       @update:model-value="$emit('update:modelValue', $event)"
+      @update:has-error="$emit('update:hasError', $event)"
     />
   </div>
 </template>
@@ -20,5 +21,5 @@ import NodeBotForm from './NodeBotForm.vue'
 defineProps({
   modelValue: { type: Object, default: () => ({}) },
 })
-defineEmits(['update:modelValue'])
+defineEmits(['update:modelValue', 'update:hasError'])
 </script>

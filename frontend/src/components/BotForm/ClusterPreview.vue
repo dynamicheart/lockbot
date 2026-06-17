@@ -14,6 +14,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { executeCommand } from '../../utils/demoBotEngine.js'
+import { orderedEntries } from '../../utils/helpers.js'
 
 const props = defineProps({
   botType: { type: String, required: true },
@@ -35,12 +36,11 @@ const mockState = computed(() => {
 
   if (props.botType === 'DEVICE') {
     if (typeof cc !== 'object' || Array.isArray(cc)) return null
-    const entries = Object.entries(cc).filter(
+    const entries = orderedEntries(cc, cc).filter(
       ([, models]) => Array.isArray(models) && models.length
     )
     if (!entries.length) return null
 
-    // Walk devices globally: #0 exclusive alice, #1 shared bob+carol, rest idle
     let gIdx = 0
     const state = {}
     for (const [nodeName, models] of entries) {
@@ -71,7 +71,7 @@ const mockState = computed(() => {
 
   // NODE / QUEUE
   if (!Array.isArray(cc)) return null
-  const nodes = cc.filter(Boolean)
+  const nodes = cc.filter(Boolean).map((n) => n.toLowerCase())
   if (!nodes.length) return null
 
   const isQueue = props.botType === 'QUEUE'
@@ -108,7 +108,17 @@ const queryText = computed(() => {
   const state = mockState.value
   if (!state) return ''
   const cc = props.clusterConfigs
-  return executeCommand(state, 'alice', '', props.botType, { CLUSTER_CONFIGS: cc }, lang.value)
+  const nodeOrder = Array.isArray(cc)
+    ? cc.filter(Boolean).map((n) => n.toLowerCase())
+    : Object.keys(cc)
+  return executeCommand(
+    state,
+    'alice',
+    '',
+    props.botType,
+    { CLUSTER_CONFIGS: cc, _nodeOrder: nodeOrder },
+    lang.value
+  )
 })
 </script>
 

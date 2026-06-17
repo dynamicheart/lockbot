@@ -50,9 +50,17 @@
       <el-divider />
 
       <!-- Cluster Config -->
-      <NodeBotForm v-if="form.bot_type === 'NODE'" v-model="clusterConfig" />
+      <NodeBotForm
+        v-if="form.bot_type === 'NODE'"
+        v-model="clusterConfig"
+        @update:has-error="clusterHasError = $event"
+      />
       <DeviceBotForm v-else-if="form.bot_type === 'DEVICE'" v-model="clusterConfig" />
-      <QueueBotForm v-else-if="form.bot_type === 'QUEUE'" v-model="clusterConfig" />
+      <QueueBotForm
+        v-else-if="form.bot_type === 'QUEUE'"
+        v-model="clusterConfig"
+        @update:has-error="clusterHasError = $event"
+      />
 
       <ClusterPreview :bot-type="form.bot_type" :cluster-configs="clusterConfig" />
 
@@ -288,6 +296,7 @@ const botsStore = useBotsStore()
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
 const saving = ref(false)
+const clusterHasError = ref(false)
 const bot = ref(null)
 const maskedAesKey = ref('')
 const maskedToken = ref('')
@@ -391,7 +400,15 @@ onMounted(async () => {
 async function handleSubmit() {
   try {
     await formRef.value.validate()
-  } catch {
+  } catch (fields) {
+    const errors = Object.values(fields || {}).flat()
+    const msg = errors[0]?.message
+    if (msg) ElMessage.error(typeof msg === 'function' ? msg() : msg)
+    return
+  }
+
+  if (clusterHasError.value) {
+    ElMessage.error(t('botForm.duplicateNode'))
     return
   }
 

@@ -2,6 +2,49 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 
 /**
+ * Return Object.entries(data) ordered by cluster_configs key order.
+ * Handles both array configs (NODE/QUEUE) and dict configs (DEVICE).
+ * Falls back to original Object.entries order for keys not in config.
+ *
+ * Why: JS objects auto-sort pure-integer keys (e.g. "0","1","2") by numeric value,
+ * ignoring insertion order. This function enforces the intended order from cluster_configs.
+ */
+export function orderedEntries(data, clusterConfigs) {
+  if (!data || !clusterConfigs) return Object.entries(data || {})
+  const order = Array.isArray(clusterConfigs) ? clusterConfigs : Object.keys(clusterConfigs)
+  const dataKeys = new Map(Object.keys(data).map((k) => [k.toLowerCase(), k]))
+  const result = []
+  for (const key of order) {
+    const actual = dataKeys.get(key.toLowerCase())
+    if (actual !== undefined) {
+      result.push([actual, data[actual]])
+      dataKeys.delete(key.toLowerCase())
+    }
+  }
+  for (const actual of dataKeys.values()) {
+    result.push([actual, data[actual]])
+  }
+  return result
+}
+
+/**
+ * JSON.stringify that respects cluster_configs key order.
+ * Standard JSON.stringify always sorts numeric keys; this preserves the intended order.
+ */
+export function orderedStringify(data, clusterConfigs, indent = 2) {
+  if (!data || !clusterConfigs) return JSON.stringify(data, null, indent)
+  const entries = orderedEntries(data, clusterConfigs)
+  const sp = ' '.repeat(indent)
+  const inner = entries
+    .map(
+      ([k, v]) =>
+        `${sp}${JSON.stringify(k)}: ${JSON.stringify(v, null, indent).replace(/\n/g, '\n' + sp)}`
+    )
+    .join(',\n')
+  return `{\n${inner}\n}`
+}
+
+/**
  * Composable providing shared utility functions with i18n support.
  */
 export function useHelpers() {

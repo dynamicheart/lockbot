@@ -62,7 +62,7 @@ let nodeIdSeq = 0
 const props = defineProps({
   modelValue: { type: [Object, Array], default: () => ({}) },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'update:hasError'])
 
 const nodes = ref(parseInit())
 const dragIndex = ref(-1)
@@ -88,9 +88,9 @@ function parseInit() {
 const NODE_NAME_RE = /^[a-zA-Z0-9_-]*$/
 
 function isDuplicate(i) {
-  const val = nodes.value[i]?.name?.trim()
+  const val = nodes.value[i]?.name?.trim().toLowerCase()
   if (!val) return false
-  return nodes.value.some((n, j) => j !== i && n.name?.trim() === val)
+  return nodes.value.some((n, j) => j !== i && n.name?.trim().toLowerCase() === val)
 }
 
 function isInvalidName(i) {
@@ -132,8 +132,10 @@ function onDragLeave(i) {
 function onDrop(i) {
   const from = dragIndex.value
   if (from === -1 || from === i) return
-  const target = dropPos.value === 'bottom' ? (from < i ? i : i + 1) : from < i ? i - 1 : i
   const item = nodes.value.splice(from, 1)[0]
+  // After removing, recalculate insert position
+  let target = dropPos.value === 'bottom' ? i + 1 : i
+  if (from < i) target-- // adjust because source was before target
   nodes.value.splice(target, 0, item)
   dragIndex.value = -1
   dropIndex.value = -1
@@ -148,27 +150,42 @@ function onDragEnd() {
 
 let syncing = false
 
+function extractNames(cfg) {
+  let names = ['']
+  if (cfg) {
+    if (Array.isArray(cfg)) {
+      names = cfg.length ? [...cfg] : ['']
+    } else if (cfg.clusters) {
+      names = cfg.clusters.map((c) => c.name || c.full_name || '')
+    } else if (typeof cfg === 'object') {
+      const keys = Object.keys(cfg)
+      names = keys.length ? keys : ['']
+    }
+  }
+  return names
+}
+
 watch(
   () => props.modelValue,
   (newVal) => {
     if (syncing) return
+    const incomingNames = extractNames(newVal)
+    const currentNames = nodes.value.map((n) => n.name)
+    // Skip regeneration if content matches (avoids destroying drag state)
+    if (
+      incomingNames.length === currentNames.length &&
+      incomingNames.every((n, i) => n === currentNames[i])
+    ) {
+      return
+    }
+    if (import.meta.env.DEV) {
+      console.warn('[NodeBotForm] modelValue desync detected', {
+        incoming: incomingNames,
+        local: currentNames,
+      })
+    }
     syncing = true
-    const newNodes = (() => {
-      const cfg = newVal
-      let names = ['']
-      if (cfg) {
-        if (Array.isArray(cfg)) {
-          names = cfg.length ? [...cfg] : ['']
-        } else if (cfg.clusters) {
-          names = cfg.clusters.map((c) => c.name || c.full_name || '')
-        } else if (typeof cfg === 'object') {
-          const keys = Object.keys(cfg)
-          names = keys.length ? keys : ['']
-        }
-      }
-      return names.map((name) => ({ id: ++nodeIdSeq, name }))
-    })()
-    nodes.value = newNodes
+    nodes.value = incomingNames.map((name) => ({ id: ++nodeIdSeq, name }))
     nextTick(() => {
       syncing = false
     })
@@ -179,12 +196,23 @@ watch(
 watch(
   nodes,
   () => {
-    const filtered = nodes.value.filter((n) => n.name?.trim() && NODE_NAME_RE.test(n.name.trim()))
     syncing = true
-    emit(
-      'update:modelValue',
-      filtered.map((n) => n.name.trim())
-    )
+    const seen = new Set()
+    const result = []
+    let hasErr = false
+    for (const n of nodes.value) {
+      const name = n.name?.trim()
+      if (!name || !NODE_NAME_RE.test(name)) continue
+      const key = name.toLowerCase()
+      if (seen.has(key)) {
+        hasErr = true
+        continue
+      }
+      seen.add(key)
+      result.push(name)
+    }
+    emit('update:modelValue', result)
+    emit('update:hasError', hasErr)
     nextTick(() => {
       syncing = false
     })

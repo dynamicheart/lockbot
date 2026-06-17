@@ -197,10 +197,11 @@
             <template #label>
               {{ $t('botDetail.apiKey') }}
               <el-tooltip
-                :content="$t('botDetail.apiKeyHelp')"
                 placement="top"
                 effect="light"
-                :width="280"
+                :width="300"
+                raw-content
+                :content="`${$t('botDetail.apiKeyHelp')}<br><a href='/api/public-docs' target='_blank' style='color:var(--el-color-primary)'>${$t('botDetail.apiKeyDocsLink')}</a>`"
               >
                 <el-icon class="help-icon"><QuestionFilled /></el-icon>
               </el-tooltip>
@@ -476,7 +477,7 @@ import { Download, User, Monitor } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { validateBotState } from '../utils/stateValidation'
 import { useI18n } from 'vue-i18n'
-import { useHelpers } from '../utils/helpers'
+import { useHelpers, orderedEntries, orderedStringify } from '../utils/helpers'
 
 const { t } = useI18n()
 const { formatDateTime, formatRelativeTime, maskText, copyText } = useHelpers()
@@ -681,8 +682,12 @@ const isValidState = (data) => {
 const parsedState = computed(() => {
   if (!stateData.value || !isValidState(stateData.value)) return null
   const data = stateData.value
+  const cc =
+    typeof bot.value.cluster_configs === 'string'
+      ? JSON.parse(bot.value.cluster_configs)
+      : bot.value.cluster_configs || {}
   if (botType.value === 'DEVICE') {
-    return Object.entries(data).map(([nodeName, devices]) => ({
+    return orderedEntries(data, cc).map(([nodeName, devices]) => ({
       nodeName,
       devices: Array.isArray(devices)
         ? devices.map((d) => ({
@@ -695,7 +700,7 @@ const parsedState = computed(() => {
     }))
   }
   // NODE / QUEUE
-  return Object.entries(data).map(([nodeName, info]) => ({
+  return orderedEntries(data, cc).map(([nodeName, info]) => ({
     nodeName,
     status: info.status,
     currentUsers: info.current_users || [],
@@ -729,7 +734,11 @@ const highlightedJson = computed(() => highlightJson(stateText.value || ''))
 
 const viewJsonHighlighted = computed(() => {
   if (!stateData.value) return ''
-  return highlightJson(JSON.stringify(stateData.value, null, 2))
+  const cc =
+    typeof bot.value.cluster_configs === 'string'
+      ? JSON.parse(bot.value.cluster_configs)
+      : bot.value.cluster_configs || {}
+  return highlightJson(orderedStringify(stateData.value, cc))
 })
 
 function syncScroll(e) {
