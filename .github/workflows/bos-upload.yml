@@ -1,0 +1,62 @@
+name: Upload Image to BOS
+
+on:
+  workflow_run:
+    workflows: ["Publish Docker Image"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v2.1.0)'
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull, save and upload to BOS
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          IMAGE="ghcr.io/${{ github.repository }}:${TAG}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker pull "$IMAGE"
+          docker save "$IMAGE" -o "lockbot-${TAG}.tar"
+          pip install bce-python-sdk -q
+          python - <<'PY'
+          import os
+          from baidubce.auth.bce_credentials import BceCredentials
+          from baidubce.bce_client_configuration import BceClientConfiguration
+          from baidubce.services.bos.bos_client import BosClient
+          config = BceClientConfiguration(
+              credentials=BceCredentials(os.environ["BOS_AK"], os.environ["BOS_SK"]),
+              endpoint="https://bj.bcebos.com",
+          )
+          client = BosClient(config)
+          tag = os.environ["TAG"]
+          bos_path = os.environ["BOS_PATH"].strip("/")
+          bucket, prefix = bos_path.split("/", 1)
+          local = f"lockbot-{tag}.tar"
+          key = f"{prefix}/lockbot-{tag}.tar"
+          print(f"Uploading {local} -> bos://{bucket}/{key}")
+          client.put_object_from_file(bucket, key, local)
+          print("Done")
+          PY
+        env:
+          BOS_AK: ${{ secrets.BOS_AK }}
+          BOS_SK: ${{ secrets.BOS_SK }}
+          BOS_PATH: ${{ secrets.BOS_PATH }}
+          TAG: ${{ steps.tag.outputs.value }}

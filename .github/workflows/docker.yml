@@ -40,3 +40,4 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:${{ steps.tag.outputs.value }}
             ghcr.io/${{ github.repository }}:latest
+
