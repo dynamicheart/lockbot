@@ -1,0 +1,43 @@
+name: Save Image Artifact
+
+on:
+  workflow_run:
+    workflows: ["Publish Docker Image"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v2.6.1)'
+        required: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pull and save image
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          IMAGE="ghcr.io/${{ github.repository }}:${TAG}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker pull "$IMAGE"
+          docker save "$IMAGE" | gzip > "lockbot-${TAG}.tar.gz"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lockbot-${{ steps.tag.outputs.value }}
+          path: lockbot-${{ steps.tag.outputs.value }}.tar.gz
+          retention-days: 90
