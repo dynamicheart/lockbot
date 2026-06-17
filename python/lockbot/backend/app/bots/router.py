@@ -1322,4 +1322,6 @@ def api_opkick(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
 
+    freed_str = ", ".join(result["freed"])
+    _write_log(bot_id, f"[API] opkick {body.target_user} -> {freed_str}", category="command")
     return result

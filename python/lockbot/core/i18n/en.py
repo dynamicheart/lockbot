@@ -171,7 +171,7 @@ MESSAGES = {
     "opkick.debounce": "Duplicate operation, please wait",
     "opkick.invalid_format": "Invalid opkick format. Usage: opkick <username> [node] [dev x,y]",
     "opkick.notify_kicked": "⚠️ [Operator Release]\n\nNode: {node_key}\n",
-    "opkick.notify_kicked_reason": "Reason: {reason}\n",
+    "opkick.notify_kicked_reason": "Reason: {reason}\n\n",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ Bot {bot_name}(ID:{bot_id}) is not running. "  # noqa: E501
     "Please contact the owner @{owner_username} to start it.",

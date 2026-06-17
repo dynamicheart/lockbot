@@ -163,7 +163,7 @@ MESSAGES = {
     "opkick.debounce": "重复操作，请稍后",
     "opkick.invalid_format": "opkick命令格式错误，正确格式: opkick <username> [node] [dev x,y]",
     "opkick.notify_kicked": "⚠️【运维释放】\n\n节点: {node_key}\n",
-    "opkick.notify_kicked_reason": "原因: {reason}\n",
+    "opkick.notify_kicked_reason": "原因: {reason}\n\n",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": (
         "⚠️ 机器人 {bot_name}(ID:{bot_id}) 尚未启动，请联系管理人 @{owner_username} 启动后再使用。"
