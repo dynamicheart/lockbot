@@ -249,6 +249,48 @@ class QueueBot(NodeBot):
             self._save_and_notify()
             return reply
 
+    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
+        """API-driven operator kick for QueueBot: only releases current_users, preserves booking_list."""
+        with self._lock:
+            if node_key:
+                target_nodes = [node_key]
+            else:
+                target_nodes = [
+                    k
+                    for k, v in self.state.bot_state.items()
+                    if any(u["user_id"] == target_user for u in v["current_users"])
+                ]
+            if not target_nodes:
+                raise ValueError(f"User {target_user} has no active locks")
+
+            freed = []
+            for nk in target_nodes:
+                node = self.state.bot_state.get(nk)
+                if not node:
+                    continue
+                if find_user_info(node["current_users"], target_user):
+                    remove_user_info(node["current_users"], target_user)
+                    if not node["current_users"]:
+                        node["status"] = "idle"
+                    freed.append(nk)
+
+            if not freed:
+                raise ValueError(f"User {target_user} has no active locks")
+
+            # Notify kicked user
+            try:
+                notify_msg = t("opkick.notify_kicked", config=self.config, node_key="\n  ".join(freed))
+                if reason:
+                    notify_msg += t("opkick.notify_kicked_reason", config=self.config, reason=reason)
+                notify_reply = self.adapter.build_reply(notify_msg, [target_user])
+                self.adapter.send(notify_reply)
+            except Exception:
+                pass
+
+            log_to_file("api", "opkick", freed, config=self.config)
+            self._save_and_notify()
+            return {"ok": True, "freed": freed}
+
     def _help_header(self):
         parts = []
         parts.append(t("help.title", config=self.config))

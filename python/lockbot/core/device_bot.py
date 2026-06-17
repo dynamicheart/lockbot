@@ -412,6 +412,54 @@ class DeviceBot(BaseLockBot):
             self._save_and_notify()
             return reply
 
+    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
+        """API-driven operator kick: release target_user's device locks.
+
+        Returns: {"ok": True, "freed": ["node/devN", ...]}
+        Raises: ValueError if user not found.
+        """
+        with self._lock:
+            target_nodes = [node_key] if node_key else list(self.state.bot_state.keys())
+            freed = []
+            for nk in target_nodes:
+                if nk not in self.state.bot_state:
+                    continue
+                devices = self.state.bot_state[nk]
+                for idx, dev in enumerate(devices):
+                    if dev_ids and idx not in dev_ids:
+                        continue
+                    if find_user_info(dev.get("current_users", []), target_user):
+                        remove_user_info(dev["current_users"], target_user)
+                        if not dev["current_users"]:
+                            dev["status"] = "idle"
+                        freed.append(f"{nk}/dev{idx}")
+
+            if not freed:
+                raise ValueError(f"User {target_user} has no active locks")
+
+            # Group freed by node: {"gpu01": [0,1,2]}
+            freed_grouped = {}
+            for item in freed:
+                nk, dev_part = item.split("/dev")
+                freed_grouped.setdefault(nk, []).append(dev_part)
+            node_lines = "\n".join(f"  {nk} dev {','.join(devs)}" for nk, devs in freed_grouped.items())
+
+            # Notify kicked user
+            try:
+                notify_msg = t("opkick.notify_kicked", config=self.config, node_key=node_lines)
+                if reason:
+                    notify_msg += t("opkick.notify_kicked_reason", config=self.config, reason=reason)
+                notify_reply = self.adapter.build_reply(notify_msg, [target_user])
+                self.adapter.send(notify_reply)
+            except Exception:
+                pass
+
+            from lockbot.core.io import log_to_file
+
+            log_to_file("api", "opkick", freed, config=self.config)
+            self._save_and_notify()
+            return {"ok": True, "freed": freed}
+
     def _help_commands(self):
         """
         Return the device-specific command help text (between rules and footer).

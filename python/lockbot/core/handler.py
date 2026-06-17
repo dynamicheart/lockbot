@@ -14,7 +14,7 @@ def execute_command(msg_data, bot):
     adapter = getattr(bot, "adapter", None)
     if not isinstance(adapter, MessageAdapter):
         adapter = InfoflowAdapter()
-    user_id, _, rcv_info = adapter.extract_command(msg_data)
+    user_id, group_id, rcv_info = adapter.extract_command(msg_data)
     config = getattr(bot, "config", None)
     cluster_configs = config.get_val("CLUSTER_CONFIGS", {}) if config else Config.get("CLUSTER_CONFIGS", {})
 

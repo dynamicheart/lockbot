@@ -105,6 +105,8 @@ class BotDetail(BotOut):
     webhook_url_masked: str = ""
     aes_key_masked: str = ""
     token_masked: str = ""
+    has_api_key: bool = False
+    api_key: str = ""
 
 
 class BotStatusOut(BaseModel):
@@ -128,3 +130,26 @@ class BotLogOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Public API schemas ────────────────────────────────────────────────────────
+
+
+class OpkickRequest(BaseModel):
+    """Request body for POST /api/bots/{id}/opkick"""
+
+    target_user: str
+    node_key: str | None = None
+    dev: list[int] | None = None
+    reason: str = ""
+
+
+class OpkickResponse(BaseModel):
+    ok: bool = True
+    freed: list[str]
+
+
+class LockedUsersResponse(BaseModel):
+    bot_id: int
+    bot_type: str
+    nodes: dict

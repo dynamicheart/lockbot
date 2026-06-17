@@ -2,12 +2,11 @@
 Bot CRUD + lifecycle + webhook routes.
 """
 
-from __future__ import annotations
-
 import contextlib
 import json
 import logging
 import os
+import secrets
 import traceback
 from datetime import datetime
 
@@ -21,7 +20,16 @@ from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.bots.manager import bot_manager
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.bots.schemas import BotCreate, BotDetail, BotOut, BotStatusOut, BotUpdate
+from lockbot.backend.app.bots.schemas import (
+    BotCreate,
+    BotDetail,
+    BotOut,
+    BotStatusOut,
+    BotUpdate,
+    LockedUsersResponse,
+    OpkickRequest,
+    OpkickResponse,
+)
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
@@ -97,6 +105,8 @@ def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
         owner = db.get(User, bot.user_id)
         data["owner"] = owner.username if owner else ""
         data["owner_role"] = owner.role if owner else ""
+    data["has_api_key"] = bool(bot.api_key)
+    data["api_key"] = bot.api_key or ""
     return data
 
 
@@ -1051,10 +1061,6 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     args = dict(request.query_params)
 
-    logger.debug(
-        "Webhook bot=%d content_type=%s form=%s args=%s body_len=%d", bot_id, content_type, form, args, len(body)
-    )
-
     instance = bot_manager.get_instance(bot_id)
     if not instance:
         # Bot not running — try to reply "not started" via IM
@@ -1159,9 +1165,11 @@ async def _reply_bot_not_running(
 
     # Build and send "bot not running" reply
     if bot.status == "error":
-        content = t("webhook.bot_error", lang=lang, bot_name=bot.name, owner_username=owner_username)
+        content = t("webhook.bot_error", lang=lang, bot_name=bot.name, bot_id=bot_id, owner_username=owner_username)
     else:
-        content = t("webhook.bot_not_running", lang=lang, bot_name=bot.name, owner_username=owner_username)
+        content = t(
+            "webhook.bot_not_running", lang=lang, bot_name=bot.name, bot_id=bot_id, owner_username=owner_username
+        )
     reply = adapter.build_reply(content, [user_id], group_id=group_id)
     toid = msg_data["message"]["header"].get("toid")
     if toid:
@@ -1173,3 +1181,145 @@ async def _reply_bot_not_running(
         logger.exception("Failed to send 'bot not running' reply for bot %d", bot_id)
 
     return PlainTextResponse(content="bot not running", status_code=200)
+
+
+# ── API Key management + locked-users endpoint ──────────────────────────
+
+
+def _generate_api_key() -> str:
+    """Generate a new API key."""
+    return "lbk_" + secrets.token_hex(24)
+
+
+def _verify_api_key(bot: Bot, token: str) -> bool:
+    """Verify a Bearer token against the stored key."""
+    if not bot.api_key or not token:
+        return False
+    return token == bot.api_key
+
+
+@router.post("/{bot_id}/api-key")
+def generate_api_key(
+    bot_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Generate/reset API key for a bot. Only owner or super_admin."""
+    bot = _get_user_bot(bot_id, user, db)
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only owner can manage API key")
+    raw_key = _generate_api_key()
+    bot.api_key = raw_key
+    db.commit()
+    return {"api_key": raw_key, "message": "Save this key now; it won't be shown again."}
+
+
+@router.delete("/{bot_id}/api-key", status_code=204)
+def revoke_api_key(
+    bot_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke API key for a bot."""
+    bot = _get_user_bot(bot_id, user, db)
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Only owner can manage API key")
+    bot.api_key = None
+    db.commit()
+
+
+@router.get("/{bot_id}/locked-users", tags=["Public API"], response_model=LockedUsersResponse)
+@limiter.limit("60/minute")
+def get_locked_users(
+    bot_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Query current lock holders. Requires `Authorization: Bearer lbk_xxx`."""
+    bot = db.get(Bot, bot_id)
+    if not bot or bot.is_deleted:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    # Verify API key from Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing API key")
+    token = auth_header[7:]
+    if not _verify_api_key(bot, token):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # Get bot state from manager
+    instance = bot_manager.get_instance(bot_id)
+    if instance is None:
+        raise HTTPException(status_code=503, detail="Bot not running")
+
+    state = instance.bot.state.bot_state
+    bot_type = bot.bot_type
+
+    # Return state organized by node -> current_users
+    nodes = {}
+    if bot_type == "DEVICE":
+        for node_key, devices in state.items():
+            node_devs = []
+            for dev in devices:
+                node_devs.append(
+                    {
+                        "dev_id": dev.get("dev_id"),
+                        "status": dev.get("status", "idle"),
+                        "current_users": [
+                            {"user_id": u["user_id"], "start_time": u["start_time"], "duration": u["duration"]}
+                            for u in dev.get("current_users", [])
+                        ],
+                    }
+                )
+            nodes[node_key] = node_devs
+    else:
+        for node_key, node in state.items():
+            nodes[node_key] = {
+                "status": node.get("status", "idle"),
+                "current_users": [
+                    {"user_id": u["user_id"], "start_time": u["start_time"], "duration": u["duration"]}
+                    for u in node.get("current_users", [])
+                ],
+            }
+
+    return {"bot_id": bot_id, "bot_type": bot_type, "nodes": nodes}
+
+
+@router.post("/{bot_id}/opkick", tags=["Public API"], response_model=OpkickResponse)
+@limiter.limit("30/minute")
+def api_opkick(
+    bot_id: int,
+    request: Request,
+    body: OpkickRequest,
+    db: Session = Depends(get_db),
+):
+    """Operator kick via API. Requires Bearer API key.
+
+    - target_user: required, the user to kick
+    - node_key: optional, if omitted kicks from all nodes
+    - dev: optional, only for DEVICE bots (device indices)
+    - reason: optional, shown in notification to kicked user
+    """
+    bot = db.get(Bot, bot_id)
+    if not bot or bot.is_deleted:
+        raise HTTPException(status_code=404, detail="Bot not found")
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing API key")
+    if not _verify_api_key(bot, auth_header[7:]):
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    instance = bot_manager.get_instance(bot_id)
+    if instance is None:
+        raise HTTPException(status_code=503, detail="Bot not running")
+
+    try:
+        result = instance.bot.do_opkick(body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+    return result

@@ -1,0 +1,23 @@
+{
+  "lockbot_api_url": "http://your-lockbot-host/api/bots/1/locked-users",
+  "lockbot_api_key": "lbk_xxxxxxxxxxxxxxxxxxxx",
+
+  "nodes": {
+    "gpu01": {"ip": "10.0.0.1", "hostname": "gpu01-a100"},
+    "gpu02": {"ip": "10.0.0.2", "hostname": "gpu02-a100"},
+    "gpu03": {"ip": "10.0.0.3", "hostname": "gpu03-a100"}
+  },
+
+  "enable_opkick": true,
+  "saturation_threshold": 1,
+  "grace_minutes": 5,
+  "check_interval_seconds": 300,
+
+  "ssh_cmd_timeout": 15,
+  "max_workers": 16,
+  "xpu_smi_script": "my_xpu_smi.sh",
+
+  "report_webhook_url": "https://your-im-webhook-url",
+  "infoflow_group_id": "your_group_id",
+  "report_max_rows_per_msg": 12
+}

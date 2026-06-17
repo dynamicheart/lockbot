@@ -73,6 +73,11 @@ _CONFIG_SCHEMA = {
         "description": "Bot display language: zh (Chinese) or en (English)",
         "env": True,
     },
+    "ALLOWED_GROUP_IDS": {
+        "default": [],
+        "description": "List of group_ids where opkick is allowed. Empty = allow from any group.",
+        "env": False,
+    },
 }
 
 # ── Internal constants (not configurable via file/env) ─────────────────

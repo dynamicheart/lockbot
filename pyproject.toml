@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lockbot"
-version = "2.5.5"
+version = "2.6.0"
 description = "Cluster resource management bot for IM platforms"
 readme = "README.md"
 license = {text = "MIT"}
@@ -42,6 +42,8 @@ dependencies = [
     "python-multipart",
     "httpx",
     "slowapi",
+    "pyzipper",
+    "bce-python-sdk",
 ]
 
 [project.optional-dependencies]

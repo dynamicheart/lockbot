@@ -19,13 +19,14 @@ import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
 from lockbot.backend.app.audit.router import router as audit_router
 from lockbot.backend.app.auth.router import router as auth_router
+from lockbot.backend.app.backup.router import router as backup_router
 from lockbot.backend.app.bots.router import router as bots_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
 from lockbot.backend.app.settings.router import router as settings_router
 
 # Configure lockbot loggers to output alongside uvicorn logs
 logging.basicConfig(
-    level=logging.INFO,
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
     format="%(levelname)s:%(name)s: %(message)s",
     stream=sys.stdout,
 )
@@ -118,6 +119,19 @@ def _migrate_audit_logs():
         logger.info("Created audit_logs table")
 
 
+def _migrate_bots_api_key():
+    """Add 'api_key' column to bots if it doesn't exist."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    insp = sa_inspect(engine)
+    columns = [c["name"] for c in insp.get_columns("bots")]
+    if "api_key" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bots ADD COLUMN api_key VARCHAR(128)"))
+        logger.info("Migrated bots: added 'api_key' column")
+
+
 def _seed_dev_admin():
     """Create admin user in dev mode if it doesn't exist."""
     from lockbot.backend.app.config import (
@@ -202,15 +216,22 @@ async def lifespan(app: FastAPI):
     _migrate_users_token_version()
     _migrate_bot_soft_delete()
     _migrate_audit_logs()
+    _migrate_bots_api_key()
     _seed_dev_admin()
     _seed_dev_users()
     from lockbot.backend.app.bots.manager import bot_manager
 
     bot_manager.start_scheduler()
     _reset_running_bots()
+
+    from lockbot.backend.app.backup.scheduler import backup_scheduler
+
+    backup_scheduler.start()
+
     yield
     # Shutdown: stop scheduler and clean up all bots
     logger.info("Shutting down all bots…")
+    backup_scheduler.stop()
     bot_manager.shutdown_all()
 
 
@@ -281,7 +302,14 @@ def create_app() -> FastAPI:
         _ver = _pkg_version("lockbot")
     except Exception:
         _ver = "unknown"
-    app = FastAPI(title="LockBot Platform", version=_ver, lifespan=lifespan)
+    _dev_mode = os.environ.get("DEV_MODE", "").lower() in ("1", "true", "yes")
+    app = FastAPI(
+        title="LockBot Platform",
+        version=_ver,
+        lifespan=lifespan,
+        docs_url="/docs" if _dev_mode else None,
+        redoc_url="/redoc" if _dev_mode else None,
+    )
 
     # Rate limiting
     app.state.limiter = limiter
@@ -300,6 +328,43 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(settings_router)
     app.include_router(audit_router)
+    app.include_router(backup_router)
+
+    # ── Public API docs (always available, only shows locked-users + opkick) ──
+    @app.get("/api/public-openapi.json", include_in_schema=False)
+    def public_openapi():
+        import json as _json
+
+        schema = _json.loads(_json.dumps(app.openapi()))
+        public_paths = {}
+        for path, methods in schema.get("paths", {}).items():
+            for method, detail in methods.items():
+                if "Public API" in detail.get("tags", []):
+                    detail["tags"] = ["Public API"]
+                    public_paths.setdefault(path, {})[method] = detail
+        # Only include schemas referenced by public paths
+        raw = _json.dumps(public_paths)
+        public_schemas = {}
+        for name, val in schema.get("components", {}).get("schemas", {}).items():
+            if name in raw:
+                public_schemas[name] = val
+        return {
+            "openapi": schema["openapi"],
+            "info": {"title": "LockBot Public API", "version": schema["info"]["version"]},
+            "paths": public_paths,
+            "components": {"schemas": public_schemas} if public_schemas else {},
+        }
+
+    @app.get("/api/public-docs", include_in_schema=False)
+    def public_docs():
+        from fastapi.responses import HTMLResponse
+
+        return HTMLResponse("""<!DOCTYPE html><html><head><title>LockBot Public API</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+</head><body><div id="swagger-ui"></div>
+<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+<script>SwaggerUIBundle({url:"/api/public-openapi.json",dom_id:"#swagger-ui",defaultModelsExpandDepth:-1})</script>
+</body></html>""")
 
     # Serve frontend static files (built by vite)
     # In Docker: /app/frontend/dist — locally: project_root/frontend/dist

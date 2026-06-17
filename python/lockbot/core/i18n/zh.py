@@ -155,7 +155,18 @@ MESSAGES = {
     "state.device_not_dict": "节点 '{name}', 设备 {index}: 格式错误（非对象），已替换为默认值",
     "state.device_missing": "节点 '{name}', 设备 {index}: 缺失，已添加默认值",
     "state.dev_id_corrected": "节点 '{name}', 设备 {index}: dev_id 从 {old} 修正为 {new}",
+    # ── Opkick (operator kick) ──
+    "opkick.success": "🔧【运维释放】by operator {operator_id}\n目标用户: {target_user}\n",
+    "opkick.user_not_found": "用户 {target_user} 未持有任何锁",
+    "opkick.user_not_on_node": "用户 {target_user} 未锁定 {node_key}",
+    "opkick.user_not_on_dev": "用户 {target_user} 未锁定 {node_key} dev {dev_id}",
+    "opkick.debounce": "重复操作，请稍后",
+    "opkick.invalid_format": "opkick命令格式错误，正确格式: opkick <username> [node] [dev x,y]",
+    "opkick.notify_kicked": "⚠️【运维释放】\n\n节点: {node_key}\n",
+    "opkick.notify_kicked_reason": "原因: {reason}\n",
     # ── Webhook: bot not running ──
-    "webhook.bot_not_running": "⚠️ 机器人 {bot_name} 尚未启动，请联系管理人 @{owner_username} 启动后再使用。",
-    "webhook.bot_error": "❌ 机器人 {bot_name} 运行异常，请联系管理人 @{owner_username} 处理。",
+    "webhook.bot_not_running": (
+        "⚠️ 机器人 {bot_name}(ID:{bot_id}) 尚未启动，请联系管理人 @{owner_username} 启动后再使用。"
+    ),
+    "webhook.bot_error": "❌ 机器人 {bot_name}(ID:{bot_id}) 运行异常，请联系管理人 @{owner_username} 处理。",
 }

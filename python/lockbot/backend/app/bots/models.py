@@ -34,6 +34,7 @@ class Bot(Base):
     consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
     last_request_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     config_overrides: Mapped[str] = mapped_column(Text, default="{}")  # JSON
+    api_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

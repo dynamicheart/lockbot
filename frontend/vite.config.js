@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(version),
     },
     server: {
-      port: 3000,
+      port: 8001,
       strictPort: true,
       hmr: {
         protocol: 'ws',

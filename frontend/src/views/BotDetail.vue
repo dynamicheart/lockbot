@@ -192,6 +192,38 @@
               </el-tag>
             </el-descriptions-item>
           </template>
+          <!-- API Key -->
+          <el-descriptions-item :span="2">
+            <template #label>
+              {{ $t('botDetail.apiKey') }}
+              <el-tooltip
+                :content="$t('botDetail.apiKeyHelp')"
+                placement="top"
+                effect="light"
+                :width="280"
+              >
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <div v-if="bot.api_key" style="display: flex; align-items: center; gap: 8px">
+              <code>{{ bot.api_key }}</code>
+              <el-icon class="secret-icon" @click="copyText(bot.api_key)"><CopyDocument /></el-icon>
+              <el-button v-if="canEdit" size="small" @click="handleGenerateApiKey">{{
+                $t('botDetail.apiKeyReset')
+              }}</el-button>
+              <el-button v-if="canEdit" size="small" type="danger" @click="handleRevokeApiKey">{{
+                $t('botDetail.apiKeyRevoke')
+              }}</el-button>
+            </div>
+            <div v-else style="display: flex; align-items: center; gap: 8px">
+              <span style="color: var(--el-text-color-secondary)">{{
+                $t('botDetail.apiKeyNone')
+              }}</span>
+              <el-button v-if="canEdit" size="small" type="primary" @click="handleGenerateApiKey">{{
+                $t('botDetail.apiKeyGenerate')
+              }}</el-button>
+            </div>
+          </el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -546,6 +578,27 @@ const hasAdvancedConfig = computed(() => {
     c.EARLY_NOTIFY !== false
   )
 })
+
+// API Key
+async function handleGenerateApiKey() {
+  try {
+    const res = await api.post(`/bots/${bot.value.id}/api-key`)
+    bot.value.api_key = res.data.api_key
+    ElMessage.success(t('botDetail.apiKeyGenerated'))
+  } catch {
+    /* handled */
+  }
+}
+
+async function handleRevokeApiKey() {
+  try {
+    await api.delete(`/bots/${bot.value.id}/api-key`)
+    bot.value.api_key = ''
+    ElMessage.success(t('botDetail.apiKeyRevoked'))
+  } catch {
+    /* handled */
+  }
+}
 
 function formatDuration(seconds) {
   if (seconds == null || seconds < 0) return '-'

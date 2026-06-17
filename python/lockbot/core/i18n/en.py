@@ -163,9 +163,18 @@ MESSAGES = {
     "state.device_not_dict": "Node '{name}', device {index}: not a dict, replaced with default",
     "state.device_missing": "Node '{name}', device {index}: missing, added with default",
     "state.dev_id_corrected": "Node '{name}', device {index}: dev_id {old} corrected to {new}",
+    # ── Opkick (operator kick) ──
+    "opkick.success": "🔧 Operator release by {operator_id}\nTarget: {target_user}\n",
+    "opkick.user_not_found": "User {target_user} does not hold any locks",
+    "opkick.user_not_on_node": "User {target_user} is not on node {node_key}",
+    "opkick.user_not_on_dev": "User {target_user} is not on {node_key} dev {dev_id}",
+    "opkick.debounce": "Duplicate operation, please wait",
+    "opkick.invalid_format": "Invalid opkick format. Usage: opkick <username> [node] [dev x,y]",
+    "opkick.notify_kicked": "⚠️ [Operator Release]\n\nNode: {node_key}\n",
+    "opkick.notify_kicked_reason": "Reason: {reason}\n",
     # ── Webhook: bot not running ──
-    "webhook.bot_not_running": "⚠️ Bot {bot_name} is not running. "  # noqa: E501
+    "webhook.bot_not_running": "⚠️ Bot {bot_name}(ID:{bot_id}) is not running. "  # noqa: E501
     "Please contact the owner @{owner_username} to start it.",
-    "webhook.bot_error": "❌ Bot {bot_name} encountered an error. "  # noqa: E501
+    "webhook.bot_error": "❌ Bot {bot_name}(ID:{bot_id}) encountered an error. "  # noqa: E501
     "Please contact the owner @{owner_username} for assistance.",
 }

@@ -109,6 +109,11 @@ class BaseLockBot:
         save_bot_state_to_file(self.state.bot_state, config=self.config)
         self._notify_state_changed()
 
+    # ---------------------------------------------------------- do_opkick
+    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
+        """API-driven operator kick. Returns {"ok": True, "freed": [...]} or raises ValueError."""
+        raise NotImplementedError("Subclass must implement do_opkick")
+
     # ---------------------------------------------------------- show_error
     def show_error(self, user_id, error_msg):
         """
