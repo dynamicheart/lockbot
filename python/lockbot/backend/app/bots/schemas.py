@@ -2,9 +2,10 @@
 Bot Pydantic schemas
 """
 
+import json
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # ── config_overrides value bounds ─────────────────────────────────────────────
 _CFG_RULES: dict[str, tuple[int, int] | None] = {
@@ -13,6 +14,24 @@ _CFG_RULES: dict[str, tuple[int, int] | None] = {
     "TIME_ALERT": (30, 3600),  # 30 s – 1 h
     "MAX_LOCK_DURATION": None,  # -1 (unlimited) or 300–604800
 }
+
+
+def _serialize_device_configs(cluster_configs_json: str) -> str:
+    """Convert DEVICE cluster_configs from stored dict JSON to ordered array JSON.
+
+    DB stores: '{"2": ["a800"], "0": ["h20"]}'
+    API returns: '[{"node_key": "2", "devices": ["a800"]}, {"node_key": "0", "devices": ["h20"]}]'
+
+    This ensures JS frontend receives an array that preserves insertion order,
+    avoiding the JS engine's automatic sorting of numeric object keys.
+    """
+    try:
+        cc = json.loads(cluster_configs_json)
+        if isinstance(cc, dict):
+            return json.dumps([{"node_key": k, "devices": v} for k, v in cc.items()], ensure_ascii=False)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return cluster_configs_json
 
 
 def _validate_config_overrides(v: dict | None) -> dict | None:
@@ -92,6 +111,13 @@ class BotOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def convert_device_cluster_configs(self):
+        """For DEVICE bots, convert stored dict JSON to array JSON for frontend."""
+        if self.bot_type == "DEVICE" and self.cluster_configs:
+            self.cluster_configs = _serialize_device_configs(self.cluster_configs)
+        return self
 
 
 class BotDetail(BotOut):

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '../utils/api'
+import { isDeviceArrayFormat } from '../utils/helpers'
 
 export const useBotsStore = defineStore('bots', () => {
   const bots = ref([])
@@ -44,12 +45,18 @@ export const useBotsStore = defineStore('bots', () => {
     let resourceCounts
     if (bot.bot_type === 'DEVICE') {
       let totalDevices = 0
-      for (const devices of Object.values(configs)) {
-        totalDevices += Array.isArray(devices) ? devices.length : 0
+      if (isDeviceArrayFormat(configs)) {
+        for (const item of configs) totalDevices += item.devices?.length || 0
+        resourceCounts = { nodes: configs.length, devices: totalDevices }
+      } else {
+        for (const devices of Object.values(configs))
+          totalDevices += Array.isArray(devices) ? devices.length : 0
+        resourceCounts = { nodes: Object.keys(configs).length, devices: totalDevices }
       }
-      resourceCounts = { nodes: Object.keys(configs).length, devices: totalDevices }
     } else {
-      resourceCounts = { nodes: Object.keys(configs).length }
+      resourceCounts = {
+        nodes: Array.isArray(configs) ? configs.length : Object.keys(configs).length,
+      }
     }
 
     // Utilization from live state (only for running bots)

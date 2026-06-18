@@ -510,3 +510,93 @@ class TestUpdateBotState:
             client.post(f"/api/bots/{bot_id}/start", headers=admin_header)
         resp = client.put(f"/api/bots/{bot_id}/state", json={}, headers=admin_header)
         assert resp.status_code == 409
+
+
+class TestDeviceArrayFormat:
+    """Test DEVICE cluster_configs array format [{node_key, devices}]."""
+
+    def test_create_with_array_format(self, client, admin_header):
+        """POST with array format succeeds and response returns array format."""
+        resp = client.post(
+            "/api/bots",
+            json={
+                **_sample_bot("arr_dev"),
+                "bot_type": "DEVICE",
+                "cluster_configs": [
+                    {"node_key": "2", "devices": ["a800", "a800"]},
+                    {"node_key": "0", "devices": ["h20"]},
+                ],
+            },
+            headers=admin_header,
+        )
+        assert resp.status_code == 201
+        import json
+
+        cc = json.loads(resp.json()["cluster_configs"])
+        assert isinstance(cc, list)
+        assert cc[0]["node_key"] == "2"
+        assert cc[1]["node_key"] == "0"
+
+    def test_create_with_dict_format_returns_array(self, client, admin_header):
+        """POST with legacy dict format still works, GET returns array."""
+        resp = client.post(
+            "/api/bots",
+            json={
+                **_sample_bot("dict_dev"),
+                "bot_type": "DEVICE",
+                "cluster_configs": {"nodeA": ["a100"], "nodeB": ["h20", "h20"]},
+            },
+            headers=admin_header,
+        )
+        assert resp.status_code == 201
+        import json
+
+        cc = json.loads(resp.json()["cluster_configs"])
+        assert isinstance(cc, list)
+        assert cc[0]["node_key"] == "nodeA"
+        assert cc[1]["node_key"] == "nodeB"
+        assert cc[1]["devices"] == ["h20", "h20"]
+
+    def test_update_with_array_format(self, client, admin_header):
+        """PUT with array format stores correctly, response is array."""
+        import json
+
+        create = client.post(
+            "/api/bots",
+            json={**_sample_bot("upd_dev"), "bot_type": "DEVICE", "cluster_configs": {"x": ["a100"]}},
+            headers=admin_header,
+        )
+        bot_id = create.json()["id"]
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"cluster_configs": [{"node_key": "3", "devices": ["h20"]}, {"node_key": "1", "devices": ["a800"]}]},
+            headers=admin_header,
+        )
+        assert resp.status_code == 200
+        cc = json.loads(resp.json()["cluster_configs"])
+        assert [item["node_key"] for item in cc] == ["3", "1"]
+
+    def test_get_detail_returns_array(self, client, admin_header):
+        """GET /bots/{id} returns array format for DEVICE bots."""
+        import json
+
+        create = client.post(
+            "/api/bots",
+            json={**_sample_bot("det_dev"), "bot_type": "DEVICE", "cluster_configs": {"5": ["v100"], "2": ["a800"]}},
+            headers=admin_header,
+        )
+        bot_id = create.json()["id"]
+        resp = client.get(f"/api/bots/{bot_id}", headers=admin_header)
+        cc = json.loads(resp.json()["cluster_configs"])
+        assert isinstance(cc, list)
+        # Order preserved from insertion (Python dict keeps order)
+        assert cc[0]["node_key"] == "5"
+        assert cc[1]["node_key"] == "2"
+
+    def test_node_bot_unaffected(self, client, admin_header):
+        """NODE bot cluster_configs stays as string array, not converted."""
+        import json
+
+        resp = client.post("/api/bots", json=_sample_bot("node_check"), headers=admin_header)
+        cc = json.loads(resp.json()["cluster_configs"])
+        assert cc == ["node1", "node2"]

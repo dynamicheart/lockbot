@@ -431,6 +431,7 @@ export default {
     deviceCount: '设备数量',
     queueInfo: 'QUEUE 模式使用排队调度，一次只有一人可以使用资源。',
     duplicateNode: '名称重复（不区分大小写）',
+    emptyNodeOrDevice: '请填写节点名称和设备型号',
     nodeNameInvalid: '仅支持英文、数字、下划线、横杠',
     nodeNameTooLong: '不超过 8 个字符',
   },

@@ -30,7 +30,11 @@
               v-model="node.name"
               :placeholder="$t('botForm.nodeNamePlaceholder')"
               :maxlength="6"
-              :class="{ 'is-duplicate': isDuplicate(i), 'is-invalid': isInvalidName(i) }"
+              :class="{
+                'is-duplicate': isDuplicate(i),
+                'is-invalid': isInvalidName(i),
+                'is-error': isEmptyNode(i),
+              }"
               class="node-name-input"
             />
             <span v-if="isDuplicate(i)" class="dup-tip">{{ $t('botForm.duplicateNode') }}</span>
@@ -69,6 +73,7 @@
               "
               :placeholder="$t('botForm.deviceModel')"
               class="device-select"
+              :class="{ 'is-error': isEmptyDevice(node, j) }"
               clearable
               @select="() => mergeDevices(node)"
               @blur="handleDeviceModelBlur(dev, node)"
@@ -114,7 +119,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { Delete, Plus, Rank, CopyDocument } from '@element-plus/icons-vue'
 
 let nodeIdSeq = 0
@@ -123,19 +128,45 @@ const PRESET_MODELS = ['h20', 'a800', 'p800']
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'update:has-error'])
 
 const nodes = ref(parseInit())
+const submitted = ref(false)
 const dragIndex = ref(-1)
 const dropIndex = ref(-1)
 const dropPos = ref('')
 const quickModels = ['h20', 'a800', 'p800']
 
+const hasEmptyNode = computed(() => nodes.value.some((n) => !n.name?.trim()))
+const hasEmptyDevice = computed(() =>
+  nodes.value.some((n) => n.name?.trim() && n.devices.every((d) => !d.model))
+)
+
+function isEmptyNode(i) {
+  return submitted.value && !nodes.value[i]?.name?.trim()
+}
+
+function isEmptyDevice(node, j) {
+  return submitted.value && node.name?.trim() && !node.devices[j]?.model
+}
+
+function validate() {
+  submitted.value = true
+  const hasError = hasEmptyNode.value || hasEmptyDevice.value
+  emit('update:has-error', hasError)
+  return !hasError
+}
+
+defineExpose({ validate })
+
 function parseInit() {
   const cfg = props.modelValue
-  if (!cfg || typeof cfg !== 'object')
+  if (!cfg || (typeof cfg !== 'object' && !Array.isArray(cfg)))
     return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
-  const entries = Object.entries(cfg)
+  // Support array format [{node_key, devices}] and legacy dict format {name: [devices]}
+  const entries = Array.isArray(cfg)
+    ? cfg.map((item) => [item.node_key, item.devices])
+    : Object.entries(cfg)
   if (entries.length === 0)
     return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
   return entries.map(([name, devices]) => ({
@@ -267,7 +298,7 @@ function onDragEnd() {
 watch(
   nodes,
   () => {
-    const result = {}
+    const result = []
     for (const node of nodes.value) {
       if (!node.name || !NODE_NAME_RE.test(node.name.trim())) continue
       const devices = []
@@ -277,7 +308,7 @@ watch(
           for (let k = 0; k < dev.count; k++) devices.push(m)
         }
       }
-      result[node.name] = devices
+      result.push({ node_key: node.name, devices })
     }
     emit('update:modelValue', result)
   },
@@ -434,7 +465,8 @@ watch(
   border-style: dashed;
 }
 .is-duplicate :deep(.el-input__wrapper),
-.is-invalid :deep(.el-input__wrapper) {
+.is-invalid :deep(.el-input__wrapper),
+.is-error :deep(.el-input__wrapper) {
   box-shadow: 0 0 0 1px var(--el-color-danger) inset;
 }
 .dup-tip {

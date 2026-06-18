@@ -127,6 +127,28 @@ def _normalize_cluster_configs(cc):
     return cc
 
 
+def _device_dict_to_array(d: dict) -> list:
+    """Convert DEVICE cluster_configs from dict to ordered array for API response.
+
+    Why: JS JSON.parse auto-sorts pure-numeric keys ("0","1","2"), losing user-defined
+    node ordering. Array format preserves insertion order in all environments.
+    """
+    return [{"node_key": k, "devices": v} for k, v in d.items()]
+
+
+def _device_array_to_dict(arr: list) -> dict:
+    """Convert DEVICE cluster_configs from ordered array to dict for DB storage.
+
+    DB continues to store dict format; conversion happens at API boundary only.
+    """
+    return {item["node_key"]: item["devices"] for item in arr}
+
+
+def _is_device_array_format(cc) -> bool:
+    """Check if cluster_configs is in the new array-of-dicts DEVICE format."""
+    return isinstance(cc, list) and bool(cc) and isinstance(cc[0], dict) and "node_key" in cc[0]
+
+
 def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
     """
     Build the full config dict from a DB Bot record.
@@ -213,7 +235,12 @@ def create_bot(
         webhook_url=encryption.encrypt(body.webhook_url),
         aes_key=encryption.encrypt(body.aes_key),
         token=encryption.encrypt(body.token),
-        cluster_configs=json.dumps(body.cluster_configs, ensure_ascii=False),
+        cluster_configs=json.dumps(
+            _device_array_to_dict(body.cluster_configs)
+            if _is_device_array_format(body.cluster_configs)
+            else body.cluster_configs,
+            ensure_ascii=False,
+        ),
         config_overrides=json.dumps(body.config_overrides or {}, ensure_ascii=False),
     )
     db.add(bot)
@@ -358,16 +385,20 @@ def update_bot(
             changes["token"] = "updated"
         bot.token = encryption.encrypt(body.token)
     if body.cluster_configs is not None:
-        new_json = json.dumps(body.cluster_configs, ensure_ascii=False)
+        # Convert array format to dict for storage
+        cc_for_storage = body.cluster_configs
+        if _is_device_array_format(cc_for_storage):
+            cc_for_storage = _device_array_to_dict(cc_for_storage)
+        new_json = json.dumps(cc_for_storage, ensure_ascii=False)
         if new_json != (bot.cluster_configs or ""):
             old_configs = json.loads(bot.cluster_configs) if bot.cluster_configs else None
-            if isinstance(body.cluster_configs, dict):
+            if isinstance(cc_for_storage, dict):
                 # DEVICE bot: {node: [devices...]} → summary with device counts
-                node_summary = {k: len(v) if isinstance(v, list) else v for k, v in body.cluster_configs.items()}
+                node_summary = {k: len(v) if isinstance(v, list) else v for k, v in cc_for_storage.items()}
                 changes["cluster_configs"] = node_summary
             else:
                 # NODE bot: list of node names → show from/to
-                changes["cluster_configs"] = {"from": old_configs, "to": body.cluster_configs}
+                changes["cluster_configs"] = {"from": old_configs, "to": cc_for_storage}
         bot.cluster_configs = new_json
     if body.config_overrides is not None:
         old_overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}

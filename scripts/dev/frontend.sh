@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 mkdir -p logs
 
 echo "==> Frontend: http://0.0.0.0:8001"
-echo "    Proxy:    /api/* -> http://localhost:8000"
+echo "    Proxy:    /api/* -> http://localhost:8002"
 echo "    Log:      logs/frontend.log"
 echo ""
 

@@ -477,7 +477,7 @@ import { Download, User, Monitor } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { validateBotState } from '../utils/stateValidation'
 import { useI18n } from 'vue-i18n'
-import { useHelpers, orderedEntries, orderedStringify } from '../utils/helpers'
+import { useHelpers, orderedEntries, orderedStringify, getNodeOrder } from '../utils/helpers'
 
 const { t } = useI18n()
 const { formatDateTime, formatRelativeTime, maskText, copyText } = useHelpers()
@@ -687,17 +687,21 @@ const parsedState = computed(() => {
       ? JSON.parse(bot.value.cluster_configs)
       : bot.value.cluster_configs || {}
   if (botType.value === 'DEVICE') {
-    return orderedEntries(data, cc).map(([nodeName, devices]) => ({
-      nodeName,
-      devices: Array.isArray(devices)
-        ? devices.map((d) => ({
-            devId: d.dev_id,
-            devModel: d.dev_model,
-            status: d.status,
-            currentUsers: d.current_users || [],
-          }))
-        : [],
-    }))
+    // cc is array format [{node_key, devices}] from API
+    const nodeOrder = getNodeOrder(cc)
+    return nodeOrder
+      .filter((k) => data[k])
+      .map((nodeName) => ({
+        nodeName,
+        devices: Array.isArray(data[nodeName])
+          ? data[nodeName].map((d) => ({
+              devId: d.dev_id,
+              devModel: d.dev_model,
+              status: d.status,
+              currentUsers: d.current_users || [],
+            }))
+          : [],
+      }))
   }
   // NODE / QUEUE
   return orderedEntries(data, cc).map(([nodeName, info]) => ({

@@ -2,6 +2,26 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 
 /**
+ * Check if cluster_configs is in the DEVICE array format [{node_key, devices}].
+ */
+export function isDeviceArrayFormat(cc) {
+  return Array.isArray(cc) && cc.length > 0 && cc[0]?.node_key !== undefined
+}
+
+/**
+ * Extract ordered node keys from any cluster_configs format.
+ * - DEVICE array: [{node_key, devices}] → [node_key, ...]
+ * - NODE/QUEUE array: ["n1", "n2"] → ["n1", "n2"]
+ * - Legacy DEVICE dict: {key: [...]} → Object.keys(...)
+ */
+export function getNodeOrder(cc) {
+  if (!cc) return []
+  if (isDeviceArrayFormat(cc)) return cc.map((item) => item.node_key)
+  if (Array.isArray(cc)) return cc
+  return Object.keys(cc)
+}
+
+/**
  * Return Object.entries(data) ordered by cluster_configs key order.
  * Handles both array configs (NODE/QUEUE) and dict configs (DEVICE).
  * Falls back to original Object.entries order for keys not in config.
@@ -11,7 +31,7 @@ import { useI18n } from 'vue-i18n'
  */
 export function orderedEntries(data, clusterConfigs) {
   if (!data || !clusterConfigs) return Object.entries(data || {})
-  const order = Array.isArray(clusterConfigs) ? clusterConfigs : Object.keys(clusterConfigs)
+  const order = getNodeOrder(clusterConfigs)
   const dataKeys = new Map(Object.keys(data).map((k) => [k.toLowerCase(), k]))
   const result = []
   for (const key of order) {

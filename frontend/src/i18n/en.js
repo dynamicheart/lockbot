@@ -437,6 +437,7 @@ export default {
     deviceCount: 'Device Count',
     queueInfo: 'QUEUE mode uses queue scheduling. Only one user can use a resource at a time.',
     duplicateNode: 'Duplicate name (case-insensitive)',
+    emptyNodeOrDevice: 'Please fill in node name and device model',
     nodeNameInvalid: 'Only letters, digits, underscores and hyphens',
     nodeNameTooLong: 'Max 8 characters',
   },

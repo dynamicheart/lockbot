@@ -55,7 +55,12 @@
         v-model="clusterConfig"
         @update:has-error="clusterHasError = $event"
       />
-      <DeviceBotForm v-else-if="form.bot_type === 'DEVICE'" v-model="clusterConfig" />
+      <DeviceBotForm
+        v-else-if="form.bot_type === 'DEVICE'"
+        ref="deviceFormRef"
+        v-model="clusterConfig"
+        @update:has-error="clusterHasError = $event"
+      />
       <QueueBotForm
         v-else-if="form.bot_type === 'QUEUE'"
         v-model="clusterConfig"
@@ -295,6 +300,7 @@ const botsStore = useBotsStore()
 
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
+const deviceFormRef = ref()
 const saving = ref(false)
 const clusterHasError = ref(false)
 const bot = ref(null)
@@ -407,6 +413,13 @@ async function handleSubmit() {
     return
   }
 
+  if (form.bot_type === 'DEVICE' && deviceFormRef.value) {
+    if (!deviceFormRef.value.validate()) {
+      ElMessage.error(t('botForm.emptyNodeOrDevice'))
+      return
+    }
+  }
+
   if (clusterHasError.value) {
     ElMessage.error(t('botForm.duplicateNode'))
     return
@@ -414,13 +427,15 @@ async function handleSubmit() {
 
   if (!isEdit.value) {
     const cc = clusterConfig.value
-    const nodeCount = cc ? Object.keys(cc).length : 0
+    const nodeCount = Array.isArray(cc) ? cc.length : cc ? Object.keys(cc).length : 0
     if (nodeCount === 0) {
       ElMessage.error(t('botCreate.clusterRequired'))
       return
     }
     if (form.bot_type === 'DEVICE') {
-      const totalDevs = Object.values(cc).flat().length
+      const totalDevs = Array.isArray(cc)
+        ? cc.reduce((sum, item) => sum + (item.devices?.length || 0), 0)
+        : Object.values(cc).flat().length
       if (totalDevs === 0) {
         ElMessage.error(t('botForm.deviceRequired'))
         return
@@ -428,8 +443,11 @@ async function handleSubmit() {
     }
   } else {
     const cc = clusterConfig.value
-    if (cc && Object.keys(cc).length > 0 && form.bot_type === 'DEVICE') {
-      const totalDevs = Object.values(cc).flat().length
+    const nodeCount = Array.isArray(cc) ? cc.length : cc ? Object.keys(cc).length : 0
+    if (nodeCount > 0 && form.bot_type === 'DEVICE') {
+      const totalDevs = Array.isArray(cc)
+        ? cc.reduce((sum, item) => sum + (item.devices?.length || 0), 0)
+        : Object.values(cc).flat().length
       if (totalDevs === 0) {
         ElMessage.error(t('botForm.deviceRequired'))
         return
@@ -446,7 +464,8 @@ async function handleSubmit() {
       if (!data.aes_key) delete data.aes_key
       if (!data.token) delete data.token
       const cc = clusterConfig.value
-      if (cc && Object.keys(cc).length > 0) data.cluster_configs = cc
+      if (cc && (Array.isArray(cc) ? cc.length > 0 : Object.keys(cc).length > 0))
+        data.cluster_configs = cc
       const needRestart = bot.value.status !== 'stopped'
       await botsStore.updateBot(bot.value.id, data)
       ElMessage.success(t('common.success'))
