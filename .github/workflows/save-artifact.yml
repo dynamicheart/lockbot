@@ -28,6 +28,29 @@ jobs:
             echo "value=${{ github.event.workflow_run.head_branch }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Delete old artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: artifacts } = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const old = artifacts.artifacts
+              .filter(a => a.name.startsWith('lockbot-'))
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+              .slice(3); // keep latest 3
+            console.log(`Found ${artifacts.artifacts.filter(a => a.name.startsWith('lockbot-')).length} artifacts, deleting ${old.length} old ones`);
+            for (const a of old) {
+              console.log(`Deleting: ${a.name} (${a.created_at})`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: a.id,
+              });
+            }
+
       - name: Pull and save image
         run: |
           TAG="${{ steps.tag.outputs.value }}"
