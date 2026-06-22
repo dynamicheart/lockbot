@@ -484,6 +484,7 @@ export default {
       'bot.set_language': 'Set Language',
       'bot.edit_state': 'Edit Bot State',
       'admin.backup': 'Download Backup',
+      'admin.bos_backup': 'BOS Backup',
       'admin.bot_states': 'Download States',
     },
     roles: {

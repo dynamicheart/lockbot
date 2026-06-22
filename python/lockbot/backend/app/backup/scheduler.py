@@ -4,7 +4,7 @@ Backup scheduler — daemon thread for periodic BOS backups.
 
 import logging
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class BackupScheduler:
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
-        self._started_at = datetime.now(timezone.utc)
+        self._started_at = datetime.now()
         self._last_error = ""
         self._thread = threading.Thread(target=self._run, daemon=True, name="backup-scheduler")
         self._thread.start()
@@ -56,11 +56,11 @@ class BackupScheduler:
 
     def _run(self):
         while not self._stop_event.is_set():
-            self._last_heartbeat = datetime.now(timezone.utc)
+            self._last_heartbeat = datetime.now()
             try:
                 seconds = self._seconds_until_next()
                 if seconds is not None:
-                    self._next_run_at = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+                    self._next_run_at = datetime.now() + timedelta(seconds=seconds)
                 else:
                     self._next_run_at = None
                 if seconds is None:
@@ -76,13 +76,39 @@ class BackupScheduler:
                 if triggered or self._stop_event.is_set():
                     continue  # Config changed or shutting down, recalculate
 
-                # Time to backup
+                # Time to backup — skip if last successful backup was recent
+                if self._should_skip():
+                    continue
                 self._do_backup()
             except Exception as exc:
                 self._last_error = str(exc)
                 logger.exception("Backup scheduler error")
                 # Sleep a bit before retry
                 self._stop_event.wait(timeout=60)
+
+    def _should_skip(self) -> bool:
+        """Skip if last successful backup was less than 20 hours ago (prevents duplicates on restart)."""
+        from lockbot.backend.app.backup.service import get_backup_config
+        from lockbot.backend.app.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            config = get_backup_config(db)
+        finally:
+            db.close()
+
+        last_time = config.get("backup_last_time", "")
+        last_status = config.get("backup_last_status", "")
+        if not last_time or last_status != "success":
+            return False
+        try:
+            last_dt = datetime.strptime(last_time, "%Y-%m-%d %H:%M:%S")
+            if (datetime.now() - last_dt).total_seconds() < 20 * 3600:
+                logger.info("Skipping backup — last success was %s (< 20h ago)", last_time)
+                return True
+        except ValueError:
+            pass
+        return False
 
     def _seconds_until_next(self) -> int | None:
         """Calculate seconds until next backup. Returns None if disabled."""
@@ -110,12 +136,10 @@ class BackupScheduler:
         except (ValueError, IndexError):
             return None
 
-        now = datetime.now(timezone.utc)
+        # Use local time (server timezone) for scheduling
+        now = datetime.now()
         target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if target <= now:
-            # Next day
-            from datetime import timedelta
-
             target += timedelta(days=1)
 
         return int((target - now).total_seconds())

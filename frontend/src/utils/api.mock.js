@@ -671,7 +671,11 @@ function _buildInitialState(bot) {
         : bot.cluster_configs || {}
     if (bot.bot_type === 'DEVICE') {
       const state = {}
-      for (const [nodeKey, devices] of Object.entries(cc)) {
+      // Support array format [{node_key, devices}] and legacy dict
+      const entries = Array.isArray(cc)
+        ? cc.map((item) => [item.node_key, item.devices])
+        : Object.entries(cc)
+      for (const [nodeKey, devices] of entries) {
         state[nodeKey] = devices.map((model, idx) => ({
           dev_id: idx,
           dev_model: model,

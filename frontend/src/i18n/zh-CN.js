@@ -478,6 +478,7 @@ export default {
       'bot.set_language': '切换语言',
       'bot.edit_state': '修改运行状态',
       'admin.backup': '下载备份',
+      'admin.bos_backup': 'BOS 备份',
       'admin.bot_states': '下载状态',
     },
     roles: {
