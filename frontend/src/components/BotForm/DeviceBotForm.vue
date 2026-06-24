@@ -37,6 +37,12 @@
               }"
               class="node-name-input"
             />
+            <el-input
+              v-model="node.alias"
+              :placeholder="$t('botForm.aliasPlaceholder')"
+              :maxlength="15"
+              class="alias-input"
+            />
             <span v-if="isDuplicate(i)" class="dup-tip">{{ $t('botForm.duplicateNode') }}</span>
             <span v-else-if="isInvalidName(i)" class="dup-tip">{{
               $t('botForm.nodeNameInvalid')
@@ -127,8 +133,9 @@ const PRESET_MODELS = ['h20', 'a800', 'p800']
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
+  aliases: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['update:modelValue', 'update:has-error'])
+const emit = defineEmits(['update:modelValue', 'update:has-error', 'update:aliases'])
 
 const nodes = ref(parseInit())
 const submitted = ref(false)
@@ -161,17 +168,19 @@ defineExpose({ validate })
 
 function parseInit() {
   const cfg = props.modelValue
+  const aliasMap = props.aliases || {}
   if (!cfg || (typeof cfg !== 'object' && !Array.isArray(cfg)))
-    return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
+    return [{ id: ++nodeIdSeq, name: '', alias: '', devices: [{ model: '', count: 1 }] }]
   // Support array format [{node_key, devices}] and legacy dict format {name: [devices]}
   const entries = Array.isArray(cfg)
     ? cfg.map((item) => [item.node_key, item.devices])
     : Object.entries(cfg)
   if (entries.length === 0)
-    return [{ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] }]
+    return [{ id: ++nodeIdSeq, name: '', alias: '', devices: [{ model: '', count: 1 }] }]
   return entries.map(([name, devices]) => ({
     id: ++nodeIdSeq,
     name,
+    alias: aliasMap[name] || '',
     devices: Array.isArray(devices) ? groupDevices(devices) : [{ model: '', count: 1 }],
   }))
 }
@@ -226,7 +235,7 @@ function isInvalidName(i) {
 }
 
 function addNode() {
-  nodes.value.push({ id: ++nodeIdSeq, name: '', devices: [{ model: '', count: 1 }] })
+  nodes.value.push({ id: ++nodeIdSeq, name: '', alias: '', devices: [{ model: '', count: 1 }] })
 }
 
 function quickAddDevice(node, model) {
@@ -249,7 +258,7 @@ function copyNode(i) {
   const src = nodes.value[i]
   if (!src) return
   const newDevices = src.devices.map((d) => ({ ...d }))
-  nodes.value.splice(i + 1, 0, { id: ++nodeIdSeq, name: '', devices: newDevices })
+  nodes.value.splice(i + 1, 0, { id: ++nodeIdSeq, name: '', alias: '', devices: newDevices })
 }
 
 function removeNode(i) {
@@ -299,6 +308,7 @@ watch(
   nodes,
   () => {
     const result = []
+    const aliasResult = {}
     for (const node of nodes.value) {
       if (!node.name || !NODE_NAME_RE.test(node.name.trim())) continue
       const devices = []
@@ -309,8 +319,10 @@ watch(
         }
       }
       result.push({ node_key: node.name, devices })
+      if (node.alias?.trim()) aliasResult[node.name] = node.alias.trim()
     }
     emit('update:modelValue', result)
+    emit('update:aliases', aliasResult)
   },
   { deep: true }
 )
@@ -402,6 +414,10 @@ watch(
 }
 .node-name-input {
   width: 180px;
+}
+.alias-input {
+  width: 140px;
+  flex-shrink: 0;
 }
 .device-count-badge {
   background: var(--el-color-primary-light-9);

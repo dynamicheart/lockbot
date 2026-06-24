@@ -597,4 +597,6 @@ class DeviceBot(BaseLockBot):
         """
         Get a text description of the current cluster device usage (supports merged display and heterogeneous hints).
         """
-        return get_current_usage(node_filter, self.state.bot_state, {}, config=self.config)
+        return get_current_usage(
+            node_filter, self.state.bot_state, {}, config=self.config, display_node=self._display_node
+        )

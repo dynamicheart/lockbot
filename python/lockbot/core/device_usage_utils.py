@@ -157,7 +157,7 @@ def render_device_lines(node_status, grouped_usage, idle_groups, config=None):
     return lines
 
 
-def get_current_usage(node_filter, bot_state, monitor_status, config=None):
+def get_current_usage(node_filter, bot_state, monitor_status, config=None, display_node=None):
     """
     Get current device usage info including idle, locked, and in-use devices.
     """
@@ -169,7 +169,8 @@ def get_current_usage(node_filter, bot_state, monitor_status, config=None):
             or node_key == node_filter
             or (isinstance(node_filter, list) and node_key in node_filter)
         ):
-            usage_info += t("device_usage.node_header", config=config, node_key=node_key)
+            shown_name = display_node(node_key) if display_node else node_key
+            usage_info += t("device_usage.node_header", config=config, node_key=shown_name)
 
             grouped_usage = group_locked_devices(node_status)
             shown_indices = set()

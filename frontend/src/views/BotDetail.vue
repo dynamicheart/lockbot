@@ -203,6 +203,15 @@
                 >{{ u }}</el-tag
               >
             </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.showNodeAlias')">
+              <el-tag :type="botConfig.SHOW_NODE_ALIAS ? 'success' : 'info'" size="small">
+                {{
+                  botConfig.SHOW_NODE_ALIAS
+                    ? $t('botCreate.showNodeAliasOn')
+                    : $t('botCreate.showNodeAliasOff')
+                }}
+              </el-tag>
+            </el-descriptions-item>
           </template>
           <!-- API Key -->
           <el-descriptions-item :span="2">
@@ -359,6 +368,9 @@
                 <span class="cluster-node-name">
                   <el-icon :size="16"><Monitor /></el-icon>
                   {{ node.nodeName }}
+                  <span v-if="botConfig.NODE_ALIASES[node.nodeName]" class="node-alias-tag">{{
+                    botConfig.NODE_ALIASES[node.nodeName]
+                  }}</span>
                 </span>
                 <span class="cluster-node-summary">{{
                   $t('clusterState.summary', {
@@ -401,6 +413,9 @@
                 <span class="cluster-node-name">
                   <el-icon :size="16"><Monitor /></el-icon>
                   {{ row.nodeName }}
+                  <span v-if="botConfig.NODE_ALIASES[row.nodeName]" class="node-alias-tag">{{
+                    botConfig.NODE_ALIASES[row.nodeName]
+                  }}</span>
                 </span>
                 <el-tag size="small" :type="statusTagType(row.status)" effect="light">{{
                   $t('clusterState.' + row.status)
@@ -577,6 +592,8 @@ const botConfig = computed(() => {
       DURATION_WHITELIST: Array.isArray(overrides.DURATION_WHITELIST)
         ? overrides.DURATION_WHITELIST
         : [],
+      NODE_ALIASES: overrides.NODE_ALIASES || {},
+      SHOW_NODE_ALIAS: overrides.SHOW_NODE_ALIAS ?? false,
     }
   } catch {
     return {
@@ -585,6 +602,8 @@ const botConfig = computed(() => {
       TIME_ALERT: 300,
       EARLY_NOTIFY: false,
       DURATION_WHITELIST: [],
+      NODE_ALIASES: {},
+      SHOW_NODE_ALIAS: false,
     }
   }
 })
@@ -598,7 +617,9 @@ const hasAdvancedConfig = computed(() => {
     c.MAX_LOCK_DURATION !== -1 ||
     c.TIME_ALERT !== 300 ||
     c.EARLY_NOTIFY !== false ||
-    c.DURATION_WHITELIST.length > 0
+    c.DURATION_WHITELIST.length > 0 ||
+    Object.keys(c.NODE_ALIASES).length > 0 ||
+    c.SHOW_NODE_ALIAS !== false
   )
 })
 
@@ -1226,6 +1247,11 @@ html.dark .json-null {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.node-alias-tag {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 .cluster-node-summary {
   font-size: 12px;

@@ -397,7 +397,7 @@ class NodeBot(BaseLockBot):
 
                                 uid = user_info["user_id"] + format_access_mode(node["status"], config=self.config)
                                 duration = format_duration(remaining_time, config=self.config)
-                                alert_info += f"{node_key} {uid}  {duration}\n"
+                                alert_info += f"{self._display_node(node_key)} {uid}  {duration}\n"
 
                         if EARLY_NOTIFY and not user_info["is_notified"] and 0 < remaining_time <= TIME_ALERT:
                             trigger_time_alert = True
@@ -407,7 +407,7 @@ class NodeBot(BaseLockBot):
 
                             uid = user_info["user_id"] + format_access_mode(node["status"], config=self.config)
                             duration = format_duration(remaining_time, config=self.config)
-                            alert_info += f"{node_key} {uid}  {duration}\n"
+                            alert_info += f"{self._display_node(node_key)} {uid}  {duration}\n"
 
                     for user_id in removed_users_id:
                         remove_user_info(node["current_users"], user_id)
@@ -453,11 +453,12 @@ class NodeBot(BaseLockBot):
             usage_info = ""
             for node_key, node_status in nodes.items():
                 if node_filter is None or node_key == node_filter:
+                    display_name = self._display_node(node_key)
                     if node_status["status"] == "idle":
-                        usage_info += "{:} {}\n".format(node_key, t("status.idle", config=self.config))
+                        usage_info += "{:} {}\n".format(display_name, t("status.idle", config=self.config))
                     else:
                         for user_idx, user_info in enumerate(node_status["current_users"]):
-                            node_name = f"{node_key}" if user_idx == 0 else ""
+                            node_name = f"{display_name}" if user_idx == 0 else ""
                             uid = user_info["user_id"] + format_access_mode(node_status["status"], config=self.config)
                             duration = format_duration(
                                 remaining_duration(user_info["start_time"], user_info["duration"]), config=self.config

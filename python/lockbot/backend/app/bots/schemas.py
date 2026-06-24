@@ -57,6 +57,17 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if whitelist is not None and (not isinstance(whitelist, list) or not all(isinstance(u, str) for u in whitelist)):
         errors.append("DURATION_WHITELIST must be a list of strings")
 
+    node_aliases = v.get("NODE_ALIASES")
+    if node_aliases is not None and (
+        not isinstance(node_aliases, dict)
+        or not all(isinstance(k, str) and isinstance(a, str) and len(a) <= 15 for k, a in node_aliases.items())
+    ):
+        errors.append("NODE_ALIASES must be a dict of {string: string} with alias length <= 15")
+
+    show_alias = v.get("SHOW_NODE_ALIAS")
+    if show_alias is not None and not isinstance(show_alias, bool):
+        errors.append("SHOW_NODE_ALIAS must be a boolean")
+
     max_dur = v.get("MAX_LOCK_DURATION")
     default_dur = v.get("DEFAULT_DURATION")
     if isinstance(max_dur, int) and isinstance(default_dur, int) and max_dur != -1 and default_dur > max_dur:

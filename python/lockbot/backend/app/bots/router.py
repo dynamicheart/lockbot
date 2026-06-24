@@ -127,6 +127,33 @@ def _normalize_cluster_configs(cc):
     return cc
 
 
+def _get_node_keys(cc) -> set:
+    """Extract node key set from cluster_configs (any format)."""
+    if _is_device_array_format(cc):
+        return {item["node_key"] for item in cc}
+    if isinstance(cc, dict):
+        return set(cc.keys())
+    if isinstance(cc, list):
+        return set(cc)
+    return set()
+
+
+def _validate_node_aliases(config_overrides, cluster_configs):
+    """Raise HTTPException if NODE_ALIASES contains keys not in cluster_configs."""
+    if not config_overrides:
+        return
+    aliases = config_overrides.get("NODE_ALIASES")
+    if not aliases:
+        return
+    valid_keys = _get_node_keys(cluster_configs)
+    invalid = set(aliases.keys()) - valid_keys
+    if invalid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"NODE_ALIASES contains keys not in cluster_configs: {sorted(invalid)}",
+        )
+
+
 def _device_dict_to_array(d: dict) -> list:
     """Convert DEVICE cluster_configs from dict to ordered array for API response.
 
@@ -213,6 +240,8 @@ def create_bot(
 ):
     if body.bot_type.upper() not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
+
+    _validate_node_aliases(body.config_overrides, body.cluster_configs)
 
     exists = (
         db.query(Bot)
@@ -348,6 +377,11 @@ def update_bot(
     # Only owner or super_admin can edit
     if user.role != "super_admin" and bot.user_id != user.id:
         raise HTTPException(status_code=403, detail="Cannot edit another user's bot")
+
+    # Validate NODE_ALIASES keys against cluster_configs
+    if body.config_overrides and body.config_overrides.get("NODE_ALIASES"):
+        cc = body.cluster_configs if body.cluster_configs is not None else json.loads(bot.cluster_configs)
+        _validate_node_aliases(body.config_overrides, cc)
 
     changes = {}
     if body.name is not None:

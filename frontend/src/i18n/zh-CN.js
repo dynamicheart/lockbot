@@ -167,6 +167,10 @@ export default {
     durationWhitelist: '锁定时长白名单',
     durationWhitelistHelp: '白名单内的用户不受最大锁定时长限制',
     durationWhitelistPlaceholder: '输入用户名后按 Enter',
+    showNodeAlias: '聊天消息中展示节点备注',
+    showNodeAliasHelp: '开启后，机器人回复会在节点名后附加备注（如 node0「10.10.10.10」）',
+    showNodeAliasOn: '已开启',
+    showNodeAliasOff: '未开启',
     opkickEnable: '运维释放 (OpKick)',
     opkickHelp: '允许受信操作员通过 AT 命令释放空闲用户的锁',
     trustedOperatorIds: '授权操作员 ID',
@@ -248,6 +252,7 @@ export default {
     cannotDeleteAdminBot: '无法删除其他管理员的机器人',
     opkickOn: '已启用',
     opkickOff: '未启用',
+    nodeAliases: '节点备注',
     apiKey: 'API Key',
     apiKeyHelp:
       '供外部程序查询锁状态，如 GET /api/bots/{id}/locked-users，Header: Authorization: Bearer lbk_xxx',
@@ -437,6 +442,7 @@ export default {
     emptyNodeOrDevice: '请填写节点名称和设备型号',
     nodeNameInvalid: '仅支持英文、数字、下划线、横杠',
     nodeNameTooLong: '不超过 8 个字符',
+    aliasPlaceholder: '备注（如 10.10.10.10）',
   },
 
   // === Audit Logs ===

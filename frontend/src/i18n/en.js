@@ -171,6 +171,11 @@ export default {
     durationWhitelist: 'Lock Duration Whitelist',
     durationWhitelistHelp: 'Users exempt from MAX_LOCK_DURATION.',
     durationWhitelistPlaceholder: 'Type a username and press Enter',
+    showNodeAlias: 'Show Node Alias in Messages',
+    showNodeAliasHelp:
+      'When enabled, bot replies will append alias after node name (e.g. node0「10.10.10.10」)',
+    showNodeAliasOn: 'Enabled',
+    showNodeAliasOff: 'Disabled',
     opkickEnable: 'Operator Kick (OpKick)',
     opkickHelp: 'Allow trusted operators to release idle locks via AT commands',
     trustedOperatorIds: 'Trusted Operator IDs',
@@ -254,6 +259,7 @@ export default {
     cannotDeleteAdminBot: "Cannot delete another admin's bot",
     opkickOn: 'Enabled',
     opkickOff: 'Disabled',
+    nodeAliases: 'Node Aliases',
     apiKey: 'API Key',
     apiKeyHelp:
       'For external programs to query lock state, e.g. GET /api/bots/{id}/locked-users, Header: Authorization: Bearer lbk_xxx',
@@ -443,6 +449,7 @@ export default {
     emptyNodeOrDevice: 'Please fill in node name and device model',
     nodeNameInvalid: 'Only letters, digits, underscores and hyphens',
     nodeNameTooLong: 'Max 8 characters',
+    aliasPlaceholder: 'Alias (e.g. 10.10.10.10)',
   },
 
   // === Audit Logs ===

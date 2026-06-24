@@ -125,6 +125,14 @@ class BaseLockBot:
     def _duration_whitelist(self):
         return self.config.get_val("DURATION_WHITELIST") or []
 
+    def _display_node(self, node_key):
+        """Return node_key with alias suffix if SHOW_NODE_ALIAS is enabled."""
+        if not self.config.get_val("SHOW_NODE_ALIAS"):
+            return node_key
+        aliases = self.config.get_val("NODE_ALIASES") or {}
+        alias = aliases.get(node_key)
+        return f"{node_key}「{alias}」" if alias else node_key
+
     def _whitelist_hint(self):
         """Return whitelist hint string if BOT_OWNER is configured, else empty string."""
         owner = self.config.get_val("BOT_OWNER")

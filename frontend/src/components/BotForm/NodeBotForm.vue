@@ -30,6 +30,12 @@
           :class="{ 'is-duplicate': isDuplicate(i), 'is-invalid': isInvalidName(i) }"
           class="node-input"
         />
+        <el-input
+          v-model="node.alias"
+          :placeholder="$t('botForm.aliasPlaceholder')"
+          :maxlength="15"
+          class="alias-input"
+        />
         <span v-if="isDuplicate(i)" class="dup-tip">{{ $t('botForm.duplicateNode') }}</span>
         <span v-else-if="isInvalidName(i)" class="dup-tip">{{
           $t('botForm.nodeNameInvalid')
@@ -61,8 +67,9 @@ let nodeIdSeq = 0
 
 const props = defineProps({
   modelValue: { type: [Object, Array], default: () => ({}) },
+  aliases: { type: Object, default: () => ({}) },
 })
-const emit = defineEmits(['update:modelValue', 'update:hasError'])
+const emit = defineEmits(['update:modelValue', 'update:hasError', 'update:aliases'])
 
 const nodes = ref(parseInit())
 const dragIndex = ref(-1)
@@ -71,6 +78,7 @@ const dropPos = ref('')
 
 function parseInit() {
   const cfg = props.modelValue
+  const aliasMap = props.aliases || {}
   let names = ['']
   if (cfg) {
     if (Array.isArray(cfg)) {
@@ -82,7 +90,7 @@ function parseInit() {
       names = keys.length ? keys : ['']
     }
   }
-  return names.map((name) => ({ id: ++nodeIdSeq, name }))
+  return names.map((name) => ({ id: ++nodeIdSeq, name, alias: aliasMap[name] || '' }))
 }
 
 const NODE_NAME_RE = /^[a-zA-Z0-9_-]*$/
@@ -100,7 +108,7 @@ function isInvalidName(i) {
 }
 
 function addNode() {
-  nodes.value.push({ id: ++nodeIdSeq, name: '' })
+  nodes.value.push({ id: ++nodeIdSeq, name: '', alias: '' })
 }
 
 function removeNode(i) {
@@ -185,7 +193,12 @@ watch(
       })
     }
     syncing = true
-    nodes.value = incomingNames.map((name) => ({ id: ++nodeIdSeq, name }))
+    const aliasMap = props.aliases || {}
+    nodes.value = incomingNames.map((name) => ({
+      id: ++nodeIdSeq,
+      name,
+      alias: aliasMap[name] || '',
+    }))
     nextTick(() => {
       syncing = false
     })
@@ -199,6 +212,7 @@ watch(
     syncing = true
     const seen = new Set()
     const result = []
+    const aliasResult = {}
     let hasErr = false
     for (const n of nodes.value) {
       const name = n.name?.trim()
@@ -210,9 +224,11 @@ watch(
       }
       seen.add(key)
       result.push(name)
+      if (n.alias?.trim()) aliasResult[name] = n.alias.trim()
     }
     emit('update:modelValue', result)
     emit('update:hasError', hasErr)
+    emit('update:aliases', aliasResult)
     nextTick(() => {
       syncing = false
     })
@@ -298,6 +314,10 @@ watch(
 }
 .node-input {
   flex: 1;
+}
+.alias-input {
+  width: 140px;
+  flex-shrink: 0;
 }
 .node-remove {
   opacity: 0;

@@ -53,18 +53,24 @@
       <NodeBotForm
         v-if="form.bot_type === 'NODE'"
         v-model="clusterConfig"
+        :aliases="advancedConfig.NODE_ALIASES"
         @update:has-error="clusterHasError = $event"
+        @update:aliases="advancedConfig.NODE_ALIASES = $event"
       />
       <DeviceBotForm
         v-else-if="form.bot_type === 'DEVICE'"
         ref="deviceFormRef"
         v-model="clusterConfig"
+        :aliases="advancedConfig.NODE_ALIASES"
         @update:has-error="clusterHasError = $event"
+        @update:aliases="advancedConfig.NODE_ALIASES = $event"
       />
       <QueueBotForm
         v-else-if="form.bot_type === 'QUEUE'"
         v-model="clusterConfig"
+        :aliases="advancedConfig.NODE_ALIASES"
         @update:has-error="clusterHasError = $event"
+        @update:aliases="advancedConfig.NODE_ALIASES = $event"
       />
 
       <ClusterPreview :bot-type="form.bot_type" :cluster-configs="clusterConfig" />
@@ -289,6 +295,21 @@
                 />
               </el-form-item>
             </el-col>
+            <el-col :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.showNodeAlias') }}
+                  <el-tooltip
+                    :content="$t('botCreate.showNodeAliasHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch v-model="advancedConfig.SHOW_NODE_ALIAS" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </el-collapse-item>
       </el-collapse>
@@ -357,6 +378,8 @@ const advancedConfig = reactive({
   EARLY_NOTIFY: false,
   LANGUAGE: 'zh',
   DURATION_WHITELIST: [],
+  NODE_ALIASES: {},
+  SHOW_NODE_ALIAS: false,
 })
 
 function formatSeconds(s) {
@@ -409,6 +432,10 @@ onMounted(async () => {
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
         if (Array.isArray(overrides.DURATION_WHITELIST))
           advancedConfig.DURATION_WHITELIST = overrides.DURATION_WHITELIST
+        if (overrides.NODE_ALIASES != null && typeof overrides.NODE_ALIASES === 'object')
+          advancedConfig.NODE_ALIASES = overrides.NODE_ALIASES
+        if (overrides.SHOW_NODE_ALIAS != null)
+          advancedConfig.SHOW_NODE_ALIAS = overrides.SHOW_NODE_ALIAS
       } catch {
         // keep defaults
       }
@@ -486,7 +513,11 @@ async function handleSubmit() {
   try {
     const data = { ...form }
     // Always include advanced config_overrides
-    data.config_overrides = { ...advancedConfig }
+    const overrides = { ...advancedConfig }
+    // Clean empty NODE_ALIASES
+    if (overrides.NODE_ALIASES && Object.keys(overrides.NODE_ALIASES).length === 0)
+      delete overrides.NODE_ALIASES
+    data.config_overrides = overrides
     if (isEdit.value) {
       if (!data.aes_key) delete data.aes_key
       if (!data.token) delete data.token

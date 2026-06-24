@@ -469,3 +469,24 @@ def test_non_whitelist_user_still_blocked_when_whitelist_set(bot):
 
     reply = bot.lock("user1", "lock test 2h")
     assert "❌" in reply["message"]["body"][0]["content"]
+
+
+def test_display_node_disabled(bot):
+    """When SHOW_NODE_ALIAS is false, _display_node returns raw node_key."""
+    bot.config.set_val("SHOW_NODE_ALIAS", False)
+    bot.config.set_val("NODE_ALIASES", {"test": "10.0.0.1"})
+    assert bot._display_node("test") == "test"
+
+
+def test_display_node_with_alias(bot):
+    """When SHOW_NODE_ALIAS is true and alias exists, formats with 「」."""
+    bot.config.set_val("SHOW_NODE_ALIAS", True)
+    bot.config.set_val("NODE_ALIASES", {"test": "10.0.0.1"})
+    assert bot._display_node("test") == "test「10.0.0.1」"
+
+
+def test_display_node_no_alias(bot):
+    """When SHOW_NODE_ALIAS is true but no alias for key, returns raw node_key."""
+    bot.config.set_val("SHOW_NODE_ALIAS", True)
+    bot.config.set_val("NODE_ALIASES", {})
+    assert bot._display_node("test") == "test"
