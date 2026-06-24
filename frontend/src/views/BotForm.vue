@@ -310,6 +310,21 @@
                 <el-switch v-model="advancedConfig.SHOW_NODE_ALIAS" />
               </el-form-item>
             </el-col>
+            <el-col :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.allowUserAlias') }}
+                  <el-tooltip
+                    :content="$t('botCreate.allowUserAliasHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch v-model="advancedConfig.ALLOW_USER_ALIAS" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </el-collapse-item>
       </el-collapse>
@@ -380,6 +395,7 @@ const advancedConfig = reactive({
   DURATION_WHITELIST: [],
   NODE_ALIASES: {},
   SHOW_NODE_ALIAS: false,
+  ALLOW_USER_ALIAS: false,
 })
 
 function formatSeconds(s) {
@@ -436,6 +452,8 @@ onMounted(async () => {
           advancedConfig.NODE_ALIASES = overrides.NODE_ALIASES
         if (overrides.SHOW_NODE_ALIAS != null)
           advancedConfig.SHOW_NODE_ALIAS = overrides.SHOW_NODE_ALIAS
+        if (overrides.ALLOW_USER_ALIAS != null)
+          advancedConfig.ALLOW_USER_ALIAS = overrides.ALLOW_USER_ALIAS
       } catch {
         // keep defaults
       }

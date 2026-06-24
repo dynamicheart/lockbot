@@ -173,6 +173,12 @@ MESSAGES = {
     "opkick.invalid_format": "Invalid opkick format. Usage: opkick <username> [node] [dev x,y]",
     "opkick.notify_kicked": "⚠️ [Operator Release]\n\nNode: {node_key}\n",
     "opkick.notify_kicked_reason": "Reason: {reason}\n\n",
+    # ── Alias command ──
+    "alias.usage": "Usage: alias <node_key> [label]\nExample: alias node0 10.10.10.56\nClear: alias node0",
+    "alias.invalid_node": "Node {node_key} does not exist. Available: {valid_keys}\n",
+    "alias.set_ok": "✅ Set {node_key} alias to「{alias}」\n\n",
+    "alias.clear_ok": "✅ Cleared alias for {node_key}\n\n",
+    "alias.disabled": "User alias command is not enabled for this bot",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ Bot {bot_name}(ID:{bot_id}) is not running. "  # noqa: E501
     "Please contact the owner @{owner_username} to start it.",

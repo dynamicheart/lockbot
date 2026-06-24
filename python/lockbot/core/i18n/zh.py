@@ -166,6 +166,12 @@ MESSAGES = {
     "opkick.invalid_format": "opkick命令格式错误，正确格式: opkick <username> [node] [dev x,y]",
     "opkick.notify_kicked": "⚠️【运维释放】\n\n节点: {node_key}\n",
     "opkick.notify_kicked_reason": "原因: {reason}\n\n",
+    # ── Alias command ──
+    "alias.usage": "用法: alias <节点名> [备注]\n示例: alias node0 10.10.10.56\n清除: alias node0",
+    "alias.invalid_node": "节点 {node_key} 不存在，可用节点: {valid_keys}\n",
+    "alias.set_ok": "✅ 已设置 {node_key} 备注为「{alias}」\n\n",
+    "alias.clear_ok": "✅ 已清除 {node_key} 的备注\n\n",
+    "alias.disabled": "该机器人未开启用户自助设置备注功能",
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": (
         "⚠️ 机器人 {bot_name}(ID:{bot_id}) 尚未启动，请联系管理人 @{owner_username} 启动后再使用。"

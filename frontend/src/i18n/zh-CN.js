@@ -171,6 +171,8 @@ export default {
     showNodeAliasHelp: '开启后，机器人回复会在节点名后附加备注（如 node0「10.10.10.10」）',
     showNodeAliasOn: '已开启',
     showNodeAliasOff: '未开启',
+    allowUserAlias: '允许用户自行设置备注',
+    allowUserAliasHelp: '开启后，用户可通过 alias 命令修改节点备注',
     opkickEnable: '运维释放 (OpKick)',
     opkickHelp: '允许受信操作员通过 AT 命令释放空闲用户的锁',
     trustedOperatorIds: '授权操作员 ID',

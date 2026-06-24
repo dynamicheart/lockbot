@@ -55,6 +55,8 @@ def execute_command(msg_data, bot):
             return bot.query(user_id)
     elif cmd in ("help", "h"):
         return bot.print_help(user_id)
+    elif cmd == "alias":
+        return bot.alias(user_id, rcv_info)
     else:
         return bot.print_help(user_id, t("error.unknown_error", config=getattr(bot, "config", None), command=rcv_info))
         return bot.print_help(user_id, t("error.unknown_error", config=getattr(bot, "config", None), command=rcv_info))

@@ -133,6 +133,74 @@ class BaseLockBot:
         alias = aliases.get(node_key)
         return f"{node_key}「{alias}」" if alias else node_key
 
+    def alias(self, user_id, command):
+        """Set or clear a node alias. Usage: alias <node_key> [alias_value]"""
+        if not self.config.get_val("ALLOW_USER_ALIAS"):
+            return self.show_error(user_id, t("alias.disabled", config=self.config))
+
+        import re
+
+        m = re.match(r"^\s*alias\s+([\w\d_-]+)(?:\s+(.{1,15}))?\s*$", command)
+        if not m:
+            return self.show_error(user_id, t("alias.usage", config=self.config))
+
+        node_key = m.group(1)
+        alias_val = (m.group(2) or "").strip()
+
+        cluster_configs = self.config.get_val("CLUSTER_CONFIGS")
+        if node_key not in cluster_configs:
+            return self.show_error(
+                user_id,
+                t(
+                    "alias.invalid_node",
+                    config=self.config,
+                    node_key=node_key,
+                    valid_keys=str(list(cluster_configs.keys())),
+                ),
+            )
+
+        aliases = self.config.get_val("NODE_ALIASES") or {}
+        if alias_val:
+            aliases[node_key] = alias_val
+        else:
+            aliases.pop(node_key, None)
+        self.config.set_val("NODE_ALIASES", aliases)
+
+        # Persist to DB if running under platform mode
+        self._persist_config_override("NODE_ALIASES", aliases)
+
+        if alias_val:
+            self.logger.info("user=%s set alias %s -> %s", user_id, node_key, alias_val)
+            msg = t("alias.set_ok", config=self.config, node_key=node_key, alias=alias_val)
+        else:
+            self.logger.info("user=%s cleared alias %s", user_id, node_key)
+            msg = t("alias.clear_ok", config=self.config, node_key=node_key)
+        return self.adapter.build_reply(msg, [user_id])
+
+    def _persist_config_override(self, key, value):
+        """Persist a single config_override key to DB (best-effort)."""
+        try:
+            import json
+
+            from lockbot.backend.app.bots.models import Bot
+            from lockbot.backend.app.database import SessionLocal
+
+            bot_id = self.config.get_val("BOT_ID")
+            if not bot_id:
+                return
+            db = SessionLocal()
+            try:
+                bot = db.query(Bot).filter(Bot.id == int(bot_id)).first()
+                if bot:
+                    overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}
+                    overrides[key] = value
+                    bot.config_overrides = json.dumps(overrides, ensure_ascii=False)
+                    db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass
+
     def _whitelist_hint(self):
         """Return whitelist hint string if BOT_OWNER is configured, else empty string."""
         owner = self.config.get_val("BOT_OWNER")

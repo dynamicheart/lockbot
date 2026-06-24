@@ -176,6 +176,8 @@ export default {
       'When enabled, bot replies will append alias after node name (e.g. node0「10.10.10.10」)',
     showNodeAliasOn: 'Enabled',
     showNodeAliasOff: 'Disabled',
+    allowUserAlias: 'Allow User Alias Command',
+    allowUserAliasHelp: 'When enabled, users can set node aliases via the alias command in chat',
     opkickEnable: 'Operator Kick (OpKick)',
     opkickHelp: 'Allow trusted operators to release idle locks via AT commands',
     trustedOperatorIds: 'Trusted Operator IDs',

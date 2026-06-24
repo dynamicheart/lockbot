@@ -39,7 +39,7 @@ class DeviceBot(BaseLockBot):
         _loader = staticmethod(create_or_load_device_state)
 
     def supported_commands(self):
-        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query"]
+        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "alias"]
 
     def parse_command(self, user_id, command_key, command, parsing_duration=False):
         """
@@ -492,6 +492,9 @@ class DeviceBot(BaseLockBot):
         text += t("help.query_at_bot", config=self.config)
         text += t("help.query_node_example", config=self.config, node=example_node)
         text += "\n"
+
+        if self.config.get_val("ALLOW_USER_ALIAS"):
+            text += f"6. 备注: alias {example_node} <备注>\n\n"
 
         return text
 

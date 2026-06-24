@@ -26,7 +26,7 @@ class QueueBot(NodeBot):
     """
 
     def supported_commands(self):
-        return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query"]
+        return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query", "alias"]
 
     def lock(self, user_id, command):
         """
@@ -345,7 +345,12 @@ class QueueBot(NodeBot):
         parts.append(t("help.section_help_title_queue", config=self.config))
         parts.append(t("help.section_query_title_queue", config=self.config))
         parts.append(t("help.query_at_bot", config=self.config))
-        parts.append(f"    {example_node0}\n\n")
+        parts.append(f"    {example_node0}\n")
+
+        if self.config.get_val("ALLOW_USER_ALIAS"):
+            parts.append(f"8. 备注: alias {example_node0} <备注>\n")
+
+        parts.append("\n")
         return "".join(parts)
 
     def _check_and_notify(self) -> float | None:
@@ -522,11 +527,12 @@ class QueueBot(NodeBot):
             usage_info = ""
             for node_key, node_status in nodes.items():
                 if node_filter is None or node_key == node_filter:
+                    display_name = self._display_node(node_key)
                     if node_status["status"] == "idle":
-                        usage_info += "{:} {}\n".format(node_key, t("status.idle", config=self.config))
+                        usage_info += "{:} {}\n".format(display_name, t("status.idle", config=self.config))
                     else:
                         for user_idx, user_info in enumerate(node_status["current_users"]):
-                            node_name = f"{node_key}" if user_idx == 0 else ""
+                            node_name = f"{display_name}" if user_idx == 0 else ""
                             uid = user_info["user_id"]
                             duration = format_duration(
                                 remaining_duration(user_info["start_time"], user_info["duration"]),

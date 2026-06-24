@@ -212,6 +212,15 @@
                 }}
               </el-tag>
             </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.allowUserAlias')">
+              <el-tag :type="botConfig.ALLOW_USER_ALIAS ? 'success' : 'info'" size="small">
+                {{
+                  botConfig.ALLOW_USER_ALIAS
+                    ? $t('botCreate.showNodeAliasOn')
+                    : $t('botCreate.showNodeAliasOff')
+                }}
+              </el-tag>
+            </el-descriptions-item>
           </template>
           <!-- API Key -->
           <el-descriptions-item :span="2">
@@ -594,6 +603,7 @@ const botConfig = computed(() => {
         : [],
       NODE_ALIASES: overrides.NODE_ALIASES || {},
       SHOW_NODE_ALIAS: overrides.SHOW_NODE_ALIAS ?? false,
+      ALLOW_USER_ALIAS: overrides.ALLOW_USER_ALIAS ?? false,
     }
   } catch {
     return {
@@ -604,6 +614,7 @@ const botConfig = computed(() => {
       DURATION_WHITELIST: [],
       NODE_ALIASES: {},
       SHOW_NODE_ALIAS: false,
+      ALLOW_USER_ALIAS: false,
     }
   }
 })
@@ -619,7 +630,8 @@ const hasAdvancedConfig = computed(() => {
     c.EARLY_NOTIFY !== false ||
     c.DURATION_WHITELIST.length > 0 ||
     Object.keys(c.NODE_ALIASES).length > 0 ||
-    c.SHOW_NODE_ALIAS !== false
+    c.SHOW_NODE_ALIAS !== false ||
+    c.ALLOW_USER_ALIAS !== false
   )
 })
 

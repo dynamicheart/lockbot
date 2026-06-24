@@ -490,3 +490,44 @@ def test_display_node_no_alias(bot):
     bot.config.set_val("SHOW_NODE_ALIAS", True)
     bot.config.set_val("NODE_ALIASES", {})
     assert bot._display_node("test") == "test"
+
+
+# ── alias command tests ──
+
+
+def test_alias_disabled_by_default(bot):
+    """alias command returns disabled error when ALLOW_USER_ALIAS is off."""
+    reply = bot.alias("user1", "alias test 10.0.0.1")
+    assert "disabled" in str(reply).lower() or "未开启" in str(reply)
+
+
+def test_alias_set(bot):
+    """alias command sets alias when ALLOW_USER_ALIAS is on."""
+    bot.config.set_val("ALLOW_USER_ALIAS", True)
+    reply = bot.alias("user1", "alias test 10.0.0.1")
+    assert "10.0.0.1" in str(reply)
+    assert bot.config.get_val("NODE_ALIASES") == {"test": "10.0.0.1"}
+
+
+def test_alias_clear(bot):
+    """alias command clears alias when no value given."""
+    bot.config.set_val("ALLOW_USER_ALIAS", True)
+    bot.config.set_val("NODE_ALIASES", {"test": "old"})
+    reply = bot.alias("user1", "alias test")
+    assert "test" in str(reply)
+    assert bot.config.get_val("NODE_ALIASES") == {}
+
+
+def test_alias_invalid_node(bot):
+    """alias command rejects non-existent node."""
+    bot.config.set_val("ALLOW_USER_ALIAS", True)
+    reply = bot.alias("user1", "alias nonexist 1.2.3.4")
+    assert "nonexist" in str(reply)
+
+
+def test_alias_invalid_format(bot):
+    """alias command rejects bad format."""
+    bot.config.set_val("ALLOW_USER_ALIAS", True)
+    reply = bot.alias("user1", "alias")
+    # Should return usage hint
+    assert "alias" in str(reply).lower()

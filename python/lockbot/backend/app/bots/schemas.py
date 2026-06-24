@@ -68,6 +68,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if show_alias is not None and not isinstance(show_alias, bool):
         errors.append("SHOW_NODE_ALIAS must be a boolean")
 
+    allow_alias = v.get("ALLOW_USER_ALIAS")
+    if allow_alias is not None and not isinstance(allow_alias, bool):
+        errors.append("ALLOW_USER_ALIAS must be a boolean")
+
     max_dur = v.get("MAX_LOCK_DURATION")
     default_dur = v.get("DEFAULT_DURATION")
     if isinstance(max_dur, int) and isinstance(default_dur, int) and max_dur != -1 and default_dur > max_dur:
