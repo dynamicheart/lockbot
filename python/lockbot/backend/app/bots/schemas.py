@@ -53,6 +53,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
             if not (lo <= val <= hi):
                 errors.append(f"{key} must be between {lo} and {hi}")
 
+    whitelist = v.get("DURATION_WHITELIST")
+    if whitelist is not None and (not isinstance(whitelist, list) or not all(isinstance(u, str) for u in whitelist)):
+        errors.append("DURATION_WHITELIST must be a list of strings")
+
     max_dur = v.get("MAX_LOCK_DURATION")
     default_dur = v.get("DEFAULT_DURATION")
     if isinstance(max_dur, int) and isinstance(default_dur, int) and max_dur != -1 and default_dur > max_dur:

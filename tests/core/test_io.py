@@ -437,3 +437,108 @@ def test_node_state_clamped_persisted_no_repeat(tmp_path):
     with patch("time.time", return_value=1000):
         _, clamped2 = create_or_load_node_state(config=config)
     assert len(clamped2) == 0
+
+
+def test_device_state_whitelist_not_clamped(tmp_path):
+    """Whitelisted user's duration must NOT be clamped on load."""
+    cluster_configs = {"node1": ["deviceA"]}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=3000, DURATION_WHITELIST=["vip"])
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    # elapsed=1000, remaining=4000 > 3000 — would clamp without whitelist
+    config_data = {
+        "cluster_status": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "deviceA",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "vip", "start_time": 0, "duration": 5000}],
+                }
+            ]
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        result, clamped = create_or_load_device_state(config=config)
+
+    assert clamped == set()
+    assert result["node1"][0]["current_users"][0]["duration"] == 5000
+
+
+def test_node_state_whitelist_not_clamped(tmp_path):
+    """Whitelisted user's duration must NOT be clamped on load."""
+    cluster_configs = {"node1": "Node One"}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=3000, DURATION_WHITELIST=["vip"])
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "cluster_status": {
+            "node1": {
+                "status": "exclusive",
+                "current_users": [{"user_id": "vip", "start_time": 0, "duration": 5000}],
+                "booking_list": [],
+            }
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        result, clamped = create_or_load_node_state(config=config)
+
+    assert clamped == set()
+    assert result["node1"]["current_users"][0]["duration"] == 5000
+
+
+def test_device_state_non_whitelist_user_still_clamped_when_whitelist_set(tmp_path):
+    """Non-whitelisted user must still be clamped even when whitelist contains others."""
+    cluster_configs = {"node1": ["deviceA"]}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=3000, DURATION_WHITELIST=["vip"])
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "cluster_status": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "deviceA",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "user1", "start_time": 0, "duration": 5000}],
+                }
+            ]
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        result, clamped = create_or_load_device_state(config=config)
+
+    assert "user1" in clamped
+    # elapsed=1000, remaining=4000 > 3000, so clamped to duration = 5000 - (4000-3000) = 4000
+    assert result["node1"][0]["current_users"][0]["duration"] == 4000
+
+
+def test_node_state_non_whitelist_user_still_clamped_when_whitelist_set(tmp_path):
+    """Non-whitelisted user must still be clamped even when whitelist contains others."""
+    cluster_configs = {"node1": "Node One"}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=3000, DURATION_WHITELIST=["vip"])
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    config_data = {
+        "cluster_status": {
+            "node1": {
+                "status": "exclusive",
+                "current_users": [{"user_id": "user1", "start_time": 0, "duration": 5000}],
+                "booking_list": [],
+            }
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=1000):
+        result, clamped = create_or_load_node_state(config=config)
+
+    assert "user1" in clamped
+    # elapsed=1000, remaining=4000 > 3000, so clamped to duration = 5000 - (4000-3000) = 4000
+    assert result["node1"]["current_users"][0]["duration"] == 4000

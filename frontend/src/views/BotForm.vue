@@ -265,6 +265,30 @@
                 <el-switch v-model="advancedConfig.EARLY_NOTIFY" />
               </el-form-item>
             </el-col>
+            <el-col :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.durationWhitelist') }}
+                  <el-tooltip
+                    :content="$t('botCreate.durationWhitelistHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-select
+                  v-model="advancedConfig.DURATION_WHITELIST"
+                  multiple
+                  filterable
+                  allow-create
+                  default-first-option
+                  :reserve-keyword="false"
+                  :placeholder="$t('botCreate.durationWhitelistPlaceholder')"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </el-col>
           </el-row>
         </el-collapse-item>
       </el-collapse>
@@ -332,6 +356,7 @@ const advancedConfig = reactive({
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
   LANGUAGE: 'zh',
+  DURATION_WHITELIST: [],
 })
 
 function formatSeconds(s) {
@@ -382,6 +407,8 @@ onMounted(async () => {
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
+        if (Array.isArray(overrides.DURATION_WHITELIST))
+          advancedConfig.DURATION_WHITELIST = overrides.DURATION_WHITELIST
       } catch {
         // keep defaults
       }

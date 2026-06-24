@@ -27,8 +27,9 @@ MESSAGES = {
     "error.duration_must_be_positive": "Duration must be greater than 0\n",
     "error.node_in_use_or_shared": "Node is in use by others or in shared mode\n\n",
     "error.node_exclusive_mode": "Node is in exclusive mode\n\n",
-    "error.lock_max_duration_exceeded": "Note: consecutive lock cannot exceed {max_duration}\n\n",
-    "error.slock_max_duration_exceeded": "Note: consecutive slock cannot exceed {max_duration}\n\n",
+    "error.lock_max_duration_exceeded": "Note: consecutive lock cannot exceed {max_duration}\n\n{whitelist_hint}",
+    "error.slock_max_duration_exceeded": "Note: consecutive slock cannot exceed {max_duration}\n\n{whitelist_hint}",
+    "error.whitelist_hint": "To lock longer, contact @{owner} to be added to the whitelist\n\n",
     "error.node_not_requested": "You have not requested this node\n",
     "error.unrecognized_command": "❌ Unrecognized command: {command}",
     "error.unknown_error": "❌ Unknown error: {command}",
@@ -139,9 +140,9 @@ MESSAGES = {
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
     "notify.duration_clamped": (
-        "⚠️ [Lock Duration Adjusted]\n"
+        "⚠️ [Lock Duration Adjusted]\n\n"
         "The admin has set max lock duration to {max_duration}. "
-        "Your remaining lock time has been automatically shortened.\n"
+        "Your remaining lock time has been automatically shortened.\n\n"
     ),
     # ── Help: news (inline) ──
     "help.news_header": "📢 Announcement:\n",

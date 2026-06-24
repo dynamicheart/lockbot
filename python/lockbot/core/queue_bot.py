@@ -38,6 +38,7 @@ class QueueBot(NodeBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        whitelist = self.config.get_val("DURATION_WHITELIST") or []
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(
@@ -61,7 +62,7 @@ class QueueBot(NodeBot):
             users_to_notify = set()
             users_to_notify.add(user_id)
 
-            if max_dur > 0:
+            if max_dur > 0 and user_id not in whitelist:
                 for node in nodes:
                     booking_info = find_user_info(node["booking_list"], user_id)
                     if not command_has_duration and booking_info:
@@ -81,6 +82,7 @@ class QueueBot(NodeBot):
                                 "error.lock_max_duration_exceeded",
                                 config=self.config,
                                 max_duration=format_duration(max_dur, config=self.config),
+                                whitelist_hint=self._whitelist_hint(),
                             ),
                         )
 
@@ -130,6 +132,7 @@ class QueueBot(NodeBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        whitelist = self.config.get_val("DURATION_WHITELIST") or []
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if any(
@@ -140,13 +143,14 @@ class QueueBot(NodeBot):
 
             timestamp = int(time.time())
 
-            if max_dur > 0 and duration > max_dur:
+            if max_dur > 0 and user_id not in whitelist and duration > max_dur:
                 return self.show_error(
                     user_id,
                     t(
                         "error.lock_max_duration_exceeded",
                         config=self.config,
                         max_duration=format_duration(max_dur, config=self.config),
+                        whitelist_hint=self._whitelist_hint(),
                     ),
                 )
 
@@ -170,6 +174,7 @@ class QueueBot(NodeBot):
         content = t("success.take_success_by", config=self.config, user_id=user_id)
         content += self._msg_with_usage("label.before_take")
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        whitelist = self.config.get_val("DURATION_WHITELIST") or []
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if any(find_user_info(node["current_users"], user_id) for node in nodes):
@@ -180,13 +185,14 @@ class QueueBot(NodeBot):
             users_to_notify.add(user_id)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
 
-            if max_dur > 0 and remaining_duration(timestamp, duration) > max_dur:
+            if max_dur > 0 and user_id not in whitelist and remaining_duration(timestamp, duration) > max_dur:
                 return self.show_error(
                     user_id,
                     t(
                         "error.lock_max_duration_exceeded",
                         config=self.config,
                         max_duration=format_duration(max_dur, config=self.config),
+                        whitelist_hint=self._whitelist_hint(),
                     ),
                 )
 

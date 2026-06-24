@@ -71,13 +71,17 @@ def remaining_duration(start_time, duration):
     return max(duration - elapsed_duration, 0)
 
 
-def apply_max_duration_limit(user_list, max_duration):
+def apply_max_duration_limit(user_list, max_duration, whitelist=None):
     """Clamp each user's remaining duration to max_duration in place.
 
     Returns a list of user_ids whose durations were clamped.
+    Whitelist users are skipped.
     """
+    whitelist = whitelist or []
     clamped_users = []
     for user_info in user_list:
+        if user_info["user_id"] in whitelist:
+            continue
         final_duration = remaining_duration(user_info["start_time"], user_info["duration"])
         if max_duration > 0 and final_duration > max_duration:
             user_info["duration"] = user_info["duration"] - final_duration + max_duration

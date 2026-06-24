@@ -127,3 +127,24 @@ def test_apply_max_duration_limit_with_mock(timestamp_offset, duration, max_dura
 
     actual_duration = users[0]["duration"]
     assert actual_duration == expected_duration, f"Expected duration {expected_duration}, got {actual_duration}"
+
+
+@patch("time.time", return_value=1_000_000)
+def test_apply_max_duration_limit_whitelist_not_clamped(mock_time):
+    """Whitelisted user's duration must NOT be clamped even when it exceeds max_duration."""
+    # elapsed=1000, remaining=4000 > max_duration=3000 — would normally be clamped
+    user = {"user_id": "vip", "start_time": 1_000_000 - 1000, "duration": 5000}
+    apply_max_duration_limit([user], max_duration=3000, whitelist=["vip"])
+    assert user["duration"] == 5000
+
+
+@patch("time.time", return_value=1_000_000)
+def test_apply_max_duration_limit_non_whitelist_still_clamped(mock_time):
+    """Non-whitelisted user is clamped; whitelisted user alongside is untouched."""
+    fixed = 1_000_000
+    normal = {"user_id": "u1", "start_time": fixed - 1000, "duration": 5000}
+    vip = {"user_id": "vip", "start_time": fixed - 1000, "duration": 5000}
+    clamped = apply_max_duration_limit([normal, vip], max_duration=3000, whitelist=["vip"])
+    assert clamped == ["u1"]
+    assert normal["duration"] == 4000
+    assert vip["duration"] == 5000

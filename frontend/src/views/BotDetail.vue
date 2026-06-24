@@ -191,6 +191,18 @@
                 }}
               </el-tag>
             </el-descriptions-item>
+            <el-descriptions-item
+              v-if="botConfig.DURATION_WHITELIST.length > 0"
+              :label="$t('botCreate.durationWhitelist')"
+            >
+              <el-tag
+                v-for="u in botConfig.DURATION_WHITELIST"
+                :key="u"
+                size="small"
+                style="margin-right: 4px"
+                >{{ u }}</el-tag
+              >
+            </el-descriptions-item>
           </template>
           <!-- API Key -->
           <el-descriptions-item :span="2">
@@ -562,9 +574,18 @@ const botConfig = computed(() => {
       MAX_LOCK_DURATION: overrides.MAX_LOCK_DURATION ?? -1,
       TIME_ALERT: overrides.TIME_ALERT ?? 300,
       EARLY_NOTIFY: overrides.EARLY_NOTIFY ?? false,
+      DURATION_WHITELIST: Array.isArray(overrides.DURATION_WHITELIST)
+        ? overrides.DURATION_WHITELIST
+        : [],
     }
   } catch {
-    return { DEFAULT_DURATION: 7200, MAX_LOCK_DURATION: -1, TIME_ALERT: 300, EARLY_NOTIFY: false }
+    return {
+      DEFAULT_DURATION: 7200,
+      MAX_LOCK_DURATION: -1,
+      TIME_ALERT: 300,
+      EARLY_NOTIFY: false,
+      DURATION_WHITELIST: [],
+    }
   }
 })
 
@@ -576,7 +597,8 @@ const hasAdvancedConfig = computed(() => {
     c.DEFAULT_DURATION !== 7200 ||
     c.MAX_LOCK_DURATION !== -1 ||
     c.TIME_ALERT !== 300 ||
-    c.EARLY_NOTIFY !== false
+    c.EARLY_NOTIFY !== false ||
+    c.DURATION_WHITELIST.length > 0
   )
 })
 

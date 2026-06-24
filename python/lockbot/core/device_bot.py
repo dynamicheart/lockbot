@@ -177,6 +177,7 @@ class DeviceBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        whitelist = self.config.get_val("DURATION_WHITELIST") or []
         with self._lock:
             timestamp = int(time.time())
 
@@ -193,7 +194,7 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_in_use_or_shared", node_key=node_key)
                     )
 
-                if max_dur > 0:
+                if max_dur > 0 and user_id not in whitelist:
                     for device in devices:
                         total_duration = duration
                         user_info = find_user_info(device["current_users"], user_id)
@@ -209,6 +210,7 @@ class DeviceBot(BaseLockBot):
                                     "error.lock_max_duration_exceeded",
                                     config=self.config,
                                     max_duration=format_duration(max_dur, config=self.config),
+                                    whitelist_hint=self._whitelist_hint(),
                                 ),
                             )
 
@@ -249,6 +251,7 @@ class DeviceBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        whitelist = self.config.get_val("DURATION_WHITELIST") or []
         with self._lock:
             timestamp = int(time.time())
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
@@ -260,7 +263,7 @@ class DeviceBot(BaseLockBot):
                         user_id, self._msg_with_usage("error.device_exclusive_mode", node_key=node_key)
                     )
 
-                if max_dur > 0:
+                if max_dur > 0 and user_id not in whitelist:
                     for device in devices:
                         user_info = find_user_info(device["current_users"], user_id)
                         if user_info:
@@ -276,6 +279,7 @@ class DeviceBot(BaseLockBot):
                                     "error.slock_max_duration_exceeded",
                                     config=self.config,
                                     max_duration=format_duration(max_dur, config=self.config),
+                                    whitelist_hint=self._whitelist_hint(),
                                 ),
                             )
 

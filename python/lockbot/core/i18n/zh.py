@@ -27,8 +27,9 @@ MESSAGES = {
     "error.duration_must_be_positive": "【申请资源时间应大于0】\n",
     "error.node_in_use_or_shared": "【节点正在被他人使用或处于共享状态】\n\n",
     "error.node_exclusive_mode": "【节点正处于独占状态】\n\n",
-    "error.lock_max_duration_exceeded": "【注意: 目前禁止连续lock超过{max_duration}】\n\n",
-    "error.slock_max_duration_exceeded": "【注意: 目前禁止连续slock超过{max_duration}】\n\n",
+    "error.lock_max_duration_exceeded": "【注意: 目前禁止连续lock超过{max_duration}】\n\n{whitelist_hint}",
+    "error.slock_max_duration_exceeded": "【注意: 目前禁止连续slock超过{max_duration}】\n\n{whitelist_hint}",
+    "error.whitelist_hint": "如需长期lock，请联系管理员 @{owner} 申请加入白名单\n\n",
     "error.node_not_requested": "【你并未申请过该节点资源】\n",
     "error.unrecognized_command": "❌【未识别的命令】{command}",
     "error.unknown_error": "❌【未知错误】{command}",
@@ -133,7 +134,8 @@ MESSAGES = {
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
     "notify.duration_clamped": (
-        "⚠️【锁定时长调整通知】\n管理员已将最大锁定时长调整为 {max_duration}，您的锁定剩余时长已被自动缩短，请知悉。\n"
+        "⚠️【锁定时长调整通知】\n\n"
+        "管理员已将最大锁定时长调整为 {max_duration}，您的锁定剩余时长已被自动缩短，请知悉。\n\n"
     ),
     # ── Help: news (inline) ──
     "help.news_header": "📢 公告:\n",

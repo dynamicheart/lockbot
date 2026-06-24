@@ -114,6 +114,7 @@ def create_or_load_device_state(config=None):
     state_filename = os.path.join(_bot_dir(config), "bot_state.json")
     cluster_configs = _cfg_get(config, "CLUSTER_CONFIGS")
     max_duration = _cfg_get(config, "MAX_LOCK_DURATION", -1)
+    duration_whitelist = _cfg_get(config, "DURATION_WHITELIST", [])
 
     default_state = {
         node_key: [
@@ -150,7 +151,7 @@ def create_or_load_device_state(config=None):
                     device_status = old_by_id[dev_id]
                     _migrate_status_fields(device_status)
                     _migrate_user_info_fields(device_status["current_users"])
-                    clamped = apply_max_duration_limit(device_status["current_users"], max_duration)
+                    clamped = apply_max_duration_limit(device_status["current_users"], max_duration, duration_whitelist)
                     clamped_user_ids.update(clamped)
                     default_device.update(**device_status)
 
@@ -175,6 +176,7 @@ def create_or_load_node_state(config=None):
     state_filename = os.path.join(_bot_dir(config), "bot_state.json")
     cluster_configs = _cfg_get(config, "CLUSTER_CONFIGS")
     max_duration = _cfg_get(config, "MAX_LOCK_DURATION", -1)
+    duration_whitelist = _cfg_get(config, "DURATION_WHITELIST", [])
 
     default_state = {
         shortname: {
@@ -202,7 +204,7 @@ def create_or_load_node_state(config=None):
             node_status.pop("fullname", None)
             _migrate_user_info_fields(node_status.get("current_users", []))
             _migrate_user_info_fields(node_status.get("booking_list", []))
-            clamped = apply_max_duration_limit(node_status.get("current_users", []), max_duration)
+            clamped = apply_max_duration_limit(node_status.get("current_users", []), max_duration, duration_whitelist)
             clamped_user_ids.update(clamped)
             default_state[node_key].update(**node_status)
 

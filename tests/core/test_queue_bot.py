@@ -1130,3 +1130,58 @@ def test_notify_not_set_does_not_raise(bot):
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])
     assert bot._on_state_changed is None
     bot.lock("user1", "lock test 1h")  # must not raise
+
+
+def test_whitelist_user_can_exceed_max_lock_duration(bot):
+    """Whitelisted user must succeed on lock even when duration exceeds MAX_LOCK_DURATION."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("DURATION_WHITELIST", ["vip"])
+
+    reply = bot.lock("vip", "lock test 2h")
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+
+
+def test_whitelist_user_can_exceed_max_book_duration(bot):
+    """Whitelisted user must succeed on book even when duration exceeds MAX_LOCK_DURATION."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("DURATION_WHITELIST", ["vip"])
+
+    # Lock test by another user first so vip needs to book
+    bot.lock("user1", "lock test 1h")
+    reply = bot.book("vip", "book test 2h")
+    assert "❌" not in reply["message"]["body"][0]["content"]
+
+
+def test_non_whitelist_book_duration_exceeded(bot):
+    """Non-whitelisted user must be rejected on book when duration exceeds MAX_LOCK_DURATION."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.lock("user1", "lock test 1h")
+    reply = bot.book("user2", "book test 2h")
+    assert "❌" in reply["message"]["body"][0]["content"]
+
+
+def test_whitelist_user_can_exceed_max_take_duration(bot):
+    """Whitelisted user must succeed on take even when duration exceeds MAX_LOCK_DURATION."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("DURATION_WHITELIST", ["vip"])
+
+    bot.lock("user1", "lock test 1h")
+    reply = bot.take("vip", "take test 2h")
+    assert "❌" not in reply["message"]["body"][0]["content"]
+
+
+def test_non_whitelist_take_duration_exceeded(bot):
+    """Non-whitelisted user must be rejected on take when duration exceeds MAX_LOCK_DURATION."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.lock("user1", "lock test 1h")
+    reply = bot.take("user2", "take test 2h")
+    assert "❌" in reply["message"]["body"][0]["content"]
+
+
+def test_non_whitelist_user_still_blocked_when_whitelist_set(bot):
+    """Non-whitelisted user must be blocked even when whitelist contains other users."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("DURATION_WHITELIST", ["vip"])
+
+    reply = bot.lock("user1", "lock test 2h")
+    assert "❌" in reply["message"]["body"][0]["content"]

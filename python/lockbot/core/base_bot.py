@@ -121,6 +121,13 @@ class BaseLockBot:
         """
         return self.adapter.build_reply("\u274c" + error_msg, [user_id])
 
+    def _whitelist_hint(self):
+        """Return whitelist hint string if BOT_OWNER is configured, else empty string."""
+        owner = self.config.get_val("BOT_OWNER")
+        if not owner:
+            return ""
+        return t("error.whitelist_hint", config=self.config, owner=owner)
+
     # ------------------------------------------------------ _msg_with_usage
     def _msg_with_usage(self, msg_key, *, node_key=None, sep="", **kwargs):
         """Return ``t(msg_key, ...) + sep + self._current_usage(node_key)``."""

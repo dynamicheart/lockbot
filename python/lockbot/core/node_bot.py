@@ -111,6 +111,7 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        whitelist = self.config.get_val("DURATION_WHITELIST") or []
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(
@@ -122,7 +123,7 @@ class NodeBot(BaseLockBot):
 
             timestamp = int(time.time())
 
-            if max_dur > 0:
+            if max_dur > 0 and user_id not in whitelist:
                 for node in nodes:
                     total_duration = duration
                     user_info = find_user_info(node["current_users"], user_id)
@@ -138,6 +139,7 @@ class NodeBot(BaseLockBot):
                                 "error.lock_max_duration_exceeded",
                                 config=self.config,
                                 max_duration=format_duration(max_dur, config=self.config),
+                                whitelist_hint=self._whitelist_hint(),
                             ),
                         )
 
@@ -169,6 +171,7 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
+        whitelist = self.config.get_val("DURATION_WHITELIST") or []
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(node["status"] != "exclusive" for node in nodes):
@@ -176,7 +179,7 @@ class NodeBot(BaseLockBot):
 
             timestamp = int(time.time())
 
-            if max_dur > 0:
+            if max_dur > 0 and user_id not in whitelist:
                 for node in nodes:
                     user_info = find_user_info(node["current_users"], user_id)
                     if user_info:
@@ -190,6 +193,7 @@ class NodeBot(BaseLockBot):
                             "error.slock_max_duration_exceeded",
                             config=self.config,
                             max_duration=format_duration(max_dur, config=self.config),
+                            whitelist_hint=self._whitelist_hint(),
                         )
                         return self.show_error(user_id, msg)
 

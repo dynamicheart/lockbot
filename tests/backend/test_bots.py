@@ -133,6 +133,44 @@ class TestUpdateBot:
         state_file = os.path.join(str(tmp_path), str(bot_id), "bot_state.json")
         assert os.path.exists(state_file)
 
+    def test_duration_whitelist_valid(self, client, admin_header):
+        """DURATION_WHITELIST accepts a list of strings."""
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"DURATION_WHITELIST": ["user1", "user2"]}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 200
+
+    def test_duration_whitelist_invalid(self, client, admin_header):
+        """DURATION_WHITELIST rejects non-string elements."""
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"DURATION_WHITELIST": [123]}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 422
+
+    def test_duration_whitelist_clear(self, client, admin_header):
+        """DURATION_WHITELIST accepts empty list to clear."""
+        create_resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
+        bot_id = create_resp.json()["id"]
+        client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"DURATION_WHITELIST": ["user1"]}},
+            headers=admin_header,
+        )
+        resp = client.put(
+            f"/api/bots/{bot_id}",
+            json={"config_overrides": {"DURATION_WHITELIST": []}},
+            headers=admin_header,
+        )
+        assert resp.status_code == 200
+
 
 class TestDeleteBot:
     def test_delete_success(self, client, admin_header):

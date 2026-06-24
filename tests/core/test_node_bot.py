@@ -442,3 +442,30 @@ def test_notify_not_set_does_not_raise(bot):
     """lock() must not raise when _on_state_changed is None (default)."""
     assert bot._on_state_changed is None
     bot.lock("user1", "lock test 1h")  # must not raise
+
+
+def test_whitelist_user_can_exceed_max_lock_duration(bot):
+    """Whitelisted user must succeed even when duration exceeds MAX_LOCK_DURATION."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("DURATION_WHITELIST", ["vip"])
+
+    reply = bot.lock("vip", "lock test 2h")
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+
+
+def test_whitelist_user_can_exceed_max_slock_duration(bot):
+    """Whitelisted user must succeed on slock even when duration exceeds MAX_LOCK_DURATION."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("DURATION_WHITELIST", ["vip"])
+
+    reply = bot.slock("vip", "slock test 2h")
+    assert "✅【资源申请成功】" in reply["message"]["body"][0]["content"]
+
+
+def test_non_whitelist_user_still_blocked_when_whitelist_set(bot):
+    """Non-whitelisted user must be blocked even when whitelist contains other users."""
+    bot.config.set_val("MAX_LOCK_DURATION", 3600)
+    bot.config.set_val("DURATION_WHITELIST", ["vip"])
+
+    reply = bot.lock("user1", "lock test 2h")
+    assert "❌" in reply["message"]["body"][0]["content"]
