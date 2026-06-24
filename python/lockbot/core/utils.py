@@ -77,7 +77,8 @@ def apply_max_duration_limit(user_list, max_duration, whitelist=None):
     Returns a list of user_ids whose durations were clamped.
     Whitelist users are skipped.
     """
-    whitelist = whitelist or []
+    if whitelist is None:
+        whitelist = []
     clamped_users = []
     for user_info in user_list:
         if user_info["user_id"] in whitelist:

@@ -121,6 +121,10 @@ class BaseLockBot:
         """
         return self.adapter.build_reply("\u274c" + error_msg, [user_id])
 
+    @property
+    def _duration_whitelist(self):
+        return self.config.get_val("DURATION_WHITELIST") or []
+
     def _whitelist_hint(self):
         """Return whitelist hint string if BOT_OWNER is configured, else empty string."""
         owner = self.config.get_val("BOT_OWNER")

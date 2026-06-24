@@ -111,7 +111,7 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self.config.get_val("DURATION_WHITELIST") or []
+        whitelist = self._duration_whitelist
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(
@@ -171,7 +171,7 @@ class NodeBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self.config.get_val("DURATION_WHITELIST") or []
+        whitelist = self._duration_whitelist
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(node["status"] != "exclusive" for node in nodes):

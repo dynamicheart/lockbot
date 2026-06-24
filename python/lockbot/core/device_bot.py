@@ -177,7 +177,7 @@ class DeviceBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self.config.get_val("DURATION_WHITELIST") or []
+        whitelist = self._duration_whitelist
         with self._lock:
             timestamp = int(time.time())
 
@@ -251,7 +251,7 @@ class DeviceBot(BaseLockBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self.config.get_val("DURATION_WHITELIST") or []
+        whitelist = self._duration_whitelist
         with self._lock:
             timestamp = int(time.time())
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):

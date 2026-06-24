@@ -38,7 +38,7 @@ class QueueBot(NodeBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self.config.get_val("DURATION_WHITELIST") or []
+        whitelist = self._duration_whitelist
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(
@@ -132,7 +132,7 @@ class QueueBot(NodeBot):
             return error_reply
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self.config.get_val("DURATION_WHITELIST") or []
+        whitelist = self._duration_whitelist
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if any(
@@ -174,7 +174,7 @@ class QueueBot(NodeBot):
         content = t("success.take_success_by", config=self.config, user_id=user_id)
         content += self._msg_with_usage("label.before_take")
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
-        whitelist = self.config.get_val("DURATION_WHITELIST") or []
+        whitelist = self._duration_whitelist
         with self._lock:
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if any(find_user_info(node["current_users"], user_id) for node in nodes):
