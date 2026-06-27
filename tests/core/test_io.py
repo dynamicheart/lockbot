@@ -542,3 +542,33 @@ def test_node_state_non_whitelist_user_still_clamped_when_whitelist_set(tmp_path
     assert "user1" in clamped
     # elapsed=1000, remaining=4000 > 3000, so clamped to duration = 5000 - (4000-3000) = 4000
     assert result["node1"]["current_users"][0]["duration"] == 4000
+
+
+def test_device_state_dev_model_syncs_from_config(tmp_path):
+    """dev_model in state must always follow config, even if old state has stale value."""
+    cluster_configs = {"node1": ["h800", "b100"]}
+    config = _make_config(tmp_path, CLUSTER_CONFIGS=cluster_configs, MAX_LOCK_DURATION=3600)
+    state_file = os.path.join(_bot_dir(config), "bot_state.json")
+    # Old state has different dev_model (stale from before config change)
+    config_data = {
+        "cluster_status": {
+            "node1": [
+                {
+                    "dev_id": 0,
+                    "dev_model": "A100",
+                    "status": "exclusive",
+                    "current_users": [{"user_id": "u1", "start_time": 0, "duration": 3600}],
+                },
+                {"dev_id": 1, "dev_model": "V100", "status": "idle", "current_users": []},
+            ]
+        }
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(config_data, f)
+
+    with patch("time.time", return_value=0):
+        result, _ = create_or_load_device_state(config=config)
+
+    # Config says h800/b100, state had A100/V100 — config wins
+    assert result["node1"][0]["dev_model"] == "h800"
+    assert result["node1"][1]["dev_model"] == "b100"

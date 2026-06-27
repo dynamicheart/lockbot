@@ -431,7 +431,7 @@ function queueUsageText(state, nodeFilter, lang, nodeOrder) {
 
 /**
  * Build DEVICE usage text. Matches Python get_current_usage format.
- * Uses per-node headers and merged device display.
+ * Uses per-node headers and merged device display (grouped by model/status/users).
  */
 function deviceUsageText(state, nodeFilter, lang, nodeOrder) {
   let text = ''
@@ -441,20 +441,69 @@ function deviceUsageText(state, nodeFilter, lang, nodeOrder) {
     if (!devices) continue
     if (nodeFilter && !nodeFilter.includes(nodeKey)) continue
     text += _t(lang, 'device_usage.node_header', { node_key: nodeKey })
-    // Check if heterogeneous
     const models = new Set(devices.map((d) => d.dev_model))
     const showModel = models.size > 1
-    for (const dev of devices) {
+
+    // Group consecutive devices by (model, status, sorted users)
+    const segments = [] // {type:'lock'|'idle', ids:[], model, status, users}
+    let i = 0
+    while (i < devices.length) {
+      const dev = devices[i]
       if (dev.status === 'idle') {
-        const modelStr = showModel ? `${dev.dev_model} ` : ''
-        text += `dev${dev.dev_id}  ${modelStr}${_t(lang, 'status.idle')}\n`
+        // Group consecutive idle with same model
+        const grp = [dev.dev_id]
+        const m = dev.dev_model
+        let j = i + 1
+        while (j < devices.length && devices[j].status === 'idle' && devices[j].dev_model === m) {
+          grp.push(devices[j].dev_id)
+          j++
+        }
+        segments.push({ type: 'idle', ids: grp, model: m })
+        i = j
       } else {
-        dev.current_users.forEach((u, idx) => {
-          const devLabel = idx === 0 ? `dev${dev.dev_id}` : ''
-          const modelStr = showModel && idx === 0 ? ` ${dev.dev_model}` : ''
+        // Group consecutive locked with same (model, status, users)
+        const userKey = (d) =>
+          d.current_users
+            .map((u) => `${u.user_id}|${u.start_time}|${u.duration}`)
+            .sort()
+            .join(',')
+        const key0 = `${dev.dev_model}|${dev.status}|${userKey(dev)}`
+        const grp = [dev.dev_id]
+        let j = i + 1
+        while (
+          j < devices.length &&
+          `${devices[j].dev_model}|${devices[j].status}|${userKey(devices[j])}` === key0
+        ) {
+          grp.push(devices[j].dev_id)
+          j++
+        }
+        segments.push({
+          type: 'lock',
+          ids: grp,
+          model: dev.dev_model,
+          status: dev.status,
+          users: dev.current_users,
+        })
+        i = j
+      }
+    }
+
+    const hasMerged = segments.some((s) => s.ids.length > 1)
+    const padW = hasMerged ? 7 : 5
+
+    for (const seg of segments) {
+      const devRange =
+        seg.ids.length > 1 ? `dev${seg.ids[0]}-${seg.ids[seg.ids.length - 1]}` : `dev${seg.ids[0]}`
+      if (seg.type === 'idle') {
+        const modelStr = showModel ? `${seg.model} ` : ''
+        text += `${devRange.padEnd(padW)} ${modelStr}${_t(lang, 'status.idle')}\n`
+      } else {
+        seg.users.forEach((u, idx) => {
+          const dr = idx === 0 ? devRange.padEnd(padW) : ''.padEnd(padW)
+          const ms = showModel && idx === 0 ? `${seg.model} ` : ''
           const rem = remainingDuration(u.start_time, u.duration)
-          const uid = u.user_id + formatAccessMode(dev.status, lang)
-          text += `${devLabel}${modelStr} ${uid} ${formatDuration(rem, lang)}\n`
+          const uid = u.user_id + formatAccessMode(seg.status, lang)
+          text += `${dr} ${ms}${uid} ${formatDuration(rem, lang)}\n`
         })
       }
     }

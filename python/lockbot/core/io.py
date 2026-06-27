@@ -154,6 +154,8 @@ def create_or_load_device_state(config=None):
                     clamped = apply_max_duration_limit(device_status["current_users"], max_duration, duration_whitelist)
                     clamped_user_ids.update(clamped)
                     default_device.update(**device_status)
+                    # Always use config's dev_model as source of truth
+                    default_device["dev_model"] = cluster_configs[node_key][dev_id]
 
         if clamped_user_ids:
             save_bot_state_to_file(default_state, config)
