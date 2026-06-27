@@ -9,6 +9,8 @@
 [![PyPI version](https://img.shields.io/pypi/v/lockbot?color=blue)](https://pypi.org/project/lockbot/)
 [![Docker Image](https://img.shields.io/badge/ghcr.io-dynamicheart%2Flockbot-blue?logo=docker)](https://github.com/DynamicHeart/lockbot/pkgs/container/lockbot)
 
+<img src="./docs/demo.gif" width="600" />
+
 ## 功能特性
 
 - **设备锁机器人** — 按单个 GPU/设备维度锁定和释放

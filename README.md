@@ -10,6 +10,8 @@ Supports both standalone Flask deployment and a full platform mode with FastAPI 
 [![PyPI version](https://img.shields.io/pypi/v/lockbot?color=blue)](https://pypi.org/project/lockbot/)
 [![Docker Image](https://img.shields.io/badge/ghcr.io-dynamicheart%2Flockbot-blue?logo=docker)](https://github.com/DynamicHeart/lockbot/pkgs/container/lockbot)
 
+<img src="./docs/demo.gif" width="600" />
+
 ## Features
 
 - **Device Lock Bot** — Lock/unlock individual GPUs or devices on a cluster
