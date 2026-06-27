@@ -107,10 +107,25 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 
 ## 开发
 
-```bash
-# 安装开发依赖
-pip install -e ".[dev]"
+### 调试启动
 
+```bash
+# 安装依赖
+pip install -e ".[dev]"
+cd frontend && npm install && cd ..
+
+# 启动后端（端口 8002，支持热重载）
+bash scripts/dev/backend.sh
+
+# 启动前端（端口 8001，/api/* 代理到 localhost:8002）
+bash scripts/dev/frontend.sh
+```
+
+前后端均支持热重载，修改代码后自动生效。
+
+### 测试
+
+```bash
 # 运行测试
 pytest
 

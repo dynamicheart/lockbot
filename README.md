@@ -107,10 +107,25 @@ See `python/lockbot/core/config.py` for the full configuration reference.
 
 ## Development
 
-```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+### Dev Server
 
+```bash
+# Install dependencies
+pip install -e ".[dev]"
+cd frontend && npm install && cd ..
+
+# Start backend (port 8002, hot-reload)
+bash scripts/dev/backend.sh
+
+# Start frontend (port 8001, proxies /api/* -> localhost:8002)
+bash scripts/dev/frontend.sh
+```
+
+Both servers support hot-reload — code changes take effect automatically.
+
+### Testing
+
+```bash
 # Run tests
 pytest
 
