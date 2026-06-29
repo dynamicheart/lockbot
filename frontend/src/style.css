@@ -70,6 +70,23 @@ body {
 }
 
 /* Responsive dialog */
+/* Bot type tag colors */
+.el-tag.bot-type-node {
+  --el-tag-text-color: var(--lb-bot-node-color);
+  --el-tag-bg-color: var(--lb-bot-node-bg);
+  --el-tag-border-color: var(--lb-bot-node-border);
+}
+.el-tag.bot-type-device {
+  --el-tag-text-color: var(--lb-bot-device-color);
+  --el-tag-bg-color: var(--lb-bot-device-bg);
+  --el-tag-border-color: var(--lb-bot-device-border);
+}
+.el-tag.bot-type-queue {
+  --el-tag-text-color: var(--lb-bot-queue-color);
+  --el-tag-bg-color: var(--lb-bot-queue-bg);
+  --el-tag-border-color: var(--lb-bot-queue-border);
+}
+
 @media (max-width: 768px) {
   .el-dialog {
     --el-dialog-width: 92vw !important;

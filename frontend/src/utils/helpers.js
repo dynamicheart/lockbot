@@ -21,6 +21,11 @@ export function getNodeOrder(cc) {
   return Object.keys(cc)
 }
 
+export function botTypeTagClass(type) {
+  const map = { NODE: 'bot-type-node', DEVICE: 'bot-type-device', QUEUE: 'bot-type-queue' }
+  return map[type] || 'bot-type-default'
+}
+
 /**
  * Return Object.entries(data) ordered by cluster_configs key order.
  * Handles both array configs (NODE/QUEUE) and dict configs (DEVICE).

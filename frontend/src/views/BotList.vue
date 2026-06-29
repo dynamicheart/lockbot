@@ -166,7 +166,9 @@
           />
           <el-table-column :label="$t('botDetail.type')" width="160">
             <template #default="{ row }">
-              <el-tag size="small" type="primary" effect="plain">{{ row.bot_type }}</el-tag>
+              <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
+                row.bot_type
+              }}</el-tag>
               <el-tag size="small" type="info" effect="plain">{{ row.platform }}</el-tag>
             </template>
           </el-table-column>
@@ -245,7 +247,7 @@ import api from '../utils/api'
 import BotCard from '../components/BotCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { Search } from '@element-plus/icons-vue'
-import { useHelpers } from '../utils/helpers'
+import { useHelpers, botTypeTagClass } from '../utils/helpers'
 
 const VIEW_KEY = 'lockbot_view_mode'
 const STATS_KEY = 'lockbot_show_stats'

@@ -8,7 +8,9 @@
       <StatusBadge :status="bot.status" />
     </div>
     <div class="card-body">
-      <el-tag size="small" type="primary" effect="plain">{{ bot.bot_type }}</el-tag>
+      <el-tag size="small" effect="plain" :class="botTypeTagClass(bot.bot_type)">{{
+        bot.bot_type
+      }}</el-tag>
       <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
     </div>
     <div class="card-stats">
@@ -49,7 +51,7 @@ import { computed } from 'vue'
 import { Monitor } from '@element-plus/icons-vue'
 import StatusBadge from './StatusBadge.vue'
 import { useBotsStore } from '../stores/bots'
-import { useHelpers } from '../utils/helpers'
+import { useHelpers, botTypeTagClass } from '../utils/helpers'
 
 const props = defineProps({
   bot: { type: Object, required: true },

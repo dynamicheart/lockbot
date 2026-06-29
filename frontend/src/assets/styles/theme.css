@@ -57,6 +57,16 @@
   --lb-sidebar-hover: #f0f6ff;
   --lb-sidebar-border: #e4e7ed;
   --lb-shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.06);
+  /* === Bot Type Tags === */
+  --lb-bot-node-color: #2563eb;
+  --lb-bot-node-bg: #eff6ff;
+  --lb-bot-node-border: #bfdbfe;
+  --lb-bot-device-color: #0891b2;
+  --lb-bot-device-bg: #ecfeff;
+  --lb-bot-device-border: #a5f3fc;
+  --lb-bot-queue-color: #7c3aed;
+  --lb-bot-queue-bg: #f5f3ff;
+  --lb-bot-queue-border: #ddd6fe;
 }
 
 html.dark {
@@ -109,4 +119,15 @@ html.dark {
   --lb-sidebar-hover: #363637;
   --lb-sidebar-border: #4c4d4f;
   --lb-shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.2);
+
+  /* === Bot Type Tags (dark) === */
+  --lb-bot-node-color: #60a5fa;
+  --lb-bot-node-bg: #1e3a5f;
+  --lb-bot-node-border: #1d4ed8;
+  --lb-bot-device-color: #22d3ee;
+  --lb-bot-device-bg: #164e63;
+  --lb-bot-device-border: #0e7490;
+  --lb-bot-queue-color: #a78bfa;
+  --lb-bot-queue-bg: #2e1065;
+  --lb-bot-queue-border: #6d28d9;
 }

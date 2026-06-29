@@ -103,7 +103,9 @@
           />
           <el-table-column :label="$t('botDetail.type')" width="160">
             <template #default="{ row }">
-              <el-tag size="small" type="primary" effect="plain">{{ row.bot_type }}</el-tag>
+              <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
+                row.bot_type
+              }}</el-tag>
               <el-tag size="small" type="info" effect="plain">{{ row.platform }}</el-tag>
             </template>
           </el-table-column>
@@ -163,7 +165,7 @@ import { Search, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../../stores/auth'
-import { useHelpers } from '../../utils/helpers'
+import { useHelpers, botTypeTagClass } from '../../utils/helpers'
 
 const { t } = useI18n()
 const authStore = useAuthStore()

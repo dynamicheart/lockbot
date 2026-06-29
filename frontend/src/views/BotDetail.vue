@@ -58,7 +58,9 @@
         <el-descriptions :column="2" border>
           <el-descriptions-item :label="$t('botDetail.botId')">{{ bot.id }}</el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.type')">
-            <el-tag size="small" type="primary" effect="plain">{{ bot.bot_type }}</el-tag>
+            <el-tag size="small" effect="plain" :class="botTypeTagClass(bot.bot_type)">{{
+              bot.bot_type
+            }}</el-tag>
             <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.status')">
@@ -513,7 +515,13 @@ import { Download, User, Monitor } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { validateBotState } from '../utils/stateValidation'
 import { useI18n } from 'vue-i18n'
-import { useHelpers, orderedEntries, orderedStringify, getNodeOrder } from '../utils/helpers'
+import {
+  useHelpers,
+  orderedEntries,
+  orderedStringify,
+  getNodeOrder,
+  botTypeTagClass,
+} from '../utils/helpers'
 
 const { t } = useI18n()
 const { formatDateTime, formatRelativeTime, maskText, copyText } = useHelpers()
