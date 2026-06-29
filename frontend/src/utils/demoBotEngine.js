@@ -358,18 +358,19 @@ function formatAccessMode(status, lang = 'en') {
 /**
  * Build NODE usage text. Matches Python NodeBot._current_usage.
  */
-function nodeUsageText(state, nodeFilter, lang, nodeOrder) {
+function nodeUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
   let text = ''
   const keys = nodeOrder || Object.keys(state)
   for (const key of keys) {
     const node = state[key]
     if (!node) continue
     if (nodeFilter && key !== nodeFilter) continue
+    const label = displayNode ? displayNode(key) : key
     if (node.status === 'idle') {
-      text += `${key} ${_t(lang, 'status.idle')}\n`
+      text += `${label} ${_t(lang, 'status.idle')}\n`
     } else {
       node.current_users.forEach((u, idx) => {
-        const prefix = idx === 0 ? key : ''
+        const prefix = idx === 0 ? label : ''
         const rem = remainingDuration(u.start_time, u.duration)
         const uid = u.user_id + formatAccessMode(node.status, lang)
         text += `${prefix} ${uid}  ${formatDuration(rem, lang)}\n`
@@ -385,18 +386,19 @@ function nodeUsageText(state, nodeFilter, lang, nodeOrder) {
  * - No access mode on locked users
  * - Shows booking queue with estimated wait times
  */
-function queueUsageText(state, nodeFilter, lang, nodeOrder) {
+function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
   let text = ''
   const keys = nodeOrder || Object.keys(state)
   for (const key of keys) {
     const node = state[key]
     if (!node) continue
     if (nodeFilter && key !== nodeFilter) continue
+    const label = displayNode ? displayNode(key) : key
     if (node.status === 'idle') {
-      text += `${key} ${_t(lang, 'status.idle')}\n`
+      text += `${label} ${_t(lang, 'status.idle')}\n`
     } else {
       node.current_users.forEach((u, idx) => {
-        const prefix = idx === 0 ? key : ''
+        const prefix = idx === 0 ? label : ''
         const rem = remainingDuration(u.start_time, u.duration)
         // QUEUE: no access mode suffix on locked users (matches Python)
         text += `${prefix} ${u.user_id}  ${formatDuration(rem, lang)}\n`
@@ -433,14 +435,15 @@ function queueUsageText(state, nodeFilter, lang, nodeOrder) {
  * Build DEVICE usage text. Matches Python get_current_usage format.
  * Uses per-node headers and merged device display (grouped by model/status/users).
  */
-function deviceUsageText(state, nodeFilter, lang, nodeOrder) {
+function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
   let text = ''
   const keys = nodeOrder || Object.keys(state)
   for (const nodeKey of keys) {
     const devices = state[nodeKey]
     if (!devices) continue
     if (nodeFilter && !nodeFilter.includes(nodeKey)) continue
-    text += _t(lang, 'device_usage.node_header', { node_key: nodeKey })
+    const label = displayNode ? displayNode(nodeKey) : nodeKey
+    text += _t(lang, 'device_usage.node_header', { node_key: label })
     const models = new Set(devices.map((d) => d.dev_model))
     const showModel = models.size > 1
 
@@ -540,11 +543,21 @@ export function executeCommand(state, userId, command, botType, config, lang = '
     : Object.keys(CLUSTER_CONFIGS)
   const nodeOrder = config._nodeOrder || null
 
+  // Build displayNode helper (mirrors Python _display_node)
+  const NODE_ALIASES = config.NODE_ALIASES || {}
+  const SHOW_NODE_ALIAS = config.SHOW_NODE_ALIAS || false
+  const displayNode = SHOW_NODE_ALIAS
+    ? (key) => {
+        const alias = NODE_ALIASES[key]
+        return alias ? `${key}「${alias}」` : key
+      }
+    : null
+
   // Helper: get usage text for this bot type
   const usageText = (filter) => {
-    if (botType === 'DEVICE') return deviceUsageText(state, filter, lang, nodeOrder)
-    if (botType === 'QUEUE') return queueUsageText(state, filter, lang, nodeOrder)
-    return nodeUsageText(state, filter, lang, nodeOrder)
+    if (botType === 'DEVICE') return deviceUsageText(state, filter, lang, nodeOrder, displayNode)
+    if (botType === 'QUEUE') return queueUsageText(state, filter, lang, nodeOrder, displayNode)
+    return nodeUsageText(state, filter, lang, nodeOrder, displayNode)
   }
 
   // Empty input -> query (matches Python handler.py)

@@ -73,7 +73,12 @@
         @update:aliases="advancedConfig.NODE_ALIASES = $event"
       />
 
-      <ClusterPreview :bot-type="form.bot_type" :cluster-configs="clusterConfig" />
+      <ClusterPreview
+        :bot-type="form.bot_type"
+        :cluster-configs="clusterConfig"
+        :node-aliases="advancedConfig.NODE_ALIASES"
+        :show-node-alias="advancedConfig.SHOW_NODE_ALIAS"
+      />
 
       <el-divider />
 

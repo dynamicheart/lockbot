@@ -19,6 +19,8 @@ import { isDeviceArrayFormat, getNodeOrder } from '../../utils/helpers.js'
 const props = defineProps({
   botType: { type: String, required: true },
   clusterConfigs: { type: [Array, Object], default: null },
+  nodeAliases: { type: Object, default: () => ({}) },
+  showNodeAlias: { type: Boolean, default: false },
 })
 
 const { locale } = useI18n()
@@ -113,7 +115,12 @@ const queryText = computed(() => {
     'alice',
     '',
     props.botType,
-    { CLUSTER_CONFIGS: cc, _nodeOrder: nodeOrder },
+    {
+      CLUSTER_CONFIGS: cc,
+      _nodeOrder: nodeOrder,
+      NODE_ALIASES: props.nodeAliases,
+      SHOW_NODE_ALIAS: props.showNodeAlias,
+    },
     lang.value
   )
 })
