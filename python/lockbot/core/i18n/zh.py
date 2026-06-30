@@ -169,6 +169,8 @@ MESSAGES = {
     # ── Alias command ──
     "alias.usage": "用法: alias <节点名> [备注]\n示例: alias node0 10.10.10.56\n清除: alias node0",
     "alias.invalid_node": "节点 {node_key} 不存在，可用节点: {valid_keys}\n",
+    "alias.invalid_alias": "备注不能包含换行，请输入单行备注",
+    "alias.too_long": "备注不能超过 15 个字符",
     "alias.set_ok": "✅ 已设置 {node_key} 备注为「{alias}」\n\n",
     "alias.clear_ok": "✅ 已清除 {node_key} 的备注\n\n",
     "alias.disabled": "该机器人未开启用户自助设置备注功能",

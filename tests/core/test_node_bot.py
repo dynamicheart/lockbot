@@ -531,3 +531,36 @@ def test_alias_invalid_format(bot):
     reply = bot.alias("user1", "alias")
     # Should return usage hint
     assert "alias" in str(reply).lower()
+
+
+def test_alias_too_long(bot):
+    """alias command rejects aliases longer than 15 characters with a specific message."""
+    bot.config.set_val("ALLOW_USER_ALIAS", True)
+    reply = bot.alias("user1", "alias test 超长序列超长序列超长序列超长序列")
+    content = reply["message"]["body"][0]["content"]
+    assert "15" in content
+    assert "用法" not in content
+    assert bot.config.get_val("NODE_ALIASES") in (None, {})
+
+
+def test_alias_rejects_newline(bot):
+    """alias command rejects aliases containing line breaks."""
+    bot.config.set_val("ALLOW_USER_ALIAS", True)
+    reply = bot.alias("user1", "alias test line1\nline2")
+    content = reply["message"]["body"][0]["content"]
+    assert "换行" in content or "line breaks" in content
+    assert bot.config.get_val("NODE_ALIASES") in (None, {})
+
+
+def test_alias_trims_outer_spaces(bot):
+    """alias command trims leading/trailing spaces around alias value."""
+    bot.config.set_val("ALLOW_USER_ALIAS", True)
+    bot.alias("user1", "alias test   10.0.0.1   ")
+    assert bot.config.get_val("NODE_ALIASES") == {"test": "10.0.0.1"}
+
+
+def test_show_error_adds_newline_before_at(bot):
+    """Error replies end with two newlines so AT mention is visually separated."""
+    reply = bot.show_error("user1", "error")
+    content = reply["message"]["body"][0]["content"]
+    assert content.endswith("\n\n")

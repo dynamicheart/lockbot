@@ -119,7 +119,7 @@ class BaseLockBot:
         """
         Show error message
         """
-        return self.adapter.build_reply("\u274c" + error_msg, [user_id])
+        return self.adapter.build_reply("\u274c" + error_msg.rstrip() + "\n\n", [user_id])
 
     @property
     def _duration_whitelist(self):
@@ -140,12 +140,18 @@ class BaseLockBot:
 
         import re
 
-        m = re.match(r"^\s*alias\s+([\w\d_-]+)(?:\s+(.{1,15}))?\s*$", command)
+        m = re.match(r"^\s*alias\s+([\w\d_-]+)(?:\s+([\s\S]+?))?\s*$", command)
         if not m:
             return self.show_error(user_id, t("alias.usage", config=self.config))
 
         node_key = m.group(1)
-        alias_val = (m.group(2) or "").strip()
+        raw_alias_val = m.group(2) or ""
+        if "\n" in raw_alias_val or "\r" in raw_alias_val:
+            return self.show_error(user_id, t("alias.invalid_alias", config=self.config))
+        alias_val = raw_alias_val.strip()
+
+        if len(alias_val) > 15:
+            return self.show_error(user_id, t("alias.too_long", config=self.config))
 
         cluster_configs = self.config.get_val("CLUSTER_CONFIGS")
         if node_key not in cluster_configs:

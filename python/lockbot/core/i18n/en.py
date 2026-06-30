@@ -176,6 +176,8 @@ MESSAGES = {
     # ── Alias command ──
     "alias.usage": "Usage: alias <node_key> [label]\nExample: alias node0 10.10.10.56\nClear: alias node0",
     "alias.invalid_node": "Node {node_key} does not exist. Available: {valid_keys}\n",
+    "alias.invalid_alias": "Alias cannot contain line breaks; please enter a single-line label",
+    "alias.too_long": "Alias cannot exceed 15 characters",
     "alias.set_ok": "✅ Set {node_key} alias to「{alias}」\n\n",
     "alias.clear_ok": "✅ Cleared alias for {node_key}\n\n",
     "alias.disabled": "User alias command is not enabled for this bot",
