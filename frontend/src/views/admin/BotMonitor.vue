@@ -75,10 +75,7 @@
           <el-option label="QUEUE" value="QUEUE" />
         </el-select>
         <el-button v-if="authStore?.isSuperAdmin" @click="handleBackup">
-          <el-icon><Download /></el-icon> {{ $t('admin.backupDatabase') }}
-        </el-button>
-        <el-button v-if="authStore?.isSuperAdmin" @click="handleDownloadStates">
-          <el-icon><Download /></el-icon> {{ $t('admin.downloadAllStates') }}
+          <el-icon><Download /></el-icon> {{ $t('admin.downloadBackup') }}
         </el-button>
       </div>
     </div>
@@ -243,24 +240,8 @@ async function handleBackup() {
     const a = document.createElement('a')
     a.href = url
     const cd = res.headers['content-disposition']
-    const match = cd?.match(/filename=(.+)/)
-    a.download = match ? match[1] : 'lockbot_backup.db'
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    ElMessage.error(t('common.error'))
-  }
-}
-
-async function handleDownloadStates() {
-  try {
-    const res = await api.get('/admin/bot-states', { responseType: 'blob' })
-    const url = URL.createObjectURL(res.data)
-    const a = document.createElement('a')
-    a.href = url
-    const cd = res.headers['content-disposition']
     const match = cd?.match(/filename="?([^";]+)"?/)
-    a.download = match ? decodeURIComponent(match[1]) : 'lockbot_states.zip'
+    a.download = match ? decodeURIComponent(match[1]) : 'lockbot_backup.zip'
     a.click()
     URL.revokeObjectURL(url)
   } catch {

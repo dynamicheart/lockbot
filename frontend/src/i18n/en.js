@@ -344,6 +344,7 @@ export default {
     userRole: 'User',
     backupDatabase: 'Backup Database',
     downloadAllStates: 'Download All States',
+    downloadBackup: 'Download Full Backup',
     botCount: 'Total Bots',
     runningCount: 'Running',
     siteSettings: 'Site Settings',

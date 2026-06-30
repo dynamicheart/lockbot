@@ -337,6 +337,7 @@ export default {
     userRole: '用户',
     backupDatabase: '备份数据库',
     downloadAllStates: '下载全部 State',
+    downloadBackup: '下载完整备份',
     botCount: '机器人总数',
     runningCount: '运行中',
     siteSettings: '站点设置',

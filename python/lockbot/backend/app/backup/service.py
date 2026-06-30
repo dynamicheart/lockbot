@@ -2,6 +2,7 @@
 BOS backup service — create archive and upload to Baidu Object Storage.
 """
 
+import json
 import logging
 import sqlite3
 import tempfile
@@ -19,6 +20,36 @@ from lockbot.backend.app.config import DATA_DIR, DATABASE_URL
 from lockbot.backend.app.settings.models import SiteSetting
 
 logger = logging.getLogger(__name__)
+
+BACKUP_FORMAT = "lockbot-backup"
+BACKUP_FORMAT_VERSION = 1
+
+def _get_lockbot_version() -> str:
+    try:
+        from importlib.metadata import version
+
+        return version("lockbot")
+    except Exception:
+        return "unknown"
+
+
+def _build_manifest(state_files: list[tuple[Path, str]], encrypted: bool) -> dict:
+    return {
+        "format": BACKUP_FORMAT,
+        "format_version": BACKUP_FORMAT_VERSION,
+        "lockbot_version": _get_lockbot_version(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "encrypted": encrypted,
+        "contains": {
+            "database": True,
+            "bot_states": True,
+        },
+        "files": {
+            "database": "lockbot.db",
+            "bot_states": [arcname for _, arcname in state_files],
+        },
+    }
+
 
 # Setting keys
 _KEYS = [
@@ -124,6 +155,8 @@ def create_backup_archive(password: str | None = None) -> Path:
             arcname = str(state_file.relative_to(Path(DATA_DIR)))
             state_files.append((state_file, arcname))
 
+    manifest = json.dumps(_build_manifest(state_files, encrypted=bool(password)), ensure_ascii=False, indent=2)
+
     # Create zip (AES encrypted if password set)
     if password:
         with pyzipper.AESZipFile(
@@ -131,11 +164,13 @@ def create_backup_archive(password: str | None = None) -> Path:
         ) as zf:
             zf.setpassword(password.encode())
             zf.write(str(backup_db), "lockbot.db")
+            zf.writestr("manifest.json", manifest)
             for fpath, arcname in state_files:
                 zf.write(str(fpath), arcname)
     else:
         with pyzipper.ZipFile(str(zip_path), "w", compression=pyzipper.ZIP_DEFLATED) as zf:
             zf.write(str(backup_db), "lockbot.db")
+            zf.writestr("manifest.json", manifest)
             for fpath, arcname in state_files:
                 zf.write(str(fpath), arcname)
 

@@ -300,78 +300,34 @@ def download_backup(
     _admin: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    """Download full SQLite database backup (super_admin only)."""
-    from lockbot.backend.app.config import DATABASE_URL
+    """Download full backup archive (DB + bot states + manifest) as zip (super_admin only)."""
+    from lockbot.backend.app.backup.service import create_backup_archive
 
-    db_url = DATABASE_URL
-    if not db_url.startswith("sqlite:///"):
-        raise HTTPException(status_code=400, detail="Backup only supported for SQLite")
-
-    db_path = db_url[len("sqlite:///") :]
-    if not os.path.exists(db_path):
-        raise HTTPException(status_code=404, detail="Database file not found")
-
-    # Copy to temp file to avoid sending a mid-write database
-    fd, tmp_path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
     try:
-        shutil.copy2(db_path, tmp_path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+        zip_path = create_backup_archive(password=None)
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     write_audit_log(db, _admin, "admin.backup", ip=request.client.host if request.client else None)
     db.commit()
 
-    filename = f"lockbot_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+    filename = zip_path.name
     return FileResponse(
-        path=tmp_path,
+        path=str(zip_path),
         filename=filename,
-        media_type="application/x-sqlite3",
-        background=BackgroundTask(os.unlink, tmp_path),
+        media_type="application/zip",
+        background=BackgroundTask(_cleanup_backup_tmp, zip_path),
     )
+
+
+def _cleanup_backup_tmp(zip_path):
+    import contextlib
+
+    with contextlib.suppress(OSError):
+        zip_path.unlink(missing_ok=True)
+    with contextlib.suppress(OSError):
+        zip_path.parent.rmdir()
 
 
 _DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
-
-@router.get("/bot-states")
-def download_all_bot_states(
-    request: Request,
-    _admin: User = Depends(require_super_admin),
-    db: Session = Depends(get_db),
-):
-    """Download all bot state files as a zip archive (super_admin only)."""
-    bots = db.query(Bot).filter(Bot.is_deleted.is_(False)).all()
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for bot in bots:
-            # Determine data dir from config_overrides or default
-            data_dir = _DEFAULT_DATA_DIR
-            try:
-                overrides = json.loads(bot.config_overrides or "{}")
-                data_dir = overrides.get("DATA_DIR") or _DEFAULT_DATA_DIR
-            except (json.JSONDecodeError, AttributeError):
-                pass
-            state_file = os.path.join(data_dir, "bots", str(bot.id), "bot_state.json")
-            folder_name = f"bot_{bot.id}_{bot.name}"
-            if os.path.exists(state_file):
-                zf.write(state_file, f"{folder_name}/bot_state.json")
-            else:
-                # Create an empty placeholder so the admin knows the bot has no state
-                zf.writestr(f"{folder_name}/bot_state.json", "{}")
-
-    buf.seek(0)
-    content = buf.read()
-
-    write_audit_log(db, _admin, "admin.bot_states", ip=request.client.host if request.client else None)
-    db.commit()
-
-    filename = f"lockbot_states_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-    return Response(
-        content=content,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
