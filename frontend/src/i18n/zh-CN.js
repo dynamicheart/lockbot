@@ -257,7 +257,7 @@ export default {
     nodeAliases: '节点备注',
     apiKey: 'API Key',
     apiKeyHelp:
-      '供外部程序查询锁状态，如 GET /api/bots/{id}/locked-users，Header: Authorization: Bearer lbk_xxx',
+      '供外部程序查询锁状态，如 GET /api/bots/:bot_id/locked-users，Header: Authorization: Bearer lbk_xxx',
     apiKeyDocsLink: '查看 API 文档',
     apiKeyNone: '未设置',
     apiKeyGenerate: '生成',

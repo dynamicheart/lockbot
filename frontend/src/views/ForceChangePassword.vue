@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
@@ -92,11 +92,15 @@ import api from '../utils/api'
 import { LS_KEYS } from '../utils/demoMode'
 
 const THEME_KEY = 'lockbot_theme'
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
 const formRef = ref()
 const loading = ref(false)
+
+watch(locale, () => {
+  formRef.value?.clearValidate()
+})
 
 const form = reactive({ new_password: '', confirm_password: '' })
 

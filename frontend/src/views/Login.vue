@@ -132,7 +132,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { User, Lock, ArrowRight } from '@element-plus/icons-vue'
@@ -141,11 +141,15 @@ import { useI18n } from 'vue-i18n'
 import { isDemoMode } from '../utils/demoMode'
 import AuthFooter from '../components/AuthFooter.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
 const formRef = ref()
 const loading = ref(false)
+
+watch(locale, () => {
+  formRef.value?.clearValidate()
+})
 
 const form = reactive({ username: '', password: '' })
 const rules = {

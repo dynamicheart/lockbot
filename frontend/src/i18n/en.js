@@ -264,7 +264,7 @@ export default {
     nodeAliases: 'Node Aliases',
     apiKey: 'API Key',
     apiKeyHelp:
-      'For external programs to query lock state, e.g. GET /api/bots/{id}/locked-users, Header: Authorization: Bearer lbk_xxx',
+      'For external programs to query lock state, e.g. GET /api/bots/:bot_id/locked-users, Header: Authorization: Bearer lbk_xxx',
     apiKeyDocsLink: 'View API Docs',
     apiKeyNone: 'Not set',
     apiKeyGenerate: 'Generate',

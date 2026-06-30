@@ -346,7 +346,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -358,7 +358,7 @@ import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
 import QueueBotForm from '../components/BotForm/QueueBotForm.vue'
 import ClusterPreview from '../components/BotForm/ClusterPreview.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
@@ -370,6 +370,10 @@ const saving = ref(false)
 const clusterHasError = ref(false)
 const bot = ref(null)
 const maskedAesKey = ref('')
+
+watch(locale, () => {
+  formRef.value?.clearValidate()
+})
 const maskedToken = ref('')
 const nodeClusterConfig = ref({})
 const deviceClusterConfig = ref({})

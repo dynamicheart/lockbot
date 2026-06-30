@@ -57,15 +57,19 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const authStore = useAuthStore()
 const pwdFormRef = ref()
 const pwdLoading = ref(false)
+
+watch(locale, () => {
+  pwdFormRef.value?.clearValidate()
+})
 
 const pwdForm = reactive({ current_password: '', new_password: '', confirm_password: '' })
 
