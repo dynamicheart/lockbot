@@ -16,6 +16,7 @@ class Bot(Base):
     __tablename__ = "bots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), nullable=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     bot_type: Mapped[str] = mapped_column(String(16), nullable=False)  # NODE / DEVICE / QUEUE

@@ -8,6 +8,7 @@ import logging
 import os
 import secrets
 import traceback
+import uuid as _uuid_mod
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -256,6 +257,7 @@ def create_bot(
         raise HTTPException(status_code=409, detail="Bot name already exists")
 
     bot = Bot(
+        uuid=str(_uuid_mod.uuid4()),
         user_id=user.id,
         name=body.name,
         bot_type=body.bot_type.upper(),

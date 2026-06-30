@@ -116,6 +116,7 @@ class BotUpdate(BaseModel):
 
 class BotOut(BaseModel):
     id: int
+    uuid: str | None = None
     user_id: int
     name: str
     bot_type: str

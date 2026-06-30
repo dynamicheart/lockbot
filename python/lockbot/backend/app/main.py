@@ -132,6 +132,31 @@ def _migrate_bots_api_key():
         logger.info("Migrated bots: added 'api_key' column")
 
 
+def _migrate_bots_uuid():
+    """Add and backfill stable uuid column for bots."""
+    import uuid
+
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    insp = sa_inspect(engine)
+    columns = [c["name"] for c in insp.get_columns("bots")]
+    if "uuid" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bots ADD COLUMN uuid VARCHAR(36)"))
+        logger.info("Migrated bots: added 'uuid' column")
+
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT id FROM bots WHERE uuid IS NULL OR uuid = ''")).fetchall()
+        for row in rows:
+            conn.execute(
+                text("UPDATE bots SET uuid = :uuid WHERE id = :id"),
+                {"uuid": str(uuid.uuid4()), "id": row.id},
+            )
+        if rows:
+            logger.info("Migrated bots: backfilled uuid for %d bot(s)", len(rows))
+
+
 def _seed_dev_admin():
     """Create admin user in dev mode if it doesn't exist."""
     from lockbot.backend.app.config import (
@@ -217,6 +242,7 @@ async def lifespan(app: FastAPI):
     _migrate_bot_soft_delete()
     _migrate_audit_logs()
     _migrate_bots_api_key()
+    _migrate_bots_uuid()
     _seed_dev_admin()
     _seed_dev_users()
     from lockbot.backend.app.bots.manager import bot_manager
