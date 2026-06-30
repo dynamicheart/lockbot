@@ -74,11 +74,157 @@
           <el-option label="DEVICE" value="DEVICE" />
           <el-option label="QUEUE" value="QUEUE" />
         </el-select>
-        <el-button v-if="authStore?.isSuperAdmin" @click="handleBackup">
-          <el-icon><Download /></el-icon> {{ $t('admin.downloadBackup') }}
-        </el-button>
+        <el-button-group v-if="authStore?.isSuperAdmin">
+          <el-button @click="handleBackup">
+            <el-icon><Download /></el-icon> {{ $t('admin.downloadBackup') }}
+          </el-button>
+          <el-button @click="showRestoreDialog = true">
+            <el-icon><Upload /></el-icon> {{ $t('admin.restoreBackup') }}
+          </el-button>
+        </el-button-group>
       </div>
     </div>
+
+    <!-- Restore backup dialog -->
+    <el-dialog
+      v-model="showRestoreDialog"
+      :title="$t('admin.restoreBackup')"
+      width="720px"
+      class="restore-dialog"
+      append-to-body
+      destroy-on-close
+    >
+      <div v-if="!restorePreview">
+        <el-upload
+          ref="uploadRef"
+          :auto-upload="false"
+          :limit="1"
+          accept=".zip"
+          :on-change="onRestoreFileChange"
+        >
+          <template #trigger>
+            <el-button type="primary">{{ $t('admin.selectBackupFile') }}</el-button>
+          </template>
+          <template #tip>
+            <div class="el-upload__tip">{{ $t('admin.restoreFileHint') }}</div>
+          </template>
+        </el-upload>
+        <el-input
+          v-model="restorePassword"
+          :placeholder="$t('admin.restorePasswordHint')"
+          show-password
+          style="margin-top: 12px"
+        />
+        <el-input
+          v-model="restoreSourceKey"
+          :placeholder="$t('admin.restoreSourceKeyHint')"
+          show-password
+          style="margin-top: 12px"
+        />
+        <div class="el-upload__tip" style="margin-top: 4px; color: var(--lb-text-secondary)">
+          {{ $t('admin.restoreSourceKeyExplain') }}
+        </div>
+      </div>
+      <div v-else>
+        <div v-if="restorePreview.warnings?.length" style="margin-bottom: 12px">
+          <el-alert
+            v-for="(w, i) in restorePreview.warnings"
+            :key="i"
+            :title="formatRestoreWarning(w)"
+            :type="w.code === 'credentials_all_ok' ? 'success' : 'warning'"
+            show-icon
+            :closable="false"
+            style="margin-bottom: 6px"
+          />
+        </div>
+        <el-table
+          ref="restoreTableRef"
+          :data="restorePreview.bots"
+          size="small"
+          border
+          @selection-change="onRestoreSelectionChange"
+        >
+          <el-table-column type="selection" width="40" />
+          <el-table-column
+            prop="name"
+            :label="$t('admin.botName')"
+            min-width="120"
+            show-overflow-tooltip
+          />
+          <el-table-column prop="bot_type" :label="$t('botDetail.type')" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
+                row.bot_type
+              }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('admin.restoreAction')" width="100">
+            <template #default="{ row }">
+              <el-tag
+                size="small"
+                :type="row.action === 'create' ? 'success' : 'warning'"
+                effect="plain"
+              >
+                {{ $t(`admin.restoreAction_${row.action}`) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('admin.owner')" width="110">
+            <template #default="{ row }">
+              {{ row.existing_owner || $t('admin.restoreOwnerCurrent') }}
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('admin.credentialsOk')" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.credentials_ok ? 'success' : 'danger'" effect="plain">
+                {{ row.credentials_ok ? $t('common.yes') : $t('common.no') }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column :label="$t('admin.stateStatus')" width="100">
+            <template #default="{ row }">
+              <el-tag v-if="!row.has_state" size="small" type="info" effect="plain">{{
+                $t('admin.stateNone')
+              }}</el-tag>
+              <el-tooltip
+                v-else-if="row.state_warnings?.length"
+                :content="row.state_warnings.join('; ')"
+                placement="top"
+              >
+                <el-tag size="small" type="warning" effect="plain">{{
+                  $t('admin.stateWarning')
+                }}</el-tag>
+              </el-tooltip>
+              <el-tag v-else size="small" type="success" effect="plain">{{
+                $t('admin.stateOk')
+              }}</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="resetRestore">{{ $t('common.cancel') }}</el-button>
+        <el-button
+          v-if="!restorePreview"
+          type="primary"
+          :loading="restoreLoading"
+          @click="handleRestorePreview"
+        >
+          {{ $t('admin.previewRestore') }}
+        </el-button>
+        <template v-else>
+          <el-button @click="restorePreview = null">{{ $t('admin.reselect') }}</el-button>
+          <el-button
+            type="primary"
+            :disabled="restoreSelected.length === 0"
+            :loading="restoreLoading"
+            @click="handleRestoreApply"
+          >
+            {{ $t('admin.confirmRestore') }} ({{ restoreSelected.length }})
+          </el-button>
+        </template>
+      </template>
+    </el-dialog>
 
     <!-- Table -->
     <el-skeleton :loading="loading" :rows="6" animated>
@@ -158,7 +304,7 @@
 import { ref, computed, onMounted } from 'vue'
 import api from '../../utils/api'
 import StatusBadge from '../../components/StatusBadge.vue'
-import { Search, Download } from '@element-plus/icons-vue'
+import { Search, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../../stores/auth'
@@ -174,6 +320,106 @@ const statusFilter = ref('')
 const typeFilter = ref('')
 const ownerFilter = ref('')
 const showStats = ref(true)
+const showRestoreDialog = ref(false)
+const restoreFile = ref(null)
+const restorePassword = ref('')
+const restoreSourceKey = ref('')
+const restorePreview = ref(null)
+const restoreLoading = ref(false)
+const restoreSelected = ref([])
+
+function onRestoreFileChange(file) {
+  restoreFile.value = file.raw
+}
+
+function onRestoreSelectionChange(selection) {
+  restoreSelected.value = selection
+}
+
+function resetRestore() {
+  showRestoreDialog.value = false
+  restoreFile.value = null
+  restorePassword.value = ''
+  restoreSourceKey.value = ''
+  restorePreview.value = null
+  restoreSelected.value = []
+}
+
+async function handleRestorePreview() {
+  if (!restoreFile.value) {
+    ElMessage.warning(t('admin.selectBackupFile'))
+    return
+  }
+  restoreLoading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', restoreFile.value)
+    if (restorePassword.value) form.append('password', restorePassword.value)
+    if (restoreSourceKey.value) form.append('source_secret_key', restoreSourceKey.value)
+    const res = await api.post('/admin/backup/restore/preview', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      _silent: true,
+    })
+    restorePreview.value = res.data
+  } catch (e) {
+    const detail = e?.response?.data?.detail
+    if (detail === 'BACKUP_PASSWORD_REQUIRED') {
+      ElMessage.warning(t('admin.backupPasswordRequired'))
+    } else if (detail === 'BACKUP_PASSWORD_WRONG') {
+      ElMessage.error(t('admin.backupPasswordWrong'))
+    } else {
+      ElMessage.error(detail || t('common.error'))
+    }
+  } finally {
+    restoreLoading.value = false
+  }
+}
+
+function formatRestoreWarning(w) {
+  if (typeof w === 'string') return w
+  const code = w.code
+  if (code === 'credentials_all_ok') return t('admin.restore_credentials_all_ok')
+  if (code === 'credentials_no_key')
+    return t('admin.restore_credentials_no_key', { count: w.count })
+  if (code === 'credentials_key_wrong')
+    return t('admin.restore_credentials_key_wrong', { count: w.count })
+  if (code === 'unrecognized_format')
+    return t('admin.restore_unrecognized_format', { format: w.format })
+  return JSON.stringify(w)
+}
+
+async function handleRestoreApply() {
+  const uuids = restoreSelected.value.map((b) => b.uuid).filter(Boolean)
+  if (uuids.length === 0) {
+    ElMessage.warning(t('admin.selectBackupFile'))
+    return
+  }
+  restoreLoading.value = true
+  try {
+    const form = new FormData()
+    form.append('file', restoreFile.value)
+    if (restorePassword.value) form.append('password', restorePassword.value)
+    if (restoreSourceKey.value) form.append('source_secret_key', restoreSourceKey.value)
+    form.append('selected_uuids', JSON.stringify(uuids))
+    const res = await api.post('/admin/backup/restore/apply', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      _silent: true,
+    })
+    const data = res.data
+    ElMessage.success(
+      t('admin.restoreSuccess', { created: data.created, overwritten: data.overwritten })
+    )
+    resetRestore()
+    // Refresh bot list
+    const botsRes = await api.get('/admin/bots')
+    allBots.value = botsRes.data
+  } catch (e) {
+    const detail = e?.response?.data?.detail
+    ElMessage.error(detail || t('common.error'))
+  } finally {
+    restoreLoading.value = false
+  }
+}
 
 onMounted(async () => {
   loading.value = true
@@ -334,5 +580,12 @@ async function handleBackup() {
 .list-stat {
   font-size: 13px;
   color: var(--lb-text-regular);
+}
+</style>
+
+<style>
+.restore-dialog .el-dialog__body {
+  max-height: 60vh;
+  overflow-y: auto;
 }
 </style>

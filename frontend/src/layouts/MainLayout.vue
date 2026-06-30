@@ -272,7 +272,7 @@
                   {{ $t('common.switchUser') }}
                 </el-dropdown-item>
                 <!-- Mobile-only: theme, locale, GitHub inside user menu -->
-                <el-dropdown-item divided command="cycleTheme" class="mobile-only">
+                <el-dropdown-item command="cycleTheme" class="mobile-only">
                   <el-icon>
                     <Sunny v-if="themeMode === 'light'" />
                     <Moon v-else-if="themeMode === 'dark'" />

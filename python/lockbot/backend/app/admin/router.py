@@ -3,16 +3,10 @@ Admin API routes.
 """
 
 import contextlib
-import io
-import json
 import os
-import shutil
-import tempfile
-import zipfile
-from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
@@ -306,7 +300,7 @@ def download_backup(
     try:
         zip_path = create_backup_archive(password=None)
     except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from None
 
     write_audit_log(db, _admin, "admin.backup", ip=request.client.host if request.client else None)
     db.commit()
@@ -321,7 +315,6 @@ def download_backup(
 
 
 def _cleanup_backup_tmp(zip_path):
-    import contextlib
 
     with contextlib.suppress(OSError):
         zip_path.unlink(missing_ok=True)
@@ -329,5 +322,80 @@ def _cleanup_backup_tmp(zip_path):
         zip_path.parent.rmdir()
 
 
-_DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
+@router.post("/backup/restore/preview")
+async def preview_restore_backup(
+    file: UploadFile = File(...),
+    password: str | None = Form(default=None),
+    source_secret_key: str | None = Form(default=None),
+    _admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Preview restoring bots from a unified backup zip (super_admin only)."""
+    from lockbot.backend.app.backup.service import restore_preview
 
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Backup file is empty")
+    try:
+        return restore_preview(content, password or None, source_secret_key or None, _admin.id, db)
+    except ValueError as e:
+        err = str(e)
+        if err == "BACKUP_PASSWORD_REQUIRED":
+            raise HTTPException(status_code=422, detail="BACKUP_PASSWORD_REQUIRED") from None
+        if err == "BACKUP_PASSWORD_WRONG":
+            raise HTTPException(status_code=422, detail="BACKUP_PASSWORD_WRONG") from None
+        raise HTTPException(status_code=400, detail=err) from None
+
+
+@router.post("/backup/restore/apply")
+async def apply_restore_backup(
+    request: Request,
+    file: UploadFile = File(...),
+    password: str | None = Form(default=None),
+    source_secret_key: str | None = Form(default=None),
+    selected_uuids: str = Form(...),
+    _admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Apply restore for selected bots from a backup zip (super_admin only).
+
+    selected_uuids: JSON array of bot UUIDs to restore, e.g. '["uuid1","uuid2"]'
+    """
+    import json as _json
+
+    from lockbot.backend.app.backup.service import restore_apply
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Backup file is empty")
+
+    try:
+        uuids = _json.loads(selected_uuids)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="selected_uuids must be a JSON array") from None
+
+    if not isinstance(uuids, list) or not uuids:
+        raise HTTPException(status_code=422, detail="selected_uuids must be a non-empty array")
+
+    try:
+        result = restore_apply(content, password or None, source_secret_key or None, uuids, _admin.id, db)
+    except ValueError as e:
+        err = str(e)
+        if err == "BACKUP_PASSWORD_REQUIRED":
+            raise HTTPException(status_code=422, detail="BACKUP_PASSWORD_REQUIRED") from None
+        if err == "BACKUP_PASSWORD_WRONG":
+            raise HTTPException(status_code=422, detail="BACKUP_PASSWORD_WRONG") from None
+        raise HTTPException(status_code=400, detail=err) from None
+
+    write_audit_log(
+        db,
+        _admin,
+        "admin.restore",
+        detail={"created": result["created"], "overwritten": result["overwritten"]},
+        ip=request.client.host if request.client else None,
+    )
+    db.commit()
+    return result
+
+
+_DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
