@@ -348,7 +348,7 @@ class QueueBot(NodeBot):
         parts.append(f"    {example_node0}\n")
 
         if self.config.get_val("ALLOW_USER_ALIAS"):
-            parts.append(f"8. 备注: alias {example_node0} <备注>\n")
+            parts.append(t("alias.help_section", config=self.config, node=example_node0, num=8))
 
         parts.append("\n")
         return "".join(parts)

@@ -361,7 +361,7 @@ class NodeBot(BaseLockBot):
         reply_info += f"    {example_node0}\n"
 
         if self.config.get_val("ALLOW_USER_ALIAS"):
-            reply_info += f"6. 备注: alias {example_node0} <备注>\n"
+            reply_info += t("alias.help_section", config=self.config, node=example_node0, num=6)
 
         reply_info += "\n"
         return reply_info

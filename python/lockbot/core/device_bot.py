@@ -474,19 +474,14 @@ class DeviceBot(BaseLockBot):
         text = t("help.rule3_lock_modes", config=self.config)
         text += t("help.lock_all_devices_example", config=self.config, node=example_node)
         text += t("help.lock_device_example", config=self.config, node=example_node)
-        text += t("help.lock_device_duration_example", config=self.config, node=example_node)
-        text += t("help.lock_device_range_example", config=self.config, node=example_node)
         text += t("help.slock_device_range_example", config=self.config, node=example_node)
         text += t("help.section2_title", config=self.config)
         text += t("help.unlock_device_example", config=self.config, node=example_node)
-        text += t("help.unlock_device_range_example", config=self.config, node=example_node)
         text += t("help.free_device_range_example", config=self.config, node=example_node)
-        text += t("help.free_node_all_example", config=self.config, node=example_node)
         text += t("help.free_all", config=self.config)
         text += t("help.section3_title", config=self.config)
         text += t("help.kickout_device_example", config=self.config, node=example_node)
         text += t("help.kickout_device_range_example", config=self.config, node=example_node)
-        text += t("help.kickout_device_range2_example", config=self.config, node=example_node)
         text += t("help.section4_title", config=self.config)
         text += t("help.section5_title", config=self.config)
         text += t("help.query_at_bot", config=self.config)
@@ -494,7 +489,7 @@ class DeviceBot(BaseLockBot):
         text += "\n"
 
         if self.config.get_val("ALLOW_USER_ALIAS"):
-            text += f"6. 备注: alias {example_node} <备注>\n\n"
+            text += t("alias.help_section", config=self.config, node=example_node, num=6)
 
         return text
 
