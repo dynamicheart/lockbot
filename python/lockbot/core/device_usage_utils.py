@@ -115,7 +115,8 @@ def render_device_lines(node_status, grouped_usage, idle_groups, config=None):
     Generate display lines from locked and idle device groups.
     """
     lines = []
-    show_model = _is_heterogeneous(node_status)
+    force_show = config.get_val("DISPLAY_DEVICE_MODEL") if config else False
+    show_model = force_show or _is_heterogeneous(node_status)
     all_segments = []
 
     has_merged = any(len(dev_ids) > 1 for (_, dev_ids) in grouped_usage) or any(

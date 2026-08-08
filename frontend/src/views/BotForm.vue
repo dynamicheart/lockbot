@@ -330,6 +330,21 @@
                 <el-switch v-model="advancedConfig.ALLOW_USER_ALIAS" />
               </el-form-item>
             </el-col>
+            <el-col v-if="form.bot_type === 'DEVICE'" :xs="24">
+              <el-form-item>
+                <template #label>
+                  {{ $t('botCreate.displayDeviceModel') }}
+                  <el-tooltip
+                    :content="$t('botCreate.displayDeviceModelHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch v-model="advancedConfig.DISPLAY_DEVICE_MODEL" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </el-collapse-item>
       </el-collapse>
@@ -405,6 +420,7 @@ const advancedConfig = reactive({
   NODE_ALIASES: {},
   SHOW_NODE_ALIAS: false,
   ALLOW_USER_ALIAS: false,
+  DISPLAY_DEVICE_MODEL: false,
 })
 
 function formatSeconds(s) {
@@ -463,6 +479,8 @@ onMounted(async () => {
           advancedConfig.SHOW_NODE_ALIAS = overrides.SHOW_NODE_ALIAS
         if (overrides.ALLOW_USER_ALIAS != null)
           advancedConfig.ALLOW_USER_ALIAS = overrides.ALLOW_USER_ALIAS
+        if (overrides.DISPLAY_DEVICE_MODEL != null)
+          advancedConfig.DISPLAY_DEVICE_MODEL = overrides.DISPLAY_DEVICE_MODEL
       } catch {
         // keep defaults
       }

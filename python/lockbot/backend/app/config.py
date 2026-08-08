@@ -8,7 +8,8 @@ from pathlib import Path
 # Project root directory (lockbot/)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-DATA_DIR = os.environ.get("DATA_DIR", "/data")
+DATA_DIR = os.environ.get("DATA_DIR", str(BASE_DIR.parent / "data"))
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # Database
 DATABASE_URL = os.environ.get(

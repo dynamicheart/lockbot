@@ -180,6 +180,8 @@ export default {
     showNodeAliasOff: 'Disabled',
     allowUserAlias: 'Allow User Alias Command',
     allowUserAliasHelp: 'When enabled, users can set node aliases via the alias command in chat',
+    displayDeviceModel: 'Force Display Device Model',
+    displayDeviceModelHelp: 'When enabled, device model is always shown in usage output even if all devices are the same model',
     opkickEnable: 'Operator Kick (OpKick)',
     opkickHelp: 'Allow trusted operators to release idle locks via AT commands',
     trustedOperatorIds: 'Trusted Operator IDs',

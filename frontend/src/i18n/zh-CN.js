@@ -175,6 +175,8 @@ export default {
     showNodeAliasOff: '未开启',
     allowUserAlias: '允许用户自行设置备注',
     allowUserAliasHelp: '开启后，用户可通过 alias 命令修改节点备注',
+    displayDeviceModel: '强制显示设备型号',
+    displayDeviceModelHelp: '开启后，即使节点设备型号相同也会在使用情况中显示型号信息',
     opkickEnable: '运维释放 (OpKick)',
     opkickHelp: '允许受信操作员通过 AT 命令释放空闲用户的锁',
     trustedOperatorIds: '授权操作员 ID',

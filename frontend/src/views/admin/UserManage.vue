@@ -18,9 +18,6 @@
         <el-button type="primary" @click="openCreateDialog">
           <el-icon><Plus /></el-icon> {{ $t('admin.addUser') }}
         </el-button>
-        <el-button v-if="authStore.isSuperAdmin" @click="handleBackup">
-          <el-icon><Download /></el-icon> {{ $t('admin.backupDatabase') }}
-        </el-button>
       </div>
     </div>
     <el-card>
@@ -252,7 +249,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../../stores/auth'
 import { useHelpers } from '../../utils/helpers'
-import { User as UserIcon, Message as MessageIcon, Download } from '@element-plus/icons-vue'
+import { User as UserIcon, Message as MessageIcon } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -425,22 +422,6 @@ async function fetchUsers() {
 
 onMounted(fetchUsers)
 
-async function handleBackup() {
-  try {
-    const res = await api.get('/admin/backup', { responseType: 'blob' })
-    const url = URL.createObjectURL(res.data)
-    const a = document.createElement('a')
-    a.href = url
-    // Extract filename from Content-Disposition or use default
-    const cd = res.headers['content-disposition']
-    const match = cd?.match(/filename=(.+)/)
-    a.download = match ? match[1] : 'lockbot_backup.db'
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    ElMessage.error(t('common.error'))
-  }
-}
 </script>
 
 <style scoped>

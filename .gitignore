@@ -49,6 +49,7 @@ frontend/*.local
 
 # Backup
 /data/
+python/data/
 _lockbot_backup_*.db_
 
 # Ruff

@@ -72,6 +72,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if allow_alias is not None and not isinstance(allow_alias, bool):
         errors.append("ALLOW_USER_ALIAS must be a boolean")
 
+    display_model = v.get("DISPLAY_DEVICE_MODEL")
+    if display_model is not None and not isinstance(display_model, bool):
+        errors.append("DISPLAY_DEVICE_MODEL must be a boolean")
+
     max_dur = v.get("MAX_LOCK_DURATION")
     default_dur = v.get("DEFAULT_DURATION")
     if isinstance(max_dur, int) and isinstance(default_dur, int) and max_dur != -1 and default_dur > max_dur:
