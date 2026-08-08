@@ -8,10 +8,12 @@ import contextlib
 import json
 import logging
 import os
+import threading
+import time
 import traceback
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
@@ -28,6 +30,7 @@ from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
+from lockbot.core.platforms.feishu import FeishuAdapter
 from lockbot.core.platforms.infoflow import check_signature
 
 router = APIRouter(prefix="/api/bots", tags=["bots"])
@@ -35,8 +38,45 @@ logger = logging.getLogger(__name__)
 
 VALID_BOT_TYPES = {"NODE", "DEVICE", "QUEUE"}
 
+_FEISHU_EVENT_TTL_SECONDS = 600
+_feishu_recent_events: dict[tuple[int, str], float] = {}
+_feishu_event_lock = threading.Lock()
+
 
 _DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
+
+
+def _claim_feishu_event(bot_id: int, event_id: str) -> bool:
+    """Claim a Feishu event for in-process TTL deduplication."""
+    if not event_id:
+        return True
+    now = time.time()
+    key = (bot_id, event_id)
+    with _feishu_event_lock:
+        expired = [item for item, seen_at in _feishu_recent_events.items() if now - seen_at > _FEISHU_EVENT_TTL_SECONDS]
+        for item in expired:
+            _feishu_recent_events.pop(item, None)
+        if key in _feishu_recent_events:
+            return False
+        _feishu_recent_events[key] = now
+        return True
+
+
+def _webhook_response(text: str, code: int, meta: dict):
+    """Render platform adapter output as a FastAPI response."""
+    if meta.get("event") == "url_verification" and text.startswith("{"):
+        return JSONResponse(content=json.loads(text), status_code=code)
+    return PlainTextResponse(content=text, status_code=code)
+
+
+def _process_prepared_feishu(bot, msg_data: dict, bot_id: int) -> None:
+    """Execute a validated Feishu command after the HTTP acknowledgement."""
+    try:
+        bot.adapter.process_prepared_webhook(bot, msg_data)
+    except Exception as exc:
+        tb = traceback.format_exc()
+        logger.exception("[Webhook] deferred Feishu handler crashed for bot %d: %s", bot_id, exc)
+        _write_log(bot_id, f"Webhook 后台处理异常: {exc}\n{tb}", level="ERROR")
 
 
 def _get_log_dir(bot_id: int) -> str:
@@ -989,7 +1029,7 @@ def get_bot_logs(
 
 @router.post("/webhook/{bot_id}")
 @limiter.limit("120/minute")
-async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
+async def webhook(bot_id: int, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     IM callback endpoint.
 
@@ -1021,12 +1061,24 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     if not instance:
         logger.debug("[Webhook] bot=%d not running, replying 'not started'", bot_id)
         # Bot not running — try to reply "not started" via IM
-        return await _reply_bot_not_running(bot_id, form, args, body, headers, db)
+        return await _reply_bot_not_running(bot_id, form, args, body, headers, db, background_tasks)
 
+    prepared_feishu_message = None
     try:
-        text, code, meta = handle_webhook(
-            instance.bot, raw_form=form, raw_args=args, raw_body=body, raw_headers=headers
-        )
+        if isinstance(instance.bot.adapter, FeishuAdapter):
+            lower_headers = {key.lower(): value for key, value in headers.items()}
+            text, code, meta, prepared_feishu_message = instance.bot.adapter.prepare_webhook(body, lower_headers)
+            if prepared_feishu_message is not None and not _claim_feishu_event(bot_id, meta.get("event_id", "")):
+                logger.info(
+                    "[Webhook] duplicate Feishu event ignored: bot=%d event_id=%s",
+                    bot_id,
+                    meta.get("event_id"),
+                )
+                return PlainTextResponse(content="ok", status_code=200)
+        else:
+            text, code, meta = handle_webhook(
+                instance.bot, raw_form=form, raw_args=args, raw_body=body, raw_headers=headers
+            )
     except Exception as e:
         tb = traceback.format_exc()
         logger.exception("[Webhook] handler crashed for bot %d: %s", bot_id, e)
@@ -1044,10 +1096,8 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     # For verification events just return immediately (no DB updates needed).
     # Feishu challenge response must be JSON {"challenge": "..."}; detect by content shape.
-    if meta.get("event") in ("url_verification", "url_verification_failed", "signature_failed"):
-        if text.startswith("{") and "challenge" in text:
-            return JSONResponse(content=json.loads(text), status_code=code)
-        return PlainTextResponse(content=text, status_code=code)
+    if prepared_feishu_message is None and meta.get("event"):
+        return _webhook_response(text, code, meta)
 
     # Update last_request_at
     bot = db.get(Bot, bot_id)
@@ -1071,6 +1121,9 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
         bot.last_user_id = uid
         db.commit()
 
+    if prepared_feishu_message is not None:
+        background_tasks.add_task(_process_prepared_feishu, instance.bot, prepared_feishu_message, bot_id)
+        return PlainTextResponse(content="ok", status_code=200)
     return PlainTextResponse(content=text, status_code=code)
 
 
@@ -1081,7 +1134,8 @@ async def _reply_bot_not_running(
     body: bytes,
     headers: dict,
     db: Session,
-) -> PlainTextResponse:
+    background_tasks: BackgroundTasks,
+):
     """When a bot is not running, POST a 'not started' message back to the IM platform."""
     bot = db.get(Bot, bot_id)
     if not bot or bot.is_deleted:
@@ -1099,6 +1153,31 @@ async def _reply_bot_not_running(
 
     adapter_cls = PLATFORM_REGISTRY.get(bot.platform or "Infoflow", PLATFORM_REGISTRY["Infoflow"])
     adapter = adapter_cls(config=config)
+
+    if isinstance(adapter, FeishuAdapter):
+        lower_headers = {key.lower(): value for key, value in headers.items()}
+        text, code, meta, msg_data = adapter.prepare_webhook(body, lower_headers)
+        if msg_data is None:
+            return _webhook_response(text, code, meta)
+        if not _claim_feishu_event(bot_id, meta.get("event_id", "")):
+            return PlainTextResponse(content="ok", status_code=200)
+
+        user_id = meta.get("user_id", "")
+        group_id = meta.get("group_id", "")
+        lang = "zh"
+        with contextlib.suppress(Exception):
+            overrides = json.loads(bot.config_overrides or "{}")
+            lang = overrides.get("LANGUAGE", "zh")
+        owner = db.get(User, bot.user_id)
+        owner_username = owner.username if owner else ""
+        if bot.status == "error":
+            content = t("webhook.bot_error", lang=lang, bot_name=bot.name, owner_username=owner_username)
+        else:
+            content = t("webhook.bot_not_running", lang=lang, bot_name=bot.name, owner_username=owner_username)
+        reply = adapter.build_reply(content, [user_id], group_id=group_id)
+        adapter.set_reply_target(reply, group_id)
+        background_tasks.add_task(adapter.send, reply)
+        return PlainTextResponse(content="ok", status_code=200)
 
     # URL verification must still work even when the bot is stopped
     # Slack: JSON body with type == "url_verification"

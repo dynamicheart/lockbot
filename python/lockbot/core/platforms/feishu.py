@@ -9,14 +9,14 @@ Reference docs:
   - feishu2.md: Signature verification and AES-256-CBC decryption
   - feishu.md:  Message content formats
 
-Credential mapping (reuses existing DB fields):
-    webhook_url → App ID       — identifies the application; used to fetch tenant_access_token
-    token       → App Secret   — authenticates the application; used to fetch tenant_access_token
-    aes_key     → Encrypt Key  — optional; if set, enables AES-256-CBC decryption
-                                 and SHA-256 signature verification of incoming events
+Platform credentials:
+    app_id             → App ID, used to fetch tenant_access_token
+    app_secret         → App Secret, used to fetch tenant_access_token
+    verification_token → callback Verification Token
+    encrypt_key        → optional Encrypt Key for callback encryption/signatures
 
-If aes_key (Encrypt Key) is empty:
-  - Incoming requests are accepted without signature verification
+If encrypt_key (Encrypt Key) is empty:
+  - Incoming requests are authenticated with Verification Token
   - Event bodies are expected as plaintext JSON
 
 If aes_key (Encrypt Key) is set:
@@ -94,14 +94,23 @@ def _decrypt_aes_cbc(encrypt_key: str, encrypted_b64: str) -> dict | None:
         from Crypto.Cipher import AES  # pycryptodome
 
         key = hashlib.sha256(encrypt_key.encode("utf-8")).digest()
-        buf = base64.b64decode(encrypted_b64)
+        buf = base64.b64decode(encrypted_b64, validate=True)
+        if len(buf) < 32 or len(buf) % AES.block_size != 0:
+            raise ValueError("invalid encrypted event length")
         iv = buf[:16]
         cipher = AES.new(key, AES.MODE_CBC, iv)
         decrypted = cipher.decrypt(buf[16:])
         # PKCS7 unpad
         pad_len = decrypted[-1]
+        if pad_len < 1 or pad_len > AES.block_size:
+            raise ValueError("invalid PKCS7 padding")
+        if decrypted[-pad_len:] != bytes([pad_len]) * pad_len:
+            raise ValueError("invalid PKCS7 padding")
         decrypted = decrypted[:-pad_len]
-        return json.loads(decrypted.decode("utf-8"))
+        payload = json.loads(decrypted.decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("decrypted Feishu event must be an object")
+        return payload
     except Exception:
         logger.exception("Failed to AES-decrypt Feishu payload")
         return None
@@ -133,8 +142,8 @@ class FeishuAdapter(MessageAdapter):
             expected = sha256(content).hexdigest()
             compare with X-Lark-Signature header
 
-        If no Encrypt Key is configured (webhook_url empty), skip verification and
-        return True — Feishu sends plaintext events without a signature in that case.
+        If no Encrypt Key is configured, signature verification is disabled;
+        prepare_webhook() still validates the Verification Token.
         """
         encrypt_key = self._get_config("encrypt_key", "")
         if not encrypt_key:
@@ -208,7 +217,7 @@ class FeishuAdapter(MessageAdapter):
         if "encrypt" in data:
             encrypt_key = self._get_config("encrypt_key", "")
             if not encrypt_key:
-                logger.warning("[Feishu] decrypt_payload: encrypted payload received but AES_KEY is not configured")
+                logger.warning("[Feishu] decrypt_payload: encrypted payload received but Encrypt Key is not configured")
                 return None
             logger.debug("[Feishu] decrypt_payload: decrypting AES-CBC encrypted payload")
             result = _decrypt_aes_cbc(encrypt_key, data["encrypt"])
@@ -245,6 +254,7 @@ class FeishuAdapter(MessageAdapter):
 
         message = event.get("message", {})
         chat_id = message.get("chat_id", "")
+        chat_type = message.get("chat_type", "")
 
         text = ""
         msg_type = message.get("message_type", "")
@@ -256,10 +266,20 @@ class FeishuAdapter(MessageAdapter):
             except Exception:
                 text = ""
 
-        # Strip @mention tags: <at user_id="xxx">name</at>
+        # Feishu v2 represents mentions as @_user_N placeholders plus a
+        # message.mentions array. Keep legacy <at> removal for old fixtures.
+        mentions = message.get("mentions", [])
+        if isinstance(mentions, list):
+            for mention in mentions:
+                if isinstance(mention, dict) and mention.get("key"):
+                    text = text.replace(str(mention["key"]), "")
         text = re.sub(r"<at[^>]*>[^<]*</at>", "", text).strip()
+        text = " ".join(text.split())
 
-        return user_id, chat_id, text
+        # A p2p message also contains a chat_id, but replying via open_id makes
+        # the direct-message target explicit. Only group chats return chat_id.
+        group_id = chat_id if chat_type == "group" else ""
+        return user_id, group_id, text
 
     def build_reply(self, content, user_ids, group_id=None) -> dict:
         """Build a Feishu text message payload.
@@ -333,49 +353,66 @@ class FeishuAdapter(MessageAdapter):
                 resp_json = resp.json()
             except Exception:
                 resp_json = resp.text
-            logger.debug("[Feishu] send response: status=%d, body=%s", status, resp_json)
-            if status != 200:
-                logger.warning("[Feishu] send failed: status=%d, body=%s", status, resp_json)
+            log_id = resp.headers.get("X-Tt-Logid", "")
+            code = resp_json.get("code") if isinstance(resp_json, dict) else None
+            logger.debug("[Feishu] send response: status=%d, code=%s, log_id=%s", status, code, log_id)
+            if status != 200 or code != 0:
+                message = resp_json.get("msg", "") if isinstance(resp_json, dict) else "invalid JSON response"
+                logger.warning(
+                    "[Feishu] send failed: status=%d, code=%s, msg=%s, log_id=%s",
+                    status,
+                    code,
+                    message,
+                    log_id,
+                )
             return [(status, resp.text)]
         except Exception:
             logger.exception("[Feishu] send: exception while sending message")
             return []
 
-    def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:
-        """Handle a Feishu HTTP callback event.
+    def _verify_token(self, payload: dict) -> bool:
+        expected = self._get_config("verification_token", "")
+        if not expected:
+            logger.warning("[Feishu] verification_token is not configured; source-token validation is disabled")
+            return True
+        header = payload.get("header", {})
+        supplied = header.get("token", "") if isinstance(header, dict) else ""
+        supplied = supplied or payload.get("token", "")
+        return bool(supplied) and hmac.compare_digest(expected, str(supplied))
+
+    def prepare_webhook(self, raw_body: bytes, headers: dict) -> tuple[str, int, dict, dict | None]:
+        """Authenticate and parse a callback without executing its command.
 
         Per feishu1.md / feishu2.md:
-        1. Challenge handshake: body has type=="url_verification" → respond immediately
-           with JSON {"challenge": "..."} before any signature check (must be <1 s).
-        2. Signature verification (only when Encrypt Key / aes_key is configured):
+        1. Parse/decrypt the callback envelope.
+        2. Validate Verification Token.
+        3. Return an URL-verification challenge immediately. Feishu may omit
+           signature headers for this request even when Encrypt Key is enabled.
+        4. For normal events, verify the signature when Encrypt Key is set:
            sha256(timestamp + nonce + encrypt_key + raw_body_bytes) == X-Lark-Signature
-        3. Decrypt payload: plaintext JSON or {"encrypt": "..."} AES-256-CBC.
-        4. Extract command and execute.
+        5. Return parsed message data for deferred command execution.
         """
         from lockbot.core.message_adapter import _BAD_SIG, _DECRYPT_FAIL
 
-        body_str = raw_body.decode("utf-8") if raw_body else ""
         bot_name = self._get_config("BOT_NAME", "?")
+        logger.debug("[Feishu] prepare_webhook: bot=%s, body_len=%d", bot_name, len(raw_body))
 
-        logger.debug(
-            "[Feishu] handle_webhook: bot=%s, body_len=%d, headers={%s}",
-            bot_name,
-            len(body_str),
-            ", ".join(f"{k}={v}" for k, v in sorted(headers.items()) if k.startswith("x-lark-")),
-        )
+        msg_data = self.decrypt_payload(raw_body)
+        if msg_data is None:
+            logger.warning("[Feishu] decrypt/parse FAILED, bot=%s", bot_name)
+            return *_DECRYPT_FAIL, {"event": "decrypt_failed"}, None
 
-        # Step 1 — challenge handshake (must respond before signature check)
-        if raw_body:
-            try:
-                maybe_json = json.loads(body_str)
-                if maybe_json.get("type") == "url_verification":
-                    challenge = maybe_json.get("challenge", "")
-                    logger.debug("[Feishu] handle_webhook: challenge handshake OK, bot=%s", bot_name)
-                    return json.dumps({"challenge": challenge}), 200, {"event": "url_verification"}
-            except (ValueError, KeyError):
-                pass
+        if not self._verify_token(msg_data):
+            logger.warning("[Feishu] verification token FAILED, bot=%s", bot_name)
+            return *_BAD_SIG, {"event": "verification_token_failed"}, None
 
-        # Step 2 — signature verification
+        if msg_data.get("type") == "url_verification" or msg_data.get("challenge"):
+            challenge = msg_data.get("challenge", "")
+            if not challenge:
+                return "missing challenge", 400, {"event": "url_verification_failed"}, None
+            logger.debug("[Feishu] challenge handshake OK, bot=%s", bot_name)
+            return json.dumps({"challenge": challenge}), 200, {"event": "url_verification"}, None
+
         ts = headers.get("x-lark-request-timestamp", "")
         nonce = headers.get("x-lark-request-nonce", "")
         sig = headers.get("x-lark-signature", "")
@@ -388,21 +425,50 @@ class FeishuAdapter(MessageAdapter):
             (sig[:16] + "...") if sig else "None",
         )
         if not self.verify_request(sig, timestamp=ts, nonce=nonce, body=raw_body):
-            logger.warning("[Feishu] handle_webhook: signature verification FAILED, bot=%s", bot_name)
-            return *_BAD_SIG, {"event": "signature_failed"}
+            logger.warning("[Feishu] signature verification FAILED, bot=%s", bot_name)
+            return *_BAD_SIG, {"event": "signature_failed"}, None
 
-        # Step 3 — decrypt / parse payload
-        msg_data = self.decrypt_payload(raw_body)
-        if msg_data is None:
-            logger.warning("[Feishu] handle_webhook: decrypt/parse FAILED, bot=%s", bot_name)
-            return *_DECRYPT_FAIL, {"event": "decrypt_failed"}
-
-        # Log the event type and key fields for debugging
         event_type = msg_data.get("header", {}).get("event_type", "N/A")
-        logger.debug("[Feishu] handle_webhook: payload OK, event_type=%s, bot=%s", event_type, bot_name)
+        if event_type != "im.message.receive_v1":
+            logger.debug("[Feishu] event ignored: event_type=%s, bot=%s", event_type, bot_name)
+            return "ok", 200, {"event": event_type}, None
 
-        # Step 4 — execute
-        result = self._run_command(bot, msg_data, "Feishu")
+        event = msg_data.get("event", {})
+        sender = event.get("sender", {}) if isinstance(event, dict) else {}
+        message = event.get("message", {}) if isinstance(event, dict) else {}
+        if sender.get("sender_type") == "bot" or message.get("message_type") != "text":
+            return "ok", 200, {"event": event_type}, None
+
+        try:
+            user_id, group_id, command_text = self.extract_command(msg_data)
+        except Exception:
+            logger.exception("[Feishu] Failed to extract command, bot=%s", bot_name)
+            return "parse error", 400, {"event": "parse_error"}, None
+        header = msg_data.get("header", {})
+        meta = {
+            "event": event_type,
+            "event_id": header.get("event_id", ""),
+            "message_id": message.get("message_id", ""),
+            "user_id": user_id,
+            "group_id": group_id,
+            "command": command_text,
+        }
+        logger.debug("[Feishu] payload OK, event_type=%s, bot=%s", event_type, bot_name)
+        return "ok", 200, meta, msg_data
+
+    def process_prepared_webhook(self, bot, msg_data: dict) -> tuple:
+        """Execute and reply to an authenticated, parsed Feishu message."""
+        return self._run_command(bot, msg_data, "Feishu")
+
+    def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:
+        """Handle a Feishu callback synchronously for compatibility callers."""
+        bot_name = self._get_config("BOT_NAME", "?")
+        text, code, meta, msg_data = self.prepare_webhook(raw_body, headers)
+        if msg_data is None:
+            return text, code, meta
+
+        result = self.process_prepared_webhook(bot, msg_data)
+        result[2].update({key: value for key, value in meta.items() if key in {"event", "event_id", "message_id"}})
         logger.debug(
             "[Feishu] handle_webhook: command done, bot=%s, meta=%s", bot_name, result[2] if len(result) > 2 else {}
         )

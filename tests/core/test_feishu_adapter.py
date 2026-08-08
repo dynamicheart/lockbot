@@ -13,18 +13,25 @@ def _make_adapter(
     app_secret: str = "test-secret",
     app_id: str = "test-app-id",
     encrypt_key: str = "",
+    verification_token: str = "",
 ) -> FeishuAdapter:
     """Return a FeishuAdapter with given credentials via config mock.
 
     Feishu credential mapping (new):
         app_id      → App ID
         app_secret  → App Secret
+        verification_token → callback Verification Token
         encrypt_key → Encrypt Key (optional; empty = skip signature verification)
     """
     config = MagicMock()
 
     def get_val(key, default=None):
-        return {"app_secret": app_secret, "app_id": app_id, "encrypt_key": encrypt_key}.get(key, default)
+        return {
+            "app_secret": app_secret,
+            "app_id": app_id,
+            "encrypt_key": encrypt_key,
+            "verification_token": verification_token,
+        }.get(key, default)
 
     config.get_val.side_effect = get_val
     return FeishuAdapter(config=config)
@@ -159,10 +166,10 @@ class TestFeishuDecryptPayload:
 class TestFeishuChallengeHandshake:
     """Feishu URL verification (challenge) handshake via webhook_handler."""
 
-    def _make_bot(self, encrypt_key: str = ""):
+    def _make_bot(self, encrypt_key: str = "", verification_token: str = ""):
         """Return a minimal bot mock with a FeishuAdapter."""
         bot = MagicMock()
-        bot.adapter = _make_adapter(encrypt_key=encrypt_key)
+        bot.adapter = _make_adapter(encrypt_key=encrypt_key, verification_token=verification_token)
         bot.config.get_val.return_value = "test-bot"
         return bot
 
@@ -194,32 +201,25 @@ class TestFeishuChallengeHandshake:
         assert parsed["challenge"] == challenge_value
 
     def test_challenge_with_encrypt_key(self):
-        """Challenge handshake should work even when Encrypt Key is configured."""
+        """An encrypted challenge works without signature headers."""
+        from Crypto.Cipher import AES
         from lockbot.backend.app.bots.webhook_handler import handle_webhook
 
         challenge_value = "abc-xyz-123"
-        body = json.dumps(
-            {
-                "challenge": challenge_value,
-                "token": "vtoken",
-                "type": "url_verification",
-            }
-        ).encode()
-
         key = "my-encrypt-key"
-        ts = str(int(time.time()))
-        sig = _make_signature(key, ts, body=body)
+        payload = json.dumps({"challenge": challenge_value, "token": "vtoken", "type": "url_verification"}).encode()
+        pad_len = AES.block_size - len(payload) % AES.block_size
+        padded = payload + bytes([pad_len]) * pad_len
+        iv = b"0123456789abcdef"
+        encrypted = AES.new(hashlib.sha256(key.encode()).digest(), AES.MODE_CBC, iv).encrypt(padded)
+        body = json.dumps({"encrypt": base64.b64encode(iv + encrypted).decode()}).encode()
 
         text, code, meta = handle_webhook(
-            bot=self._make_bot(encrypt_key=key),
+            bot=self._make_bot(encrypt_key=key, verification_token="vtoken"),
             raw_form={},
             raw_args={},
             raw_body=body,
-            raw_headers={
-                "x-lark-request-timestamp": ts,
-                "x-lark-request-nonce": "",
-                "x-lark-signature": sig,
-            },
+            raw_headers={},
         )
 
         assert code == 200
@@ -247,6 +247,22 @@ class TestFeishuChallengeHandshake:
         # Challenge always returns immediately, before signature check
         assert code == 200
         assert json.loads(text)["challenge"] == "xyz"
+
+    def test_challenge_wrong_verification_token_rejected(self):
+        from lockbot.backend.app.bots.webhook_handler import handle_webhook
+
+        body = json.dumps({"challenge": "xyz", "token": "wrong", "type": "url_verification"}).encode()
+        text, code, meta = handle_webhook(
+            bot=self._make_bot(verification_token="expected"),
+            raw_form={},
+            raw_args={},
+            raw_body=body,
+            raw_headers={},
+        )
+
+        assert text == "check signature fail"
+        assert code == 401
+        assert meta["event"] == "verification_token_failed"
 
     def test_normal_event_with_bad_signature_rejected(self):
         """Non-challenge events with bad signature should be rejected when Encrypt Key is set."""
@@ -316,6 +332,7 @@ class TestFeishuExtractCommand:
         text: str = "lock node1",
         open_id: str = "ou_xxx",
         chat_id: str = "oc_xxx",
+        chat_type: str = "group",
     ) -> dict:
         return {
             "schema": "2.0",
@@ -324,6 +341,7 @@ class TestFeishuExtractCommand:
                 "sender": {"sender_id": {"open_id": open_id, "user_id": "uid_xxx"}},
                 "message": {
                     "chat_id": chat_id,
+                    "chat_type": chat_type,
                     "message_type": "text",
                     "content": json.dumps({"text": text}),
                 },
@@ -337,6 +355,13 @@ class TestFeishuExtractCommand:
         assert chat_id == "oc_xxx"
         assert cmd == "lock node1"
 
+    def test_p2p_extract_uses_open_id_reply_target(self):
+        adapter = _make_adapter()
+        user_id, group_id, cmd = adapter.extract_command(self._msg(chat_type="p2p"))
+        assert user_id == "ou_xxx"
+        assert group_id == ""
+        assert cmd == "lock node1"
+
     def test_strips_at_mention_tags(self):
         adapter = _make_adapter()
         msg = self._msg('<at user_id="ou_bot">Bot</at> query')
@@ -348,6 +373,13 @@ class TestFeishuExtractCommand:
         msg = self._msg('<at user_id="ou_bot">Bot</at><at user_id="ou_bot2">Bot2</at> free')
         _, _, cmd = adapter.extract_command(msg)
         assert cmd == "free"
+
+    def test_strips_v2_mention_placeholders(self):
+        adapter = _make_adapter()
+        msg = self._msg("@_user_1 query")
+        msg["event"]["message"]["mentions"] = [{"key": "@_user_1", "name": "LockBot"}]
+        _, _, cmd = adapter.extract_command(msg)
+        assert cmd == "query"
 
     def test_empty_text(self):
         adapter = _make_adapter()
@@ -442,6 +474,8 @@ class TestFeishuSend:
             mock_resp = MagicMock()
             mock_resp.status_code = 200
             mock_resp.text = '{"code":0}'
+            mock_resp.json.return_value = {"code": 0}
+            mock_resp.headers = {"X-Tt-Logid": "log-id"}
             mock_post.return_value = mock_resp
             result = adapter.send(msg)
         assert result == [(200, '{"code":0}')]

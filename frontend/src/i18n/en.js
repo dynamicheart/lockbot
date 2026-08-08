@@ -155,18 +155,20 @@ export default {
         step3: '3. Copy the Webhook URL, Token, and AES Key into the fields below',
       },
       Feishu: {
-        webhookUrl:
+        app_id:
           'App ID, found in the app detail page under "Credentials & Basic Info" on Feishu Open Platform',
-        token:
+        app_secret:
           'App Secret, found in the app detail page under "Credentials & Basic Info" on Feishu Open Platform',
-        aesKey:
+        verification_token:
+          'Verification Token, found under "Development Config → Events & Callbacks → Encryption Strategy"',
+        encrypt_key:
           'Encrypt Key (optional) — set in "Development Config → Events & Callbacks → Encryption Strategy"; leave blank to disable encryption',
         hintTitle: 'How to get credentials?',
         step1: '1. Create a custom app on Feishu Open Platform and enable the "Bot" feature',
         step2:
           '2. Under "Development Config → Events & Callbacks", set this bot\'s callback URL and subscribe to im.message.receive_v1',
         step3:
-          '3. Fill in App ID and App Secret below; optionally set Encrypt Key for encrypted mode',
+          '3. Fill in App ID, App Secret, and Verification Token; optionally set Encrypt Key for encrypted mode',
       },
     },
     optional: 'Optional',

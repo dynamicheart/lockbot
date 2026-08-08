@@ -5,7 +5,7 @@ Credentials are stored as encrypted JSON in the `credentials` column,
 using platform-specific keys:
 
   Infoflow:  {"webhook_url", "token", "aes_key"}
-  Feishu:    {"app_id", "app_secret", "encrypt_key"}
+  Feishu:    {"app_id", "app_secret", "verification_token", "encrypt_key"}
   Slack:     {"bot_token", "signing_secret", "event_url"}
   DingTalk:  {"app_secret"}
 """

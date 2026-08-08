@@ -294,6 +294,11 @@ const PLATFORM_CRED_CONFIG = {
   Feishu: {
     app_id: { label: 'App ID', placeholder: 'App ID', required: true, isUrl: false },
     app_secret: { label: 'App Secret', placeholder: 'App Secret', required: true },
+    verification_token: {
+      label: 'Verification Token',
+      placeholder: 'Verification Token',
+      required: true,
+    },
     encrypt_key: { label: 'Encrypt Key', placeholder: t('botCreate.optional'), required: false },
   },
 }
@@ -303,7 +308,7 @@ const PLATFORM_CRED_ORDER = {
   Infoflow: ['webhook_url', 'token', 'aes_key'],
   Slack: ['bot_token', 'signing_secret', 'event_url'],
   DingTalk: ['app_secret'],
-  Feishu: ['app_id', 'app_secret', 'encrypt_key'],
+  Feishu: ['app_id', 'app_secret', 'verification_token', 'encrypt_key'],
 }
 
 const credFields = computed(() => {
