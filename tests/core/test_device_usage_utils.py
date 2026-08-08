@@ -330,3 +330,42 @@ def test_mixed_shared_users_and_models(make_device):
     assert all("dev" not in line and "v100" not in line for line in lines if "王五" in line)
     assert any("dev5-6" in line and "空闲" in line and "a800" in line for line in lines)
     assert any("dev7" in line and "空闲" in line and "v100" in line for line in lines)
+
+
+def test_display_device_model_forces_model_on_homogeneous_node(make_device):
+    """DISPLAY_DEVICE_MODEL config forces model display even on homogeneous nodes."""
+    from lockbot.core.config import Config
+
+    config = Config({"DISPLAY_DEVICE_MODEL": True, "LANGUAGE": "zh"})
+
+    node_status = [
+        make_device(0, status="exclusive", user_id="张三", dev_model="a800"),
+        make_device(1, status="exclusive", user_id="张三", dev_model="a800"),
+        make_device(2, status="idle", dev_model="a800"),
+    ]
+
+    locked = group_locked_devices(node_status)
+    idle = group_idle_devices(node_status, exclude_indices={i for _, ids in locked for i in ids})
+    lines = render_device_lines(node_status, locked, idle, config=config)
+
+    # Model should be shown even though all devices are a800
+    assert any("a800" in line for line in lines)
+
+
+def test_display_device_model_off_hides_model_on_homogeneous_node(make_device):
+    """Without DISPLAY_DEVICE_MODEL, model is hidden on homogeneous nodes."""
+    from lockbot.core.config import Config
+
+    config = Config({"DISPLAY_DEVICE_MODEL": False, "LANGUAGE": "zh"})
+
+    node_status = [
+        make_device(0, status="exclusive", user_id="张三", dev_model="a800"),
+        make_device(1, status="idle", dev_model="a800"),
+    ]
+
+    locked = group_locked_devices(node_status)
+    idle = group_idle_devices(node_status, exclude_indices={i for _, ids in locked for i in ids})
+    lines = render_device_lines(node_status, locked, idle, config=config)
+
+    # Model should NOT be shown
+    assert not any("a800" in line for line in lines)
