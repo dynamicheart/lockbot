@@ -37,6 +37,19 @@
           ><strong>{{ summary.queued }}</strong>
         </div>
       </div>
+      <p v-if="snapshot.resource_policy?.forbid_relock" class="view-status">
+        {{ $t('botCreate.forbidRelock') }}
+      </p>
+      <p
+        v-if="snapshot.resource_policy && snapshot.resource_policy.max_resources_per_user !== -1"
+        class="view-status"
+      >
+        {{
+          $t('botCreate.userResourceLimit', {
+            count: snapshot.resource_policy.max_resources_per_user,
+          })
+        }}
+      </p>
       <p v-if="failed" class="view-status">{{ $t('resourceView.unavailable') }}</p>
       <el-empty v-if="snapshot.health !== 'running'" :description="$t('resourceView.stopped')" />
       <el-empty v-else-if="!snapshot.resources.length" :description="$t('resourceView.empty')" />

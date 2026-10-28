@@ -569,6 +569,69 @@ function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode, forceM
   return text
 }
 
+// Check the projected allocation before a demo command mutates any target.
+function resourcePolicyError(state, userId, cmd, rest, botType, config, lang) {
+  if (!['lock', 'slock', 'book', 'take'].includes(cmd)) return null
+  if (!config.FORBID_RELOCK && (config.MAX_RESOURCES_PER_USER ?? -1) === -1) return null
+  const timed = parseDurationTail(rest)
+  const target = timed ? timed.rest : rest
+  const cards = ['DEVICE', 'QUEUE_DEVICE'].includes(botType)
+  const entries = cards ? queueDeviceState(state) : state
+  let targets
+  if (cards) {
+    const match = target.match(/^([\w-]+(?:\s*[,，、]\s*[\w-]+)*)(?:\s+(dev\s*.+))?$/i)
+    if (!match) return null
+    targets = []
+    for (const node of splitNodeList(match[1])) {
+      if (!Array.isArray(state[node])) return null
+      const ids = match[2]
+        ? parseDevSpec(match[2], config.CLUSTER_CONFIGS, node)
+        : state[node].map((c) => c.dev_id)
+      if (!ids || ids.some((id) => !Number.isInteger(id))) return null
+      targets.push(...ids.map((id) => `${node}:dev${id}`))
+    }
+  } else targets = splitNodeList(target)
+  if (targets.some((key) => !entries[key])) return null
+  const now = Math.floor(Date.now() / 1000)
+  const claimed = new Set(
+    Object.entries(entries)
+      .filter(
+        ([, entry]) =>
+          (entry.current_users || []).some(
+            (u) => u.user_id === userId && u.start_time + u.duration > now
+          ) ||
+          (entry.booking_list || []).some(
+            (u) => u.user_id === userId && (!u.is_notified || u.start_time + 300 > now)
+          )
+      )
+      .map(([key]) => key)
+  )
+  const cap = config.MAX_RESOURCES_PER_USER ?? -1
+  if (
+    cap !== -1 &&
+    targets.some((key) => !claimed.has(key)) &&
+    new Set([...claimed, ...targets]).size > cap
+  )
+    return lang === 'zh'
+      ? `❌每人最多占用或预约 ${cap} 个资源。`
+      : `❌At most ${cap} held or booked resources per user.`
+  if (config.FORBID_RELOCK) {
+    for (const key of targets) {
+      const entry = entries[key]
+      if ((entry.current_users || []).some((u) => u.user_id === userId))
+        return lang === 'zh'
+          ? '❌禁止续期或预约自己正在使用的资源。'
+          : '❌Renewal or booking your own holding is disabled.'
+      const booking = (entry.booking_list || []).find((u) => u.user_id === userId)
+      if (['lock', 'take'].includes(cmd) && timed && booking && timed.seconds > booking.duration)
+        return lang === 'zh'
+          ? '❌领取时长不能超过原预约时长。'
+          : '❌Claim duration cannot exceed the original booking.'
+    }
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Command executor
 // ---------------------------------------------------------------------------
@@ -669,7 +732,7 @@ export function executeCommand(state, userId, command, botType, config, lang = '
 
   // ---- help ----
   if (cmd === 'help' || cmd === 'h') {
-    return _buildHelp(
+    let help = _buildHelp(
       botType,
       CLUSTER_CONFIGS,
       DEFAULT_DURATION,
@@ -678,6 +741,23 @@ export function executeCommand(state, userId, command, botType, config, lang = '
       BOT_ID,
       BOT_OWNER
     )
+    if (config.FORBID_RELOCK) {
+      help = help.replace(
+        _t(lang, 'help.rule1_default_duration', {
+          default_duration: formatDuration(DEFAULT_DURATION, lang),
+        }),
+        lang === 'zh'
+          ? `    规则1: 默认时长${formatDuration(DEFAULT_DURATION, lang)}，禁止续期；领取不得延长原预约\n`
+          : `    Rule 1: Default ${formatDuration(DEFAULT_DURATION, lang)}; no renewal; claims cannot extend bookings\n`
+      )
+    }
+    if ((config.MAX_RESOURCES_PER_USER ?? -1) !== -1) {
+      help +=
+        lang === 'zh'
+          ? `\n每人最多占用或预约 ${config.MAX_RESOURCES_PER_USER} 个资源。\n`
+          : `\nAt most ${config.MAX_RESOURCES_PER_USER} held or booked resources per user.\n`
+    }
+    return help
   }
 
   // ---- query ----
@@ -687,6 +767,9 @@ export function executeCommand(state, userId, command, botType, config, lang = '
     }
     return `${_t(lang, 'query.cluster_usage_title')}${usageText()}`
   }
+
+  const policyError = resourcePolicyError(state, userId, cmd, rest, botType, config, lang)
+  if (policyError) return policyError
 
   // For NODE / QUEUE: commands operate on node names
   if (botType === 'NODE' || botType === 'QUEUE') {

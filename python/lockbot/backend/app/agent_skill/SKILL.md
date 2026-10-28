@@ -254,6 +254,83 @@ repeat, respecting polling intervals and Retry-After:
 An existing task registered during booking is carried forward when you claim with `lock`
 without new metadata. `free <resource>` cancels your booking or releases your lock.
 
+## Read current bot rules and manage the lease lifecycle
+
+Each successful `GET /api/agent/context` includes `bot_rules`, read from the bot's current
+persisted configuration even when the bot is stopped. Refresh your private rule cache at
+connection/resume and before renewal, and after a policy rejection or configuration change.
+Do not fetch context alongside every resource poll: it consumes the shared read budget.
+These rules can change; `/resources` and the actual command result remain authoritative.
+
+| `bot_rules` field | Meaning |
+|---|---|
+| `forbid_relock` | Defaults to false for every bot type. When true, do not renew lock/slock or book a resource you currently hold. |
+| `max_resources_per_user`, `resource_unit` | Combined distinct held/booked resources per user and bot; `-1` means no bot-specific cap. Unit is `node` for NODE/QUEUE, `card` for DEVICE/QUEUE_DEVICE. |
+| `default_duration_seconds` | Duration used when a command omits it; a booking claim without a duration uses its booked duration. |
+| `max_lock_duration_seconds` | Configured maximum remaining lease duration after acquisition/renewal; `-1` means unlimited. |
+| `duration_limit_exempt`, `effective_max_lock_duration_seconds` | Caller-specific duration exemption and effective ceiling (`-1` unlimited). This exempts neither renewal restrictions nor resource-count limits; the exemption list is never disclosed. |
+| `queue_claim_window_seconds` | Time to claim when it is your turn; null for non-queue types. |
+| `supported_operations`, `allow_user_alias` | Operations supported by the type and whether alias editing is enabled. A listed operation does not bypass `agent_access_enabled` or other policy checks. |
+| `request_budget.read_per_minute`, `request_budget.write_per_minute` | Actual deployed per-key read/write budgets shared by all the user's Agents. Other endpoint/IP limits can also apply. |
+| `poll_minimum_seconds.active`, `.booking`, `.discovery` | Actual deployed minimum resource-poll intervals in seconds; these override the suggested 15/30/60-second schedule below. |
+| `api_max_machines_per_user` | The separate existing API machine-count ceiling, including held/booked machines; several cards on one machine count once here. A card quota does not redefine this machine limit. |
+
+`resource_policy` on `/resources` repeats the live acquisition switches and includes the
+caller's `claimed_resource_count`. All of the user's Agents and group commands share the
+same bot allowance. Claiming an existing booking adds no allocation; lowering a cap does
+not evict existing holdings/bookings, but can prevent new acquisitions. When renewal is
+forbidden, claiming cannot exceed the original booked duration. Releasing does not let you
+jump ahead of other bookers. If an older service omits these new rule fields, do not assume
+the restrictions exist; follow its actual replies, timing fields and verified holdings.
+The `2h` values in command examples are examples, not a recommendation: use the actual
+caller-effective maximum, defaults, booked duration and task need. If the configured default
+exceeds the effective ceiling, request a valid explicit shorter duration.
+
+### Keep a conservative local stop deadline
+
+Record a local monotonic timestamp just before each GET and after receiving it. Use the
+verified lease's server `expires_at`, snapshot `captured_at` and `age_seconds` to estimate
+remaining time without trusting the Agent computer's UTC clock. A conservative calculation
+is `remaining = max(0, expires_at - captured_at - age_seconds - request_elapsed)` and
+`stop_deadline = received_monotonic + remaining`. Subtracting the full request elapsed time
+is deliberately conservative. `/resources` does not provide a `server_time` field; do not
+invent one. Missing or unusable timing/ownership data is not permission to extend a deadline.
+
+Maintain both periodic ownership checks and a local deadline timer. A later poll can reveal
+manual release, preemption, earlier expiry or another Agent's reacquisition; stop this task's
+resource use if the lease/owner no longer matches. Do not postpone the known deadline merely
+because a query failed, a queue estimate changed, or a cached record still says held.
+
+### Renew only for necessary active work, and verify the result
+
+Before the stop deadline, refresh context once and verify current ownership and this task's
+lease. Renew only if renewal is allowed and active work actually needs more time; never renew
+indefinitely just to retain capacity. Leave enough margin for the advertised poll floor,
+request latency, shared read/write budgets and possible `Retry-After` before the old deadline.
+A permitted verification read after a mutation still obeys actual server retry instructions.
+
+Choose an explicit added duration: repeated lock adds time rather than setting a new total.
+Keep remaining time plus the increment within the caller-effective ceiling. Attempt one bounded
+renewal. Then GET `/resources` and confirm the same resource/actor/lease
+has a genuinely later `expires_at`; HTTP 200 or a reply alone does not prove renewal. If POST
+has an unknown outcome, GET first instead of blindly repeating the non-idempotent lock.
+Retrying a status check cannot move the old stop deadline. Adopt a new deadline only from a
+verified renewed lease, not from the requested extra duration or the POST's success status.
+
+If renewal is forbidden, refused, uncertain or cannot be verified in time, stop/pause this
+task's GPU workload no later than the previously known deadline. Confirm the workload has
+stopped, release only this task's still-owned resources where appropriate, and reapply through
+the normal fair queue if more work remains. Never continue through expiry while retrying.
+If ownership cannot be confirmed because reads fail or are too stale, pause until verified.
+
+On Agent exit, cancellation or a long pause, clean up this task's workload and allocations.
+A timer in a sleeping or exited Agent cannot reliably stop a remote GPU job: arrange deadline
+enforcement in the task's runner, or stop work before becoming unavailable.
+After sleep/restart, refresh context and live state before resuming; saved memory is not a
+lease. If you cannot run timers, keep polling or stop your workload reliably, say so before
+starting and do not promise unattended acquisition/renewal. Lockbot records leases and queues;
+it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's responsibility.
+
 ## Resource command reference
 
 Send JSON to `POST /api/bots/{bot_id}/commands` using the personal Bearer key. Obtain the
@@ -300,7 +377,7 @@ The examples below use placeholder resources; replace them with those returned b
   contiguous card indexes for multi-resource tasks. Do not reserve extra machines merely
   to obtain a consecutive block, or assume consecutive names imply hardware locality.
 - Set an explicit lease duration that fits the work. Avoid unnecessarily long locks or
-  reserving capacity "just in case". For long tasks, renew in bounded increments only
+  reserving capacity "just in case". Only when renewal is permitted, renew long-running tasks in bounded increments
   while actively using the resources, after verifying current ownership and remaining time.
   Repeated `lock` adds time; never renew on every poll or blindly retry a renewal.
 - On completion, cancellation, failure that stops resource use, or a long pause, promptly

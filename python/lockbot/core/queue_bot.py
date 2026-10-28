@@ -43,6 +43,11 @@ class QueueBot(NodeBot):
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
+            policy_error = self._resource_policy_locked(
+                user_id, node_keys, claim_duration=duration if command_has_duration else None
+            )
+            if policy_error:
+                return policy_error
             if not all(
                 (
                     # Condition 1: node is not in use
@@ -142,6 +147,9 @@ class QueueBot(NodeBot):
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
+            policy_error = self._resource_policy_locked(user_id, node_keys)
+            if policy_error:
+                return policy_error
             if any(
                 find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
                 for node in nodes
@@ -184,6 +192,9 @@ class QueueBot(NodeBot):
         whitelist = self._duration_whitelist
         with self._lock:
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
+            policy_error = self._resource_policy_locked(user_id, node_keys, claim_duration=duration)
+            if policy_error:
+                return policy_error
             if any(find_user_info(node["current_users"], user_id) for node in nodes):
                 return self.show_error(user_id, self._msg_with_usage("error.locked_user_cannot_take", sep="\n"))
 
@@ -345,7 +356,7 @@ class QueueBot(NodeBot):
         parts.append(t("help.section1_title", config=self.config))
         parts.append(
             t(
-                "help.rule1_default_duration",
+                "help.rule1_no_renewal" if self.config.get_val("FORBID_RELOCK") else "help.rule1_default_duration",
                 config=self.config,
                 default_duration=format_duration(self.config.get_val("DEFAULT_DURATION"), config=self.config),
             )

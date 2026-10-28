@@ -79,7 +79,7 @@ class DeviceBot(BaseLockBot):
         if m[3]:
             node_key_str += m[3]
 
-        node_key_list = [node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)]
+        node_key_list = list(dict.fromkeys(node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)))
 
         for node_key in node_key_list:
             if node_key not in cluster_configs:
@@ -181,6 +181,10 @@ class DeviceBot(BaseLockBot):
         whitelist = self._duration_whitelist
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
+            targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
+            policy_error = self._resource_policy_locked(user_id, targets)
+            if policy_error:
+                return policy_error
             timestamp = int(time.time())
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
@@ -256,6 +260,10 @@ class DeviceBot(BaseLockBot):
         whitelist = self._duration_whitelist
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
+            targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
+            policy_error = self._resource_policy_locked(user_id, targets)
+            if policy_error:
+                return policy_error
             timestamp = int(time.time())
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -334,7 +342,7 @@ class DeviceBot(BaseLockBot):
             if m[3]:
                 node_key_str += m[3]
 
-            node_key_list = [node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)]
+            node_key_list = list(dict.fromkeys(node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)))
             for node_key in node_key_list:
                 if node_key not in cluster_configs:
                     return self.show_error(

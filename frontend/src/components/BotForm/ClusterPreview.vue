@@ -6,6 +6,10 @@
         {{ $t('botCreate.clusterPreviewBadge') }}
       </el-tag>
     </div>
+    <p v-if="forbidRelock">{{ $t('botCreate.forbidRelock') }}</p>
+    <p v-if="maxResourcesPerUser !== -1">
+      {{ $t('botCreate.userResourceLimit', { count: maxResourcesPerUser }) }}
+    </p>
     <pre class="preview-text">{{ queryText }}</pre>
   </div>
 </template>
@@ -17,6 +21,8 @@ import { executeCommand } from '../../utils/demoBotEngine.js'
 import { isDeviceArrayFormat, getNodeOrder } from '../../utils/helpers.js'
 
 const props = defineProps({
+  forbidRelock: Boolean,
+  maxResourcesPerUser: { type: Number, default: -1 },
   botType: { type: String, required: true },
   clusterConfigs: { type: [Array, Object], default: null },
   nodeAliases: { type: Object, default: () => ({}) },

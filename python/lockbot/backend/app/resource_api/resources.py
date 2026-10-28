@@ -257,7 +257,10 @@ def get_resources(
     # of the served snapshot. next_event/remaining are all anchored to captured_at.
     age_seconds = max(0.0, round((datetime.now(timezone.utc) - captured_at).total_seconds(), 3))
 
+    from lockbot.core.resource_policy import public_policy
+
     return {
+        "resource_policy": public_policy(raw_state, config, actor.external_user_id, captured_at.timestamp()),
         "bot_id": bot_id,
         "bot_type": bot_row.bot_type,
         "platform": platform,
