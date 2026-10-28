@@ -2,7 +2,7 @@
 name: lockbot-resource-agent
 description: >
   Use Lockbot Resource API (lockbot.resource-api) with lbr_ credentials.
-  This is distinct from P800/other Lockbot JWT-token platforms. Use when an agent
+  Credentials from other Lockbot implementations are not interchangeable. Use when an agent
   must lock, unlock, book or query shared compute resources through a bot it has been enrolled
   on. Enrollment requires human confirmation in chat; resource operations use HTTP.
 ---
@@ -29,9 +29,9 @@ credentials belong in its private credential store, never in `SKILL.md` or a dow
 This skill is for **Lockbot Resource API**, identified by
 `service_id: lockbot.resource-api`, API version `1`, and personal `lbr_` keys.
 A similarly named Lockbot skill, matching command URL, or remembered token is not proof
-that it belongs here. P800/other implementations using `/api/infoflow-auth/challenges`
-and JWT tokens have a different protocol and permission scope; never apply their
-"one token for all bots" or `take` instructions to this service.
+that it belongs here. Another Lockbot implementation can have a different authentication
+protocol and permission scope. Check the advertised service identity and API version;
+never transfer credentials or assumptions such as one token authorizing every bot.
 
 1. Start with the server/skill URL explicitly supplied or approved by the user. Without
    a trusted server address, ask for that address once; never guess a host or bot ID.
