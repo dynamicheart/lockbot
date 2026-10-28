@@ -201,8 +201,7 @@ MESSAGES = {
     ),
     "binding.throttled": ("❗️[Too many authorization attempts]\n\nPlease wait a few minutes and try again."),
     "binding.confirmed": (
-        "✅[Agent authorized]\n\nBot ID: {bot_id}\nYour Agents share the saved "
-        "key.\n\nView authorization: bindings\nRevoke authorization: unbind"
+        "✅[Agent authorized]\n\nYour Agents share the saved key.\n\nView authorization: bindings\nRevoke authorization: unbind"
     ),
     "binding.already_bound": (
         "ℹ️[Already authorized]\n\nYou already authorized bot ID: {bot_id}. Your A"

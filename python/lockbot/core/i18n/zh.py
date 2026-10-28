@@ -191,8 +191,7 @@ MESSAGES = {
     "binding.invalid_or_expired": ("❌【绑定码无效】\n\n绑定码无效、已被使用或已过期，请让 Agent 重新申请。"),
     "binding.throttled": ("❗️【授权尝试过于频繁】\n\n绑定失败次数过多，请几分钟后再试。"),
     "binding.confirmed": (
-        "✅【Agent授权成功】\n\n机器人 ID：{bot_id}\n同一人的多个 Agent 请共用已保存的 key。\n\n查看授权：bind"
-        "ings\n撤销授权：unbind"
+        "✅【Agent授权成功】\n\n同一人的多个 Agent 请共用已保存的 key。\n\n查看授权：bindings\n撤销授权：unbind"
     ),
     "binding.already_bound": (
         "ℹ️【已有Agent授权】\n\n你已授权机器人 ID：{bot_id}，请让自己的 Agent 共用已保存的 key。此次新 key 未激活"
