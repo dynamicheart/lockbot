@@ -559,6 +559,9 @@ class QueueBot(NodeBot):
 
         return max(1.0, min_next) if min_next != float("inf") else None
 
+    def _usage_labels(self, resource_key):
+        return None, self._display_node(resource_key)
+
     def _current_usage(self, node_filter=None):
         """
         _current_usage
@@ -569,11 +572,16 @@ class QueueBot(NodeBot):
             _get_current_usage
             """
             usage_info = ""
+            previous_group = None
             for node_key, node_status in nodes.items():
                 if self._resource_matches_filter(node_key, node_filter):
-                    display_name = self._display_node(node_key)
+                    group, display_name = self._usage_labels(node_key)
+                    indent = "  " if group else ""
+                    if group and group != previous_group:
+                        usage_info += f"{group}\n"
+                    previous_group = group
                     if node_status["status"] == "idle":
-                        usage_info += "{:} {}\n".format(display_name, t("status.idle", config=self.config))
+                        usage_info += "{}{} {}\n".format(indent, display_name, t("status.idle", config=self.config))
                     else:
                         for user_idx, user_info in enumerate(node_status["current_users"]):
                             node_name = f"{display_name}" if user_idx == 0 else ""
@@ -582,12 +590,13 @@ class QueueBot(NodeBot):
                                 remaining_duration(user_info["start_time"], user_info["duration"]),
                                 config=self.config,
                             )
-                            usage_info += f"{node_name} {uid}  {duration}\n"
+                            usage_info += f"{indent}{node_name} {uid}  {duration}\n"
 
                     # Show queue info (booking_list)
                     booking_list = node_status.get("booking_list", [])
                     if booking_list:
-                        usage_info += t("label.queue_list", config=self.config)
+                        queue_indent = indent + "  " if group else ""
+                        usage_info += queue_indent + t("label.queue_list", config=self.config)
                         # Calculate estimated wait time based on max remaining lock time
                         current_locked_time = 0
                         for user_info in node_status.get("current_users", []):
@@ -601,7 +610,7 @@ class QueueBot(NodeBot):
                             uid = booking_user["user_id"]
                             dur_sec = booking_user["duration"]
                             wait_time_str = format_duration(accumulated_wait, config=self.config)
-                            usage_info += t(
+                            usage_info += queue_indent + t(
                                 "label.queue_item",
                                 config=self.config,
                                 index=idx + 1,
