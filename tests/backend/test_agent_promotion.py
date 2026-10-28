@@ -24,7 +24,7 @@ def test_success_reply_spacing(bot_type, enabled, tmp_path, monkeypatch):
     monkeypatch.setattr(bot, "_current_usage", lambda key: "\nn1 alice 2.0 小时\nn2 空闲\n\n")
     expected = "✅【资源申请成功】\n\nn1 alice 2.0 小时\nn2 空闲"
     if enabled:
-        expected += "\n\n推荐让Agent申请资源：" + url
+        expected += "\n\n发送给你的Agent来申请资源：" + url
     expected += "\n\n"
     reply = bot.adapter.build_reply(bot._msg_with_usage("success.resource_locked"), ["alice"])
     assert bot.adapter.extract_reply_text(reply) == expected
@@ -75,5 +75,5 @@ def test_queue_renewal_preserves_promotion_link_and_waiting_notice(tmp_path, mon
     reply = bot.lock("alice", "lock n1 1h")
     text = bot.adapter.extract_reply_text(reply)
     assert "请注意等待时间已增加" in text
-    assert "推荐让Agent申请资源：" + url in text
+    assert "发送给你的Agent来申请资源：" + url in text
     assert {"type": "LINK", "href": url} in reply["message"]["body"]

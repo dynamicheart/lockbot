@@ -11,7 +11,7 @@ MESSAGES = {
     "notify.api_purpose": "\n备注：{purpose}",
     "notify.api_agent_label": "\nAgent：{label}",
     "help.agent_skill": "Agent 使用：",
-    "help.agent_lock_hint": "推荐让Agent申请资源：{url}",
+    "help.agent_lock_hint": "发送给你的Agent来申请资源：{url}",
     # ── Duration formatting ──
     "duration.days": "{value} 天",
     "duration.hours": "{value} 小时",
