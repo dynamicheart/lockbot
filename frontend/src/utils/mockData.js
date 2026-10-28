@@ -482,6 +482,9 @@ export function nextBotId() {
 // ---------------------------------------------------------------------------
 
 export const mockSettings = {
+  agent_promotion_enabled: 'false',
+  agent_promotion_text_zh: '',
+  agent_promotion_text_en: '',
   platform_url: '',
   github_url: 'https://github.com/dynamicheart/lockbot',
   admin_contact: '',

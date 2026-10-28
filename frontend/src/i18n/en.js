@@ -566,6 +566,9 @@ export default {
   // === Site Settings ===
   settings: {
     agentPromotion: 'Agent promotion',
+    agentPromotionText: 'Link prefix',
+    agentPromotionTextHint:
+      'Leave blank for defaults. The link is added automatically. Plain single-line text, up to 120 characters.',
     agentPromotionHint: 'Show the Agent skill link after successful resource requests.',
     platformUrl: 'Platform URL',
     platformUrlPlaceholder: 'e.g. http://192.168.1.1:8080',
