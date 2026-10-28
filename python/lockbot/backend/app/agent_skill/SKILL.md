@@ -92,6 +92,56 @@ share that key but track their own tasks separately:
   the result. Avoid bare `free`/`unlock`, which affects the user's other Agents too. Retain
   the shared key; do not unbind it merely because one task has finished.
 
+### Store the relationship; choose your own format
+
+Reuse the Agent's existing private credential/configuration store. Do not require the
+user to install a new memory system or maintain a particular JSON file. Each saved
+connection needs a friendly name, approved origin, verified instance/bot/user identity,
+and the reference to its securely stored key. Keep the last verified skill revision too.
+No resource directory needs to be stored permanently: discover it from the live API.
+
+If no suitable store exists, this optional flat JSON example is sufficient:
+
+```json
+{
+  "schema_version": 1,
+  "connections": [
+    {
+      "label": "Development group",
+      "origin": "https://service-a.example.invalid",
+      "instance_id": "<server.instance_id>",
+      "bot_uuid": "<bot.uuid>",
+      "bot_id": 1,
+      "actor": {"platform": "Infoflow", "external_user_id": "<actor.external_user_id>"},
+      "credential_ref": "<private-store reference for bot A>",
+      "skill_revision": "<verified revision>"
+    },
+    {
+      "label": "Testing group",
+      "origin": "https://service-a.example.invalid",
+      "instance_id": "<server.instance_id>",
+      "bot_uuid": "<another bot.uuid>",
+      "bot_id": 2,
+      "actor": {"platform": "Infoflow", "external_user_id": "<actor.external_user_id>"},
+      "credential_ref": "<private-store reference for bot B>",
+      "skill_revision": "<verified revision>"
+    }
+  ]
+}
+```
+
+`schema_version` versions this optional local format, not the server API or Skill.
+Populate identities from confirmed context; the numeric bot ID and friendly name alone
+are not enough to identify a credential scope. Both bots may contain `node1`: select the
+bot connection first, then load its key. Another service gets a separate connection.
+`credential_ref` is a reference, never a raw key; no particular credential-store product
+or URI syntax is required. Keep configuration private and out of Git and shared notes.
+
+Track task allocations separately as described above; update only the current task's
+records after verified changes, coordinating concurrent writers to avoid lost updates.
+On resume, recheck context and live resources. Do not move a key after a redirect, origin
+change or instance replacement, and do not try other connections' keys after a failure.
+
 ## Share a resource/queue page with the user
 
 When the user wants to view resources or queue order in a browser, use `view_url` and
@@ -336,6 +386,43 @@ a string-only 401 has no machine code: do not interpret it as permission to scan
   with `Retry-After`. Poll `/resources` at a steady interval rather than busy-looping.
 - A repeated `lock` **adds** duration (not idempotent). After any mutation, read `/resources` to
   verify; never assume a `reply` means success.
+
+### Polling schedule
+
+Use one coordinated `/resources` poller per shared key where possible; distribute its
+snapshot to the user's Agents instead of starting one independent loop per task. The
+defaults below are starting points, not promises about a deployment's configured limits:
+
+| Caller state | Suggested interval | Default minimum interval |
+|---|---|---|
+| Holding a lease, first in queue, or in the claim window | 15 seconds | 10 seconds |
+| Queued behind another booker | 30 seconds | 20 seconds |
+| Discovering resources, with no holding or booking | 60 seconds | 40 seconds |
+
+Add a small positive jitter to avoid synchronized traffic. Always obey `Retry-After` on
+429/503, whether seconds or an HTTP date; never retry before it. With no retry hint on a
+transient failure, use bounded exponential backoff. Do not repeatedly retry authentication
+failures, or switch credentials to bypass a budget. Server retry hints and any advertised
+limits override these defaults. A successful mutation permits a verification read in the
+current implementation; if that read is rate-limited, wait as instructed rather than looping.
+
+Do not sleep until `next_event_at` without periodic checks: a holder may release early or
+extend their lease. Treat queue estimates as estimates and recalculate from each snapshot;
+`expires_at` is authoritative for the observed lease, not a guarantee of when you can work.
+Use the earlier of the regular check and an upcoming event as the desired next check, but
+never earlier than the server's polling floor or retry deadline. An event does not exempt
+the caller from rate limits. Observe `captured_at` / `age_seconds` before acting.
+
+When claimable, claim within `queue_claim_window_seconds` and verify ownership; never wait
+for the predicted expiry or a human to relay a group message. While working, keep checking
+ownership, including before critical operations and after resuming. Polling is not a push
+subscription and cannot detect every change instantly. If ownership or lease identity no
+longer matches, pause the workload; do not continue based on a saved registry entry.
+
+Keep mutations separate from polling: do not repeat lock/book to check status. On completion
+or cancellation, release/cancel only this task's resources and stop its monitoring when no
+other task needs it. A background Agent unable to keep monitoring must tell the user it
+cannot automatically claim a booking or continuously verify ownership.
 
 ## Typical flow
 
