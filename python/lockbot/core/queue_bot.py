@@ -423,11 +423,11 @@ class QueueBot(NodeBot):
         )
 
         expired_notify = ""  # Expired booking content
-        pending_notify = ""  # Pending lock booking content
+        pending_keys = []
 
         def notify_first_booking_user(node_key, node, timestamp):
             """Notify the first booked user for this node."""
-            nonlocal trigger_notify_alert, state_changed, user_ids, pending_notify
+            nonlocal trigger_notify_alert, state_changed, user_ids
 
             if not node["booking_list"]:
                 return
@@ -441,8 +441,7 @@ class QueueBot(NodeBot):
             state_changed = True
             user_ids.add(first_user["user_id"])
 
-            dur = format_duration(first_user["duration"], config=self.config)
-            pending_notify += f"  - {self._display_node(node_key)} {first_user['user_id']} {dur}\n"
+            pending_keys.append(node_key)
 
         with self._lock:
             # 1. Release resources
@@ -500,6 +499,7 @@ class QueueBot(NodeBot):
                             state_changed = True
                             notify_first_booking_user(node_key, node, now)
 
+            pending_notify = self._pending_booking_text(pending_keys)
             if state_changed:
                 save_bot_state_to_file(self.state.bot_state, config=self.config)
 
@@ -559,6 +559,22 @@ class QueueBot(NodeBot):
 
         return max(1.0, min_next) if min_next != float("inf") else None
 
+    def _usage_rows(self, nodes):
+        """Display-only rows; stored resources and their queues remain independent."""
+        return nodes.items()
+
+    def _pending_booking_text(self, keys):
+        if not keys:
+            return ""
+        nodes = self._resource_state()
+        selected = {key: nodes[key] for key in keys}
+        text = ""
+        for key, node in self._usage_rows(selected):
+            user = node["booking_list"][0]
+            duration = format_duration(user["duration"], config=self.config)
+            text += f"  - {self._display_node(key)} {user['user_id']} {duration}\n"
+        return text
+
     def _usage_labels(self, resource_key):
         return None, self._display_node(resource_key)
 
@@ -573,7 +589,7 @@ class QueueBot(NodeBot):
             """
             usage_info = ""
             previous_group = None
-            for node_key, node_status in nodes.items():
+            for node_key, node_status in self._usage_rows(nodes):
                 if self._resource_matches_filter(node_key, node_filter):
                     group, display_name = self._usage_labels(node_key)
                     indent = "  " if group else ""

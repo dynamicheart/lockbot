@@ -53,15 +53,12 @@ const mockState = computed(() => {
             dev_id: devIdx,
             dev_model: model,
             status: i < 2 ? 'exclusive' : 'idle',
-            current_users:
-              i < 2
-                ? [{ user_id: i === 0 ? 'alice' : 'bob', start_time: T2H, duration: 4 * 3600 }]
-                : [],
+            current_users: i < 2 ? [{ user_id: 'alice', start_time: T2H, duration: 4 * 3600 }] : [],
             booking_list:
               i < 2
                 ? [
-                    { user_id: i === 0 ? 'bob' : 'carol', start_time: T1H, duration: 1800 },
-                    { user_id: i === 0 ? 'carol' : 'alice', start_time: T1H, duration: 3600 },
+                    { user_id: 'bob', start_time: T1H, duration: 1800 },
+                    { user_id: 'carol', start_time: T1H, duration: 3600 },
                   ]
                 : [],
           }
