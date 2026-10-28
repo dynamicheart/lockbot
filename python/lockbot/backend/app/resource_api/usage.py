@@ -82,7 +82,14 @@ def holding_proof(state, resource_id, user_id, *, now=None):
                 evidence.append(("hold", index, holder["start_time"], holder.get("holding_id", "legacy")))
         for holder in entry.get("booking_list", []):
             if holder["user_id"] == user_id:
-                evidence.append(("booking", index, holder.get("start_time", 0), holder.get("holding_id", "legacy")))
+                evidence.append(
+                    (
+                        "booking",
+                        index,
+                        holder.get("booked_start_time", holder.get("start_time", 0)),
+                        holder.get("holding_id", "legacy"),
+                    )
+                )
     return hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest() if evidence else None
 
 
@@ -268,6 +275,16 @@ def put_usage(
     actor: ResourceActor = Depends(require_resource_actor),
     db: Session = Depends(get_db),
 ):
+    from lockbot.backend.app.resource_api.event_log import begin_event
+
+    begin_event(
+        request,
+        bot=db.get(Bot, bot_id),
+        operation="usage.update",
+        agent_label=body.agent_label,
+        purpose=body.purpose,
+        resource_id=resource_id,
+    )
     _budget(actor, "write")
     try:
         with (
@@ -293,6 +310,7 @@ def put_usage(
                 ttl_seconds=body.ttl_seconds,
             )
             db.commit()
+            request.state.agent_event["stage"] = "committed"
             row = (
                 db.query(UsageDeclaration)
                 .filter_by(bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id)
@@ -341,6 +359,9 @@ def delete_usage(
     actor: ResourceActor = Depends(require_resource_actor),
     db: Session = Depends(get_db),
 ):
+    from lockbot.backend.app.resource_api.event_log import begin_event
+
+    begin_event(request, bot=db.get(Bot, bot_id), operation="usage.delete", resource_id=resource_id)
     _budget(actor, "write")
     try:
         with (
@@ -353,6 +374,7 @@ def delete_usage(
                 bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id
             ).delete(synchronize_session=False)
             db.commit()
+            request.state.agent_event["stage"] = "committed"
             return {"deleted": True}
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None

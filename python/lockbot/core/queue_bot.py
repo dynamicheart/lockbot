@@ -433,6 +433,8 @@ class QueueBot(NodeBot):
                 return
 
             first_user = node["booking_list"][0]
+            # Claim time changes; preserve the booking incarnation used by task metadata.
+            first_user.setdefault("booked_start_time", first_user.get("start_time", 0))
             first_user["is_notified"] = True
             first_user["start_time"] = timestamp
             trigger_notify_alert = True

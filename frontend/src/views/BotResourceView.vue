@@ -22,7 +22,7 @@
           ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button
         >
       </header>
-      <div class="resource-summary">
+      <div v-if="snapshot.health === 'running'" class="resource-summary">
         <div>
           <span>{{ $t('resourceView.totalResources') }}</span
           ><strong>{{ summary.total }}</strong>
@@ -54,8 +54,8 @@
               <el-icon><Monitor /></el-icon>{{ resource.id
               }}<span v-if="resource.alias" class="node-alias">{{ resource.alias }}</span>
             </h2>
-            <el-tag size="small" :type="resource.lock_status === 'idle' ? 'success' : 'warning'">{{
-              statusText(resource.lock_status)
+            <el-tag size="small" :type="isIdleResource(resource) ? 'success' : 'warning'">{{
+              statusText(resource)
             }}</el-tag>
           </div>
           <template v-if="resource.devices">
@@ -63,16 +63,15 @@
               <div class="device-heading">
                 <strong>dev{{ device.id }}</strong
                 ><span>{{ device.dev_model }}</span
-                ><el-tag
-                  size="small"
-                  :type="device.lock_status === 'idle' ? 'success' : 'warning'"
-                  >{{ statusText(device.lock_status) }}</el-tag
-                >
+                ><el-tag size="small" :type="isIdleResource(device) ? 'success' : 'warning'">{{
+                  statusText(device)
+                }}</el-tag>
               </div>
               <ResourceParticipants
                 :users="participants(device.holders)"
                 :resource-id="device.resource_id || resource.id"
                 :usage="usage"
+                purpose-on-hover
               >
                 <template #detail="{ user }"
                   ><span class="participant-time">{{ remaining(user.expires_at) }}</span></template
@@ -84,6 +83,7 @@
                   :users="participants(device.booking_list)"
                   :resource-id="device.resource_id || resource.id"
                   :usage="usage"
+                  purpose-on-hover
                   queued
                 >
                   <template #detail="{ user }"
@@ -98,6 +98,7 @@
               :users="participants(resource.holders)"
               :resource-id="resource.id"
               :usage="usage"
+              purpose-on-hover
             >
               <template #detail="{ user }"
                 ><span class="participant-time">{{ remaining(user.expires_at) }}</span></template
@@ -109,6 +110,7 @@
                 :users="participants(resource.booking_list)"
                 :resource-id="resource.id"
                 :usage="usage"
+                purpose-on-hover
                 queued
               >
                 <template #detail="{ user }"
@@ -130,6 +132,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import ResourceParticipants from '../components/ResourceParticipants.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
+import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 
 const route = useRoute()
 const { t, locale } = useI18n()
@@ -247,13 +250,12 @@ const summary = computed(() => {
   )
   return {
     total: resources.length,
-    idle: resources.filter((row) => row.lock_status === 'idle').length,
+    idle: resources.filter(isIdleResource).length,
     queued: resources.reduce((sum, row) => sum + (row.booking_list?.length || 0), 0),
   }
 })
 const localTime = (value) => (value ? new Date(value).toLocaleString(locale.value) : '—')
-const statusText = (status) =>
-  t(`resourceView.${['idle', 'exclusive', 'shared'].includes(status) ? status : 'unknown'}`)
+const statusText = (resource) => t('resourceView.' + resourceStatus(resource))
 function duration(seconds) {
   const minutes = Math.ceil(Math.max(0, seconds) / 60)
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`

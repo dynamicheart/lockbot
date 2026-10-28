@@ -2,6 +2,7 @@
 
 import base64
 import hmac
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
@@ -14,6 +15,7 @@ from lockbot.backend.app import config
 from lockbot.backend.app.database import Base
 
 LIFETIME_SECONDS = 86400
+_VIEW_CODE = re.compile(r"lbv1\.[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{43}\Z")
 
 
 class BotViewWindow(Base):
@@ -103,7 +105,7 @@ def view_link(db: Session, bot, base_url: str) -> dict:
 
 def verify_view(db, bot, token):
     """Read-only verification; an expired or wrong-bot token cannot renew itself."""
-    if bot is None or bot.is_deleted or not token or len(token) > 160:
+    if bot is None or bot.is_deleted or not token or not _VIEW_CODE.fullmatch(token):
         return None
     pieces = token.split(".")
     if len(pieces) != 3 or pieces[0] != "lbv1":

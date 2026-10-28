@@ -3,20 +3,38 @@
     <div v-for="(user, index) in users" :key="user.user_id || index" class="participant">
       <span v-if="queued" class="participant-order">{{ index + 1 }}</span>
       <div class="participant-content">
-        <div class="participant-heading">
-          <span v-if="plain" class="participant-user">{{
-            user.user_id || user.userId || user
-          }}</span>
-          <el-tag v-else size="small" effect="plain">{{
-            user.user_id || user.userId || user
-          }}</el-tag>
-          <span class="participant-origin">{{ $t('clusterState.' + originKey(user)) }}</span>
-          <span v-if="taskFor(user)?.agent_label" class="participant-agent">{{
-            taskFor(user).agent_label
-          }}</span>
-        </div>
+        <el-tooltip
+          :disabled="!purposeOnHover || !taskFor(user)?.purpose"
+          :content="taskFor(user)?.purpose || ''"
+          :trigger="['hover', 'focus', 'click']"
+          :show-after="150"
+          effect="light"
+          placement="top"
+          :popper-style="{
+            maxWidth: 'min(360px, calc(100vw - 32px))',
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'anywhere',
+          }"
+        >
+          <span
+            class="participant-heading"
+            :class="{ 'has-purpose': purposeOnHover && taskFor(user)?.purpose }"
+            :tabindex="purposeOnHover && taskFor(user)?.purpose ? 0 : undefined"
+          >
+            <span v-if="plain" class="participant-user">{{
+              user.user_id || user.userId || user
+            }}</span>
+            <el-tag v-else size="small" effect="plain">{{
+              user.user_id || user.userId || user
+            }}</el-tag>
+            <span class="participant-origin">{{ $t('clusterState.' + originKey(user)) }}</span>
+            <span v-if="taskFor(user)?.agent_label" class="participant-agent">{{
+              taskFor(user).agent_label
+            }}</span>
+          </span>
+        </el-tooltip>
         <div
-          v-if="taskFor(user)?.purpose"
+          v-if="!purposeOnHover && taskFor(user)?.purpose"
           class="participant-purpose"
           :title="$t('clusterState.usageHint')"
         >
@@ -44,6 +62,7 @@ const props = defineProps({
   usage: { type: Array, default: () => [] },
   queued: Boolean,
   plain: Boolean,
+  purposeOnHover: Boolean,
 })
 const tasks = computed(
   () =>
@@ -73,7 +92,10 @@ const taskFor = (user) => tasks.value.get(user.user_id || user.userId || user)
 .plain .participant-heading {
   gap: 4px 8px;
 }
-.plain .participant-origin {
+.plain .has-purpose {
+  cursor: help;
+}
+.participant-origin {
   padding: 0;
   background: transparent;
   font-size: 12px;

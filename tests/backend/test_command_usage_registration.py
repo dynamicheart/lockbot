@@ -43,6 +43,16 @@ def test_booking_task_survives_later_claim_without_a_second_declaration_call(cli
     )
     assert resources(client, api)["n1"]["booking_list"][0]["usage"]["purpose"] == "Next benchmark"
     assert command(client, api, "free n1").status_code == 200
+    # Real scheduler notification rewrites the claim clock; it must retain the booked task.
+    booking = api["bot"].state.bot_state["n1"]["booking_list"][0]
+    original_start = booking["start_time"]
+    from unittest.mock import patch
+
+    with patch("lockbot.core.queue_bot.time.time", return_value=original_start + 90):
+        api["bot"]._check_and_notify()
+    assert booking["start_time"] == original_start + 90
+    assert booking["booked_start_time"] == original_start
+    assert resources(client, api)["n1"]["booking_list"][0]["usage"]["purpose"] == "Next benchmark"
     assert command(client, api, "lock n1", headers=api["other_headers"]).status_code == 200
     usage = resources(client, api)["n1"]["holders"][0]["usage"]
     assert usage["purpose"] == "Next benchmark" and usage["agent_label"] == "queue-agent"
