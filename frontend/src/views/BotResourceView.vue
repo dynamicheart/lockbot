@@ -131,13 +131,14 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import ResourceParticipants from '../components/ResourceParticipants.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 
 const route = useRoute()
+const router = useRouter()
 const { t, locale } = useI18n()
 const snapshot = ref(null)
 const loading = ref(false)
@@ -197,6 +198,13 @@ async function refresh() {
     snapshot.value = data
     failed.value = false
     invalid.value = false
+    const compact = /^\/r\/([0-9]+)\/([A-Za-z0-9_-]{22})$/.exec(data.view_path || '')
+    if (compact && compact[1] === botId && route.params.code !== compact[2]) {
+      await router.replace({
+        name: 'CompactBotResourceView',
+        params: { id: botId, code: compact[2] },
+      })
+    }
   } catch (error) {
     if (error.name !== 'AbortError' && epoch === requestEpoch) failed.value = true
   } finally {
@@ -205,7 +213,7 @@ async function refresh() {
 }
 
 watch(
-  () => [route.params.id, route.query.view],
+  () => [route.params.id, route.params.code ?? route.query.view],
   ([id, supplied]) => {
     if (String(id) !== botId) clear()
     botId = String(id)
@@ -216,7 +224,7 @@ watch(
       // Keep the shared read-only code in the URL fragment so normal reloads work.
       // Fragments are not sent to the server; never persist a personal key or account JWT here.
       refresh()
-    } else if (!token) invalid.value = true
+    } else clear()
   },
   { immediate: true }
 )

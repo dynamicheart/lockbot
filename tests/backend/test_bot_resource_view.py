@@ -33,7 +33,8 @@ def link(client, api, headers=None):
 
 
 def headers(context):
-    value = parse_qs(urlsplit(context["view_url"]).fragment.split("?", 1)[1])["view"][0]
+    fragment = urlsplit(context["view_url"]).fragment
+    value = fragment.rsplit("/", 1)[1] if fragment.startswith("/r/") else parse_qs(fragment.split("?", 1)[1])["view"][0]
     return {"Authorization": "Bearer " + value}
 
 
@@ -45,7 +46,8 @@ def test_lazy_creation_and_shared_24_hour_window(client, api, db_session, monkey
     assert db_session.query(BotViewWindow).count() == 0
     first = link(client, api)
     assert first["view_expires_at"] == "2030-01-02T11:23:45+00:00"
-    assert "/#/bot/" in first["view_url"] and "?view=lbv1." in first["view_url"]
+    assert f"/#/r/{api['bot_id']}/" in first["view_url"]
+    assert len(headers(first)["Authorization"][7:]) == 22
     assert api["headers"]["Authorization"][7:] not in first["view_url"]
     other = link(client, api, api["other_headers"])
     assert other["view_url"] == first["view_url"]
@@ -93,9 +95,10 @@ def test_missing_wrong_and_foreign_credentials_reveal_no_resource_data(client, a
 
 
 @pytest.mark.parametrize("part", [1, 2])
-def test_non_ascii_view_credentials_are_uniformly_rejected(client, api, part):
-    context = link(client, api)
-    token = headers(context)["Authorization"][7:].split(".")
+def test_non_ascii_view_credentials_are_uniformly_rejected(client, api, db_session, part):
+    link(client, api)
+    window = db_session.get(BotViewWindow, api["bot_id"])
+    token = ["lbv1", window.nonce, view_links._signature(db_session, window)]
     token[part] = "\xff" + token[part][1:]
     raw = ("Bearer " + ".".join(token)).encode("latin-1")
     response = client.get(f"/api/bot-views/{api['bot_id']}/state", headers={b"Authorization": raw})
@@ -239,7 +242,7 @@ def test_signed_group_query_and_personal_context_share_the_same_link(client, fak
     assert message("").status_code == 200
     sent = fakeim_api["bot"].adapter.sent[-1]
     url = next(part[1] for part in sent["envelope"]["segments"] if isinstance(part, tuple))
-    assert url.startswith(f"http://testserver/#/bot/{bot_id}?view=lbv1.")
+    assert url.startswith(f"http://testserver/#/r/{bot_id}/")
 
     issued = client.post("/api/resource-auth/bindings", json={}).json()
     assert message("bind " + issued["bind_code"]).status_code == 200
@@ -283,3 +286,45 @@ def test_persisted_window_and_concurrent_first_use_are_stable(tmp_path):
             assert view_link(db, db.get(Bot, 1), "https://approved.invalid") == links[0]
     finally:
         engine.dispose()
+
+
+def test_short_and_published_long_links_share_the_existing_window(client, api, db_session):
+    import base64
+
+    context = link(client, api)
+    window = db_session.get(BotViewWindow, api["bot_id"])
+    original = (window.nonce, window.issued_at, window.expires_at)
+    short = headers(context)["Authorization"][7:]
+    assert len(base64.urlsafe_b64decode(short + "==")) == 16
+    legacy = "lbv1." + window.nonce + "." + view_links._signature(db_session, window)
+    for token in [short, legacy]:
+        result = client.get(f"/api/bot-views/{api['bot_id']}/state", headers={"Authorization": "Bearer " + token})
+        assert result.status_code == 200
+        assert result.json()["view_path"] == f"/r/{api['bot_id']}/{short}"
+        assert result.json()["view_expires_at"] == context["view_expires_at"]
+    db_session.expire_all()
+    window = db_session.get(BotViewWindow, api["bot_id"])
+    assert (window.nonce, window.issued_at, window.expires_at) == original
+
+
+def test_short_link_tampering_and_non_ascii_do_not_reveal_resources(client, api):
+    code = headers(link(client, api))["Authorization"][7:]
+    for index in range(len(code)):
+        replacement = "A" if code[index] != "A" else "B"
+        changed = code[:index] + replacement + code[index + 1 :]
+        result = client.get(f"/api/bot-views/{api['bot_id']}/state", headers={"Authorization": "Bearer " + changed})
+        assert result.status_code == 403 and "resources" not in result.json()
+    result = client.get(
+        f"/api/bot-views/{api['bot_id']}/state", headers={b"Authorization": b"Bearer \xff" + code[1:].encode()}
+    )
+    assert result.status_code == 403
+
+
+def test_signing_secret_rotation_invalidates_both_code_formats(client, api, db_session, monkeypatch):
+    context = link(client, api)
+    window = db_session.get(BotViewWindow, api["bot_id"])
+    legacy = "lbv1." + window.nonce + "." + view_links._signature(db_session, window)
+    monkeypatch.setattr(view_links.config, "JWT_SECRET", "new-test-signing-secret")
+    for auth in [headers(context), {"Authorization": "Bearer " + legacy}]:
+        result = client.get(f"/api/bot-views/{api['bot_id']}/state", headers=auth)
+        assert result.status_code == 403

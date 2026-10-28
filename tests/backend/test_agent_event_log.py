@@ -141,7 +141,8 @@ def test_known_keys_tokens_and_view_codes_are_redacted(tmp_path, api):
         "purpose": "lbr_private-key lbk_operator-key token=hidden-value password=hidden-password",
         "reply": (
             "http://example.invalid/#/bot/1?view=lbv1.nonce.signature "
-            "Bearer arbitrary-credential eyJheader.payload.signature"
+            "Bearer arbitrary-credential eyJheader.payload.signature "
+            "http://example.invalid/#/r/25/abcdefghijklmnopqrstuv"
         ),
     }
     event_log.write_event(actor=_actor(api["bot_id"]), event=event, status=200, duration_ms=1)
@@ -152,6 +153,7 @@ def test_known_keys_tokens_and_view_codes_are_redacted(tmp_path, api):
         "hidden-value",
         "hidden-password",
         "lbv1.nonce",
+        "abcdefghijklmnopqrstuv",
         "arbitrary-credential",
         "eyJheader",
     ]:

@@ -62,7 +62,8 @@ configuration and use this namespaced skill for requests to this implementation.
 
 When the user wants to view resources or queue order in a browser, use `view_url` and
 `view_expires_at` returned by `/api/agent/context`. Share that read-only URL; never put your
-personal key into a browser URL. No separate web command or link-creation endpoint is needed.
+personal key into a browser URL. Treat `view_url` as opaque: current short links and older
+long links are compatible; do not parse or reconstruct a code from the URL. No separate web command or link-creation endpoint is needed.
 The server lazily creates one link per bot, reuses it for 24 hours from creation, and only
 replaces it when a subsequent authorized request arrives after expiry. Page refreshes do not
 renew it. Ordinary group queries also return the current link. If the link expires, request

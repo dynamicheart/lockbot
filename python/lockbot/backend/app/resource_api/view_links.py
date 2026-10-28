@@ -15,6 +15,7 @@ from lockbot.backend.app import config
 from lockbot.backend.app.database import Base
 
 LIFETIME_SECONDS = 86400
+_SHORT_VIEW_CODE = re.compile(r"[A-Za-z0-9_-]{22}\Z")
 _VIEW_CODE = re.compile(r"lbv1\.[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{43}\Z")
 
 
@@ -36,10 +37,11 @@ def _iso(value):
     return value.replace(tzinfo=timezone.utc).isoformat()
 
 
-def _signature(db, window):
+def _signature(db, window, *, compact=False):
     from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 
-    key = hmac.digest(config.JWT_SECRET.encode(), b"lockbot:readonly-view:v1", "sha256")
+    domain = b"lockbot:readonly-view:v2" if compact else b"lockbot:readonly-view:v1"
+    key = hmac.digest(config.JWT_SECRET.encode(), domain, "sha256")
     message = "|".join(
         [
             ensure_instance_id(db),
@@ -51,7 +53,8 @@ def _signature(db, window):
             _iso(window.expires_at),
         ]
     ).encode()
-    return base64.urlsafe_b64encode(hmac.digest(key, message, "sha256")).decode().rstrip("=")
+    digest = hmac.digest(key, message, "sha256")
+    return base64.urlsafe_b64encode(digest[:16] if compact else digest).decode().rstrip("=")
 
 
 def _current(window, bot, now):
@@ -62,6 +65,10 @@ def _current(window, bot, now):
         and window.identity_revision == bot.identity_revision
         and window.expires_at > now
     )
+
+
+def compact_view_path(db, window):
+    return f"/r/{window.bot_id}/{_signature(db, window, compact=True)}"
 
 
 def view_link(db: Session, bot, base_url: str) -> dict:
@@ -98,20 +105,24 @@ def view_link(db: Session, bot, base_url: str) -> dict:
         db.commit()
         db.expire_all()
         window = db.get(BotViewWindow, bot.id)
-    token = "lbv1." + window.nonce + "." + _signature(db, window)
     base = base_url.split("#", 1)[0].split("?", 1)[0].rstrip("/")
-    return {"view_url": f"{base}/#/bot/{bot.id}?view={token}", "view_expires_at": _iso(window.expires_at)}
+    return {"view_url": f"{base}/#{compact_view_path(db, window)}", "view_expires_at": _iso(window.expires_at)}
 
 
 def verify_view(db, bot, token):
     """Read-only verification; an expired or wrong-bot token cannot renew itself."""
-    if bot is None or bot.is_deleted or not token or not _VIEW_CODE.fullmatch(token):
+    if bot is None or bot.is_deleted or not token:
         return None
-    pieces = token.split(".")
-    if len(pieces) != 3 or pieces[0] != "lbv1":
+    compact = _SHORT_VIEW_CODE.fullmatch(token)
+    if not compact and not _VIEW_CODE.fullmatch(token):
         return None
     window = db.get(BotViewWindow, bot.id)
     if not _current(window, bot, utcnow()):
+        return None
+    if compact:
+        return window if secrets.compare_digest(_signature(db, window, compact=True), token) else None
+    pieces = token.split(".")
+    if len(pieces) != 3 or pieces[0] != "lbv1":
         return None
     if not secrets.compare_digest(window.nonce, pieces[1]):
         return None
