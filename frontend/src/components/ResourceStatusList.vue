@@ -34,44 +34,18 @@
         </div>
       </template>
     </el-table-column>
-    <el-table-column :label="$t('resourceView.currentHolder')" min-width="145">
+    <el-table-column :label="$t('resourceView.currentHolder')" min-width="230">
       <template #default="{ row }">
-        <div
-          v-for="user in row.holders"
-          :key="user.external_user_id || user.user_id"
-          class="holder-line"
-        >
-          <div>
-            <span class="holder-name">{{ user.external_user_id || user.user_id }}</span>
-          </div>
-          <span class="source">{{ origin(user) }}</span>
-        </div>
-        <span v-if="!row.holders.length" class="empty-value">—</span>
+        <ResourceParticipants
+          :users="users(row.holders)"
+          :resource-id="row.id"
+          :usage="usage"
+          plain
+          purpose-on-hover
+        />
       </template>
     </el-table-column>
-    <el-table-column :label="$t('resourceView.agentTask')" min-width="185">
-      <template #default="{ row }">
-        <div
-          v-for="user in row.holders"
-          :key="user.external_user_id || user.user_id"
-          class="task-line"
-        >
-          <strong v-if="task(row, user)?.agent_label" class="agent-name">{{
-            task(row, user).agent_label
-          }}</strong>
-          <details v-if="task(row, user)?.purpose?.length > 100" class="task-purpose">
-            <summary>{{ task(row, user).purpose.slice(0, 100) }}…</summary>
-            <p>{{ task(row, user).purpose }}</p>
-          </details>
-          <p v-else-if="task(row, user)?.purpose" class="task-purpose">
-            {{ task(row, user).purpose }}
-          </p>
-          <span v-else-if="!task(row, user)?.agent_label" class="empty-value">—</span>
-        </div>
-        <span v-if="!row.holders.length" class="empty-value">—</span>
-      </template>
-    </el-table-column>
-    <el-table-column :label="$t('resourceView.queue')" min-width="220">
+    <el-table-column :label="$t('resourceView.queue')" min-width="320">
       <template #default="{ row }">
         <template v-if="row.booking_list?.length">
           <ResourceParticipants
@@ -80,6 +54,7 @@
             :usage="usage"
             queued
             plain
+            purpose-on-hover
           >
             <template #detail="{ user }"
               ><span class="queue-time">{{ queueTime(user, row) }}</span></template
@@ -113,7 +88,12 @@
           status(row)
         }}</el-tag>
       </div>
-      <ResourceParticipants :users="users(row.holders)" :resource-id="row.id" :usage="usage">
+      <ResourceParticipants
+        :users="users(row.holders)"
+        :resource-id="row.id"
+        :usage="usage"
+        purpose-on-hover
+      >
         <template #detail="{ user }"
           ><span class="source">{{ remaining(user) }}</span></template
         >
@@ -125,6 +105,7 @@
           :resource-id="row.id"
           :usage="usage"
           queued
+          purpose-on-hover
         >
           <template #detail="{ user }"
             ><span class="queue-time">{{ queueTime(user, row) }}</span></template
@@ -212,8 +193,6 @@ const task = (row, user) =>
       item.resource_id === row.id &&
       item.actor.external_user_id === (user.external_user_id || user.user_id)
   )
-const origin = (user) =>
-  t('clusterState.' + ({ api: 'originAgent', chat: 'originChat' }[user.source] || 'originUnknown'))
 const status = (row) => t('resourceView.' + resourceStatus(row))
 function expiry(user) {
   return user.expires_at
@@ -327,29 +306,9 @@ function shortMinutes(minutes) {
 .remaining {
   white-space: nowrap;
 }
-.holder-line + .holder-line,
-.task-line + .task-line {
-  margin-top: 12px;
-}
 .source {
   display: block;
   margin-top: 4px;
-}
-.agent-name {
-  font-size: 13px;
-  font-weight: 500;
-}
-.task-purpose {
-  color: var(--lb-text-primary);
-  line-height: 1.6;
-  font-size: 13px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  margin-top: 4px;
-}
-.task-purpose summary {
-  cursor: pointer;
-  color: var(--lb-text-secondary);
 }
 .empty-value {
   color: var(--el-text-color-placeholder);

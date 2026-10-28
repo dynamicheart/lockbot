@@ -71,6 +71,7 @@
                 :users="participants(device.holders)"
                 :resource-id="device.resource_id || resource.id"
                 :usage="usage"
+                purpose-on-hover
               >
                 <template #detail="{ user }"
                   ><span class="participant-time">{{ remaining(user.expires_at) }}</span></template
@@ -82,6 +83,7 @@
                   :users="participants(device.booking_list)"
                   :resource-id="device.resource_id || resource.id"
                   :usage="usage"
+                  purpose-on-hover
                   queued
                 >
                   <template #detail="{ user }"
@@ -96,6 +98,7 @@
               :users="participants(resource.holders)"
               :resource-id="resource.id"
               :usage="usage"
+              purpose-on-hover
             >
               <template #detail="{ user }"
                 ><span class="participant-time">{{ remaining(user.expires_at) }}</span></template
@@ -107,6 +110,7 @@
                 :users="participants(resource.booking_list)"
                 :resource-id="resource.id"
                 :usage="usage"
+                purpose-on-hover
                 queued
               >
                 <template #detail="{ user }"
