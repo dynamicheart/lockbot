@@ -72,7 +72,7 @@ def compact_view_path(db, window):
 
 
 def view_link(db: Session, bot, base_url: str) -> dict:
-    """Only trusted group/Agent entry points call this; state polling never creates a window."""
+    """Authorized group, Agent or bot-detail reads may obtain a link; state polling never renews it."""
     parsed = urlsplit(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
         return {}

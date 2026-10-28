@@ -44,10 +44,17 @@ class QueueDeviceBot(QueueBot):
         if ":dev" not in key:
             return super()._display_node(key)
         node, index = key.rsplit(":dev", 1)
-        label = f"{super()._display_node(node)} dev{index}"
+        return f"{super()._display_node(node)} {self._card_label(node, index)}"
+
+    def _card_label(self, node, index):
+        label = f"dev{index}"
         if self.config.get_val("DISPLAY_DEVICE_MODEL"):
-            label += f" ({self.config.get_val('CLUSTER_CONFIGS')[node][int(index)]})"
+            label += f" {self.config.get_val('CLUSTER_CONFIGS')[node][int(index)]}"
         return label
+
+    def _usage_labels(self, resource_key):
+        node, index = resource_key.rsplit(":dev", 1)
+        return super()._display_node(node), self._card_label(node, index)
 
     def _check_acquisition_limit_locked(self, user_id, node_keys, limit):
         # Preserve the existing API's per-node cap, including bookings on any card.

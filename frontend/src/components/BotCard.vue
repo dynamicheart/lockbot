@@ -9,7 +9,7 @@
     </div>
     <div class="card-body">
       <el-tag size="small" effect="plain" :class="botTypeTagClass(bot.bot_type)">{{
-        bot.bot_type
+        botTypeLabel(bot.bot_type)
       }}</el-tag>
       <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
     </div>
@@ -51,7 +51,7 @@ import { computed } from 'vue'
 import { Monitor } from '@element-plus/icons-vue'
 import StatusBadge from './StatusBadge.vue'
 import { useBotsStore } from '../stores/bots'
-import { useHelpers, botTypeTagClass } from '../utils/helpers'
+import { useHelpers, botTypeTagClass, botTypeLabel } from '../utils/helpers'
 
 const props = defineProps({
   bot: { type: Object, required: true },

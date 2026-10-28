@@ -26,7 +26,7 @@ describe('QUEUE_DEVICE demo and state editing', () => {
     run('bob', 'lock node-1 dev0')
     expect(state['node-1'][0].current_users[0].duration).toBe(1800)
     expect(state['node-1'][1].current_users[0].user_id).toBe('carol')
-    expect(run('bob', 'query')).toContain('node-1 dev0')
+    expect(run('bob', 'query')).toContain('node-1\n  dev0')
     expect(run('bob', 'help')).toContain('book node-1 dev0')
   })
   it('rejects invalid card selectors atomically instead of selecting all cards', () => {
@@ -50,5 +50,30 @@ describe('QUEUE_DEVICE demo and state editing', () => {
     expect(result.state['node-1'][0].booking_list[0].user_id).toBe('alice')
     expect(result.state['node-1'][1].booking_list).toEqual([])
     expect(state['node-1'][1].booking_list).toBe('invalid')
+  })
+  it.each(['zh', 'en'])('groups cards and their queues with optional models in %s', (lang) => {
+    const { state, run } = setup()
+    run('alice', 'lock node-1 dev0 1h')
+    run('bob', 'book node-1 dev0 30m')
+    run('carol', 'lock node-1 dev1 1h')
+    const before = JSON.stringify(state)
+    const options = { CLUSTER_CONFIGS: configs, DISPLAY_DEVICE_MODEL: true }
+    const reply = executeCommand(state, 'alice', 'query', 'QUEUE_DEVICE', options, lang)
+    expect(reply.match(/node-1/g)).toHaveLength(1)
+    const [first, second] = reply.split('  dev1')
+    expect(first).toContain('  dev0 GPU alice')
+    expect(first).toContain('bob')
+    expect(second).toContain('GPU carol')
+    expect(second).not.toContain('bob')
+    const plain = executeCommand(
+      state,
+      'alice',
+      'query',
+      'QUEUE_DEVICE',
+      { CLUSTER_CONFIGS: configs },
+      lang
+    )
+    expect(plain).not.toContain('GPU')
+    expect(JSON.stringify(state)).toBe(before)
   })
 })
