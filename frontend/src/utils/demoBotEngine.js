@@ -440,6 +440,51 @@ function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode, usageLa
   return text + '\n'
 }
 
+// Group identical adjacent cards for display only; commands still use real card IDs.
+function queueDeviceDisplayState(state, orderedKeys) {
+  const canonical = (value) => {
+    if (Array.isArray(value)) return value.map(canonical)
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.keys(value)
+          .sort()
+          .map((key) => [key, canonical(value[key])])
+      )
+    return value
+  }
+  const rows = []
+  for (const key of orderedKeys) {
+    const entry = state[key]
+    if (!entry) continue
+    const split = key.lastIndexOf(':dev')
+    const machine = key.slice(0, split)
+    const index = Number(key.slice(split + 4))
+    const signatureState = Object.fromEntries(
+      Object.entries(entry).filter(([name]) => name !== 'dev_id')
+    )
+    for (const field of ['current_users', 'booking_list'])
+      signatureState[field] = (entry[field] || []).map((user) =>
+        Object.fromEntries(Object.entries(user).filter(([name]) => name !== 'holding_id'))
+      )
+    const signature = JSON.stringify(canonical(signatureState))
+    const previous = rows.at(-1)
+    if (
+      previous &&
+      previous.machine === machine &&
+      previous.last + 1 === index &&
+      previous.signature === signature
+    )
+      previous.last = index
+    else rows.push({ machine, first: index, last: index, entry, signature })
+  }
+  return Object.fromEntries(
+    rows.map(({ machine, first, last, entry }) => [
+      `${machine}:dev${first === last ? first : `${first}-${last}`}`,
+      entry,
+    ])
+  )
+}
+
 /**
  * Build DEVICE usage text. Matches Python get_current_usage format.
  * Uses per-node headers and merged device display (grouped by model/status/users).
@@ -573,9 +618,10 @@ export function executeCommand(state, userId, command, botType, config, lang = '
       const orderedCards = (nodeOrder || Object.keys(state)).flatMap((node) =>
         (state[node] || []).map((card) => `${node}:dev${card.dev_id}`)
       )
-      return queueUsageText(visible, null, lang, orderedCards, null, (key) => {
+      const grouped = queueDeviceDisplayState(visible, orderedCards)
+      return queueUsageText(grouped, null, lang, Object.keys(grouped), null, (key) => {
         const [node, card] = key.split(':dev')
-        const model = config.DISPLAY_DEVICE_MODEL ? ` ${flat[key].dev_model}` : ''
+        const model = config.DISPLAY_DEVICE_MODEL ? ` ${grouped[key].dev_model}` : ''
         return [displayNode ? displayNode(node) : node, `dev${card}${model}`]
       })
     }
