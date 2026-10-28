@@ -12,7 +12,7 @@ import traceback
 import uuid as _uuid_mod
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -512,11 +512,18 @@ def get_running_states(
 @router.get("/{bot_id}", response_model=BotDetail)
 def get_bot(
     bot_id: int,
+    request: Request,
+    response: Response,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     bot = _get_user_bot(bot_id, user, db)
-    return _mask_bot(bot, db)
+    from lockbot.backend.app.resource_api.view_links import view_link
+
+    view = view_link(db, bot, str(request.base_url)) if bot.resource_auth_enabled else {}
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Authorization"
+    return {**_mask_bot(bot, db), **view}
 
 
 @router.put("/{bot_id}", response_model=BotOut)

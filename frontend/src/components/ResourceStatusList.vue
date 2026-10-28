@@ -1,28 +1,98 @@
 <template>
-  <div class="resource-toolbar">
-    <span v-if="showOverview" class="resource-overview">{{
-      $t('resourceView.overview', totals)
-    }}</span>
-    <h2 v-else class="resource-table-title">{{ $t('resourceView.title') }}</h2>
-    <div class="resource-filters">
-      <el-input v-model="search" clearable :placeholder="$t('resourceView.search')" />
-      <el-select v-model="filter" :aria-label="$t('resourceView.filter')">
-        <el-option
-          v-for="kind in ['all', 'idle', 'busy', 'queued']"
-          :key="kind"
-          :value="kind"
-          :label="$t('resourceView.' + kind)"
-        />
-      </el-select>
+  <div ref="root">
+    <ResourceQuickOverview
+      v-if="quickOverview"
+      :resources="resources"
+      :selected-id="selectedId"
+      @select="focusResource"
+    />
+    <div class="resource-toolbar">
+      <span v-if="showOverview" class="resource-overview">{{
+        $t('resourceView.overview', totals)
+      }}</span>
+      <h2 v-else class="resource-table-title">{{ $t('resourceView.title') }}</h2>
+      <div class="resource-filters">
+        <el-input v-model="search" clearable :placeholder="$t('resourceView.search')" />
+        <el-select v-model="filter" :aria-label="$t('resourceView.filter')">
+          <el-option
+            v-for="kind in ['all', 'idle', 'busy', 'queued']"
+            :key="kind"
+            :value="kind"
+            :label="$t('resourceView.' + kind)"
+          />
+        </el-select>
+      </div>
     </div>
-  </div>
-  <el-table
-    :data="visibleResources"
-    row-key="id"
-    class="resource-status-list desktop-resource-list"
-  >
-    <el-table-column :label="$t('resourceView.resource')" width="180">
-      <template #default="{ row }">
+    <el-table
+      :data="visibleResources"
+      row-key="id"
+      :row-class-name="({ row }) => (row.id === selectedId ? 'resource-row-selected' : '')"
+      class="resource-status-list desktop-resource-list"
+    >
+      <el-table-column :label="$t('resourceView.resource')" width="180">
+        <template #default="{ row }">
+          <div class="resource-identity" :data-resource-id="row.id">
+            <div class="node-identity">
+              <strong>{{ row.display_name || row.id }}</strong
+              ><span>{{ row.alias }}</span>
+            </div>
+            <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
+              status(row)
+            }}</el-tag>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column :label="$t('resourceView.currentHolder')" min-width="230">
+        <template #default="{ row }">
+          <ResourceParticipants
+            :users="users(row.holders)"
+            :resource-id="row.id"
+            :usage="usage"
+            plain
+            purpose-on-hover
+          />
+        </template>
+      </el-table-column>
+      <el-table-column :label="$t('resourceView.queue')" min-width="320">
+        <template #default="{ row }">
+          <template v-if="row.booking_list?.length">
+            <ResourceParticipants
+              :users="users(row.booking_list)"
+              :resource-id="row.id"
+              :usage="usage"
+              queued
+              plain
+              purpose-on-hover
+            >
+              <template #detail="{ user }"
+                ><span class="queue-time">{{ queueTime(user, row) }}</span></template
+              >
+            </ResourceParticipants>
+          </template>
+          <span v-else class="empty-value">—</span>
+        </template>
+      </el-table-column>
+      <el-table-column :label="$t('resourceView.remainingTime')" width="90" align="right">
+        <template #default="{ row }">
+          <div
+            v-for="user in row.holders"
+            :key="user.external_user_id || user.user_id"
+            class="remaining"
+          >
+            {{ remaining(user) }}
+          </div>
+          <span v-if="!row.holders.length" class="empty-value">—</span>
+        </template>
+      </el-table-column>
+    </el-table>
+    <div class="mobile-resource-list">
+      <article
+        v-for="row in visibleResources"
+        :key="row.id"
+        class="mobile-resource-card"
+        :class="{ 'resource-row-selected': row.id === selectedId }"
+        :data-resource-id="row.id"
+      >
         <div class="resource-identity">
           <div class="node-identity">
             <strong>{{ row.display_name || row.id }}</strong
@@ -32,94 +102,42 @@
             status(row)
           }}</el-tag>
         </div>
-      </template>
-    </el-table-column>
-    <el-table-column :label="$t('resourceView.currentHolder')" min-width="230">
-      <template #default="{ row }">
         <ResourceParticipants
           :users="users(row.holders)"
           :resource-id="row.id"
           :usage="usage"
-          plain
           purpose-on-hover
-        />
-      </template>
-    </el-table-column>
-    <el-table-column :label="$t('resourceView.queue')" min-width="320">
-      <template #default="{ row }">
-        <template v-if="row.booking_list?.length">
+        >
+          <template #detail="{ user }"
+            ><span class="source">{{ remaining(user) }}</span></template
+          >
+        </ResourceParticipants>
+        <details v-if="row.booking_list?.length" class="mobile-queue" open>
+          <summary>
+            {{ $t('resourceView.queuedCount', { count: row.booking_list.length }) }}
+          </summary>
           <ResourceParticipants
             :users="users(row.booking_list)"
             :resource-id="row.id"
             :usage="usage"
             queued
-            plain
             purpose-on-hover
           >
             <template #detail="{ user }"
               ><span class="queue-time">{{ queueTime(user, row) }}</span></template
             >
           </ResourceParticipants>
-        </template>
-        <span v-else class="empty-value">—</span>
-      </template>
-    </el-table-column>
-    <el-table-column :label="$t('resourceView.remainingTime')" width="90" align="right">
-      <template #default="{ row }">
-        <div
-          v-for="user in row.holders"
-          :key="user.external_user_id || user.user_id"
-          class="remaining"
-        >
-          {{ remaining(user) }}
-        </div>
-        <span v-if="!row.holders.length" class="empty-value">—</span>
-      </template>
-    </el-table-column>
-  </el-table>
-  <div class="mobile-resource-list">
-    <article v-for="row in visibleResources" :key="row.id" class="mobile-resource-card">
-      <div class="resource-identity">
-        <div class="node-identity">
-          <strong>{{ row.display_name || row.id }}</strong
-          ><span>{{ row.alias }}</span>
-        </div>
-        <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
-          status(row)
-        }}</el-tag>
-      </div>
-      <ResourceParticipants
-        :users="users(row.holders)"
-        :resource-id="row.id"
-        :usage="usage"
-        purpose-on-hover
-      >
-        <template #detail="{ user }"
-          ><span class="source">{{ remaining(user) }}</span></template
-        >
-      </ResourceParticipants>
-      <details v-if="row.booking_list?.length" class="mobile-queue" open>
-        <summary>{{ $t('resourceView.queuedCount', { count: row.booking_list.length }) }}</summary>
-        <ResourceParticipants
-          :users="users(row.booking_list)"
-          :resource-id="row.id"
-          :usage="usage"
-          queued
-          purpose-on-hover
-        >
-          <template #detail="{ user }"
-            ><span class="queue-time">{{ queueTime(user, row) }}</span></template
-          >
-        </ResourceParticipants>
-      </details>
-    </article>
+        </details>
+      </article>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ResourceParticipants from './ResourceParticipants.vue'
+import ResourceQuickOverview from './ResourceQuickOverview.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 
 const props = defineProps({
@@ -127,8 +145,59 @@ const props = defineProps({
   usage: { type: Array, default: () => [] },
   serverOffset: { type: Number, default: 0 },
   showOverview: { type: Boolean, default: true },
+  quickOverview: Boolean,
 })
 const { t } = useI18n()
+const root = ref(null)
+const selectedId = ref('')
+let highlightTimer
+async function focusResource(id) {
+  search.value = ''
+  filter.value = 'all'
+  selectedId.value = id
+  clearTimeout(highlightTimer)
+  await nextTick()
+  const anchor = [...(root.value?.querySelectorAll('[data-resource-id]') || [])].find(
+    (node) => node.dataset.resourceId === id && node.getClientRects().length
+  )
+  const target = anchor?.closest('tr') || anchor
+  target?.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'center',
+  })
+  if (target) {
+    target.tabIndex = -1
+    target.focus({ preventScroll: true })
+  }
+  highlightTimer = setTimeout(() => {
+    selectedId.value = ''
+  }, 4000)
+}
+function cancelHighlight() {
+  selectedId.value = ''
+  clearTimeout(highlightTimer)
+}
+function cancelOutside(event) {
+  if (!selectedId.value) return
+  const retained =
+    event.target instanceof Element
+      ? event.target.closest('.resource-row-selected, .resource-chip.selected')
+      : null
+  if (!retained || !root.value?.contains(retained)) cancelHighlight()
+}
+function cancelWithEscape(event) {
+  if (event.key === 'Escape') cancelHighlight()
+}
+onMounted(() => {
+  if (!props.quickOverview) return
+  document.addEventListener('pointerdown', cancelOutside, true)
+  document.addEventListener('keydown', cancelWithEscape)
+})
+onBeforeUnmount(() => {
+  clearTimeout(highlightTimer)
+  document.removeEventListener('pointerdown', cancelOutside, true)
+  document.removeEventListener('keydown', cancelWithEscape)
+})
 const search = ref('')
 const filter = ref('all')
 const totals = computed(() => ({
@@ -213,6 +282,15 @@ function shortMinutes(minutes) {
 </script>
 
 <style scoped>
+:deep(.el-table__row.resource-row-selected > td),
+.mobile-resource-card.resource-row-selected {
+  background: var(--el-color-primary-light-9);
+}
+:deep(.el-table__row.resource-row-selected > td:first-child),
+.mobile-resource-card.resource-row-selected {
+  box-shadow: inset 3px 0 var(--el-color-primary);
+}
+
 .resource-toolbar {
   display: flex;
   align-items: center;

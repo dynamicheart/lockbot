@@ -38,6 +38,51 @@ def headers(context):
     return {"Authorization": "Bearer " + value}
 
 
+def test_owner_and_admin_detail_share_existing_short_link_without_list_disclosure(client, api, admin_header):
+    context = link(client, api)
+    for auth in [api["auth_header"], admin_header]:
+        response = client.get(f"/api/bots/{api['bot_id']}", headers=auth)
+        assert response.status_code == 200
+        detail = response.json()
+        assert detail["view_url"] == context["view_url"]
+        detail_expiry = datetime.fromisoformat(detail["view_expires_at"].replace("Z", "+00:00"))
+        assert detail_expiry == datetime.fromisoformat(context["view_expires_at"])
+        assert response.headers["cache-control"] == "no-store"
+        assert "Authorization" in {part.strip() for part in response.headers["vary"].split(",")}
+        assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(detail)).status_code == 200
+    assert "view_url" not in client.get("/api/bots", headers=api["auth_header"]).text
+
+
+def test_detail_link_renews_only_after_expiry_and_is_hidden_when_disabled(client, api, db_session, monkeypatch):
+    clock = datetime(2030, 1, 1, 11, 23, 45)
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock)
+    path = f"/api/bots/{api['bot_id']}"
+    first = client.get(path, headers=api["auth_header"]).json()
+    assert first["view_url"] and db_session.query(BotViewWindow).count() == 1
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock + timedelta(hours=23))
+    assert client.get(path, headers=api["auth_header"]).json()["view_url"] == first["view_url"]
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock + timedelta(hours=24))
+    renewed = client.get(path, headers=api["auth_header"]).json()
+    assert renewed["view_url"] != first["view_url"]
+    assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(first)).status_code == 403
+    db_session.expire_all()
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.resource_auth_enabled = False
+    db_session.commit()
+    disabled = client.get(path, headers=api["auth_header"]).json()
+    assert disabled["view_url"] is None and disabled["view_expires_at"] is None
+
+
+def test_unauthorized_detail_cannot_issue_readonly_link(client, api, db_session):
+    from backend.test_bot_authz import _register_user
+
+    other = _register_user(client, "outsider", "outsider@test.com", "pass123")
+    for auth, expected in [(other, 404), ({}, 401), (api["headers"], 401)]:
+        response = client.get(f"/api/bots/{api['bot_id']}", headers=auth)
+        assert response.status_code == expected and "view_url" not in response.text
+    assert db_session.query(BotViewWindow).count() == 0
+
+
 def test_lazy_creation_and_shared_24_hour_window(client, api, db_session, monkeypatch):
     clock = datetime(2030, 1, 1, 11, 23, 45)
     monkeypatch.setattr(view_links, "utcnow", lambda: clock)
