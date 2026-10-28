@@ -32,7 +32,7 @@ class ManagedPathError(ValueError):
 
 
 def protected_override_keys(overrides: dict) -> list[str]:
-    return sorted(key for key in overrides if key in MANAGED_OVERRIDE_KEYS or key.startswith("_MANAGED_"))
+    return sorted(key for key in overrides if key in MANAGED_OVERRIDE_KEYS or key.startswith(("_MANAGED_", "_FEISHU_")))
 
 
 def sanitize_managed_overrides(overrides: dict, *, bot_id=None) -> dict:

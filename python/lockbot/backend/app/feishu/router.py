@@ -1,0 +1,273 @@
+"""One callback per enterprise application, routed only to explicitly configured groups."""
+
+import asyncio
+import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
+
+from lockbot.backend.app.audit.service import write_audit_log
+from lockbot.backend.app.auth.dependencies import require_super_admin
+from lockbot.backend.app.auth.models import User
+from lockbot.backend.app.bots import encryption
+from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
+from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.database import get_db
+from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute, FeishuReceivedMessage
+from lockbot.backend.app.feishu.service import application_identity
+from lockbot.backend.app.rate_limit import limiter
+from lockbot.core.handler import execute_command, redact_command_text
+from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
+from lockbot.core.platforms.feishu_events import InvalidFeishuEvent, normalize_message, verify_http
+
+router = APIRouter(prefix="/api/feishu", tags=["Feishu"])
+logger = logging.getLogger(__name__)
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="feishu")
+_capacity = threading.BoundedSemaphore(64)
+
+
+class ApplicationCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    app_id: str = Field(pattern=r"^cli_[A-Za-z0-9]+$", max_length=128)
+    app_secret: SecretStr
+    tenant_key: str = Field(default="", max_length=128)
+    verification_token: SecretStr = SecretStr("")
+    encrypt_key: SecretStr = SecretStr("")
+    transport: Literal["http", "websocket"] = "websocket"
+
+    @field_validator("app_secret")
+    @classmethod
+    def required_secret(cls, value):
+        if not value.get_secret_value().strip() or len(value.get_secret_value()) > 512:
+            raise ValueError("A non-empty application credential is required")
+        return value
+
+    @field_validator("verification_token", "encrypt_key")
+    @classmethod
+    def bounded_secret(cls, value):
+        if len(value.get_secret_value()) > 512:
+            raise ValueError("Application credentials must not exceed 512 characters")
+        return value
+
+    @model_validator(mode="after")
+    def http_requires_token(self):
+        if self.transport == "http" and not self.verification_token.get_secret_value().strip():
+            raise ValueError("HTTP callbacks require a Verification Token")
+        if self.transport == "http" and not self.tenant_key.strip():
+            raise ValueError("HTTP callbacks require the enterprise tenant key")
+        return self
+
+
+@router.get("/applications")
+def applications(user: User = Depends(require_super_admin), db: Session = Depends(get_db)):
+    return [
+        {"id": row.id, "name": row.name, "app_id": row.app_id, "transport": row.transport}
+        for row in db.query(FeishuApplication).order_by(FeishuApplication.id).all()
+    ]
+
+
+@router.post("/applications", status_code=201)
+def create_application(
+    body: ApplicationCreate,
+    request: Request,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        bot_open_id = FeishuClient(body.app_id, body.app_secret.get_secret_value()).bot_identity()
+    except FeishuAPIError:
+        raise HTTPException(502, "Could not verify Feishu application credentials and bot capability") from None
+    row = FeishuApplication(
+        name=body.name,
+        app_id=body.app_id,
+        tenant_key=body.tenant_key,
+        bot_open_id=bot_open_id,
+        app_secret=encryption.encrypt(body.app_secret.get_secret_value()),
+        verification_token=encryption.encrypt(body.verification_token.get_secret_value()),
+        encrypt_key=encryption.encrypt(body.encrypt_key.get_secret_value()),
+        transport=body.transport,
+    )
+    db.add(row)
+    try:
+        db.flush()
+        write_audit_log(
+            db,
+            user,
+            "feishu.create_application",
+            target_type="feishu_application",
+            target_id=row.id,
+            target_name=row.name,
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "Application already configured") from None
+    return {"id": row.id, "name": row.name, "app_id": row.app_id, "transport": row.transport}
+
+
+@router.post("/applications/{application_id}/connect")
+def connect_application(
+    application_id: int,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    app = db.get(FeishuApplication, application_id)
+    if app is None:
+        raise HTTPException(404, "Application not found")
+    if app.transport != "websocket":
+        raise HTTPException(409, "Application uses HTTP callbacks")
+    try:
+        connectors.connect(application_id, factory=sessionmaker(bind=db.get_bind()))
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from None
+    return {"started": True}
+
+
+def _execute(factory, application_id, message, expected_uuid, expected_revision):
+    """Acquire the current instance at execution time; never retain an old bot object."""
+    key = (application_id, message["message_id"])
+    state = "uncertain"
+    try:
+        if time.monotonic() - message["_accepted_at"] > 60:
+            state = "expired"
+            return
+        with factory() as db:
+            claim = db.get(FeishuReceivedMessage, key)
+            bot_id = claim.bot_id
+            bot = db.get(Bot, bot_id)
+            if not bot or bot.is_deleted or bot.uuid != expected_uuid or bot.identity_revision != expected_revision:
+                state = "identity_changed"
+                return
+        with bot_manager.admit(bot_id) as lease:
+            if lease.bot.config.get_val("_IDENTITY_REVISION") != expected_revision:
+                state = "identity_changed"
+                return
+            if lease.bot.adapter.platform_name != "feishu":
+                state = "identity_changed"
+                return
+            if message["group_id"] not in lease.bot.config.get_val("_AUTHORIZED_GROUP_IDS", []):
+                state = "scope_refused"
+                return
+            # The claim is committed before invoking the shared dispatcher. Any exception
+            # after this point is uncertain, never an instruction to replay a lock/renewal.
+            lease.bot.config.get_val("_FEISHU_CLIENT").warm_user_name(message["user_id"])
+            reply = execute_command(message, lease.bot)
+            from lockbot.backend.app.bots.router import _write_log
+
+            try:
+                _write_log(
+                    bot_id,
+                    f"[{message['user_id']}] {redact_command_text(message['command'])}",
+                    category="command",
+                    source="chat",
+                )
+            except OSError:
+                logger.warning("Could not record a Feishu command for bot %s", bot_id)
+            state = "delivery_uncertain"
+            lease.bot.adapter.apply_reply_target(reply, message["group_id"])
+            lease.bot.adapter.send(reply)
+            state = "completed"
+    except (BotNotRunning, InstanceRetiring, AdmissionFull):
+        state = "unavailable"
+    except Exception:
+        # No raw event, bind code, platform response or exception value in logs.
+        logger.error("Feishu event execution or delivery failed for application %s", application_id)
+    finally:
+        try:
+            with factory() as db:
+                claim = db.get(FeishuReceivedMessage, key)
+                if claim:
+                    claim.state = state
+                    if state == "completed":
+                        row = db.get(Bot, claim.bot_id)
+                        if (
+                            row
+                            and not row.is_deleted
+                            and row.uuid == expected_uuid
+                            and row.identity_revision == expected_revision
+                        ):
+                            from lockbot.backend.app.broadcast.service import record_group_activity
+
+                            row.last_request_at = datetime.utcnow()
+                            row.last_user_id = message["user_id"]
+                            row.observed_group_ids = message["group_id"]
+                            record_group_activity(db, row, message["group_id"])
+                    db.commit()
+        finally:
+            _capacity.release()
+
+
+def accept_event(db, app, data):
+    message = normalize_message(data, application_identity(app))
+    if message is None:
+        return {"accepted": False}
+    message["_accepted_at"] = time.monotonic()
+    route = db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=message["group_id"]).first()
+    if route is None:
+        return {"accepted": False}
+    bot = db.get(Bot, route.bot_id)
+    if not bot or bot.is_deleted or bot.platform.lower() != "feishu" or bot.group_id != route.chat_id:
+        return {"accepted": False}
+    from lockbot.backend.app.feishu.traffic import ingress_budget
+
+    if not ingress_budget.claim(app.id, message["user_id"]):
+        return {"accepted": False, "reason": "rate_limited"}
+    if not _capacity.acquire(blocking=False):
+        raise HTTPException(503, "Feishu receiver busy", headers={"Retry-After": "2"})
+    submitted = False
+    try:
+        # Keep a one-day claim window and reject stale messages before claiming (normalizer).
+        db.query(FeishuReceivedMessage).filter(
+            FeishuReceivedMessage.created_at < datetime.utcnow() - timedelta(days=1)
+        ).delete()
+        db.add(
+            FeishuReceivedMessage(
+                application_id=app.id,
+                message_id=message["message_id"],
+                bot_id=bot.id,
+                identity_revision=bot.identity_revision,
+                state="claimed",
+            )
+        )
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return {"accepted": True, "duplicate": True}
+        factory = sessionmaker(bind=db.get_bind())
+        _executor.submit(_execute, factory, app.id, message, bot.uuid, bot.identity_revision)
+        submitted = True
+        return {"accepted": True}
+    finally:
+        if not submitted:
+            _capacity.release()
+
+
+@router.post("/events/{application_id}")
+@limiter.limit("120/minute")
+async def receive(application_id: int, request: Request, db: Session = Depends(get_db)):
+    app = db.get(FeishuApplication, application_id)
+    if app is None or app.transport != "http":
+        raise HTTPException(404, "HTTP receiver not configured")
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > 256 * 1024:
+            raise HTTPException(413, "Event too large")
+    try:
+        data = verify_http(bytes(body), request.headers, application_identity(app))
+        if "challenge" in data:
+            return data
+        return await asyncio.to_thread(accept_event, db, app, data)
+    except InvalidFeishuEvent:
+        raise HTTPException(401, "Invalid Feishu event") from None

@@ -100,6 +100,7 @@ class BotCreate(BaseModel):
     name: str
     bot_type: str  # NODE / DEVICE / QUEUE
     platform: str = "Infoflow"
+    feishu_application_id: int | None = None
     group_id: str | None = None
     webhook_url: str
     aes_key: str = ""

@@ -93,7 +93,9 @@ const idleMachines = computed(() => {
   return [...machines.values()]
 })
 function owners(row) {
-  const names = row.holders.map((user) => user.external_user_id || user.user_id).filter(Boolean)
+  const names = row.holders
+    .map((user) => user.display_name || user.external_user_id || user.user_id)
+    .filter(Boolean)
   return names.length
     ? names.join(', ')
     : t(isIdleResource(row) ? 'resourceView.idle' : 'resourceView.pending')

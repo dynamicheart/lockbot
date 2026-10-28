@@ -50,6 +50,41 @@
 
       <el-divider />
 
+      <el-form-item v-if="auth.isSuperAdmin || isEdit" :label="$t('feishu.platform')">
+        <el-select v-model="form.platform" :disabled="isEdit" style="width: 100%">
+          <el-option label="Infoflow" value="Infoflow" />
+          <el-option label="飞书 / Feishu" value="Feishu" />
+        </el-select>
+      </el-form-item>
+      <template v-if="form.platform.toLowerCase() === 'feishu'">
+        <el-form-item
+          v-if="!isEdit"
+          :label="$t('feishu.application')"
+          prop="feishu_application_id"
+          :rules="[{ required: true, message: t('feishu.required'), trigger: 'change' }]"
+        >
+          <el-select
+            v-model="form.feishu_application_id"
+            style="width: 100%"
+            @visible-change="loadFeishuApplications"
+          >
+            <el-option
+              v-for="app in feishuApplications"
+              :key="app.id"
+              :label="app.name"
+              :value="app.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item
+          :label="$t('feishu.group')"
+          prop="group_id"
+          :rules="[{ required: true, message: t('feishu.required'), trigger: 'blur' }]"
+        >
+          <el-input v-model="form.group_id" :disabled="isEdit" placeholder="oc_…" />
+        </el-form-item>
+      </template>
+
       <!-- Cluster Config -->
       <NodeBotForm
         v-if="form.bot_type === 'NODE'"
@@ -87,7 +122,7 @@
       <el-divider />
 
       <!-- Credentials -->
-      <div class="credentials-card">
+      <div v-if="form.platform.toLowerCase() !== 'feishu'" class="credentials-card">
         <el-alert type="info" :closable="false" show-icon class="credentials-alert">
           <template #title>{{ $t('botCreate.credentialsHint') }}</template>
         </el-alert>
@@ -441,6 +476,7 @@ import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { changedConfig } from '../utils/botSave'
 import { useBotsStore } from '../stores/bots'
+import { useAuthStore } from '../stores/auth'
 import NodeBotForm from '../components/BotForm/NodeBotForm.vue'
 import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
 import QueueBotForm from '../components/BotForm/QueueBotForm.vue'
@@ -450,6 +486,12 @@ const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
+const auth = useAuthStore()
+const feishuApplications = ref([])
+async function loadFeishuApplications(visible) {
+  if (visible && auth.isSuperAdmin)
+    feishuApplications.value = (await api.get('/feishu/applications')).data
+}
 
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
@@ -483,6 +525,8 @@ const form = reactive({
   name: '',
   bot_type: 'NODE',
   platform: 'Infoflow',
+  feishu_application_id: null,
+  group_id: '',
   webhook_url: '',
   aes_key: '',
   token: '',
@@ -523,14 +567,26 @@ const rules = computed(() => ({
   name: [{ required: true, message: () => t('botCreate.nameRequired'), trigger: 'blur' }],
   bot_type: [{ required: true, message: () => t('botCreate.typeRequired'), trigger: 'change' }],
   webhook_url: [
-    { required: true, message: () => t('botCreate.webhookRequired'), trigger: 'blur' },
+    {
+      required: form.platform.toLowerCase() !== 'feishu',
+      message: () => t('botCreate.webhookRequired'),
+      trigger: 'blur',
+    },
     { type: 'url', message: () => t('botCreate.webhookInvalid'), trigger: 'blur' },
   ],
   aes_key: [
-    { required: !isEdit.value, message: () => t('botCreate.aesKeyRequired'), trigger: 'blur' },
+    {
+      required: !isEdit.value && form.platform.toLowerCase() !== 'feishu',
+      message: () => t('botCreate.aesKeyRequired'),
+      trigger: 'blur',
+    },
   ],
   token: [
-    { required: !isEdit.value, message: () => t('botCreate.tokenRequired'), trigger: 'blur' },
+    {
+      required: !isEdit.value && form.platform.toLowerCase() !== 'feishu',
+      message: () => t('botCreate.tokenRequired'),
+      trigger: 'blur',
+    },
   ],
 }))
 
@@ -543,6 +599,7 @@ onMounted(async () => {
       form.name = bot.value.name
       form.bot_type = bot.value.bot_type
       form.platform = bot.value.platform
+      form.group_id = bot.value.group_id || ''
       form.webhook_url = bot.value.webhook_url_raw || ''
       form.aes_key = ''
       form.token = ''

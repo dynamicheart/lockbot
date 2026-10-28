@@ -188,6 +188,9 @@ its bot ID once as a legacy fallback. Never scan IDs or fall back to another pla
   who enrolled it. You cannot choose or spoof the identity — it is fixed at enrollment.
 - **Enrollment is chat-only.** A human runs `bind <code>` in the bot's IM group to confirm a
   pending credential. `bind` / `unbind` / `bindings` are refused over HTTP by design.
+  On Feishu, mention the enterprise bot in the explicitly configured resource group;
+  direct messages do not enroll a resource credential. Preserve the exact `actor.platform`
+  from context in connection memory; matching display names across platforms are not the same identity.
 - One verified user has one active key per bot; their own agents share it. Other users and bots have separate keys. Do not repeatedly enroll to get a key per agent.
 - Agent access is enabled by default for new bots; an explicit disabled setting is retained. The owner can change it and save the configuration. Disabling access pauses it; a valid key can work again after re-enabling. `unbind` permanently revokes the key.
 - A credential lives until revoked (unless this deployment configures an expiry). It is revoked by: chat `unbind`, an owner revoke, bot delete,

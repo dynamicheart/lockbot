@@ -1,4 +1,19 @@
 export default {
+  feishu: {
+    applications: 'Feishu applications',
+    add: 'Add application',
+    name: 'Application name',
+    transport: 'Receiving mode',
+    websocket: 'WebSocket',
+    connect: 'Start connection',
+    connecting: 'Connection task started; messages can be received once connected',
+    tenant: 'Enterprise tenant key',
+    none: 'No Feishu application configured',
+    required: 'This field is required',
+    platform: 'Messaging platform',
+    application: 'Enterprise application',
+    group: 'Resource group Chat ID',
+  },
   serviceTraffic: {
     title: 'Service traffic',
     since: 'Counters since',
@@ -702,7 +717,7 @@ export default {
     dispatched: 'Dispatched',
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
-    targetTypes: { bot: 'Bot', user: 'User' },
+    targetTypes: { bot: 'Bot', user: 'User', feishu_application: 'Feishu application' },
     detailFields: {
       resource_auth_enabled: 'Allow Agent access',
       resource_api_notify_enabled: 'Group operation notifications',
@@ -737,6 +752,7 @@ export default {
       'user.reset_password': 'Reset Password',
       'user.force_logout': 'Force Logout',
       'bot.create': 'Create Bot',
+      'feishu.create_application': 'Add Feishu application',
       'bot.update': 'Update Bot Config',
       'bot.delete': 'Delete Bot',
       'bot.start': 'Start Bot',

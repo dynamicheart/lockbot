@@ -16,6 +16,7 @@ import lockbot.backend.app.audit.models  # noqa: F401
 import lockbot.backend.app.auth.models  # noqa: F401
 import lockbot.backend.app.bots.models  # noqa: F401
 import lockbot.backend.app.broadcast.models  # noqa: F401
+import lockbot.backend.app.feishu.models  # noqa: F401
 import lockbot.backend.app.resource_auth.models  # noqa: F401
 import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
@@ -456,6 +457,10 @@ async def lifespan(app: FastAPI):
     bot_manager.start_scheduler()
     _reset_running_bots()
 
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    connectors.start(factory=SessionLocal)
+
     from lockbot.backend.app.backup.scheduler import backup_scheduler
 
     backup_scheduler.start()
@@ -471,6 +476,7 @@ async def lifespan(app: FastAPI):
         usage_cleanup.cancel()
         with suppress(asyncio.CancelledError):
             await usage_cleanup
+        await asyncio.to_thread(connectors.stop)
         logger.info("Shutting down all bots…")
         broadcast_worker.stop()
         backup_scheduler.stop()
@@ -636,6 +642,9 @@ def create_app() -> FastAPI:
     app.include_router(bot_audit_router)
     app.include_router(auth_router)
     app.include_router(bots_router)
+    from lockbot.backend.app.feishu.router import router as feishu_router
+
+    app.include_router(feishu_router)
     app.include_router(admin_router)
     app.include_router(settings_router)
     from lockbot.backend.app.broadcast.router import router as broadcast_router

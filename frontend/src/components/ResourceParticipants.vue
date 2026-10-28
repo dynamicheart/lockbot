@@ -22,10 +22,10 @@
             :tabindex="purposeOnHover && taskFor(user)?.purpose ? 0 : undefined"
           >
             <span v-if="plain" class="participant-user">{{
-              user.user_id || user.userId || user
+              user.display_name || user.user_id || user.userId || user
             }}</span>
             <el-tag v-else size="small" effect="plain">{{
-              user.user_id || user.userId || user
+              user.display_name || user.user_id || user.userId || user
             }}</el-tag>
             <span class="participant-origin">{{ $t('clusterState.' + originKey(user)) }}</span>
             <span v-if="taskFor(user)?.agent_label" class="participant-agent">{{

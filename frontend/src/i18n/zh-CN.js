@@ -1,4 +1,19 @@
 export default {
+  feishu: {
+    applications: '飞书应用',
+    add: '添加应用',
+    name: '应用名称',
+    transport: '接收方式',
+    websocket: '长连接',
+    connect: '启动连接',
+    connecting: '已启动连接任务，连接成功后可接收群消息',
+    tenant: '企业租户标识',
+    none: '尚未配置飞书应用',
+    required: '请填写此项',
+    platform: '消息平台',
+    application: '企业应用',
+    group: '资源群 Chat ID',
+  },
   serviceTraffic: {
     title: '服务监控',
     since: '统计开始于',
@@ -685,7 +700,7 @@ export default {
       '近期检测到 {count} 次登录失败，来自 IP：{ips}。如非本人操作，建议立即修改密码。',
     dispatched: '已分派',
     dispatchedNote: '命令已分派，不代表资源操作成功。请查询资源状态核实。',
-    targetTypes: { bot: '机器人', user: '用户' },
+    targetTypes: { bot: '机器人', user: '用户', feishu_application: '飞书应用' },
     detailFields: {
       resource_auth_enabled: '允许 Agent 访问',
       resource_api_notify_enabled: '群内操作通知',
@@ -720,6 +735,7 @@ export default {
       'user.reset_password': '重置密码',
       'user.force_logout': '强制登出',
       'bot.create': '创建Bot',
+      'feishu.create_application': '添加飞书应用',
       'bot.update': '修改Bot配置',
       'bot.delete': '删除Bot',
       'bot.start': '启动Bot',

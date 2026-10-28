@@ -327,6 +327,12 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
 
     config["_BOT_VIEW_LINK"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): group_view_link(bot_id, uuid)
     config["_IDENTITY_REVISION"] = getattr(bot, "identity_revision", 0)
+    if (bot.platform or "").lower() == "feishu":
+        from lockbot.backend.app.feishu.service import bot_application_config
+
+        if db is None:
+            raise ValueError("Feishu configuration requires the application database")
+        config.update(bot_application_config(bot, db))
     config["DATA_DIR"] = str(paths.bots_root)
     config["STATE_FILENAME"] = str(paths.state_file(bot_id))
     config["_MANAGED_BOT_DIR"] = lambda: paths.core_directory(bot_id)
@@ -385,6 +391,8 @@ def create_bot(
     if exists:
         raise HTTPException(status_code=409, detail="Bot name already exists")
 
+    if body.platform.strip().lower() == "feishu":
+        body.platform = "Feishu"
     bot = Bot(
         uuid=str(_uuid_mod.uuid4()),
         user_id=user.id,
@@ -407,6 +415,24 @@ def create_bot(
     )
     db.add(bot)
     db.flush()
+    if (body.platform or "").lower() == "feishu":
+        import re
+
+        from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+
+        if user.role != "super_admin":
+            raise HTTPException(403, "A super administrator must authorize the Feishu group route")
+        if not body.group_id or not re.fullmatch(r"oc_[A-Za-z0-9_-]+", body.group_id):
+            raise HTTPException(422, "Configure exactly one Feishu group")
+        if not body.feishu_application_id or db.get(FeishuApplication, body.feishu_application_id) is None:
+            raise HTTPException(422, "Select a configured Feishu application")
+        if (
+            db.query(FeishuGroupRoute)
+            .filter_by(application_id=body.feishu_application_id, chat_id=body.group_id)
+            .first()
+        ):
+            raise HTTPException(409, "Feishu group already has a resource bot")
+        db.add(FeishuGroupRoute(application_id=body.feishu_application_id, chat_id=body.group_id, bot_id=bot.id))
     write_audit_log(
         db,
         user,
@@ -540,6 +566,8 @@ def update_bot(
     _get_user_bot(bot_id, user, db)
 
     with _owned_bot(bot_id, user, db) as bot:
+        if (bot.platform or "").lower() == "feishu" and body.group_id is not None and body.group_id != bot.group_id:
+            raise HTTPException(422, "Changing an existing Feishu group route requires explicit re-enrollment")
         identity_changed = (body.group_id is not None and body.group_id != bot.group_id) or any(
             getattr(body, key) is not None and getattr(body, key) != encryption.decrypt(getattr(bot, key))
             for key in ("webhook_url", "aes_key", "token")
@@ -710,6 +738,10 @@ def delete_bot(
         from lockbot.backend.app.resource_auth.service import revoke_bindings_for_bot
 
         revoke_bindings_for_bot(db, bot_id)
+        if (bot.platform or "").lower() == "feishu":
+            from lockbot.backend.app.feishu.models import FeishuGroupRoute
+
+            db.query(FeishuGroupRoute).filter_by(bot_id=bot_id).delete()
         write_audit_log(
             db,
             user,
@@ -1094,6 +1126,10 @@ def get_bot_state(
             db.rollback()
             bot = _get_user_bot(bot_id, user, db)
             captured_at, snapshot = lease.bot.state_snapshot()
+            if (bot.platform or "").lower() == "feishu":
+                from lockbot.core.platforms.feishu import decorate_people
+
+                decorate_people(snapshot, lease.bot.config)
             usage = []
             if include_usage:
                 from lockbot.backend.app.resource_api.usage import active_declarations, declarations_for_state
@@ -1539,6 +1575,9 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     No JWT auth required — the IM platform authenticates via signature.
     """
+    row = db.get(Bot, bot_id)
+    if row is not None and row.platform.lower() == "feishu":
+        raise HTTPException(404, "Use the Feishu application receiver")
     # Parse request data (matching Flask's request interface)
     body = await request.body()
     form = {}

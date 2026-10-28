@@ -46,6 +46,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+feishu = ["lark-oapi==1.7.5"]
 dev = [
     "pytest>=7.0",
     "pytest-xdist>=3.6,<4",

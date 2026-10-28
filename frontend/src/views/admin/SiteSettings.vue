@@ -63,6 +63,7 @@
     </el-card>
 
     <SiteBroadcast />
+    <FeishuApplications />
 
     <!-- Backup Configuration -->
     <el-card style="margin-top: 20px">
@@ -190,6 +191,7 @@ import { useI18n } from 'vue-i18n'
 import { Check } from '@element-plus/icons-vue'
 import api from '../../utils/api'
 import SiteBroadcast from '../../components/SiteBroadcast.vue'
+import FeishuApplications from '../../components/FeishuApplications.vue'
 
 const { t } = useI18n()
 const loading = ref(false)

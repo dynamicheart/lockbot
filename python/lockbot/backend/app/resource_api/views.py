@@ -116,6 +116,10 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
                 declaration.pop("binding_id", None)
                 declaration.pop("authorization_label", None)
             attach_declarations(resources, declarations)
+            if (bot.platform or "").lower() == "feishu":
+                from lockbot.core.platforms.feishu import decorate_people
+
+                decorate_people(resources, lease.bot.config)
             _display_details(resources, state, lease.bot.config.get_val("NODE_ALIASES", {}))
             # Re-check expiry after assembling the payload; cached state is never cached authorization.
             bot, window = _authorized(db, bot_id, request, fresh=True)
