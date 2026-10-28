@@ -1,9 +1,17 @@
 ---
-name: lockbot-operator-api
+name: lockbot-operator-agent
 description: Monitor Lockbot resource holders and perform explicitly authorized operator releases through OP API. For trusted operations bots, not ordinary user Agents or machine execution.
 ---
 
 # Lockbot operator API
+
+This is the **lockbot-operator-agent** skill for
+`service_id: lockbot.resource-api`, not another Lockbot implementation.
+Without credentials, read `/api/op-skill` on the user-approved origin first. Verify the
+service/API identity and use its namespaced `installation` bundle; check the skill content
+revision at task start and on changes in `X-Lockbot-Skill-Version`. Keep each OP key scoped
+to its origin, instance ID and bot; never reuse a generic remembered Lockbot JWT or token.
+Do not overwrite another platform's skill or credential store. Legacy OP routes remain supported.
 
 Use the trusted base URL and bot ID supplied by the administrator. Obtain an **OP API Key**
 (`lbk_…`) from that bot's administrator and keep it in a private credential store. Send it

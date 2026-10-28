@@ -420,6 +420,10 @@ async def lifespan(app: FastAPI):
     _acquire_state_store_ownership()
 
     Base.metadata.create_all(bind=engine)
+    from lockbot.backend.app.resource_api.discovery import ensure_instance_id
+
+    with SessionLocal() as identity_db:
+        ensure_instance_id(identity_db)
     _migrate_bot_logs_category()
     _migrate_bot_consecutive_failures()
     _migrate_users_must_change_password()
@@ -602,6 +606,11 @@ def create_app() -> FastAPI:
 
     app.add_middleware(AgentIngressMiddleware)
     install_health_endpoint(app)
+    from lockbot.backend.app.resource_api.versioning import AgentVersionMiddleware
+    from lockbot.backend.app.resource_auth.http_errors import install_resource_auth_errors
+
+    app.add_middleware(AgentVersionMiddleware)
+    install_resource_auth_errors(app)
 
     # Rate limiting
     app.state.limiter = limiter
@@ -627,6 +636,9 @@ def create_app() -> FastAPI:
     app.include_router(broadcast_router)
     app.include_router(audit_router)
     app.include_router(backup_router)
+    from lockbot.backend.app.resource_api.discovery import router as discovery_router
+
+    app.include_router(discovery_router)
     app.include_router(resource_auth_router)
     app.include_router(resource_commands_router)
     app.include_router(resources_router)
