@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
+from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.manager import (
     AdmissionFull,
     BotNotRunning,
@@ -122,6 +123,7 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
             from lockbot.core.resource_policy import public_policy
 
             return {
+                "utilization_config": public_datasource(bot),
                 "resource_policy": public_policy(state, lease.bot.config, now=captured_at.timestamp()),
                 **metadata,
                 "name": bot.name,

@@ -1,5 +1,13 @@
 export default {
   utilization: {
+    notConfigured: 'Not configured',
+    remove: 'Remove',
+    setupGuide: 'Setup guide',
+    adminHint:
+      'Configure once for this bot. Prepare the source URL, metric names, labels and node/device mappings. Test from this browser, then save the bot. Never save shared source secrets.',
+    testSave: 'Test and apply to form',
+    authenticate: 'Source authentication',
+
     invalid: 'Invalid sample',
     title: 'Utilization',
     show: 'Show utilization',

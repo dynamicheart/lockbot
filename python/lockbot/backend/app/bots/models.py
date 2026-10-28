@@ -45,6 +45,9 @@ class Bot(Base):
     resource_auth_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="1")
     resource_api_notify_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default="1")
 
+    # Shared non-secret configuration; metrics are still queried directly by browsers.
+    utilization_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

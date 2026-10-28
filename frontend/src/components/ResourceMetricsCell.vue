@@ -12,7 +12,7 @@
         </div>
       </div>
     </template>
-    <span class="metrics-value" :class="{ 'is-muted': error || !healthy }" tabindex="0">
+    <span class="metrics-value" :class="loadClass" tabindex="0">
       <template v-if="error">{{ $t('utilization.unavailable') }}</template>
       <template v-else-if="!cards.length">—</template>
       <template v-else-if="allUnavailable">{{ unavailableText }}</template>
@@ -30,6 +30,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { loadLevel } from '../utils/utilization/display'
 import { metricStatus, resolveCards } from '../utils/utilization/prometheus'
 const props = defineProps({
   enabled: Boolean,
@@ -45,9 +46,6 @@ const cards = computed(() =>
   resolveCards(props.snapshot, props.config, props.nodeId, props.resourceId)
 )
 const state = (metric) => metricStatus(metric, props.now, props.config?.staleSeconds || 90)
-const healthy = computed(() =>
-  cards.value.every((card) => Object.values(card.metrics).every((metric) => state(metric) === 'ok'))
-)
 function metricText(metric, percent = false) {
   const status = state(metric)
   if (status !== 'ok')
@@ -82,6 +80,11 @@ const unavailableText = computed(() => {
       ? t('utilization.stale')
       : '—'
 })
+const loadClass = computed(() => {
+  if (props.error) return 'is-muted'
+  const level = loadLevel(cards.value, props.now, props.config?.staleSeconds || 90, metricStatus)
+  return level === 'unknown' ? 'is-muted' : `load-${level}`
+})
 const peak = computed(() => {
   // An incomplete node cannot advertise the maximum of only the successful cards.
   if (!cards.value.length || cards.value.some((card) => state(card.metrics.compute) !== 'ok'))
@@ -97,6 +100,15 @@ const peak = computed(() => {
   font-variant-numeric: tabular-nums;
   color: var(--lb-text-primary);
   font-size: 12px;
+}
+.load-low {
+  color: var(--el-color-success-dark-2);
+}
+.load-medium {
+  color: var(--el-color-warning-dark-2);
+}
+.load-high {
+  color: var(--el-color-danger);
 }
 .metrics-memory,
 .is-muted {

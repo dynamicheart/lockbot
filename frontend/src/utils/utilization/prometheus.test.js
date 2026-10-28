@@ -6,7 +6,6 @@ import {
   collectPrometheus,
   metricStatus,
   resolveCards,
-  configStorageKey,
   prometheusDatasource,
 } from './prometheus'
 const at = 1800000000000
@@ -75,7 +74,7 @@ describe('browser Prometheus provider', () => {
       collectPrometheus(config(), ['node-a'], { fetchImpl, bearer: 'lbr_private' })
     ).rejects.toMatchObject({ code: 'credential' })
   })
-  it('rejects credentials in URLs and persists only allowlisted nonsecret configuration', () => {
+  it('rejects credentials in URLs and serializes only allowlisted nonsecret configuration', () => {
     for (const endpoint of [
       'https://user:secret@metrics.test',
       'https://metrics.test?token=secret',
@@ -85,12 +84,6 @@ describe('browser Prometheus provider', () => {
     }
     const checked = validateConfig({ ...config(), bearer: 'never-save', jwt: 'never-save' })
     expect(JSON.stringify(checked)).not.toContain('never-save')
-    expect(configStorageKey('https://one.test', 'instance-a', 1)).not.toBe(
-      configStorageKey('https://one.test', 'instance-b', 1)
-    )
-    expect(configStorageKey('https://one.test', 'instance-a', 1)).not.toBe(
-      configStorageKey('https://one.test', 'instance-a', 2)
-    )
   })
   it('escapes label values as regex literals and as PromQL strings', () => {
     const c = { ...config(), nodeMapping: { a: 'host.*"\\\n' } }

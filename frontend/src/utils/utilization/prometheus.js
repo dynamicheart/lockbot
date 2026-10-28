@@ -258,9 +258,6 @@ export function resolveCards(snapshot, config, nodeId, resourceId = null) {
     (card) => card.node === node && (!resourceId || card.device === device)
   )
 }
-export function configStorageKey(origin, instanceId, botId) {
-  return `lockbot.metrics.v1:${JSON.stringify([origin, instanceId, String(botId)])}`
-}
 
 export const prometheusDatasource = {
   type: 'prometheus',

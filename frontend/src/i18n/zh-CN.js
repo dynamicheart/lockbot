@@ -1,5 +1,13 @@
 export default {
   utilization: {
+    notConfigured: '未配置',
+    remove: '移除',
+    setupGuide: '接入文档',
+    adminHint:
+      '为当前机器人统一配置。请准备数据源地址、指标名、标签及节点／设备映射；在本机浏览器验证后保存机器人。不要保存共享数据源密钥。',
+    testSave: '测试并应用到表单',
+    authenticate: '数据源验证',
+
     invalid: '数据异常',
     title: '利用率',
     show: '显示利用率',
