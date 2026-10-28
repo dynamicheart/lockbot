@@ -1,7 +1,6 @@
 <template>
   <el-card class="broadcast-card">
     <template #header>{{ $t('broadcast.title') }}</template>
-    <p class="hint">{{ $t('broadcast.hint') }}</p>
     <el-form label-position="top">
       <el-form-item :label="$t('broadcast.message')">
         <el-input v-model="message" type="textarea" :rows="4" :maxlength="1800" show-word-limit />
@@ -21,7 +20,6 @@
         </el-button>
       </div>
     </el-form>
-    <p class="hint">{{ $t('broadcast.trackingHint') }}</p>
     <el-dialog v-model="dialog" :title="$t('broadcast.preview')" width="min(680px, 95vw)">
       <template v-if="job">
         <div class="message-preview">{{ job.message }}</div>

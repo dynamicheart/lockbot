@@ -1,7 +1,6 @@
 export default {
   broadcast: {
     title: '群广播',
-    hint: '仅超级管理员可向最近活跃的如流群发送广播。同一个群只发送一次，后台逐群执行。',
     message: '广播内容',
     window: '最近活跃范围',
     days: '最近 {n} 天',
@@ -10,8 +9,6 @@ export default {
     preview: '预览广播',
     coverage: '共 {n} 个群',
     empty: '没有符合条件的群。机器人需要正在运行，且群近期有经过验证的消息。',
-    trackingHint:
-      '群活跃时间从本功能上线后开始记录。平台接收成功不代表成员已阅读；结果不确定的消息不会自动重发。',
     status: '状态',
     bot: '机器人',
     group: '群号',

@@ -1,7 +1,6 @@
 export default {
   broadcast: {
     title: 'Group broadcast',
-    hint: 'Super admins can broadcast to recently active Infoflow groups. Each group receives one message, sent by a background worker.',
     message: 'Message',
     window: 'Recent activity window',
     days: 'Last {n} days',
@@ -11,8 +10,6 @@ export default {
     coverage: '{n} groups',
     empty:
       'No eligible groups. Bots must be running and groups must have recent verified messages.',
-    trackingHint:
-      'Per-group activity is recorded from this feature’s deployment onward. Accepted means the platform accepted the message, not that members read it. Uncertain deliveries are never retried automatically.',
     status: 'Status',
     bot: 'Bot',
     group: 'Group ID',
