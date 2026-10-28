@@ -508,12 +508,6 @@ const resourceCountUnlimited = computed({
     advancedConfig.MAX_RESOURCES_PER_USER = value ? -1 : 1
   },
 })
-watch(
-  () => form.bot_type,
-  (kind) => {
-    if (!isEdit.value) advancedConfig.FORBID_RELOCK = ['QUEUE', 'QUEUE_DEVICE'].includes(kind)
-  }
-)
 
 function formatSeconds(s) {
   if (s == null || s < 0) return ''

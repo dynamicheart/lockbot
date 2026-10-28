@@ -88,7 +88,7 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 | `DEFAULT_DURATION` | Default lock duration (seconds) | `7200` (2h) |
 | `MAX_LOCK_DURATION` | Max lock duration (seconds) | `-1` (unlimited) |
 | `EARLY_NOTIFY` | Notify before lock expiry | `false` |
-| `FORBID_RELOCK` | Reject renewal and longer booking claims; enabled by default for newly created queue bots only | `false` for existing bots |
+| `FORBID_RELOCK` | Reject renewal and longer booking claims when explicitly enabled per bot | `false` |
 | `MAX_RESOURCES_PER_USER` | Held + booked resources per user/bot; nodes for NODE/QUEUE, cards for DEVICE/QUEUE_DEVICE | `-1` (unlimited) |
 
 See `python/lockbot/core/config.py` for the full configuration reference.

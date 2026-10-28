@@ -26,7 +26,7 @@ def test_new_bot_defaults_are_explicit_but_old_bots_are_not_changed(client, auth
     )
     assert response.status_code == 201, response.text
     bot = db_session.get(Bot, response.json()["id"])
-    assert json.loads(bot.config_overrides).get("FORBID_RELOCK", False) is (normalized in {"QUEUE", "QUEUE_DEVICE"})
+    assert json.loads(bot.config_overrides).get("FORBID_RELOCK", False) is False
     # An existing record lacking new fields retains its old renewal behavior on load.
     bot.config_overrides = "{}"
     db_session.commit()
@@ -60,7 +60,8 @@ def test_policy_exposed_in_existing_resource_response(client, api):
 
 
 @pytest.mark.parametrize("kind", ["QUEUE", "queue", "QUEUE_DEVICE", "queue_device"])
-def test_explicit_new_bot_renewal_override_is_respected(client, auth_header, db_session, kind):
+@pytest.mark.parametrize("enabled", [False, True])
+def test_explicit_new_bot_renewal_override_is_respected(client, auth_header, db_session, kind, enabled):
     response = client.post(
         "/api/bots",
         headers=auth_header,
@@ -69,11 +70,16 @@ def test_explicit_new_bot_renewal_override_is_respected(client, auth_header, db_
             "bot_type": kind,
             "webhook_url": "https://example.invalid/hook",
             "cluster_configs": {"n1": ["gpu"]} if "DEVICE" in kind.upper() else ["n1"],
-            "config_overrides": {"FORBID_RELOCK": False},
+            "config_overrides": {"FORBID_RELOCK": enabled},
         },
     )
     assert response.status_code == 201
-    assert json.loads(db_session.get(Bot, response.json()["id"]).config_overrides)["FORBID_RELOCK"] is False
+    assert json.loads(db_session.get(Bot, response.json()["id"]).config_overrides)["FORBID_RELOCK"] is enabled
+    bot_id = response.json()["id"]
+    updated = client.put(f"/api/bots/{bot_id}", headers=auth_header, json={"name": "renamed"})
+    assert updated.status_code == 200
+    db_session.expire_all()
+    assert json.loads(db_session.get(Bot, bot_id).config_overrides)["FORBID_RELOCK"] is enabled
 
 
 def test_http_agent_cannot_bypass_existing_chat_allocation(client, api):
