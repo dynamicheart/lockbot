@@ -98,6 +98,12 @@ const routes = [
         meta: { admin: true },
       },
       {
+        path: 'admin/service-traffic',
+        name: 'ServiceTraffic',
+        component: () => import('../views/admin/ServiceTraffic.vue'),
+        meta: { admin: true, superAdminOnly: true },
+      },
+      {
         path: 'admin/settings',
         name: 'SiteSettings',
         component: SiteSettings,

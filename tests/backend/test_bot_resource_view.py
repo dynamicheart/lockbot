@@ -92,6 +92,16 @@ def test_missing_wrong_and_foreign_credentials_reveal_no_resource_data(client, a
     assert command.status_code == 401
 
 
+@pytest.mark.parametrize("part", [1, 2])
+def test_non_ascii_view_credentials_are_uniformly_rejected(client, api, part):
+    context = link(client, api)
+    token = headers(context)["Authorization"][7:].split(".")
+    token[part] = "\xff" + token[part][1:]
+    raw = ("Bearer " + ".".join(token)).encode("latin-1")
+    response = client.get(f"/api/bot-views/{api['bot_id']}/state", headers={b"Authorization": raw})
+    assert response.status_code == 403 and "resources" not in response.json()
+
+
 @pytest.mark.parametrize("change", ["uuid", "revision", "delete"])
 def test_identity_change_invalidates_links_without_refresh(client, api, db_session, change):
     context = link(client, api)

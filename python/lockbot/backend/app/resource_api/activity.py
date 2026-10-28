@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -67,16 +68,26 @@ def install_activity_middleware(app):
     @app.middleware("http")
     async def activity(request: Request, call_next):
         status = 500
+        started = time.monotonic()
         try:
             response = await call_next(request)
             status = response.status_code
             return response
         finally:
+            duration_ms = (time.monotonic() - started) * 1000
             actor = getattr(request.state, "resource_actor", None)
             engine = getattr(request.state, "resource_activity_engine", None)
             if actor is not None and engine is not None:
                 kind = getattr(request.state, "resource_activity_kind", "read" if request.method == "GET" else "write")
                 await asyncio.to_thread(_record, engine, actor, kind, status)
+            if actor is not None:
+                from lockbot.backend.app.resource_api.event_log import event_for_request, write_event
+
+                event = event_for_request(request)
+                if event is not None:
+                    await asyncio.to_thread(
+                        write_event, actor=actor, event=event, status=status, duration_ms=duration_ms
+                    )
 
 
 def valid_binding_filter(bot, now):

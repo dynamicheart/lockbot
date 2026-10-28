@@ -28,8 +28,8 @@
             <strong>{{ row.id }}</strong
             ><span>{{ row.alias }}</span>
           </div>
-          <el-tag size="small" :type="row.lock_status === 'idle' ? 'success' : 'warning'">{{
-            status(row.lock_status)
+          <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
+            status(row)
           }}</el-tag>
         </div>
       </template>
@@ -109,8 +109,8 @@
           <strong>{{ row.id }}</strong
           ><span>{{ row.alias }}</span>
         </div>
-        <el-tag size="small" :type="row.lock_status === 'idle' ? 'success' : 'warning'">{{
-          status(row.lock_status)
+        <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
+          status(row)
         }}</el-tag>
       </div>
       <ResourceParticipants :users="users(row.holders)" :resource-id="row.id" :usage="usage">
@@ -139,6 +139,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ResourceParticipants from './ResourceParticipants.vue'
+import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 
 const props = defineProps({
   resources: { type: Array, default: () => [] },
@@ -151,13 +152,13 @@ const search = ref('')
 const filter = ref('all')
 const totals = computed(() => ({
   total: props.resources.length,
-  idle: props.resources.filter((row) => row.lock_status === 'idle').length,
+  idle: props.resources.filter(isIdleResource).length,
   busy: props.resources.filter((row) => row.lock_status !== 'idle').length,
   queued: props.resources.reduce((sum, row) => sum + (row.booking_list?.length || 0), 0),
 }))
 const visibleResources = computed(() =>
   props.resources.filter((row) => {
-    if (filter.value === 'idle' && row.lock_status !== 'idle') return false
+    if (filter.value === 'idle' && !isIdleResource(row)) return false
     if (filter.value === 'busy' && row.lock_status === 'idle') return false
     if (filter.value === 'queued' && !row.booking_list?.length) return false
     const query = search.value.trim().toLocaleLowerCase()
@@ -213,8 +214,7 @@ const task = (row, user) =>
   )
 const origin = (user) =>
   t('clusterState.' + ({ api: 'originAgent', chat: 'originChat' }[user.source] || 'originUnknown'))
-const status = (value) =>
-  t(`resourceView.${['idle', 'exclusive', 'shared'].includes(value) ? value : 'unknown'}`)
+const status = (row) => t('resourceView.' + resourceStatus(row))
 function expiry(user) {
   return user.expires_at
     ? Date.parse(user.expires_at)

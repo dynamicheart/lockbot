@@ -249,6 +249,11 @@ def execute_command_via_api(
 
     text = body.command.strip()
     word = _leading_word(text)
+    from lockbot.backend.app.resource_api.event_log import begin_event, describe_targets, observe_own_resources
+
+    begin_event(
+        request, bot=bot_row, operation="command", command=text, agent_label=body.agent_label, purpose=body.purpose
+    )
     request.state.resource_activity_kind = "read" if canonical_command(word) == "query" else "write"
 
     # Refuse before admission where we can: an administrative or preemptive word should not
@@ -287,7 +292,10 @@ def execute_command_via_api(
             )
 
             before_usage = prepare_command_usage(bot, actor, canonical_command(word), text)
+            request.state.agent_event["requested_resources"] = describe_targets(bot, actor, word, text)
+            request.state.agent_event["all_owned_resources"] = text.lower() in {"free", "unlock"}
             try:
+                request.state.agent_event["stage"] = "dispatching"
                 raw_reply = execute_text_command(
                     actor.external_user_id,
                     text,
@@ -297,10 +305,13 @@ def execute_command_via_api(
                     source="api",
                 )
             except AcquisitionLimitExceeded:
+                request.state.agent_event["stage"] = "rejected"
                 raise errors.identity_cap_reached(RESOURCE_API_MAX_HELD_PER_IDENTITY) from None
             except CommandNotAllowed:
+                request.state.agent_event["stage"] = "rejected"
                 raise errors.command_not_allowed(word) from None
             except CommandNotSupported:
+                request.state.agent_event["stage"] = "rejected"
                 raise errors.command_not_supported(word, bot_row.bot_type) from None
 
             from lockbot.backend.app.resource_api.resources import snapshot_cache
@@ -309,6 +320,15 @@ def execute_command_via_api(
             if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
                 resource_tier_gate.invalidate(actor.binding_record_id)
             reply_text = bot.adapter.extract_reply_text(raw_reply)
+            request.state.agent_event.update(
+                stage="dispatched", reply=reply_text[:2048], reply_truncated=len(reply_text) > 2048
+            )
+            request.state.agent_event["observed_state"] = observe_own_resources(
+                bot,
+                actor,
+                request.state.agent_event["requested_resources"],
+                all_owned=request.state.agent_event["all_owned_resources"],
+            )
 
             if not bot_manager.lease_is_current(lease):
                 # Defensive post-check. It detects replacement but cannot undo a mutation

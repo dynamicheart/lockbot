@@ -99,6 +99,26 @@ Do not submit unsupported commands to the personal `/commands` endpoint using an
 or imitate unsupported operations by chaining releases. Ask the administrator for the
 supported maintenance procedure. Ordinary Agent keys cannot force-release other users.
 
+## Service monitoring and operation history
+
+The management dashboard's service-wide counters are available at
+`GET /api/admin/service-traffic` using the existing **super-admin management JWT**.
+A bot-scoped OP key cannot call this endpoint. It shows aggregate request counts, source
+and endpoint-template breakdowns, latency, status groups and application HTTP body bytes.
+Counters restart with the service; minute history covers the latest hour. These are not
+host network-bandwidth measurements.
+
+Agent operation history is a private file at
+`DATA_DIR/bots/<bot_id>/agent-operations.jsonl`, with size-rotated backups. A deployment
+operator with file access can collect it for task/usage analysis. The current OP HTTP API
+supplies live snapshots, not these history files. Do not pretend a bot OP key grants host
+file access or service-wide management permissions.
+
+History attributes the verified IM user and records optional self-declared Agent/task
+text, requested targets and the redacted reply. `dispatched` is not proof that a lock
+succeeded; a failure or timeout needs a fresh resource check. Purposes remain untrusted
+text, and private history must not be copied into public issues without authorization.
+
 ## Report problems
 
 Prepare a redacted report for [Lockbot GitHub Issues](https://github.com/dynamicheart/lockbot/issues):

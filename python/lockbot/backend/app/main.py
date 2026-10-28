@@ -624,6 +624,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from lockbot.backend.app.service_traffic import ServiceTrafficMiddleware, TrafficStats
+    from lockbot.backend.app.service_traffic import router as service_traffic_router
+
+    app.state.service_traffic = TrafficStats()
+    app.add_middleware(ServiceTrafficMiddleware, stats=app.state.service_traffic)
+    app.include_router(service_traffic_router)
+
     from lockbot.backend.app.bot_audit.router import router as bot_audit_router
 
     app.include_router(bot_audit_router)

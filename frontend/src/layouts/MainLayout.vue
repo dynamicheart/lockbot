@@ -79,6 +79,10 @@
               <el-icon><DocumentChecked /></el-icon>
               <template #title>{{ $t('nav.auditLogs') }}</template>
             </el-menu-item>
+            <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/service-traffic">
+              <el-icon><Monitor /></el-icon>
+              <template #title>{{ $t('serviceTraffic.title') }}</template>
+            </el-menu-item>
             <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/settings">
               <el-icon><Tools /></el-icon>
               <template #title>{{ $t('nav.adminSettings') }}</template>
@@ -166,6 +170,10 @@
             <el-menu-item index="/admin/audit">
               <el-icon><DocumentChecked /></el-icon>
               <template #title>{{ $t('nav.auditLogs') }}</template>
+            </el-menu-item>
+            <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/service-traffic">
+              <el-icon><Monitor /></el-icon>
+              <template #title>{{ $t('serviceTraffic.title') }}</template>
             </el-menu-item>
             <el-menu-item v-if="authStore.isSuperAdmin" index="/admin/settings">
               <el-icon><Tools /></el-icon>
@@ -389,6 +397,7 @@ const breadcrumbs = computed(() => {
     '/admin/users': () => t('nav.adminUsers'),
     '/admin/bots': () => t('nav.adminBots'),
     '/admin/audit': () => t('nav.auditLogs'),
+    '/admin/service-traffic': () => t('serviceTraffic.title'),
     '/my-activity': () => t('nav.myActivity'),
   }
   if (path.match(/^\/bots\/\d+/)) {
