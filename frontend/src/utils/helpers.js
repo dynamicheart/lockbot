@@ -22,6 +22,10 @@ export function getNodeOrder(cc) {
   return Object.keys(cc)
 }
 
+export function botTypeLabel(type) {
+  return type === 'QUEUE_DEVICE' ? 'QueueDevice' : type
+}
+
 export function botTypeTagClass(type) {
   const map = {
     NODE: 'bot-type-node',

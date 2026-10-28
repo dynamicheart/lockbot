@@ -176,6 +176,8 @@ class BotDetail(BotOut):
     token_masked: str = ""
     has_api_key: bool = False
     api_key: str = ""
+    view_url: str | None = None
+    view_expires_at: datetime | None = None
 
 
 class BotStatusOut(BaseModel):

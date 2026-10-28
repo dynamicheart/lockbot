@@ -2,6 +2,8 @@
 
 QUEUE_DEVICE 用于一台机器有多张卡、需要分别排队的场景。它沿用 DEVICE 的机器和卡号配置、QUEUE 的先到先得规则。已有 NODE、DEVICE、QUEUE 机器人不会自动转换，原有命令和个人 key 的范围保持不变。
 
+界面统一显示为 `QueueDevice`，API 和数据库仍使用已发布的 `QUEUE_DEVICE` 值。
+
 ## 使用流程
 
 例如 node1 有两张卡：Alice 的开发 Agent 用 `lock node1 dev0 2h` 申请卡 0，她的测试 Agent 可用同一个个人 key 申请卡 1，并给两次请求设置不同的 Agent 名称和用途。两个任务各自记录，不会覆盖彼此。

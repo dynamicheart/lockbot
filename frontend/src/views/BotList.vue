@@ -142,6 +142,7 @@
           <el-option label="NODE" value="NODE" />
           <el-option label="DEVICE" value="DEVICE" />
           <el-option label="QUEUE" value="QUEUE" />
+          <el-option label="QueueDevice" value="QUEUE_DEVICE" />
         </el-select>
       </div>
       <div class="toolbar-right">
@@ -198,7 +199,7 @@
           <el-table-column :label="$t('botDetail.type')" width="160">
             <template #default="{ row }">
               <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
-                row.bot_type
+                botTypeLabel(row.bot_type)
               }}</el-tag>
               <el-tag size="small" type="info" effect="plain">{{ row.platform }}</el-tag>
             </template>
@@ -278,7 +279,7 @@ import api from '../utils/api'
 import BotCard from '../components/BotCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { Search } from '@element-plus/icons-vue'
-import { useHelpers, botTypeTagClass } from '../utils/helpers'
+import { useHelpers, botTypeTagClass, botTypeLabel } from '../utils/helpers'
 
 const VIEW_KEY = 'lockbot_view_mode'
 const STATS_KEY = 'lockbot_show_stats'
