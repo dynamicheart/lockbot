@@ -25,7 +25,7 @@ def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path,
     bot_type = getattr(request, "param", "NODE")
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
 
-    cluster = {"n1": ["gpu", "gpu"]} if bot_type == "DEVICE" else {"n1": "m1", "n2": "m2"}
+    cluster = {"n1": ["gpu", "gpu"]} if bot_type in {"DEVICE", "QUEUE_DEVICE"} else {"n1": "m1", "n2": "m2"}
     created = client.post(
         "/api/bots",
         headers=auth_header,

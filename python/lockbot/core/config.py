@@ -100,7 +100,7 @@ class Config:
     - Instance-level (new): config = Config(config_dict)
     """
 
-    _ALLOWED_BOT_TYPES = {"NODE", "DEVICE", "QUEUE"}
+    _ALLOWED_BOT_TYPES = {"NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"}
 
     _default_config = {key: item["default"] for key, item in _CONFIG_SCHEMA.items()}
     _default_config.update(_INTERNAL_DEFAULTS)
@@ -259,7 +259,7 @@ class Config:
                 cls._config_data["CLUSTER_CONFIGS"] = cluster_configs
             else:
                 raise ConfigValidationError("CLUSTER_CONFIGS must be either a list or a dict.")
-        elif BOT_TYPE == "DEVICE":
+        elif BOT_TYPE in {"DEVICE", "QUEUE_DEVICE"}:
             if not isinstance(cluster_configs, dict):
                 raise ConfigValidationError("CLUSTER_CONFIGS must be a dictionary.")
             for k, v in cluster_configs.items():

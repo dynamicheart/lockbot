@@ -660,7 +660,7 @@ def restore_apply(
                 if not isinstance(raw_state, dict):
                     raise ValueError("Archived state is missing its state object")
                 for node in raw_state.values():
-                    entries = node if bot_type == "DEVICE" else [node]
+                    entries = node if bot_type in {"DEVICE", "QUEUE_DEVICE"} else [node]
                     if not isinstance(entries, list) or any(not isinstance(e, dict) for e in entries):
                         raise ValueError("Archived resource state does not match bot type")
                     for entry in entries:

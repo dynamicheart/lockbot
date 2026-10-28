@@ -824,7 +824,7 @@ const parsedState = computed(() => {
     typeof bot.value.cluster_configs === 'string'
       ? JSON.parse(bot.value.cluster_configs)
       : bot.value.cluster_configs || {}
-  if (botType.value === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(botType.value)) {
     // cc is array format [{node_key, devices}] from API
     const nodeOrder = getNodeOrder(cc)
     return nodeOrder
@@ -837,6 +837,7 @@ const parsedState = computed(() => {
               devModel: d.dev_model,
               status: d.status,
               currentUsers: d.current_users || [],
+              bookings: d.booking_list || [],
             }))
           : [],
       }))
@@ -851,13 +852,26 @@ const parsedState = computed(() => {
 })
 
 const nodeResources = computed(() =>
-  (parsedState.value || []).map((row) => ({
-    id: row.nodeName,
-    alias: botConfig.value.NODE_ALIASES[row.nodeName] || '',
-    lock_status: row.status,
-    holders: row.currentUsers || [],
-    booking_list: row.bookings || [],
-  }))
+  botType.value === 'QUEUE_DEVICE'
+    ? (parsedState.value || []).flatMap((node) =>
+        node.devices.map((dev) => ({
+          id: `${node.nodeName}:dev${dev.devId}`,
+          display_name: `${node.nodeName} dev${dev.devId}`,
+          alias: [botConfig.value.NODE_ALIASES[node.nodeName], dev.devModel]
+            .filter(Boolean)
+            .join(' · '),
+          lock_status: dev.status,
+          holders: dev.currentUsers,
+          booking_list: dev.bookings,
+        }))
+      )
+    : (parsedState.value || []).map((row) => ({
+        id: row.nodeName,
+        alias: botConfig.value.NODE_ALIASES[row.nodeName] || '',
+        lock_status: row.status,
+        holders: row.currentUsers || [],
+        booking_list: row.bookings || [],
+      }))
 )
 
 // --- JSON syntax highlighting ---
@@ -997,7 +1011,7 @@ const currentUtilization = computed(() => {
   const data = stateData.value
   let total = 0,
     inUse = 0
-  if (botType.value === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(botType.value)) {
     for (const devices of Object.values(data)) {
       if (Array.isArray(devices)) {
         for (const d of devices) {

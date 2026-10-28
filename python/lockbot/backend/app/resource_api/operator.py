@@ -72,9 +72,14 @@ def operator_resources(
                     caller_id="",
                 )
             )
-            for resource in resources:
-                for key in ("caller_queue_position", "caller_is_queue_head", "claimable_by_you", "claim_command"):
-                    resource.pop(key, None)
+
+            def strip_caller(items):
+                for resource in items:
+                    for key in ("caller_queue_position", "caller_is_queue_head", "claimable_by_you", "claim_command"):
+                        resource.pop(key, None)
+                    strip_caller(resource.get("devices", []))
+
+            strip_caller(resources)
             attach_declarations(resources, declarations)
             return {
                 "bot_id": bot.id,
@@ -93,7 +98,8 @@ def operator_resources(
                     "next_offset": usage_offset + usage_limit if has_more else None,
                 },
                 "usage_complete": usage_offset == 0 and not has_more,
-                "supported_op_operations": ["opkick"] + (["kicklock"] if bot.bot_type == "QUEUE" else []),
+                "supported_op_operations": ["opkick"]
+                + (["kicklock"] if bot.bot_type in {"QUEUE", "QUEUE_DEVICE"} else []),
             }
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
@@ -102,7 +108,11 @@ def operator_resources(
 class KicklockRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     node_keys: list[str] = Field(
-        min_length=1, max_length=100, description="Explicit QUEUE resource IDs; no all-resource default."
+        min_length=1,
+        max_length=100,
+        description=(
+            "Explicit QUEUE node IDs or QUEUE_DEVICE card resource IDs (node1:dev0); no all-resource default."
+        ),
     )
     reason: str = Field(
         min_length=1, max_length=512, description="Reason shown to affected users and in the audit log."
@@ -144,7 +154,7 @@ def operator_kicklock(bot_id: int, request: Request, body: KicklockRequest, db: 
     try:
         with bot_manager.admit(bot_id) as lease:
             bot = _require_operator(db, request, bot_id, fresh=True)
-            if bot.bot_type != "QUEUE":
+            if bot.bot_type not in {"QUEUE", "QUEUE_DEVICE"}:
                 raise errors.command_not_supported("kicklock", bot.bot_type)
             try:
                 result = lease.bot.do_kicklock(body.node_keys, reason=body.reason)

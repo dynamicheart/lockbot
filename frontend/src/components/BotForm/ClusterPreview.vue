@@ -36,7 +36,7 @@ const mockState = computed(() => {
   const cc = props.clusterConfigs
   if (!cc) return null
 
-  if (props.botType === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(props.botType)) {
     // Array format: [{node_key, devices}]
     if (!isDeviceArrayFormat(cc)) return null
     const entries = cc.filter((item) => Array.isArray(item.devices) && item.devices.length)

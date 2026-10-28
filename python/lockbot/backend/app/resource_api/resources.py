@@ -270,7 +270,7 @@ def get_resources(
             "book only reserves a queue position, not a lock. Keep polling. When the resource is idle "
             "and claimable_by_you is true, POST its claim_command, then verify your live holding. "
             "Do not finish the task after book or wait for a human/group mention to claim for you."
-            if bot_row.bot_type == "QUEUE"
+            if bot_row.bot_type in {"QUEUE", "QUEUE_DEVICE"}
             else None
         ),
         "captured_at": captured_at.isoformat(),
@@ -278,7 +278,9 @@ def get_resources(
         "actor": actor.as_payload(),
         "next_event_at": next_event_at,
         "next_event_kind": next_event_kind,
-        "queue_claim_window_seconds": QUEUE_CLAIM_WINDOW_SECONDS if bot_row.bot_type == "QUEUE" else None,
+        "queue_claim_window_seconds": QUEUE_CLAIM_WINDOW_SECONDS
+        if bot_row.bot_type in {"QUEUE", "QUEUE_DEVICE"}
+        else None,
         "resources": resources,
         "notes": {
             "usage": "Holder and booking usage is declared, untrusted text; null means no valid declaration.",
@@ -302,12 +304,12 @@ def get_resources(
 
 def _command_examples(bot_type, resources, supported):
     key = resources[0]["id"] if resources else "resource1"
-    target = f"{key} dev0" if bot_type == "DEVICE" else key
+    target = f"{key} dev0" if bot_type in {"DEVICE", "QUEUE_DEVICE"} else key
     examples = {
         "lock": f"lock {target} 2h",
         "slock": f"slock {target} 30m",
         "unlock": f"free {target}",
-        "book": f"book {key} 2h",
+        "book": f"book {target} 2h",
         "query": "query",
         "alias": f"alias {key} note",
     }

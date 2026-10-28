@@ -68,9 +68,24 @@ class UsageInput(BaseModel):
         return value
 
 
+def _resource_node(state, resource_id):
+    if resource_id in state:
+        return state[resource_id]
+    node_key, marker, card = resource_id.rpartition(":dev")
+    if (
+        marker
+        and card.isascii()
+        and card.isdecimal()
+        and str(int(card)) == card
+        and isinstance(state.get(node_key), list)
+    ):
+        return next((entry for entry in state[node_key] if entry.get("dev_id") == int(card)), None)
+    return None
+
+
 def holding_proof(state, resource_id, user_id, *, now=None):
     """Tie a declaration to one actual hold/booking, not a reusable node alias."""
-    node = state.get(resource_id)
+    node = _resource_node(state, resource_id)
     if node is None:
         return None
     entries = [node] if isinstance(node, dict) else node
@@ -149,10 +164,11 @@ def attach_declarations(resources, declarations):
     by_owner = {(item["resource_id"], item["actor"]["external_user_id"]): item for item in declarations}
     for resource in resources:
         entries = list(resource["holders"]) + list(resource.get("booking_list", []))
-        for device in resource.get("devices", []):
-            entries.extend(device["holders"])
         for entry in entries:
             entry["usage"] = by_owner.get((resource["id"], entry["external_user_id"]))
+        for device in resource.get("devices", []):
+            for entry in list(device["holders"]) + list(device.get("booking_list", [])):
+                entry["usage"] = by_owner.get((device.get("resource_id", resource["id"]), entry["external_user_id"]))
 
 
 def store_declaration(db, *, bot_id, binding_id, resource_id, purpose, agent_label, proof, now, ttl_seconds):
@@ -184,7 +200,7 @@ def prepare_command_usage(bot, actor, word, text):
     if not parsed[0]:
         return None
     _, state = bot.state_snapshot()
-    return {resource: state[resource] for resource in parsed[2]}
+    return {resource: _resource_node(state, resource) for resource in parsed[2]}
 
 
 def _own_entries(node, user):
@@ -210,7 +226,7 @@ def register_command_usage(db, bot, actor, before, *, agent_label=None, purpose=
     now = datetime.utcnow()
     changed = False
     for resource_id, old_node in before.items():
-        node = state.get(resource_id)
+        node = _resource_node(state, resource_id)
         if node is None or _own_entries(old_node, actor.external_user_id) == _own_entries(node, actor.external_user_id):
             continue
         proof = holding_proof(state, resource_id, actor.external_user_id, now=captured_at.timestamp())
@@ -293,7 +309,10 @@ def put_usage(
         ):
             if not reverify_actor(db, request, actor):
                 raise errors.credential_invalid()
-            proof = holding_proof(lease.bot.state_snapshot()[1], resource_id, actor.external_user_id)
+            state = lease.bot.state_snapshot()[1]
+            if resource_id not in state and lease.bot.config.get_val("BOT_TYPE") != "QUEUE_DEVICE":
+                raise HTTPException(409, detail="A current holding or booking is required")
+            proof = holding_proof(state, resource_id, actor.external_user_id)
             if proof is None:
                 raise HTTPException(409, detail="A current holding or booking is required")
             now = datetime.utcnow()
