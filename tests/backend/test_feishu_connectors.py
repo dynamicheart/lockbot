@@ -86,3 +86,55 @@ def test_manager_reuses_one_connection_per_application(monkeypatch):
     manager.connect(2)
     manager.stop()
     assert counts == [("start", 1), ("start", 2), ("stop", 1), ("stop", 2)]
+
+
+def test_pinned_sdk_event_model_roundtrips_through_private_pipe(monkeypatch):
+    import io
+    import sys
+    import time
+
+    import pytest
+
+    lark = pytest.importorskip("lark_oapi")
+    from lockbot.backend.app.feishu.ws_process import main
+
+    event = {
+        "schema": "2.0",
+        "header": {
+            "app_id": "cli_test",
+            "tenant_key": "tenant",
+            "event_id": "test-event",
+            "event_type": "im.message.receive_v1",
+            "create_time": str(int(time.time() * 1000)),
+        },
+        "event": {
+            "sender": {"sender_type": "user", "tenant_key": "tenant", "sender_id": {"open_id": "ou_alice"}},
+            "message": {
+                "message_id": "om_test",
+                "create_time": str(int(time.time() * 1000)),
+                "chat_type": "group",
+                "chat_id": "oc_group",
+                "message_type": "text",
+                "content": '{"text":"query"}',
+            },
+        },
+    }
+    channel = io.StringIO()
+    config = json.dumps({"app_id": "cli_test", "app_secret": "test-only-secret"})
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO((config + '\n{"ack":true}\n').encode())))
+    monkeypatch.setattr(sys, "stdout", channel)
+    monkeypatch.setattr(sys, "stderr", io.StringIO())
+
+    class Client:
+        def __init__(self, app_id, app_secret, event_handler, log_level):
+            self.handler = event_handler
+
+        def start(self):
+            self.handler.do_without_validation(json.dumps(event).encode())
+
+    monkeypatch.setattr(lark.ws, "Client", Client)
+    main()
+    frame = json.loads(channel.getvalue())
+    assert frame["event"]["header"]["app_id"] == "cli_test"
+    assert frame["event"]["event"]["message"]["chat_id"] == "oc_group"
+    assert "test-only-secret" not in channel.getvalue()

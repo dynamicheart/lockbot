@@ -50,7 +50,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: pip install -e ".[dev]"
+      - run: pip install -e ".[dev,feishu]"
       # Keep each file in one worker to preserve module fixture isolation.
       - run: python -m pytest -n auto --maxprocesses=4 --dist=loadfile -v
 
