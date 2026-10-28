@@ -10,20 +10,32 @@
       <el-row v-show="showPlatformStats" :gutter="16" class="platform-stats-row">
         <el-col :xs="8" :sm="6">
           <div class="platform-stat-card">
-            <div class="platform-stat-value">{{ platformStats.total_users }}</div>
-            <div class="platform-stat-label">{{ $t('botList.platformUsers') }}</div>
+            <div class="platform-stat-value">
+              {{ platformStats.total_users }}
+            </div>
+            <div class="platform-stat-label">
+              {{ $t('botList.platformUsers') }}
+            </div>
           </div>
         </el-col>
         <el-col :xs="8" :sm="6">
           <div class="platform-stat-card">
-            <div class="platform-stat-value">{{ platformStats.total_bots }}</div>
-            <div class="platform-stat-label">{{ $t('botList.platformBots') }}</div>
+            <div class="platform-stat-value">
+              {{ platformStats.total_bots }}
+            </div>
+            <div class="platform-stat-label">
+              {{ $t('botList.platformBots') }}
+            </div>
           </div>
         </el-col>
         <el-col :xs="8" :sm="6">
           <div class="platform-stat-card">
-            <div class="platform-stat-value success">{{ platformStats.running_bots }}</div>
-            <div class="platform-stat-label">{{ $t('botList.platformRunning') }}</div>
+            <div class="platform-stat-value success">
+              {{ platformStats.running_bots }}
+            </div>
+            <div class="platform-stat-label">
+              {{ $t('botList.platformRunning') }}
+            </div>
           </div>
         </el-col>
         <el-col :xs="24" :sm="6">
@@ -46,6 +58,25 @@
         </el-col>
       </el-row>
     </el-collapse-transition>
+
+    <h3 class="agent-stats-heading" :title="$t('agentActivity.summaryHelp')">
+      {{ $t('agentActivity.platformStatistics') }}
+    </h3>
+    <el-row :gutter="16" class="platform-stats-row">
+      <el-col
+        v-for="metric in ['agent_authorizations', 'agent_usage_registrations']"
+        :key="metric"
+        :xs="12"
+        :sm="12"
+      >
+        <div class="platform-stat-card">
+          <div class="platform-stat-value">
+            {{ platformStats[metric] ?? '—' }}
+          </div>
+          <div class="platform-stat-label">{{ $t(`botList.${metric}`) }}</div>
+        </div>
+      </el-col>
+    </el-row>
 
     <!-- Stats panel (toggleable) -->
     <div class="stats-toggle" @click="showStats = !showStats">
@@ -338,6 +369,12 @@ function getUsageText(row) {
 </script>
 
 <style scoped>
+.agent-stats-heading {
+  margin: 16px 0 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--lb-text-regular);
+}
 .platform-stats-row {
   margin-bottom: 20px;
 }

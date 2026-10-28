@@ -30,7 +30,10 @@
     >
       <template #default>
         {{
-          $t('audit.securityAlertDesc', { count: failedLoginCount, ips: failedLoginIps.join(', ') })
+          $t('audit.securityAlertDesc', {
+            count: failedLoginCount,
+            ips: failedLoginIps.join(', '),
+          })
         }}
       </template>
     </el-alert>
@@ -128,7 +131,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="$t('audit.action')" width="150">
+        <el-table-column :label="$t('audit.action')" min-width="170">
           <template #default="{ row }">
             <span
               v-if="actionTagType(row.action) === 'danger'"
@@ -144,7 +147,7 @@
           <template #default="{ row }">
             <span v-if="row.target_name">
               <span style="font-size: 11px; color: var(--lb-text-muted); margin-right: 4px">
-                [{{ row.target_type }}]
+                [{{ tm('audit.targetTypes')?.[row.target_type] || row.target_type }}]
               </span>
               <router-link
                 v-if="row.target_type === 'bot' && row.target_id"
@@ -167,6 +170,9 @@
             <el-tag v-if="row.result === 'failure'" type="danger" size="small">
               {{ $t('audit.failure') }}
             </el-tag>
+            <el-tag v-else-if="row.result === 'dispatched'" type="info" size="small">{{
+              $t('audit.dispatched')
+            }}</el-tag>
             <span v-else style="color: var(--lb-text-secondary); font-size: 13px">✓</span>
           </template>
         </el-table-column>
@@ -236,12 +242,13 @@ import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled, User, Document } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import api from '../../utils/api'
+import { formatAuditDetail } from '../../utils/auditDisplay'
 
 const props = defineProps({
   userMode: { type: Boolean, default: false },
 })
 
-const { tm } = useI18n()
+const { tm, locale } = useI18n()
 const authStore = useAuthStore()
 
 const loading = ref(false)
@@ -320,12 +327,16 @@ function formatTime(iso) {
   if (typeof iso === 'string' && !iso.endsWith('Z') && !iso.includes('+')) {
     iso = iso + 'Z'
   }
-  return new Date(iso).toLocaleString()
+  return new Date(iso).toLocaleString(locale.value)
 }
 
 function formatDetail(detail) {
-  if (typeof detail === 'object') return JSON.stringify(detail, null, 2)
-  return detail
+  return formatAuditDetail(detail, {
+    fields: tm('audit.detailFields'),
+    sources: tm('audit.sources'),
+    booleans: tm('audit.booleanValues'),
+    dispatchedNote: tm('audit.dispatchedNote'),
+  })
 }
 
 function translateRole(role) {

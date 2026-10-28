@@ -1,4 +1,5 @@
 import { ElMessage } from 'element-plus'
+import { maskSecret } from './secretDisplay'
 import { useI18n } from 'vue-i18n'
 
 /**
@@ -22,7 +23,11 @@ export function getNodeOrder(cc) {
 }
 
 export function botTypeTagClass(type) {
-  const map = { NODE: 'bot-type-node', DEVICE: 'bot-type-device', QUEUE: 'bot-type-queue' }
+  const map = {
+    NODE: 'bot-type-node',
+    DEVICE: 'bot-type-device',
+    QUEUE: 'bot-type-queue',
+  }
   return map[type] || 'bot-type-default'
 }
 
@@ -107,11 +112,7 @@ export function useHelpers() {
     return formatDate(d)
   }
 
-  function maskText(text) {
-    if (!text) return '-'
-    if (text.length <= 4) return '****'
-    return '*'.repeat(text.length - 4) + text.slice(-4)
-  }
+  const maskText = maskSecret
 
   function copyText(text, successMsg) {
     if (!text) return

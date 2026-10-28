@@ -2,6 +2,7 @@
 
 import re
 import time
+from contextlib import suppress
 
 from lockbot.core.i18n import t
 from lockbot.core.io import (
@@ -28,7 +29,7 @@ class QueueBot(NodeBot):
     def supported_commands(self):
         return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query", "alias"]
 
-    def lock(self, user_id, command):
+    def lock(self, user_id, command, *, acquisition_limit=None):
         """
         Lock nodes
         """
@@ -40,6 +41,7 @@ class QueueBot(NodeBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._lock:
+            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(
                 (
@@ -114,7 +116,11 @@ class QueueBot(NodeBot):
 
             content = self._msg_with_usage("success.resource_locked")
             if len(users_to_notify) > 1:
-                content += t("notify.wait_time_increased", config=self.config)
+                notice = t("notify.wait_time_increased", config=self.config)
+                if isinstance(content, list):
+                    content.append(notice)
+                else:
+                    content += notice
             reply = self.adapter.build_reply(content, list(users_to_notify))
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
@@ -123,7 +129,7 @@ class QueueBot(NodeBot):
     def slock(self, user_id, command):
         return self.show_error(user_id, t("error.slock_not_supported", config=self.config))
 
-    def book(self, user_id, command):
+    def book(self, user_id, command, *, acquisition_limit=None):
         """
         book nodes
         """
@@ -134,6 +140,7 @@ class QueueBot(NodeBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._lock:
+            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if any(
                 find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
@@ -240,20 +247,50 @@ class QueueBot(NodeBot):
             return error_reply
 
         with self._lock:
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             users = set([user_id])
             content = t("success.kicklock_cleared", config=self.config, user_id=user_id)
             content += self._msg_with_usage("label.before_release")
-            for node in nodes:
-                for user_info in node["current_users"]:
-                    users.add(user_info["user_id"])
-                node["status"] = "idle"
-                node["current_users"] = []
+            result = self._clear_current_locks(node_keys)
+            users.update(result["affected_users"])
             content += self._msg_with_usage("label.after_release")
             reply = self.adapter.build_reply(content, list(users))
             log_to_file(user_id, "kicklock", node_keys, config=self.config)
             self._save_and_notify()
             return reply
+
+    def _clear_current_locks(self, node_keys):
+        """Caller holds the state lock; bookings are deliberately untouched."""
+        missing = [key for key in node_keys if key not in self.state.bot_state]
+        if missing:
+            raise ValueError("Unknown resources: " + ", ".join(missing))
+        freed, users = [], set()
+        for key in node_keys:
+            node = self.state.bot_state[key]
+            if node["current_users"]:
+                freed.append(key)
+                users.update(user["user_id"] for user in node["current_users"])
+            node["status"] = "idle"
+            node["current_users"] = []
+        return {"ok": True, "freed": freed, "affected_users": sorted(users)}
+
+    def do_kicklock(self, node_keys, reason=""):
+        """OP resource release with native kicklock semantics, preserving the whole queue."""
+        notify_reply = None
+        with self._lock:
+            result = self._clear_current_locks(node_keys)
+            if result["freed"]:
+                text = t("opkick.notify_kicked", config=self.config, node_key="\n  ".join(result["freed"]))
+                if reason:
+                    text += t("opkick.notify_kicked_reason", config=self.config, reason=reason)
+                with suppress(Exception):
+                    notify_reply = self.adapter.build_reply(text, result["affected_users"])
+            log_to_file("api", "kicklock", node_keys, config=self.config)
+            self._save_and_notify()
+        # Slow delivery must not hold the shared resource-state lock.
+        if notify_reply is not None:
+            with suppress(Exception):
+                self.adapter.send(notify_reply)
+        return result
 
     def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
         """API-driven operator kick for QueueBot: only releases current_users, preserves booking_list."""
@@ -283,19 +320,24 @@ class QueueBot(NodeBot):
             if not freed:
                 raise ValueError(f"User {target_user} has no active locks")
 
-            # Notify kicked user
+            # Build the notification under the lock; send it after releasing the lock so a slow
+            # or retrying adapter cannot block the non-reentrant state lock or the expiry sweep.
+            notify_reply = None
             try:
                 notify_msg = t("opkick.notify_kicked", config=self.config, node_key="\n  ".join(freed))
                 if reason:
                     notify_msg += t("opkick.notify_kicked_reason", config=self.config, reason=reason)
                 notify_reply = self.adapter.build_reply(notify_msg, [target_user])
-                self.adapter.send(notify_reply)
             except Exception:
-                pass
+                notify_reply = None
 
             log_to_file("api", "opkick", freed, config=self.config)
             self._save_and_notify()
-            return {"ok": True, "freed": freed}
+
+        if notify_reply is not None:
+            with suppress(Exception):
+                self.adapter.send(notify_reply)
+        return {"ok": True, "freed": freed}
 
     def _help_header(self):
         parts = []

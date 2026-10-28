@@ -8,8 +8,9 @@ so multiple bots can coexist in a single process.
 
 import logging
 
-from lockbot.core.handler import execute_command
-from lockbot.core.platforms.infoflow import InfoflowAdapter
+from lockbot.core.handler import execute_command, redact_command_text
+from lockbot.core.message_adapter import MessageAdapter
+from lockbot.core.platforms.registry import create_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,9 @@ def handle_webhook(bot, raw_form: dict, raw_args: dict, raw_body: bytes | None) 
         Tuple of (response_text, status_code, meta).
         meta contains: user_id, command, group_id (if available).
     """
-    adapter = getattr(bot, "adapter", InfoflowAdapter(config=bot.config))
+    adapter = getattr(bot, "adapter", None)
+    if not isinstance(adapter, MessageAdapter):
+        adapter = create_adapter(bot.config.get_val("PLATFORM", None), config=bot.config)
     meta = {}
 
     # URL verification request (echostr present in form data)
@@ -49,22 +52,30 @@ def handle_webhook(bot, raw_form: dict, raw_args: dict, raw_body: bytes | None) 
         return "decrypt failed", 400, {"event": "decrypt_failed"}
 
     # Extract command info for logging
+    group_id = None
     try:
         user_id, group_id, command_text = adapter.extract_command(msg_data)
         meta = {"user_id": user_id, "group_id": group_id, "command": command_text}
     except Exception:
         meta = {"event": "parse_error"}
 
-    logger.debug("Webhook message for bot %s: %s", bot.config.get_val("BOT_NAME"), msg_data)
+    # Log only the (redacted) command, never the decrypted payload: the body can carry a
+    # bind code and other sensitive content that must not reach DEBUG output.
+    logger.debug(
+        "Webhook command for bot %s: %s",
+        bot.config.get_val("BOT_NAME"),
+        redact_command_text(meta.get("command", "<unparsed>")),
+    )
+
+    allowed_groups = bot.config.get_val("_AUTHORIZED_GROUP_IDS", [])
+    if allowed_groups and str(group_id) not in allowed_groups:
+        return "conversation not authorized", 403, {"event": "scope_refused"}
 
     # Execute command
     reply = execute_command(msg_data, bot)
 
-    # Set reply target (group id)
-    toid = msg_data["message"]["header"].get("toid")
-    if toid:
-        reply["message"]["header"]["toid"] = toid
-
-    # Send reply via per-bot adapter
+    # Send the reply back to the conversation the message came from. Retargeting goes
+    # through the adapter so this path carries no platform-specific message layout.
+    adapter.apply_reply_target(reply, group_id)
     adapter.send(reply)
     return "command succeed", 200, meta

@@ -7,7 +7,6 @@ import sys
 import tempfile
 import zipfile
 from io import BytesIO
-from unittest.mock import patch
 
 import pytest
 from lockbot.backend.app.bots.encryption import decrypt, encrypt
@@ -53,7 +52,7 @@ def super_admin_header(client):
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-def _build_backup_zip(bot_uuid="bot-uuid-1", bot_name="restored-bot", state_data=None, bot_id=1):
+def _build_backup_zip(bot_uuid="bot-uuid-1", bot_name="restored-bot", state_data=None, bot_id=1, agent_options=None):
     """Build a minimal backup zip with one bot.
 
     Args:
@@ -75,6 +74,10 @@ def _build_backup_zip(bot_uuid="bot-uuid-1", bot_name="restored-bot", state_data
             "INSERT INTO bots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (bot_id, bot_uuid, bot_name, "NODE", "Infoflow", "g1", "bad", "bad", "bad", '["node1"]', "{}", 0),
         )
+        for key, value in (agent_options or {}).items():
+            assert key in {"resource_auth_enabled", "resource_api_notify_enabled"}
+            conn.execute(f"ALTER TABLE bots ADD COLUMN {key} BOOLEAN")
+            conn.execute(f"UPDATE bots SET {key} = ?", (value,))
         conn.commit()
         conn.close()
         with open(f.name, "rb") as db_file:
@@ -208,15 +211,14 @@ class TestRestoreApplyFunction:
             admin = session.query(User).filter(User.username == "adminuser").first()
             admin_id = admin.id
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            result = restore_apply(
-                file_bytes=zip_bytes,
-                password=None,
-                source_secret_key=None,
-                selected_uuids=[bot_uuid],
-                current_user_id=admin_id,
-                db=db_session,
-            )
+        result = restore_apply(
+            file_bytes=zip_bytes,
+            password=None,
+            source_secret_key=None,
+            selected_uuids=[bot_uuid],
+            current_user_id=admin_id,
+            db=db_session,
+        )
 
         assert result["created"] == 1
         assert result["overwritten"] == 0
@@ -252,7 +254,7 @@ class TestRestoreApplyFunction:
         existing_id = resp.json()["id"]
 
         # Build a backup zip containing the same uuid but different name/configs
-        zip_bytes = _build_backup_zip(bot_uuid=existing_uuid, bot_name="overwritten-bot")
+        zip_bytes = _build_backup_zip(bot_uuid=existing_uuid, bot_name="overwritten-bot", state_data={"bot_state": {}})
 
         _TestSession = _get_test_session()
         with _TestSession() as session:
@@ -261,15 +263,14 @@ class TestRestoreApplyFunction:
             admin = session.query(User).filter(User.username == "adminuser").first()
             admin_id = admin.id
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            result = restore_apply(
-                file_bytes=zip_bytes,
-                password=None,
-                source_secret_key=None,
-                selected_uuids=[existing_uuid],
-                current_user_id=admin_id,
-                db=db_session,
-            )
+        result = restore_apply(
+            file_bytes=zip_bytes,
+            password=None,
+            source_secret_key=None,
+            selected_uuids=[existing_uuid],
+            current_user_id=admin_id,
+            db=db_session,
+        )
 
         assert result["created"] == 0
         assert result["overwritten"] == 1
@@ -298,15 +299,14 @@ class TestRestoreApplyFunction:
             admin = session.query(User).filter(User.username == "adminuser").first()
             admin_id = admin.id
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            result = restore_apply(
-                file_bytes=zip_bytes,
-                password=None,
-                source_secret_key=None,
-                selected_uuids=[bot_uuid],
-                current_user_id=admin_id,
-                db=db_session,
-            )
+        result = restore_apply(
+            file_bytes=zip_bytes,
+            password=None,
+            source_secret_key=None,
+            selected_uuids=[bot_uuid],
+            current_user_id=admin_id,
+            db=db_session,
+        )
 
         assert result["created"] == 1
 
@@ -339,15 +339,14 @@ class TestRestoreApplyFunction:
             admin = session.query(User).filter(User.username == "adminuser").first()
             admin_id = admin.id
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            result = restore_apply(
-                file_bytes=zip_bytes,
-                password=None,
-                source_secret_key=None,
-                selected_uuids=[bot_uuid],
-                current_user_id=admin_id,
-                db=db_session,
-            )
+        result = restore_apply(
+            file_bytes=zip_bytes,
+            password=None,
+            source_secret_key=None,
+            selected_uuids=[bot_uuid],
+            current_user_id=admin_id,
+            db=db_session,
+        )
 
         assert result["created"] == 1
         assert result["errors"] == []
@@ -372,15 +371,14 @@ class TestRestoreApplyFunction:
             admin = session.query(User).filter(User.username == "adminuser").first()
             admin_id = admin.id
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            result = restore_apply(
-                file_bytes=zip_bytes,
-                password=None,
-                source_secret_key=None,
-                selected_uuids=["some-other-uuid"],  # does not match
-                current_user_id=admin_id,
-                db=db_session,
-            )
+        result = restore_apply(
+            file_bytes=zip_bytes,
+            password=None,
+            source_secret_key=None,
+            selected_uuids=["some-other-uuid"],  # does not match
+            current_user_id=admin_id,
+            db=db_session,
+        )
 
         assert result["created"] == 0
         assert result["overwritten"] == 0
@@ -448,15 +446,14 @@ class TestRestoreApplyFunction:
             admin = session.query(User).filter(User.username == "adminuser").first()
             admin_id = admin.id
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            result = restore_apply(
-                file_bytes=zip_bytes,
-                password=None,
-                source_secret_key=source_key,
-                selected_uuids=[bot_uuid],
-                current_user_id=admin_id,
-                db=db_session,
-            )
+        result = restore_apply(
+            file_bytes=zip_bytes,
+            password=None,
+            source_secret_key=source_key,
+            selected_uuids=[bot_uuid],
+            current_user_id=admin_id,
+            db=db_session,
+        )
 
         assert result["created"] == 1
         assert result["errors"] == []
@@ -480,13 +477,12 @@ class TestRestoreApplyEndpoint:
         bot_uuid = "endpoint-create-uuid"
         zip_bytes = _build_backup_zip(bot_uuid=bot_uuid, bot_name="endpoint-bot")
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            resp = client.post(
-                "/api/admin/backup/restore/apply",
-                files={"file": ("backup.zip", zip_bytes, "application/zip")},
-                data={"selected_uuids": json.dumps([bot_uuid])},
-                headers=super_admin_header,
-            )
+        resp = client.post(
+            "/api/admin/backup/restore/apply",
+            files={"file": ("backup.zip", zip_bytes, "application/zip")},
+            data={"selected_uuids": json.dumps([bot_uuid])},
+            headers=super_admin_header,
+        )
 
         assert resp.status_code == 200
         result = resp.json()
@@ -511,15 +507,14 @@ class TestRestoreApplyEndpoint:
         )
         existing_uuid = create_resp.json()["uuid"]
 
-        zip_bytes = _build_backup_zip(bot_uuid=existing_uuid, bot_name="overwritten-name")
+        zip_bytes = _build_backup_zip(bot_uuid=existing_uuid, bot_name="overwritten-name", state_data={"bot_state": {}})
 
-        with patch("lockbot.backend.app.backup.service.DATA_DIR", str(tmp_path)):
-            resp = client.post(
-                "/api/admin/backup/restore/apply",
-                files={"file": ("backup.zip", zip_bytes, "application/zip")},
-                data={"selected_uuids": json.dumps([existing_uuid])},
-                headers=super_admin_header,
-            )
+        resp = client.post(
+            "/api/admin/backup/restore/apply",
+            files={"file": ("backup.zip", zip_bytes, "application/zip")},
+            data={"selected_uuids": json.dumps([existing_uuid])},
+            headers=super_admin_header,
+        )
 
         assert resp.status_code == 200
         result = resp.json()
@@ -557,3 +552,71 @@ class TestRestoreApplyEndpoint:
             headers=super_admin_header,
         )
         assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+@pytest.mark.parametrize(
+    "options",
+    [
+        None,
+        {"resource_auth_enabled": 0, "resource_api_notify_enabled": 0},
+        {"resource_auth_enabled": 1, "resource_api_notify_enabled": 0},
+        {"resource_auth_enabled": 0, "resource_api_notify_enabled": 1},
+    ],
+)
+def test_restore_preserves_agent_access_and_notification_preferences(
+    client, auth_header, db_session, overwrite, options
+):
+    from lockbot.backend.app.auth.models import User
+    from lockbot.backend.app.backup.service import restore_apply
+
+    owner = db_session.query(User).filter_by(username="testuser").one()
+    uuid = "agent-preferences-archive"
+    if overwrite:
+        response = client.post(
+            "/api/bots",
+            headers=auth_header,
+            json={
+                "name": "preferences",
+                "bot_type": "NODE",
+                "webhook_url": "https://example.invalid/hook",
+                "cluster_configs": ["n1"],
+                "resource_auth_enabled": False,
+                "resource_api_notify_enabled": False,
+            },
+        )
+        assert response.status_code == 201
+        uuid = response.json()["uuid"]
+    archive = _build_backup_zip(bot_uuid=uuid, state_data={"bot_state": {}}, agent_options=options)
+    result = restore_apply(
+        file_bytes=archive,
+        password=None,
+        source_secret_key=None,
+        selected_uuids=[uuid],
+        current_user_id=owner.id,
+        db=db_session,
+    )
+    assert result["restored"] == 1 and result["errors"] == []
+    db_session.expire_all()
+    restored = db_session.query(Bot).filter_by(uuid=uuid).one()
+    expected = options or {"resource_auth_enabled": not overwrite, "resource_api_notify_enabled": not overwrite}
+    assert restored.resource_auth_enabled is bool(expected["resource_auth_enabled"])
+    assert restored.resource_api_notify_enabled is bool(expected["resource_api_notify_enabled"])
+
+
+def test_restore_rejects_corrupted_agent_setting_without_creating_a_bot(client, auth_header, db_session):
+    from lockbot.backend.app.auth.models import User
+    from lockbot.backend.app.backup.service import restore_apply
+
+    owner = db_session.query(User).filter_by(username="testuser").one()
+    archive = _build_backup_zip(bot_uuid="invalid-agent-settings", agent_options={"resource_api_notify_enabled": 7})
+    result = restore_apply(
+        file_bytes=archive,
+        password=None,
+        source_secret_key=None,
+        selected_uuids=["invalid-agent-settings"],
+        current_user_id=owner.id,
+        db=db_session,
+    )
+    assert result["restored"] == 0 and len(result["errors"]) == 1
+    assert db_session.query(Bot).filter_by(uuid="invalid-agent-settings").count() == 0

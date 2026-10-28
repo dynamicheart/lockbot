@@ -8,7 +8,7 @@
     </div>
 
     <el-alert
-      v-if="isEdit && bot?.status === 'running'"
+      v-if="isEdit && bot?.status === 'running' && configChanged"
       :title="$t('botDetail.saveWillRestart')"
       type="warning"
       :closable="false"
@@ -150,7 +150,37 @@
         </el-form-item>
       </div>
 
-      <el-divider />
+      <section class="agent-settings" :aria-label="$t('botDetail.agentGroup')">
+        <div class="agent-settings-title">{{ $t('botDetail.agentGroup') }}</div>
+        <div class="agent-setting-row">
+          <label class="agent-setting-label" for="agent-access">
+            {{ $t('botDetail.agentAccess') }}
+            <el-tooltip :content="$t('botDetail.agentAccessHelp')" placement="top">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </label>
+          <el-switch
+            id="agent-access"
+            v-model="agentAccess"
+            :disabled="isEdit && !bot"
+            :aria-label="$t('botDetail.agentAccess')"
+          />
+        </div>
+        <div class="agent-setting-row agent-notify-row" :class="{ 'is-disabled': !agentAccess }">
+          <label class="agent-setting-label" for="agent-notify">
+            {{ $t('botDetail.agentNotify') }}
+            <el-tooltip :content="$t('botDetail.agentNotifyHelp')" placement="top">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </label>
+          <el-switch
+            id="agent-notify"
+            v-model="agentNotify"
+            :disabled="!agentAccess || (isEdit && !bot)"
+            :aria-label="$t('botDetail.agentNotify')"
+          />
+        </div>
+      </section>
 
       <!-- Advanced Config -->
       <el-collapse>
@@ -352,7 +382,12 @@
       <!-- Actions -->
       <div class="form-actions">
         <el-button @click="$router.back()">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSubmit">
+        <el-button
+          type="primary"
+          :loading="saving"
+          :disabled="isEdit && !bot"
+          @click="handleSubmit"
+        >
           {{ isEdit ? $t('common.save') : $t('common.create') }}
         </el-button>
       </div>
@@ -361,12 +396,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
+import { changedConfig } from '../utils/botSave'
 import { useBotsStore } from '../stores/bots'
 import NodeBotForm from '../components/BotForm/NodeBotForm.vue'
 import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
@@ -384,6 +420,9 @@ const deviceFormRef = ref()
 const saving = ref(false)
 const clusterHasError = ref(false)
 const bot = ref(null)
+const agentAccess = ref(true)
+const agentNotify = ref(true)
+const editBaseline = ref(null)
 const maskedAesKey = ref('')
 
 watch(locale, () => {
@@ -450,6 +489,8 @@ onMounted(async () => {
   if (isEdit.value) {
     try {
       bot.value = await botsStore.getBot(route.params.id)
+      agentAccess.value = bot.value.resource_auth_enabled === true
+      agentNotify.value = bot.value.resource_api_notify_enabled !== false
       form.name = bot.value.name
       form.bot_type = bot.value.bot_type
       form.platform = bot.value.platform
@@ -495,12 +536,30 @@ onMounted(async () => {
         if (form.bot_type === 'DEVICE') deviceClusterConfig.value = {}
         else nodeClusterConfig.value = {}
       }
+      await nextTick()
+      editBaseline.value = JSON.parse(JSON.stringify(configPayload()))
     } catch {
       ElMessage.error(t('botForm.notFound'))
       router.replace('/bots')
     }
   }
 })
+
+function configPayload() {
+  const data = { name: form.name, webhook_url: form.webhook_url }
+  if (form.aes_key) data.aes_key = form.aes_key
+  if (form.token) data.token = form.token
+  const overrides = { ...advancedConfig }
+  if (overrides.NODE_ALIASES && Object.keys(overrides.NODE_ALIASES).length === 0)
+    delete overrides.NODE_ALIASES
+  data.config_overrides = overrides
+  const cc = clusterConfig.value
+  if (cc && (Array.isArray(cc) ? cc.length > 0 : Object.keys(cc).length > 0))
+    data.cluster_configs = cc
+  return data
+}
+const configChanges = computed(() => changedConfig(configPayload(), editBaseline.value))
+const configChanged = computed(() => Object.keys(configChanges.value).length > 0)
 
 async function handleSubmit() {
   try {
@@ -556,21 +615,14 @@ async function handleSubmit() {
 
   saving.value = true
   try {
-    const data = { ...form }
-    // Always include advanced config_overrides
-    const overrides = { ...advancedConfig }
-    // Clean empty NODE_ALIASES
-    if (overrides.NODE_ALIASES && Object.keys(overrides.NODE_ALIASES).length === 0)
-      delete overrides.NODE_ALIASES
-    data.config_overrides = overrides
     if (isEdit.value) {
-      if (!data.aes_key) delete data.aes_key
-      if (!data.token) delete data.token
-      const cc = clusterConfig.value
-      if (cc && (Array.isArray(cc) ? cc.length > 0 : Object.keys(cc).length > 0))
-        data.cluster_configs = cc
-      const needRestart = bot.value.status !== 'stopped'
-      await botsStore.updateBot(bot.value.id, data)
+      const data = { ...configChanges.value }
+      if (agentAccess.value !== bot.value.resource_auth_enabled)
+        data.resource_auth_enabled = agentAccess.value
+      if (agentNotify.value !== bot.value.resource_api_notify_enabled)
+        data.resource_api_notify_enabled = agentNotify.value
+      const needRestart = configChanged.value && bot.value.status !== 'stopped'
+      if (Object.keys(data).length) await botsStore.updateBot(bot.value.id, data)
       ElMessage.success(t('common.success'))
       if (needRestart) {
         await api.post(`/bots/${bot.value.id}/stop`, null, { _silent: true }).catch(() => {})
@@ -578,8 +630,13 @@ async function handleSubmit() {
       }
       router.push(`/bots/${bot.value.id}`)
     } else {
-      data.cluster_configs = clusterConfig.value
-      const created = await botsStore.createBot(data)
+      const created = await botsStore.createBot({
+        ...form,
+        ...configPayload(),
+        cluster_configs: clusterConfig.value,
+        resource_auth_enabled: agentAccess.value,
+        resource_api_notify_enabled: agentNotify.value,
+      })
       ElMessage.success(t('botCreate.createSuccess'))
       if (created.status === 'stopped') {
         ElMessage.warning(t('botCreate.autoStartSkipped'))
@@ -618,6 +675,33 @@ async function handleSubmit() {
   border: 1px solid var(--lb-border-light);
   border-radius: 12px;
   padding: 28px 32px;
+}
+.agent-settings {
+  margin: 24px 0;
+  padding: 0;
+}
+.agent-settings-title {
+  margin-bottom: 8px;
+  color: var(--lb-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.agent-setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 160px) 40px;
+  align-items: center;
+  justify-content: start;
+  min-height: 40px;
+  gap: 16px;
+}
+.agent-setting-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  color: var(--el-text-color-primary);
+}
+.agent-notify-row.is-disabled .agent-setting-label {
+  color: var(--el-text-color-placeholder);
 }
 .credentials-card {
   background: var(--el-fill-color-lighter);

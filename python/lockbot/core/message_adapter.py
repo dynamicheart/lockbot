@@ -7,10 +7,16 @@ signature verification, payload decryption, and sending.
 """
 
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 
 class MessageAdapter(ABC):
     """Platform-agnostic interface for bot message operations."""
+
+    #: Normalized platform identifier (lowercase, no padding), e.g. ``"infoflow"``.
+    #: Layers above the adapter use this instead of inspecting the adapter class, and
+    #: :mod:`lockbot.core.platforms.registry` keys its registry on it.
+    platform_name: ClassVar[str] = ""
 
     @abstractmethod
     def verify_request(self, signature: str, **kwargs) -> bool:
@@ -48,4 +54,37 @@ class MessageAdapter(ABC):
 
         Returns:
             List of (status_code, response_text) tuples.
+        """
+
+    @abstractmethod
+    def apply_reply_target(self, msg: dict, conversation_id) -> dict:
+        """Direct an already-built reply at a conversation, in place.
+
+        A bot builds its reply without knowing which conversation the triggering message
+        came from, so the transport layer has to retarget it afterwards. Doing that through
+        the adapter keeps the caller free of any platform-specific message layout.
+
+        Args:
+            msg: Platform-specific message dict (as returned by build_reply).
+            conversation_id: Target conversation, as returned by extract_command. A falsy
+                value leaves the message untouched, so it goes to the default destination.
+
+        Returns:
+            The same msg, retargeted.
+        """
+
+    @abstractmethod
+    def extract_reply_text(self, msg) -> str:
+        """Flatten a built reply back into plain text.
+
+        The HTTP API answers with text, never with a platform message dict, so it needs a
+        platform-neutral way to read what a bot method produced. Mentions are dropped; they
+        are a chat-presentation concern.
+
+        Args:
+            msg: Platform-specific message dict, or a plain string (some bot paths return
+                one directly).
+
+        Returns:
+            The human-readable text of the reply.
         """

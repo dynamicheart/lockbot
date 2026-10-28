@@ -2,6 +2,7 @@ r"""Device (GPU) lock bot with exclusive and shared locking support."""
 
 import re
 import time
+from contextlib import suppress
 
 from lockbot.core.base_bot import BaseLockBot, BotState
 from lockbot.core.device_usage_alert import (
@@ -151,7 +152,7 @@ class DeviceBot(BaseLockBot):
             )
             return reply
 
-    def lock(self, user_id, command):
+    def lock(self, user_id, command, *, acquisition_limit=None):
         """
         Lock specified devices and record the current user's usage. Returns an error if
         the device is exclusively held by another user or in shared mode. If the device
@@ -179,6 +180,7 @@ class DeviceBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._lock:
+            self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             timestamp = int(time.time())
 
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
@@ -240,7 +242,7 @@ class DeviceBot(BaseLockBot):
             self._save_and_notify()
             return reply
 
-    def slock(self, user_id, command):
+    def slock(self, user_id, command, *, acquisition_limit=None):
         """
         slock command
         """
@@ -253,6 +255,7 @@ class DeviceBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._lock:
+            self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             timestamp = int(time.time())
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
@@ -448,21 +451,26 @@ class DeviceBot(BaseLockBot):
                 freed_grouped.setdefault(nk, []).append(dev_part)
             node_lines = "\n".join(f"  {nk} dev {','.join(devs)}" for nk, devs in freed_grouped.items())
 
-            # Notify kicked user
+            # Build the notification under the lock; send it after releasing the lock so a slow
+            # or retrying adapter cannot block the non-reentrant state lock or the expiry sweep.
+            notify_reply = None
             try:
                 notify_msg = t("opkick.notify_kicked", config=self.config, node_key=node_lines)
                 if reason:
                     notify_msg += t("opkick.notify_kicked_reason", config=self.config, reason=reason)
                 notify_reply = self.adapter.build_reply(notify_msg, [target_user])
-                self.adapter.send(notify_reply)
             except Exception:
-                pass
+                notify_reply = None
 
             from lockbot.core.io import log_to_file
 
             log_to_file("api", "opkick", freed, config=self.config)
             self._save_and_notify()
-            return {"ok": True, "freed": freed}
+
+        if notify_reply is not None:
+            with suppress(Exception):
+                self.adapter.send(notify_reply)
+        return {"ok": True, "freed": freed}
 
     def _help_commands(self):
         """

@@ -179,3 +179,71 @@ class TestQueueBotOpkick:
         """Kicking user not holding locks raises ValueError."""
         with pytest.raises(ValueError):
             bot.do_opkick("nobody")
+
+
+# ── AC-7 / B17: opkick must send the notification OUTSIDE the state lock ──
+
+
+class TestOpkickSendsOutsideStateLock:
+    """A slow/retrying adapter.send() must not hold the non-reentrant bot state lock. Each case
+    blocks inside send() and proves self._lock is free (and the mutation + state-file write have
+    already completed under the lock) while the send is in flight."""
+
+    def _assert_send_outside_lock(self, bot, kick_kwargs, victim="victim"):
+        import threading
+
+        send_started = threading.Event()
+        release_send = threading.Event()
+
+        def blocking_send(_reply):
+            send_started.set()
+            assert release_send.wait(5.0), "send was never released"
+
+        bot.adapter.send = blocking_send
+
+        result_box = {}
+
+        def run():
+            result_box["result"] = bot.do_opkick(victim, **kick_kwargs)
+
+        t = threading.Thread(target=run)
+        t.start()
+        try:
+            assert send_started.wait(5.0), "do_opkick never reached the send"
+            # The state lock must be free while the send blocks.
+            got = bot._lock.acquire(blocking=False)
+            assert got, "adapter.send() is holding the bot state lock"
+            bot._lock.release()
+        finally:
+            release_send.set()
+        t.join(5.0)
+        assert result_box["result"]["ok"] is True
+
+    def test_node_bot(self, tmp_path):
+        bot = NodeBot(config_dict=_node_config(tmp_path))
+        bot.state.bot_state = {
+            "gpu01": {"status": "idle", "current_users": [], "booking_list": []},
+            "gpu02": {"status": "idle", "current_users": [], "booking_list": []},
+        }
+        bot.lock("victim", "lock gpu01 2h")
+        self._assert_send_outside_lock(bot, {"node_key": "gpu01"})
+        # Mutation completed under the lock before the (blocked) send.
+        assert bot.state.bot_state["gpu01"]["current_users"] == []
+
+    def test_queue_bot(self, tmp_path):
+        bot = QueueBot(config_dict=_queue_config(tmp_path))
+        bot.state.bot_state = {
+            "gpu01": {"status": "idle", "current_users": [], "booking_list": []},
+            "gpu02": {"status": "idle", "current_users": [], "booking_list": []},
+        }
+        bot.lock("victim", "lock gpu01 2h")
+        self._assert_send_outside_lock(bot, {"node_key": "gpu01"})
+        assert bot.state.bot_state["gpu01"]["current_users"] == []
+
+    def test_device_bot(self, tmp_path):
+        bot = DeviceBot(config_dict=_device_config(tmp_path))
+        bot.lock("victim", "lock gpu01 2h")
+        self._assert_send_outside_lock(bot, {"node_key": "gpu01"})
+        # Every device the victim held is now idle.
+        for dev in bot.state.bot_state["gpu01"]:
+            assert all(u["user_id"] != "victim" for u in dev.get("current_users", []))

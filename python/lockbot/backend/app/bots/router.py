@@ -2,6 +2,7 @@
 Bot CRUD + lifecycle + webhook routes.
 """
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -13,13 +14,19 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import PlainTextResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user, require_admin, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
-from lockbot.backend.app.bots.manager import bot_manager
+from lockbot.backend.app.bots.manager import (
+    AdmissionFull,
+    BotNotRunning,
+    InstanceRetiring,
+    MayHaveExecuted,
+    bot_manager,
+)
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.schemas import (
     BotCreate,
@@ -30,14 +37,21 @@ from lockbot.backend.app.bots.schemas import (
     LockedUsersResponse,
     OpkickRequest,
     OpkickResponse,
+    ResourceAuthToggle,
 )
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
 from lockbot.backend.app.database import get_db
+from lockbot.backend.app.managed_paths import get_managed_paths, sanitize_managed_overrides
 from lockbot.backend.app.rate_limit import limiter
+from lockbot.backend.app.resource_api import errors as api_errors
+from lockbot.backend.app.resource_api.sources import SOURCE_CHAT, SOURCE_SERVICE_KEY
+from lockbot.backend.app.resource_auth.authority import authority_guard
+from lockbot.backend.app.state_migration import assert_bot_state_ready
 from lockbot.core.config import Config
+from lockbot.core.handler import redact_command_text
 from lockbot.core.i18n import t
 from lockbot.core.msg_utils import check_signature
-from lockbot.core.platforms.infoflow import InfoflowAdapter
+from lockbot.core.platforms.registry import create_adapter
 
 router = APIRouter(prefix="/api/bots", tags=["bots"])
 logger = logging.getLogger(__name__)
@@ -45,22 +59,33 @@ logger = logging.getLogger(__name__)
 VALID_BOT_TYPES = {"NODE", "DEVICE", "QUEUE"}
 
 
-_DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
-
-
 def _get_log_dir(bot_id: int) -> str:
     """Return the log directory for a bot, creating it if needed."""
-    d = os.path.join(_DEFAULT_DATA_DIR, "bots", str(bot_id))
+    d = str(get_managed_paths().bot_dir(bot_id))
     os.makedirs(d, exist_ok=True)
     return d
 
 
 def _get_log_file(bot_id: int) -> str:
-    return os.path.join(_get_log_dir(bot_id), "logs.jsonl")
+    _get_log_dir(bot_id)
+    return str(get_managed_paths().bot_file(bot_id, "logs.jsonl"))
 
 
-def _write_log(bot_id: int, message: str, level: str = "INFO", category: str = "system"):
-    """Append a log entry to the bot's JSONL log file. Auto-prune to MAX_LOG_ENTRIES."""
+def _write_log(
+    bot_id: int,
+    message: str,
+    level: str = "INFO",
+    category: str = "system",
+    source: str | None = None,
+    credential_id: int | None = None,
+):
+    """Append a log entry to the bot's JSONL log file. Auto-prune to MAX_LOG_ENTRIES.
+
+    ``source`` discriminates the transport ("chat" | "api" | "service_key") and
+    ``credential_id`` identifies which agent credential drove an API call, so load can be
+    attributed and a misbehaving agent can be found rather than guessed at. Both are
+    omitted when unset, leaving pre-existing entries and readers unaffected.
+    """
     MAX_LOG_ENTRIES = 1000
     log_path = _get_log_file(bot_id)
     entry = {
@@ -70,6 +95,10 @@ def _write_log(bot_id: int, message: str, level: str = "INFO", category: str = "
         "message": message,
         "created_at": datetime.utcnow().isoformat() + "Z",
     }
+    if source is not None:
+        entry["source"] = source
+    if credential_id is not None:
+        entry["credential_id"] = credential_id
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -117,6 +146,74 @@ def _get_user_bot(bot_id: int, user: User, db: Session) -> Bot:
     if not bot or bot.is_deleted or (bot.user_id != user.id and user.role not in ("admin", "super_admin")):
         raise HTTPException(status_code=404, detail="Bot not found")
     return bot
+
+
+@contextlib.contextmanager
+def _owned_bot(bot_id: int, user: User, db: Session):
+    """Acquire the per-bot lifecycle transition owner, then re-read and re-validate the row.
+
+    Every lifecycle transition decision (start / stop / restart / delete / offline edit) must be
+    made on inputs read *after* ownership is held, not on a row loaded before the owner was free.
+    Otherwise a request paused after its initial fetch could, once it finally acquires the owner,
+    act on a stale object whose bot was deleted or reassigned in the meantime. We therefore end
+    the current read transaction and re-load a fresh row under the owner, re-validating existence,
+    deletion and permission before yielding. A competing owner is surfaced as the transient 503.
+    """
+    try:
+        with bot_manager.transition(bot_id):
+            # End any open read transaction so the fresh read sees other sessions' commits
+            # (e.g. a delete that completed while we waited for ownership), not a snapshot.
+            db.rollback()
+            bot = db.get(Bot, bot_id)
+            if bot is None or bot.is_deleted:
+                raise HTTPException(status_code=404, detail="Bot not found")
+            if user.role != "super_admin" and bot.user_id != user.id:
+                raise HTTPException(status_code=403, detail="Cannot act on another user's bot")
+            yield bot
+    except InstanceRetiring:
+        raise api_errors.instance_retiring(bot_id) from None
+
+
+def _reset_row_to_stopped(db: Session, bot_id: int) -> None:
+    """Best-effort reset the DB row to ``stopped``/pid None, so a failed start/restart never leaves
+    a phantom ``running`` row with no live instance. The caller must hold the transition owner for
+    ``bot_id`` and must have already stopped/cleaned up any in-process instance."""
+    try:
+        bot_manager.stop_bot(bot_id)
+    except MayHaveExecuted:
+        # The drain could not confirm the instance was cleaned up: an admitted worker may still be
+        # mutating and persisting state. Claiming ``stopped`` here would be a lie, so leave the
+        # lifecycle status untouched and let the caller surface the uncertainty. (R4: honest
+        # cleanup — never report stopped before cleanup is confirmed.)
+        logger.error("Bot %d: cannot confirm cleanup during compensation; not marking stopped", bot_id)
+        return
+    except Exception:
+        pass
+    with contextlib.suppress(Exception):
+        db.rollback()
+        row = db.get(Bot, bot_id)
+        if row is not None and not row.is_deleted and row.status != "recovery_required":
+            row.status = "stopped"
+            row.pid = None
+            db.commit()
+
+
+def _commit_initial_status_then_activate(db: Session, bot_id: int) -> None:
+    """Commit the staged generation's initial status/audit (already set on the row) then activate
+    it. On a commit OR activation failure, retire the staged generation (admission is refused while
+    staged, so it is never left admitted-but-unscheduled) AND compensate the row back to
+    ``stopped``/pid None, so a failed start never leaves a phantom ``running`` row with no live
+    instance. The caller must hold the transition owner for ``bot_id``."""
+    try:
+        db.commit()
+    except Exception:
+        _reset_row_to_stopped(db, bot_id)
+        raise
+    try:
+        bot_manager.activate_bot(bot_id)
+    except Exception:
+        _reset_row_to_stopped(db, bot_id)
+        raise
 
 
 def _normalize_cluster_configs(cc):
@@ -177,15 +274,36 @@ def _is_device_array_format(cc) -> bool:
     return isinstance(cc, list) and bool(cc) and isinstance(cc[0], dict) and "node_key" in cc[0]
 
 
+def _agent_skill_url(bot_id, expected_uuid):
+    """Trusted deployment URL and current gate, independent of incoming Host headers."""
+    from urllib.parse import urlsplit
+
+    from lockbot.backend.app.database import SessionLocal
+    from lockbot.backend.app.settings.router import get_all_settings
+
+    with SessionLocal() as session:
+        current = session.get(Bot, bot_id)
+        if not current or current.is_deleted or current.uuid != expected_uuid or not current.resource_auth_enabled:
+            return ""
+        base = (get_all_settings(session).get("platform_url") or "").strip().rstrip("/")
+        parsed = urlsplit(base)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return ""
+        return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill/SKILL.md"
+
+
 def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
     """
     Build the full config dict from a DB Bot record.
     Decrypts sensitive fields and merges config_overrides + site settings.
     """
+    paths = get_managed_paths()
+    assert_bot_state_ready(bot, paths)
     config = {
         "BOT_ID": bot.id,
         "BOT_NAME": bot.name,
         "BOT_TYPE": bot.bot_type,
+        "PLATFORM": bot.platform,
         "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
         "AESKEY": encryption.decrypt(bot.aes_key),
         "TOKEN": encryption.decrypt(bot.token),
@@ -197,10 +315,18 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         if owner:
             config["BOT_OWNER"] = owner.username
     if bot.config_overrides:
-        overrides = json.loads(bot.config_overrides)
-        config.update(overrides)
+        config.update(sanitize_managed_overrides(json.loads(bot.config_overrides), bot_id=bot.id))
     # Inject site-wide settings (lower priority than bot-level overrides)
     _inject_site_settings(config, db)
+    bot_id = bot.id
+    config["_AUTHORIZED_GROUP_IDS"] = [
+        g.strip() for g in (getattr(bot, "group_id", None) or "").split(",") if g.strip()
+    ]
+    config["_AGENT_SKILL_URL"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): _agent_skill_url(bot_id, uuid)
+    config["_IDENTITY_REVISION"] = getattr(bot, "identity_revision", 0)
+    config["DATA_DIR"] = str(paths.bots_root)
+    config["STATE_FILENAME"] = str(paths.state_file(bot_id))
+    config["_MANAGED_BOT_DIR"] = lambda: paths.core_directory(bot_id)
     return config
 
 
@@ -273,6 +399,8 @@ def create_bot(
             ensure_ascii=False,
         ),
         config_overrides=json.dumps(body.config_overrides or {}, ensure_ascii=False),
+        resource_auth_enabled=body.resource_auth_enabled,
+        resource_api_notify_enabled=body.resource_api_notify_enabled,
     )
     db.add(bot)
     db.flush()
@@ -309,18 +437,31 @@ def create_bot(
         auto_started = True
 
     if auto_started:
-        config_dict = _build_config_dict(bot, db)
+        # Route auto-start through the same fresh-owner-held, staged protocol as explicit start
+        # (B23/B24): the newly created row is already discoverable and could be deleted or
+        # transferred before we acquire the owner, so re-validate it under the owner and stage
+        # the generation before committing its status, then activate.
+        new_bot_id = bot.id
         try:
-            pid = bot_manager.start_bot(bot.id, config_dict)
-            bot.status = "running"
-            bot.pid = pid
-            bot.consecutive_failures = 0
-            db.commit()
-            db.refresh(bot)
-            _write_log(bot.id, "Bot created and auto-started")
-        except Exception:
+            with _owned_bot(new_bot_id, user, db) as fresh:
+                if fresh.status == "recovery_required":
+                    raise HTTPException(status_code=409, detail="Bot needs recovery")
+                config_dict = _build_config_dict(fresh, db)
+                pid = bot_manager.start_bot(new_bot_id, config_dict, activate=False)
+                fresh.status = "running"
+                fresh.pid = pid
+                fresh.consecutive_failures = 0
+                _commit_initial_status_then_activate(db, new_bot_id)
+            _write_log(new_bot_id, "Bot created and auto-started")
+        except HTTPException:
+            # The bot was deleted/transferred, or auto-start was refused; leave it created but
+            # not running. The creation response stays truthful.
             db.rollback()
-            logger.exception("Failed to auto-start bot %d", bot.id)
+        except Exception:
+            with contextlib.suppress(Exception):
+                db.rollback()
+            logger.exception("Failed to auto-start bot %d", new_bot_id)
+        bot = db.get(Bot, new_bot_id)
 
     result = BotOut.model_validate(bot)
     return result
@@ -338,21 +479,30 @@ def get_running_states(
     user_bots = db.query(Bot).filter(Bot.user_id == user.id, Bot.is_deleted.is_(False)).all()
     result = {}
     for bot in user_bots:
-        instance = bot_manager.get_instance(bot.id)
-        if instance:
-            result[bot.id] = instance.state.bot_state
-        else:
-            # Bot not running — try loading persisted state file
-            state_file = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
-            if os.path.exists(state_file):
-                try:
-                    with open(state_file, encoding="utf-8") as f:
-                        raw = json.load(f)
-                        state = raw.get("bot_state") or raw.get("cluster_state") or raw.get("cluster_status")
-                        if state:
-                            result[bot.id] = state
-                except Exception:
-                    pass
+        # Read live state under an admission lease + the state lock (one detached copy), so a
+        # dashboard read can never observe a half-applied mutation. ``for_read`` lets a failed
+        # (error) generation still be shown. Only a confirmed stopped bot falls back to the
+        # persisted file; a retiring/full generation is omitted rather than shown as a stale
+        # "stopped" snapshot.
+        try:
+            with bot_manager.admit(bot.id, for_read=True) as lease:
+                _captured_at, result[bot.id] = lease.bot.state_snapshot()
+            continue
+        except BotNotRunning:
+            pass
+        except (InstanceRetiring, AdmissionFull, MayHaveExecuted):
+            continue
+        # Bot not running — try loading persisted state file
+        state_file = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, encoding="utf-8") as f:
+                    raw = json.load(f)
+                    state = raw.get("bot_state") or raw.get("cluster_state") or raw.get("cluster_status")
+                    if state:
+                        result[bot.id] = state
+            except Exception:
+                pass
     return result
 
 
@@ -374,104 +524,144 @@ def update_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bot = _get_user_bot(bot_id, user, db)
+    # Fast pre-owner existence/permission check; the authoritative change happens under the
+    # transition owner below so a config/identity edit cannot commit while a lifecycle transition
+    # owns the bot (a competing owner is refused 503), re-validated on a fresh row.
+    _get_user_bot(bot_id, user, db)
 
-    # Only owner or super_admin can edit
-    if user.role != "super_admin" and bot.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Cannot edit another user's bot")
+    with _owned_bot(bot_id, user, db) as bot:
+        identity_changed = (body.group_id is not None and body.group_id != bot.group_id) or any(
+            getattr(body, key) is not None and getattr(body, key) != encryption.decrypt(getattr(bot, key))
+            for key in ("webhook_url", "aes_key", "token")
+        )
+        if identity_changed:
+            try:
+                bot_manager.stop_bot(bot_id)
+            except BotNotRunning:
+                pass
+            except MayHaveExecuted:
+                raise api_errors.may_have_executed(bot_id) from None
+            # End a stale read transaction only after all old-generation writes drained.
+            db.rollback()
+            bot = _get_user_bot(bot_id, user, db)
+            if bot.status != "recovery_required":
+                bot.status = "stopped"
+            bot.pid = None
+            bot.identity_revision += 1
+            bot.binding_accept_after = datetime.utcnow()
+            bot.observed_group_ids = None
+            bot.last_user_id = None
+            bot.last_request_at = None
 
-    # Validate NODE_ALIASES keys against cluster_configs
-    if body.config_overrides and body.config_overrides.get("NODE_ALIASES"):
-        cc = body.cluster_configs if body.cluster_configs is not None else json.loads(bot.cluster_configs)
-        _validate_node_aliases(body.config_overrides, cc)
+        # Validate NODE_ALIASES keys against cluster_configs
+        if body.config_overrides and body.config_overrides.get("NODE_ALIASES"):
+            cc = body.cluster_configs if body.cluster_configs is not None else json.loads(bot.cluster_configs)
+            _validate_node_aliases(body.config_overrides, cc)
 
-    changes = {}
-    if body.name is not None:
-        # Check for duplicate name (excluding current bot and deleted bots)
-        dup = (
-            db.query(Bot)
-            .filter(
-                Bot.user_id == bot.user_id,
-                Bot.name == body.name,
-                Bot.id != bot_id,
-                Bot.is_deleted.is_(False),
+        changes = {}
+        if body.name is not None:
+            # Check for duplicate name (excluding current bot and deleted bots)
+            dup = (
+                db.query(Bot)
+                .filter(
+                    Bot.user_id == bot.user_id,
+                    Bot.name == body.name,
+                    Bot.id != bot_id,
+                    Bot.is_deleted.is_(False),
+                )
+                .first()
             )
-            .first()
-        )
-        if dup:
-            raise HTTPException(status_code=409, detail="Bot name already exists")
-        if body.name != bot.name:
-            changes["name"] = {"from": bot.name, "to": body.name}
-        bot.name = body.name
-    if body.group_id is not None:
-        bot.group_id = body.group_id
-    if body.webhook_url is not None:
-        old_val = encryption.decrypt(bot.webhook_url) if bot.webhook_url else ""
-        if body.webhook_url != old_val:
-            changes["webhook_url"] = "updated"
-        bot.webhook_url = encryption.encrypt(body.webhook_url)
-    if body.aes_key is not None:
-        old_val = encryption.decrypt(bot.aes_key) if bot.aes_key else ""
-        if body.aes_key != old_val:
-            changes["aes_key"] = "updated"
-        bot.aes_key = encryption.encrypt(body.aes_key)
-    if body.token is not None:
-        old_val = encryption.decrypt(bot.token) if bot.token else ""
-        if body.token != old_val:
-            changes["token"] = "updated"
-        bot.token = encryption.encrypt(body.token)
-    if body.cluster_configs is not None:
-        # Convert array format to dict for storage
-        cc_for_storage = body.cluster_configs
-        if _is_device_array_format(cc_for_storage):
-            cc_for_storage = _device_array_to_dict(cc_for_storage)
-        new_json = json.dumps(cc_for_storage, ensure_ascii=False)
-        if new_json != (bot.cluster_configs or ""):
-            old_configs = json.loads(bot.cluster_configs) if bot.cluster_configs else None
-            if isinstance(cc_for_storage, dict):
-                # DEVICE bot: {node: [devices...]} → summary with device counts
-                node_summary = {k: len(v) if isinstance(v, list) else v for k, v in cc_for_storage.items()}
-                changes["cluster_configs"] = node_summary
-            else:
-                # NODE bot: list of node names → show from/to
-                changes["cluster_configs"] = {"from": old_configs, "to": cc_for_storage}
-        bot.cluster_configs = new_json
-    if body.config_overrides is not None:
-        old_overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}
-        diff = {}
-        for k, v in body.config_overrides.items():
-            old_v = old_overrides.get(k)
-            if old_v != v:
-                diff[k] = {"from": old_v, "to": v}
-        if diff:
-            changes["config_overrides"] = diff
-        bot.config_overrides = json.dumps(body.config_overrides, ensure_ascii=False)
+            if dup:
+                raise HTTPException(status_code=409, detail="Bot name already exists")
+            if body.name != bot.name:
+                changes["name"] = {"from": bot.name, "to": body.name}
+            bot.name = body.name
+        if body.group_id is not None:
+            bot.group_id = body.group_id
+        if body.webhook_url is not None:
+            old_val = encryption.decrypt(bot.webhook_url) if bot.webhook_url else ""
+            if body.webhook_url != old_val:
+                changes["webhook_url"] = "updated"
+            bot.webhook_url = encryption.encrypt(body.webhook_url)
+        if body.aes_key is not None:
+            old_val = encryption.decrypt(bot.aes_key) if bot.aes_key else ""
+            if body.aes_key != old_val:
+                changes["aes_key"] = "updated"
+            bot.aes_key = encryption.encrypt(body.aes_key)
+        if body.token is not None:
+            old_val = encryption.decrypt(bot.token) if bot.token else ""
+            if body.token != old_val:
+                changes["token"] = "updated"
+            bot.token = encryption.encrypt(body.token)
+        if body.cluster_configs is not None:
+            # Convert array format to dict for storage
+            cc_for_storage = body.cluster_configs
+            if _is_device_array_format(cc_for_storage):
+                cc_for_storage = _device_array_to_dict(cc_for_storage)
+            new_json = json.dumps(cc_for_storage, ensure_ascii=False)
+            if new_json != (bot.cluster_configs or ""):
+                old_configs = json.loads(bot.cluster_configs) if bot.cluster_configs else None
+                if isinstance(cc_for_storage, dict):
+                    # DEVICE bot: {node: [devices...]} → summary with device counts
+                    node_summary = {k: len(v) if isinstance(v, list) else v for k, v in cc_for_storage.items()}
+                    changes["cluster_configs"] = node_summary
+                else:
+                    # NODE bot: list of node names → show from/to
+                    changes["cluster_configs"] = {"from": old_configs, "to": cc_for_storage}
+            bot.cluster_configs = new_json
+        if body.config_overrides is not None:
+            old_overrides = json.loads(bot.config_overrides) if bot.config_overrides else {}
+            diff = {}
+            for k, v in body.config_overrides.items():
+                old_v = old_overrides.get(k)
+                if old_v != v:
+                    diff[k] = {"from": old_v, "to": v}
+            if diff:
+                changes["config_overrides"] = diff
+            bot.config_overrides = json.dumps(body.config_overrides, ensure_ascii=False)
 
-    if changes:
-        write_audit_log(
-            db,
-            user,
-            "bot.update",
-            target_type="bot",
-            target_id=bot_id,
-            target_name=bot.name,
-            detail=changes,
-            ip=request.client.host if request.client else None,
-        )
-    else:
-        write_audit_log(
-            db,
-            user,
-            "bot.update",
-            target_type="bot",
-            target_id=bot_id,
-            target_name=bot.name,
-            detail={"no_change": True},
-            ip=request.client.host if request.client else None,
-        )
-    db.commit()
-    db.refresh(bot)
-    return bot
+        # Identity cutover: if the signing credentials change, the bot now authenticates a
+        # DIFFERENT IM identity, so agent credentials bound to the old identity must not carry
+        # over. Revoke them under the same transition owner and commit (R4). A plain config edit
+        # that leaves webhook/aes/token untouched keeps durable credentials, as before.
+        if identity_changed:
+            from lockbot.backend.app.resource_auth.service import revoke_bindings_for_bot
+
+            revoked = revoke_bindings_for_bot(db, bot_id)
+            if revoked:
+                changes["resource_bindings_revoked"] = revoked
+
+        # Save configuration and the Agent gate atomically. The same authority
+        # barrier as the dedicated gate endpoint orders this commit with admission.
+        with authority_guard(bot_id):
+            if (
+                body.resource_api_notify_enabled is not None
+                and body.resource_api_notify_enabled != bot.resource_api_notify_enabled
+            ):
+                changes["resource_api_notify_enabled"] = {
+                    "from": bot.resource_api_notify_enabled,
+                    "to": body.resource_api_notify_enabled,
+                }
+                bot.resource_api_notify_enabled = body.resource_api_notify_enabled
+            access_changed = (
+                body.resource_auth_enabled is not None and body.resource_auth_enabled != bot.resource_auth_enabled
+            )
+            if access_changed:
+                changes["resource_auth_enabled"] = {"from": bot.resource_auth_enabled, "to": body.resource_auth_enabled}
+                bot.resource_auth_enabled = body.resource_auth_enabled
+            write_audit_log(
+                db,
+                user,
+                "bot.update",
+                target_type="bot",
+                target_id=bot_id,
+                target_name=bot.name,
+                detail=changes if changes else {"no_change": True},
+                ip=request.client.host if request.client else None,
+            )
+            db.commit()
+            db.refresh(bot)
+            return bot
 
 
 @router.delete("/{bot_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -481,32 +671,45 @@ def delete_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bot = _get_user_bot(bot_id, user, db)
+    # Fast pre-owner existence/permission check; re-validated under the owner below.
+    _get_user_bot(bot_id, user, db)
 
-    # Only owner or super_admin can delete
-    if user.role != "super_admin" and bot.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Cannot delete another user's bot")
-
-    # Stop the bot first if running
-    if bot.status in ("running", "error"):
-        with contextlib.suppress(RuntimeError):
+    # Own the lifecycle transition across the stop AND the row/audit commit, and consult the
+    # MANAGER, not the DB status: an unpublished start has a stopped row but a live (or
+    # in-construction) instance, so gating the stop on ``bot.status`` let a deleted bot keep
+    # running. ``_owned_bot`` also re-reads a fresh row under the owner, so a request paused
+    # before acquiring ownership cannot delete a bot that was already deleted/reassigned.
+    with _owned_bot(bot_id, user, db) as bot:
+        bot_name = bot.name
+        try:
             bot_manager.stop_bot(bot_id)
+        except MayHaveExecuted:
+            # An admitted worker may still be mutating and persisting state; deleting the
+            # row now would be dishonest. Leave the bot as-is and report the uncertainty.
+            raise api_errors.may_have_executed(bot_id) from None
+        except RuntimeError:
+            pass  # benign: the bot was not actually running in-process
+
         bot.status = "stopped"
         bot.pid = None
+        bot.is_deleted = True
+        bot.deleted_at = datetime.utcnow()
+        # Identity discontinuity (AC-9): deleting a bot ends its identity, so its durable
+        # credentials must stop authenticating immediately. Revoke them under the same owner and
+        # transaction as the delete, so no post-delete request can still act as this bot.
+        from lockbot.backend.app.resource_auth.service import revoke_bindings_for_bot
 
-    bot_name = bot.name
-    bot.is_deleted = True
-    bot.deleted_at = datetime.utcnow()
-    write_audit_log(
-        db,
-        user,
-        "bot.delete",
-        target_type="bot",
-        target_id=bot_id,
-        target_name=bot_name,
-        ip=request.client.host if request.client else None,
-    )
-    db.commit()
+        revoke_bindings_for_bot(db, bot_id)
+        write_audit_log(
+            db,
+            user,
+            "bot.delete",
+            target_type="bot",
+            target_id=bot_id,
+            target_name=bot_name,
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
 
 
 @router.put("/{bot_id}/owner")
@@ -518,35 +721,35 @@ def transfer_bot_owner(
     db: Session = Depends(get_db),
 ):
     """Transfer bot ownership. Super_admin can transfer all bots."""
-    bot = db.get(Bot, bot_id)
-    if not bot or bot.is_deleted:
-        raise HTTPException(status_code=404, detail="Bot not found")
-
     target_username = (body.get("username") or "").strip()
     if not target_username:
         raise HTTPException(status_code=400, detail="username is required")
 
-    target_user = db.query(User).filter(User.username == target_username).first()
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Target user not found")
+    # Enrol the ownership transfer in the transition owner: an identity change must not commit
+    # while a lifecycle transition (start/stop/restart/delete/edit) owns the bot, or a restart
+    # could publish a replacement for the new owner. A competing owner is refused with 503.
+    with _owned_bot(bot_id, user, db) as bot:
+        target_user = db.query(User).filter(User.username == target_username).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="Target user not found")
 
-    old_owner = db.get(User, bot.user_id)
-    old_name = old_owner.username if old_owner else "unknown"
-    bot.user_id = target_user.id
-    write_audit_log(
-        db,
-        user,
-        "bot.transfer",
-        target_type="bot",
-        target_id=bot_id,
-        target_name=bot.name,
-        detail={"from": old_name, "to": target_username},
-        ip=request.client.host if request.client else None,
-    )
-    db.commit()
+        old_owner = db.get(User, bot.user_id)
+        old_name = old_owner.username if old_owner else "unknown"
+        bot.user_id = target_user.id
+        write_audit_log(
+            db,
+            user,
+            "bot.transfer",
+            target_type="bot",
+            target_id=bot_id,
+            target_name=bot.name,
+            detail={"from": old_name, "to": target_username},
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
 
     _write_log(bot_id, f"Owner transferred from {old_name} to {target_username} by {user.username}")
-    return {"id": bot.id, "owner": target_username}
+    return {"id": bot_id, "owner": target_username}
 
 
 # ── Lifecycle endpoints ──────────────────────────────────────
@@ -563,73 +766,92 @@ def start_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bot = _get_user_bot(bot_id, user, db)
+    # Fast pre-owner existence/permission check (404/403). The authoritative decision is made
+    # again under the transition owner below, on a freshly re-read row.
+    _get_user_bot(bot_id, user, db)
 
-    # Only owner or super_admin can start
-    if user.role != "super_admin" and bot.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Cannot start another user's bot")
-
-    if bot.status == "running":
-        return BotStatusOut(
-            id=bot.id,
-            status=bot.status,
-            pid=bot.pid,
-            consecutive_failures=bot.consecutive_failures or 0,
-            message="Bot is already running",
-        )
-
-    # Enforce max_running_bots quota (admins are exempt)
-    if user.role not in ("admin", "super_admin"):
-        running_count = (
-            db.query(Bot)
-            .filter(
-                Bot.user_id == user.id,
-                Bot.status == "running",
-                Bot.is_deleted.is_(False),
-            )
-            .count()
-        )
-        if running_count >= user.max_running_bots:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Running bot limit reached ({user.max_running_bots}). Stop a bot first or contact admin.",
-            )
-
-    config_dict = _build_config_dict(bot, db)
-
-    try:
-        pid = bot_manager.start_bot(bot_id, config_dict)
-    except Exception as e:
-        bot.consecutive_failures = (bot.consecutive_failures or 0) + 1
-        if bot.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-            bot.status = "error"
-            db.commit()
-            _write_log(bot_id, f"连续启动失败 {bot.consecutive_failures} 次，已标记为 error: {e}", level="ERROR")
+    with _owned_bot(bot_id, user, db) as bot:
+        # A bot fenced into recovery after a failed restore has a possibly-inconsistent config
+        # and saved state; refuse every start path until an operator re-runs a clean restore
+        # (R1). The status is persisted, so this guard holds across process restarts.
+        if bot.status == "recovery_required":
             raise HTTPException(
                 status_code=409,
-                detail=f"Bot marked as error after {bot.consecutive_failures} consecutive failures: {e}",
-            ) from None
-        db.commit()
-        _write_log(bot_id, f"启动失败 ({bot.consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}): {e}", level="ERROR")
-        raise HTTPException(status_code=409, detail=str(e)) from None
+                detail=(
+                    "Bot needs recovery: a previous restore could not install a consistent "
+                    "configuration and saved state. Re-run the restore for this bot before starting."
+                ),
+            )
+        # Consult the MANAGER for liveness, never the DB row: an unpublished start has a stopped
+        # row but a live instance, and a stale row could wrongly claim running.
+        if bot_manager.is_running(bot_id):
+            return BotStatusOut(
+                id=bot.id,
+                status="running",
+                pid=bot.pid,
+                consecutive_failures=bot.consecutive_failures or 0,
+                message="Bot is already running",
+            )
 
-    bot.status = "running"
-    bot.pid = pid
-    bot.consecutive_failures = 0
-    write_audit_log(
-        db,
-        user,
-        "bot.start",
-        target_type="bot",
-        target_id=bot_id,
-        target_name=bot.name,
-        ip=request.client.host if request.client else None,
-    )
-    db.commit()
-    db.refresh(bot)
-    _write_log(bot_id, "Bot 已启动")
+        # Enforce max_running_bots quota (admins are exempt)
+        if user.role not in ("admin", "super_admin"):
+            running_count = (
+                db.query(Bot)
+                .filter(
+                    Bot.user_id == user.id,
+                    Bot.status == "running",
+                    Bot.is_deleted.is_(False),
+                )
+                .count()
+            )
+            if running_count >= user.max_running_bots:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Running bot limit reached ({user.max_running_bots}). Stop a bot first or contact admin.",
+                )
 
-    return BotStatusOut(id=bot.id, status=bot.status, pid=pid, message="Bot started")
+        config_dict = _build_config_dict(bot, db)
+
+        try:
+            pid = bot_manager.start_bot(bot_id, config_dict, activate=False)
+        except (InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+            # A competing lifecycle owner or transient admission refusal. This is NOT a start
+            # failure: it must not increment consecutive_failures, write status/audit, or
+            # construct anything. Map it to the transient 503 and leave the row untouched.
+            raise api_errors.admission_http_error(exc, bot_id) from None
+        except Exception as e:
+            bot.consecutive_failures = (bot.consecutive_failures or 0) + 1
+            if bot.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                bot.status = "error"
+                db.commit()
+                _write_log(bot_id, f"连续启动失败 {bot.consecutive_failures} 次，已标记为 error: {e}", level="ERROR")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Bot marked as error after {bot.consecutive_failures} consecutive failures: {e}",
+                ) from None
+            db.commit()
+            _write_log(bot_id, f"启动失败 ({bot.consecutive_failures}/{MAX_CONSECUTIVE_FAILURES}): {e}", level="ERROR")
+            raise HTTPException(status_code=409, detail=str(e)) from None
+
+        # Commit the initial running status BEFORE activating the generation (B24): while the
+        # generation is staged no sweep runs, so no fatal completion can commit 'error' ahead of
+        # this status. A failed commit cleans up the staged generation.
+        bot.status = "running"
+        bot.pid = pid
+        bot.consecutive_failures = 0
+        write_audit_log(
+            db,
+            user,
+            "bot.start",
+            target_type="bot",
+            target_id=bot_id,
+            target_name=bot.name,
+            ip=request.client.host if request.client else None,
+        )
+        _commit_initial_status_then_activate(db, bot_id)
+        db.refresh(bot)
+        _write_log(bot_id, "Bot 已启动")
+        return BotStatusOut(id=bot.id, status=bot.status, pid=pid, message="Bot started")
 
 
 @router.post("/{bot_id}/stop", response_model=BotStatusOut)
@@ -640,34 +862,42 @@ def stop_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bot = _get_user_bot(bot_id, user, db)
+    # Fast pre-owner existence/permission check; the authoritative decision is re-made under the
+    # transition owner on a freshly re-read row.
+    _get_user_bot(bot_id, user, db)
 
-    # Only owner or super_admin can stop
-    if user.role != "super_admin" and bot.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Cannot stop another user's bot")
+    # Own the lifecycle transition across the stop AND the DB status + audit commit, so a
+    # concurrent restart cannot publish a new generation between the manager stop and this
+    # route's commit (which would leave the row 'stopped' while a live generation runs).
+    with _owned_bot(bot_id, user, db) as bot:
+        if bot.status not in ("running", "error"):
+            raise HTTPException(status_code=409, detail=f"Bot is not running (status={bot.status})")
+        try:
+            bot_manager.stop_bot(bot_id)
+        except MayHaveExecuted:
+            # An admitted worker may still be mutating and persisting state. Preserve the DB
+            # lifecycle status (do NOT report stopped) and return the uncertainty contract.
+            raise api_errors.may_have_executed(bot_id) from None
+        except RuntimeError:
+            # Benign: the bot was not actually running in-process. (stop_bot re-enters the owner
+            # we already hold, so it cannot raise InstanceRetiring here — only "not running".)
+            pass
 
-    if bot.status not in ("running", "error"):
-        raise HTTPException(status_code=409, detail=f"Bot is not running (status={bot.status})")
-
-    with contextlib.suppress(RuntimeError):
-        bot_manager.stop_bot(bot_id)
-
-    bot.status = "stopped"
-    bot.pid = None
-    bot.consecutive_failures = 0
-    write_audit_log(
-        db,
-        user,
-        "bot.stop",
-        target_type="bot",
-        target_id=bot_id,
-        target_name=bot.name,
-        ip=request.client.host if request.client else None,
-    )
-    db.commit()
-    _write_log(bot_id, "Bot 已停止")
-
-    return BotStatusOut(id=bot.id, status=bot.status, message="Bot stopped")
+        bot.status = "stopped"
+        bot.pid = None
+        bot.consecutive_failures = 0
+        write_audit_log(
+            db,
+            user,
+            "bot.stop",
+            target_type="bot",
+            target_id=bot_id,
+            target_name=bot.name,
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
+        _write_log(bot_id, "Bot 已停止")
+        return BotStatusOut(id=bot.id, status="stopped", message="Bot stopped")
 
 
 @router.post("/{bot_id}/restart", response_model=BotStatusOut)
@@ -678,36 +908,72 @@ def restart_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bot = _get_user_bot(bot_id, user, db)
+    # Fast pre-owner existence/permission check; re-validated under the owner below.
+    _get_user_bot(bot_id, user, db)
 
-    # Only owner or super_admin can restart
-    if user.role != "super_admin" and bot.user_id != user.id:
-        raise HTTPException(status_code=403, detail="Cannot restart another user's bot")
+    # Own the lifecycle transition across BOTH restart halves and the DB status + audit commit.
+    # Crucially, DRAIN the old instance FIRST, then refresh the row and build the replacement
+    # configuration: a live edit admitted before the drain (e.g. a language change under an
+    # admission lease) must finish and be observed, so the new generation starts from post-drain
+    # settings rather than a config snapshot captured before the edit committed.
+    with _owned_bot(bot_id, user, db) as bot:
+        try:
+            bot_manager.stop_bot(bot_id)
+        except MayHaveExecuted:
+            # The stop half's drain timed out before any replacement was published: an admitted
+            # worker may still be running. Report the uncertainty; no new generation started.
+            _write_log(bot_id, "重启失败: 上一代操作结果未知，请检查 /resources", level="ERROR")
+            raise api_errors.may_have_executed(bot_id) from None
+        except RuntimeError:
+            pass  # not running in-process; nothing to drain before the start half
 
-    config_dict = _build_config_dict(bot, db)
+        # Re-read the authoritative row AFTER the drain, so a language/state edit that committed
+        # while draining is reflected in the replacement configuration, and RE-VALIDATE
+        # authorization: an ownership transfer that committed during the drain must not let the
+        # original requester publish a replacement for the new owner (B27).
+        db.rollback()
+        bot = db.get(Bot, bot_id)
+        if bot is None or bot.is_deleted:
+            raise HTTPException(status_code=404, detail="Bot not found")
+        if user.role != "super_admin" and bot.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Cannot restart another user's bot")
+        if bot.status == "recovery_required":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Bot needs recovery: a previous restore could not install a consistent "
+                    "configuration and saved state. Re-run the restore for this bot before starting."
+                ),
+            )
+        config_dict = _build_config_dict(bot, db)
 
-    try:
-        pid = bot_manager.restart_bot(bot_id, config_dict)
-    except RuntimeError as e:
-        _write_log(bot_id, f"重启失败: {e}", level="ERROR")
-        raise HTTPException(status_code=500, detail=str(e)) from None
+        try:
+            pid = bot_manager.start_bot(bot_id, config_dict, activate=False)
+        except (InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+            raise api_errors.admission_http_error(exc, bot_id) from None
+        except RuntimeError as e:
+            # The stop half already drained and removed the old instance, so the bot genuinely is
+            # not running. Reset the row to stopped/pid None under the owner before failing, so a
+            # construction failure never leaves a phantom ``running`` row (B30).
+            _reset_row_to_stopped(db, bot_id)
+            _write_log(bot_id, f"重启失败: {e}", level="ERROR")
+            raise HTTPException(status_code=500, detail=str(e)) from None
 
-    bot.status = "running"
-    bot.pid = pid
-    write_audit_log(
-        db,
-        user,
-        "bot.restart",
-        target_type="bot",
-        target_id=bot_id,
-        target_name=bot.name,
-        ip=request.client.host if request.client else None,
-    )
-    db.commit()
-    db.refresh(bot)
-    _write_log(bot_id, "Bot 已重启")
-
-    return BotStatusOut(id=bot.id, status=bot.status, pid=pid, message="Bot restarted")
+        bot.status = "running"
+        bot.pid = pid
+        write_audit_log(
+            db,
+            user,
+            "bot.restart",
+            target_type="bot",
+            target_id=bot_id,
+            target_name=bot.name,
+            ip=request.client.host if request.client else None,
+        )
+        _commit_initial_status_then_activate(db, bot_id)
+        db.refresh(bot)
+        _write_log(bot_id, "Bot 已重启")
+        return BotStatusOut(id=bot.id, status=bot.status, pid=pid, message="Bot restarted")
 
 
 # ── Language endpoint ─────────────────────────────────────
@@ -728,40 +994,67 @@ def set_bot_language(
 
     bot = _get_user_bot(bot_id, user, db)
 
-    # Persist in config_overrides
-    overrides = json.loads(bot.config_overrides or "{}")
-    overrides["LANGUAGE"] = lang
-    bot.config_overrides = json.dumps(overrides, ensure_ascii=False)
+    def _persist_override_and_audit():
+        overrides = json.loads(bot.config_overrides or "{}")
+        overrides["LANGUAGE"] = lang
+        bot.config_overrides = json.dumps(overrides, ensure_ascii=False)
+        write_audit_log(
+            db,
+            user,
+            "bot.set_language",
+            target_type="bot",
+            target_id=bot_id,
+            target_name=bot.name,
+            detail={"language": lang},
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
 
-    write_audit_log(
-        db,
-        user,
-        "bot.set_language",
-        target_type="bot",
-        target_id=bot_id,
-        target_name=bot.name,
-        detail={"language": lang},
-        ip=request.client.host if request.client else None,
-    )
-    db.commit()
+    def _apply_to_live(lease):
+        _persist_override_and_audit()
+        if hasattr(lease.bot, "config"):
+            lease.bot.config.set_val("LANGUAGE", lang)
 
-    # Hot-apply to running instance (no restart)
-    instance = bot_manager.get_instance(bot_id)
-    if instance and hasattr(instance.bot, "config"):
-        instance.bot.config.set_val("LANGUAGE", lang)
+    # A live generation applies the edit under an admission lease (counted, drain-aware). When
+    # there is no live instance, own the lifecycle transition before persisting: a start in
+    # construction owns the transition and refuses this edit up front (transient refusal, no
+    # durable effect) rather than letting the edit miss it; a start that has since published is
+    # applied to under a fresh lease; a truly stopped bot persists the override for the next
+    # start to load. A refused edit (retiring/full) makes no config_overrides commit and no
+    # audit record.
+    try:
+        with bot_manager.admit(bot_id) as lease:
+            _apply_to_live(lease)
+    except BotNotRunning:
+        try:
+            with bot_manager.transition(bot_id):
+                # Re-validate under the owner on a fresh row: a delete/reassignment may have
+                # committed while we waited for ownership, and the pre-owner object is stale.
+                db.rollback()
+                bot = db.get(Bot, bot_id)  # noqa: F841 — rebinds the cell the closures read
+                if bot is None or bot.is_deleted:
+                    raise HTTPException(status_code=404, detail="Bot not found")
+                if user.role != "super_admin" and bot.user_id != user.id:
+                    raise HTTPException(status_code=403, detail="Cannot act on another user's bot")
+                try:
+                    with bot_manager.admit(bot_id) as lease:
+                        _apply_to_live(lease)
+                except BotNotRunning:
+                    _persist_override_and_audit()
+        except (InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+            raise api_errors.admission_http_error(exc, bot_id) from None
+    except (InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise api_errors.admission_http_error(exc, bot_id) from None
 
     _write_log(bot_id, f"语言切换为 {lang}")
-    return {"id": bot.id, "language": lang}
+    return {"id": bot_id, "language": lang}
 
 
 def _get_bot_data_dir(bot: Bot) -> str:
-    """Return the data directory for a bot, preferring config_overrides.DATA_DIR."""
-    try:
-        overrides = json.loads(bot.config_overrides or "{}")
-        data_dir = overrides.get("DATA_DIR") or _DEFAULT_DATA_DIR
-    except (json.JSONDecodeError, AttributeError):
-        data_dir = _DEFAULT_DATA_DIR
-    return os.path.join(data_dir, "bots", str(bot.id))
+    """Return the deployment-owned bot directory, never a per-bot override."""
+    paths = get_managed_paths()
+    paths.state_file(bot.id)
+    return str(paths.bot_dir(bot.id))
 
 
 # ── State endpoints ────────────────────────────────────────
@@ -770,16 +1063,37 @@ def _get_bot_data_dir(bot: Bot) -> str:
 @router.get("/{bot_id}/state")
 def get_bot_state(
     bot_id: int,
+    include_usage: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     import os
 
     bot = _get_user_bot(bot_id, user, db)
-    instance = bot_manager.get_instance(bot_id)
 
-    if instance:
-        return instance.state.bot_state
+    def view(state, usage=None):
+        # Derived task data stays outside editable/persisted resource state.
+        return {"state": state, "usage": usage or []} if include_usage else state
+
+    # Prefer the live state, read under an admission lease + the state lock as one detached
+    # copy (AC-7). ``for_read`` lets a failed (error) generation still be read. Only a confirmed
+    # stopped bot falls back to the persisted file/default; a retiring/full generation returns
+    # the structured transient error instead of masking it as a stopped bot.
+    try:
+        with bot_manager.admit(bot_id, for_read=True) as lease, authority_guard(bot_id):
+            db.rollback()
+            bot = _get_user_bot(bot_id, user, db)
+            captured_at, snapshot = lease.bot.state_snapshot()
+            usage = []
+            if include_usage:
+                from lockbot.backend.app.resource_api.usage import active_declarations, declarations_for_state
+
+                usage = declarations_for_state(active_declarations(db, bot, datetime.utcnow()), snapshot, captured_at)
+        return view(snapshot, usage)
+    except BotNotRunning:
+        pass
+    except (InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise api_errors.admission_http_error(exc, bot_id) from None
 
     # Bot not running — try loading persisted state file first
     state_file = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
@@ -789,7 +1103,7 @@ def get_bot_state(
                 raw = json.load(f)
                 state = raw.get("bot_state") or raw.get("cluster_state") or raw.get("cluster_status")
                 if state:
-                    return state
+                    return view(state)
         except Exception:
             pass
 
@@ -797,24 +1111,26 @@ def get_bot_state(
     try:
         cluster_configs = json.loads(bot.cluster_configs)
     except (json.JSONDecodeError, TypeError):
-        return {}
+        return view({})
 
     if bot.bot_type == "DEVICE":
-        return {
-            node_key: [
-                {
-                    "dev_id": dev_id,
-                    "dev_model": devices[dev_id],
-                    "status": "idle",
-                    "current_users": [],
-                }
-                for dev_id in range(len(devices))
-            ]
-            for node_key, devices in cluster_configs.items()
-        }
+        return view(
+            {
+                node_key: [
+                    {
+                        "dev_id": dev_id,
+                        "dev_model": devices[dev_id],
+                        "status": "idle",
+                        "current_users": [],
+                    }
+                    for dev_id in range(len(devices))
+                ]
+                for node_key, devices in cluster_configs.items()
+            }
+        )
 
     # NODE / QUEUE: default idle state
-    return {name: {"status": "idle", "current_users": [], "booking_list": []} for name in cluster_configs}
+    return view({name: {"status": "idle", "current_users": [], "booking_list": []} for name in cluster_configs})
 
 
 # ── State validation ────────────────────────────────────────
@@ -1002,6 +1318,7 @@ def update_bot_state(
     user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    import copy
     import os
 
     bot = _get_user_bot(bot_id, user, db)
@@ -1013,47 +1330,116 @@ def update_bot_state(
     if bot.status == "running":
         raise HTTPException(status_code=409, detail="Stop the bot before editing state")
 
-    # Validate and align state with cluster_configs
-    cluster_configs = _normalize_cluster_configs(json.loads(bot.cluster_configs))
-    config_dict = _build_config_dict(bot, db)
     from lockbot.core.config import Config
 
-    config_obj = Config(config_dict)
-    state, warnings = _validate_and_align_state(state, bot.bot_type, cluster_configs, config_obj)
+    # Preserve the untouched request payload: the offline path re-derives validation, config and
+    # the state-file target from the FRESH row under the owner (B25), because a config edit that
+    # commits before we acquire ownership changes cluster keys and must not be lost.
+    raw_state = state
 
-    instance = bot_manager.get_instance(bot_id)
-    if instance:
-        instance.state.bot_state = state
+    def _derive(bot):
+        """Compute (aligned_state, warnings, state_file) for a bot row, from the raw payload.
 
-    # Persist to state file so it survives restarts
-    state_file = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
-    os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        Deep-copies the raw payload because alignment mutates nested structures in place, so the
+        raw request stays intact for this single derivation under the owner (or lease).
+        """
+        cluster_configs = _normalize_cluster_configs(json.loads(bot.cluster_configs))
+        config_obj = Config(_build_config_dict(bot, db))
+        aligned, warns = _validate_and_align_state(copy.deepcopy(raw_state), bot.bot_type, cluster_configs, config_obj)
+        target = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
+        return aligned, warns, target
+
+    # Derived exactly once, inside whichever path runs (live lease or offline owner), so there is
+    # no authoritative pre-owner derivation that a concurrent config writer could invalidate (B25).
+    state = {}
+    warnings = []
+    state_file = ""
+
     import tempfile
 
-    fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(state_file), suffix=".tmp")
+    def _persist_state_file():
+        """Atomically replace bot_state.json. Called while the admission lease + state lock are
+        held for a live bot, so a lifecycle drain cannot remove the generation mid-write."""
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(state_file), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"bot_state": state}, f, ensure_ascii=False, indent=4)
+            os.replace(tmp_path, state_file)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
+
+    def _audit_and_commit():
+        write_audit_log(
+            db,
+            user,
+            "bot.edit_state",
+            target_type="bot",
+            target_id=bot_id,
+            target_name=bot.name,
+            detail={"warnings": warnings} if warnings else None,
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
+
+    def _apply_live(lease):
+        # Hold the bot state lock only across the in-memory assign + atomic file write, so the
+        # snapshot/file stay consistent; the audit INSERT + commit then run under the lease but
+        # OUTSIDE the state lock, so the DB round-trip does not widen the state-lock window the
+        # expiry sweep and chat commands contend on. Both still run inside the lease, so the
+        # audit/commit never trails it.
+        with lease.bot._lock:
+            lease.bot.state.bot_state = state
+            _persist_state_file()
+        _audit_and_commit()
+
+    # This route edits persisted state and requires a non-running bot (running bots are 409'd
+    # above). A live generation applies under a lease (assign + file write under the state lock,
+    # audit/commit under the lease). A retained *failed* generation must NOT be edited on disk
+    # underneath a still-held read lease (the retained snapshot and file would disagree); the
+    # operator must stop/restart it first. When there is no live instance, the edit owns the
+    # lifecycle transition before persisting: a start in construction owns the transition and
+    # refuses this edit up front (transient refusal, no durable effect) rather than letting a
+    # full-cap reconcile silently suppress AdmissionFull; a start that has since published is
+    # applied to under a fresh lease; a truly stopped bot writes the file for the next start.
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"bot_state": state}, f, ensure_ascii=False, indent=4)
-        os.replace(tmp_path, state_file)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
-        raise
+        with bot_manager.admit(bot_id) as lease:
+            state, warnings, state_file = _derive(bot)  # noqa: F841 — rebinds the cells closures read
+            _apply_live(lease)
+    except BotNotRunning:
+        if bot_manager.is_failed(bot_id):
+            raise api_errors.instance_retiring(bot_id) from None
+        try:
+            with bot_manager.transition(bot_id):
+                # Re-validate under the owner on a fresh row: a delete/reassignment or a config
+                # edit may have committed while we waited for ownership.
+                db.rollback()
+                bot = db.get(Bot, bot_id)  # noqa: F841 — rebinds the cell the closures read
+                if bot is None or bot.is_deleted:
+                    raise HTTPException(status_code=404, detail="Bot not found")
+                if user.role != "super_admin" and bot.user_id != user.id:
+                    raise HTTPException(status_code=403, detail="Cannot act on another user's bot")
+                # Recompute validation/alignment/warnings and the state-file target from the FRESH
+                # row (B25): the enclosing names the closures read are rebound here.
+                state, warnings, state_file = _derive(bot)  # noqa: F841
+                try:
+                    with bot_manager.admit(bot_id) as lease:
+                        _apply_live(lease)
+                except BotNotRunning:
+                    if bot_manager.is_failed(bot_id):
+                        raise api_errors.instance_retiring(bot_id) from None
+                    _persist_state_file()
+                    _audit_and_commit()
+        except (InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+            raise api_errors.admission_http_error(exc, bot_id) from None
+    except (InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise api_errors.admission_http_error(exc, bot_id) from None
 
     result = {"message": "State updated"}
     if warnings:
         result["warnings"] = warnings
-    write_audit_log(
-        db,
-        user,
-        "bot.edit_state",
-        target_type="bot",
-        target_id=bot_id,
-        target_name=bot.name,
-        detail={"warnings": warnings} if warnings else None,
-        ip=request.client.host if request.client else None,
-    )
-    db.commit()
     return result
 
 
@@ -1128,13 +1514,36 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     args = dict(request.query_params)
 
-    instance = bot_manager.get_instance(bot_id)
-    if not instance:
-        # Bot not running — try to reply "not started" via IM
-        return await _reply_bot_not_running(bot_id, form, args, body, db)
+    # Dispatch under an admission lease so a lifecycle drain waits for this webhook and a
+    # replacement instance is never handed stale work. The synchronous handler (signature
+    # check, decrypt, command execution, reply send) runs off the event loop. A retiring,
+    # stopped, or over-full bot falls back to the friendly "not running" reply.
+    metadata_session = sessionmaker(bind=db.get_bind())
+
+    def _dispatch():
+        with bot_manager.admit(bot_id) as lease:
+            text, code, meta = handle_webhook(lease.bot, raw_form=form, raw_args=args, raw_body=body)
+            if code == 200 and not form.get("echostr") and bot_manager.lease_is_current(lease):
+                with metadata_session() as worker_db:
+                    row = worker_db.get(Bot, bot_id)
+                    if row is not None and not row.is_deleted:
+                        row.last_request_at = datetime.utcnow()
+                        if meta.get("group_id"):
+                            observed = set((row.observed_group_ids or "").split(",")) - {""}
+                            observed.add(str(meta["group_id"]))
+                            from lockbot.backend.app.broadcast.service import record_group_activity
+
+                            record_group_activity(worker_db, row, meta["group_id"])
+                            row.observed_group_ids = ",".join(sorted(observed))[:4096]
+                        if meta.get("user_id"):
+                            row.last_user_id = str(meta["user_id"])[:128]
+                        worker_db.commit()
+            return text, code, meta
 
     try:
-        text, code, meta = handle_webhook(instance.bot, raw_form=form, raw_args=args, raw_body=body)
+        text, code, meta = await asyncio.to_thread(_dispatch)
+    except (BotNotRunning, InstanceRetiring, AdmissionFull):
+        return await _reply_bot_not_running(bot_id, form, args, body, db)
     except Exception as e:
         tb = traceback.format_exc()
         logger.exception("Webhook handler crashed for bot %d", bot_id)
@@ -1145,27 +1554,15 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     if form.get("echostr"):
         return PlainTextResponse(content=text, status_code=code)
 
-    # Update last_request_at
-    bot = db.get(Bot, bot_id)
-    if bot and not bot.is_deleted:
-        bot.last_request_at = datetime.utcnow()
-        db.commit()
-
-    # Write logs for commands, update group_id/last_user_id for any valid request
+    # Record the processed command (observability only; keyed by bot_id, not identity).
     uid = meta.get("user_id")
-    gid = meta.get("group_id")
     if meta.get("command"):
-        _write_log(bot_id, f"[{uid or 'unknown'}] {meta['command']}", category="command")
-    if gid and bot:
-        db.refresh(bot)
-        existing = set(bot.group_id.split(",") if bot.group_id else [])
-        existing.add(str(gid))
-        bot.group_id = ",".join(sorted(existing))
-        db.commit()
-    if uid and bot:
-        db.refresh(bot)
-        bot.last_user_id = uid
-        db.commit()
+        _write_log(
+            bot_id,
+            f"[{uid or 'unknown'}] {redact_command_text(meta['command'])}",
+            category="command",
+            source=SOURCE_CHAT,
+        )
 
     return PlainTextResponse(content=text, status_code=code)
 
@@ -1200,7 +1597,7 @@ async def _reply_bot_not_running(
         "TOKEN": encryption.decrypt(bot.token),
     }
     config = Config(config_dict)
-    adapter = InfoflowAdapter(config=config)
+    adapter = create_adapter(bot.platform, config=config)
 
     # Verify signature
     signature = args.get("signature")
@@ -1238,9 +1635,6 @@ async def _reply_bot_not_running(
             "webhook.bot_not_running", lang=lang, bot_name=bot.name, bot_id=bot_id, owner_username=owner_username
         )
     reply = adapter.build_reply(content, [user_id], group_id=group_id)
-    toid = msg_data["message"]["header"].get("toid")
-    if toid:
-        reply["message"]["header"]["toid"] = toid
 
     try:
         adapter.send(reply)
@@ -1277,8 +1671,11 @@ def generate_api_key(
     if user.role != "super_admin" and bot.user_id != user.id:
         raise HTTPException(status_code=403, detail="Only owner can manage API key")
     raw_key = _generate_api_key()
-    bot.api_key = raw_key
-    db.commit()
+    # Serialize the credential write with lifecycle transitions: own the bot, re-validate the
+    # fresh row under the owner, then write. A competing transition surfaces as a transient 503.
+    with _owned_bot(bot_id, user, db) as bot:
+        bot.api_key = raw_key
+        db.commit()
     return {"api_key": raw_key, "message": "Save this key now; it won't be shown again."}
 
 
@@ -1293,8 +1690,81 @@ def revoke_api_key(
     bot = _get_user_bot(bot_id, user, db)
     if user.role != "super_admin" and bot.user_id != user.id:
         raise HTTPException(status_code=403, detail="Only owner can manage API key")
-    bot.api_key = None
-    db.commit()
+    with _owned_bot(bot_id, user, db) as bot:
+        bot.api_key = None
+        db.commit()
+
+
+# ── Agent API enrollment (resource auth) ───────────────────────────────────
+
+
+def _require_bot_owner(bot_id: int, user: User, db: Session, action: str) -> Bot:
+    """Fetch a bot the caller owns, or is super_admin over. Otherwise 403/404."""
+    bot = _get_user_bot(bot_id, user, db)
+    if user.role != "super_admin" and bot.user_id != user.id:
+        raise HTTPException(status_code=403, detail=f"Only the bot owner can {action}")
+    return bot
+
+
+@router.put("/{bot_id}/resource-auth")
+def set_resource_auth_enabled(
+    bot_id: int,
+    body: ResourceAuthToggle,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Control Agent access and new enrollment. Disabling suspends, without revoking keys."""
+    _require_bot_owner(bot_id, user, db, "manage Agent access")
+    with _owned_bot(bot_id, user, db) as bot, authority_guard(bot_id):
+        db.rollback()
+        bot = _require_bot_owner(bot_id, user, db, "manage Agent access")
+        if bot.resource_auth_enabled == bool(body.enabled):
+            return {"bot_id": bot_id, "resource_auth_enabled": bot.resource_auth_enabled}
+        previous = bot.resource_auth_enabled
+        bot.resource_auth_enabled = bool(body.enabled)
+        write_audit_log(
+            db,
+            user,
+            "bot.update",
+            target_type="bot",
+            target_id=bot.id,
+            target_name=bot.name,
+            detail={"resource_auth_enabled": {"from": previous, "to": bot.resource_auth_enabled}},
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
+        enabled = bot.resource_auth_enabled
+    return {"bot_id": bot_id, "resource_auth_enabled": enabled}
+
+
+@router.delete("/{bot_id}/resource-auth/bindings")
+def revoke_all_resource_bindings(
+    bot_id: int,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoke every agent credential scoped to this bot. Takes effect on the next request."""
+    from lockbot.backend.app.resource_auth import service as resource_auth_service
+
+    _require_bot_owner(bot_id, user, db, "revoke agent credentials")
+    with _owned_bot(bot_id, user, db) as bot, authority_guard(bot_id):
+        db.rollback()
+        bot = _require_bot_owner(bot_id, user, db, "revoke agent credentials")
+        revoked = resource_auth_service.revoke_bindings_for_bot(db, bot.id)
+        write_audit_log(
+            db,
+            user,
+            "bot.resource_auth_revoke_all",
+            target_type="bot",
+            target_id=bot.id,
+            target_name=bot.name,
+            detail={"revoked": revoked},
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
+    return {"bot_id": bot_id, "revoked": revoked}
 
 
 @router.get("/{bot_id}/locked-users", tags=["Public API"], response_model=LockedUsersResponse)
@@ -1317,12 +1787,15 @@ def get_locked_users(
     if not _verify_api_key(bot, token):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    # Get bot state from manager
-    instance = bot_manager.get_instance(bot_id)
-    if instance is None:
-        raise HTTPException(status_code=503, detail="Bot not running")
-
-    state = instance.bot.state.bot_state
+    # Read state under an admission lease + the state lock, as one detached copy. ``for_read``
+    # lets a failed (error) generation still be read; the lease means this read cannot observe a
+    # retiring/replaced generation; reading the live dict without the lock could observe a
+    # multi-resource mutation half-applied.
+    try:
+        with bot_manager.admit(bot_id, for_read=True) as lease:
+            _captured_at, state = lease.bot.state_snapshot()
+    except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise api_errors.admission_http_error(exc, bot_id, legacy_not_running=True) from None
     bot_type = bot.bot_type
 
     # Return state organized by node -> current_users
@@ -1380,15 +1853,22 @@ def api_opkick(
     if not _verify_api_key(bot, auth_header[7:]):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    instance = bot_manager.get_instance(bot_id)
-    if instance is None:
-        raise HTTPException(status_code=503, detail="Bot not running")
-
+    # Run the kick under an admission lease, held across the whole mutation (which persists
+    # state and may notify), so it cannot land on a retiring/replaced generation and a drain
+    # waits for it.
     try:
-        result = instance.bot.do_opkick(body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason)
+        with bot_manager.admit(bot_id) as lease:
+            result = lease.bot.do_opkick(body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason)
+    except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise api_errors.admission_http_error(exc, bot_id, legacy_not_running=True) from None
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
 
     freed_str = ", ".join(result["freed"])
-    _write_log(bot_id, f"[API] opkick {body.target_user} -> {freed_str}", category="command")
+    _write_log(
+        bot_id,
+        f"[API] opkick {body.target_user} -> {freed_str}",
+        category="command",
+        source=SOURCE_SERVICE_KEY,
+    )
     return result

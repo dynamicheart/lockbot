@@ -2,6 +2,7 @@
 
 import re
 import time
+from contextlib import suppress
 
 from lockbot.core.base_bot import (
     BaseLockBot,
@@ -24,7 +25,7 @@ from lockbot.core.utils import (
 )
 
 # Regex building blocks for command parsing
-_NODE_LIST = r"([\w\d]+)(\s*[,，]\s*[\w\d]+)*"  # node1,node2,...
+_NODE_LIST = r"([\w-]+)(\s*[,，]\s*[\w-]+)*"  # configured keys, including host-style names
 _DURATION = r"([0-9]+\.?[0-9]*)([dhm])"  # e.g. 3d, 2.5h, 30m
 
 
@@ -102,7 +103,7 @@ class NodeBot(BaseLockBot):
             content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
             return self.adapter.build_reply(content, [user_id])
 
-    def lock(self, user_id, command):
+    def lock(self, user_id, command, *, acquisition_limit=None):
         """
         Lock nodes
         """
@@ -113,6 +114,7 @@ class NodeBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._lock:
+            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(
                 node["status"] == "idle"
@@ -162,7 +164,7 @@ class NodeBot(BaseLockBot):
             self._save_and_notify()
             return reply
 
-    def slock(self, user_id, command):
+    def slock(self, user_id, command, *, acquisition_limit=None):
         """
         Share lock nodes
         """
@@ -173,6 +175,7 @@ class NodeBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._lock:
+            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self.state.bot_state[node_key] for node_key in node_keys]
             if not all(node["status"] != "exclusive" for node in nodes):
                 return self.show_error(user_id, self._msg_with_usage("error.node_exclusive_mode"))
@@ -315,19 +318,26 @@ class NodeBot(BaseLockBot):
             if not freed:
                 raise ValueError(f"User {target_user} has no active locks")
 
-            # Notify kicked user
+            # Build the notification payload under the lock, but do NOT send it here: a slow or
+            # retrying adapter must not block the non-reentrant state lock (and thus chat, API
+            # work, and the expiry sweep). The send happens after the lock is released.
+            notify_reply = None
             try:
                 notify_msg = t("opkick.notify_kicked", config=self.config, node_key="\n  ".join(freed))
                 if reason:
                     notify_msg += t("opkick.notify_kicked_reason", config=self.config, reason=reason)
                 notify_reply = self.adapter.build_reply(notify_msg, [target_user])
-                self.adapter.send(notify_reply)
             except Exception:
-                pass
+                notify_reply = None
 
             log_to_file("api", "opkick", freed, config=self.config)
             self._save_and_notify()
-            return {"ok": True, "freed": freed}
+
+        # Outside the state lock: deliver the kicked-user notification best-effort.
+        if notify_reply is not None:
+            with suppress(Exception):
+                self.adapter.send(notify_reply)
+        return {"ok": True, "freed": freed}
 
     def _help_commands(self):
         """Return NodeBot-specific command section for help text."""

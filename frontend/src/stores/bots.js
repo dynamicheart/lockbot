@@ -51,7 +51,10 @@ export const useBotsStore = defineStore('bots', () => {
       } else {
         for (const devices of Object.values(configs))
           totalDevices += Array.isArray(devices) ? devices.length : 0
-        resourceCounts = { nodes: Object.keys(configs).length, devices: totalDevices }
+        resourceCounts = {
+          nodes: Object.keys(configs).length,
+          devices: totalDevices,
+        }
       }
     } else {
       resourceCounts = {
@@ -121,8 +124,8 @@ export const useBotsStore = defineStore('bots', () => {
     return res.data
   }
 
-  async function getBotState(id) {
-    const res = await api.get(`/bots/${id}/state`)
+  async function getBotState(id, params = {}) {
+    const res = await api.get(`/bots/${id}/state`, { params })
     return res.data
   }
 

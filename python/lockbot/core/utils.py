@@ -2,7 +2,9 @@
 
 import copy
 import time
+import uuid
 
+from lockbot.core.command_context import command_source
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
 
@@ -16,6 +18,8 @@ def create_user_info(user_id, duration, start_time=None, config=None):
     user_info["user_id"] = user_id
     user_info["start_time"] = int(time.time()) if start_time is None else start_time
     user_info["duration"] = duration
+    user_info["holding_id"] = uuid.uuid4().hex
+    user_info["source"] = command_source.get()
     return user_info
 
 
