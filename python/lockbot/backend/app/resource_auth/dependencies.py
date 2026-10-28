@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_auth import service
+from lockbot.backend.app.resource_auth.http_errors import ResourceAuthenticationError
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 
@@ -43,7 +44,7 @@ class ResourceActor:
 def _bearer_token(request: Request) -> str:
     header = request.headers.get("Authorization", "")
     if not header.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credential")
+        raise ResourceAuthenticationError("Missing credential", "credential_missing")
     return header[7:].strip()
 
 
@@ -65,9 +66,11 @@ def require_resource_actor(
 
     row: ResourceBinding | None = service.authenticate(db, bot_id=bot_id, bot_uuid=bot.uuid, token=token)
     if row is None:
-        # Deliberately indistinguishable: an unknown, inert, revoked, expired,
-        # wrong-scope or wrong-type token all produce the same answer.
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credential")
+        # Preserve the released 401/detail text. A valid key for a different bot
+        # gets an additive recovery code; never disclose that bot without its key.
+        valid_elsewhere = service.authenticate_for_any_bot(db, token=token)
+        code = "wrong_bot" if valid_elsewhere is not None else "credential_invalid"
+        raise ResourceAuthenticationError("Invalid credential", code)
 
     service.touch_last_used(db, row)
     db.commit()

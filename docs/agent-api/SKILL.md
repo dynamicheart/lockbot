@@ -1,15 +1,82 @@
 ---
-name: lockbot-agent-api
+name: lockbot-resource-agent
 description: >
-  Drive a LockBot GPU/node/queue lock bot as a verified IM user over HTTP. Use when an agent
+  Use Lockbot Resource API (lockbot.resource-api) with lbr_ credentials.
+  This is distinct from P800/other Lockbot JWT-token platforms. Use when an agent
   must lock, unlock, book or query shared compute resources through a bot it has been enrolled
   on. Enrollment requires human confirmation in chat; resource operations use HTTP.
 ---
 
-# LockBot Agent API
+# Lockbot Resource API Agent API
 
 A LockBot bot guards shared resources (GPU cards, cluster nodes, or queue slots). As an agent
 you act as **one verified IM identity on exactly one bot**, using a personal credential.
+
+## When a user shares this skill URL
+
+Read it for the current task; a persistent installation is not required to call the API.
+For ongoing use, install it with the client's supported skill installer when the user asks
+to install it or authorizes persistent setup. Use the manifest's `installation` bundle and
+folder name **lockbot-resource-agent**. If installation or hot reload is unavailable, read
+the latest Markdown for this task and explain that future tasks must load it again.
+Never claim an installation/update succeeded without checking the client's saved skill.
+Store the approved origin and last verified manifest revision in private service configuration;
+credentials belong in its private credential store, never in `SKILL.md` or a downloaded ZIP.
+
+## Identify the service before using a saved credential
+
+This skill is for **Lockbot Resource API**, identified by
+`service_id: lockbot.resource-api`, API version `1`, and personal `lbr_` keys.
+A similarly named Lockbot skill, matching command URL, or remembered token is not proof
+that it belongs here. P800/other implementations using `/api/infoflow-auth/challenges`
+and JWT tokens have a different protocol and permission scope; never apply their
+"one token for all bots" or `take` instructions to this service.
+
+1. Start with the server/skill URL explicitly supplied or approved by the user. Without
+   a trusted server address, ask for that address once; never guess a host or bot ID.
+2. **Without Authorization**, GET `/api/agent-skill` on that origin. Check `service_id`,
+   `instance_id`, `api_version`, and `skill_id`. Do not follow a redirect to another origin.
+3. For persistent setup, install/update `installation.download_url` as **lockbot-resource-agent**,
+   beside other Lockbot skills. Keep their files and credentials intact. Verify the ZIP SHA-256
+   and `skill_sha256` from this same trusted origin. Legacy download URLs stay supported.
+4. Look up credentials using **trusted origin + instance_id + bot UUID**. Never use a
+   single global `LOCKBOT_TOKEN`, generic "lockbot token" memory, or another platform's
+   JWT. If an existing record has no service attribution, ask which service it belongs to;
+   do not test it against different servers.
+5. With a matching saved `lbr_` key, GET `/api/agent/context`. It supplies the bot ID, UUID,
+   name/type, verified actor and relative operation URLs. Verify the returned instance ID
+   against the saved record; use `links` on the same approved origin. Humans do not need
+   to know or enter `bot_id`. This context works while the bot is stopped; when access is
+   disabled it returns `agent_access_enabled: false`, so pause rather than bind again.
+
+Do not send any key to a service just to identify the service. A public service identifier
+prevents accidental protocol confusion; it does not authenticate a malicious host. The
+user-approved origin (and HTTPS where available) remains the credential destination boundary.
+The server cannot erase an Agent's earlier memories: keep the scope explicit in its private
+configuration and use this namespaced skill for requests to this implementation.
+
+## Version checks and compatible updates
+
+The manifest separates `server_version`, stable `api_version`, and the opaque content-based
+skill `version` (plus full `skill_sha256`). Compare skill revisions for **equality**, not as
+ordered semantic versions. Check the manifest at task start and after reconnecting. Personal
+API responses also include `X-Lockbot-Service-ID`, `X-Lockbot-API-Version`,
+`X-Lockbot-Server-Version`, and `X-Lockbot-Skill-Version`.
+
+If the skill revision changes, re-fetch the manifest and this skill from the same trusted
+origin before the next resource mutation. Use a cache-busting `?version=<revision>` or a
+no-cache request, verify its SHA-256, and reload it without replacing another platform's
+skill. An unknown API major version means stop mutations and request compatible instructions;
+a server version change within API 1 does not itself require a new key or new binding.
+Never renew/revoke credentials merely to update a skill.
+The API advertises updates; the Agent client performs the download and reload. A server
+cannot automatically install a skill in a client that does not support it. Keep checking the
+manifest at task start even if that client loaded an older installed copy.
+
+Older 2.10.0 servers lack context discovery and the new identity fields. Their existing
+bot-scoped APIs and keys still work with a previously approved bot configuration. If that
+configuration is missing, explain that the server needs the discovery update, or ask for
+its bot ID once as a legacy fallback. Never scan IDs or fall back to another platform's API.
 
 ## Authentication
 
@@ -147,14 +214,17 @@ node do **not** have independent task registrations. Do not claim that distincti
 
 ### Actual HTTP call
 
-Use the trusted server address and bot ID supplied by the user. Load the key privately
+Use the trusted server address supplied by the user; discover bot ID with `/api/agent/context`. Load the key privately
 from the user's credential store; never put it in URLs, logs, shared files or shell history.
-For example, after assigning `base_url`, `bot_id` and `key` securely in the Agent process:
+For example, after identifying the service without a credential and loading the matching `base_url` and `key` privately:
 
 ```python
 import requests
 session = requests.Session()
 session.headers["Authorization"] = "Bearer " + key
+context = session.get(f"{base_url}/api/agent/context", timeout=15, allow_redirects=False)
+context.raise_for_status()
+bot_id = context.json()["bot"]["id"]
 response = session.post(
     f"{base_url}/api/bots/{bot_id}/commands",
     json={"command": "lock node1 2h", "agent_label": "dev-agent", "purpose": "Develop feature X"},
@@ -167,7 +237,12 @@ state.raise_for_status()
 # Match state.json()["actor"] against the resource's holders, then use the resource.
 ```
 
-## Error codes (JSON `detail.code`)
+## Error codes
+
+Read `detail.code` when `detail` is an object; otherwise read the top-level `code`.
+Published 401 `detail` strings and HTTP statuses are preserved for older clients; new
+auth responses add `code` and `context_url` without changing those fields. On 2.10.0,
+a string-only 401 has no machine code: do not interpret it as permission to scan bot IDs.
 
 | code | meaning | action |
 |---|---|---|
@@ -177,7 +252,9 @@ state.raise_for_status()
 | `bot_not_running` / `instance_retiring` | transient | retry later (honour `Retry-After`) |
 | `admission_full` | the bot's concurrency slot is full | back off, `Retry-After` |
 | `rate_limited` | you exceeded your per-credential budget | back off, `Retry-After` |
-| `credential_invalid` | your credential was revoked/rotated | re-enrol in chat |
+| `credential_missing` | no Bearer key | load this origin/instance's own key |
+| `credential_invalid` | unknown, revoked, expired or foreign key | check saved origin/instance; enrol only on the intended service if needed |
+| `wrong_bot` | valid key, wrong existing bot URL (legacy HTTP 401) | GET `/api/agent/context` and use its operation links; do not bind again |
 | `may_have_executed` | admitted but outcome unknown | do NOT blindly retry; read `/resources` |
 
 ## Budgets & etiquette
@@ -189,7 +266,7 @@ state.raise_for_status()
 
 ## Typical flow
 
-1. Reuse the user's securely stored key for this bot if already authorized. Otherwise `POST /api/resource-auth/bindings` with optional `{"label":"task runner"}` returns a credential, binding ID and one-use code. Store the credential privately; it is inactive until confirmation. Ask the human to send `@bot bind <code>` within 10 minutes, then check `GET /api/resource-auth/bindings/{binding_id}` for `confirmed`. Never simulate the human confirmation. If already bound, reuse the existing saved key; a duplicate request does not replace it. If the key is lost, ask the user to unbind and enroll again.
+1. Identify the approved origin/instance using the steps above, then reuse only its securely stored key if already authorized. Otherwise `POST /api/resource-auth/bindings` with optional `{"label":"task runner"}` returns a credential, binding ID and one-use code. Store the credential privately; it is inactive until confirmation. Ask the human to send `@bot bind <code>` within 10 minutes, then check `GET /api/resource-auth/bindings/{binding_id}` for `confirmed`. No bot ID is needed for this request: the verified group confirmation chooses it. After confirmation, GET `/api/agent/context` with the issued key to learn the bot and operation URLs. Never simulate the human confirmation. If already bound, reuse the existing saved key; a duplicate request does not replace it. If the key is lost, ask the user to unbind and enroll again.
 2. `GET /resources` → see what is free and your queue position.
 3. `POST /commands {"command":"lock node1 2h","agent_label":"dev-agent","purpose":"Develop feature X"}` → then `GET /resources` to confirm.
 4. While working, periodically read `/resources` and check that your verified actor still holds each resource you are using, with a valid lease. Also check before important resource operations and after an interruption. A human may manually release the resource or another authorized actor may preempt it; your original successful lock is not a continuing guarantee.
@@ -268,7 +345,7 @@ not repeatedly retried or reported as an unverified defect.
 `GET /api/agent-skill/SKILL.md` reads the instructions directly.
 `GET /api/agent-skill/lockbot-agent-api.zip` downloads the installable folder.
 These endpoints need no API key and contain no user-specific configuration or credentials.
-Resolve the relative URLs against the trusted Lockbot server address supplied by the user.
+Resolve all relative URLs against the user-approved origin. New clients use the namespaced `installation` bundle; the old `name`, `version`, `download_url`, ZIP root and URLs remain for existing integrations.
 
 
 The machine-readable contract is served at `/api/public-openapi.json` (browsable at

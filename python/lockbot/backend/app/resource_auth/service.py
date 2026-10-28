@@ -181,6 +181,25 @@ def authenticate(db: Session, *, bot_id: int, bot_uuid: str | None, token: str) 
     return None
 
 
+def authenticate_for_any_bot(db: Session, *, token: str) -> ResourceBinding | None:
+    """Resolve a credential's existing scope; never widen it or select a caller's bot."""
+    if not credentials.looks_like_credential(token):
+        return None
+    candidates = (
+        db.query(ResourceBinding)
+        .filter(ResourceBinding.credential_digest == credentials.digest_credential(token))
+        .all()
+    )
+    from lockbot.backend.app.bots.models import Bot
+
+    valid = []
+    for candidate in candidates:
+        bot = db.get(Bot, candidate.bound_bot_id)
+        if bot is not None and authenticate(db, bot_id=bot.id, bot_uuid=bot.uuid, token=token) is not None:
+            valid.append(candidate)
+    return valid[0] if len(valid) == 1 else None
+
+
 def touch_last_used(db: Session, row: ResourceBinding) -> None:
     """Record that a credential was used, for the chat listing and load attribution."""
     row.last_used_at = _naive_utc(_utcnow())

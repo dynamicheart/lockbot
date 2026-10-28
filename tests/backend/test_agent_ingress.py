@@ -1,9 +1,11 @@
+import pytest
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from lockbot.backend.app.resource_api.ingress import AgentIngressMiddleware, IngressBudget
 
 
-def test_invalid_credentials_are_limited_before_authentication():
+@pytest.mark.parametrize("path", ["/api/bots/4/resources", "/api/agent/context"])
+def test_invalid_credentials_are_limited_before_authentication(path):
     calls = []
 
     def auth():
@@ -13,7 +15,7 @@ def test_invalid_credentials_are_limited_before_authentication():
     app = FastAPI()
     app.add_middleware(AgentIngressMiddleware, budget=IngressBudget(source_limit=2))
 
-    @app.get("/api/bots/4/resources", dependencies=[Depends(auth)])
+    @app.get(path, dependencies=[Depends(auth)])
     def endpoint():
         raise AssertionError("Cannot reach route")
 
@@ -22,9 +24,9 @@ def test_invalid_credentials_are_limited_before_authentication():
         return {"untouched": True}
 
     client = TestClient(app)
-    assert client.get("/api/bots/4/resources").status_code == 401
-    assert client.get("/api/bots/4/resources").status_code == 401
-    response = client.get("/api/bots/4/resources")
+    assert client.get(path).status_code == 401
+    assert client.get(path).status_code == 401
+    response = client.get(path)
     assert response.status_code == 429 and int(response.headers["Retry-After"]) > 0
     assert len(calls) == 2
     assert client.get("/api/bots/webhook/4").status_code == 200
