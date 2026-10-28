@@ -267,15 +267,20 @@ class TestClusterConfigChange:
             configs={"h1": ["A100", "A100"], "h2": ["H100"]},
         )
 
+        # Retain the ORM row so the test cannot depend on garbage collection clearing
+        # SQLAlchemy's weak identity map between the independent HTTP transactions.
+        bot_record = db_session.get(Bot, bot_id)
         bot = DeviceBot(config_dict=config_dict)
         bot.lock("user1", "lock h1 dev0 1h")
         save_bot_state_to_file(bot.state.bot_state, config=bot.config)
 
         # Update cluster_configs: add a 3rd A100 to h1
         new_configs = {"h1": ["A100", "A100", "A100"], "h2": ["H100"]}
-        client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        updated = client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        assert updated.status_code == 200, updated.text
 
-        bot_record = db_session.get(Bot, bot_id)
+        # The API commits in a different Session; explicitly reload its persisted edit.
+        db_session.refresh(bot_record)
         new_config_dict = _build_config_dict(bot_record)
 
         bot2 = DeviceBot(config_dict=new_config_dict)
@@ -298,14 +303,19 @@ class TestClusterConfigChange:
             configs={"h1": ["A100", "A100"], "h2": ["H100"]},
         )
 
+        # Retain the ORM row so the test cannot depend on garbage collection clearing
+        # SQLAlchemy's weak identity map between the independent HTTP transactions.
+        bot_record = db_session.get(Bot, bot_id)
         bot = DeviceBot(config_dict=config_dict)
         bot.lock("user1", "lock h2 dev0 1h")
         save_bot_state_to_file(bot.state.bot_state, config=bot.config)
 
         new_configs = {"h1": ["A100", "A100"]}
-        client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        updated = client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        assert updated.status_code == 200, updated.text
 
-        bot_record = db_session.get(Bot, bot_id)
+        # The API commits in a different Session; explicitly reload its persisted edit.
+        db_session.refresh(bot_record)
         new_config_dict = _build_config_dict(bot_record)
 
         bot2 = DeviceBot(config_dict=new_config_dict)
@@ -327,14 +337,19 @@ class TestClusterConfigChange:
             configs={"h1": ["A100", "A100"]},
         )
 
+        # Retain the ORM row so the test cannot depend on garbage collection clearing
+        # SQLAlchemy's weak identity map between the independent HTTP transactions.
+        bot_record = db_session.get(Bot, bot_id)
         bot = DeviceBot(config_dict=config_dict)
         bot.lock("user1", "lock h1 dev0 1h")
         save_bot_state_to_file(bot.state.bot_state, config=bot.config)
 
         new_configs = {"h1": ["A100", "A100"], "h2": ["H100", "H100", "H100"]}
-        client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        updated = client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        assert updated.status_code == 200, updated.text
 
-        bot_record = db_session.get(Bot, bot_id)
+        # The API commits in a different Session; explicitly reload its persisted edit.
+        db_session.refresh(bot_record)
         new_config_dict = _build_config_dict(bot_record)
 
         bot2 = DeviceBot(config_dict=new_config_dict)
@@ -371,7 +386,8 @@ class TestClusterConfigChange:
         save_bot_state_to_file(bot.state.bot_state, config=bot.config)
 
         new_configs = ["n1", "n2"]
-        client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        updated = client.put(f"/api/bots/{bot_id}", json={"cluster_configs": new_configs}, headers=admin_header)
+        assert updated.status_code == 200, updated.text
 
         db_session.expire_all()
         bot_record = db_session.get(Bot, bot_id)

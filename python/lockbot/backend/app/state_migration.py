@@ -1,4 +1,4 @@
-"""Read-only inventory of legacy state paths before managed startup.
+"""Legacy state inventory and narrow startup compatibility for the old filename.
 
 Run with ``python -m lockbot.backend.app.state_migration`` while stopped. This command
 never relocates state or rewrites overrides: operators choose and verify a source before
@@ -102,6 +102,72 @@ def inventory(db, paths: ManagedPaths) -> dict:
         "bots": reports,
         "requires_migration": any(r["requires_migration"] for r in reports),
     }
+
+
+def migrate_legacy_state_files(db, paths: ManagedPaths) -> list[int]:
+    """Migrate only an unambiguous same-directory legacy filename before bot recovery.
+
+    The caller owns the deployment state-store lock. Inventory and validate the entire
+    deployment first, so a conflict cannot leave unrelated bots partially migrated. The
+    read-only CLI deliberately does not call this function.
+    """
+    report = inventory(db, paths)
+    planned = []
+    blocked = []
+    for row in report["bots"]:
+        if not row["requires_migration"]:
+            continue
+        target = paths.state_file(row["bot_id"])
+        source = paths.bot_file(row["bot_id"], "cluster_status.json")
+        candidates = [r for r in row.get("legacy_candidates", []) if r.get("exists") or r.get("error")]
+        expected_source = {"path": str(source), "exists": True}
+        if (
+            row.get("canonical", {}).get("exists")
+            or row.get("canonical", {}).get("error")
+            or len(candidates) != 1
+            or not all(candidates[0].get(key) == value for key, value in expected_source.items())
+            or candidates[0].get("error")
+        ):
+            blocked.append(str(row["bot_id"]))
+            continue
+        try:
+            payload = json.loads(source.read_bytes())
+            # These are exactly the old wrappers understood by the core state loader.
+            state = (
+                (payload.get("bot_state") or payload.get("cluster_state") or payload.get("cluster_status") or {})
+                if isinstance(payload, dict)
+                else None
+            )
+            if (
+                not isinstance(payload, dict)
+                or not isinstance(state, dict)
+                or not any(
+                    isinstance(payload.get(key), dict) for key in ("bot_state", "cluster_state", "cluster_status")
+                )
+            ):
+                raise ValueError("unrecognized legacy state")
+        except (OSError, ValueError):
+            blocked.append(str(row["bot_id"]))
+            continue
+        planned.append((row["bot_id"], source, target))
+    if blocked:
+        raise StateMigrationRequired(
+            "Conflicting or unreadable legacy state for bots " + ", ".join(blocked) + ". "
+            "Run python -m lockbot.backend.app.state_migration to inspect paths. No files were moved."
+        )
+    for bot_id, source, target in planned:
+        # Same-directory link + unlink preserves bytes/permissions and atomically refuses
+        # an existing destination, unlike rename/replace on POSIX. No bots are serving yet.
+        try:
+            target.hardlink_to(source)
+        except OSError as exc:
+            raise StateMigrationRequired(f"Unable to migrate legacy state for bot {bot_id}; source preserved") from exc
+        try:
+            source.unlink()
+        except OSError as exc:
+            target.unlink()
+            raise StateMigrationRequired(f"Unable to migrate legacy state for bot {bot_id}; source preserved") from exc
+    return [bot_id for bot_id, _, _ in planned]
 
 
 def assert_state_store_ready(db, paths: ManagedPaths) -> None:

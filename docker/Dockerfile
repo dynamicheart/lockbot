@@ -33,7 +33,8 @@ COPY README.md LICENSE ./
 COPY tools/ /app/tools/
 
 # Default environment
-ENV PYTHONPATH=/app \
+ENV DATA_DIR=/data \
+    PYTHONPATH=/app \
     PYTHONUNBUFFERED=1 \
     TZ=Asia/Shanghai \
     FRONTEND_DIST=/app/frontend/dist

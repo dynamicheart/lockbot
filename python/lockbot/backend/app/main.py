@@ -438,9 +438,12 @@ async def lifespan(app: FastAPI):
     _migrate_identity_boundaries()
     _migrate_binding_uniqueness()
     from lockbot.backend.app.managed_paths import get_managed_paths
-    from lockbot.backend.app.state_migration import assert_state_store_ready
+    from lockbot.backend.app.state_migration import assert_state_store_ready, migrate_legacy_state_files
 
     with SessionLocal() as db:
+        migrated = migrate_legacy_state_files(db, get_managed_paths())
+        if migrated:
+            logger.info("Migrated legacy state filenames for bots %s", migrated)
         assert_state_store_ready(db, get_managed_paths())
     _seed_dev_admin()
     _seed_dev_users()
