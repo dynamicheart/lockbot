@@ -413,6 +413,18 @@ class BaseLockBot:
         except Exception:
             return ""
 
+    def _query_reply(self, content, user_id):
+        """Append the current read-only page outside the resource-state lock."""
+        getter = self.config.get_val("_BOT_VIEW_LINK")
+        if callable(getter):
+            try:
+                view = getter()
+                if view.get("view_url"):
+                    content = [content.rstrip() + "\n\n", (t("view.link", config=self.config), view["view_url"]), "\n"]
+            except Exception:
+                self.logger.warning("Could not obtain resource view link for bot %s", self.config.get_val("BOT_ID"))
+        return self.adapter.build_reply(content, [user_id])
+
     def _help_commands(self):
         """Return the command-section of the help text.  Override in subclasses."""
         return ""

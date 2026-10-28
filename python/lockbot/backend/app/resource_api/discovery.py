@@ -47,7 +47,7 @@ def server_metadata(request: Request, db: Session) -> dict:
         "server_version": request.app.version,
         "api_version": API_VERSION,
         "credential_scheme": "lbr_bot_scoped",
-        "capabilities": ["credential_context", "namespaced_skill", "skill_version_headers"],
+        "capabilities": ["credential_context", "namespaced_skill", "skill_version_headers", "resource_view_link"],
         "context_url": "/api/agent/context",
         "enrollment_url": "/api/resource-auth/bindings",
         "openapi_url": "/api/public-openapi.json",
@@ -81,6 +81,8 @@ class AgentContextResponse(BaseModel):
     credential_scope: Literal["one_user_one_bot"]
     links: dict[str, str]
     skill: dict[str, Any]
+    view_url: str | None = None
+    view_expires_at: str | None = None
 
 
 @router.get("/context", response_model=AgentContextResponse)
@@ -97,11 +99,25 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
     allowed, retry = credential_budget.check(row.id, "read")
     if not allowed:
         raise errors.rate_limited(retry)
+    from lockbot.backend.app.resource_auth.authority import authority_guard
+
+    bot_id, platform, user_id = row.bound_bot_id, row.platform, row.external_user_id
+    with authority_guard(bot_id, platform=platform, external_user_id=user_id):
+        db.rollback()
+        row = service.authenticate_for_any_bot(db, token=_bearer_token(request))
+        if row is None or row.bound_bot_id != bot_id:
+            raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+        return _context_payload(request, response, db, row)
+
+
+def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
     from lockbot.backend.app.resource_api.skill import skill_artifacts
+    from lockbot.backend.app.resource_api.view_links import view_link
 
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
+    view = view_link(db, bot, str(request.base_url)) if bot.resource_auth_enabled else {}
     return {
         "server": server_metadata(request, db),
         "actor": {"platform": row.platform, "external_user_id": row.external_user_id},
@@ -115,4 +131,5 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
             "skill_manifest": "/api/agent-skill",
         },
         "skill": skill_artifacts()[2],
+        **view,
     }

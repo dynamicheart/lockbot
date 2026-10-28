@@ -13,7 +13,7 @@ from collections import OrderedDict
 from starlette.responses import JSONResponse
 
 _PATH = re.compile(
-    r"^/api/(?:agent/context|resource-auth/bindings(?:/[^/]+)?|bots/[^/]+/(?:commands|resources|usage-declarations(?:/[^/]+)?))/?$"
+    r"^/api/(?:agent/context|bot-views/[^/]+/state|resource-auth/bindings(?:/[^/]+)?|bots/[^/]+/(?:commands|resources|usage-declarations(?:/[^/]+)?))/?$"
 )
 
 

@@ -58,6 +58,22 @@ user-approved origin (and HTTPS where available) remains the credential destinat
 The server cannot erase an Agent's earlier memories: keep the scope explicit in its private
 configuration and use this namespaced skill for requests to this implementation.
 
+## Share a resource/queue page with the user
+
+When the user wants to view resources or queue order in a browser, use `view_url` and
+`view_expires_at` returned by `/api/agent/context`. Share that read-only URL; never put your
+personal key into a browser URL. No separate web command or link-creation endpoint is needed.
+The server lazily creates one link per bot, reuses it for 24 hours from creation, and only
+replaces it when a subsequent authorized request arrives after expiry. Page refreshes do not
+renew it. Ordinary group queries also return the current link. If the link expires, request
+context again. Keep the returned URL on the user-approved origin.
+
+The link permits its holder to read this bot's resource/queue/task information and can be
+forwarded; it does not prove current group membership or allow commands. Revoking a personal
+key prevents obtaining new links but does not independently revoke an already shared group
+link before its expiry. A bot identity change invalidates its links. Older servers may omit
+these optional fields: retain the existing API workflow rather than guessing a page URL.
+
 ## Version checks and compatible updates
 
 The manifest separates `server_version`, stable `api_version`, and the opaque content-based

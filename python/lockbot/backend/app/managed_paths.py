@@ -22,6 +22,7 @@ MANAGED_OVERRIDE_KEYS = frozenset(
         "_MANAGED_BOT_DIR",
         "_IDENTITY_REVISION",
         "_AUTHORIZED_GROUP_IDS",
+        "_BOT_VIEW_LINK",
     }
 )
 

@@ -16,6 +16,12 @@ import { isDemoMode, LS_KEYS } from '../utils/demoMode'
 
 const routes = [
   {
+    path: '/bot/:id',
+    name: 'BotResourceView',
+    component: () => import('../views/BotResourceView.vue'),
+    meta: { resourceView: true },
+  },
+  {
     path: '/login',
     name: 'Login',
     component: Login,
@@ -118,6 +124,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
+  if (to.meta.resourceView) return next()
   const token = localStorage.getItem(LS_KEYS.token)
   const userStr = localStorage.getItem(LS_KEYS.user)
   const user = userStr ? JSON.parse(userStr) : null

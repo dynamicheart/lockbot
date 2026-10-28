@@ -66,6 +66,7 @@ def public_skill_manifest(kind, request, response, db):
     if kind == "operator":
         identity["credential_scheme"] = "lbk_bot_scoped"
         identity["capabilities"].remove("credential_context")
+        identity["capabilities"].remove("resource_view_link")
         identity.pop("context_url")
         identity.pop("enrollment_url")
     return {**skill_artifacts(kind)[2], **identity}

@@ -1,6 +1,7 @@
 """English (en) message translations for lockbot."""
 
 MESSAGES = {
+    "view.link": "Resource page: ",
     "help.agent_commands": "{number}. Agent:\n    bind <code> (provided by your Agent) / bindings / unbind\n",
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",

@@ -1,6 +1,7 @@
 """Chinese (zh) message translations for lockbot."""
 
 MESSAGES = {
+    "view.link": "网页查看：",
     "help.agent_commands": "{number}. Agent:\n    bind <绑定码>(由 Agent 提供) / bindings / unbind\n",
     "notify.api_purpose": "\n备注：{purpose}",
     "notify.api_agent_label": "\nAgent：{label}",
