@@ -515,6 +515,73 @@ Keep checks running throughout long tasks, not only at acquisition. Honour the a
 
 ## Declare work and see others' purposes
 
+Treat `agent_label` and `purpose` as shared display text, not private task notes. They
+may appear in group notifications, resource webpages, other authorized users' API
+responses, and operational logs. Turning off group notifications does not make them private.
+
+Before sending either field, summarize the work for this audience automatically; do not
+copy the user's prompt, internal task title, or detailed experiment plan verbatim. Use a
+useful public summary: task category + a non-sensitive subject + the objective or current
+phase. For lock/book, explain enough for others to understand why resources are needed;
+a bare “testing”, “development”, or “review” usually does not suffice. Keep internal project
+codenames, customer/personal data, paths, private URLs, exact experimental configurations,
+and trace/debug details in your local task records. Use a neutral Agent label such as
+`codex-test` or `claude-review`; an optional neutral suffix can distinguish concurrent
+Agents (for example `codex-test-2`). Do not copy internal task identifiers into the label.
+A label can disclose sensitive information too. Never include credentials.
+Do not replace useful context with an uninformative “working” or invent a sanitized objective.
+When details are uncertain, use the known task category or omit the optional fields; do not
+interrupt every operation to ask the user. An explicit request to keep the task private
+means omit both optional fields, not publish a guessed summary. For release/cancel commands,
+omit metadata or use a brief completion summary such as “Regression testing complete”.
+The server does not automatically redact arbitrary sensitive task text. These rules apply
+also when updating a declaration; review existing declarations if detailed notes were
+already published. Updating/removing one cannot retract earlier group messages or logs.
+
+Suggested task categories and public summaries (examples, not an exhaustive enum):
+
+| Category | Useful public purpose |
+| --- | --- |
+| Operator development | 算子开发：调试矩阵运算精度与边界条件 |
+| Operator testing | 算子测试：验证不同形状和数据类型的正确性与性能 |
+| Communication-library testing | 通信库测试：验证多卡集合通信的正确性与性能回归 |
+| Unit testing | 单测：补充资源释放边界用例并运行回归验证 |
+| Code review | 代码 review：检查并发资源分配逻辑，复现疑似竞态 |
+| PR review | PR review：验证兼容性修改，运行相关回归用例 |
+| Model development | 模型开发：调试训练流程，验证检查点恢复 |
+| Model accuracy validation | 模型精度验证：对比修改前后的输出精度与数值稳定性 |
+| Model performance testing | 模型性能测试：对比推理吞吐与延迟，排查性能回退 |
+| Model load testing | 模型压测：验证高并发下的容量与稳定性 |
+| Distributed training testing | 分布式训练测试：验证多机训练与故障恢复 |
+| Troubleshooting | 故障排查：复现运行异常，定位显存或通信问题 |
+
+Choose or combine categories to reflect the actual work, and respond in the group's language.
+These examples describe an appropriate level of detail, not permission to reveal that subject:
+generalize further when the subject itself is confidential. Do not invent a hardware need for
+review work that does not use resources. Keep a label stable for its concurrent Agent task;
+update the public purpose when the work changes. No fixed word count is required: prefer
+one clear sentence, preserving useful context rather than simply truncating detailed notes.
+Add non-sensitive scope, current phase, or why resources are needed when that helps others
+understand the task; do not mechanically include every detail or all three template parts
+in every operation. A simple task can have a short purpose. For performance tests, describe
+the comparison objective; for load tests, describe capacity or stability under load.
+
+Examples of choosing the right amount of public detail:
+
+- Simple task: “单测：验证资源释放修复”. No extra description is necessary.
+- Broader test: “算子测试：验证多种数据类型的精度，当前排查边界用例”.
+- Resource-intensive task: “通信库测试：验证跨机器通信稳定性，需要同时使用多台机器”.
+- Load test: “模型压测：逐步增加并发，观察吞吐和长时间运行稳定性”.
+- Review with resource use: “PR review：在设备上复现疑似精度问题，验证修复”.
+- Completion: “通信稳定性测试完成” (or omit optional metadata on release).
+
+Use these as writing guidance, not fixed values. Include scope, phase, metrics, or the
+reason for using several resources only when useful, non-sensitive, and actually known.
+Do not disclose detailed workloads just to justify a reservation, add urgency/priority
+claims the user did not make, or guess a completion time. Duration and ownership come
+from the resource API, not from the purpose text. Keep summaries current when the task
+meaningfully changes; do not issue extra updates for every minor step.
+
 Normally include `agent_label` and `purpose` in the successful lock/book command; the same
 request saves the task automatically for 24 hours, while the matching holding/booking remains
 valid. A queue claim without new metadata carries your own booked task forward. A renewal
