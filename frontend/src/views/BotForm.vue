@@ -42,7 +42,7 @@
               <el-option label="NODE" value="NODE" />
               <el-option label="DEVICE" value="DEVICE" />
               <el-option label="QUEUE" value="QUEUE" />
-              <el-option label="QUEUE_DEVICE" value="QUEUE_DEVICE" />
+              <el-option label="QueueDevice" value="QUEUE_DEVICE" />
             </el-select>
           </el-form-item>
         </el-col>
@@ -79,6 +79,9 @@
         :cluster-configs="clusterConfig"
         :node-aliases="advancedConfig.NODE_ALIASES"
         :show-node-alias="advancedConfig.SHOW_NODE_ALIAS"
+        :display-device-model="advancedConfig.DISPLAY_DEVICE_MODEL"
+        :forbid-relock="advancedConfig.FORBID_RELOCK"
+        :max-resources-per-user="advancedConfig.MAX_RESOURCES_PER_USER"
       />
 
       <el-divider />
@@ -292,6 +295,37 @@
                 </el-select>
               </el-form-item>
             </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item :label="$t('botCreate.forbidRelock')">
+                <el-switch
+                  v-model="advancedConfig.FORBID_RELOCK"
+                  :aria-label="$t('botCreate.forbidRelock')"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item
+                :label="
+                  $t(
+                    ['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)
+                      ? 'botCreate.maxUserCards'
+                      : 'botCreate.maxUserNodes'
+                  )
+                "
+              >
+                <el-checkbox v-model="resourceCountUnlimited">{{
+                  $t('botCreate.unlimitedResources')
+                }}</el-checkbox>
+                <el-input-number
+                  v-if="!resourceCountUnlimited"
+                  v-model="advancedConfig.MAX_RESOURCES_PER_USER"
+                  :min="1"
+                  :step="1"
+                  :value-on-clear="1"
+                  :aria-label="$t('botCreate.maxUserResources')"
+                />
+              </el-form-item>
+            </el-col>
             <el-col :xs="24">
               <el-form-item>
                 <template #label>
@@ -456,6 +490,8 @@ const form = reactive({
 const advancedConfig = reactive({
   DEFAULT_DURATION: 7200,
   MAX_LOCK_DURATION: -1,
+  FORBID_RELOCK: false,
+  MAX_RESOURCES_PER_USER: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
   LANGUAGE: 'zh',
@@ -464,6 +500,13 @@ const advancedConfig = reactive({
   SHOW_NODE_ALIAS: false,
   ALLOW_USER_ALIAS: false,
   DISPLAY_DEVICE_MODEL: false,
+})
+
+const resourceCountUnlimited = computed({
+  get: () => advancedConfig.MAX_RESOURCES_PER_USER === -1,
+  set: (value) => {
+    advancedConfig.MAX_RESOURCES_PER_USER = value ? -1 : 1
+  },
 })
 
 function formatSeconds(s) {
@@ -514,6 +557,8 @@ onMounted(async () => {
         if (overrides.MAX_LOCK_DURATION != null)
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
+        advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK ?? false
+        advancedConfig.MAX_RESOURCES_PER_USER = overrides.MAX_RESOURCES_PER_USER ?? -1
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
         if (Array.isArray(overrides.DURATION_WHITELIST))

@@ -44,10 +44,39 @@ class QueueDeviceBot(QueueBot):
         if ":dev" not in key:
             return super()._display_node(key)
         node, index = key.rsplit(":dev", 1)
-        label = f"{super()._display_node(node)} dev{index}"
+        return f"{super()._display_node(node)} {self._card_label(node, index)}"
+
+    def _card_label(self, node, index):
+        label = f"dev{index}"
         if self.config.get_val("DISPLAY_DEVICE_MODEL"):
-            label += f" ({self.config.get_val('CLUSTER_CONFIGS')[node][int(index)]})"
+            label += f" {self.config.get_val('CLUSTER_CONFIGS')[node][int(index.split('-', 1)[0])]}"
         return label
+
+    def _usage_rows(self, nodes):
+        # Compare full state (including queue order, lease and metadata), not rounded
+        # display durations. Per-card opaque holding IDs identify independent leases,
+        # not visible differences; preserve them in storage while comparing everything else.
+        rows = []
+        for key, entry in nodes.items():
+            machine, index = key.rsplit(":dev", 1)
+            index = int(index)
+            signature = {name: value for name, value in entry.items() if name != "dev_id"}
+            for field in ("current_users", "booking_list"):
+                signature[field] = [
+                    {name: value for name, value in user.items() if name != "holding_id"}
+                    for user in entry.get(field, [])
+                ]
+            if rows and rows[-1][0] == machine and rows[-1][2] + 1 == index and rows[-1][4] == signature:
+                rows[-1][2] = index
+            else:
+                rows.append([machine, index, index, entry, signature])
+        for machine, first, last, entry, _ in rows:
+            suffix = str(first) if first == last else f"{first}-{last}"
+            yield f"{machine}:dev{suffix}", entry
+
+    def _usage_labels(self, resource_key):
+        node, index = resource_key.rsplit(":dev", 1)
+        return super()._display_node(node), self._card_label(node, index)
 
     def _check_acquisition_limit_locked(self, user_id, node_keys, limit):
         # Preserve the existing API's per-node cap, including bookings on any card.

@@ -2,7 +2,7 @@
 name: lockbot-resource-agent
 description: >
   Use Lockbot Resource API (lockbot.resource-api) with lbr_ credentials.
-  This is distinct from P800/other Lockbot JWT-token platforms. Use when an agent
+  Credentials from other Lockbot implementations are not interchangeable. Use when an agent
   must lock, unlock, book or query shared compute resources through a bot it has been enrolled
   on. Enrollment requires human confirmation in chat; resource operations use HTTP.
 ---
@@ -29,9 +29,9 @@ credentials belong in its private credential store, never in `SKILL.md` or a dow
 This skill is for **Lockbot Resource API**, identified by
 `service_id: lockbot.resource-api`, API version `1`, and personal `lbr_` keys.
 A similarly named Lockbot skill, matching command URL, or remembered token is not proof
-that it belongs here. P800/other implementations using `/api/infoflow-auth/challenges`
-and JWT tokens have a different protocol and permission scope; never apply their
-"one token for all bots" or `take` instructions to this service.
+that it belongs here. Another Lockbot implementation can have a different authentication
+protocol and permission scope. Check the advertised service identity and API version;
+never transfer credentials or assumptions such as one token authorizing every bot.
 
 1. Start with the server/skill URL explicitly supplied or approved by the user. Without
    a trusted server address, ask for that address once; never guess a host or bot ID.
@@ -57,6 +57,90 @@ prevents accidental protocol confusion; it does not authenticate a malicious hos
 user-approved origin (and HTTPS where available) remains the credential destination boundary.
 The server cannot erase an Agent's earlier memories: keep the scope explicit in its private
 configuration and use this namespaced skill for requests to this implementation.
+
+## Keep credentials and resource assignments scoped
+
+Manage several Lockbot connections with this skill. Keep a private connection record for
+**approved origin + instance_id + bot UUID + verified user**, with a friendly name and a
+reference to its securely stored key. Learn the bot UUID/user from `/api/agent/context`;
+people do not need to manage these identifiers. Keep the last verified skill revision per
+service instance. Never put keys in this skill, public notes, or task-purpose text.
+
+For example, **service A / bot A / node1** and **service B / bot B / node1** are different
+resources, even though both are called `node1`. Different bots on the same service are also
+separate scopes. Select the intended connection first, load only its key, and verify its
+context before use. If several connections could match the task, ask which bot/group the
+user means; do not cycle through keys or try remembered keys against other servers.
+
+A key authorizes **one user on one bot**, not one resource or one Agent. The user's Agents
+share that key but track their own tasks separately:
+
+- Associate each task allocation with **origin + instance_id + bot UUID + resource ID**,
+  its Agent name/purpose, and the last verified holding/booking (`start_time` and
+  `expires_at` when present). For card queues use the
+  returned card `resource_id`, such as `node1:dev0`, in this private record; command syntax
+  remains `lock node1 dev0`, not `lock node1:dev0`.
+- Choose the credential by that bot scope, never by a bare machine/card name. Record which
+  exact machines/cards this task acquired or booked; another Agent sharing the key may be
+  working on other resources.
+- A saved key/resource association is not proof of a current lease. Read `/resources` to
+  confirm ownership and queue state before starting/resuming work and during long tasks.
+  The same user may have released and reacquired a card through another Agent: if the
+  saved lease/task no longer matches, pause and coordinate rather than assuming it is still
+  this task's resource or releasing it just because the user identity matches.
+- At task completion, release/cancel only this task's explicit resources/cards, then verify
+  the result. Avoid bare `free`/`unlock`, which affects the user's other Agents too. Retain
+  the shared key; do not unbind it merely because one task has finished.
+
+### Store the relationship; choose your own format
+
+Reuse the Agent's existing private credential/configuration store. Do not require the
+user to install a new memory system or maintain a particular JSON file. Each saved
+connection needs a friendly name, approved origin, verified instance/bot/user identity,
+and the reference to its securely stored key. Keep the last verified skill revision too.
+No resource directory needs to be stored permanently: discover it from the live API.
+
+If no suitable store exists, this optional flat JSON example is sufficient:
+
+```json
+{
+  "schema_version": 1,
+  "connections": [
+    {
+      "label": "Development group",
+      "origin": "https://service-a.example.invalid",
+      "instance_id": "<server.instance_id>",
+      "bot_uuid": "<bot.uuid>",
+      "bot_id": 1,
+      "actor": {"platform": "Infoflow", "external_user_id": "<actor.external_user_id>"},
+      "credential_ref": "<private-store reference for bot A>",
+      "skill_revision": "<verified revision>"
+    },
+    {
+      "label": "Testing group",
+      "origin": "https://service-a.example.invalid",
+      "instance_id": "<server.instance_id>",
+      "bot_uuid": "<another bot.uuid>",
+      "bot_id": 2,
+      "actor": {"platform": "Infoflow", "external_user_id": "<actor.external_user_id>"},
+      "credential_ref": "<private-store reference for bot B>",
+      "skill_revision": "<verified revision>"
+    }
+  ]
+}
+```
+
+`schema_version` versions this optional local format, not the server API or Skill.
+Populate identities from confirmed context; the numeric bot ID and friendly name alone
+are not enough to identify a credential scope. Both bots may contain `node1`: select the
+bot connection first, then load its key. Another service gets a separate connection.
+`credential_ref` is a reference, never a raw key; no particular credential-store product
+or URI syntax is required. Keep configuration private and out of Git and shared notes.
+
+Track task allocations separately as described above; update only the current task's
+records after verified changes, coordinating concurrent writers to avoid lost updates.
+On resume, recheck context and live resources. Do not move a key after a redirect, origin
+change or instance replacement, and do not try other connections' keys after a failure.
 
 ## Share a resource/queue page with the user
 
@@ -170,6 +254,83 @@ repeat, respecting polling intervals and Retry-After:
 An existing task registered during booking is carried forward when you claim with `lock`
 without new metadata. `free <resource>` cancels your booking or releases your lock.
 
+## Read current bot rules and manage the lease lifecycle
+
+Each successful `GET /api/agent/context` includes `bot_rules`, read from the bot's current
+persisted configuration even when the bot is stopped. Refresh your private rule cache at
+connection/resume and before renewal, and after a policy rejection or configuration change.
+Do not fetch context alongside every resource poll: it consumes the shared read budget.
+These rules can change; `/resources` and the actual command result remain authoritative.
+
+| `bot_rules` field | Meaning |
+|---|---|
+| `forbid_relock` | Defaults to false for every bot type. When true, do not renew lock/slock or book a resource you currently hold. |
+| `max_resources_per_user`, `resource_unit` | Combined distinct held/booked resources per user and bot; `-1` means no bot-specific cap. Unit is `node` for NODE/QUEUE, `card` for DEVICE/QUEUE_DEVICE. |
+| `default_duration_seconds` | Duration used when a command omits it; a booking claim without a duration uses its booked duration. |
+| `max_lock_duration_seconds` | Configured maximum remaining lease duration after acquisition/renewal; `-1` means unlimited. |
+| `duration_limit_exempt`, `effective_max_lock_duration_seconds` | Caller-specific duration exemption and effective ceiling (`-1` unlimited). This exempts neither renewal restrictions nor resource-count limits; the exemption list is never disclosed. |
+| `queue_claim_window_seconds` | Time to claim when it is your turn; null for non-queue types. |
+| `supported_operations`, `allow_user_alias` | Operations supported by the type and whether alias editing is enabled. A listed operation does not bypass `agent_access_enabled` or other policy checks. |
+| `request_budget.read_per_minute`, `request_budget.write_per_minute` | Actual deployed per-key read/write budgets shared by all the user's Agents. Other endpoint/IP limits can also apply. |
+| `poll_minimum_seconds.active`, `.booking`, `.discovery` | Actual deployed minimum resource-poll intervals in seconds; these override the suggested 15/30/60-second schedule below. |
+| `api_max_machines_per_user` | The separate existing API machine-count ceiling, including held/booked machines; several cards on one machine count once here. A card quota does not redefine this machine limit. |
+
+`resource_policy` on `/resources` repeats the live acquisition switches and includes the
+caller's `claimed_resource_count`. All of the user's Agents and group commands share the
+same bot allowance. Claiming an existing booking adds no allocation; lowering a cap does
+not evict existing holdings/bookings, but can prevent new acquisitions. When renewal is
+forbidden, claiming cannot exceed the original booked duration. Releasing does not let you
+jump ahead of other bookers. If an older service omits these new rule fields, do not assume
+the restrictions exist; follow its actual replies, timing fields and verified holdings.
+The `2h` values in command examples are examples, not a recommendation: use the actual
+caller-effective maximum, defaults, booked duration and task need. If the configured default
+exceeds the effective ceiling, request a valid explicit shorter duration.
+
+### Keep a conservative local stop deadline
+
+Record a local monotonic timestamp just before each GET and after receiving it. Use the
+verified lease's server `expires_at`, snapshot `captured_at` and `age_seconds` to estimate
+remaining time without trusting the Agent computer's UTC clock. A conservative calculation
+is `remaining = max(0, expires_at - captured_at - age_seconds - request_elapsed)` and
+`stop_deadline = received_monotonic + remaining`. Subtracting the full request elapsed time
+is deliberately conservative. `/resources` does not provide a `server_time` field; do not
+invent one. Missing or unusable timing/ownership data is not permission to extend a deadline.
+
+Maintain both periodic ownership checks and a local deadline timer. A later poll can reveal
+manual release, preemption, earlier expiry or another Agent's reacquisition; stop this task's
+resource use if the lease/owner no longer matches. Do not postpone the known deadline merely
+because a query failed, a queue estimate changed, or a cached record still says held.
+
+### Renew only for necessary active work, and verify the result
+
+Before the stop deadline, refresh context once and verify current ownership and this task's
+lease. Renew only if renewal is allowed and active work actually needs more time; never renew
+indefinitely just to retain capacity. Leave enough margin for the advertised poll floor,
+request latency, shared read/write budgets and possible `Retry-After` before the old deadline.
+A permitted verification read after a mutation still obeys actual server retry instructions.
+
+Choose an explicit added duration: repeated lock adds time rather than setting a new total.
+Keep remaining time plus the increment within the caller-effective ceiling. Attempt one bounded
+renewal. Then GET `/resources` and confirm the same resource/actor/lease
+has a genuinely later `expires_at`; HTTP 200 or a reply alone does not prove renewal. If POST
+has an unknown outcome, GET first instead of blindly repeating the non-idempotent lock.
+Retrying a status check cannot move the old stop deadline. Adopt a new deadline only from a
+verified renewed lease, not from the requested extra duration or the POST's success status.
+
+If renewal is forbidden, refused, uncertain or cannot be verified in time, stop/pause this
+task's GPU workload no later than the previously known deadline. Confirm the workload has
+stopped, release only this task's still-owned resources where appropriate, and reapply through
+the normal fair queue if more work remains. Never continue through expiry while retrying.
+If ownership cannot be confirmed because reads fail or are too stale, pause until verified.
+
+On Agent exit, cancellation or a long pause, clean up this task's workload and allocations.
+A timer in a sleeping or exited Agent cannot reliably stop a remote GPU job: arrange deadline
+enforcement in the task's runner, or stop work before becoming unavailable.
+After sleep/restart, refresh context and live state before resuming; saved memory is not a
+lease. If you cannot run timers, keep polling or stop your workload reliably, say so before
+starting and do not promise unattended acquisition/renewal. Lockbot records leases and queues;
+it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's responsibility.
+
 ## Resource command reference
 
 Send JSON to `POST /api/bots/{bot_id}/commands` using the personal Bearer key. Obtain the
@@ -216,7 +377,7 @@ The examples below use placeholder resources; replace them with those returned b
   contiguous card indexes for multi-resource tasks. Do not reserve extra machines merely
   to obtain a consecutive block, or assume consecutive names imply hardware locality.
 - Set an explicit lease duration that fits the work. Avoid unnecessarily long locks or
-  reserving capacity "just in case". For long tasks, renew in bounded increments only
+  reserving capacity "just in case". Only when renewal is permitted, renew long-running tasks in bounded increments
   while actively using the resources, after verifying current ownership and remaining time.
   Repeated `lock` adds time; never renew on every poll or blindly retry a renewal.
 - On completion, cancellation, failure that stops resource use, or a long pause, promptly
@@ -302,6 +463,43 @@ a string-only 401 has no machine code: do not interpret it as permission to scan
   with `Retry-After`. Poll `/resources` at a steady interval rather than busy-looping.
 - A repeated `lock` **adds** duration (not idempotent). After any mutation, read `/resources` to
   verify; never assume a `reply` means success.
+
+### Polling schedule
+
+Use one coordinated `/resources` poller per shared key where possible; distribute its
+snapshot to the user's Agents instead of starting one independent loop per task. The
+defaults below are starting points, not promises about a deployment's configured limits:
+
+| Caller state | Suggested interval | Default minimum interval |
+|---|---|---|
+| Holding a lease, first in queue, or in the claim window | 15 seconds | 10 seconds |
+| Queued behind another booker | 30 seconds | 20 seconds |
+| Discovering resources, with no holding or booking | 60 seconds | 40 seconds |
+
+Add a small positive jitter to avoid synchronized traffic. Always obey `Retry-After` on
+429/503, whether seconds or an HTTP date; never retry before it. With no retry hint on a
+transient failure, use bounded exponential backoff. Do not repeatedly retry authentication
+failures, or switch credentials to bypass a budget. Server retry hints and any advertised
+limits override these defaults. A successful mutation permits a verification read in the
+current implementation; if that read is rate-limited, wait as instructed rather than looping.
+
+Do not sleep until `next_event_at` without periodic checks: a holder may release early or
+extend their lease. Treat queue estimates as estimates and recalculate from each snapshot;
+`expires_at` is authoritative for the observed lease, not a guarantee of when you can work.
+Use the earlier of the regular check and an upcoming event as the desired next check, but
+never earlier than the server's polling floor or retry deadline. An event does not exempt
+the caller from rate limits. Observe `captured_at` / `age_seconds` before acting.
+
+When claimable, claim within `queue_claim_window_seconds` and verify ownership; never wait
+for the predicted expiry or a human to relay a group message. While working, keep checking
+ownership, including before critical operations and after resuming. Polling is not a push
+subscription and cannot detect every change instantly. If ownership or lease identity no
+longer matches, pause the workload; do not continue based on a saved registry entry.
+
+Keep mutations separate from polling: do not repeat lock/book to check status. On completion
+or cancellation, release/cancel only this task's resources and stop its monitoring when no
+other task needs it. A background Agent unable to keep monitoring must tell the user it
+cannot automatically claim a booking or continuously verify ownership.
 
 ## Typical flow
 

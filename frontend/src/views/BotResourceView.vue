@@ -14,7 +14,8 @@
       <header class="view-header">
         <div>
           <h1>
-            {{ snapshot.name }} <el-tag size="small" type="info">{{ snapshot.bot_type }}</el-tag>
+            {{ snapshot.name }}
+            <el-tag size="small" type="info">{{ botTypeLabel(snapshot.bot_type) }}</el-tag>
           </h1>
           <p>{{ $t('resourceView.updated') }} {{ localTime(snapshot.captured_at) }}</p>
         </div>
@@ -36,6 +37,19 @@
           ><strong>{{ summary.queued }}</strong>
         </div>
       </div>
+      <p v-if="snapshot.resource_policy?.forbid_relock" class="view-status">
+        {{ $t('botCreate.forbidRelock') }}
+      </p>
+      <p
+        v-if="snapshot.resource_policy && snapshot.resource_policy.max_resources_per_user !== -1"
+        class="view-status"
+      >
+        {{
+          $t('botCreate.userResourceLimit', {
+            count: snapshot.resource_policy.max_resources_per_user,
+          })
+        }}
+      </p>
       <p v-if="failed" class="view-status">{{ $t('resourceView.unavailable') }}</p>
       <el-empty v-if="snapshot.health !== 'running'" :description="$t('resourceView.stopped')" />
       <el-empty v-else-if="!snapshot.resources.length" :description="$t('resourceView.empty')" />
@@ -48,6 +62,7 @@
           :usage="usage"
           :server-offset="serverOffset"
           :show-overview="false"
+          quick-overview
         />
       </section>
       <div v-else class="resource-grid">
@@ -130,6 +145,7 @@
 </template>
 
 <script setup>
+import { botTypeLabel } from '../utils/helpers'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

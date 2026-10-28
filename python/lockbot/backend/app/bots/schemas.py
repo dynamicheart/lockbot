@@ -40,6 +40,11 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if not v:
         return v
     errors: list[str] = []
+    if "FORBID_RELOCK" in v and not isinstance(v["FORBID_RELOCK"], bool):
+        errors.append("FORBID_RELOCK must be a boolean")
+    cap = v.get("MAX_RESOURCES_PER_USER", -1)
+    if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):
+        errors.append("MAX_RESOURCES_PER_USER must be -1 or a positive integer")
     protected = protected_override_keys(v)
     if protected:
         errors.append("Managed control keys cannot be overridden: " + ", ".join(protected))
@@ -176,6 +181,8 @@ class BotDetail(BotOut):
     token_masked: str = ""
     has_api_key: bool = False
     api_key: str = ""
+    view_url: str | None = None
+    view_expires_at: datetime | None = None
 
 
 class BotStatusOut(BaseModel):

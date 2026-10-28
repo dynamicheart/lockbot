@@ -386,28 +386,35 @@ function nodeUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
  * - No access mode on locked users
  * - Shows booking queue with estimated wait times
  */
-function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
+function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode, usageLabels) {
   let text = ''
+  let previousGroup = null
   const keys = nodeOrder || Object.keys(state)
   for (const key of keys) {
     const node = state[key]
     if (!node) continue
     if (nodeFilter && key !== nodeFilter) continue
-    const label = displayNode ? displayNode(key) : key
+    const [group, label] = usageLabels
+      ? usageLabels(key)
+      : [null, displayNode ? displayNode(key) : key]
+    const indent = group ? '  ' : ''
+    if (group && group !== previousGroup) text += `${group}\n`
+    previousGroup = group
     if (node.status === 'idle') {
-      text += `${label} ${_t(lang, 'status.idle')}\n`
+      text += `${indent}${label} ${_t(lang, 'status.idle')}\n`
     } else {
       node.current_users.forEach((u, idx) => {
         const prefix = idx === 0 ? label : ''
         const rem = remainingDuration(u.start_time, u.duration)
         // QUEUE: no access mode suffix on locked users (matches Python)
-        text += `${prefix} ${u.user_id}  ${formatDuration(rem, lang)}\n`
+        text += `${indent}${prefix} ${u.user_id}  ${formatDuration(rem, lang)}\n`
       })
     }
     // Show booking queue with estimated wait times
     const bl = node.booking_list || []
     if (bl.length > 0) {
-      text += _t(lang, 'label.queue_list')
+      const queueIndent = group ? indent + '  ' : ''
+      text += queueIndent + _t(lang, 'label.queue_list')
       // Calculate max remaining lock time as base wait
       let maxLockRemaining = 0
       for (const u of node.current_users || []) {
@@ -418,12 +425,14 @@ function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
       bl.forEach((u, idx) => {
         const dur = formatDuration(u.duration, lang)
         const waitStr = formatDuration(accumulatedWait, lang)
-        text += _t(lang, 'label.queue_item', {
-          index: idx + 1,
-          user_id: u.user_id,
-          duration: dur,
-          wait_time: waitStr,
-        })
+        text +=
+          queueIndent +
+          _t(lang, 'label.queue_item', {
+            index: idx + 1,
+            user_id: u.user_id,
+            duration: dur,
+            wait_time: waitStr,
+          })
         accumulatedWait += u.duration
       })
     }
@@ -431,11 +440,56 @@ function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
   return text + '\n'
 }
 
+// Group identical adjacent cards for display only; commands still use real card IDs.
+function queueDeviceDisplayState(state, orderedKeys) {
+  const canonical = (value) => {
+    if (Array.isArray(value)) return value.map(canonical)
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.keys(value)
+          .sort()
+          .map((key) => [key, canonical(value[key])])
+      )
+    return value
+  }
+  const rows = []
+  for (const key of orderedKeys) {
+    const entry = state[key]
+    if (!entry) continue
+    const split = key.lastIndexOf(':dev')
+    const machine = key.slice(0, split)
+    const index = Number(key.slice(split + 4))
+    const signatureState = Object.fromEntries(
+      Object.entries(entry).filter(([name]) => name !== 'dev_id')
+    )
+    for (const field of ['current_users', 'booking_list'])
+      signatureState[field] = (entry[field] || []).map((user) =>
+        Object.fromEntries(Object.entries(user).filter(([name]) => name !== 'holding_id'))
+      )
+    const signature = JSON.stringify(canonical(signatureState))
+    const previous = rows.at(-1)
+    if (
+      previous &&
+      previous.machine === machine &&
+      previous.last + 1 === index &&
+      previous.signature === signature
+    )
+      previous.last = index
+    else rows.push({ machine, first: index, last: index, entry, signature })
+  }
+  return Object.fromEntries(
+    rows.map(({ machine, first, last, entry }) => [
+      `${machine}:dev${first === last ? first : `${first}-${last}`}`,
+      entry,
+    ])
+  )
+}
+
 /**
  * Build DEVICE usage text. Matches Python get_current_usage format.
  * Uses per-node headers and merged device display (grouped by model/status/users).
  */
-function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
+function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode, forceModel = false) {
   let text = ''
   const keys = nodeOrder || Object.keys(state)
   for (const nodeKey of keys) {
@@ -445,7 +499,7 @@ function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
     const label = displayNode ? displayNode(nodeKey) : nodeKey
     text += _t(lang, 'device_usage.node_header', { node_key: label })
     const models = new Set(devices.map((d) => d.dev_model))
-    const showModel = models.size > 1
+    const showModel = forceModel || models.size > 1
 
     // Group consecutive devices by (model, status, sorted users)
     const segments = [] // {type:'lock'|'idle', ids:[], model, status, users}
@@ -515,6 +569,69 @@ function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
   return text
 }
 
+// Check the projected allocation before a demo command mutates any target.
+function resourcePolicyError(state, userId, cmd, rest, botType, config, lang) {
+  if (!['lock', 'slock', 'book', 'take'].includes(cmd)) return null
+  if (!config.FORBID_RELOCK && (config.MAX_RESOURCES_PER_USER ?? -1) === -1) return null
+  const timed = parseDurationTail(rest)
+  const target = timed ? timed.rest : rest
+  const cards = ['DEVICE', 'QUEUE_DEVICE'].includes(botType)
+  const entries = cards ? queueDeviceState(state) : state
+  let targets
+  if (cards) {
+    const match = target.match(/^([\w-]+(?:\s*[,，、]\s*[\w-]+)*)(?:\s+(dev\s*.+))?$/i)
+    if (!match) return null
+    targets = []
+    for (const node of splitNodeList(match[1])) {
+      if (!Array.isArray(state[node])) return null
+      const ids = match[2]
+        ? parseDevSpec(match[2], config.CLUSTER_CONFIGS, node)
+        : state[node].map((c) => c.dev_id)
+      if (!ids || ids.some((id) => !Number.isInteger(id))) return null
+      targets.push(...ids.map((id) => `${node}:dev${id}`))
+    }
+  } else targets = splitNodeList(target)
+  if (targets.some((key) => !entries[key])) return null
+  const now = Math.floor(Date.now() / 1000)
+  const claimed = new Set(
+    Object.entries(entries)
+      .filter(
+        ([, entry]) =>
+          (entry.current_users || []).some(
+            (u) => u.user_id === userId && u.start_time + u.duration > now
+          ) ||
+          (entry.booking_list || []).some(
+            (u) => u.user_id === userId && (!u.is_notified || u.start_time + 300 > now)
+          )
+      )
+      .map(([key]) => key)
+  )
+  const cap = config.MAX_RESOURCES_PER_USER ?? -1
+  if (
+    cap !== -1 &&
+    targets.some((key) => !claimed.has(key)) &&
+    new Set([...claimed, ...targets]).size > cap
+  )
+    return lang === 'zh'
+      ? `❌每人最多占用或预约 ${cap} 个资源。`
+      : `❌At most ${cap} held or booked resources per user.`
+  if (config.FORBID_RELOCK) {
+    for (const key of targets) {
+      const entry = entries[key]
+      if ((entry.current_users || []).some((u) => u.user_id === userId))
+        return lang === 'zh'
+          ? '❌禁止续期或预约自己正在使用的资源。'
+          : '❌Renewal or booking your own holding is disabled.'
+      const booking = (entry.booking_list || []).find((u) => u.user_id === userId)
+      if (['lock', 'take'].includes(cmd) && timed && booking && timed.seconds > booking.duration)
+        return lang === 'zh'
+          ? '❌领取时长不能超过原预约时长。'
+          : '❌Claim duration cannot exceed the original booking.'
+    }
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Command executor
 // ---------------------------------------------------------------------------
@@ -561,12 +678,25 @@ export function executeCommand(state, userId, command, botType, config, lang = '
         ? Object.keys(flat).filter((key) => key.split(':dev')[0] === filter)
         : null
       const visible = selected ? Object.fromEntries(selected.map((key) => [key, flat[key]])) : flat
-      return queueUsageText(visible, null, lang, null, (key) => {
+      const orderedCards = (nodeOrder || Object.keys(state)).flatMap((node) =>
+        (state[node] || []).map((card) => `${node}:dev${card.dev_id}`)
+      )
+      const grouped = queueDeviceDisplayState(visible, orderedCards)
+      return queueUsageText(grouped, null, lang, Object.keys(grouped), null, (key) => {
         const [node, card] = key.split(':dev')
-        return `${displayNode ? displayNode(node) : node} dev${card}`
+        const model = config.DISPLAY_DEVICE_MODEL ? ` ${grouped[key].dev_model}` : ''
+        return [displayNode ? displayNode(node) : node, `dev${card}${model}`]
       })
     }
-    if (botType === 'DEVICE') return deviceUsageText(state, filter, lang, nodeOrder, displayNode)
+    if (botType === 'DEVICE')
+      return deviceUsageText(
+        state,
+        filter,
+        lang,
+        nodeOrder,
+        displayNode,
+        config.DISPLAY_DEVICE_MODEL
+      )
     if (botType === 'QUEUE') return queueUsageText(state, filter, lang, nodeOrder, displayNode)
     return nodeUsageText(state, filter, lang, nodeOrder, displayNode)
   }
@@ -602,7 +732,7 @@ export function executeCommand(state, userId, command, botType, config, lang = '
 
   // ---- help ----
   if (cmd === 'help' || cmd === 'h') {
-    return _buildHelp(
+    let help = _buildHelp(
       botType,
       CLUSTER_CONFIGS,
       DEFAULT_DURATION,
@@ -611,6 +741,23 @@ export function executeCommand(state, userId, command, botType, config, lang = '
       BOT_ID,
       BOT_OWNER
     )
+    if (config.FORBID_RELOCK) {
+      help = help.replace(
+        _t(lang, 'help.rule1_default_duration', {
+          default_duration: formatDuration(DEFAULT_DURATION, lang),
+        }),
+        lang === 'zh'
+          ? `    规则1: 默认时长${formatDuration(DEFAULT_DURATION, lang)}，禁止续期；领取不得延长原预约\n`
+          : `    Rule 1: Default ${formatDuration(DEFAULT_DURATION, lang)}; no renewal; claims cannot extend bookings\n`
+      )
+    }
+    if ((config.MAX_RESOURCES_PER_USER ?? -1) !== -1) {
+      help +=
+        lang === 'zh'
+          ? `\n每人最多占用或预约 ${config.MAX_RESOURCES_PER_USER} 个资源。\n`
+          : `\nAt most ${config.MAX_RESOURCES_PER_USER} held or booked resources per user.\n`
+    }
+    return help
   }
 
   // ---- query ----
@@ -620,6 +767,9 @@ export function executeCommand(state, userId, command, botType, config, lang = '
     }
     return `${_t(lang, 'query.cluster_usage_title')}${usageText()}`
   }
+
+  const policyError = resourcePolicyError(state, userId, cmd, rest, botType, config, lang)
+  if (policyError) return policyError
 
   // For NODE / QUEUE: commands operate on node names
   if (botType === 'NODE' || botType === 'QUEUE') {

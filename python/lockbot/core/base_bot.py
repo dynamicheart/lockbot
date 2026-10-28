@@ -143,6 +143,30 @@ class BaseLockBot:
         if additions and len(held | additions) > limit:
             raise AcquisitionLimitExceeded(limit)
 
+    def _resource_policy_locked(self, user_id, targets, *, claim_duration=None):
+        """Apply bot policy before any mutation; caller holds the state lock."""
+        from lockbot.core.resource_policy import policy_for_state, resource_entries
+
+        if not self.config.get_val("FORBID_RELOCK") and self.config.get_val("MAX_RESOURCES_PER_USER", -1) == -1:
+            return None
+        entries = resource_entries(self.state.bot_state)
+        policy = policy_for_state(self.state.bot_state, self.config, user_id)
+        targets = set(targets)
+        held = set(policy.pop("_claimed_resources"))
+        cap = policy["max_resources_per_user"]
+        if cap != -1 and targets - held and len(held | targets) > cap:
+            return self.show_error(user_id, t("error.resource_count_limit", config=self.config, limit=cap))
+        if policy["forbid_relock"]:
+            for key in targets:
+                entry = entries[key]
+                if any(u["user_id"] == user_id for u in entry.get("current_users", [])):
+                    return self.show_error(user_id, t("error.relock_forbidden", config=self.config))
+                if claim_duration is not None:
+                    booked = next((u for u in entry.get("booking_list", []) if u["user_id"] == user_id), None)
+                    if booked and claim_duration > booked["duration"]:
+                        return self.show_error(user_id, t("error.claim_duration_limit", config=self.config))
+        return None
+
     # ------------------------------------------------------- state_snapshot
     def state_snapshot(self) -> tuple[datetime, dict]:
         """Return ``(captured_at, detached_copy_of_state)``, read under the state lock.
@@ -297,7 +321,10 @@ class BaseLockBot:
                 config=self.config,
                 time_alert=format_duration(TIME_ALERT, config=self.config),
             )
-            alert_info += t("alert.early_extend_reminder", config=self.config)
+            alert_info += t(
+                "alert.early_no_renewal" if self.config.get_val("FORBID_RELOCK") else "alert.early_extend_reminder",
+                config=self.config,
+            )
             alert_info += t("alert.early_resource_list_header", config=self.config)
         else:
             alert_info = t("alert.auto_released_title", config=self.config)
@@ -314,7 +341,7 @@ class BaseLockBot:
         parts.append(t("help.section1_title", config=self.config))
         parts.append(
             t(
-                "help.rule1_default_duration",
+                "help.rule1_no_renewal" if self.config.get_val("FORBID_RELOCK") else "help.rule1_default_duration",
                 config=self.config,
                 default_duration=format_duration(self.config.get_val("DEFAULT_DURATION"), config=self.config),
             )
@@ -361,6 +388,10 @@ class BaseLockBot:
                 config=self.config,
                 max_duration=format_duration(max_dur, config=self.config),
             )
+
+        cap = self.config.get_val("MAX_RESOURCES_PER_USER", -1)
+        if cap != -1:
+            reply_info += t("error.resource_count_limit", config=self.config, limit=cap) + "\n\n"
 
         # Compact footer line
         footer_parts = [f"v{_get_version()}"]

@@ -32,6 +32,9 @@ export default {
     },
   },
   resourceView: {
+    quickOverview: '快速查看',
+    busyAndQueued: '占用 / 排队',
+    queueBadge: '排队 {count}',
     pending: '待领取',
     bookingWait: '预约 {duration} · 预计等待 {wait}',
     remainingTime: '剩余时间',
@@ -142,6 +145,7 @@ export default {
     savedAccounts: '已保存的账号',
     warning: '警告',
     copied: '已复制',
+    copy: '复制',
     copyFailed: '复制失败',
     other: '其它',
     refresh: '刷新',
@@ -240,6 +244,13 @@ export default {
 
   // === Bot Create ===
   botCreate: {
+    forbidRelock: '禁止续期',
+    maxUserResources: '每人最多占用／预约资源数',
+    maxUserNodes: '每人最多占用／预约机器数',
+    maxUserCards: '每人最多占用／预约卡数',
+    unlimitedResources: '不限',
+    userResourceLimit: '每人最多占用／预约 {count} 个资源',
+
     title: '创建机器人',
     botName: '机器人名称',
     botNamePlaceholder: '例如 team-lockbot-01',
@@ -340,6 +351,8 @@ export default {
     botId: '机器人 ID',
     webhookUrl: 'WEBHOOK 地址',
     callbackUrl: '回调地址',
+    resourceViewLink: '资源网页',
+    openResourceView: '查看资源与排队',
     back: '返回',
     copyFailed: '复制失败，请手动复制',
     lastActive: '最近活跃',

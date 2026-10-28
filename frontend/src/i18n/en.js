@@ -32,6 +32,9 @@ export default {
     },
   },
   resourceView: {
+    quickOverview: 'Quick view',
+    busyAndQueued: 'Occupied / queued',
+    queueBadge: 'Queue {count}',
     pending: 'Awaiting claim',
     bookingWait: 'Booked {duration} · estimated wait {wait}',
     remainingTime: 'Remaining',
@@ -144,6 +147,7 @@ export default {
     savedAccounts: 'Saved Accounts',
     warning: 'Warning',
     copied: 'Copied',
+    copy: 'Copy',
     copyFailed: 'Copy failed',
     other: 'Other',
     refresh: 'Refresh',
@@ -243,6 +247,13 @@ export default {
 
   // === Bot Create ===
   botCreate: {
+    forbidRelock: 'Disable renewal',
+    maxUserResources: 'Held / booked resources per user',
+    maxUserNodes: 'Held / booked nodes per user',
+    maxUserCards: 'Held / booked cards per user',
+    unlimitedResources: 'Unlimited',
+    userResourceLimit: 'At most {count} held / booked resources per user',
+
     title: 'Create Bot',
     botName: 'Bot Name',
     botNamePlaceholder: 'e.g. team-lockbot-01',
@@ -350,6 +361,8 @@ export default {
     botId: 'Bot ID',
     webhookUrl: 'Webhook URL',
     callbackUrl: 'Callback URL',
+    resourceViewLink: 'Resource page',
+    openResourceView: 'View resources and queue',
     back: 'Back',
     copyFailed: 'Copy failed, please copy manually',
     lastActive: 'Last Active',

@@ -59,7 +59,7 @@
           <el-descriptions-item :label="$t('botDetail.botId')">{{ bot.id }}</el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.type')">
             <el-tag size="small" effect="plain" :class="botTypeTagClass(bot.bot_type)">{{
-              bot.bot_type
+              botTypeLabel(bot.bot_type)
             }}</el-tag>
             <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
           </el-descriptions-item>
@@ -91,6 +91,39 @@
                 @click="showTransferOwner = true"
                 >{{ $t('botDetail.transferOwner') }}</el-button
               >
+            </div>
+          </el-descriptions-item>
+          <el-descriptions-item v-if="bot.view_url" :label="$t('botDetail.resourceViewLink')">
+            <div class="resource-view-link">
+              <a
+                :href="bot.view_url"
+                :title="bot.view_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                >{{ $t('botDetail.openResourceView') }}</a
+              >
+              <el-button
+                link
+                size="small"
+                class="resource-link-action"
+                :aria-label="$t('common.copy')"
+                :title="$t('common.copy')"
+                @click="copyText(bot.view_url)"
+                ><el-icon><CopyDocument /></el-icon
+              ></el-button>
+              <el-button
+                link
+                size="small"
+                class="resource-link-action"
+                :aria-label="$t('common.refresh')"
+                :title="$t('common.refresh')"
+                :loading="viewLinkLoading"
+                @click="refreshViewLink"
+                ><el-icon v-if="!viewLinkLoading"><Refresh /></el-icon
+              ></el-button>
+            </div>
+            <div class="resource-view-expiry">
+              {{ $t('resourceView.expires') }} {{ formatDateTime(bot.view_expires_at) }}
             </div>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
@@ -197,6 +230,23 @@
             <el-descriptions-item :label="$t('botCreate.timeAlert')">
               {{ formatDuration(botConfig.TIME_ALERT) }}
             </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.forbidRelock')">{{
+              botConfig.FORBID_RELOCK ? $t('common.yes') : $t('common.no')
+            }}</el-descriptions-item>
+            <el-descriptions-item
+              :label="
+                $t(
+                  ['DEVICE', 'QUEUE_DEVICE'].includes(bot.bot_type)
+                    ? 'botCreate.maxUserCards'
+                    : 'botCreate.maxUserNodes'
+                )
+              "
+              >{{
+                botConfig.MAX_RESOURCES_PER_USER === -1
+                  ? $t('botCreate.unlimitedResources')
+                  : botConfig.MAX_RESOURCES_PER_USER
+              }}</el-descriptions-item
+            >
             <el-descriptions-item :label="$t('botCreate.earlyNotify')">
               <el-tag :type="botConfig.EARLY_NOTIFY ? 'warning' : 'info'" size="small">
                 {{
@@ -545,7 +595,7 @@ import BotAudit from '../components/BotAudit.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import LogViewer from '../components/LogViewer.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, User, Monitor } from '@element-plus/icons-vue'
+import { Download, User, Monitor, Refresh } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { validateBotState } from '../utils/stateValidation'
 import { useI18n } from 'vue-i18n'
@@ -555,6 +605,7 @@ import {
   orderedStringify,
   getNodeOrder,
   botTypeTagClass,
+  botTypeLabel,
 } from '../utils/helpers'
 
 const { t } = useI18n()
@@ -582,6 +633,7 @@ const agentMetrics = computed(() =>
 const bot = ref(null)
 const loading = ref(false)
 const actionLoading = ref(false)
+const viewLinkLoading = ref(false)
 const showTransferOwner = ref(false)
 const transferUsername = ref('')
 const transferLoading = ref(false)
@@ -665,6 +717,8 @@ const botConfig = computed(() => {
     return {
       DEFAULT_DURATION: overrides.DEFAULT_DURATION ?? 7200,
       MAX_LOCK_DURATION: overrides.MAX_LOCK_DURATION ?? -1,
+      FORBID_RELOCK: overrides.FORBID_RELOCK ?? false,
+      MAX_RESOURCES_PER_USER: overrides.MAX_RESOURCES_PER_USER ?? -1,
       TIME_ALERT: overrides.TIME_ALERT ?? 300,
       EARLY_NOTIFY: overrides.EARLY_NOTIFY ?? false,
       DURATION_WHITELIST: Array.isArray(overrides.DURATION_WHITELIST)
@@ -678,6 +732,8 @@ const botConfig = computed(() => {
     return {
       DEFAULT_DURATION: 7200,
       MAX_LOCK_DURATION: -1,
+      FORBID_RELOCK: false,
+      MAX_RESOURCES_PER_USER: -1,
       TIME_ALERT: 300,
       EARLY_NOTIFY: false,
       DURATION_WHITELIST: [],
@@ -695,6 +751,8 @@ const hasAdvancedConfig = computed(() => {
   return (
     c.DEFAULT_DURATION !== 7200 ||
     c.MAX_LOCK_DURATION !== -1 ||
+    c.FORBID_RELOCK ||
+    c.MAX_RESOURCES_PER_USER !== -1 ||
     c.TIME_ALERT !== 300 ||
     c.EARLY_NOTIFY !== false ||
     c.DURATION_WHITELIST.length > 0 ||
@@ -943,6 +1001,23 @@ async function refreshBot() {
     ElMessage.error(t('common.error'))
   } finally {
     loading.value = false
+  }
+}
+
+async function refreshViewLink() {
+  const id = bot.value?.id
+  if (!id || viewLinkLoading.value) return
+  viewLinkLoading.value = true
+  try {
+    const current = await botsStore.getBot(id)
+    if (bot.value?.id === id) {
+      bot.value.view_url = current.view_url
+      bot.value.view_expires_at = current.view_expires_at
+    }
+  } catch {
+    /* handled by the API client */
+  } finally {
+    viewLinkLoading.value = false
   }
 }
 
@@ -1292,6 +1367,25 @@ html.dark .json-null {
 </style>
 
 <style scoped>
+.resource-view-link {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.resource-link-action {
+  margin-left: 0;
+  color: var(--el-text-color-secondary);
+}
+.resource-view-link a {
+  color: var(--el-color-primary);
+  overflow-wrap: anywhere;
+}
+.resource-view-expiry {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  margin-top: 4px;
+}
 .secret-field code {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   flex: 1;

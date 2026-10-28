@@ -73,6 +73,7 @@
           <el-option label="NODE" value="NODE" />
           <el-option label="DEVICE" value="DEVICE" />
           <el-option label="QUEUE" value="QUEUE" />
+          <el-option label="QueueDevice" value="QUEUE_DEVICE" />
         </el-select>
         <el-button-group v-if="authStore?.isSuperAdmin">
           <el-button @click="handleBackup">
@@ -154,7 +155,7 @@
           <el-table-column prop="bot_type" :label="$t('botDetail.type')" width="90">
             <template #default="{ row }">
               <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
-                row.bot_type
+                botTypeLabel(row.bot_type)
               }}</el-tag>
             </template>
           </el-table-column>
@@ -247,7 +248,7 @@
           <el-table-column :label="$t('botDetail.type')" width="160">
             <template #default="{ row }">
               <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
-                row.bot_type
+                botTypeLabel(row.bot_type)
               }}</el-tag>
               <el-tag size="small" type="info" effect="plain">{{ row.platform }}</el-tag>
             </template>
@@ -308,7 +309,7 @@ import { Search, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../../stores/auth'
-import { useHelpers, botTypeTagClass } from '../../utils/helpers'
+import { useHelpers, botTypeTagClass, botTypeLabel } from '../../utils/helpers'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
