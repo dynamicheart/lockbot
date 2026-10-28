@@ -197,6 +197,23 @@
             <el-descriptions-item :label="$t('botCreate.timeAlert')">
               {{ formatDuration(botConfig.TIME_ALERT) }}
             </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.forbidRelock')">{{
+              botConfig.FORBID_RELOCK ? $t('common.yes') : $t('common.no')
+            }}</el-descriptions-item>
+            <el-descriptions-item
+              :label="
+                $t(
+                  ['DEVICE', 'QUEUE_DEVICE'].includes(bot.bot_type)
+                    ? 'botCreate.maxUserCards'
+                    : 'botCreate.maxUserNodes'
+                )
+              "
+              >{{
+                botConfig.MAX_RESOURCES_PER_USER === -1
+                  ? $t('botCreate.unlimitedResources')
+                  : botConfig.MAX_RESOURCES_PER_USER
+              }}</el-descriptions-item
+            >
             <el-descriptions-item :label="$t('botCreate.earlyNotify')">
               <el-tag :type="botConfig.EARLY_NOTIFY ? 'warning' : 'info'" size="small">
                 {{
@@ -665,6 +682,8 @@ const botConfig = computed(() => {
     return {
       DEFAULT_DURATION: overrides.DEFAULT_DURATION ?? 7200,
       MAX_LOCK_DURATION: overrides.MAX_LOCK_DURATION ?? -1,
+      FORBID_RELOCK: overrides.FORBID_RELOCK ?? false,
+      MAX_RESOURCES_PER_USER: overrides.MAX_RESOURCES_PER_USER ?? -1,
       TIME_ALERT: overrides.TIME_ALERT ?? 300,
       EARLY_NOTIFY: overrides.EARLY_NOTIFY ?? false,
       DURATION_WHITELIST: Array.isArray(overrides.DURATION_WHITELIST)
@@ -678,6 +697,8 @@ const botConfig = computed(() => {
     return {
       DEFAULT_DURATION: 7200,
       MAX_LOCK_DURATION: -1,
+      FORBID_RELOCK: false,
+      MAX_RESOURCES_PER_USER: -1,
       TIME_ALERT: 300,
       EARLY_NOTIFY: false,
       DURATION_WHITELIST: [],
@@ -695,6 +716,8 @@ const hasAdvancedConfig = computed(() => {
   return (
     c.DEFAULT_DURATION !== 7200 ||
     c.MAX_LOCK_DURATION !== -1 ||
+    c.FORBID_RELOCK ||
+    c.MAX_RESOURCES_PER_USER !== -1 ||
     c.TIME_ALERT !== 300 ||
     c.EARLY_NOTIFY !== false ||
     c.DURATION_WHITELIST.length > 0 ||

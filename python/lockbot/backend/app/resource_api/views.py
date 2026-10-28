@@ -119,7 +119,10 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
             _display_details(resources, state, lease.bot.config.get_val("NODE_ALIASES", {}))
             # Re-check expiry after assembling the payload; cached state is never cached authorization.
             bot, window = _authorized(db, bot_id, request, fresh=True)
+            from lockbot.core.resource_policy import public_policy
+
             return {
+                "resource_policy": public_policy(state, lease.bot.config, now=captured_at.timestamp()),
                 **metadata,
                 "name": bot.name,
                 "health": lease.health or bot.status,

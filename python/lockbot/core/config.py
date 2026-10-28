@@ -43,6 +43,12 @@ _CONFIG_SCHEMA = {
         "description": "Bot type: NODE / DEVICE / QUEUE",
         "env": True,
     },
+    "FORBID_RELOCK": {"default": False, "description": "Reject renewal of existing holdings", "env": True},
+    "MAX_RESOURCES_PER_USER": {
+        "default": -1,
+        "description": "Held and booked resources per user; -1 unlimited",
+        "env": True,
+    },
     "DEFAULT_DURATION": {
         "default": 2 * 60 * 60,
         "description": "Default lock duration in seconds (default 7200 = 2h)",
@@ -126,6 +132,11 @@ class Config:
         if config_dict:
             self._data.update(config_dict)
         self._normalize()
+        cap = self.get_val("MAX_RESOURCES_PER_USER", -1)
+        if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):
+            raise ValueError("MAX_RESOURCES_PER_USER must be -1 or a positive integer")
+        if not isinstance(self.get_val("FORBID_RELOCK", False), bool):
+            raise ValueError("FORBID_RELOCK must be a boolean")
 
     def _normalize(self):
         """Normalize config values (e.g. list -> dict for CLUSTER_CONFIGS)."""

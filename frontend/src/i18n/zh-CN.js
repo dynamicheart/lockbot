@@ -240,6 +240,13 @@ export default {
 
   // === Bot Create ===
   botCreate: {
+    forbidRelock: '禁止续期',
+    maxUserResources: '每人最多占用／预约资源数',
+    maxUserNodes: '每人最多占用／预约机器数',
+    maxUserCards: '每人最多占用／预约卡数',
+    unlimitedResources: '不限',
+    userResourceLimit: '每人最多占用／预约 {count} 个资源',
+
     title: '创建机器人',
     botName: '机器人名称',
     botNamePlaceholder: '例如 team-lockbot-01',

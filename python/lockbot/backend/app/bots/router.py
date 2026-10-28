@@ -401,7 +401,13 @@ def create_bot(
             else body.cluster_configs,
             ensure_ascii=False,
         ),
-        config_overrides=json.dumps(body.config_overrides or {}, ensure_ascii=False),
+        config_overrides=json.dumps(
+            {
+                **({"FORBID_RELOCK": True} if body.bot_type in {"QUEUE", "QUEUE_DEVICE"} else {}),
+                **(body.config_overrides or {}),
+            },
+            ensure_ascii=False,
+        ),
         resource_auth_enabled=body.resource_auth_enabled,
         resource_api_notify_enabled=body.resource_api_notify_enabled,
     )

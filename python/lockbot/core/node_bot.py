@@ -125,6 +125,9 @@ class NodeBot(BaseLockBot):
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
+            policy_error = self._resource_policy_locked(user_id, node_keys)
+            if policy_error:
+                return policy_error
             if not all(
                 node["status"] == "idle"
                 or (find_user_info(node["current_users"], user_id) and node["status"] == "exclusive")
@@ -186,6 +189,9 @@ class NodeBot(BaseLockBot):
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
+            policy_error = self._resource_policy_locked(user_id, node_keys)
+            if policy_error:
+                return policy_error
             if not all(node["status"] != "exclusive" for node in nodes):
                 return self.show_error(user_id, self._msg_with_usage("error.node_exclusive_mode"))
 

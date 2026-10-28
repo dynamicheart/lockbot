@@ -243,6 +243,13 @@ export default {
 
   // === Bot Create ===
   botCreate: {
+    forbidRelock: 'Disable renewal',
+    maxUserResources: 'Held / booked resources per user',
+    maxUserNodes: 'Held / booked nodes per user',
+    maxUserCards: 'Held / booked cards per user',
+    unlimitedResources: 'Unlimited',
+    userResourceLimit: 'At most {count} held / booked resources per user',
+
     title: 'Create Bot',
     botName: 'Bot Name',
     botNamePlaceholder: 'e.g. team-lockbot-01',

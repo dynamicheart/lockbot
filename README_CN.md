@@ -88,6 +88,8 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 | `DEFAULT_DURATION` | 默认锁定时长（秒） | `7200`（2小时） |
 | `MAX_LOCK_DURATION` | 最大锁定时长（秒） | `-1`（不限制） |
 | `EARLY_NOTIFY` | 锁定到期前通知 | `false` |
+| `FORBID_RELOCK` | 禁止续期及延长预约领取时长；新建排队机器人默认开启 | 已有机器人默认 `false` |
+| `MAX_RESOURCES_PER_USER` | 每用户每 bot 的占用与预约总量：NODE/QUEUE 按机器，DEVICE/QUEUE_DEVICE 按卡 | `-1`（不限） |
 
 完整配置项参见 `python/lockbot/core/config.py`。
 
