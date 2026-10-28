@@ -1,10 +1,15 @@
 <template>
-  <div class="resource-participants">
+  <div class="resource-participants" :class="{ plain }">
     <div v-for="(user, index) in users" :key="user.user_id || index" class="participant">
       <span v-if="queued" class="participant-order">{{ index + 1 }}</span>
       <div class="participant-content">
         <div class="participant-heading">
-          <el-tag size="small" effect="plain">{{ user.user_id || user.userId || user }}</el-tag>
+          <span v-if="plain" class="participant-user">{{
+            user.user_id || user.userId || user
+          }}</span>
+          <el-tag v-else size="small" effect="plain">{{
+            user.user_id || user.userId || user
+          }}</el-tag>
           <span class="participant-origin">{{ $t('clusterState.' + originKey(user)) }}</span>
           <span v-if="taskFor(user)?.agent_label" class="participant-agent">{{
             taskFor(user).agent_label
@@ -24,6 +29,7 @@
           </details>
           <template v-else>{{ taskFor(user).purpose }}</template>
         </div>
+        <slot name="detail" :user="user" />
       </div>
     </div>
     <span v-if="!users.length" class="participant-empty">—</span>
@@ -37,6 +43,7 @@ const props = defineProps({
   resourceId: { type: String, required: true },
   usage: { type: Array, default: () => [] },
   queued: Boolean,
+  plain: Boolean,
 })
 const tasks = computed(
   () =>
@@ -57,6 +64,22 @@ const taskFor = (user) => tasks.value.get(user.user_id || user.userId || user)
   gap: 10px;
   min-width: 0;
   width: 100%;
+}
+.participant-user {
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.plain .participant-heading {
+  gap: 4px 8px;
+}
+.plain .participant-origin {
+  padding: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.plain .participant-purpose {
+  margin-top: 3px;
 }
 .participant {
   display: flex;

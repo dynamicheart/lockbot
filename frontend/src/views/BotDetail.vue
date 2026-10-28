@@ -466,42 +466,7 @@
             </div>
           </div>
 
-          <!-- NODE / QUEUE bot: card list -->
-          <div v-else class="cluster-cards">
-            <div v-for="row in parsedState" :key="row.nodeName" class="cluster-node-card">
-              <div class="cluster-node-header">
-                <span class="cluster-node-name">
-                  <el-icon :size="16"><Monitor /></el-icon>
-                  {{ row.nodeName }}
-                  <span v-if="botConfig.NODE_ALIASES[row.nodeName]" class="node-alias-tag">{{
-                    botConfig.NODE_ALIASES[row.nodeName]
-                  }}</span>
-                </span>
-                <el-tag size="small" :type="statusTagType(row.status)" effect="light">{{
-                  $t('clusterState.' + row.status)
-                }}</el-tag>
-              </div>
-              <div class="cluster-node-body">
-                <ResourceParticipants
-                  :users="row.currentUsers"
-                  :resource-id="row.nodeName"
-                  :usage="stateUsage"
-                />
-                <div v-if="botType === 'QUEUE' && row.bookings.length" class="cluster-node-booking">
-                  <div class="cluster-booking-heading">
-                    {{ $t('clusterState.bookingList') }} ·
-                    {{ row.bookings.length }}
-                  </div>
-                  <ResourceParticipants
-                    :users="row.bookings"
-                    :resource-id="row.nodeName"
-                    :usage="stateUsage"
-                    queued
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+          <ResourceStatusList v-else :resources="nodeResources" :usage="stateUsage" />
         </template>
       </el-card>
 
@@ -575,6 +540,7 @@ import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import AgentActivity from '../components/AgentActivity.vue'
 import ResourceParticipants from '../components/ResourceParticipants.vue'
+import ResourceStatusList from '../components/ResourceStatusList.vue'
 import BotAudit from '../components/BotAudit.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import LogViewer from '../components/LogViewer.vue'
@@ -839,11 +805,6 @@ function copyCallbackUrl() {
 
 const botType = computed(() => bot.value?.bot_type || 'NODE')
 
-const statusTagType = (status) => {
-  const map = { idle: 'info', exclusive: 'warning', shared: 'success' }
-  return map[status] || 'info'
-}
-
 const isValidState = (data) => {
   if (!data || typeof data !== 'object') return false
   const values = Object.values(data)
@@ -888,6 +849,16 @@ const parsedState = computed(() => {
     bookings: info.booking_list || [],
   }))
 })
+
+const nodeResources = computed(() =>
+  (parsedState.value || []).map((row) => ({
+    id: row.nodeName,
+    alias: botConfig.value.NODE_ALIASES[row.nodeName] || '',
+    lock_status: row.status,
+    holders: row.currentUsers || [],
+    booking_list: row.bookings || [],
+  }))
+)
 
 // --- JSON syntax highlighting ---
 function highlightJson(text) {

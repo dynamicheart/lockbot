@@ -647,6 +647,9 @@ def create_app() -> FastAPI:
     app.include_router(skill_router)
     app.include_router(op_skill_router)
     app.include_router(operator_router)
+    from lockbot.backend.app.resource_api.views import router as view_router
+
+    app.include_router(view_router)
 
     # ── Integration API docs: personal Agent, operator, enrollment and downloads ──
     @app.get("/api/public-openapi.json", include_in_schema=False)

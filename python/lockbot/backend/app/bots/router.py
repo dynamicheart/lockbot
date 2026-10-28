@@ -323,6 +323,9 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         g.strip() for g in (getattr(bot, "group_id", None) or "").split(",") if g.strip()
     ]
     config["_AGENT_SKILL_URL"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): _agent_skill_url(bot_id, uuid)
+    from lockbot.backend.app.resource_api.view_links import group_view_link
+
+    config["_BOT_VIEW_LINK"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): group_view_link(bot_id, uuid)
     config["_IDENTITY_REVISION"] = getattr(bot, "identity_revision", 0)
     config["DATA_DIR"] = str(paths.bots_root)
     config["STATE_FILENAME"] = str(paths.state_file(bot_id))

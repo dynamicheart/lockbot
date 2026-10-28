@@ -101,7 +101,7 @@ class NodeBot(BaseLockBot):
         """
         with self._lock:
             content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
-            return self.adapter.build_reply(content, [user_id])
+        return self._query_reply(content, user_id)
 
     def lock(self, user_id, command, *, acquisition_limit=None):
         """
