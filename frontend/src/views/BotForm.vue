@@ -313,17 +313,19 @@
                   )
                 "
               >
-                <el-checkbox v-model="resourceCountUnlimited">{{
-                  $t('botCreate.unlimitedResources')
-                }}</el-checkbox>
-                <el-input-number
-                  v-if="!resourceCountUnlimited"
-                  v-model="advancedConfig.MAX_RESOURCES_PER_USER"
-                  :min="1"
-                  :step="1"
-                  :value-on-clear="1"
-                  :aria-label="$t('botCreate.maxUserResources')"
-                />
+                <div class="resource-limit-control">
+                  <el-checkbox v-model="resourceCountUnlimited">{{
+                    $t('botCreate.unlimitedResources')
+                  }}</el-checkbox>
+                  <el-input-number
+                    v-if="!resourceCountUnlimited"
+                    v-model="advancedConfig.MAX_RESOURCES_PER_USER"
+                    :min="1"
+                    :step="1"
+                    :value-on-clear="1"
+                    :aria-label="$t('botCreate.maxUserResources')"
+                  />
+                </div>
               </el-form-item>
             </el-col>
             <el-col :xs="24">
@@ -751,6 +753,20 @@ async function handleSubmit() {
 }
 .agent-notify-row.is-disabled .agent-setting-label {
   color: var(--el-text-color-placeholder);
+}
+.resource-limit-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  min-width: 0;
+}
+.resource-limit-control :deep(.el-checkbox) {
+  margin-right: 0;
+}
+.resource-limit-control :deep(.el-input-number) {
+  width: 148px;
+  max-width: 100%;
 }
 .credentials-card {
   background: var(--el-fill-color-lighter);
