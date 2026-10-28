@@ -43,7 +43,7 @@ export const useBotsStore = defineStore('bots', () => {
 
     // Resource counts from cluster_configs
     let resourceCounts
-    if (bot.bot_type === 'DEVICE') {
+    if (['DEVICE', 'QUEUE_DEVICE'].includes(bot.bot_type)) {
       let totalDevices = 0
       if (isDeviceArrayFormat(configs)) {
         for (const item of configs) totalDevices += item.devices?.length || 0
@@ -67,7 +67,7 @@ export const useBotsStore = defineStore('bots', () => {
     if (state) {
       const values = Object.values(state)
       if (values.length > 0) {
-        if (bot.bot_type === 'DEVICE') {
+        if (['DEVICE', 'QUEUE_DEVICE'].includes(bot.bot_type)) {
           let total = 0,
             inUse = 0
           for (const devices of values) {

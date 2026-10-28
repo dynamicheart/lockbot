@@ -158,7 +158,7 @@ class BotOut(BaseModel):
     @model_validator(mode="after")
     def convert_device_cluster_configs(self):
         """For DEVICE bots, convert stored dict JSON to array JSON for frontend."""
-        if self.bot_type == "DEVICE" and self.cluster_configs:
+        if self.bot_type in {"DEVICE", "QUEUE_DEVICE"} and self.cluster_configs:
             self.cluster_configs = _serialize_device_configs(self.cluster_configs)
         return self
 

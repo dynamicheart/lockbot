@@ -56,7 +56,7 @@ from lockbot.core.platforms.registry import create_adapter
 router = APIRouter(prefix="/api/bots", tags=["bots"])
 logger = logging.getLogger(__name__)
 
-VALID_BOT_TYPES = {"NODE", "DEVICE", "QUEUE"}
+VALID_BOT_TYPES = {"NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"}
 
 
 def _get_log_dir(bot_id: int) -> str:
@@ -1116,7 +1116,7 @@ def get_bot_state(
     except (json.JSONDecodeError, TypeError):
         return view({})
 
-    if bot.bot_type == "DEVICE":
+    if bot.bot_type in {"DEVICE", "QUEUE_DEVICE"}:
         return view(
             {
                 node_key: [
@@ -1164,18 +1164,31 @@ def _validate_and_align_state(state, bot_type, cluster_configs, config=None):
         return _default_state_for(cluster_configs, bot_type), [t("state.state_not_dict", config=config)]
 
     warnings = []
-    if bot_type == "DEVICE":
-        return _validate_device_state(state, cluster_configs, warnings, config)
+    if bot_type in {"DEVICE", "QUEUE_DEVICE"}:
+        normalized, warnings = _validate_device_state(state, cluster_configs, warnings, config, bot_type)
+        if bot_type == "QUEUE_DEVICE":
+            for node, devices in normalized.items():
+                for device in devices:
+                    validated, notices = _validate_node_queue_state({node: device}, {node: "device"}, [], config)
+                    device.update(validated[node])
+                    warnings.extend(notices)
+        return normalized, warnings
     # NODE and QUEUE share the same structure
     return _validate_node_queue_state(state, cluster_configs, warnings, config)
 
 
 def _default_state_for(cluster_configs, bot_type):
     """Build a fresh default state matching cluster_configs."""
-    if bot_type == "DEVICE":
+    if bot_type in {"DEVICE", "QUEUE_DEVICE"}:
         return {
             node_key: [
-                {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
+                {
+                    "dev_id": i,
+                    "dev_model": model,
+                    "status": "idle",
+                    "current_users": [],
+                    **({"booking_list": []} if bot_type == "QUEUE_DEVICE" else {}),
+                }
                 for i, model in enumerate(devices)
             ]
             for node_key, devices in cluster_configs.items()
@@ -1231,13 +1244,19 @@ def _validate_node_queue_state(state, cluster_configs, warnings, config):
     return result, warnings
 
 
-def _validate_device_state(state, cluster_configs, warnings, config):
+def _validate_device_state(state, cluster_configs, warnings, config, bot_type="DEVICE"):
     result = {}
     for node_key, devices in cluster_configs.items():
         if node_key not in state:
             warnings.append(t("state.node_missing", config=config, name=node_key))
             result[node_key] = [
-                {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
+                {
+                    "dev_id": i,
+                    "dev_model": model,
+                    "status": "idle",
+                    "current_users": [],
+                    **({"booking_list": []} if bot_type == "QUEUE_DEVICE" else {}),
+                }
                 for i, model in enumerate(devices)
             ]
             continue
@@ -1245,7 +1264,13 @@ def _validate_device_state(state, cluster_configs, warnings, config):
         if not isinstance(node_state, list):
             warnings.append(t("state.node_not_list", config=config, name=node_key))
             result[node_key] = [
-                {"dev_id": i, "dev_model": model, "status": "idle", "current_users": []}
+                {
+                    "dev_id": i,
+                    "dev_model": model,
+                    "status": "idle",
+                    "current_users": [],
+                    **({"booking_list": []} if bot_type == "QUEUE_DEVICE" else {}),
+                }
                 for i, model in enumerate(devices)
             ]
             continue
@@ -1803,7 +1828,7 @@ def get_locked_users(
 
     # Return state organized by node -> current_users
     nodes = {}
-    if bot_type == "DEVICE":
+    if bot_type in {"DEVICE", "QUEUE_DEVICE"}:
         for node_key, devices in state.items():
             node_devs = []
             for dev in devices:

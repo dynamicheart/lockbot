@@ -273,7 +273,7 @@ const quickCommands = computed(() => {
   const keys = Array.isArray(cc) ? cc : Object.keys(cc)
   const firstKey = keys[0] || 'node0'
   const type = bot?.bot_type || 'NODE'
-  if (type === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(type)) {
     return ['@bot', 'help', `lock ${firstKey} dev0`]
   }
   if (type === 'QUEUE') {
@@ -430,10 +430,10 @@ const commandHints = computed(() => {
     { cmd: `query ${ex}`, tip: t('demoChat.cmdQuery') },
   ]
 
-  if (type === 'NODE' || type === 'DEVICE') {
+  if (type === 'NODE' || ['DEVICE', 'QUEUE_DEVICE'].includes(type)) {
     base.push({ cmd: `slock ${ex}`, tip: t('demoChat.cmdSlock') })
   }
-  if (type === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(type)) {
     const firstDevCount = Array.isArray(Object.values(cc)[0]) ? Object.values(cc)[0].length : 0
     const lastDev = Math.max(0, firstDevCount - 1)
     base.push({ cmd: `lock ${ex} dev0`, tip: t('demoChat.cmdLockDev') })

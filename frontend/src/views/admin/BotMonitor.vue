@@ -466,7 +466,7 @@ function getResourceLabel(row) {
         ? JSON.parse(row.cluster_configs)
         : row.cluster_configs || {}
     const nodes = Object.keys(configs).length
-    if (row.bot_type === 'DEVICE') {
+    if (['DEVICE', 'QUEUE_DEVICE'].includes(row.bot_type)) {
       let totalDevices = 0
       for (const devices of Object.values(configs)) {
         totalDevices += Array.isArray(devices) ? devices.length : 0

@@ -345,7 +345,7 @@ function getBotStats(row) {
 
 function getResourceLabel(row) {
   const rc = getBotStats(row).resourceCounts
-  if (row.bot_type === 'DEVICE') return `${rc.nodes}n / ${rc.devices}d`
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(row.bot_type)) return `${rc.nodes}n / ${rc.devices}d`
   return `${rc.nodes} nodes`
 }
 

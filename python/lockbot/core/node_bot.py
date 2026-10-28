@@ -37,6 +37,15 @@ class NodeBot(BaseLockBot):
     class _state_class(BotState):
         _loader = staticmethod(create_or_load_node_state)
 
+    def _resource_state(self):
+        return self.state.bot_state
+
+    def _parse_resource_command(self, *args, **kwargs):
+        return self.parse_command(*args, **kwargs)
+
+    def _resource_matches_filter(self, key, selected):
+        return selected is None or key == selected
+
     def supported_commands(self):
         return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "alias"]
 
@@ -107,7 +116,7 @@ class NodeBot(BaseLockBot):
         """
         Lock nodes
         """
-        parse_ok, error_reply, node_keys, duration = self.parse_command(user_id, "lock", command, True)
+        parse_ok, error_reply, node_keys, duration = self._parse_resource_command(user_id, "lock", command, True)
         if not parse_ok:
             return error_reply
 
@@ -115,7 +124,7 @@ class NodeBot(BaseLockBot):
         whitelist = self._duration_whitelist
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
             if not all(
                 node["status"] == "idle"
                 or (find_user_info(node["current_users"], user_id) and node["status"] == "exclusive")
@@ -168,7 +177,7 @@ class NodeBot(BaseLockBot):
         """
         Share lock nodes
         """
-        parse_ok, error_reply, node_keys, duration = self.parse_command(user_id, "slock", command, True)
+        parse_ok, error_reply, node_keys, duration = self._parse_resource_command(user_id, "slock", command, True)
         if not parse_ok:
             return error_reply
 
@@ -176,7 +185,7 @@ class NodeBot(BaseLockBot):
         whitelist = self._duration_whitelist
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
             if not all(node["status"] != "exclusive" for node in nodes):
                 return self.show_error(user_id, self._msg_with_usage("error.node_exclusive_mode"))
 
@@ -221,7 +230,7 @@ class NodeBot(BaseLockBot):
         """
         if re.match(r"^\s*(unlock|free)\s*$", command):
             with self._lock:
-                for _, node in self.state.bot_state.items():
+                for _, node in self._resource_state().items():
                     remove_user_info(node["booking_list"], user_id)
                     if node["status"] != "idle":
                         remove_user_info(node["current_users"], user_id)
@@ -235,12 +244,12 @@ class NodeBot(BaseLockBot):
                 self._save_and_notify()
                 return reply
 
-        parse_ok, error_reply, node_keys, _ = self.parse_command(user_id, "unlock|free", command)
+        parse_ok, error_reply, node_keys, _ = self._parse_resource_command(user_id, "unlock|free", command)
         if not parse_ok:
             return error_reply
 
         with self._lock:
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
             if not all(
                 find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
                 for node in nodes
@@ -263,12 +272,12 @@ class NodeBot(BaseLockBot):
         """
         Kickout nodes
         """
-        parse_ok, error_reply, node_keys, _ = self.parse_command(user_id, "kickout", command)
+        parse_ok, error_reply, node_keys, _ = self._parse_resource_command(user_id, "kickout", command)
         if not parse_ok:
             return error_reply
 
         with self._lock:
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
             users = set([user_id])
             content = t("success.resource_force_released", config=self.config, user_id=user_id)
             content += self._msg_with_usage("label.before_release")
@@ -298,7 +307,7 @@ class NodeBot(BaseLockBot):
             else:
                 target_nodes = [
                     k
-                    for k, v in self.state.bot_state.items()
+                    for k, v in self._resource_state().items()
                     if any(u["user_id"] == target_user for u in v["current_users"])
                 ]
             if not target_nodes:
@@ -306,7 +315,7 @@ class NodeBot(BaseLockBot):
 
             freed = []
             for nk in target_nodes:
-                node = self.state.bot_state.get(nk)
+                node = self._resource_state().get(nk)
                 if not node:
                     continue
                 if find_user_info(node["current_users"], target_user):
@@ -393,7 +402,7 @@ class NodeBot(BaseLockBot):
 
         with self._lock:
             # Release expired resources
-            for node_key, node in self.state.bot_state.items():
+            for node_key, node in self._resource_state().items():
                 if node["status"] != "idle":
                     removed_users_id = []
                     for user_info in node["current_users"]:
@@ -435,7 +444,7 @@ class NodeBot(BaseLockBot):
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")
-            for node in self.state.bot_state.values():
+            for node in self._resource_state().values():
                 if node["status"] != "idle":
                     for user_info in node["current_users"]:
                         remaining = remaining_duration(user_info["start_time"], user_info["duration"])
@@ -483,6 +492,6 @@ class NodeBot(BaseLockBot):
             return usage_info
 
         usage_info = ""
-        usage_info += _get_current_usage({k: v for k, v in self.state.bot_state.items()})
+        usage_info += _get_current_usage({k: v for k, v in self._resource_state().items()})
 
         return usage_info

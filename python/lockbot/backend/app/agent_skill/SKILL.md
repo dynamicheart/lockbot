@@ -128,12 +128,31 @@ fields. They never select your identity, authorize an operation, or give another
 (`bind`/`unbind`/`bindings`) are refused. The response `reply` is the bot's text, **not** a
 structured outcome — always confirm effect by reading `/resources`.
 
-### QUEUE: booking is not task completion
+### QUEUE_DEVICE: individual-card queues
+
+`QUEUE_DEVICE` combines DEVICE card syntax with a separate FIFO queue for every card.
+Read `bot_type`, `supported_operations` and `command_examples`; do not guess support from
+another bot's remembered commands. For example:
+
+- `lock node1 dev0 2h` acquires card 0; `book node1 dev0 30m` queues for that card.
+- `free node1 dev0` releases/cancels only your card-0 work. Sibling cards and their queues remain.
+- `lock node1 dev0,2 1h` or `dev0-3` selects several cards atomically. Omitting `dev...`
+  selects every card on the listed nodes. Prefer exact cards so another Agent's work is preserved.
+- Shared `slock` is unavailable. Personal keys still cannot `take`, `kickout` or `kicklock`.
+
+Per-card state appears in `resources[].devices[]`. Each device has its own `booking_list`,
+`claimable_by_you`, and `claim_command`. Follow that device's claim command after booking;
+never treat a queued card as already acquired. Task metadata on `lock`/`book` is saved
+per card, so the same person's different Agents can use different cards for different purposes.
+For optional PUT/DELETE usage updates, use the device's exact `resource_id` (e.g. `node1:dev0`),
+not its display label. Ordinary DEVICE bots retain their existing node-scoped declarations.
+
+### QUEUE / QUEUE_DEVICE: booking is not task completion
 
 If the user asks you to acquire/use a resource, do **not** finish after `book`. Booking only
 reserves a queue position. Keep monitoring `/resources` yourself; do not wait for the human
 or a group @mention to make the next API call. The `book` response's `next_step` repeats this.
-When `resources[].claimable_by_you` is true, POST that resource's `claim_command` (e.g.
+When `resources[].claimable_by_you` (or a QUEUE_DEVICE device’s flag) is true, POST that resource's `claim_command` (e.g.
 `lock node1`) within `queue_claim_window_seconds`, then read again to verify a live holding
 for your actor. Only then start the workload. If another holder remains, keep waiting with
 backoff. If you cannot keep monitoring, tell the user that you are **only queued**, not holding.

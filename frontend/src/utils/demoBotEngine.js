@@ -555,6 +555,17 @@ export function executeCommand(state, userId, command, botType, config, lang = '
 
   // Helper: get usage text for this bot type
   const usageText = (filter) => {
+    if (botType === 'QUEUE_DEVICE') {
+      const flat = queueDeviceState(state)
+      const selected = filter
+        ? Object.keys(flat).filter((key) => key.split(':dev')[0] === filter)
+        : null
+      const visible = selected ? Object.fromEntries(selected.map((key) => [key, flat[key]])) : flat
+      return queueUsageText(visible, null, lang, null, (key) => {
+        const [node, card] = key.split(':dev')
+        return `${displayNode ? displayNode(node) : node} dev${card}`
+      })
+    }
     if (botType === 'DEVICE') return deviceUsageText(state, filter, lang, nodeOrder, displayNode)
     if (botType === 'QUEUE') return queueUsageText(state, filter, lang, nodeOrder, displayNode)
     return nodeUsageText(state, filter, lang, nodeOrder, displayNode)
@@ -628,8 +639,26 @@ export function executeCommand(state, userId, command, botType, config, lang = '
     )
   }
 
+  if (botType === 'QUEUE_DEVICE') {
+    return _executeQueueDeviceCommand(
+      state,
+      userId,
+      cmd,
+      rest,
+      {
+        DEFAULT_DURATION,
+        MAX_LOCK_DURATION,
+        CLUSTER_CONFIGS,
+        BOT_ID,
+        BOT_OWNER,
+      },
+      usageText,
+      lang
+    )
+  }
+
   // For DEVICE: commands operate on node/dev pairs
-  if (botType === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(botType)) {
     return _executeDeviceCommand(
       state,
       userId,
@@ -649,11 +678,60 @@ export function executeCommand(state, userId, command, botType, config, lang = '
 }
 
 // ---------------------------------------------------------------------------
+// Each card is a reference into the original nested DEVICE state.
+function queueDeviceState(state) {
+  return Object.fromEntries(
+    Object.entries(state).flatMap(([node, cards]) =>
+      cards.map((card) => [`${node}:dev${card.dev_id}`, card])
+    )
+  )
+}
+
+function _executeQueueDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
+  if (cmd === 'slock') return `❌${_t(lang, 'error.slock_not_supported')}`
+  const flat = queueDeviceState(state)
+  const duration = rest.match(DURATION_RE)
+  const target = duration ? parseDurationTail(rest).rest : rest.trim()
+  let targets = []
+  if (target) {
+    const match = target.match(
+      /^([\w-]+(?:\s*[,，、]\s*[\w-]+)*)(?:\s+dev\s*(\d+(?:-\d+|(?:[,，、]\d+)*)))?$/i
+    )
+    if (!match) return `❌${_t(lang, 'error.invalid_command_format', { command: rest })}`
+    for (const node of splitNodeList(match[1])) {
+      if (!Array.isArray(cfg.CLUSTER_CONFIGS[node]))
+        return `❌${_t(lang, 'error.invalid_node_key', { node_key: node, valid_keys: Object.keys(cfg.CLUSTER_CONFIGS).join(', ') })}`
+      const cards = match[2]
+        ? parseDevSpec(`dev${match[2]}`, cfg.CLUSTER_CONFIGS, node)
+        : cfg.CLUSTER_CONFIGS[node].map((_, index) => index)
+      if (!cards) return `❌${_t(lang, 'error.invalid_command_format', { command: rest })}`
+      targets.push(...cards.map((card) => `${node}:dev${card}`))
+    }
+  } else if (!['free', 'unlock', 'kickout', 'kicklock'].includes(cmd)) {
+    return `❌${_t(lang, 'error.invalid_command_format', { command: rest })}`
+  }
+  targets = [...new Set(targets)]
+  const translated = targets.join(',') + (duration ? ` ${duration[0].trim()}` : '')
+  return _executeNodeQueueCommand(
+    flat,
+    userId,
+    cmd,
+    translated,
+    'QUEUE',
+    {
+      ...cfg,
+      CLUSTER_CONFIGS: Object.fromEntries(Object.keys(flat).map((key) => [key, 'device'])),
+    },
+    usageText,
+    lang
+  )
+}
+
 // NODE / QUEUE command implementation
 // ---------------------------------------------------------------------------
 
 function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageText, lang) {
-  const { DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS } = cfg
+  const { DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS, BOT_ID = '', BOT_OWNER = '' } = cfg
   const clusterKeys = Array.isArray(CLUSTER_CONFIGS)
     ? CLUSTER_CONFIGS
     : Object.keys(CLUSTER_CONFIGS)
@@ -1192,7 +1270,7 @@ function _executeNodeQueueCommand(state, userId, cmd, rest, botType, cfg, usageT
 // ---------------------------------------------------------------------------
 
 function _executeDeviceCommand(state, userId, cmd, rest, cfg, usageText, lang) {
-  const { DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS } = cfg
+  const { DEFAULT_DURATION, MAX_LOCK_DURATION, CLUSTER_CONFIGS, BOT_ID = '', BOT_OWNER = '' } = cfg
   const validKeysStr = `[${Object.keys(CLUSTER_CONFIGS)
     .map((k) => `'${k}'`)
     .join(', ')}]`
@@ -1523,7 +1601,18 @@ function _buildHelp(
   })
   text += _t(lang, 'help.rule2_post_expiry_notification')
 
-  if (botType === 'DEVICE') {
+  if (botType === 'QUEUE_DEVICE') {
+    text += _t(lang, 'help.rule3_lock_exclusive')
+    text += `    lock ${ex0} dev0 2h\n`
+    text += _t(lang, 'help.section2_title') + `    free ${ex0} dev0\n`
+    text += _t(lang, 'help.section_kickout_title') + `    kickout ${ex0} dev0\n`
+    text += _t(lang, 'help.section_booking_title') + `    book ${ex0} dev0 2h\n`
+    text += _t(lang, 'help.section_cancel_booking_title') + `    free ${ex0} dev0\n`
+    text += _t(lang, 'help.section_take_title') + `    take ${ex0} dev0 2h\n`
+    text += _t(lang, 'help.section_kicklock_title') + `    kicklock ${ex0} dev0\n`
+    text += _t(lang, 'help.section_help_title_queue') + _t(lang, 'help.section_query_title_queue')
+    text += _t(lang, 'help.query_at_bot') + `    ${ex0}\n`
+  } else if (botType === 'DEVICE') {
     text += _t(lang, 'help.rule3_lock_modes')
     text += _t(lang, 'help.lock_all_devices_example', { node: ex0 })
     text += _t(lang, 'help.lock_device_example', { node: ex0 })

@@ -70,14 +70,14 @@ Send JSON to `POST /api/bots/{bot_id}/commands` using the personal Bearer key. O
 real resource IDs, device indexes and `supported_operations` from `GET /resources` first.
 The examples below use placeholder resources; replace them with those returned by your bot.
 
-| Action | NODE | DEVICE | QUEUE |
-|---|---|---|---|
-| Exclusive lock | `lock node1 2h` | `lock node1 dev0 2h` | `lock node1 2h` |
-| Shared lock | `slock node1 30m` | `slock node1 dev0 30m` | Not supported |
-| Release own lock | `free node1` | `free node1 dev0` | `free node1` |
-| Join queue | Not supported | Not supported | `book node1 2h` |
-| Cancel own booking | Not applicable | Not applicable | `free node1` |
-| Query | `query` or bare `node1` | `query` or bare `node1` | `query` or bare `node1` |
+| Action | NODE | DEVICE | QUEUE | QUEUE_DEVICE |
+|---|---|---|---|---|
+| Exclusive lock | `lock node1 2h` | `lock node1 dev0 2h` | `lock node1 2h` | `lock node1 dev0 2h` |
+| Shared lock | `slock node1 30m` | `slock node1 dev0 30m` | Not supported | Not supported |
+| Release own lock | `free node1` | `free node1 dev0` | `free node1` | `free node1 dev0` |
+| Join queue | Not supported | Not supported | `book node1 2h` | `book node1 dev0 2h` |
+| Cancel own booking | Not applicable | Not applicable | `free node1` | `free node1 dev0` |
+| Query | `query` | `query` | `query` | `query` |
 
 - `unlock` and `free` are aliases. Use a specific resource to avoid affecting another one
   of the user's Agents. Bare `free` / `unlock` releases **all this user's holdings and
@@ -85,18 +85,21 @@ The examples below use placeholder resources; replace them with those returned b
 - NODE and QUEUE accept comma-separated resources: `lock node1,node2 30m`,
   `free node1,node2`. DEVICE examples: `lock node1 dev0,2 30m`,
   `lock node1 dev0-3 1h` (inclusive range), `free node1 dev0-3`.
-  Device indexes are zero-based. On DEVICE, omitting `dev...` selects every device on the
+  DEVICE and QUEUE_DEVICE use the same selectors. Indexes are zero-based. Omitting `dev...`
+  also selects all cards on QUEUE_DEVICE. On DEVICE, omitting `dev...` selects every device on the
   node: `lock node1 2h` locks all cards; `free node1` releases all your cards there.
 - Durations use lowercase `m` (minutes), `h` (hours), `d` (days), e.g. `30m`, `2h`,
   `0.5h`, `1d`. No seconds suffix or combined `1h30m`. If omitted, the bot's configured
   default applies. Configured maximum durations and identity caps still apply.
-- For QUEUE: `book node1 2h` reserves a queue position, **not ownership**. Read `/resources`
+- For QUEUE / QUEUE_DEVICE: `book node1 2h` reserves a queue position, **not ownership**. Read `/resources`
   until the node is idle and you are first, then `lock node1` within
   `queue_claim_window_seconds`; without an explicit duration, the booked duration applies.
   `free node1` cancels your booking or releases your lock. Do not continue using a node
   just because you previously booked it. Do not finish after booking: keep polling until
   `claimable_by_you` is true, POST its `claim_command`, and verify a live holding before work.
-  The `book` response includes `next_step`. Poll with backoff; no busy loops.
+  QUEUE_DEVICE queue and claim fields are nested in `resources[].devices[]`; follow that
+  card’s exact `claim_command`, e.g. `lock node1 dev0`. The `book` response includes `next_step`.
+  Poll with backoff; no busy loops.
 - `alias node1 <note>` changes the shared resource alias only when enabled (at most 15
   characters). It is not an Agent task note; use usage declarations for task purposes.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
@@ -130,7 +133,8 @@ the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
 Other authorized Agents see the purpose in the matching holder/booking `usage` object.
 Registrations are scoped to user authorization + resource, not individual Agent processes.
 On DEVICE, the current registration covers the node resource; different cards on the same
-node do **not** have independent task registrations. Do not claim that distinction exists.
+node do **not** have independent task registrations. QUEUE_DEVICE saves tasks independently
+per card; use `devices[].resource_id` for manual usage updates (e.g. `node1:dev0`).
 
 ### Actual HTTP call
 
@@ -173,6 +177,10 @@ COMMAND_EXAMPLES = {
         "value": {"command": "free node1"},
     },
     "device_release": {"summary": "DEVICE: release only card 0", "value": {"command": "free node1 dev0"}},
+    "queue_device_book": {
+        "summary": "QUEUE_DEVICE: queue for one card, then claim explicitly",
+        "value": {"command": "book node1 dev0 30m", "agent_label": "test-agent", "purpose": "Regression"},
+    },
     "query": {"summary": "Text query; GET /resources is structured", "value": {"command": "query"}},
 }
 

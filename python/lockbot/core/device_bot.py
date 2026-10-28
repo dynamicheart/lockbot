@@ -39,6 +39,8 @@ class DeviceBot(BaseLockBot):
     class _state_class(BotState):
         _loader = staticmethod(create_or_load_device_state)
 
+    _node_list_pattern = _DEV_NODE_LIST
+
     def supported_commands(self):
         return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "alias"]
 
@@ -57,12 +59,12 @@ class DeviceBot(BaseLockBot):
 
         if parsing_duration:
             command_pattern = (
-                rf"^\s*({command_key})\s+{_DEV_NODE_LIST}"
+                rf"^\s*({command_key})\s+{self._node_list_pattern}"
                 rf"{_DEV_SPEC}?\s*(\s{_DURATION})?\s*$"
             )
         else:
             command_pattern = (
-                rf"^\s*({command_key})\s+{_DEV_NODE_LIST}"
+                rf"^\s*({command_key})\s+{self._node_list_pattern}"
                 rf"{_DEV_SPEC}?\s*$"
             )
 

@@ -669,7 +669,7 @@ function _buildInitialState(bot) {
       typeof bot.cluster_configs === 'string'
         ? JSON.parse(bot.cluster_configs)
         : bot.cluster_configs || {}
-    if (bot.bot_type === 'DEVICE') {
+    if (['DEVICE', 'QUEUE_DEVICE'].includes(bot.bot_type)) {
       const state = {}
       // Support array format [{node_key, devices}] and legacy dict
       const entries = Array.isArray(cc)

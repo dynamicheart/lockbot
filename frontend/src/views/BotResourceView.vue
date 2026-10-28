@@ -39,9 +39,12 @@
       <p v-if="failed" class="view-status">{{ $t('resourceView.unavailable') }}</p>
       <el-empty v-if="snapshot.health !== 'running'" :description="$t('resourceView.stopped')" />
       <el-empty v-else-if="!snapshot.resources.length" :description="$t('resourceView.empty')" />
-      <section v-else-if="!snapshot.resources[0]?.devices" class="resource-panel">
+      <section
+        v-else-if="snapshot.bot_type === 'QUEUE_DEVICE' || !snapshot.resources[0]?.devices"
+        class="resource-panel"
+      >
         <ResourceStatusList
-          :resources="snapshot.resources"
+          :resources="displayResources"
           :usage="usage"
           :server-offset="serverOffset"
           :show-overview="false"
@@ -236,6 +239,19 @@ onBeforeUnmount(() => {
 
 const participants = (items = []) =>
   items.map((user) => ({ ...user, user_id: user.external_user_id }))
+const displayResources = computed(() =>
+  snapshot.value?.bot_type === 'QUEUE_DEVICE'
+    ? snapshot.value.resources.flatMap((node) =>
+        node.devices.map((device) => ({
+          ...device,
+          id: device.resource_id,
+          display_name: `${node.id} dev${device.id}`,
+          alias: [node.alias, device.dev_model].filter(Boolean).join(' · '),
+        }))
+      )
+    : snapshot.value?.resources || []
+)
+
 const usage = computed(() =>
   (snapshot.value?.resources || []).flatMap((resource) => {
     const entries = [resource, ...(resource.devices || [])]

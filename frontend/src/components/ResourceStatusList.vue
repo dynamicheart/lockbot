@@ -25,7 +25,7 @@
       <template #default="{ row }">
         <div class="resource-identity">
           <div class="node-identity">
-            <strong>{{ row.id }}</strong
+            <strong>{{ row.display_name || row.id }}</strong
             ><span>{{ row.alias }}</span>
           </div>
           <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
@@ -81,7 +81,7 @@
     <article v-for="row in visibleResources" :key="row.id" class="mobile-resource-card">
       <div class="resource-identity">
         <div class="node-identity">
-          <strong>{{ row.id }}</strong
+          <strong>{{ row.display_name || row.id }}</strong
           ><span>{{ row.alias }}</span>
         </div>
         <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
@@ -146,6 +146,7 @@ const visibleResources = computed(() =>
     if (!query) return true
     const text = [
       row.id,
+      row.display_name,
       row.alias,
       ...[...row.holders, ...(row.booking_list || [])].flatMap((user) => [
         user.external_user_id || user.user_id,

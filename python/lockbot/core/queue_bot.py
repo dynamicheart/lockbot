@@ -33,7 +33,7 @@ class QueueBot(NodeBot):
         """
         Lock nodes
         """
-        parse_ok, error_reply, node_keys, duration = self.parse_command(user_id, "lock", command, True)
+        parse_ok, error_reply, node_keys, duration = self._parse_resource_command(user_id, "lock", command, True)
         command_has_duration = bool(re.search(r"\s([0-9]+\.?[0-9]*)([dhm])\s*$", command))
         if not parse_ok:
             return error_reply
@@ -42,7 +42,7 @@ class QueueBot(NodeBot):
         whitelist = self._duration_whitelist
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
             if not all(
                 (
                     # Condition 1: node is not in use
@@ -133,7 +133,7 @@ class QueueBot(NodeBot):
         """
         book nodes
         """
-        parse_ok, error_reply, node_keys, duration = self.parse_command(user_id, "book", command, True)
+        parse_ok, error_reply, node_keys, duration = self._parse_resource_command(user_id, "book", command, True)
         if not parse_ok:
             return error_reply
 
@@ -141,7 +141,7 @@ class QueueBot(NodeBot):
         whitelist = self._duration_whitelist
         with self._lock:
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
             if any(
                 find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
                 for node in nodes
@@ -174,7 +174,7 @@ class QueueBot(NodeBot):
         """
         take nodes
         """
-        parse_ok, error_reply, node_keys, duration = self.parse_command(user_id, "take", command, True)
+        parse_ok, error_reply, node_keys, duration = self._parse_resource_command(user_id, "take", command, True)
         if not parse_ok:
             return error_reply
 
@@ -183,14 +183,14 @@ class QueueBot(NodeBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._lock:
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
             if any(find_user_info(node["current_users"], user_id) for node in nodes):
                 return self.show_error(user_id, self._msg_with_usage("error.locked_user_cannot_take", sep="\n"))
 
             timestamp = int(time.time())
             users_to_notify = set()
             users_to_notify.add(user_id)
-            nodes = [self.state.bot_state[node_key] for node_key in node_keys]
+            nodes = [self._resource_state()[node_key] for node_key in node_keys]
 
             if max_dur > 0 and user_id not in whitelist and remaining_duration(timestamp, duration) > max_dur:
                 return self.show_error(
@@ -242,7 +242,7 @@ class QueueBot(NodeBot):
         """
         kicklock nodes
         """
-        parse_ok, error_reply, node_keys, _ = self.parse_command(user_id, "kicklock", command)
+        parse_ok, error_reply, node_keys, _ = self._parse_resource_command(user_id, "kicklock", command)
         if not parse_ok:
             return error_reply
 
@@ -260,12 +260,12 @@ class QueueBot(NodeBot):
 
     def _clear_current_locks(self, node_keys):
         """Caller holds the state lock; bookings are deliberately untouched."""
-        missing = [key for key in node_keys if key not in self.state.bot_state]
+        missing = [key for key in node_keys if key not in self._resource_state()]
         if missing:
             raise ValueError("Unknown resources: " + ", ".join(missing))
         freed, users = [], set()
         for key in node_keys:
-            node = self.state.bot_state[key]
+            node = self._resource_state()[key]
             if node["current_users"]:
                 freed.append(key)
                 users.update(user["user_id"] for user in node["current_users"])
@@ -300,7 +300,7 @@ class QueueBot(NodeBot):
             else:
                 target_nodes = [
                     k
-                    for k, v in self.state.bot_state.items()
+                    for k, v in self._resource_state().items()
                     if any(u["user_id"] == target_user for u in v["current_users"])
                 ]
             if not target_nodes:
@@ -308,7 +308,7 @@ class QueueBot(NodeBot):
 
             freed = []
             for nk in target_nodes:
-                node = self.state.bot_state.get(nk)
+                node = self._resource_state().get(nk)
                 if not node:
                     continue
                 if find_user_info(node["current_users"], target_user):
@@ -442,11 +442,11 @@ class QueueBot(NodeBot):
             user_ids.add(first_user["user_id"])
 
             dur = format_duration(first_user["duration"], config=self.config)
-            pending_notify += f"  - {node_key} {first_user['user_id']} {dur}\n"
+            pending_notify += f"  - {self._display_node(node_key)} {first_user['user_id']} {dur}\n"
 
         with self._lock:
             # 1. Release resources
-            for node_key, node in self.state.bot_state.items():
+            for node_key, node in self._resource_state().items():
                 # === 1. Check if current_users have expired ===
                 if node["status"] != "idle":
                     removed_users_id = []
@@ -506,7 +506,7 @@ class QueueBot(NodeBot):
             # Compute next wakeup after mutations
             min_next = float("inf")
             now_ts = int(time.time())
-            for node in self.state.bot_state.values():
+            for node in self._resource_state().values():
                 # Active users
                 if node["status"] != "idle":
                     for user_info in node["current_users"]:
@@ -570,7 +570,7 @@ class QueueBot(NodeBot):
             """
             usage_info = ""
             for node_key, node_status in nodes.items():
-                if node_filter is None or node_key == node_filter:
+                if self._resource_matches_filter(node_key, node_filter):
                     display_name = self._display_node(node_key)
                     if node_status["status"] == "idle":
                         usage_info += "{:} {}\n".format(display_name, t("status.idle", config=self.config))
@@ -614,6 +614,6 @@ class QueueBot(NodeBot):
             return usage_info
 
         usage_info = ""
-        usage_info += _get_current_usage({k: v for k, v in self.state.bot_state.items()})
+        usage_info += _get_current_usage({k: v for k, v in self._resource_state().items()})
 
         return usage_info

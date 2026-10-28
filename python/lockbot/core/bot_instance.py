@@ -9,11 +9,13 @@ supporting multiple concurrent bots in a single process.
 from lockbot.core.device_bot import DeviceBot
 from lockbot.core.node_bot import NodeBot
 from lockbot.core.queue_bot import QueueBot
+from lockbot.core.queue_device_bot import QueueDeviceBot
 
 _BOT_CLASS_MAP = {
     "NODE": NodeBot,
     "QUEUE": QueueBot,
     "DEVICE": DeviceBot,
+    "QUEUE_DEVICE": QueueDeviceBot,
 }
 
 _STANDALONE_KEY = 0  # internal scheduler key used in standalone mode

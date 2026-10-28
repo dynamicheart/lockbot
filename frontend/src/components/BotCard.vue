@@ -64,7 +64,7 @@ const stats = computed(() => botsStore.computeBotStats(props.bot))
 
 const resourceLabel = computed(() => {
   const rc = stats.value.resourceCounts
-  if (props.bot.bot_type === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(props.bot.bot_type)) {
     return `${rc.nodes}n / ${rc.devices}d`
   }
   return `${rc.nodes} nodes`

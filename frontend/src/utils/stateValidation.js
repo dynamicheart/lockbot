@@ -97,7 +97,7 @@ function _validateNodeQueueState(state, clusterConfigs, warnings, t) {
   return result
 }
 
-function _validateDeviceState(state, clusterConfigs, warnings, t) {
+function _validateDeviceState(state, clusterConfigs, warnings, t, botType = 'DEVICE') {
   const ccKeys = new Set(Object.keys(clusterConfigs))
   const result = {}
   for (const [nodeKey, devices] of Object.entries(clusterConfigs)) {
@@ -108,6 +108,7 @@ function _validateDeviceState(state, clusterConfigs, warnings, t) {
         dev_model: model,
         status: 'idle',
         current_users: [],
+        ...(botType === 'QUEUE_DEVICE' ? { booking_list: [] } : {}),
       }))
       continue
     }
@@ -119,6 +120,7 @@ function _validateDeviceState(state, clusterConfigs, warnings, t) {
         dev_model: model,
         status: 'idle',
         current_users: [],
+        ...(botType === 'QUEUE_DEVICE' ? { booking_list: [] } : {}),
       }))
       continue
     }
@@ -229,15 +231,22 @@ export function validateBotState(state, botType, clusterConfigs, t) {
   // Deep clone to avoid mutating the input
   const cloned = JSON.parse(JSON.stringify(state))
   const warnings = []
-  const normalized =
-    botType === 'DEVICE'
-      ? _validateDeviceState(cloned, clusterConfigs, warnings, t)
-      : _validateNodeQueueState(cloned, clusterConfigs, warnings, t)
+  const normalized = ['DEVICE', 'QUEUE_DEVICE'].includes(botType)
+    ? _validateDeviceState(cloned, clusterConfigs, warnings, t, botType)
+    : _validateNodeQueueState(cloned, clusterConfigs, warnings, t)
+  if (botType === 'QUEUE_DEVICE') {
+    for (const [node, devices] of Object.entries(normalized)) {
+      for (const device of devices) {
+        const checked = _validateNodeQueueState({ [node]: device }, [node], warnings, t)
+        Object.assign(device, checked[node])
+      }
+    }
+  }
   return { state: normalized, warnings }
 }
 
 function _buildDefaultState(clusterConfigs, botType) {
-  if (botType === 'DEVICE') {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(botType)) {
     const state = {}
     for (const [nodeKey, devices] of Object.entries(clusterConfigs)) {
       state[nodeKey] = devices.map((model, i) => ({
@@ -245,6 +254,7 @@ function _buildDefaultState(clusterConfigs, botType) {
         dev_model: model,
         status: 'idle',
         current_users: [],
+        ...(botType === 'QUEUE_DEVICE' ? { booking_list: [] } : {}),
       }))
     }
     return state

@@ -42,6 +42,7 @@
               <el-option label="NODE" value="NODE" />
               <el-option label="DEVICE" value="DEVICE" />
               <el-option label="QUEUE" value="QUEUE" />
+              <el-option label="QUEUE_DEVICE" value="QUEUE_DEVICE" />
             </el-select>
           </el-form-item>
         </el-col>
@@ -58,7 +59,7 @@
         @update:aliases="advancedConfig.NODE_ALIASES = $event"
       />
       <DeviceBotForm
-        v-else-if="form.bot_type === 'DEVICE'"
+        v-else-if="['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)"
         ref="deviceFormRef"
         v-model="clusterConfig"
         :aliases="advancedConfig.NODE_ALIASES"
@@ -360,7 +361,7 @@
                 <el-switch v-model="advancedConfig.ALLOW_USER_ALIAS" />
               </el-form-item>
             </el-col>
-            <el-col v-if="form.bot_type === 'DEVICE'" :xs="24">
+            <el-col v-if="['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)" :xs="24">
               <el-form-item>
                 <template #label>
                   {{ $t('botCreate.displayDeviceModel') }}
@@ -432,9 +433,12 @@ const maskedToken = ref('')
 const nodeClusterConfig = ref({})
 const deviceClusterConfig = ref({})
 const clusterConfig = computed({
-  get: () => (form.bot_type === 'DEVICE' ? deviceClusterConfig.value : nodeClusterConfig.value),
+  get: () =>
+    ['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)
+      ? deviceClusterConfig.value
+      : nodeClusterConfig.value,
   set: (v) => {
-    if (form.bot_type === 'DEVICE') deviceClusterConfig.value = v
+    if (['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)) deviceClusterConfig.value = v
     else nodeClusterConfig.value = v
   },
 })
@@ -530,10 +534,10 @@ onMounted(async () => {
           typeof bot.value.cluster_configs === 'string'
             ? JSON.parse(bot.value.cluster_configs)
             : bot.value.cluster_configs || {}
-        if (form.bot_type === 'DEVICE') deviceClusterConfig.value = parsed
+        if (['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)) deviceClusterConfig.value = parsed
         else nodeClusterConfig.value = parsed
       } catch {
-        if (form.bot_type === 'DEVICE') deviceClusterConfig.value = {}
+        if (['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)) deviceClusterConfig.value = {}
         else nodeClusterConfig.value = {}
       }
       await nextTick()
@@ -571,7 +575,7 @@ async function handleSubmit() {
     return
   }
 
-  if (form.bot_type === 'DEVICE' && deviceFormRef.value) {
+  if (['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type) && deviceFormRef.value) {
     if (!deviceFormRef.value.validate()) {
       ElMessage.error(t('botForm.emptyNodeOrDevice'))
       return
@@ -590,7 +594,7 @@ async function handleSubmit() {
       ElMessage.error(t('botCreate.clusterRequired'))
       return
     }
-    if (form.bot_type === 'DEVICE') {
+    if (['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)) {
       const totalDevs = Array.isArray(cc)
         ? cc.reduce((sum, item) => sum + (item.devices?.length || 0), 0)
         : Object.values(cc).flat().length
@@ -602,7 +606,7 @@ async function handleSubmit() {
   } else {
     const cc = clusterConfig.value
     const nodeCount = Array.isArray(cc) ? cc.length : cc ? Object.keys(cc).length : 0
-    if (nodeCount > 0 && form.bot_type === 'DEVICE') {
+    if (nodeCount > 0 && ['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)) {
       const totalDevs = Array.isArray(cc)
         ? cc.reduce((sum, item) => sum + (item.devices?.length || 0), 0)
         : Object.values(cc).flat().length

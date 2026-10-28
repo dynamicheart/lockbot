@@ -94,9 +94,25 @@ def build_resources(
     """Build the per-resource list. Resource ``id`` values are exactly what commands accept."""
     resources = []
     for node_key, node in state.items():
-        if bot_type == "DEVICE":
+        if bot_type in {"DEVICE", "QUEUE_DEVICE"}:
             devices = []
             for dev in node or []:
+                if bot_type == "QUEUE_DEVICE":
+                    queued = build_resources(
+                        captured_at=captured_at,
+                        state={node_key: dev},
+                        bot_type="QUEUE",
+                        platform=platform,
+                        caller_id=caller_id,
+                    )[0]
+                    queued["id"] = dev.get("dev_id")
+                    queued["resource_id"] = f"{node_key}:dev{dev.get('dev_id')}"
+                    queued["dev_model"] = dev.get("dev_model")
+                    queued["claim_command"] = (
+                        f"lock {node_key} dev{dev.get('dev_id')}" if queued["claimable_by_you"] else None
+                    )
+                    devices.append(queued)
+                    continue
                 devices.append(
                     {
                         "id": dev.get("dev_id"),
@@ -141,6 +157,7 @@ def build_resources(
 def scrub_private(resources: list[dict]) -> list[dict]:
     """Drop internal bookkeeping keys so they never reach the wire."""
     for resource in resources:
+        scrub_private(resource.get("devices", []))
         for key in [k for k in resource if k.startswith("_")]:
             resource.pop(key)
     return resources
@@ -179,10 +196,8 @@ def compute_next_event(
     """
     candidates: list[tuple[datetime, str]] = []
 
-    for resource in resources:
+    for resource in _event_resources(resources):
         holder_groups = [resource["holders"]]
-        for device in resource.get("devices", []) or []:
-            holder_groups.append(device["holders"])
 
         own_holdings = [h for group in holder_groups for h in group if h["external_user_id"] == caller_id]
         for holding in own_holdings:
@@ -219,6 +234,12 @@ def compute_next_event(
         return None, None
     moment, kind = min(candidates, key=lambda pair: pair[0])
     return moment.isoformat(), kind
+
+
+def _event_resources(resources):
+    for resource in resources:
+        yield resource
+        yield from _event_resources(resource.get("devices", []))
 
 
 def _booking_started_at(resource: dict, caller_id: str) -> datetime | None:
