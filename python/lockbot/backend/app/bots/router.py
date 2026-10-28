@@ -403,7 +403,7 @@ def create_bot(
         ),
         config_overrides=json.dumps(
             {
-                **({"FORBID_RELOCK": True} if body.bot_type in {"QUEUE", "QUEUE_DEVICE"} else {}),
+                **({"FORBID_RELOCK": True} if body.bot_type.upper() in {"QUEUE", "QUEUE_DEVICE"} else {}),
                 **(body.config_overrides or {}),
             },
             ensure_ascii=False,

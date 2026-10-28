@@ -10,9 +10,10 @@ from lockbot.backend.app.bots.schemas import BotUpdate
 from backend.test_resource_api_resources import api  # noqa: F401
 
 
-@pytest.mark.parametrize("kind", ["NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"])
+@pytest.mark.parametrize("kind", ["NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE", "node", "device", "queue", "queue_device"])
 def test_new_bot_defaults_are_explicit_but_old_bots_are_not_changed(client, auth_header, db_session, kind):
-    config = {"n1": ["gpu"]} if "DEVICE" in kind else ["n1"]
+    normalized = kind.upper()
+    config = {"n1": ["gpu"]} if "DEVICE" in normalized else ["n1"]
     response = client.post(
         "/api/bots",
         headers=auth_header,
@@ -25,7 +26,7 @@ def test_new_bot_defaults_are_explicit_but_old_bots_are_not_changed(client, auth
     )
     assert response.status_code == 201, response.text
     bot = db_session.get(Bot, response.json()["id"])
-    assert json.loads(bot.config_overrides).get("FORBID_RELOCK", False) is (kind in {"QUEUE", "QUEUE_DEVICE"})
+    assert json.loads(bot.config_overrides).get("FORBID_RELOCK", False) is (normalized in {"QUEUE", "QUEUE_DEVICE"})
     # An existing record lacking new fields retains its old renewal behavior on load.
     bot.config_overrides = "{}"
     db_session.commit()
@@ -58,15 +59,16 @@ def test_policy_exposed_in_existing_resource_response(client, api):
     assert "_claimed_resources" not in str(response.json())
 
 
-def test_explicit_new_bot_renewal_override_is_respected(client, auth_header, db_session):
+@pytest.mark.parametrize("kind", ["QUEUE", "queue", "QUEUE_DEVICE", "queue_device"])
+def test_explicit_new_bot_renewal_override_is_respected(client, auth_header, db_session, kind):
     response = client.post(
         "/api/bots",
         headers=auth_header,
         json={
             "name": "legacy-queue",
-            "bot_type": "QUEUE",
+            "bot_type": kind,
             "webhook_url": "https://example.invalid/hook",
-            "cluster_configs": ["n1"],
+            "cluster_configs": {"n1": ["gpu"]} if "DEVICE" in kind.upper() else ["n1"],
             "config_overrides": {"FORBID_RELOCK": False},
         },
     )
