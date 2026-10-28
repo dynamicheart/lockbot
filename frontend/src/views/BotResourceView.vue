@@ -14,7 +14,8 @@
       <header class="view-header">
         <div>
           <h1>
-            {{ snapshot.name }} <el-tag size="small" type="info">{{ snapshot.bot_type }}</el-tag>
+            {{ snapshot.name }}
+            <el-tag size="small" type="info">{{ botTypeLabel(snapshot.bot_type) }}</el-tag>
           </h1>
           <p>{{ $t('resourceView.updated') }} {{ localTime(snapshot.captured_at) }}</p>
         </div>
@@ -61,6 +62,7 @@
           :usage="usage"
           :server-offset="serverOffset"
           :show-overview="false"
+          quick-overview
         />
       </section>
       <div v-else class="resource-grid">
@@ -143,6 +145,7 @@
 </template>
 
 <script setup>
+import { botTypeLabel } from '../utils/helpers'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

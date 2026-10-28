@@ -42,7 +42,7 @@
               <el-option label="NODE" value="NODE" />
               <el-option label="DEVICE" value="DEVICE" />
               <el-option label="QUEUE" value="QUEUE" />
-              <el-option label="QUEUE_DEVICE" value="QUEUE_DEVICE" />
+              <el-option label="QueueDevice" value="QUEUE_DEVICE" />
             </el-select>
           </el-form-item>
         </el-col>
@@ -79,6 +79,7 @@
         :cluster-configs="clusterConfig"
         :node-aliases="advancedConfig.NODE_ALIASES"
         :show-node-alias="advancedConfig.SHOW_NODE_ALIAS"
+        :display-device-model="advancedConfig.DISPLAY_DEVICE_MODEL"
         :forbid-relock="advancedConfig.FORBID_RELOCK"
         :max-resources-per-user="advancedConfig.MAX_RESOURCES_PER_USER"
       />

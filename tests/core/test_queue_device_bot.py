@@ -124,3 +124,23 @@ def test_reload_retains_card_ownership_and_queue_order(bot):
 def test_sharing_is_not_supported(bot):
     bot.slock("alice", "slock node1 dev0 1h")
     assert not card(bot)["current_users"]
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+@pytest.mark.parametrize("display_model", [False, True])
+def test_query_groups_machine_once_and_keeps_each_cards_queue(bot, language, display_model):
+    bot.config.set_val("LANGUAGE", language)
+    bot.config.set_val("DISPLAY_DEVICE_MODEL", display_model)
+    bot.lock("alice", "lock node1 dev0 1h")
+    bot.book("bob", "book node1 dev0 30m")
+    bot.book("carol", "book node1 dev1 20m")
+    before = copy.deepcopy(bot.state.bot_state)
+    usage = bot._current_usage("node1")
+    assert usage.count("node1") == 1 and "node2" not in usage
+    first, second = usage.split("  dev1", 1)
+    assert "  dev0" in first and "alice" in first and "bob" in first and "carol" not in first
+    assert "carol" in second and "bob" not in second
+    model = bot.config.get_val("CLUSTER_CONFIGS")["node1"][0]
+    first_card_line = next(line for line in usage.splitlines() if line.startswith("  dev0"))
+    assert (model in first_card_line) is display_model
+    assert bot.state.bot_state == before

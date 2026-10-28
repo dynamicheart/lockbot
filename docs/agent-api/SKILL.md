@@ -2,7 +2,7 @@
 name: lockbot-resource-agent
 description: >
   Use Lockbot Resource API (lockbot.resource-api) with lbr_ credentials.
-  This is distinct from P800/other Lockbot JWT-token platforms. Use when an agent
+  Credentials from other Lockbot implementations are not interchangeable. Use when an agent
   must lock, unlock, book or query shared compute resources through a bot it has been enrolled
   on. Enrollment requires human confirmation in chat; resource operations use HTTP.
 ---
@@ -29,9 +29,9 @@ credentials belong in its private credential store, never in `SKILL.md` or a dow
 This skill is for **Lockbot Resource API**, identified by
 `service_id: lockbot.resource-api`, API version `1`, and personal `lbr_` keys.
 A similarly named Lockbot skill, matching command URL, or remembered token is not proof
-that it belongs here. P800/other implementations using `/api/infoflow-auth/challenges`
-and JWT tokens have a different protocol and permission scope; never apply their
-"one token for all bots" or `take` instructions to this service.
+that it belongs here. Another Lockbot implementation can have a different authentication
+protocol and permission scope. Check the advertised service identity and API version;
+never transfer credentials or assumptions such as one token authorizing every bot.
 
 1. Start with the server/skill URL explicitly supplied or approved by the user. Without
    a trusted server address, ask for that address once; never guess a host or bot ID.
@@ -57,6 +57,40 @@ prevents accidental protocol confusion; it does not authenticate a malicious hos
 user-approved origin (and HTTPS where available) remains the credential destination boundary.
 The server cannot erase an Agent's earlier memories: keep the scope explicit in its private
 configuration and use this namespaced skill for requests to this implementation.
+
+## Keep credentials and resource assignments scoped
+
+Manage several Lockbot connections with this skill. Keep a private connection record for
+**approved origin + instance_id + bot UUID + verified user**, with a friendly name and a
+reference to its securely stored key. Learn the bot UUID/user from `/api/agent/context`;
+people do not need to manage these identifiers. Keep the last verified skill revision per
+service instance. Never put keys in this skill, public notes, or task-purpose text.
+
+For example, **service A / bot A / node1** and **service B / bot B / node1** are different
+resources, even though both are called `node1`. Different bots on the same service are also
+separate scopes. Select the intended connection first, load only its key, and verify its
+context before use. If several connections could match the task, ask which bot/group the
+user means; do not cycle through keys or try remembered keys against other servers.
+
+A key authorizes **one user on one bot**, not one resource or one Agent. The user's Agents
+share that key but track their own tasks separately:
+
+- Associate each task allocation with **origin + instance_id + bot UUID + resource ID**,
+  its Agent name/purpose, and the last verified holding/booking (`start_time` and
+  `expires_at` when present). For card queues use the
+  returned card `resource_id`, such as `node1:dev0`, in this private record; command syntax
+  remains `lock node1 dev0`, not `lock node1:dev0`.
+- Choose the credential by that bot scope, never by a bare machine/card name. Record which
+  exact machines/cards this task acquired or booked; another Agent sharing the key may be
+  working on other resources.
+- A saved key/resource association is not proof of a current lease. Read `/resources` to
+  confirm ownership and queue state before starting/resuming work and during long tasks.
+  The same user may have released and reacquired a card through another Agent: if the
+  saved lease/task no longer matches, pause and coordinate rather than assuming it is still
+  this task's resource or releasing it just because the user identity matches.
+- At task completion, release/cancel only this task's explicit resources/cards, then verify
+  the result. Avoid bare `free`/`unlock`, which affects the user's other Agents too. Retain
+  the shared key; do not unbind it merely because one task has finished.
 
 ## Share a resource/queue page with the user
 

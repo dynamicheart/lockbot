@@ -386,28 +386,35 @@ function nodeUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
  * - No access mode on locked users
  * - Shows booking queue with estimated wait times
  */
-function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
+function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode, usageLabels) {
   let text = ''
+  let previousGroup = null
   const keys = nodeOrder || Object.keys(state)
   for (const key of keys) {
     const node = state[key]
     if (!node) continue
     if (nodeFilter && key !== nodeFilter) continue
-    const label = displayNode ? displayNode(key) : key
+    const [group, label] = usageLabels
+      ? usageLabels(key)
+      : [null, displayNode ? displayNode(key) : key]
+    const indent = group ? '  ' : ''
+    if (group && group !== previousGroup) text += `${group}\n`
+    previousGroup = group
     if (node.status === 'idle') {
-      text += `${label} ${_t(lang, 'status.idle')}\n`
+      text += `${indent}${label} ${_t(lang, 'status.idle')}\n`
     } else {
       node.current_users.forEach((u, idx) => {
         const prefix = idx === 0 ? label : ''
         const rem = remainingDuration(u.start_time, u.duration)
         // QUEUE: no access mode suffix on locked users (matches Python)
-        text += `${prefix} ${u.user_id}  ${formatDuration(rem, lang)}\n`
+        text += `${indent}${prefix} ${u.user_id}  ${formatDuration(rem, lang)}\n`
       })
     }
     // Show booking queue with estimated wait times
     const bl = node.booking_list || []
     if (bl.length > 0) {
-      text += _t(lang, 'label.queue_list')
+      const queueIndent = group ? indent + '  ' : ''
+      text += queueIndent + _t(lang, 'label.queue_list')
       // Calculate max remaining lock time as base wait
       let maxLockRemaining = 0
       for (const u of node.current_users || []) {
@@ -418,12 +425,14 @@ function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
       bl.forEach((u, idx) => {
         const dur = formatDuration(u.duration, lang)
         const waitStr = formatDuration(accumulatedWait, lang)
-        text += _t(lang, 'label.queue_item', {
-          index: idx + 1,
-          user_id: u.user_id,
-          duration: dur,
-          wait_time: waitStr,
-        })
+        text +=
+          queueIndent +
+          _t(lang, 'label.queue_item', {
+            index: idx + 1,
+            user_id: u.user_id,
+            duration: dur,
+            wait_time: waitStr,
+          })
         accumulatedWait += u.duration
       })
     }
@@ -435,7 +444,7 @@ function queueUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
  * Build DEVICE usage text. Matches Python get_current_usage format.
  * Uses per-node headers and merged device display (grouped by model/status/users).
  */
-function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
+function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode, forceModel = false) {
   let text = ''
   const keys = nodeOrder || Object.keys(state)
   for (const nodeKey of keys) {
@@ -445,7 +454,7 @@ function deviceUsageText(state, nodeFilter, lang, nodeOrder, displayNode) {
     const label = displayNode ? displayNode(nodeKey) : nodeKey
     text += _t(lang, 'device_usage.node_header', { node_key: label })
     const models = new Set(devices.map((d) => d.dev_model))
-    const showModel = models.size > 1
+    const showModel = forceModel || models.size > 1
 
     // Group consecutive devices by (model, status, sorted users)
     const segments = [] // {type:'lock'|'idle', ids:[], model, status, users}
@@ -624,12 +633,24 @@ export function executeCommand(state, userId, command, botType, config, lang = '
         ? Object.keys(flat).filter((key) => key.split(':dev')[0] === filter)
         : null
       const visible = selected ? Object.fromEntries(selected.map((key) => [key, flat[key]])) : flat
-      return queueUsageText(visible, null, lang, null, (key) => {
+      const orderedCards = (nodeOrder || Object.keys(state)).flatMap((node) =>
+        (state[node] || []).map((card) => `${node}:dev${card.dev_id}`)
+      )
+      return queueUsageText(visible, null, lang, orderedCards, null, (key) => {
         const [node, card] = key.split(':dev')
-        return `${displayNode ? displayNode(node) : node} dev${card}`
+        const model = config.DISPLAY_DEVICE_MODEL ? ` ${flat[key].dev_model}` : ''
+        return [displayNode ? displayNode(node) : node, `dev${card}${model}`]
       })
     }
-    if (botType === 'DEVICE') return deviceUsageText(state, filter, lang, nodeOrder, displayNode)
+    if (botType === 'DEVICE')
+      return deviceUsageText(
+        state,
+        filter,
+        lang,
+        nodeOrder,
+        displayNode,
+        config.DISPLAY_DEVICE_MODEL
+      )
     if (botType === 'QUEUE') return queueUsageText(state, filter, lang, nodeOrder, displayNode)
     return nodeUsageText(state, filter, lang, nodeOrder, displayNode)
   }

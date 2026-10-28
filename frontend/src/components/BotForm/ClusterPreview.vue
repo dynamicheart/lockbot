@@ -27,6 +27,7 @@ const props = defineProps({
   clusterConfigs: { type: [Array, Object], default: null },
   nodeAliases: { type: Object, default: () => ({}) },
   showNodeAlias: { type: Boolean, default: false },
+  displayDeviceModel: { type: Boolean, default: false },
 })
 
 const { locale } = useI18n()
@@ -53,6 +54,24 @@ const mockState = computed(() => {
     for (const { node_key, devices } of entries) {
       state[node_key] = devices.map((model, devIdx) => {
         const i = gIdx++
+        if (props.botType === 'QUEUE_DEVICE') {
+          return {
+            dev_id: devIdx,
+            dev_model: model,
+            status: i < 2 ? 'exclusive' : 'idle',
+            current_users:
+              i < 2
+                ? [{ user_id: i === 0 ? 'alice' : 'bob', start_time: T2H, duration: 4 * 3600 }]
+                : [],
+            booking_list:
+              i < 2
+                ? [
+                    { user_id: i === 0 ? 'bob' : 'carol', start_time: T1H, duration: 1800 },
+                    { user_id: i === 0 ? 'carol' : 'alice', start_time: T1H, duration: 3600 },
+                  ]
+                : [],
+          }
+        }
         if (i === 0)
           return {
             dev_id: devIdx,
@@ -126,6 +145,7 @@ const queryText = computed(() => {
       _nodeOrder: nodeOrder,
       NODE_ALIASES: props.nodeAliases,
       SHOW_NODE_ALIAS: props.showNodeAlias,
+      DISPLAY_DEVICE_MODEL: props.displayDeviceModel,
     },
     lang.value
   )
