@@ -46,7 +46,6 @@ class BaseLockBot:
     Base class for all lock bots.  Provides common infrastructure:
     - construction (config / state / lock / adapter)
     - show_error
-    - timer_routine
     - print_help (template-method: header + _help_commands + footer)
     - _msg_with_usage  convenience helper
     - _build_alert_header

@@ -1,4 +1,4 @@
-"""Actual managed IO, confinement, ingestion, and standalone compatibility."""
+"""Actual managed IO, confinement, ingestion, and legacy layout compatibility."""
 
 import json
 import os
@@ -171,7 +171,7 @@ def test_invalid_bot_ids_are_rejected(tmp_path, bot_id):
         ManagedPaths(tmp_path).state_file(bot_id)
 
 
-def test_standalone_layout_unchanged(tmp_path):
+def test_legacy_core_layout_unchanged(tmp_path):
     cfg = Config({"BOT_ID": "standalone", "DATA_DIR": str(tmp_path), "CLUSTER_CONFIGS": ["n1"]})
     save_bot_state_to_file({"n1": {"status": "idle", "current_users": [], "booking_list": []}}, cfg)
     assert (tmp_path / "standalone/bot_state.json").exists()

@@ -43,10 +43,10 @@ def _migrate_user_info_fields(user_list):
 
 
 def _cfg_get(config, key, default=None):
-    """Resolve config value from instance or class-level Config."""
+    """Resolve config value from an instance or fresh defaults."""
     if config is not None:
         return config.get_val(key, default)
-    return Config.get(key, default)
+    return Config().get_val(key, default)
 
 
 def _bot_dir(config):
@@ -55,7 +55,7 @@ def _bot_dir(config):
 
     directory_provider = _cfg_get(config, "_MANAGED_BOT_DIR")
     if directory_provider is not None:
-        # The backend supplies a path guard; standalone mode has no backend dependency.
+        # The backend supplies a path guard; isolated core tests need no backend dependency.
         d = directory_provider()
         os.makedirs(d, exist_ok=True)
         return d

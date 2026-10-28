@@ -44,7 +44,6 @@ def fake_bot(fake_platform, tmp_path):
             "CLUSTER_CONFIGS": {"n1": "m1"},
             "PLATFORM": fake_platform,
         },
-        auto_start=False,
     )
     assert isinstance(instance.bot.adapter, FakeAdapter)
     return instance.bot
@@ -145,7 +144,7 @@ def test_undecryptable_payload_is_refused_before_dispatch(fake_bot):
 
 def test_bot_without_a_real_adapter_falls_back_to_the_default_platform(tmp_path):
     """Pre-existing behaviour: a bot exposing no MessageAdapter still serves callbacks."""
-    stub = BotInstance("NODE", {"BOT_NAME": "x", "DATA_DIR": str(tmp_path)}, auto_start=False).bot
+    stub = BotInstance("NODE", {"BOT_NAME": "x", "DATA_DIR": str(tmp_path)}).bot
     bot = SimpleNamespace(adapter=None, config=stub.config)
     body, status, _ = handle_webhook(bot, raw_form={}, raw_args={"signature": "nope"}, raw_body=None)
     assert status == 401

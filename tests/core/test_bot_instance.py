@@ -10,18 +10,18 @@ from lockbot.core.config import Config
 
 class TestBotInstanceIsolation:
     def test_node_bot_config_isolation(self):
-        b1 = BotInstance("NODE", {"BOT_NAME": "a", "CLUSTER_CONFIGS": {"n1": "m1"}}, auto_start=False)
-        b2 = BotInstance("NODE", {"BOT_NAME": "b", "CLUSTER_CONFIGS": {"n2": "m2"}}, auto_start=False)
+        b1 = BotInstance("NODE", {"BOT_NAME": "a", "CLUSTER_CONFIGS": {"n1": "m1"}})
+        b2 = BotInstance("NODE", {"BOT_NAME": "b", "CLUSTER_CONFIGS": {"n2": "m2"}})
 
         assert b1.config.get_val("BOT_NAME") == "a"
         assert b2.config.get_val("BOT_NAME") == "b"
 
-        b1.config.set_val("PORT", 9999)
-        assert b2.config.get_val("PORT") == 5000
+        b1.config.set_val("BOT_NAME", "changed")
+        assert b2.config.get_val("BOT_NAME") == "b"
 
     def test_node_bot_state_isolation(self):
-        b1 = BotInstance("NODE", {"BOT_NAME": "a", "CLUSTER_CONFIGS": {"n1": "m1"}}, auto_start=False)
-        b2 = BotInstance("NODE", {"BOT_NAME": "b", "CLUSTER_CONFIGS": {"n2": "m2"}}, auto_start=False)
+        b1 = BotInstance("NODE", {"BOT_NAME": "a", "CLUSTER_CONFIGS": {"n1": "m1"}})
+        b2 = BotInstance("NODE", {"BOT_NAME": "b", "CLUSTER_CONFIGS": {"n2": "m2"}})
 
         assert "n1" in b1.state.bot_state
         assert "n2" in b2.state.bot_state
@@ -35,12 +35,10 @@ class TestBotInstanceIsolation:
         b1 = BotInstance(
             "DEVICE",
             {"BOT_NAME": "d1", "CLUSTER_CONFIGS": {"h1": ["gpu"] * 4}},
-            auto_start=False,
         )
         b2 = BotInstance(
             "DEVICE",
             {"BOT_NAME": "d2", "CLUSTER_CONFIGS": {"h2": ["gpu"] * 8}},
-            auto_start=False,
         )
 
         assert len(b1.state.bot_state["h1"]) == 4
@@ -50,8 +48,8 @@ class TestBotInstanceIsolation:
         assert b2.state.bot_state["h2"][0]["status"] == "idle"
 
     def test_queue_bot_state_isolation(self):
-        b1 = BotInstance("QUEUE", {"BOT_NAME": "q1", "CLUSTER_CONFIGS": {"a": "a"}}, auto_start=False)
-        b2 = BotInstance("QUEUE", {"BOT_NAME": "q2", "CLUSTER_CONFIGS": {"b": "b"}}, auto_start=False)
+        b1 = BotInstance("QUEUE", {"BOT_NAME": "q1", "CLUSTER_CONFIGS": {"a": "a"}})
+        b2 = BotInstance("QUEUE", {"BOT_NAME": "q2", "CLUSTER_CONFIGS": {"b": "b"}})
 
         assert "a" in b1.state.bot_state
         assert "b" in b2.state.bot_state
@@ -60,24 +58,24 @@ class TestBotInstanceIsolation:
         assert len(b2.state.bot_state["b"]["booking_list"]) == 0
 
     def test_lock_isolation(self):
-        b1 = BotInstance("NODE", {"BOT_NAME": "a", "CLUSTER_CONFIGS": {"n1": "m1"}}, auto_start=False)
-        b2 = BotInstance("NODE", {"BOT_NAME": "b", "CLUSTER_CONFIGS": {"n2": "m2"}}, auto_start=False)
+        b1 = BotInstance("NODE", {"BOT_NAME": "a", "CLUSTER_CONFIGS": {"n1": "m1"}})
+        b2 = BotInstance("NODE", {"BOT_NAME": "b", "CLUSTER_CONFIGS": {"n2": "m2"}})
 
         assert b1.bot._lock is not b2.bot._lock
 
-    def test_bot_instance_does_not_affect_global_config(self):
-        old_name = Config.get("BOT_NAME")
-        BotInstance("NODE", {"BOT_NAME": "isolated", "CLUSTER_CONFIGS": {"x": "x"}}, auto_start=False)
-        assert Config.get("BOT_NAME") == old_name
+    def test_bot_instance_does_not_affect_other_configs(self):
+        defaults = Config()
+        old_name = defaults.get_val("BOT_NAME")
+        BotInstance("NODE", {"BOT_NAME": "isolated", "CLUSTER_CONFIGS": {"x": "x"}})
+        assert defaults.get_val("BOT_NAME") == old_name
 
     def test_mixed_bot_types(self):
-        node = BotInstance("NODE", {"BOT_NAME": "nb", "CLUSTER_CONFIGS": {"n": "n"}}, auto_start=False)
+        node = BotInstance("NODE", {"BOT_NAME": "nb", "CLUSTER_CONFIGS": {"n": "n"}})
         device = BotInstance(
             "DEVICE",
             {"BOT_NAME": "db", "CLUSTER_CONFIGS": {"h": ["p800"]}},
-            auto_start=False,
         )
-        queue = BotInstance("QUEUE", {"BOT_NAME": "qb", "CLUSTER_CONFIGS": {"q": "q"}}, auto_start=False)
+        queue = BotInstance("QUEUE", {"BOT_NAME": "qb", "CLUSTER_CONFIGS": {"q": "q"}})
 
         assert node.bot_type == "NODE"
         assert device.bot_type == "DEVICE"
@@ -91,12 +89,12 @@ class TestBotInstanceIsolation:
 class TestConfigHelp:
     def test_help_text_contains_all_keys(self):
         text = Config.help(as_text=True)
-        for key in ["WEBHOOK_URL", "BOT_NAME", "BOT_TYPE", "PORT", "CLUSTER_CONFIGS"]:
+        for key in ["WEBHOOK_URL", "BOT_NAME", "BOT_TYPE", "CLUSTER_CONFIGS"]:
             assert key in text
 
-    def test_help_text_contains_env_markers(self):
+    def test_help_text_describes_platform_configuration(self):
         text = Config.help(as_text=True)
-        assert "[ENV]" in text
+        assert "Platform-supplied per-bot values override defaults" in text
 
     def test_help_structured_output(self):
         data = Config.help(as_text=False)

@@ -14,7 +14,7 @@ def create_user_info(user_id, duration, start_time=None, config=None):
     if config is not None:
         user_info = copy.deepcopy(config.get_val("DEFAULT_USER_INFO"))
     else:
-        user_info = copy.deepcopy(Config.get("DEFAULT_USER_INFO"))
+        user_info = copy.deepcopy(Config().get_val("DEFAULT_USER_INFO"))
     user_info["user_id"] = user_id
     user_info["start_time"] = int(time.time()) if start_time is None else start_time
     user_info["duration"] = duration

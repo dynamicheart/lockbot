@@ -2,7 +2,7 @@
 
 集群资源管理机器人，支持通过即时通讯平台（如百度如流）的对话命令锁定和释放 GPU 设备、集群节点和队列资源。
 
-支持两种部署方式：FastAPI + Vue.js 前端的管理平台模式（推荐），以及单机 Flask 独立部署。
+统一使用 FastAPI + Vue.js 管理平台部署，支持管理一个或多个机器人。
 
 [English](README.md) | [在线演示](https://dynamicheart.github.io/lockbot/)
 
@@ -84,7 +84,6 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 | `TOKEN` | 机器人签名验证 Token | `""` |
 | `AESKEY` | 消息解密 AES 密钥 | `""` |
 | `WEBHOOK_URL` | 消息发送 Webhook URL | `""` |
-| `PORT` | 服务监听端口 | `8090` |
 | `DEFAULT_DURATION` | 默认锁定时长（秒） | `7200`（2小时） |
 | `MAX_LOCK_DURATION` | 最大锁定时长（秒） | `-1`（不限制） |
 | `EARLY_NOTIFY` | 锁定到期前通知 | `false` |
@@ -134,48 +133,26 @@ ruff check python/ tests/
 ruff format --check python/ tests/
 ```
 
-## 独立模式
+## 从旧版独立部署迁移
 
-适用于单机器人部署，运行轻量级 Flask Webhook 服务。
+已删除废弃的 Flask 入口 `lockbot.core.entry.create_app` / `run_bot` 和进程级
+`Config.get/set/load_from_file/load_from_env` 接口。构造机器人不再自动启动私有调度器。
+统一使用上面的 FastAPI 平台部署，只有一个机器人时也采用同一启动方式。
+已有平台 Docker 部署的启动命令、端口和持久化布局保持不变，不需要重建数据库。
 
-**设备锁机器人**（按 GPU 锁定）：
+旧 standalone 用户需要迁移：
 
-```python
-from lockbot.core.bot_instance import BotInstance
-from lockbot.core.entry import create_app
+1. 停止旧 Webhook 服务前，保留原配置和 JSON 状态备份。
+2. 启动平台并创建对应类型的机器人，在编辑页填写原集群、消息凭据和运行规则。
+   不要把凭据写进公开日志。
+3. 机器人停止时，通过已有集群状态导入功能恢复原状态；核对资源名、持有者、
+   到期时间和队列后再启动。不要覆盖其它机器人的目录，也不要删除旧数据卷。
+4. 将消息平台的回调切换为 `/api/bots/webhook/{bot_id}`，启动并测试回调和到期释放。
+   验证完成前保留旧镜像和备份。
 
-instance = BotInstance("DEVICE", {
-    "BOT_NAME": "my-gpu-bot",
-    "WEBHOOK_URL": "https://your-webhook-url",
-    "TOKEN": "your-bot-token",
-    "AESKEY": "your-aes-key",
-    "CLUSTER_CONFIGS": {
-        "node0": ["A800", "A800", "H100"],
-        "node1": ["A800", "H100"],
-    },
-})
-
-app = create_app(bot=instance.bot, bot_name="my-gpu-bot", port=8000)
-app.run(host="0.0.0.0", port=8000)
-```
-
-**节点锁 / 排队机器人**（按节点锁定或排队调度）：
-
-```python
-from lockbot.core.bot_instance import BotInstance
-from lockbot.core.entry import create_app
-
-instance = BotInstance("NODE", {       # 改为 "QUEUE" 即为排队模式
-    "BOT_NAME": "my-node-bot",
-    "WEBHOOK_URL": "https://your-webhook-url",
-    "TOKEN": "your-bot-token",
-    "AESKEY": "your-aes-key",
-    "CLUSTER_CONFIGS": ["node0", "node1", "node2", "node3"],
-})
-
-app = create_app(bot=instance.bot, bot_name="my-node-bot", port=8000)
-app.run(host="0.0.0.0", port=8000)
-```
+机器人核心类仍可独立构造用于测试，使用各自的 `Config` 实例；平台调度、状态格式和
+旧状态迁移继续保留。`docs/examples/xpu_monitor` 是独立的外部监控示例，其可选 Flask
+Webhook 按该示例的依赖说明运行，不随主包删除。
 
 ## 许可证
 
