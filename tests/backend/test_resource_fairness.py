@@ -6,8 +6,16 @@ import json
 import pytest
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.schemas import BotUpdate
+from lockbot.backend.app.resource_api.resources import snapshot_cache
 
 from backend.test_resource_api_resources import api  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def isolated_resource_cache():
+    snapshot_cache.clear()
+    yield
+    snapshot_cache.clear()
 
 
 @pytest.mark.parametrize("kind", ["NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE", "node", "device", "queue", "queue_device"])

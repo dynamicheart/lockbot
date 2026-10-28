@@ -12,6 +12,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
+from lockbot.backend.app.resource_api.rules import BotRules, current_bot_rules
 from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.dependencies import _bearer_token
@@ -77,6 +78,7 @@ class AgentContextResponse(BaseModel):
     server: ServerIdentity
     actor: dict[str, str]
     bot: BoundBot
+    bot_rules: BotRules | None = None
     agent_access_enabled: bool
     credential_scope: Literal["one_user_one_bot"]
     links: dict[str, str]
@@ -112,6 +114,8 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
 
 def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
+    # Refresh even if another request retained this ORM identity in a reused Session.
+    db.refresh(bot)
     from lockbot.backend.app.resource_api.skill import skill_artifacts
     from lockbot.backend.app.resource_api.view_links import view_link
 
@@ -122,6 +126,7 @@ def _context_payload(request, response, db, row):
         "server": server_metadata(request, db),
         "actor": {"platform": row.platform, "external_user_id": row.external_user_id},
         "bot": {"id": bot.id, "uuid": bot.uuid, "name": bot.name, "type": bot.bot_type},
+        "bot_rules": current_bot_rules(bot, row.external_user_id),
         "agent_access_enabled": bot.resource_auth_enabled,
         "credential_scope": "one_user_one_bot",
         "links": {
