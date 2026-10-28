@@ -3,7 +3,7 @@
 Cluster resource management bot for IM platforms (e.g., Baidu InfoFlow).
 
 Lock and unlock GPU devices, cluster nodes, and queue slots via chat commands.
-Supports both standalone Flask deployment and a full platform mode with FastAPI + Vue.js frontend.
+Runs as a multi-bot platform with FastAPI and a Vue.js frontend.
 
 [中文文档](README_CN.md) | [Live Demo](https://dynamicheart.github.io/lockbot/)
 
@@ -84,7 +84,6 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 | `TOKEN` | Bot signature verification token | `""` |
 | `AESKEY` | Message decryption AES key | `""` |
 | `WEBHOOK_URL` | Message webhook URL | `""` |
-| `PORT` | Server listen port | `8090` |
 | `DEFAULT_DURATION` | Default lock duration (seconds) | `7200` (2h) |
 | `MAX_LOCK_DURATION` | Max lock duration (seconds) | `-1` (unlimited) |
 | `EARLY_NOTIFY` | Notify before lock expiry | `false` |
@@ -136,48 +135,29 @@ ruff check python/ tests/
 ruff format --check python/ tests/
 ```
 
-## Standalone Mode
+## Migrating an older standalone deployment
 
-Single-bot deployment with a lightweight Flask webhook server.
+The deprecated Flask entry (`lockbot.core.entry.create_app` / `run_bot`) and process-global
+`Config.get/set/load_from_file/load_from_env` API have been removed. Bot construction no
+longer starts a private scheduler. The supported deployment is the FastAPI platform above,
+including when managing only one bot. Existing platform Docker deployments keep the same
+startup command, ports and persistent data layout; no database reset is required.
 
-**Device Lock Bot** (per-GPU locking):
+For an old standalone deployment:
 
-```python
-from lockbot.core.bot_instance import BotInstance
-from lockbot.core.entry import create_app
+1. Keep a backup of its configuration and JSON state before stopping its old webhook server.
+2. Start the platform, create the matching bot type, and copy its cluster, messaging
+   credentials and runtime rules into the bot editor. Do not publish credentials in logs.
+3. Restore the saved cluster state through the platform's existing cluster-state import
+   while the bot is stopped. Verify resource names, holders, expiry and queues before start.
+   Do not copy old state over an unrelated bot's directory or remove the old data volume.
+4. Point the messaging platform callback at `/api/bots/webhook/{bot_id}` and start the bot.
+   Keep the previous image and backup until the new callback and expiry checks work.
 
-instance = BotInstance("DEVICE", {
-    "BOT_NAME": "my-gpu-bot",
-    "WEBHOOK_URL": "https://your-webhook-url",
-    "TOKEN": "your-bot-token",
-    "AESKEY": "your-aes-key",
-    "CLUSTER_CONFIGS": {
-        "node0": ["A800", "A800", "H100"],
-        "node1": ["A800", "H100"],
-    },
-})
-
-app = create_app(bot=instance.bot, bot_name="my-gpu-bot", port=8000)
-app.run(host="0.0.0.0", port=8000)
-```
-
-**Node Lock Bot / Queue Bot** (per-node locking or queue scheduling):
-
-```python
-from lockbot.core.bot_instance import BotInstance
-from lockbot.core.entry import create_app
-
-instance = BotInstance("NODE", {       # or "QUEUE" for queue scheduling
-    "BOT_NAME": "my-node-bot",
-    "WEBHOOK_URL": "https://your-webhook-url",
-    "TOKEN": "your-bot-token",
-    "AESKEY": "your-aes-key",
-    "CLUSTER_CONFIGS": ["node0", "node1", "node2", "node3"],
-})
-
-app = create_app(bot=instance.bot, bot_name="my-node-bot", port=8000)
-app.run(host="0.0.0.0", port=8000)
-```
+The core bot classes remain independently constructible for tests, with per-instance
+`Config` objects. Platform scheduling, persisted state formats and legacy state migrations
+remain supported. The external XPU monitoring example under `docs/examples/xpu_monitor`
+is a separate program; its optional Flask webhook still uses its documented own dependencies.
 
 ## License
 

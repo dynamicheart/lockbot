@@ -22,7 +22,6 @@ def bot(tmp_path):
     instance = BotInstance(
         "NODE",
         {"BOT_NAME": "snap", "BOT_ID": 7001, "DATA_DIR": str(tmp_path), "CLUSTER_CONFIGS": {"n1": "m1", "n2": "m2"}},
-        auto_start=False,
     )
     return instance.bot
 
@@ -147,7 +146,6 @@ def test_snapshot_works_for_every_bot_type(bot_type, tmp_path):
     instance = BotInstance(
         bot_type,
         {"BOT_NAME": f"snap-{bot_type}", "BOT_ID": 7002, "DATA_DIR": str(tmp_path), "CLUSTER_CONFIGS": configs},
-        auto_start=False,
     )
     captured_at, snapshot = instance.bot.state_snapshot()
     assert captured_at is not None

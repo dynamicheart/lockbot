@@ -1,4 +1,4 @@
-"""Immutable managed deployment paths; standalone core keeps its existing layout."""
+"""Immutable managed deployment paths; isolated core IO keeps its existing layout."""
 
 from __future__ import annotations
 

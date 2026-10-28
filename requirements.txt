@@ -1,7 +1,6 @@
-# Core (standalone bot)
+# Core
 pycryptodome
 requests
-flask
 six
 
 # Backend (platform mode)

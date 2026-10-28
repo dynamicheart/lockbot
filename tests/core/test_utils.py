@@ -21,14 +21,13 @@ def default_user_info():
     return {"user_id": None, "start_time": None, "duration": None}
 
 
-@patch.object(Config, "get")
-def test_create_user_info(mock_get, default_user_info):
+def test_create_user_info(default_user_info):
     """Test create_user_info generates a user info dict with correct fields."""
-    mock_get.return_value = default_user_info
+    config = Config({"DEFAULT_USER_INFO": default_user_info})
 
     user_id = 123
     duration = 3600
-    user_info = create_user_info(user_id, duration)
+    user_info = create_user_info(user_id, duration, config=config)
 
     assert user_info["user_id"] == user_id
     assert user_info["duration"] == duration
@@ -38,12 +37,11 @@ def test_create_user_info(mock_get, default_user_info):
     assert abs(user_info["start_time"] - current_timestamp) < 2
 
     custom_timestamp = 1672531199
-    user_info = create_user_info(user_id, duration, start_time=custom_timestamp)
+    user_info = create_user_info(user_id, duration, start_time=custom_timestamp, config=config)
 
     assert user_info["start_time"] == custom_timestamp
 
-    assert mock_get.call_count == 2
-    mock_get.assert_any_call("DEFAULT_USER_INFO")
+    assert default_user_info == {"user_id": None, "start_time": None, "duration": None}
 
 
 def test_find_user_info():

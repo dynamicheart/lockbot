@@ -3,9 +3,6 @@
 import logging
 import re
 
-from flask import abort
-
-from lockbot.core.config import Config
 from lockbot.core.i18n import t
 from lockbot.core.message_adapter import MessageAdapter
 from lockbot.core.platforms.registry import create_adapter
@@ -85,7 +82,7 @@ def _dispatch_binding_command(user_id, text, bot, cmd, config):
     """Hand an identity-binding command to the injected hook.
 
     ``core/`` recognizes these commands but owns no database: the backend injects
-    ``bot.binding_hook``. With no hook (for example standalone mode) the commands report
+    ``bot.binding_hook``. With no hook (for example an isolated unit test) the commands report
     themselves as unavailable rather than failing obscurely.
     """
     parts = text.split(None, 1)
@@ -150,7 +147,7 @@ def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisit
     """
     gated = allowed_commands is not None
     config = getattr(bot, "config", None)
-    cluster_configs = config.get_val("CLUSTER_CONFIGS", {}) if config else Config.get("CLUSTER_CONFIGS", {})
+    cluster_configs = config.get_val("CLUSTER_CONFIGS", {}) if config else {}
 
     supported_commands = set(bot.supported_commands())
 
@@ -215,67 +212,3 @@ def execute_command(msg_data, bot):
     adapter = _resolve_adapter(bot)
     user_id, _group_id, rcv_info = adapter.extract_command(msg_data)
     return execute_text_command(user_id, rcv_info, bot)
-
-
-_DEPRECATION_MSG = (
-    "The legacy Flask handler is deprecated and will be removed in a future version. "
-    "Use the FastAPI platform webhook handler (lockbot.backend.app.bots.webhook_handler) instead."
-)
-
-
-# Global adapter for the legacy Flask entry point (uses Config singleton)
-_global_adapter = create_adapter()
-
-
-def decrypt_message(msg_base64):
-    """Decrypt a base64-encoded message, returning parsed JSON or aborting on failure.
-
-    .. deprecated:: Use platform mode webhook handler instead.
-    """
-    result = _global_adapter.decrypt_payload(msg_base64)
-    if result is None:
-        abort(404)
-    return result
-
-
-def handle_request(echostr, signature, rn, timestamp, msg_base64, bot):
-    """Handle an incoming request: verify signature, decrypt, execute command, and reply.
-
-    .. deprecated:: Use platform mode webhook handler instead.
-
-    Args:
-        echostr: Echo string for signature verification handshake; None otherwise.
-        signature: Request signature for verification.
-        rn: Random nonce from the server.
-        timestamp: Request timestamp.
-        msg_base64: Encrypted message payload.
-        bot: Bot instance for command execution.
-
-    Returns:
-        tuple: (response_body, http_status_code)
-    """
-    if echostr:
-        if _global_adapter.verify_request(signature, rn=rn, timestamp=timestamp):
-            return echostr
-        else:
-            return "check signature fail", 401
-
-    if not _global_adapter.verify_request(signature, rn=rn, timestamp=timestamp):
-        return "check signature fail", 401
-
-    msg_data = decrypt_message(msg_base64)
-    reply = execute_command(msg_data, bot)
-
-    _, group_id, _ = _global_adapter.extract_command(msg_data)
-    _global_adapter.apply_reply_target(reply, group_id)
-
-    _global_adapter.send(reply)
-    return "command succeed"
-
-
-def page_not_found(_):
-    """Return a 404 response.
-
-    .. deprecated:: Use platform mode instead.
-    """
-    return "404 - Page not found", 404

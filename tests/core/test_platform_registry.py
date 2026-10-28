@@ -107,14 +107,13 @@ class TestRegistrationValidation:
 
 class TestBotAdapterSelection:
     def test_bot_without_platform_config_gets_the_default_adapter(self):
-        instance = BotInstance("NODE", {"BOT_NAME": "p1", "CLUSTER_CONFIGS": {"n1": "m1"}}, auto_start=False)
+        instance = BotInstance("NODE", {"BOT_NAME": "p1", "CLUSTER_CONFIGS": {"n1": "m1"}})
         assert isinstance(instance.bot.adapter, InfoflowAdapter)
 
     def test_bot_platform_config_selects_the_adapter(self, fake_platform):
         instance = BotInstance(
             "NODE",
             {"BOT_NAME": "p2", "CLUSTER_CONFIGS": {"n1": "m1"}, "PLATFORM": fake_platform},
-            auto_start=False,
         )
         assert isinstance(instance.bot.adapter, FakeAdapter)
 
@@ -123,7 +122,6 @@ class TestBotAdapterSelection:
             BotInstance(
                 "NODE",
                 {"BOT_NAME": "p3", "CLUSTER_CONFIGS": {"n1": "m1"}, "PLATFORM": "feishu"},
-                auto_start=False,
             )
 
     def test_injected_adapter_wins_and_skips_platform_resolution(self):

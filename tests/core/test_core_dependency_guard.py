@@ -1,6 +1,6 @@
 """AC-1.1: ``lockbot.core`` must stay installable without the backend stack.
 
-``core/`` is published as a standalone package, so a FastAPI or SQLAlchemy import
+The reusable ``core/`` engine must remain independent of web frameworks, so a FastAPI or SQLAlchemy import
 anywhere under it would make the chat bot depend on the platform's web stack. The
 check is static (AST-based), so it also catches imports hidden inside functions.
 """
@@ -14,7 +14,7 @@ import sys
 import pytest
 
 CORE_DIR = pathlib.Path(__file__).resolve().parents[2] / "python" / "lockbot" / "core"
-FORBIDDEN_ROOTS = frozenset({"fastapi", "sqlalchemy"})
+FORBIDDEN_ROOTS = frozenset({"fastapi", "sqlalchemy", "flask"})
 
 CORE_MODULES = sorted(CORE_DIR.rglob("*.py"))
 
@@ -52,7 +52,7 @@ def test_importing_core_handler_does_not_pull_in_backend_stack():
             sys.executable,
             "-c",
             "import sys; import lockbot.core.handler; "
-            "loaded = sorted(m for m in sys.modules if m.split('.')[0] in ('fastapi', 'sqlalchemy')); "
+            "loaded = sorted(m for m in sys.modules if m.split('.')[0] in ('fastapi', 'sqlalchemy', 'flask')); "
             "print(loaded); sys.exit(1 if loaded else 0)",
         ],
         capture_output=True,

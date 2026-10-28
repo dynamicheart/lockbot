@@ -42,7 +42,6 @@ def running_bot(client, auth_header, tmp_path):
             "DATA_DIR": str(tmp_path / "state"),
             "CLUSTER_CONFIGS": {"n1": "m1", "n2": "m2"},
         },
-        auto_start=False,
     )
     return {"bot_id": bot_id, "key": key, "instance": instance}
 

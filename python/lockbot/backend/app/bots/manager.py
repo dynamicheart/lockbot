@@ -113,7 +113,7 @@ class BotManager:
         self._bots: dict[int, BotInstance] = {}
         self._lock = threading.Lock()
         self._drained = threading.Condition(self._lock)
-        self._scheduler = BotScheduler(managed=True)
+        self._scheduler = BotScheduler()
         # Admission bookkeeping, all guarded by self._lock.
         self._retiring: set[int] = set()
         self._inflight: dict[int, int] = {}

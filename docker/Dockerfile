@@ -11,10 +11,9 @@ RUN npm run build
 # ── Stage 2: Production image ──────────────────────────────────────────
 FROM python:3.10-slim
 
-# System deps: tmux for standalone bot mode, curl for health checks
+# System dependency: curl for health checks
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        tmux \
         curl \
     && rm -rf /var/lib/apt/lists/*
 

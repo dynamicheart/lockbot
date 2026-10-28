@@ -19,7 +19,7 @@ def post_webhook(msg, config=None):
 
     Args:
         msg: Message dict with structure {"message": {"header": {}, "body": []}}.
-        config: Optional Config instance; uses global Config if None.
+        config: Optional Config instance; uses fresh defaults if None.
 
     Returns:
         list of (status_code, response_text) tuples.
@@ -28,7 +28,7 @@ def post_webhook(msg, config=None):
     if config is not None:
         webhook_url = config.get_val("WEBHOOK_URL")
     else:
-        webhook_url = Config.get("WEBHOOK_URL")
+        webhook_url = Config().get_val("WEBHOOK_URL")
 
     # Extract the first TEXT body; everything after it goes to the last chunk only
     text_body = None

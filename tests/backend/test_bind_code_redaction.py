@@ -49,7 +49,6 @@ def fake_bot(tmp_path):
         instance = BotInstance(
             "NODE",
             {"BOT_NAME": "redactme", "BOT_ID": 7, "DATA_DIR": str(tmp_path), "PLATFORM": FakeAdapter.platform_name},
-            auto_start=False,
         )
         yield instance.bot
     finally:
