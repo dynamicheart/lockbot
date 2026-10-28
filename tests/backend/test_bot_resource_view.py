@@ -45,7 +45,8 @@ def test_owner_and_admin_detail_share_existing_short_link_without_list_disclosur
         assert response.status_code == 200
         detail = response.json()
         assert detail["view_url"] == context["view_url"]
-        assert datetime.fromisoformat(detail["view_expires_at"]) == datetime.fromisoformat(context["view_expires_at"])
+        detail_expiry = datetime.fromisoformat(detail["view_expires_at"].replace("Z", "+00:00"))
+        assert detail_expiry == datetime.fromisoformat(context["view_expires_at"])
         assert response.headers["cache-control"] == "no-store"
         assert "Authorization" in {part.strip() for part in response.headers["vary"].split(",")}
         assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(detail)).status_code == 200
