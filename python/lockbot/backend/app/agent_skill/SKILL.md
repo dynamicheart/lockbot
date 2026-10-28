@@ -39,8 +39,10 @@ and JWT tokens have a different protocol and permission scope; never apply their
 3. For persistent setup, install/update `installation.download_url` as **lockbot-resource-agent**,
    beside other Lockbot skills. Keep their files and credentials intact. Verify the ZIP SHA-256
    and `skill_sha256` from this same trusted origin. Legacy download URLs stay supported.
-4. Look up credentials using **trusted origin + instance_id + bot UUID**. Never use a
-   single global `LOCKBOT_TOKEN`, generic "lockbot token" memory, or another platform's
+4. Find saved credentials for the **trusted origin + instance_id**; use a known bot UUID
+   to narrow matching records. A newly confirmed key needs no bot ID or UUID to call context;
+   save its returned bot UUID alongside the key afterwards. Never use a single global
+   `LOCKBOT_TOKEN`, generic "lockbot token" memory, or another platform's
    JWT. If an existing record has no service attribution, ask which service it belongs to;
    do not test it against different servers.
 5. With a matching saved `lbr_` key, GET `/api/agent/context`. It supplies the bot ID, UUID,
