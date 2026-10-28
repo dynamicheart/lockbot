@@ -15,8 +15,9 @@ you act as **one verified IM identity on exactly one bot**, using a personal cre
 ## When a user shares this skill URL
 
 Read it for the current task; a persistent installation is not required to call the API.
-For ongoing use, install it with the client's supported skill installer when the user asks
-to install it or authorizes persistent setup. Use the manifest's `installation` bundle and
+For ongoing resource work, recommend a persistent installation so future tasks can discover
+this skill. Install it with the client's supported skill installer when the user asks to
+install it or authorizes persistent setup. Use the manifest's `installation` bundle and
 folder name **lockbot-resource-agent**. If installation or hot reload is unavailable, read
 the latest Markdown for this task and explain that future tasks must load it again.
 Never claim an installation/update succeeded without checking the client's saved skill.
