@@ -39,6 +39,7 @@ def _authorized(db, bot_id, request, *, fresh=False):
             {"code": "view_link_invalid", "message": "Get a new link from your group or Agent."},
             headers=PRIVATE_HEADERS,
         )
+    request.state.traffic_bot_id = bot.id
     return bot, window
 
 

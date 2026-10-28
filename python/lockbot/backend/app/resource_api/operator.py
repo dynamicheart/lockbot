@@ -37,6 +37,8 @@ def _require_operator(db, request, bot_id, *, fresh=False):
     token = auth[7:] if auth.startswith("Bearer ") else ""
     if not bot.api_key or not token or not secrets.compare_digest(bot.api_key.encode(), token.encode()):
         raise HTTPException(401, "Invalid OP API key")
+    request.state.traffic_bot_id = bot.id
+    request.state.traffic_operator = True
     return bot
 
 

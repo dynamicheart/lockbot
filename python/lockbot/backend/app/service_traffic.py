@@ -5,13 +5,16 @@ import math
 import re
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
+from sqlalchemy.orm import Session
 
-from lockbot.backend.app.auth.dependencies import require_super_admin
+from lockbot.backend.app.auth.dependencies import get_current_user, require_super_admin
 from lockbot.backend.app.auth.models import User
+from lockbot.backend.app.database import get_db
 
 logger = logging.getLogger(__name__)
 SOURCES = (
@@ -33,7 +36,7 @@ _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
 
 
 def source_for(path):
-    if path == "/api/admin/service-traffic":
+    if path == "/api/admin/service-traffic" or path.endswith("/service-traffic") or path.endswith("/agent-history"):
         return "monitoring"
     if path == "/api/health":
         return "health"
@@ -110,7 +113,7 @@ class Counters:
 
 
 class TrafficStats:
-    def __init__(self, clock=time.time):
+    def __init__(self, clock=time.time, *, scoped=True):
         self.clock = clock
         self.started_at = clock()
         self.lock = threading.Lock()
@@ -119,8 +122,14 @@ class TrafficStats:
         self.minutes = {}
         self.seconds = {}
         self.routes = {}
+        self.scoped = scoped
+        self.bots = OrderedDict()
+        self.credentials = OrderedDict()
+        self.unattributed_requests = 0
 
-    def record(self, *, source, route, status, duration_ms, received=0, sent=0, failed=False):
+    def record(
+        self, *, source, route, status, duration_ms, received=0, sent=0, failed=False, bot_id=None, credential=None
+    ):
         now = self.clock()
         minute, second = int(now // 60), int(now)
         duration_ms = max(0, duration_ms)
@@ -134,13 +143,63 @@ class TrafficStats:
             counters = self.routes.setdefault(route, Counters())
             for target in (self.total, self.sources.get(source, self.sources["other"]), bucket, counters):
                 target.add(status, duration_ms, received, sent, failed)
+            if self.scoped:
+                if isinstance(bot_id, int) and not isinstance(bot_id, bool) and bot_id > 0:
+                    if bot_id not in self.bots:
+                        if len(self.bots) >= 256:
+                            evicted_bot, _ = self.bots.popitem(last=False)
+                            for old_key in [key for key in self.credentials if key[0] == evicted_bot]:
+                                del self.credentials[old_key]
+                        self.bots[bot_id] = TrafficStats(self.clock, scoped=False)
+                    self.bots.move_to_end(bot_id)
+                    self.bots[bot_id].record(
+                        source=source,
+                        route=route,
+                        status=status,
+                        duration_ms=duration_ms,
+                        received=received,
+                        sent=sent,
+                        failed=failed,
+                    )
+                    if credential is not None:
+                        key = (bot_id, credential["id"])
+                        if key not in self.credentials:
+                            if len(self.credentials) >= 1024:
+                                self.credentials.popitem(last=False)
+                            self.credentials[key] = {"identity": dict(credential), "counter": Counters(), "since": now}
+                        self.credentials.move_to_end(key)
+                        self.credentials[key]["counter"].add(status, duration_ms, received, sent, failed)
+                else:
+                    self.unattributed_requests += 1
 
-    def snapshot(self):
+    def snapshot(self, bot_id=None):
+        if self.scoped:
+            with self.lock:
+                options = [{"bot_id": key, "requests": value.total.requests} for key, value in self.bots.items()]
+                ranked = [
+                    {"bot_id": key[0], **value["identity"], "since": _iso(value["since"]), **value["counter"].payload()}
+                    for key, value in self.credentials.items()
+                    if bot_id is None or key[0] == bot_id
+                ]
+                ranked.sort(key=lambda row: row["requests"], reverse=True)
+                if bot_id is not None:
+                    scoped = self.bots.get(bot_id)
+                    result = (scoped or TrafficStats(self.clock, scoped=False)).snapshot()
+                    result.update(bot_id=bot_id, credentials=ranked[:50], scoped_attribution=True)
+                    result["bot_options"] = options
+                    return result
+            # The global payload below keeps its existing cumulative counters and history.
+        else:
+            options, ranked = [], []
         now = self.clock()
         minute, second = int(now // 60), int(now)
         with self.lock:
             recent = sum(value for key, value in self.seconds.items() if second - 59 <= key <= second)
             return {
+                "bot_options": options,
+                "credentials": ranked[:50],
+                "unattributed_requests": self.unattributed_requests,
+                "scope_limits": {"bots": 256, "credentials": 1024, "ranking": 50},
                 "started_at": _iso(self.started_at),
                 "captured_at": _iso(now),
                 "uptime_seconds": max(0, int(now - self.started_at)),
@@ -197,7 +256,32 @@ class ServiceTrafficMiddleware:
             method = scope.get("method", "OTHER")
             method = method if method in _METHODS else "OTHER"
             try:
+                state = scope.get("state", {})
+                actor = state.get("resource_actor")
+                bot_id = actor.bot_id if actor is not None else state.get("traffic_bot_id")
+                credential = state.get("traffic_credential")
+                # A successful bot-scoped management route has completed its existing
+                # authorization checks. Failed/unknown routes are never inferred from a URL.
+                management = state.get("traffic_management")
+                candidate = scope.get("path_params", {}).get("bot_id")
+                if bot_id is None and management and status < 400 and "/{bot_id}" in template:
+                    try:
+                        bot_id = int(candidate)
+                        credential = management
+                    except (TypeError, ValueError):
+                        pass
+                if actor is not None:
+                    credential = {
+                        "id": actor.binding_public_id,
+                        "kind": "agent",
+                        "user": actor.external_user_id,
+                        "platform": actor.platform,
+                    }
+                elif state.get("traffic_operator") and bot_id:
+                    credential = {"id": "op", "kind": "operator", "user": "", "platform": ""}
                 self.stats.record(
+                    bot_id=bot_id,
+                    credential=credential,
                     source=source_for(scope.get("path", "")),
                     route=f"{method} {template}",
                     status=status,
@@ -214,6 +298,63 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 @router.get("/service-traffic")
-async def service_traffic(request: Request, response: Response, user: User = Depends(require_super_admin)):
+async def service_traffic(
+    request: Request,
+    response: Response,
+    bot_id: int | None = Query(None, ge=1),
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    if bot_id is not None:
+        from lockbot.backend.app.bots.router import _get_user_bot
+
+        _get_user_bot(bot_id, user, db)
     response.headers["Cache-Control"] = "no-store"
-    return request.app.state.service_traffic.snapshot()
+    payload = request.app.state.service_traffic.snapshot(bot_id)
+    # Resolve display names only when reading the admin dashboard, never on requests.
+    from lockbot.backend.app.bots.models import Bot
+
+    ids = [row["bot_id"] for row in payload["bot_options"]]
+    names = dict(db.query(Bot.id, Bot.name).filter(Bot.id.in_(ids), Bot.is_deleted.is_(False)).all()) if ids else {}
+    payload["bot_options"] = [
+        {**row, "name": names[row["bot_id"]]} for row in payload["bot_options"] if row["bot_id"] in names
+    ]
+    return payload
+
+
+bot_router = APIRouter(prefix="/api/bots", tags=["bots"])
+
+
+@bot_router.get("/{bot_id}/service-traffic")
+def bot_service_traffic(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.router import _get_user_bot
+
+    _get_user_bot(bot_id, user, db)
+    response.headers["Cache-Control"] = "no-store"
+    payload = request.app.state.service_traffic.snapshot(bot_id)
+    payload.pop("bot_options", None)
+    return payload
+
+
+@bot_router.get("/{bot_id}/agent-history")
+def agent_history(
+    bot_id: int,
+    response: Response,
+    cursor: str | None = Query(None, max_length=256),
+    limit: int = Query(25, ge=1, le=100),
+    query: str = Query("", max_length=128),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.router import _get_user_bot
+    from lockbot.backend.app.resource_api.event_log import read_history
+
+    _get_user_bot(bot_id, user, db)
+    response.headers["Cache-Control"] = "no-store"
+    return read_history(bot_id, limit=limit, cursor=cursor, query=query)

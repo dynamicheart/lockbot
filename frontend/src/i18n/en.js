@@ -1,5 +1,39 @@
 export default {
+  agentHistory: {
+    operations: {
+      command: 'Command',
+      usage: { update: 'Update purpose', delete: 'Remove purpose' },
+    },
+
+    resource: 'Resource',
+    title: 'Agent history',
+    search: 'Search user, command, Agent or task',
+    retention:
+      'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
+    error: 'History unavailable or cursor expired; refresh to reload.',
+    time: 'Time',
+    user: 'User / credential',
+    operation: 'Operation',
+    task: 'Agent / public purpose',
+    outcome: 'Processing result',
+    previous: 'Previous',
+    next: 'Next',
+    outcomes: {
+      dispatched: 'Dispatched',
+      applied: 'Applied',
+      rejected: 'Rejected',
+      may_have_executed: 'Outcome uncertain',
+    },
+  },
   serviceTraffic: {
+    allBots: 'All bots with verified traffic',
+    byCredential: 'By credential',
+    credential: 'User / credential',
+    operator: 'OP API',
+    unattributed: 'Unattributed requests:',
+    scopeHelp:
+      'HTTP counters reset on service restart; scoped counters can restart when inactive entries are evicted. Bot statistics include authenticated Agent/OP, verified running-chat callbacks and valid resource-page requests and successful authorized bot management requests. Failed management requests remain unattributed. Rankings retain up to 1,024 recently active credentials and show the top 50; shared keys are counted together. Invalid credentials remain unattributed. Existing Agent access counters are separate durable cumulative totals.',
+
     title: 'Service traffic',
     since: 'Counters since',
     unavailable: 'Unable to refresh service traffic.',

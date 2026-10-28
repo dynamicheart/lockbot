@@ -5,8 +5,10 @@
         <el-radio-button value="">{{ $t('log.all') }}</el-radio-button>
         <el-radio-button value="command">{{ $t('log.commandLog') }}</el-radio-button>
         <el-radio-button value="system">{{ $t('log.systemLog') }}</el-radio-button>
+        <el-radio-button value="agent">{{ $t('agentHistory.title') }}</el-radio-button>
       </el-radio-group>
       <el-select
+        v-if="category !== 'agent'"
         v-model="level"
         :placeholder="$t('log.allLevels')"
         clearable
@@ -18,53 +20,67 @@
         <el-option label="ERROR" value="ERROR" />
       </el-select>
       <!-- <el-switch v-model="autoRefresh" :active-text="$t('log.autoRefresh')" size="small" /> -->
-      <el-button size="small" :loading="refreshing" @click="refreshLogs">
+      <el-button
+        v-if="category !== 'agent'"
+        size="small"
+        :loading="refreshing"
+        @click="refreshLogs"
+      >
         <el-icon><Refresh /></el-icon> {{ $t('log.refresh') }}
       </el-button>
-      <el-button size="small" :disabled="logs.length === 0" @click="downloadLogs">
+      <el-button
+        v-if="category !== 'agent'"
+        size="small"
+        :disabled="logs.length === 0"
+        @click="downloadLogs"
+      >
         <el-icon><Download /></el-icon> {{ $t('log.download') }}
       </el-button>
     </div>
-    <div ref="logContainer" class="log-container">
-      <div v-if="loading" style="text-align: center; padding: 20px">
-        <el-icon class="is-loading"><Loading /></el-icon> {{ $t('common.loading') }}
-      </div>
-      <div
-        v-else-if="logs.length === 0"
-        style="text-align: center; padding: 20px; color: var(--lb-text-secondary)"
-      >
-        {{ $t('log.noLogs') }}
-      </div>
-      <div v-else>
+    <AgentHistory v-if="category === 'agent'" :bot-id="botId" />
+    <template v-else>
+      <div ref="logContainer" class="log-container">
+        <div v-if="loading" style="text-align: center; padding: 20px">
+          <el-icon class="is-loading"><Loading /></el-icon> {{ $t('common.loading') }}
+        </div>
         <div
-          v-for="log in logs"
-          :key="log.id"
-          class="log-line"
-          :class="'log-' + log.level.toLowerCase()"
+          v-else-if="logs.length === 0"
+          style="text-align: center; padding: 20px; color: var(--lb-text-secondary)"
         >
-          <span class="log-time">{{ formatTime(log.created_at) }}</span>
-          <span :class="'log-level log-level-' + log.level.toLowerCase()">{{ log.level }}</span>
-          <span v-if="log.category === 'command'" class="log-cmd">CMD</span>
-          <span class="log-msg">{{ log.message }}</span>
+          {{ $t('log.noLogs') }}
+        </div>
+        <div v-else>
+          <div
+            v-for="log in logs"
+            :key="log.id"
+            class="log-line"
+            :class="'log-' + log.level.toLowerCase()"
+          >
+            <span class="log-time">{{ formatTime(log.created_at) }}</span>
+            <span :class="'log-level log-level-' + log.level.toLowerCase()">{{ log.level }}</span>
+            <span v-if="log.category === 'command'" class="log-cmd">CMD</span>
+            <span class="log-msg">{{ log.message }}</span>
+          </div>
         </div>
       </div>
-    </div>
-    <div v-if="hasMore" style="text-align: center; padding: 8px">
-      <el-button
-        size="small"
-        text
-        :loading="loadingMore"
-        :disabled="loadingMore"
-        @click="loadMore"
-        >{{ $t('log.loadMore') }}</el-button
-      >
-    </div>
+      <div v-if="hasMore" style="text-align: center; padding: 8px">
+        <el-button
+          size="small"
+          text
+          :loading="loadingMore"
+          :disabled="loadingMore"
+          @click="loadMore"
+          >{{ $t('log.loadMore') }}</el-button
+        >
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useBotsStore } from '../stores/bots'
+import AgentHistory from './AgentHistory.vue'
 
 const props = defineProps({
   botId: { type: [Number, String], required: true },
@@ -209,7 +225,7 @@ watch(level, () => {
 
 watch(category, () => {
   page.value = 1
-  fetchLogs()
+  if (category.value !== 'agent') fetchLogs()
 })
 
 watch(autoRefresh, (val) => {
@@ -231,6 +247,7 @@ onUnmounted(() => {
 <style scoped>
 .log-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
