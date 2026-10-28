@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from lockbot.backend.app.managed_paths import protected_override_keys
+
 # ── config_overrides value bounds ─────────────────────────────────────────────
 _CFG_RULES: dict[str, tuple[int, int] | None] = {
     # (min, max); None means special-cased below
@@ -38,6 +40,9 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if not v:
         return v
     errors: list[str] = []
+    protected = protected_override_keys(v)
+    if protected:
+        errors.append("Managed control keys cannot be overridden: " + ", ".join(protected))
     for key, bounds in _CFG_RULES.items():
         if key not in v:
             continue
@@ -96,11 +101,19 @@ class BotCreate(BaseModel):
     token: str = ""
     cluster_configs: dict | list
     config_overrides: dict | None = None
+    resource_auth_enabled: bool = True
+    resource_api_notify_enabled: bool = True
 
     @field_validator("config_overrides")
     @classmethod
     def validate_config_overrides(cls, v: dict | None) -> dict | None:
         return _validate_config_overrides(v)
+
+
+class ResourceAuthToggle(BaseModel):
+    """Owner switch for Agent API access and new enrollment on one bot."""
+
+    enabled: bool
 
 
 class BotUpdate(BaseModel):
@@ -111,6 +124,8 @@ class BotUpdate(BaseModel):
     token: str | None = None
     cluster_configs: dict | list | None = None
     config_overrides: dict | None = None
+    resource_auth_enabled: bool | None = None
+    resource_api_notify_enabled: bool | None = None
 
     @field_validator("config_overrides")
     @classmethod
@@ -126,11 +141,15 @@ class BotOut(BaseModel):
     bot_type: str
     platform: str
     group_id: str | None
+    observed_group_ids: str | None = None
+    identity_revision: int = 0
     last_user_id: str | None
     status: str
     last_request_at: datetime | None
     cluster_configs: str  # JSON string
     config_overrides: str
+    resource_auth_enabled: bool = True
+    resource_api_notify_enabled: bool = True
     created_at: datetime
     updated_at: datetime
 

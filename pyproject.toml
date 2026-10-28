@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lockbot"
-version = "2.9.5"
+version = "2.10.0"
 description = "Cluster resource management bot for IM platforms"
 readme = "README.md"
 license = {text = "MIT"}
@@ -49,6 +49,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
+    "pytest-xdist>=3.6,<4",
     "ruff==0.15.10",
 ]
 
@@ -61,7 +62,7 @@ Issues = "https://github.com/dynamicheart/lockbot/issues"
 where = ["python"]
 
 [tool.setuptools.package-data]
-lockbot = ["core/i18n/*.py"]
+lockbot = ["core/i18n/*.py", "backend/app/agent_skill/*.md", "backend/app/op_skill/*.md"]
 
 [tool.ruff]
 target-version = "py310"

@@ -53,6 +53,13 @@ def _bot_dir(config):
     """Return {DATA_DIR}/{bot_id} directory."""
     import tempfile
 
+    directory_provider = _cfg_get(config, "_MANAGED_BOT_DIR")
+    if directory_provider is not None:
+        # The backend supplies a path guard; standalone mode has no backend dependency.
+        d = directory_provider()
+        os.makedirs(d, exist_ok=True)
+        return d
+
     bot_id = _cfg_get(config, "BOT_ID")
     if bot_id is None:
         return tempfile.mkdtemp()

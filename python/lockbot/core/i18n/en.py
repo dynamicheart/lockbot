@@ -1,6 +1,11 @@
 """English (en) message translations for lockbot."""
 
 MESSAGES = {
+    "help.agent_commands": "{number}. Agent:\n    bind <code> (provided by your Agent) / bindings / unbind\n",
+    "notify.api_purpose": "\nNote: {purpose}",
+    "notify.api_agent_label": "\nAgent: {label}",
+    "help.agent_skill": "Agent usage: ",
+    "help.agent_lock_hint": "Try an Agent for resource requests: {url}",
     # ── Duration formatting ──
     "duration.days": "{value} days",
     "duration.hours": "{value} hours",
@@ -182,6 +187,52 @@ MESSAGES = {
     "alias.set_ok": "✅ Set {node_key} alias to「{alias}」\n\n",
     "alias.clear_ok": "✅ Cleared alias for {node_key}\n\n",
     "alias.disabled": "User alias command is not enabled for this bot",
+    # ── Identity binding (agent API enrollment) ──
+    "binding.agent_usage_hint": "Agent usage: {url}\nSend this link to your Agent for help with binding.",
+    "binding.unavailable": ("❌[Agent authorization unavailable]\n\nAgent authorization is unavailable on this bot."),
+    "binding.failed": ("❌[Agent authorization failed]\n\nCould not process this command. Please try again later."),
+    "binding.enrollment_disabled": ("❌[Agent access disabled]\n\nAsk the bot owner to enable Agent access."),
+    "binding.usage_bind": (
+        "📖[Authorize an Agent]\n\nSend: bind <code>\nGet the code from the Ag"
+        "ent requesting access. Check its intended use first."
+    ),
+    "binding.invalid_or_expired": (
+        "❌[Invalid binding code]\n\nThis code is invalid, already used or expired. Ask the Agent for a new one."
+    ),
+    "binding.throttled": ("❗️[Too many authorization attempts]\n\nPlease wait a few minutes and try again."),
+    "binding.confirmed": (
+        "✅[Agent authorized]\n\nBot ID: {bot_id}\nYour Agents share the saved "
+        "key.\n\nView authorization: bindings\nRevoke authorization: unbind"
+    ),
+    "binding.already_bound": (
+        "ℹ️[Already authorized]\n\nYou already authorized bot ID: {bot_id}. Your A"
+        "gents should share the saved key. This new key was not activated."
+        "\n\nTo replace the key, send unbind here, then bind again."
+    ),
+    "binding.nothing_to_revoke": (
+        "ℹ️[Nothing to revoke]\n\nYou have no active authorization on bot ID: {bot_id}; nothing to revoke."
+    ),
+    "binding.revoked_current": (
+        "✅[Agent authorization revoked]\n\nRevoked your access on bot ID: {bot_id}"
+        ". All Agents sharing that key lose access.\nOther bots are unaffec"
+        "ted. Existing resource holdings are not released."
+    ),
+    "binding.list_empty": ("ℹ️[Agent authorization]\n\nBot ID: {bot_id}\nYou have no active authorization on this bot."),
+    "binding.list_header": ("ℹ️[Agent authorization]\n"),
+    "binding.list_item": "Bot ID: {bot_id}\nLabel: {label}\nLast used: {last_used}\n\nRevoke authorization: unbind",
+    "binding.usage_unbind": (
+        "📖[Revoke Agent authorization]\n\nSend: unbind\nRevoke your access on this bot without a key or ID."
+    ),
+    "binding.revoked_one": (
+        "✅[Agent authorization revoked]\n\nRevoked your authorization (reference ID: {binding_id})."
+    ),
+    "binding.not_found": (
+        "❌[Agent authorization not found]\n\nNo authorization of yours on this bot matches {binding_id}."
+    ),
+    # ── API-originated group notifications ──
+    "notify.api_mutation": ("🤖[Agent API operation]\n\nUser: {actor}\nCommand: {command}\n\n"),
+    "notify.api_alias": ("🤖[Agent API label update]\n\nUser: {actor}\nCommand: {command}\n\n"),
+    "notify.api_coalesced": ("(+{count} other Agent API operations in the last few seconds)\n"),
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ Bot {bot_name}(ID:{bot_id}) is not running. "  # noqa: E501
     "Please contact the owner @{owner_username} to start it.",

@@ -1,6 +1,11 @@
 """Chinese (zh) message translations for lockbot."""
 
 MESSAGES = {
+    "help.agent_commands": "{number}. Agent:\n    bind <绑定码>(由 Agent 提供) / bindings / unbind\n",
+    "notify.api_purpose": "\n备注：{purpose}",
+    "notify.api_agent_label": "\nAgent：{label}",
+    "help.agent_skill": "Agent 使用：",
+    "help.agent_lock_hint": "推荐让Agent申请资源：{url}",
     # ── Duration formatting ──
     "duration.days": "{value} 天",
     "duration.hours": "{value} 小时",
@@ -175,6 +180,39 @@ MESSAGES = {
     "alias.set_ok": "✅ 已设置 {node_key} 备注为「{alias}」\n\n",
     "alias.clear_ok": "✅ 已清除 {node_key} 的备注\n\n",
     "alias.disabled": "该机器人未开启用户自助设置备注功能",
+    # ── Identity binding (agent API enrollment) ──
+    "binding.agent_usage_hint": "Agent 使用：{url}\n把链接发给你的 Agent，让它协助完成绑定。",
+    "binding.unavailable": ("❌【Agent授权不可用】\n\n当前机器人暂不支持 Agent 授权。"),
+    "binding.failed": ("❌【Agent授权失败】\n\n授权命令处理失败，请稍后重试。"),
+    "binding.enrollment_disabled": ("❌【Agent访问未开启】\n\n当前机器人未允许 Agent 访问，请联系管理人开启。"),
+    "binding.usage_bind": (
+        "📖【Agent授权方法】\n\n发送：bind <绑定码>\n绑定码由申请接入的 Agent 提供。请先核对授权用途。"
+    ),
+    "binding.invalid_or_expired": ("❌【绑定码无效】\n\n绑定码无效、已被使用或已过期，请让 Agent 重新申请。"),
+    "binding.throttled": ("❗️【授权尝试过于频繁】\n\n绑定失败次数过多，请几分钟后再试。"),
+    "binding.confirmed": (
+        "✅【Agent授权成功】\n\n机器人 ID：{bot_id}\n同一人的多个 Agent 请共用已保存的 key。\n\n查看授权：bind"
+        "ings\n撤销授权：unbind"
+    ),
+    "binding.already_bound": (
+        "ℹ️【已有Agent授权】\n\n你已授权机器人 ID：{bot_id}，请让自己的 Agent 共用已保存的 key。此次新 key 未激活"
+        "。\n\n需要更换 key 时，请先发送 unbind，再重新绑定。"
+    ),
+    "binding.nothing_to_revoke": ("ℹ️【无需解绑】\n\n你在机器人 ID：{bot_id} 下没有有效授权，无需解绑。"),
+    "binding.revoked_current": (
+        "✅【Agent授权已撤销】\n\n已撤销你在机器人 ID：{bot_id} 下的授权。共享该 key 的 Agent 均无法继续访问。\n其它机"
+        "器人不受影响，已有资源不会自动释放。"
+    ),
+    "binding.list_empty": ("ℹ️【Agent授权信息】\n\n机器人 ID：{bot_id}\n当前没有生效的授权。"),
+    "binding.list_header": ("ℹ️【Agent授权信息】\n"),
+    "binding.list_item": "机器人 ID：{bot_id}\n备注：{label}\n最近使用：{last_used}\n\n撤销授权：unbind",
+    "binding.usage_unbind": ("📖【撤销Agent授权】\n\n发送：unbind\n撤销自己在当前机器人的授权，无需 key 或编号。"),
+    "binding.revoked_one": ("✅【Agent授权已撤销】\n\n已撤销你的授权（参考编号：{binding_id}）。"),
+    "binding.not_found": ("❌【未找到Agent授权】\n\n当前机器人下没有属于你的授权 {binding_id}。"),
+    # ── API-originated group notifications ──
+    "notify.api_mutation": ("🤖【Agent API操作】\n\n用户：{actor}\n命令：{command}\n\n"),
+    "notify.api_alias": ("🤖【Agent API备注更新】\n\n用户：{actor}\n命令：{command}\n\n"),
+    "notify.api_coalesced": ("（最近几秒另有 {count} 次 Agent API 操作）\n"),
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": (
         "⚠️ 机器人 {bot_name}(ID:{bot_id}) 尚未启动，请联系管理人 @{owner_username} 启动后再使用。"

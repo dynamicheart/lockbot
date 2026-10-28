@@ -65,11 +65,17 @@ def _to_out(log: AuditLog) -> AuditLogOut:
         operator_id=log.operator_id,
         operator_username=log.operator_username,
         operator_role=log.operator_role,
-        action=log.action,
+        action="bot.update"
+        if log.action in ("bot.resource_auth_enabled", "bot.resource_auth_disabled")
+        else log.action,
         target_type=log.target_type,
         target_id=log.target_id,
         target_name=log.target_name,
-        detail=_parse_detail(log.detail),
+        detail=(
+            {"resource_auth_enabled": {"to": log.action == "bot.resource_auth_enabled"}}
+            if log.action in ("bot.resource_auth_enabled", "bot.resource_auth_disabled")
+            else _parse_detail(log.detail)
+        ),
         ip_address=log.ip_address,
         result=log.result,
         created_at=log.created_at,
@@ -94,7 +100,12 @@ def list_audit_logs(
     operator: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    q = db.query(AuditLog)
+    # Historical high-volume command rows are retained in storage, but are not
+    # administrative audit events. Filter before count/pagination, even for an
+    # explicit action query. Authorization changes remain visible.
+    q = db.query(AuditLog).filter(
+        AuditLog.action.notin_(("resource_api.command", "resource_auth.bind", "resource_auth.unbind"))
+    )
 
     # --- Visibility scope ---
     if operator.role == "user":
@@ -119,7 +130,11 @@ def list_audit_logs(
 
     # --- Filters ---
     if action:
-        q = q.filter(AuditLog.action == action)
+        q = q.filter(
+            AuditLog.action.in_(("bot.update", "bot.resource_auth_enabled", "bot.resource_auth_disabled"))
+            if action == "bot.update"
+            else AuditLog.action == action
+        )
     if operator_id is not None:
         q = q.filter(AuditLog.operator_id == operator_id)
     if operator_username:

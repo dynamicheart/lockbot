@@ -1,6 +1,56 @@
 export default {
+  broadcast: {
+    title: 'Group broadcast',
+    hint: 'Super admins can broadcast to recently active Infoflow groups. Each group receives one message, sent by a background worker.',
+    message: 'Message',
+    window: 'Recent activity window',
+    days: 'Last {n} days',
+    mentionAll: 'Mention everyone',
+    noMention: 'No group mention',
+    preview: 'Preview broadcast',
+    coverage: '{n} groups',
+    empty:
+      'No eligible groups. Bots must be running and groups must have recent verified messages.',
+    trackingHint:
+      'Per-group activity is recorded from this feature’s deployment onward. Accepted means the platform accepted the message, not that members read it. Uncertain deliveries are never retried automatically.',
+    status: 'Status',
+    bot: 'Bot',
+    group: 'Group ID',
+    confirmSend: 'Send broadcast',
+    confirmText: 'Send the previewed message to {n} groups ({mention})?',
+    history: 'Recent broadcasts',
+    progress: 'Progress',
+    progressText: '{done}/{total} processed · {accepted} accepted',
+    states: {
+      draft: 'Draft',
+      queued: 'Queued',
+      running: 'Sending',
+      completed: 'Finished',
+      pending: 'Pending',
+      sending: 'Sending',
+      accepted: 'Accepted',
+      failed: 'Failed',
+      unknown: 'Uncertain',
+      skipped: 'Skipped',
+    },
+    results: {
+      interrupted: 'Interrupted during delivery; not resent',
+      permission_changed: 'Creator no longer has super admin access',
+      identity_changed: 'Bot identity or group scope changed',
+      bot_unavailable: 'Bot stopped or unavailable',
+      delivery_uncertain: 'Delivery uncertain; check the group',
+      invalid_group: 'Invalid group ID',
+      http_rejected: 'HTTP request rejected',
+      unrecognized_response: 'Unrecognized platform response',
+      platform_rejected: 'Platform rejected delivery',
+      platform_accepted: 'Platform accepted delivery',
+    },
+  },
   // === Common ===
   common: {
+    close: 'Close',
+    showSecret: 'Show secret',
+    hideSecret: 'Hide secret',
     confirm: 'Confirm',
     cancel: 'Cancel',
     create: 'Create',
@@ -107,6 +157,8 @@ export default {
 
   // === Bot List ===
   botList: {
+    agent_authorizations: 'Active Agent authorizations',
+    agent_usage_registrations: 'Active task registrations',
     title: 'My Bots',
     searchPlaceholder: 'Search by name...',
     filterByStatus: 'Filter by status',
@@ -181,7 +233,8 @@ export default {
     allowUserAlias: 'Allow User Alias Command',
     allowUserAliasHelp: 'When enabled, users can set node aliases via the alias command in chat',
     displayDeviceModel: 'Force Display Device Model',
-    displayDeviceModelHelp: 'When enabled, device model is always shown in usage output even if all devices are the same model',
+    displayDeviceModelHelp:
+      'When enabled, device model is always shown in usage output even if all devices are the same model',
     opkickEnable: 'Operator Kick (OpKick)',
     opkickHelp: 'Allow trusted operators to release idle locks via AT commands',
     trustedOperatorIds: 'Trusted Operator IDs',
@@ -221,6 +274,7 @@ export default {
 
   // === Bot Detail ===
   botDetail: {
+    authorizationAudit: 'Authorization audit',
     config: 'Configuration',
     status: 'Status',
     type: 'Type',
@@ -246,6 +300,7 @@ export default {
     clusterState: 'Cluster State',
     editConfig: 'Edit Config',
     saveWillRestart: 'Bot will auto-restart after saving',
+    logsAndStats: 'Logs & statistics',
     logs: 'Logs',
     keepEmpty: 'Leave empty to keep current',
     configSaved: 'Config Saved',
@@ -266,18 +321,63 @@ export default {
     opkickOn: 'Enabled',
     opkickOff: 'Disabled',
     nodeAliases: 'Node Aliases',
-    apiKey: 'API Key',
+    apiKey: 'OP API Key',
+    agentGroup: 'Agent',
+    agentNotify: 'Group operation notifications',
+    agentNotifyHelp:
+      'Announce Agent resource commands in the group. Queue-turn and expiry alerts are unaffected.',
+    agentAccess: 'Allow Agent access',
+    agentAccessHelp:
+      'Allow resource API calls after in-chat authorization. Disabling suspends access and retains authorizations. OP API Key is unaffected.',
+    agentAccessOn: 'Agent access enabled',
+    agentAccessOff: 'Agent access disabled',
+    agentAccessFailed: 'Could not update Agent access',
+    agentAccessOpen: 'Enabled',
+    agentAccessClosed: 'Disabled',
+
     apiKeyHelp:
-      'For external programs to query lock state, e.g. GET /api/bots/:bot_id/locked-users, Header: Authorization: Bearer lbk_xxx',
+      'For operations bots: read holders and forcibly release resources. Do not share with ordinary Agents.',
     apiKeyDocsLink: 'View API Docs',
     apiKeyNone: 'Not set',
     apiKeyGenerate: 'Generate',
     apiKeyReset: 'Regenerate',
     apiKeyRevoke: 'Revoke',
-    apiKeyGenerated: 'API Key generated',
-    apiKeyRevoked: 'API Key revoked',
+    apiKeyGenerated: 'OP API Key generated',
+    apiKeyRevoked: 'OP API Key revoked',
   },
 
+  agentActivity: {
+    summaryHelp:
+      'Authorizations count user–bot pairs and may be shared by Agents. Tasks count current valid resource declarations.',
+    expandPurpose: 'Show full purpose',
+    statistics: 'Agent statistics',
+    platformStatistics: 'Platform Agent statistics',
+    active: 'Active',
+    history: 'Historical',
+    all: 'All',
+    expired: 'Invalid',
+    authorizations: 'Active user authorizations',
+    usageRegistrations: 'Current task declarations',
+
+    title: 'Agent activity',
+    description: 'Grouped by user authorization. Agents sharing a key share these counters.',
+    empty: 'No Agent activity',
+    user: 'User / authorization label',
+    labelHelp: 'Caller-declared label; not proof of identity.',
+    authorization: 'Authorization',
+    revoked: 'Revoked',
+    notRevoked: 'Not revoked',
+    reads: 'Read requests',
+    writes: 'Write requests',
+    refused: 'Refused',
+    limited: 'Throttled',
+    lastSeen: 'Last seen',
+    scope: '{count} records · local time',
+    counting: 'How counts work',
+    countingHelp:
+      'HTTP attempts, not successful resource changes. Refused includes throttled; both are already counted in reads/writes. Revoked authorizations retain historical counts. Not revoked does not guarantee that an authorization is unexpired or usable.',
+    error: 'Could not refresh Agent activity. Previously loaded records are shown.',
+  },
   // === Bot Card ===
   botCard: {
     group: 'Group',
@@ -386,6 +486,8 @@ export default {
 
   // === Site Settings ===
   settings: {
+    agentPromotion: 'Agent promotion',
+    agentPromotionHint: 'Show the Agent skill link after successful resource requests.',
     platformUrl: 'Platform URL',
     platformUrlPlaceholder: 'e.g. http://192.168.1.1:8080',
     githubUrl: 'GitHub URL',
@@ -447,6 +549,11 @@ export default {
 
   // === Cluster State ===
   clusterState: {
+    originChat: 'Source: chat',
+    originAgent: 'Source: Agent API',
+    originUnknown: 'Source: unknown',
+
+    usageHint: 'Task notes are supplied by the user or Agent.',
     nodeName: 'Node',
     status: 'Status',
     currentUsers: 'Current Users',
@@ -469,6 +576,8 @@ export default {
 
   // === Bot Form ===
   botForm: {
+    agentAccessCreateFailed:
+      'Bot created, but Agent access could not be enabled. Retry in Edit configuration.',
     addNode: 'Add Node',
     noNodes: 'No nodes yet. Click below to add one.',
     nodeName: 'Node Name',
@@ -511,7 +620,35 @@ export default {
     securityAlertTitle: 'Security Notice: Failed Login Attempts Detected',
     securityAlertDesc:
       '{count} failed login attempt(s) detected from IP(s): {ips}. If this was not you, please change your password immediately.',
+    dispatched: 'Dispatched',
+    dispatchedNote:
+      'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
+    targetTypes: { bot: 'Bot', user: 'User' },
+    detailFields: {
+      resource_auth_enabled: 'Allow Agent access',
+      resource_api_notify_enabled: 'Group operation notifications',
+      source: 'Source',
+      platform: 'Platform',
+      external_user_id: 'Verified user',
+      credential_id: 'Authorization record ID',
+      command: 'Command',
+      group_notified: 'Group notification submitted',
+      note: 'Note',
+      revoked: 'Revoked count',
+      node_keys: 'Resources',
+      reason: 'Reason',
+      freed: 'Released resources',
+      affected_users: 'Affected users',
+      generation: 'Instance version',
+    },
+    sources: { api: 'Agent API', chat: 'Chat', service_key: 'OP API Key' },
+    booleanValues: { true: 'Yes', false: 'No' },
     actions: {
+      'resource_auth.bind': 'Bind Agent authorization',
+      'resource_auth.unbind': 'Unbind Agent authorization',
+      'bot.resource_auth_enabled': 'Enable Agent access',
+      'bot.resource_auth_disabled': 'Disable Agent access',
+      'bot.resource_auth_revoke_all': 'Revoke all Agent authorizations',
       'auth.login': 'Login',
       'auth.change_password': 'Change Password',
       'auth.change_email': 'Change Email',
@@ -528,6 +665,8 @@ export default {
       'bot.restart': 'Restart Bot',
       'bot.transfer': 'Transfer Bot',
       'bot.set_language': 'Set Language',
+      'site.broadcast': 'Send group broadcast',
+      'bot.kicklock': 'Operator release (keep queue)',
       'bot.edit_state': 'Edit Bot State',
       'admin.backup': 'Download Backup',
       'admin.restore': 'Restore Backup',
@@ -535,6 +674,8 @@ export default {
       'admin.bot_states': 'Download States',
     },
     roles: {
+      service_key: 'OP API',
+      agent: 'Agent',
       super_admin: 'Super Admin',
       admin: 'Admin',
       user: 'User',

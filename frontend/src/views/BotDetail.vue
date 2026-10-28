@@ -107,7 +107,9 @@
                   <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
                 </template>
                 <div class="callback-hint">
-                  <div class="callback-hint-title">{{ $t('botCreate.callbackHintTitle') }}</div>
+                  <div class="callback-hint-title">
+                    {{ $t('botCreate.callbackHintTitle') }}
+                  </div>
                   <div>{{ $t('botCreate.callbackHintStep1') }}</div>
                   <div>{{ $t('botCreate.callbackHintStep2') }}</div>
                   <div>{{ $t('botCreate.callbackHintStep3') }}</div>
@@ -120,7 +122,18 @@
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
             <div class="secret-field">
-              <code>{{ bot.webhook_url_raw || '-' }}</code>
+              <code>{{ showWebhook ? bot.webhook_url_raw : maskText(bot.webhook_url_raw) }}</code>
+              <el-icon
+                v-if="bot.webhook_url_raw"
+                class="secret-icon"
+                role="button"
+                tabindex="0"
+                :aria-label="t(showWebhook ? 'common.hideSecret' : 'common.showSecret')"
+                @click="showWebhook = !showWebhook"
+                @keydown.enter="showWebhook = !showWebhook"
+              >
+                <View v-if="!showWebhook" /><Hide v-else />
+              </el-icon>
               <el-icon
                 v-if="bot.webhook_url_raw"
                 class="secret-icon"
@@ -239,7 +252,17 @@
               </el-tooltip>
             </template>
             <div v-if="bot.api_key" style="display: flex; align-items: center; gap: 8px">
-              <code>{{ bot.api_key }}</code>
+              <code>{{ showOpApiKey ? bot.api_key : maskText(bot.api_key) }}</code>
+              <el-icon
+                class="secret-icon"
+                role="button"
+                tabindex="0"
+                :aria-label="t(showOpApiKey ? 'common.hideSecret' : 'common.showSecret')"
+                @click="showOpApiKey = !showOpApiKey"
+                @keydown.enter="showOpApiKey = !showOpApiKey"
+              >
+                <View v-if="!showOpApiKey" /><Hide v-else />
+              </el-icon>
               <el-icon class="secret-icon" @click="copyText(bot.api_key)"><CopyDocument /></el-icon>
               <el-button v-if="canEdit" size="small" @click="handleGenerateApiKey">{{
                 $t('botDetail.apiKeyReset')
@@ -266,27 +289,35 @@
           ><span>{{ $t('botDetail.statistics') }}</span></template
         >
         <el-row :gutter="20">
-          <el-col :span="8">
+          <el-col :xs="12" :sm="8">
             <div class="detail-stat-box">
               <div class="detail-stat-number">{{ activeUserCount }}</div>
-              <div class="detail-stat-desc">{{ $t('botDetail.activeUsers') }}</div>
+              <div class="detail-stat-desc">
+                {{ $t('botDetail.activeUsers') }}
+              </div>
             </div>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="12" :sm="8">
             <div class="detail-stat-box">
               <div class="detail-stat-number">{{ totalCommands }}</div>
-              <div class="detail-stat-desc">{{ $t('botDetail.totalCommands') }}</div>
+              <div class="detail-stat-desc">
+                {{ $t('botDetail.totalCommands') }}
+              </div>
             </div>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="12" :sm="8">
             <div class="detail-stat-box">
               <div class="detail-stat-number">{{ currentUtilization }}%</div>
-              <div class="detail-stat-desc">{{ $t('botDetail.utilization') }}</div>
+              <div class="detail-stat-desc">
+                {{ $t('botDetail.utilization') }}
+              </div>
             </div>
           </el-col>
         </el-row>
         <div v-if="displayedUsers.length > 0" class="active-users-section">
-          <div class="active-users-title">{{ $t('botDetail.activeUsers') }}</div>
+          <div class="active-users-title">
+            {{ $t('botDetail.activeUsers') }}
+          </div>
           <div class="active-users-chips">
             <el-tag
               v-for="user in displayedUsers"
@@ -310,6 +341,29 @@
         </div>
       </el-card>
 
+      <el-card v-if="agentMetrics.length" style="margin-bottom: 20px">
+        <template #header>
+          <div style="display: flex; justify-content: space-between; align-items: center">
+            <span :title="$t('agentActivity.summaryHelp')">{{
+              $t('agentActivity.statistics')
+            }}</span>
+            <el-button size="small" @click="loadAgentSummary">{{ $t('common.refresh') }}</el-button>
+          </div>
+        </template>
+        <el-row :gutter="20" style="row-gap: 12px">
+          <el-col v-for="metric in agentMetrics" :key="metric.key" :xs="12" :sm="8" :lg="4">
+            <div class="detail-stat-box">
+              <div class="detail-stat-number">
+                {{ agentSummary?.[metric.key] ?? '—' }}
+              </div>
+              <div class="detail-stat-desc">
+                {{ $t(`agentActivity.${metric.label}`) }}
+              </div>
+            </div>
+          </el-col>
+        </el-row>
+      </el-card>
+
       <!-- Cluster State -->
       <el-card style="margin-bottom: 20px">
         <template #header>
@@ -325,7 +379,8 @@
                 <el-icon><Edit /></el-icon> {{ $t('common.edit') }}
               </el-button>
               <el-button v-if="authStore.isAdmin" size="small" @click="downloadState">
-                <el-icon><Download /></el-icon> {{ $t('clusterState.download') }}
+                <el-icon><Download /></el-icon>
+                {{ $t('clusterState.download') }}
               </el-button>
               <el-button
                 v-if="bot.status === 'running' && !editingState"
@@ -401,17 +456,11 @@
                     ></span>
                     <span class="cluster-device-model">{{ dev.devModel || dev.devId }}</span>
                   </div>
-                  <div class="cluster-device-users">
-                    <template v-if="dev.currentUsers && dev.currentUsers.length">
-                      <el-tag
-                        v-for="u in dev.currentUsers"
-                        :key="u.user_id || u"
-                        size="small"
-                        effect="plain"
-                        >{{ u.user_id || u.userId || u }}</el-tag
-                      >
-                    </template>
-                  </div>
+                  <ResourceParticipants
+                    :users="dev.currentUsers"
+                    :resource-id="node.nodeName"
+                    :usage="stateUsage"
+                  />
                 </div>
               </div>
             </div>
@@ -433,20 +482,22 @@
                 }}</el-tag>
               </div>
               <div class="cluster-node-body">
-                <div class="cluster-node-users">
-                  <template v-if="row.currentUsers && row.currentUsers.length">
-                    <el-tag
-                      v-for="u in row.currentUsers"
-                      :key="u.user_id || u"
-                      size="small"
-                      effect="plain"
-                      >{{ u.user_id || u.userId || u }}</el-tag
-                    >
-                  </template>
-                  <span v-else class="cluster-empty-text">-</span>
-                </div>
-                <div v-if="botType === 'QUEUE' && row.bookingCount" class="cluster-node-booking">
-                  {{ $t('clusterState.bookingList') }}: {{ row.bookingCount }}
+                <ResourceParticipants
+                  :users="row.currentUsers"
+                  :resource-id="row.nodeName"
+                  :usage="stateUsage"
+                />
+                <div v-if="botType === 'QUEUE' && row.bookings.length" class="cluster-node-booking">
+                  <div class="cluster-booking-heading">
+                    {{ $t('clusterState.bookingList') }} ·
+                    {{ row.bookings.length }}
+                  </div>
+                  <ResourceParticipants
+                    :users="row.bookings"
+                    :resource-id="row.nodeName"
+                    :usage="stateUsage"
+                    queued
+                  />
                 </div>
               </div>
             </div>
@@ -457,9 +508,23 @@
       <!-- Logs -->
       <el-card style="margin-bottom: 20px">
         <template #header
-          ><span>{{ $t('botDetail.logs') }}</span></template
+          ><span>{{ $t('botDetail.logsAndStats') }}</span></template
         >
-        <LogViewer :bot-id="bot.id" />
+        <el-tabs v-model="activityTab">
+          <el-tab-pane :label="$t('botDetail.logs')" name="logs">
+            <LogViewer v-if="activityTab === 'logs'" :bot-id="bot.id" />
+          </el-tab-pane>
+          <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
+            <AgentActivity
+              v-if="activityTab === 'agents'"
+              :bot-id="bot.id"
+              @updated="loadAgentSummary"
+            />
+          </el-tab-pane>
+          <el-tab-pane v-if="canEdit" :label="$t('botDetail.authorizationAudit')" name="audit">
+            <BotAudit v-if="activityTab === 'audit'" :bot-id="bot.id" />
+          </el-tab-pane>
+        </el-tabs>
       </el-card>
     </div>
 
@@ -508,6 +573,9 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
+import AgentActivity from '../components/AgentActivity.vue'
+import ResourceParticipants from '../components/ResourceParticipants.vue'
+import BotAudit from '../components/BotAudit.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import LogViewer from '../components/LogViewer.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -529,6 +597,21 @@ const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
 const authStore = useAuthStore()
+
+const activityTab = ref('logs')
+const agentSummary = ref(null)
+const agentMetrics = computed(() =>
+  canEdit.value || authStore.isAdmin
+    ? [
+        { key: 'authorizations', label: 'authorizations' },
+        { key: 'usage_registrations', label: 'usageRegistrations' },
+        { key: 'reads', label: 'reads' },
+        { key: 'writes', label: 'writes' },
+        { key: 'refused', label: 'refused' },
+        { key: 'limited', label: 'limited' },
+      ]
+    : []
+)
 
 const bot = ref(null)
 const loading = ref(false)
@@ -585,11 +668,23 @@ const editingState = ref(false)
 const viewJson = ref(false)
 const stateText = ref('')
 const stateData = ref(null)
+const stateUsage = ref([])
 const stateSaving = ref(false)
 
 // Secret field visibility
 const showAesKey = ref(false)
 const showToken = ref(false)
+const showWebhook = ref(false)
+const showOpApiKey = ref(false)
+watch(
+  () => bot.value?.id,
+  () => {
+    showWebhook.value = false
+    showOpApiKey.value = false
+    showToken.value = false
+    showAesKey.value = false
+  }
+)
 
 // Bot language
 const botLanguage = ref('zh')
@@ -643,11 +738,12 @@ const hasAdvancedConfig = computed(() => {
   )
 })
 
-// API Key
+// OP API Key
 async function handleGenerateApiKey() {
   try {
     const res = await api.post(`/bots/${bot.value.id}/api-key`)
     bot.value.api_key = res.data.api_key
+    showOpApiKey.value = false
     ElMessage.success(t('botDetail.apiKeyGenerated'))
   } catch {
     /* handled */
@@ -682,6 +778,24 @@ function formatDuration(seconds) {
 // - admin: can only VIEW other users' bots, cannot start/stop/edit/delete
 // - user: can only operate own bots, no transfer
 const canEdit = computed(() => authStore.canEditBot(bot.value))
+async function loadAgentSummary() {
+  const id = bot.value?.id
+  if (!id || (!canEdit.value && !authStore.isAdmin)) return
+  try {
+    const { data } = await api.get(`/bots/${id}/agent-summary`)
+    if (bot.value?.id === id) agentSummary.value = data
+  } catch {
+    agentSummary.value = null
+  }
+}
+watch(
+  () => bot.value,
+  () => {
+    agentSummary.value = null
+    loadAgentSummary()
+  }
+)
+
 const canDelete = computed(() => canEdit.value)
 const canOperate = computed(() => authStore.canOperateBot(bot.value))
 const canTransfer = computed(() => authStore.isSuperAdmin)
@@ -771,7 +885,7 @@ const parsedState = computed(() => {
     nodeName,
     status: info.status,
     currentUsers: info.current_users || [],
-    bookingCount: (info.booking_list || []).length,
+    bookings: info.booking_list || [],
   }))
 })
 
@@ -864,9 +978,14 @@ async function handleLanguageChange(lang) {
 
 async function fetchState() {
   try {
-    stateData.value = await botsStore.getBotState(route.params.id)
+    const data = await botsStore.getBotState(route.params.id, {
+      include_usage: true,
+    })
+    stateData.value = data.state
+    stateUsage.value = data.usage || []
   } catch {
     stateData.value = null
+    stateUsage.value = []
   }
 }
 
@@ -980,7 +1099,9 @@ function downloadState() {
     ElMessage.warning(t('clusterState.noState'))
     return
   }
-  const blob = new Blob([JSON.stringify(stateData.value, null, 2)], { type: 'application/json' })
+  const blob = new Blob([JSON.stringify(stateData.value, null, 2)], {
+    type: 'application/json',
+  })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

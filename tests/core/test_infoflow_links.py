@@ -47,8 +47,8 @@ class TestInfoflowBuildReply:
 
     def test_with_group_id(self):
         adapter = InfoflowAdapter()
-        msg = adapter.build_reply("hi", ["u1"], group_id="group123")
-        assert msg["message"]["header"]["toid"] == "group123"
+        msg = adapter.build_reply("hi", ["u1"], group_id="123")
+        assert msg["message"]["header"]["toid"] == [123]
 
     def test_empty_list(self):
         adapter = InfoflowAdapter()
@@ -56,3 +56,12 @@ class TestInfoflowBuildReply:
         body = msg["message"]["body"]
         assert len(body) == 1
         assert body[0]["type"] == "AT"
+
+
+def test_group_text_without_mentions_has_integer_recipient_array():
+    adapter = InfoflowAdapter()
+    msg = adapter.build_reply("message", [], group_id=["12724976"])
+    assert msg["message"]["header"]["toid"] == [12724976]
+    assert msg["message"]["body"] == [{"type": "TEXT", "content": "message"}]
+    adapter.apply_reply_target(msg, "12724976")
+    assert msg["message"]["header"]["toid"] == [12724976]

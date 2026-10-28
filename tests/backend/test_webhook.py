@@ -1,5 +1,5 @@
 """
-Tests for webhook group_id / last_user_id recording.
+Tests for observed group history / last_user_id recording.
 
 Verifies that a bot appearing in multiple group chats has all group IDs
 correctly stored as comma-separated, sorted, deduplicated values.
@@ -30,7 +30,7 @@ def _mock_instance():
     return mock
 
 
-class TestWebhookGroupIdRecording:
+class TestWebhookObservedGroupRecording:
     """Test that group_id is accumulated correctly across multiple webhooks."""
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
@@ -45,7 +45,7 @@ class TestWebhookGroupIdRecording:
 
         # Verify group_id stored in DB
         detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
-        assert detail["group_id"] == "1001"
+        assert detail["observed_group_ids"] == "1001"
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     @patch("lockbot.backend.app.bots.router.handle_webhook")
@@ -67,7 +67,7 @@ class TestWebhookGroupIdRecording:
 
         # group_id should be sorted, deduplicated, comma-separated
         detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
-        assert detail["group_id"] == "1001,1500,2002"
+        assert detail["observed_group_ids"] == "1001,1500,2002"
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     @patch("lockbot.backend.app.bots.router.handle_webhook")
@@ -81,7 +81,7 @@ class TestWebhookGroupIdRecording:
         client.post(f"/api/bots/webhook/{bot_id}")
 
         detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
-        assert detail["group_id"] == "1001"
+        assert detail["observed_group_ids"] == "1001"
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     @patch("lockbot.backend.app.bots.router.handle_webhook")
@@ -95,7 +95,7 @@ class TestWebhookGroupIdRecording:
             client.post(f"/api/bots/webhook/{bot_id}")
 
         detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
-        assert detail["group_id"] == "1000,2000,3000,5000"
+        assert detail["observed_group_ids"] == "1000,2000,3000,5000"
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     @patch("lockbot.backend.app.bots.router.handle_webhook")
@@ -113,7 +113,7 @@ class TestWebhookGroupIdRecording:
 
         detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
         # group_id should remain "1001", not overwritten by empty
-        assert detail["group_id"] == "1001"
+        assert detail["observed_group_ids"] == "1001"
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     @patch("lockbot.backend.app.bots.router.handle_webhook")
@@ -130,7 +130,7 @@ class TestWebhookGroupIdRecording:
         client.post(f"/api/bots/webhook/{bot_id}")
 
         detail = client.get(f"/api/bots/{bot_id}", headers=auth_header).json()
-        assert detail["group_id"] == "1001"
+        assert detail["observed_group_ids"] == "1001"
 
 
 class TestWebhookLastUserId:

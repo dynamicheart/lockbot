@@ -118,8 +118,9 @@ class TestUpdateBot:
         create_resp = client.post("/api/bots", json=_sample_bot("cfgbot"), headers=admin_header)
         bot_id = create_resp.json()["id"]
 
-        overrides = {"MAX_LOCK_DURATION": 600, "DATA_DIR": str(tmp_path)}
-        client.put(f"/api/bots/{bot_id}", json={"config_overrides": overrides}, headers=admin_header)
+        overrides = {"MAX_LOCK_DURATION": 600}
+        updated = client.put(f"/api/bots/{bot_id}", json={"config_overrides": overrides}, headers=admin_header)
+        assert updated.status_code == 200
 
         bot_record = db_session.get(Bot, bot_id)
         config_dict = _build_config_dict(bot_record)
@@ -128,9 +129,9 @@ class TestUpdateBot:
 
         # Verify config override is applied
         assert node_bot.config.get_val("MAX_LOCK_DURATION") == 600
-        # Trigger state save to verify DATA_DIR is used
+        # Trigger a real state save under the managed deployment root
         save_bot_state_to_file(node_bot.state.bot_state, config=node_bot.config)
-        state_file = os.path.join(str(tmp_path), str(bot_id), "bot_state.json")
+        state_file = os.path.join(str(tmp_path), "bots", str(bot_id), "bot_state.json")
         assert os.path.exists(state_file)
 
     def test_duration_whitelist_valid(self, client, admin_header):
@@ -222,7 +223,7 @@ class TestDeleteBot:
 
 
 def _build_device_bot(client, admin_header, db_session, tmp_path, name="devbot", configs=None):
-    """Create a DEVICE bot with DATA_DIR in tmp_path, return (bot_id, config_dict)."""
+    """Create a DEVICE bot under the per-test deployment root; return (bot_id, config_dict)."""
     from lockbot.backend.app.bots.models import Bot
     from lockbot.backend.app.bots.router import _build_config_dict
 
@@ -242,8 +243,6 @@ def _build_device_bot(client, admin_header, db_session, tmp_path, name="devbot",
     )
     assert create_resp.status_code == 201
     bot_id = create_resp.json()["id"]
-
-    client.put(f"/api/bots/{bot_id}", json={"config_overrides": {"DATA_DIR": str(tmp_path)}}, headers=admin_header)
 
     bot_record = db_session.get(Bot, bot_id)
     config_dict = _build_config_dict(bot_record)
@@ -364,8 +363,6 @@ class TestClusterConfigChange:
         )
         bot_id = create_resp.json()["id"]
 
-        client.put(f"/api/bots/{bot_id}", json={"config_overrides": {"DATA_DIR": str(tmp_path)}}, headers=admin_header)
-
         bot_record = db_session.get(Bot, bot_id)
         config_dict = _build_config_dict(bot_record)
 
@@ -404,12 +401,6 @@ class TestUpdateBotState:
             headers=admin_header,
         )
         bot_id = resp.json()["id"]
-        if tmp_path is not None:
-            client.put(
-                f"/api/bots/{bot_id}",
-                json={"config_overrides": {"DATA_DIR": str(tmp_path)}},
-                headers=admin_header,
-            )
         return bot_id
 
     def test_update_valid_node_state(self, client, admin_header, tmp_path):
@@ -544,6 +535,7 @@ class TestUpdateBotState:
 
         bot_id = self._create_bot(client, admin_header)
         with patch("lockbot.backend.app.bots.router.bot_manager") as mock_mgr:
+            mock_mgr.is_running.return_value = False
             mock_mgr.start_bot.return_value = 123
             client.post(f"/api/bots/{bot_id}/start", headers=admin_header)
         resp = client.put(f"/api/bots/{bot_id}/state", json={}, headers=admin_header)

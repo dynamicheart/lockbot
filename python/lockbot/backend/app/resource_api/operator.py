@@ -1,0 +1,181 @@
+"""Bot-scoped operational snapshots and queue lock releases using OP credentials."""
+
+import secrets
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.orm import Session
+
+from lockbot.backend.app.audit.service import _anon_operator, write_audit_log
+from lockbot.backend.app.bots.manager import (
+    AdmissionFull,
+    BotNotRunning,
+    InstanceRetiring,
+    MayHaveExecuted,
+    bot_manager,
+)
+from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.database import get_db
+from lockbot.backend.app.rate_limit import limiter
+from lockbot.backend.app.resource_api import errors
+from lockbot.backend.app.resource_api.resources import snapshot_cache
+from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
+from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
+from lockbot.core.platforms.registry import normalize_platform_name
+
+router = APIRouter(prefix="/api/bots", tags=["Public API"])
+
+
+def _require_operator(db, request, bot_id, *, fresh=False):
+    if fresh:
+        db.rollback()
+    bot = db.get(Bot, bot_id)
+    if bot is None or bot.is_deleted:
+        raise HTTPException(404, "Bot not found")
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else ""
+    if not bot.api_key or not token or not secrets.compare_digest(bot.api_key.encode(), token.encode()):
+        raise HTTPException(401, "Invalid OP API key")
+    return bot
+
+
+@router.get("/{bot_id}/op/resources")
+@limiter.limit("60/minute")
+def operator_resources(
+    bot_id: int,
+    request: Request,
+    usage_offset: int = Query(default=0, ge=0),
+    usage_limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Fresh OP snapshot: bot health, holders, cards, queues and active task purposes.
+
+    Resource state is complete; task declarations are paginated independently. Follow
+    usage_page.next_offset until null. A null embedded usage on a partial page does not
+    prove there is no declaration. Pages reflect current state, not a frozen transaction.
+    """
+    _require_operator(db, request, bot_id)
+    try:
+        with bot_manager.admit(bot_id, for_read=True) as lease:
+            bot = _require_operator(db, request, bot_id, fresh=True)
+            captured_at, state = lease.bot.state_snapshot()
+            rows = active_declarations(db, bot, datetime.utcnow(), limit=usage_limit + 1, offset=usage_offset)
+            has_more = len(rows) > usage_limit
+            declarations = declarations_for_state(rows[:usage_limit], state, captured_at)
+            resources = scrub_private(
+                build_resources(
+                    captured_at=captured_at,
+                    state=state,
+                    bot_type=bot.bot_type,
+                    platform=normalize_platform_name(bot.platform),
+                    caller_id="",
+                )
+            )
+            for resource in resources:
+                for key in ("caller_queue_position", "caller_is_queue_head", "claimable_by_you", "claim_command"):
+                    resource.pop(key, None)
+            attach_declarations(resources, declarations)
+            return {
+                "bot_id": bot.id,
+                "name": bot.name,
+                "bot_type": bot.bot_type,
+                "platform": normalize_platform_name(bot.platform),
+                "health": lease.health or bot.status,
+                "captured_at": captured_at.isoformat(),
+                "age_seconds": 0,
+                "resources": resources,
+                "usage_declarations": declarations,
+                "usage_page": {
+                    "offset": usage_offset,
+                    "limit": usage_limit,
+                    "has_more": has_more,
+                    "next_offset": usage_offset + usage_limit if has_more else None,
+                },
+                "usage_complete": usage_offset == 0 and not has_more,
+                "supported_op_operations": ["opkick"] + (["kicklock"] if bot.bot_type == "QUEUE" else []),
+            }
+    except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise errors.admission_http_error(exc, bot_id) from None
+
+
+class KicklockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    node_keys: list[str] = Field(
+        min_length=1, max_length=100, description="Explicit QUEUE resource IDs; no all-resource default."
+    )
+    reason: str = Field(
+        min_length=1, max_length=512, description="Reason shown to affected users and in the audit log."
+    )
+
+    @field_validator("node_keys")
+    @classmethod
+    def resource_ids(cls, values):
+        if any(not v.strip() or len(v) > 128 or any(ord(c) < 32 for c in v) for v in values):
+            raise ValueError("Use nonempty resource IDs without control characters")
+        if len(set(values)) != len(values):
+            raise ValueError("Resource IDs must be unique")
+        return values
+
+    @field_validator("reason")
+    @classmethod
+    def reason_text(cls, value):
+        if not value.strip() or any(ord(c) < 32 for c in value):
+            raise ValueError("Use a nonempty, single-line reason")
+        return value.strip()
+
+
+class KicklockResponse(BaseModel):
+    ok: bool
+    freed: list[str]
+    affected_users: list[str]
+
+
+@router.post("/{bot_id}/kicklock", response_model=KicklockResponse)
+@limiter.limit("30/minute")
+def operator_kicklock(bot_id: int, request: Request, body: KicklockRequest, db: Session = Depends(get_db)):
+    """Release all current holders of explicitly listed QUEUE resources, retaining bookings.
+
+    Requires this bot's OP API Key. Validate all resource IDs before changing any state.
+    Idle resources are a no-op. After a timeout, read OP resources before retrying: a new
+    holder may have acquired a resource. This operation does not stop machine processes.
+    """
+    _require_operator(db, request, bot_id)
+    try:
+        with bot_manager.admit(bot_id) as lease:
+            bot = _require_operator(db, request, bot_id, fresh=True)
+            if bot.bot_type != "QUEUE":
+                raise errors.command_not_supported("kicklock", bot.bot_type)
+            try:
+                result = lease.bot.do_kicklock(body.node_keys, reason=body.reason)
+            except ValueError as exc:
+                raise HTTPException(404, str(exc)) from None
+            except Exception:
+                raise errors.may_have_executed(bot_id) from None
+            finally:
+                snapshot_cache.invalidate(bot_id)
+            # Attribute this to the bot's service credential, not to an invented human.
+            write_audit_log(
+                db,
+                _anon_operator(f"OP API · bot {bot.id}", "service_key"),
+                "bot.kicklock",
+                target_type="bot",
+                target_id=bot.id,
+                target_name=bot.name,
+                detail={
+                    "source": "service_key",
+                    "node_keys": body.node_keys,
+                    "reason": body.reason,
+                    "freed": result["freed"],
+                    "affected_users": result["affected_users"],
+                },
+                ip=request.client.host if request.client else None,
+            )
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise errors.may_have_executed(bot_id) from None
+            return result
+    except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise errors.admission_http_error(exc, bot_id) from None

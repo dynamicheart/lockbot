@@ -210,6 +210,7 @@ class TestBotAudit:
         resp = client.post("/api/bots", json=_sample_bot(), headers=admin_header)
         bot_id = resp.json()["id"]
         with patch("lockbot.backend.app.bots.router.bot_manager") as m:
+            m.is_running.return_value = False
             m.start_bot.return_value = 1234
             client.post(f"/api/bots/{bot_id}/start", headers=admin_header)
         records = _audit_records(db_session, "bot.start")
@@ -379,3 +380,24 @@ class TestAuditFilters:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["items"]) <= 1
+
+
+@pytest.mark.parametrize("filters", [{}, {"action": "resource_api.command"}, {"limit": 1}])
+def test_legacy_agent_traffic_is_excluded_before_audit_pagination(client, super_admin_header, db_session, filters):
+    for action in ["resource_api.command", "resource_auth.bind", "resource_auth.unbind"]:
+        db_session.add(
+            AuditLog(operator_username="infoflow:alice", operator_role="agent", action=action, result="success")
+        )
+    db_session.commit()
+    result = client.get("/api/audit/logs", headers=super_admin_header, params=filters).json()
+    assert all(row["action"] != "resource_api.command" for row in result["items"])
+    # Storage is untouched; explicit legacy queries cannot bring the noisy rows back.
+    assert db_session.query(AuditLog).filter_by(action="resource_api.command").count() == 1
+    if filters.get("action"):
+        assert result == {"total": 0, "items": []}
+    else:
+        assert result["total"] == 1  # login; binding history belongs to bot audit
+        if filters.get("limit"):
+            assert len(result["items"]) == 1
+        else:
+            assert not {"resource_auth.bind", "resource_auth.unbind"} & {row["action"] for row in result["items"]}

@@ -2,14 +2,17 @@ r"""
 lockbot - BaseLockBot
 """
 
+import copy
 import logging
+import re
 import threading
 from collections.abc import Callable
+from datetime import datetime, timezone
 from importlib.metadata import version as _pkg_version
 
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
-from lockbot.core.platforms.infoflow import InfoflowAdapter
+from lockbot.core.platforms.registry import create_adapter
 from lockbot.core.utils import format_duration
 
 
@@ -18,6 +21,10 @@ def _get_version():
         return _pkg_version("lockbot")
     except Exception:
         return "unknown"
+
+
+class AcquisitionLimitExceeded(ValueError):
+    """A request would increase this identity's holdings beyond its caller policy."""
 
 
 class BotState:
@@ -70,10 +77,17 @@ class BaseLockBot:
             self.state = self._state_class(config=self.config)
 
         self._lock = lock or threading.Lock()
-        self.adapter = adapter or InfoflowAdapter(config=self.config)
+        # The platform is read from config so that an injected adapter stays authoritative
+        # and a bot whose stored platform is unknown fails at construction rather than at
+        # the first message.
+        self.adapter = adapter or create_adapter(self.config.get_val("PLATFORM", None), config=self.config)
         # Optional callback: invoked after a successful lock/slock so the
         # scheduler can recalculate its next wakeup without waiting for idle.
         self._on_state_changed: Callable[[], None] | None = None
+        # Optional hook supplying identity-binding commands (bind / unbind / bindings).
+        # core/ owns no database, so the backend injects this. None means the commands
+        # report themselves as unavailable.
+        self.binding_hook: Callable[..., str] | None = None
 
         self._notify_clamped_users()
 
@@ -108,6 +122,49 @@ class BaseLockBot:
 
         save_bot_state_to_file(self.state.bot_state, config=self.config)
         self._notify_state_changed()
+
+    def _check_acquisition_limit_locked(self, user_id, node_keys, limit):
+        """Check projected node holdings while the caller owns ``_lock``.
+
+        The limit is per invocation, supplied by a trusted transport. Chat keeps its
+        existing policy. Devices on the same node count once; bookings count too.
+        Renewals and claiming an existing booking never increase the held set.
+        """
+        if limit is None:
+            return
+        held = set()
+        for key, node in self.state.bot_state.items():
+            entries = [node] if isinstance(node, dict) else node
+            for entry in entries:
+                users = list(entry.get("current_users", [])) + list(entry.get("booking_list", []))
+                if any(u["user_id"] == user_id for u in users):
+                    held.add(key)
+                    break
+        additions = set(node_keys) - held
+        if additions and len(held | additions) > limit:
+            raise AcquisitionLimitExceeded(limit)
+
+    # ------------------------------------------------------- state_snapshot
+    def state_snapshot(self) -> tuple[datetime, dict]:
+        """Return ``(captured_at, detached_copy_of_state)``, read under the state lock.
+
+        Why this exists: every reader that wants to derive values from bot state needs the
+        whole state as of one instant. Reading the live dict without the lock can observe a
+        multi-resource mutation half-applied, and deriving "remaining time" fields from
+        separate ``now()`` calls can produce a payload that contradicts itself.
+
+        Two rules for callers:
+
+        - The returned dict is a deep copy, so build the entire response from it and never
+          touch ``self.state.bot_state`` afterwards.
+        - ``self._lock`` is **not reentrant**. Do not call this while already holding it,
+          and do not implement it by delegating to ``query()`` or any other command method,
+          because those take the same lock and would self-deadlock.
+
+        The critical section here is deliberately tiny: timestamp plus deep copy, no I/O.
+        """
+        with self._lock:
+            return datetime.now(timezone.utc), copy.deepcopy(self.state.bot_state)
 
     # ---------------------------------------------------------- do_opkick
     def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
@@ -216,8 +273,18 @@ class BaseLockBot:
 
     # ------------------------------------------------------ _msg_with_usage
     def _msg_with_usage(self, msg_key, *, node_key=None, sep="", **kwargs):
-        """Return ``t(msg_key, ...) + sep + self._current_usage(node_key)``."""
-        return t(msg_key, config=self.config, **kwargs) + sep + self._current_usage(node_key)
+        """Build usage text, or message parts when a successful request includes a link."""
+        message = t(msg_key, config=self.config, **kwargs)
+        usage = self._current_usage(node_key)
+        if msg_key == "success.resource_locked":
+            # Separate the title, resource list and user mention with one blank line.
+            content = message.rstrip() + "\n\n" + usage.strip()
+            if self._get_site_value("agent_promotion_enabled") == "true":
+                skill_url = self._agent_skill_url()
+                if skill_url:
+                    return [content + "\n\n", (t("help.agent_lock_hint", config=self.config, url=""), skill_url), "\n"]
+            return content + "\n\n"
+        return message + sep + usage
 
     # ------------------------------------------------- _build_alert_header
     def _build_alert_header(self):
@@ -276,7 +343,16 @@ class BaseLockBot:
         reply_info += self._help_header()
 
         # ---- commands (subclass hook) ----
-        reply_info += self._help_commands()
+        commands = self._help_commands()
+        reply_info += commands
+        skill_url = ""
+        if extra_info is None:
+            skill_url = self._agent_skill_url()
+            if skill_url:
+                number = max((int(n) for n in re.findall(r"(?m)^(\d+)\.", commands)), default=0) + 1
+                reply_info = (
+                    reply_info.rstrip() + "\n" + t("help.agent_commands", config=self.config, number=number) + "\n"
+                )
 
         # ---- footer ----
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
@@ -310,12 +386,14 @@ class BaseLockBot:
         if extra_info is None:
             platform_url = self._get_site_value("platform_url") or self.config.get_val("PLATFORM_URL")
             github_url = self._get_site_value("github_url") or self.config.get_val("GITHUB_URL")
-            if platform_url or github_url:
+            if platform_url or github_url or skill_url:
                 help_links.append("\n")
             if platform_url:
                 help_links.append((t("help.platform_url", config=self.config), platform_url))
             if github_url:
                 help_links.append((t("help.github_url", config=self.config), github_url))
+            if skill_url:
+                help_links.append((t("help.agent_skill", config=self.config), skill_url))
 
         if help_links:
             reply_info = [reply_info] + help_links
@@ -325,6 +403,15 @@ class BaseLockBot:
         else:
             reply_info += "\n"
         return self.adapter.build_reply(reply_info, [user_id])
+
+    def _agent_skill_url(self):
+        getter = self.config.get_val("_AGENT_SKILL_URL")
+        if not callable(getter):
+            return ""
+        try:
+            return getter() or ""
+        except Exception:
+            return ""
 
     def _help_commands(self):
         """Return the command-section of the help text.  Override in subclasses."""
@@ -337,14 +424,16 @@ class BaseLockBot:
     @classmethod
     def _invalidate_site_cache(cls):
         """Force next _get_site_value call to read from DB."""
-        cls._site_cache = {}
-        cls._site_cache_ts = 0.0
+        BaseLockBot._site_cache = {}
+        BaseLockBot._site_cache_ts = 0.0
 
     @classmethod
     def _get_site_value(cls, key: str) -> str:
         """Read a site setting from DB with TTL cache."""
         import time
 
+        # Site settings are shared by NODE, DEVICE and QUEUE bots.
+        cls = BaseLockBot
         now = time.time()
         if now - cls._site_cache_ts > cls._SITE_CACHE_TTL:
             cls._site_cache = {}

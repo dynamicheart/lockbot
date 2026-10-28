@@ -1,6 +1,28 @@
 """Tests for API Key management and GET /locked-users endpoint."""
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
+
+from lockbot.backend.app.bots.manager import BotNotRunning
+
+
+def _wire_admit(mock_mgr, mock_instance):
+    """Wire a mocked bot_manager so ``with bot_manager.admit(id) as lease`` yields a lease whose
+    ``lease.bot`` is the mocked instance's bot (the endpoints now read/mutate under a lease)."""
+    lease = MagicMock()
+    lease.bot = mock_instance.bot
+    cm = MagicMock()
+    cm.__enter__.return_value = lease
+    cm.__exit__.return_value = False
+    mock_mgr.admit.return_value = cm
+
+
+def _mock_snapshot(mock_instance):
+    """Make a mocked instance answer state_snapshot() with its configured state."""
+    mock_instance.bot.state_snapshot.return_value = (
+        datetime.now(timezone.utc),
+        mock_instance.bot.state.bot_state,
+    )
 
 
 def _sample_bot(name="apibot"):
@@ -87,7 +109,11 @@ class TestLockedUsers:
                 "booking_list": [],
             },
         }
+        # The endpoint now reads through state_snapshot() so the read happens under the
+        # bot's state lock (AC-6.1); mirror that seam on the mock.
+        _mock_snapshot(mock_instance)
         mock_mgr.get_instance.return_value = mock_instance
+        _wire_admit(mock_mgr, mock_instance)
 
         resp = client.get(
             f"/api/bots/{bot_id}/locked-users",
@@ -139,7 +165,9 @@ class TestLockedUsers:
                 {"dev_id": 1, "status": "idle", "current_users": []},
             ]
         }
+        _mock_snapshot(mock_instance)
         mock_mgr.get_instance.return_value = mock_instance
+        _wire_admit(mock_mgr, mock_instance)
 
         resp = client.get(
             f"/api/bots/{bot_id}/locked-users",
@@ -161,6 +189,7 @@ class TestLockedUsers:
     def test_bot_not_running_returns_503(self, mock_mgr, client, admin_header):
         bot_id, api_key = self._setup_bot_with_key(client, admin_header)
         mock_mgr.get_instance.return_value = None
+        mock_mgr.admit.side_effect = BotNotRunning("not running")
 
         resp = client.get(
             f"/api/bots/{bot_id}/locked-users",

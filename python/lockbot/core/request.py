@@ -1,6 +1,5 @@
 """HTTP webhook request utilities."""
 
-import json
 import logging
 import time
 
@@ -71,7 +70,7 @@ def post_webhook(msg, config=None):
 
     responses = []
     for i, new_msg in enumerate(new_msgs):
-        logger.debug("Webhook payload [%d/%d]: %s", i + 1, len(new_msgs), json.dumps(new_msg, ensure_ascii=False))
+        logger.debug("Webhook request [%d/%d]", i + 1, len(new_msgs))
         resp = _post_with_retry(webhook_url, new_msg, _DEFAULT_HEADERS)
         responses.append(resp)
     return responses
@@ -86,27 +85,24 @@ def _post_with_retry(url, payload, headers):
             if 200 <= response.status_code < 300:
                 return (response.status_code, response.text)
             logger.warning(
-                "Webhook POST to %s returned %d (attempt %d/%d): %s",
-                url,
+                "Webhook POST returned %d (attempt %d/%d)",
                 response.status_code,
                 attempt + 1,
                 _MAX_RETRIES + 1,
-                response.text[:200],
             )
         except requests.exceptions.RequestException as e:
             last_exc = e
             logger.warning(
-                "Webhook POST to %s failed (attempt %d/%d): %s",
-                url,
+                "Webhook POST failed (%s; attempt %d/%d)",
+                type(e).__name__,
                 attempt + 1,
                 _MAX_RETRIES + 1,
-                e,
             )
         if attempt < _MAX_RETRIES:
             time.sleep(_RETRY_DELAY)
 
     if last_exc:
-        logger.error("Webhook POST to %s failed after %d attempts: %s", url, _MAX_RETRIES + 1, last_exc)
-        return (None, str(last_exc))
+        logger.error("Webhook POST failed after %d attempts (%s)", _MAX_RETRIES + 1, type(last_exc).__name__)
+        return (None, type(last_exc).__name__)
     # All attempts returned non-2xx — return the last response
     return (response.status_code, response.text)

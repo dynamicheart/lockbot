@@ -29,6 +29,7 @@ _ENV_FALLBACKS = {
     "admin_contact": os.environ.get("ADMIN_CONTACT", ""),
     "github_url": os.environ.get("GITHUB_URL", "https://github.com/dynamicheart/lockbot"),
     "news_content": "",
+    "agent_promotion_enabled": "false",
 }
 
 
@@ -72,6 +73,8 @@ class PlatformStats(BaseModel):
     total_users: int
     total_bots: int
     running_bots: int
+    agent_authorizations: int = 0
+    agent_usage_registrations: int = 0
 
 
 @router.get("/api/public/stats", response_model=PlatformStats)
@@ -83,7 +86,12 @@ def get_public_stats(
     total_users = db.query(sa_func.count(User.id)).scalar()
     total_bots = db.query(sa_func.count(Bot.id)).filter(Bot.is_deleted.is_(False)).scalar()
     running_bots = db.query(sa_func.count(Bot.id)).filter(Bot.is_deleted.is_(False), Bot.status == "running").scalar()
+    from lockbot.backend.app.resource_api.activity import agent_summary
+
+    summary = agent_summary(db, db.query(Bot).filter(Bot.is_deleted.is_(False)).all())
     return PlatformStats(
+        agent_authorizations=summary["authorizations"],
+        agent_usage_registrations=summary["usage_registrations"],
         total_users=total_users,
         total_bots=total_bots,
         running_bots=running_bots,
@@ -111,6 +119,11 @@ def batch_update_settings(
 ):
     """Bulk-update settings. Only known keys are accepted."""
     allowed = set(_ENV_FALLBACKS.keys())
+    for key, value in body.settings.items():
+        if key not in allowed:
+            raise HTTPException(status_code=422, detail=f"Unknown setting key: {key}")
+        if key == "agent_promotion_enabled" and value not in ("true", "false"):
+            raise HTTPException(status_code=422, detail="agent_promotion_enabled must be true or false")
     updated = []
     for key, value in body.settings.items():
         if key not in allowed:
@@ -126,11 +139,8 @@ def batch_update_settings(
     db.commit()
 
     # Invalidate bot site-settings cache so bots pick up changes immediately
-    try:
-        from lockbot.core.base_bot import BaseBot
+    from lockbot.core.base_bot import BaseLockBot
 
-        BaseBot._invalidate_site_cache()
-    except Exception:
-        pass
+    BaseLockBot._invalidate_site_cache()
 
     return {"updated": updated}

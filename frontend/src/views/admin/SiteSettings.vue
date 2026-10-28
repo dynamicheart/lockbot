@@ -36,6 +36,16 @@
             clearable
           />
         </el-form-item>
+        <el-form-item :label="$t('settings.agentPromotion')">
+          <el-switch
+            v-model="form.agent_promotion_enabled"
+            active-value="true"
+            inactive-value="false"
+          />
+          <span style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 12px">
+            {{ $t('settings.agentPromotionHint') }}
+          </span>
+        </el-form-item>
         <el-form-item :label="$t('settings.newsContent')">
           <el-input
             v-model="form.news_content"
@@ -51,6 +61,8 @@
         </el-form-item>
       </el-form>
     </el-card>
+
+    <SiteBroadcast />
 
     <!-- Backup Configuration -->
     <el-card style="margin-top: 20px">
@@ -177,6 +189,7 @@ import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { Check } from '@element-plus/icons-vue'
 import api from '../../utils/api'
+import SiteBroadcast from '../../components/SiteBroadcast.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -186,6 +199,7 @@ const form = ref({
   github_url: '',
   admin_contact: '',
   news_content: '',
+  agent_promotion_enabled: 'false',
 })
 
 // Backup state

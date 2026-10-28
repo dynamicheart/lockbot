@@ -3,7 +3,6 @@ Admin API routes.
 """
 
 import contextlib
-import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -361,7 +360,10 @@ async def apply_restore_backup(
 
     selected_uuids: JSON array of bot UUIDs to restore, e.g. '["uuid1","uuid2"]'
     """
+    import asyncio
     import json as _json
+
+    from sqlalchemy.orm import Session as _Session
 
     from lockbot.backend.app.backup.service import restore_apply
 
@@ -377,8 +379,22 @@ async def apply_restore_backup(
     if not isinstance(uuids, list) or not uuids:
         raise HTTPException(status_code=422, detail="selected_uuids must be a non-empty array")
 
+    # Restore drains live instances (bounded, but seconds) and does blocking zip/SQLite/file IO.
+    # Run it OFF the event loop in a worker thread with its OWN session — bound to the same engine
+    # as the request session, but never the request session itself (sessions are not shared across
+    # threads) — so one restore cannot stall every other request and the worker owns its session
+    # lifecycle end to end (R4e).
+    _bind = db.get_bind()
+
+    def _run_restore():
+        worker_db = _Session(bind=_bind)
+        try:
+            return restore_apply(content, password or None, source_secret_key or None, uuids, _admin.id, worker_db)
+        finally:
+            worker_db.close()
+
     try:
-        result = restore_apply(content, password or None, source_secret_key or None, uuids, _admin.id, db)
+        result = await asyncio.to_thread(_run_restore)
     except ValueError as e:
         err = str(e)
         if err == "BACKUP_PASSWORD_REQUIRED":
@@ -396,6 +412,3 @@ async def apply_restore_backup(
     )
     db.commit()
     return result
-
-
-_DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
