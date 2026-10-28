@@ -204,6 +204,28 @@ repeat, respecting polling intervals and Retry-After:
 An existing task registered during booking is carried forward when you claim with `lock`
 without new metadata. `free <resource>` cancels your booking or releases your lock.
 
+## Read the bot's acquisition rules
+
+When `GET /resources` includes `resource_policy`, read it before acquiring or renewing:
+
+- `forbid_relock`: when true, do not repeat lock/slock to extend your holding or book a
+  resource you currently hold. When claiming a booking, do not exceed its original duration;
+  omitting duration uses the booking's duration. Release and apply again only through the
+  normal queue; releasing does not let you jump ahead of other bookers.
+- `max_resources_per_user`: `-1` means no bot-specific cap; otherwise it limits the combined
+  distinct resources held or booked by this user on this bot. `resource_unit` is `node`
+  for NODE/QUEUE and `card` for DEVICE/QUEUE_DEVICE. `claimed_resource_count` is the current
+  caller's count, not a count of all users or Agent processes.
+- All of the user's Agents and group commands share that allowance. Coordinate tasks before
+  requesting more resources; a different Agent name or key does not create extra capacity.
+  Claiming an existing booking does not add another allocation. Lowering a cap does not
+  evict existing allocations, but can prevent acquiring additional resources.
+
+These bot rules are additional to API traffic budgets and the existing API machine-count
+protection; a card quota does not redefine the published machine-count limit. If an older
+service omits `resource_policy`, do not assume these new rules are available. Follow its
+actual replies and verify live holdings; a dispatched command is not proof of acquisition.
+
 ## Resource command reference
 
 Send JSON to `POST /api/bots/{bot_id}/commands` using the personal Bearer key. Obtain the
@@ -250,7 +272,7 @@ The examples below use placeholder resources; replace them with those returned b
   contiguous card indexes for multi-resource tasks. Do not reserve extra machines merely
   to obtain a consecutive block, or assume consecutive names imply hardware locality.
 - Set an explicit lease duration that fits the work. Avoid unnecessarily long locks or
-  reserving capacity "just in case". For long tasks, renew in bounded increments only
+  reserving capacity "just in case". Only when renewal is permitted, renew long-running tasks in bounded increments
   while actively using the resources, after verifying current ownership and remaining time.
   Repeated `lock` adds time; never renew on every poll or blindly retry a renewal.
 - On completion, cancellation, failure that stops resource use, or a long pause, promptly
