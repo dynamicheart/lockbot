@@ -140,5 +140,7 @@ def test_query_groups_machine_once_and_keeps_each_cards_queue(bot, language, dis
     first, second = usage.split("  dev1", 1)
     assert "  dev0" in first and "alice" in first and "bob" in first and "carol" not in first
     assert "carol" in second and "bob" not in second
-    assert ("(" in usage) is display_model
+    model = bot.config.get_val("CLUSTER_CONFIGS")["node1"][0]
+    first_card_line = next(line for line in usage.splitlines() if line.startswith("  dev0"))
+    assert (model in first_card_line) is display_model
     assert bot.state.bot_state == before

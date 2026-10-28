@@ -49,7 +49,7 @@ class QueueDeviceBot(QueueBot):
     def _card_label(self, node, index):
         label = f"dev{index}"
         if self.config.get_val("DISPLAY_DEVICE_MODEL"):
-            label += f" ({self.config.get_val('CLUSTER_CONFIGS')[node][int(index)]})"
+            label += f" {self.config.get_val('CLUSTER_CONFIGS')[node][int(index)]}"
         return label
 
     def _usage_labels(self, resource_key):

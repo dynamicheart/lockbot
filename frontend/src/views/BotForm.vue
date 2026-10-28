@@ -79,6 +79,7 @@
         :cluster-configs="clusterConfig"
         :node-aliases="advancedConfig.NODE_ALIASES"
         :show-node-alias="advancedConfig.SHOW_NODE_ALIAS"
+        :display-device-model="advancedConfig.DISPLAY_DEVICE_MODEL"
       />
 
       <el-divider />

@@ -11,7 +11,29 @@
         <h3>
           {{ group.label }} <span>{{ group.rows.length }}</span>
         </h3>
-        <div v-if="group.rows.length" class="quick-grid">
+        <div v-if="group.key === 'idle' && group.rows.length" class="idle-resources">
+          <div
+            v-for="machine in idleMachines"
+            :key="machine.id"
+            class="idle-machine"
+            :class="{ 'node-only': !machine.hasCards }"
+          >
+            <span v-if="machine.hasCards" class="idle-machine-name">{{ machine.name }}</span>
+            <button
+              v-for="row in machine.rows"
+              :key="row.id"
+              type="button"
+              class="resource-chip"
+              :class="{ selected: selectedId === row.id }"
+              :aria-label="row.display_name || row.id"
+              :title="row.display_name || row.id"
+              @click="$emit('select', row.id)"
+            >
+              {{ cardName(row) || nodeName(row) }}
+            </button>
+          </div>
+        </div>
+        <div v-else-if="group.rows.length" class="quick-grid">
           <button
             v-for="row in group.rows"
             :key="row.id"
@@ -60,6 +82,16 @@ const groups = computed(() => [
 const cardName = (row) => row.id.match(/:dev([0-9]+)$/)?.[0].slice(1) || ''
 const nodeName = (row) =>
   cardName(row) ? row.id.slice(0, row.id.lastIndexOf(':dev')) : row.display_name || row.id
+const idleMachines = computed(() => {
+  const machines = new Map()
+  for (const row of props.resources.filter(isIdleResource)) {
+    const name = nodeName(row)
+    const id = cardName(row) ? name : row.id
+    if (!machines.has(id)) machines.set(id, { id, name, hasCards: !!cardName(row), rows: [] })
+    machines.get(id).rows.push(row)
+  }
+  return [...machines.values()]
+})
 function owners(row) {
   const names = row.holders.map((user) => user.external_user_id || user.user_id).filter(Boolean)
   return names.length
@@ -99,20 +131,60 @@ h3 span {
 }
 .quick-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 8px;
 }
-.idle-group .quick-grid {
-  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
-  max-height: 90px;
+.idle-resources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  max-height: 132px;
   overflow-y: auto;
 }
-.idle-group .resource-chip {
+.idle-machine {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid var(--lb-border-color);
+  border-radius: 4px;
+  font-size: 12px;
 }
-.idle-group .resource-owner,
-.idle-group .queue-count {
-  display: none;
+.idle-machine-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.idle-machine .resource-chip {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-color: transparent;
+  background: var(--el-fill-color-light);
+  color: var(--lb-text-secondary);
+  overflow-wrap: anywhere;
+}
+.idle-machine.node-only {
+  padding: 0;
+  border: 0;
+}
+.idle-machine.node-only .resource-chip {
+  padding: 10px 12px;
+  border-color: var(--lb-border-color);
+  background: var(--lb-bg-card);
+  color: var(--lb-text-primary);
+  font-weight: 600;
+}
+.idle-machine .resource-chip:hover,
+.idle-machine .resource-chip:focus-visible,
+.idle-machine .resource-chip.selected {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
 }
 .resource-chip {
   display: grid;

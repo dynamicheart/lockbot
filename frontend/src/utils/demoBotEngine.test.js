@@ -48,6 +48,19 @@ describe('deviceUsageText merging', () => {
     expect(result).toContain('h100')
   })
 
+  it('honours forced model display without changing device grouping', () => {
+    const state = {
+      node0: [
+        { dev_id: 0, dev_model: 'a100', status: 'idle', current_users: [] },
+        { dev_id: 1, dev_model: 'a100', status: 'idle', current_users: [] },
+      ],
+    }
+    const config = { CLUSTER_CONFIGS: { node0: ['a100', 'a100'] }, DISPLAY_DEVICE_MODEL: true }
+    const result = executeCommand(state, 'alice', '', 'DEVICE', config, 'zh')
+    expect(result).toContain('a100')
+    expect(result).toContain('dev0-1')
+  })
+
   it('merges consecutive locked devices with same user/status', () => {
     const state = {
       node0: [
