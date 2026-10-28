@@ -19,7 +19,7 @@ from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.resources import snapshot_cache
 from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
-from lockbot.backend.app.resource_api.view_links import verify_view
+from lockbot.backend.app.resource_api.view_links import compact_view_path, verify_view
 from lockbot.core.platforms.registry import normalize_platform_name
 
 router = APIRouter(prefix="/api/bot-views", tags=["Read-only resource view"])
@@ -82,6 +82,7 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
         "bot_type": bot.bot_type,
         "server_time": _iso(utcnow()),
         "view_expires_at": _iso(window.expires_at),
+        "view_path": compact_view_path(db, window),
     }
     try:
         with bot_manager.admit(bot_id, for_read=True) as lease:
@@ -124,6 +125,7 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
                 "health": lease.health or bot.status,
                 "server_time": _iso(utcnow()),
                 "view_expires_at": _iso(window.expires_at),
+                "view_path": compact_view_path(db, window),
                 "captured_at": captured_at.isoformat(),
                 "age_seconds": max(0, (datetime.now(timezone.utc) - captured_at).total_seconds()),
                 "resources": resources,

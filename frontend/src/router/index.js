@@ -16,6 +16,12 @@ import { isDemoMode, LS_KEYS } from '../utils/demoMode'
 
 const routes = [
   {
+    path: '/r/:id/:code',
+    name: 'CompactBotResourceView',
+    component: () => import('../views/BotResourceView.vue'),
+    meta: { resourceView: true },
+  },
+  {
     path: '/bot/:id',
     name: 'BotResourceView',
     component: () => import('../views/BotResourceView.vue'),

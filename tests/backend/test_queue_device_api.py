@@ -115,7 +115,8 @@ def test_card_readonly_view_includes_full_queue_and_omits_caller_fields(client, 
     command(client, cards, "lock n1 dev0 1h", purpose="Develop")
     command(client, cards, "book n1 dev0 30m", other=True, purpose="Regression")
     context = client.get("/api/agent/context", headers=cards["headers"]).json()
-    token = parse_qs(urlsplit(context["view_url"]).fragment.split("?", 1)[1])["view"][0]
+    fragment = urlsplit(context["view_url"]).fragment
+    token = fragment.rsplit("/", 1)[1] if fragment.startswith("/r/") else parse_qs(fragment.split("?", 1)[1])["view"][0]
     payload = client.get(f"/api/bot-views/{cards['bot_id']}/state", headers={"Authorization": "Bearer " + token})
     assert payload.status_code == 200, payload.text
     device = payload.json()["resources"][0]["devices"][0]

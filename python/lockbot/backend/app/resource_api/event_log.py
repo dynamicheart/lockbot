@@ -16,7 +16,7 @@ MAX_BYTES = 5 * 1024 * 1024
 BACKUPS = 9
 _write_lock = threading.Lock()
 _secrets = re.compile(
-    r"(?:lbr_|lbk_)[A-Za-z0-9_-]+|lbv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"/#/r/[0-9]+/[A-Za-z0-9_-]{22}|(?:lbr_|lbk_)[A-Za-z0-9_-]+|lbv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|(?i:Bearer\s+\S+)"
 )
