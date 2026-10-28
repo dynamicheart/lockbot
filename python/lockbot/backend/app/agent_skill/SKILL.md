@@ -58,6 +58,40 @@ user-approved origin (and HTTPS where available) remains the credential destinat
 The server cannot erase an Agent's earlier memories: keep the scope explicit in its private
 configuration and use this namespaced skill for requests to this implementation.
 
+## Keep credentials and resource assignments scoped
+
+Manage several Lockbot connections with this skill. Keep a private connection record for
+**approved origin + instance_id + bot UUID + verified user**, with a friendly name and a
+reference to its securely stored key. Learn the bot UUID/user from `/api/agent/context`;
+people do not need to manage these identifiers. Keep the last verified skill revision per
+service instance. Never put keys in this skill, public notes, or task-purpose text.
+
+For example, **service A / bot A / node1** and **service B / bot B / node1** are different
+resources, even though both are called `node1`. Different bots on the same service are also
+separate scopes. Select the intended connection first, load only its key, and verify its
+context before use. If several connections could match the task, ask which bot/group the
+user means; do not cycle through keys or try remembered keys against other servers.
+
+A key authorizes **one user on one bot**, not one resource or one Agent. The user's Agents
+share that key but track their own tasks separately:
+
+- Associate each task allocation with **origin + instance_id + bot UUID + resource ID**,
+  its Agent name/purpose, and the last verified holding/booking (`start_time` and
+  `expires_at` when present). For card queues use the
+  returned card `resource_id`, such as `node1:dev0`, in this private record; command syntax
+  remains `lock node1 dev0`, not `lock node1:dev0`.
+- Choose the credential by that bot scope, never by a bare machine/card name. Record which
+  exact machines/cards this task acquired or booked; another Agent sharing the key may be
+  working on other resources.
+- A saved key/resource association is not proof of a current lease. Read `/resources` to
+  confirm ownership and queue state before starting/resuming work and during long tasks.
+  The same user may have released and reacquired a card through another Agent: if the
+  saved lease/task no longer matches, pause and coordinate rather than assuming it is still
+  this task's resource or releasing it just because the user identity matches.
+- At task completion, release/cancel only this task's explicit resources/cards, then verify
+  the result. Avoid bare `free`/`unlock`, which affects the user's other Agents too. Retain
+  the shared key; do not unbind it merely because one task has finished.
+
 ## Share a resource/queue page with the user
 
 When the user wants to view resources or queue order in a browser, use `view_url` and
