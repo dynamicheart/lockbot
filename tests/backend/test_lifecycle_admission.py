@@ -59,12 +59,12 @@ class TestSchedulerSweepAdmission:
         check.assert_not_called()
         assert sched._failure_counts.get(7, 0) == 0, "an admission refusal is not a bot failure"
 
-    def test_standalone_sweep_calls_check_directly(self):
+    def test_sweep_without_admission_is_skipped(self):
         check = MagicMock(return_value=None)
         sched = BotScheduler()
         sched.add(7, _fake_instance(check), delay=0.0)  # no admission injected
         sched._fire_due()
-        check.assert_called_once()
+        check.assert_not_called()
 
 
 class TestConstructOutsideLock:

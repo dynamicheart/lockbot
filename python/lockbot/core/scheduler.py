@@ -2,8 +2,7 @@
 scheduler.py - Min-heap based bot scheduler.
 
 Replaces per-bot threading.Timer with a single background thread.
-Supports both standalone mode (BotInstance self-contained) and
-managed mode (BotManager injects a shared instance).
+BotManager owns the shared instance and supplies admission for every sweep.
 """
 
 from __future__ import annotations
@@ -34,34 +33,22 @@ class _AdmissionRefused(Exception):
 class BotScheduler:
     """Single background thread + min-heap driving all bot timer checks.
 
-    Standalone mode:
-        BotInstance creates its own BotScheduler and registers itself.
-        Scheduler starts automatically; stops when BotInstance.shutdown() is called.
-
-    Managed mode:
-        BotManager creates one shared BotScheduler, injects it into every
-        BotInstance via the ``scheduler`` constructor parameter, and calls
-        scheduler.add(bot_id, instance) / scheduler.remove(bot_id) explicitly.
+    Every sweep requires a platform admission lease.
     """
 
-    def __init__(self, managed: bool = False) -> None:
+    def __init__(self) -> None:
         self._instances: dict[int, BotInstance] = {}
         # heap entries: (fire_at, generation, bot_id)
         self._heap: list[tuple[float, int, int]] = []
         self._gens: dict[int, int] = {}  # bot_id → current generation
         self._failure_counts: dict[int, int] = {}  # bot_id → consecutive failure count
         self._callbacks: dict[int, Callable[[int], None]] = {}  # bot_id → on_fatal_error
-        # bot_id → admission context factory. Managed mode injects the manager's lease so each
-        # sweep is counted and a lifecycle drain waits for it; standalone mode leaves it unset.
+        # bot_id → manager admission factory. Each sweep holds a lifecycle lease;
+        # a missing admission means the registration is retired.
         self._admissions: dict[int, Callable[[int], object]] = {}
         # bot_id → highest manager generation ever registered. A high-water mark (never cleared
         # on remove) so a late ``add`` from a superseded start cannot overwrite a newer instance.
         self._mgr_gens: dict[int, int] = {}
-        # Managed mode: a BotManager owns this scheduler and injects an admission factory for
-        # every registration. A missing admission therefore means the registration was removed
-        # (retired), and the sweep must be skipped — never run raw. Standalone mode has no
-        # admission and runs the single registered instance directly.
-        self._managed = managed
         self._lock = threading.Lock()
         # Per-thread "expected manager generation" for the next remove() call. A remover
         # (lifecycle stop or the scheduler's own fatal path) captures the generation it intends
@@ -224,7 +211,7 @@ class BotScheduler:
         return _IDLE_INTERVAL
 
     def _run_check(self, bot_id: int, instance: BotInstance) -> float | None:
-        """Run one sweep, under an admission lease if one is injected.
+        """Run one sweep under the platform admission lease.
 
         Raises :class:`_AdmissionRefused` if a managed lease could not be taken (the bot is
         retiring or gone); any exception from ``_check_and_notify`` itself propagates as a
@@ -232,12 +219,8 @@ class BotScheduler:
         """
         admission = self._admissions.get(bot_id)
         if admission is None:
-            if self._managed:
-                # Managed mode: a missing admission means this registration was removed/retired
-                # between the due capture and now. Never fall back to raw standalone execution —
-                # that would run a retired instance without a lease. Skip the sweep.
-                raise _AdmissionRefused
-            return instance.bot._check_and_notify()
+            # A removed/retiring registration must never run outside a lease.
+            raise _AdmissionRefused
         # The due entry captured *instance*. If it is no longer the current registration (a
         # stop+start published a replacement while this sweep was pending), skip: a stale due
         # entry must not sweep the replacement, and the replacement has its own due entry.
@@ -254,7 +237,7 @@ class BotScheduler:
             # not this registration snapshot. If a stale registration briefly lingers (a start
             # racing a stop+restart), the lease still points at the live instance, so a retired
             # object is never swept. Fall back to the registered instance if the lease does not
-            # expose one (standalone admissions are not injected, so this is managed-only).
+            # expose one.
             target_bot = getattr(lease, "bot", None)
             if target_bot is None:
                 target_bot = instance.bot

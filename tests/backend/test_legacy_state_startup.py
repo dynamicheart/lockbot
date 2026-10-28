@@ -66,7 +66,7 @@ def test_upgrade_loads_holders_and_queue_through_existing_core(db_session, kind,
     assert target.read_bytes() == original and target.stat().st_mode & 0o777 == 0o640
     assert target.stat().st_nlink == 1 and not source.exists()
     assert_state_store_ready(db_session, config.MANAGED_PATHS)
-    instance = BotInstance(kind, _build_config_dict(bot, db_session), auto_start=False)
+    instance = BotInstance(kind, _build_config_dict(bot, db_session))
     _, loaded = instance.bot.state_snapshot()
     actual = loaded["n1"][0] if kind == "DEVICE" else loaded["n1"]
     assert actual["current_users"] == [holder]

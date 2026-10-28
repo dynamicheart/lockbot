@@ -6,13 +6,16 @@ and fatal-error callback without real time delays.
 """
 
 import time
+from contextlib import nullcontext
 from unittest.mock import MagicMock, patch
 
 from lockbot.core.scheduler import (
     _BACKOFF_SEC,
     _IDLE_INTERVAL,
     _MAX_CONSECUTIVE_FAILURES,
-    BotScheduler,
+)
+from lockbot.core.scheduler import (
+    BotScheduler as PlatformScheduler,
 )
 
 
@@ -22,6 +25,14 @@ def _make_instance(return_value=None):
     inst.bot._check_and_notify.return_value = return_value
     inst.config.get_val.return_value = "test_bot"
     return inst
+
+
+class BotScheduler(PlatformScheduler):
+    """Unit-test admissions; production registrations use the manager lease."""
+
+    def add(self, *args, **kwargs):
+        kwargs.setdefault("admission", lambda _: nullcontext())
+        return super().add(*args, **kwargs)
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

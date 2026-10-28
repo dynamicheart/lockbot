@@ -52,6 +52,9 @@ Key design decisions:
 └─────────────────────┘
 ```
 
+This example is a separate optional service. Flask belongs to this example's dependencies,
+not the main Lockbot platform; install it explicitly using the command below.
+
 ## Setup
 
 1. Copy `config.example.json` to `config.json` and fill in your values:

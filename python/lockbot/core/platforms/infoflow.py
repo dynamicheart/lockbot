@@ -187,9 +187,9 @@ class InfoflowAdapter(MessageAdapter):
         return "".join(parts)
 
     def _get_config(self, key, default=None):
-        """Get config value from instance config or global Config."""
-        if self.config:
+        """Get config value from instance config or fresh defaults."""
+        if self.config is not None:
             return self.config.get_val(key, default)
         from lockbot.core.config import Config
 
-        return Config.get(key, default)
+        return Config().get_val(key, default)
