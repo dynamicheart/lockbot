@@ -50,6 +50,15 @@
           })
         }}
       </p>
+      <ResourceUtilization
+        :key="String(route.params.id)"
+        :bot-id="route.params.id"
+        :nodes="snapshot.resources.map((node) => node.id)"
+        :resources="metricResourceIds"
+        :allowed="!invalid && !failed && snapshot.health === 'running'"
+        :device-resources="snapshot.resources.some((node) => node.devices)"
+        @change="metrics = $event"
+      />
       <p v-if="failed" class="view-status">{{ $t('resourceView.unavailable') }}</p>
       <el-empty v-if="snapshot.health !== 'running'" :description="$t('resourceView.stopped')" />
       <el-empty v-else-if="!snapshot.resources.length" :description="$t('resourceView.empty')" />
@@ -63,7 +72,16 @@
           :server-offset="serverOffset"
           :show-overview="false"
           quick-overview
-        />
+        >
+          <template v-if="metrics.enabled" #metrics="{ row }">
+            <ResourceMetricsCell
+              v-bind="metrics"
+              :node-id="row.metric_node_id || row.id"
+              :resource-id="row.metric_resource_id || null"
+              :now="clock"
+            />
+          </template>
+        </ResourceStatusList>
       </section>
       <div v-else class="resource-grid">
         <article v-for="resource in snapshot.resources" :key="resource.id" class="resource-card">
@@ -85,6 +103,13 @@
                   statusText(device)
                 }}</el-tag>
               </div>
+              <ResourceMetricsCell
+                v-if="metrics.enabled"
+                v-bind="metrics"
+                :node-id="resource.id"
+                :resource-id="device.resource_id || `${resource.id}:dev${device.id}`"
+                :now="clock"
+              />
               <ResourceParticipants
                 :users="participants(device.holders)"
                 :resource-id="device.resource_id || resource.id"
@@ -151,12 +176,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import ResourceParticipants from '../components/ResourceParticipants.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
+import ResourceUtilization from '../components/ResourceUtilization.vue'
+import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
 const snapshot = ref(null)
+const metrics = ref({ enabled: false, config: null, snapshot: null, error: null })
 const loading = ref(false)
 const invalid = ref(false)
 const failed = ref(false)
@@ -270,12 +298,19 @@ const displayResources = computed(() =>
           ...device,
           id: device.resource_id,
           display_name: `${node.id} dev${device.id}`,
+          metric_node_id: node.id,
+          metric_resource_id: device.resource_id,
           alias: [node.alias, device.dev_model].filter(Boolean).join(' · '),
         }))
       )
     : snapshot.value?.resources || []
 )
 
+const metricResourceIds = computed(() =>
+  (snapshot.value?.resources || []).flatMap((node) =>
+    (node.devices || []).map((device) => device.resource_id || `${node.id}:dev${device.id}`)
+  )
+)
 const usage = computed(() =>
   (snapshot.value?.resources || []).flatMap((resource) => {
     const entries = [resource, ...(resource.devices || [])]
