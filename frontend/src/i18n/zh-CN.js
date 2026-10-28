@@ -155,7 +155,8 @@ export default {
         step1: '1. 在飞书开放平台创建自建应用，开启「机器人」功能',
         step2:
           '2. 在「开发配置 → 事件与回调」中填写本机器人的回调地址，订阅 im.message.receive_v1 事件',
-        step3: '3. 填写 App ID、App Secret 和 Verification Token；如需加密可配置 Encrypt Key',
+        step3:
+          '3. 开通 contact:contact.base:readonly、contact:user.base:readonly 以显示锁定者姓名；填写凭证并发布版本',
       },
     },
     optional: '可选',

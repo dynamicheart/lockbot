@@ -34,9 +34,19 @@ from fastapi.responses import JSONResponse
 LOGGER = logging.getLogger("feishu_echo")
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 MESSAGE_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+USER_URL = "https://open.feishu.cn/open-apis/contact/v3/users"
 MAX_TIMESTAMP_AGE_SECONDS = 300
 RECENT_EVENT_TTL_SECONDS = 600
-REDACTED_FIELDS = {"app_secret", "authorization", "encrypt_key", "tenant_access_token", "token"}
+USER_NAME_TTL_SECONDS = 6 * 3600
+REDACTED_FIELDS = {
+    "app_secret",
+    "authorization",
+    "cookie",
+    "encrypt_key",
+    "set-cookie",
+    "tenant_access_token",
+    "token",
+}
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -97,6 +107,7 @@ class RuntimeState:
     token: str = ""
     token_expires_at: float = 0
     recent_events: dict[str, float] = field(default_factory=dict)
+    user_names: dict[str, tuple[str, float]] = field(default_factory=dict)
     lock: threading.Lock = field(default_factory=threading.Lock)
 
     def claim_event(self, event_id: str) -> bool:
@@ -191,6 +202,17 @@ def redact(value: Any, key: str = "") -> Any:
     return value
 
 
+def trace(settings: Settings, event: str, **details: Any) -> None:
+    """Write one structured, recursively redacted diagnostic record."""
+    if not settings.log_raw:
+        return
+    LOGGER.info(
+        "trace event=%s data=%s",
+        event,
+        json.dumps(redact(details), ensure_ascii=False, sort_keys=True, default=str),
+    )
+
+
 def extract_text(message: dict[str, Any]) -> str:
     try:
         content = json.loads(str(message.get("content", "{}")))
@@ -259,13 +281,29 @@ def get_tenant_access_token(settings: Settings, runtime: RuntimeState) -> str:
         if runtime.token and now < runtime.token_expires_at - 60:
             return runtime.token
 
-    response = requests.post(
-        TOKEN_URL,
-        json={"app_id": settings.app_id, "app_secret": settings.app_secret},
+    request_body = {"app_id": settings.app_id, "app_secret": settings.app_secret}
+    trace(
+        settings,
+        "token_request",
+        method="POST",
+        url=TOKEN_URL,
+        headers={"Content-Type": "application/json"},
+        json=request_body,
         timeout=10,
     )
+    response = requests.post(TOKEN_URL, json=request_body, timeout=10)
+    try:
+        data = response.json()
+    except ValueError:
+        data = {"raw_body": response.text}
+    trace(
+        settings,
+        "token_response",
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        json=data,
+    )
     response.raise_for_status()
-    data = response.json()
     if data.get("code") != 0 or not data.get("tenant_access_token"):
         raise RuntimeError(f"tenant_access_token failed: code={data.get('code')} msg={data.get('msg', '')}")
 
@@ -285,31 +323,98 @@ def send_text(
     if receive_id_type not in {"open_id", "chat_id"}:
         raise ValueError("receive_id_type must be open_id or chat_id")
     token = get_tenant_access_token(settings, runtime)
-    response = requests.post(
-        f"{MESSAGE_URL}?receive_id_type={receive_id_type}",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
-        json={
-            "receive_id": receive_id,
-            "msg_type": "text",
-            "content": json.dumps({"text": text}, ensure_ascii=False),
-        },
+    url = f"{MESSAGE_URL}?receive_id_type={receive_id_type}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"}
+    request_body = {
+        "receive_id": receive_id,
+        "msg_type": "text",
+        "content": json.dumps({"text": text}, ensure_ascii=False),
+    }
+    trace(
+        settings,
+        "message_request",
+        method="POST",
+        url=url,
+        query={"receive_id_type": receive_id_type},
+        headers=headers,
+        json=request_body,
         timeout=10,
     )
+    response = requests.post(url, headers=headers, json=request_body, timeout=10)
+    try:
+        data = response.json()
+    except ValueError:
+        data = {"raw_body": response.text}
+    trace(
+        settings,
+        "message_response",
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        json=data,
+    )
     response.raise_for_status()
-    data = response.json()
     if data.get("code") != 0:
         raise RuntimeError(f"send message failed: code={data.get('code')} msg={data.get('msg', '')}")
     return data
 
 
-def send_echo(settings: Settings, runtime: RuntimeState, message: dict[str, str]) -> None:
-    reply = f"收到{message['chat_type']}消息：{message['text']}"
+def get_user_name(settings: Settings, runtime: RuntimeState, open_id: str) -> str:
+    """Resolve and cache a sender display name without exposing credentials."""
+    if not open_id.startswith("ou_"):
+        return ""
+    now = time.time()
+    with runtime.lock:
+        cached = runtime.user_names.get(open_id)
+        if cached and now < cached[1]:
+            return cached[0]
+
+    token = get_tenant_access_token(settings, runtime)
+    url = f"{USER_URL}/{open_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"}
+    query = {"user_id_type": "open_id"}
+    trace(
+        settings,
+        "user_request",
+        method="GET",
+        url=url,
+        query=query,
+        headers=headers,
+        timeout=10,
+    )
+    response = requests.get(url, params=query, headers=headers, timeout=10)
     try:
+        data = response.json()
+    except ValueError:
+        data = {"raw_body": response.text}
+    trace(
+        settings,
+        "user_response",
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        json=data,
+    )
+    response.raise_for_status()
+    if data.get("code") != 0:
+        raise RuntimeError(f"get user failed: code={data.get('code')} msg={data.get('msg', '')}")
+    user = data.get("data", {}).get("user", {})
+    name = str(user.get("name") or "").strip() if isinstance(user, dict) else ""
+    with runtime.lock:
+        runtime.user_names[open_id] = (name, now + USER_NAME_TTL_SECONDS)
+    return name
+
+
+def send_echo(settings: Settings, runtime: RuntimeState, message: dict[str, str]) -> None:
+    try:
+        sender_name = get_user_name(settings, runtime, message["open_id"])
+        sender_label = sender_name or message["open_id"]
+        mention = f'<at user_id="{message["open_id"]}"></at> ' if message["chat_type"] == "group" else ""
+        reply = f"{mention}收到{message['chat_type']}消息（{sender_label}）：{message['text']}"
         send_text(settings, runtime, message["receive_id_type"], message["receive_id"], reply)
         LOGGER.info(
-            "reply sent chat_type=%s receive_id_type=%s message_id=%s",
+            "reply sent chat_type=%s receive_id_type=%s sender_name=%s message_id=%s",
             message["chat_type"],
             message["receive_id_type"],
+            sender_name or "unresolved",
             message["message_id"],
         )
     except Exception:
@@ -343,13 +448,21 @@ def create_app(settings: Settings | None = None, runtime: RuntimeState | None = 
         headers = {key.lower(): value for key, value in request.headers.items()}
 
         try:
+            envelope = json.loads(raw_body)
             payload = decode_event(raw_body, settings.encrypt_key)
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             LOGGER.warning("callback rejected: invalid payload: %s", exc)
             return JSONResponse({"error": "invalid payload"}, status_code=400)
 
-        if settings.log_raw:
-            LOGGER.debug("callback payload=%s", json.dumps(redact(payload), ensure_ascii=False, sort_keys=True))
+        trace(
+            settings,
+            "callback_request",
+            method=request.method,
+            url=str(request.url),
+            headers=headers,
+            envelope=envelope,
+            decrypted_payload=payload,
+        )
 
         supplied_token = verification_token(payload)
         if settings.verification_token and not hmac.compare_digest(settings.verification_token, supplied_token):
@@ -378,7 +491,9 @@ def create_app(settings: Settings | None = None, runtime: RuntimeState | None = 
             LOGGER.info("event acknowledged without reply event_type=%s", event_type)
             return JSONResponse({"code": 0})
 
-        dedupe_key = message["event_id"] or message["message_id"]
+        # Feishu explicitly recommends message_id for duplicate-message
+        # suppression; event_id can change when the same message is retried.
+        dedupe_key = message["message_id"] or message["event_id"]
         if not runtime.claim_event(dedupe_key):
             LOGGER.info(
                 "duplicate event acknowledged event_id=%s message_id=%s",
@@ -422,6 +537,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def configure_logging() -> None:
+    """Log to the terminal and an ignored local file for later inspection."""
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    log_file = os.environ.get("FEISHU_LOG_FILE", "logs/feishu_echo.log").strip()
+    if log_file:
+        log_path = Path(log_file).expanduser()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(log_path, encoding="utf-8"))
+    logging.basicConfig(
+        level=os.environ.get("FEISHU_LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        handlers=handlers,
+    )
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -451,8 +581,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=os.environ.get("FEISHU_LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
     raise SystemExit(main())

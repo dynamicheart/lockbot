@@ -46,12 +46,12 @@ _feishu_event_lock = threading.Lock()
 _DEFAULT_DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
 
-def _claim_feishu_event(bot_id: int, event_id: str) -> bool:
-    """Claim a Feishu event for in-process TTL deduplication."""
-    if not event_id:
+def _claim_feishu_event(bot_id: int, message_key: str) -> bool:
+    """Claim a Feishu message for in-process TTL deduplication."""
+    if not message_key:
         return True
     now = time.time()
-    key = (bot_id, event_id)
+    key = (bot_id, message_key)
     with _feishu_event_lock:
         expired = [item for item, seen_at in _feishu_recent_events.items() if now - seen_at > _FEISHU_EVENT_TTL_SECONDS]
         for item in expired:
@@ -1068,7 +1068,8 @@ async def webhook(bot_id: int, request: Request, background_tasks: BackgroundTas
         if isinstance(instance.bot.adapter, FeishuAdapter):
             lower_headers = {key.lower(): value for key, value in headers.items()}
             text, code, meta, prepared_feishu_message = instance.bot.adapter.prepare_webhook(body, lower_headers)
-            if prepared_feishu_message is not None and not _claim_feishu_event(bot_id, meta.get("event_id", "")):
+            dedupe_key = meta.get("message_id") or meta.get("event_id", "")
+            if prepared_feishu_message is not None and not _claim_feishu_event(bot_id, dedupe_key):
                 logger.info(
                     "[Webhook] duplicate Feishu event ignored: bot=%d event_id=%s",
                     bot_id,
@@ -1159,7 +1160,8 @@ async def _reply_bot_not_running(
         text, code, meta, msg_data = adapter.prepare_webhook(body, lower_headers)
         if msg_data is None:
             return _webhook_response(text, code, meta)
-        if not _claim_feishu_event(bot_id, meta.get("event_id", "")):
+        dedupe_key = meta.get("message_id") or meta.get("event_id", "")
+        if not _claim_feishu_event(bot_id, dedupe_key):
             return PlainTextResponse(content="ok", status_code=200)
 
         user_id = meta.get("user_id", "")

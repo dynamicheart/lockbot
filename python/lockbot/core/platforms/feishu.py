@@ -30,8 +30,11 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
+import threading
 import time
+from pathlib import Path
 
 import requests
 
@@ -45,8 +48,17 @@ _MAX_TIMESTAMP_AGE = 300
 # tenant_access_token cache: keyed by (app_id, app_secret) → (token, expire_at)
 _TOKEN_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 
+# Sender display-name cache: keyed by (app_id, open_id) → (name, expire_at).
+# Empty names are cached briefly so a missing permission does not trigger one
+# contact API request per message.
+_USER_NAME_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
+_USER_NAME_CACHE_LOCK = threading.Lock()
+_USER_NAME_TTL_SECONDS = 6 * 3600
+_USER_NAME_FAILURE_TTL_SECONDS = 5 * 60
+
 _FEISHU_TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 _FEISHU_MSG_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+_FEISHU_USER_URL = "https://open.feishu.cn/open-apis/contact/v3/users"
 
 
 def _get_tenant_access_token(app_id: str, app_secret: str) -> str:
@@ -78,6 +90,56 @@ def _get_tenant_access_token(app_id: str, app_secret: str) -> str:
     except Exception:
         logger.exception("[Feishu] Exception fetching tenant_access_token: app_id=%s", app_id)
         return ""
+
+
+def _get_user_name(app_id: str, app_secret: str, open_id: str) -> str:
+    """Resolve a sender Open ID to a display name using Feishu Contact v3."""
+    if not app_id or not app_secret or not open_id.startswith("ou_"):
+        return ""
+
+    cache_key = (app_id, open_id)
+    now = time.time()
+    with _USER_NAME_CACHE_LOCK:
+        cached = _USER_NAME_CACHE.get(cache_key)
+        if cached and now < cached[1]:
+            return cached[0]
+
+    token = _get_tenant_access_token(app_id, app_secret)
+    if not token:
+        return ""
+
+    name = ""
+    ttl = _USER_NAME_FAILURE_TTL_SECONDS
+    try:
+        resp = requests.get(
+            f"{_FEISHU_USER_URL}/{open_id}",
+            params={"user_id_type": "open_id"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            timeout=10,
+        )
+        data = resp.json()
+        user = data.get("data", {}).get("user", {}) if isinstance(data, dict) else {}
+        if resp.status_code == 200 and data.get("code") == 0 and isinstance(user, dict):
+            name = str(user.get("name") or "").strip()
+            ttl = _USER_NAME_TTL_SECONDS if name else _USER_NAME_FAILURE_TTL_SECONDS
+        else:
+            logger.warning(
+                "[Feishu] user-name lookup failed: open_id=%s status=%d code=%s msg=%s log_id=%s",
+                open_id,
+                resp.status_code,
+                data.get("code") if isinstance(data, dict) else None,
+                data.get("msg", "") if isinstance(data, dict) else "invalid JSON response",
+                resp.headers.get("X-Tt-Logid", ""),
+            )
+    except Exception:
+        logger.exception("[Feishu] user-name lookup crashed: open_id=%s", open_id)
+
+    with _USER_NAME_CACHE_LOCK:
+        _USER_NAME_CACHE[cache_key] = (name, now + ttl)
+    return name
 
 
 def _decrypt_aes_cbc(encrypt_key: str, encrypted_b64: str) -> dict | None:
@@ -121,6 +183,66 @@ class FeishuAdapter(MessageAdapter):
 
     def __init__(self, config=None):
         self.config = config
+        self._user_names_lock = threading.Lock()
+        self._user_names = self._load_user_names()
+
+    def _user_names_path(self) -> Path | None:
+        if self.config is None:
+            return None
+        try:
+            state_filename = self.config.get_val("STATE_FILENAME")
+        except Exception:
+            return None
+        if not state_filename:
+            return None
+        return Path(str(state_filename)).with_name("feishu_user_names.json")
+
+    def _load_user_names(self) -> dict[str, str]:
+        path = self._user_names_path()
+        if path is None or not path.is_file():
+            return {}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return {}
+            return {
+                str(open_id): str(name)
+                for open_id, name in data.items()
+                if str(open_id).startswith("ou_") and str(name).strip()
+            }
+        except Exception:
+            logger.exception("[Feishu] failed to load user-name cache: path=%s", path)
+            return {}
+
+    def _remember_user_name(self, open_id: str, name: str) -> None:
+        open_id = str(open_id or "").strip()
+        name = str(name or "").strip()
+        if not open_id.startswith("ou_") or not name:
+            return
+        with self._user_names_lock:
+            if self._user_names.get(open_id) == name:
+                return
+            self._user_names[open_id] = name
+            path = self._user_names_path()
+            if path is None:
+                return
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temp_path = path.with_suffix(path.suffix + ".tmp")
+                temp_path.write_text(
+                    json.dumps(self._user_names, ensure_ascii=False, indent=2, sort_keys=True),
+                    encoding="utf-8",
+                )
+                os.replace(temp_path, path)
+            except OSError:
+                logger.exception("[Feishu] failed to persist user-name cache: path=%s", path)
+
+    def _replace_user_ids_with_names(self, text: str) -> str:
+        with self._user_names_lock:
+            names = tuple(self._user_names.items())
+        for open_id, name in names:
+            text = text.replace(open_id, name)
+        return text
 
     def _get_config(self, key: str, default: str = "") -> str:
         if self.config is not None:
@@ -281,6 +403,46 @@ class FeishuAdapter(MessageAdapter):
         group_id = chat_id if chat_type == "group" else ""
         return user_id, group_id, text
 
+    def extract_mentions(self, msg_data: dict) -> list[dict[str, str]]:
+        """Normalize the mention shape used by ``im.message.receive_v1``.
+
+        Receive-event callbacks use an ``id`` object, while message-query APIs
+        may return a scalar ``id`` plus ``id_type``. Supporting both keeps the
+        adapter useful with captured callbacks and API-derived fixtures.
+        """
+        event = msg_data.get("event", {})
+        message = event.get("message", {}) if isinstance(event, dict) else {}
+        mentions = message.get("mentions", []) if isinstance(message, dict) else []
+        if not isinstance(mentions, list):
+            return []
+
+        normalized = []
+        for mention in mentions:
+            if not isinstance(mention, dict):
+                continue
+            raw_id = mention.get("id", {})
+            if isinstance(raw_id, dict):
+                open_id = raw_id.get("open_id", "")
+                user_id = raw_id.get("user_id", "")
+                union_id = raw_id.get("union_id", "")
+            else:
+                id_type = mention.get("id_type", "")
+                open_id = raw_id if id_type == "open_id" else ""
+                user_id = raw_id if id_type == "user_id" else ""
+                union_id = raw_id if id_type == "union_id" else ""
+            normalized.append(
+                {
+                    "key": str(mention.get("key") or ""),
+                    "name": str(mention.get("name") or ""),
+                    "mentioned_type": str(mention.get("mentioned_type") or ""),
+                    "open_id": str(open_id or ""),
+                    "user_id": str(user_id or ""),
+                    "union_id": str(union_id or ""),
+                    "tenant_key": str(mention.get("tenant_key") or ""),
+                }
+            )
+        return normalized
+
     def build_reply(self, content, user_ids, group_id=None) -> dict:
         """Build a Feishu text message payload.
 
@@ -302,26 +464,51 @@ class FeishuAdapter(MessageAdapter):
         else:
             text = str(content) if content is not None else ""
 
+        text = self._replace_user_ids_with_names(text)
+
         receive_id = group_id or (user_ids[0] if user_ids else "")
         receive_id_type = "chat_id" if group_id else "open_id"
 
-        return {
+        reply = {
             "_feishu_receive_id_type": receive_id_type,
+            "_feishu_mention_user_ids": [str(user_id) for user_id in user_ids if str(user_id).startswith("ou_")],
             "receive_id": receive_id,
             "msg_type": "text",
             "content": json.dumps({"text": text}),
         }
+        if group_id:
+            self._add_group_mentions(reply)
+        return reply
+
+    @staticmethod
+    def _add_group_mentions(reply: dict) -> None:
+        """Prefix a group text reply with Feishu ``<at>`` tags."""
+        user_ids = reply.pop("_feishu_mention_user_ids", [])
+        if not user_ids or reply.get("msg_type") != "text":
+            return
+        try:
+            content = json.loads(reply.get("content", "{}"))
+        except (TypeError, json.JSONDecodeError):
+            return
+        text = str(content.get("text") or "")
+        mentions = " ".join(f'<at user_id="{user_id}"></at>' for user_id in dict.fromkeys(user_ids))
+        content["text"] = f"{mentions} {text}".rstrip()
+        reply["content"] = json.dumps(content)
 
     def set_reply_target(self, reply: dict, group_id: str) -> dict:
         """Set the reply target to the group chat."""
         if group_id:
             reply["receive_id"] = group_id
             reply["_feishu_receive_id_type"] = "chat_id"
+            self._add_group_mentions(reply)
+        else:
+            reply.pop("_feishu_mention_user_ids", None)
         return reply
 
     def send(self, msg: dict) -> list:
         """Send a message via Feishu REST API."""
         receive_id_type = msg.pop("_feishu_receive_id_type", "chat_id")
+        msg.pop("_feishu_mention_user_ids", None)
 
         app_id = self._get_config("app_id", "")
         app_secret = self._get_config("app_secret", "")
@@ -445,6 +632,9 @@ class FeishuAdapter(MessageAdapter):
             logger.exception("[Feishu] Failed to extract command, bot=%s", bot_name)
             return "parse error", 400, {"event": "parse_error"}, None
         header = msg_data.get("header", {})
+        sender_ids = sender.get("sender_id", {})
+        if not isinstance(sender_ids, dict):
+            sender_ids = {}
         meta = {
             "event": event_type,
             "event_id": header.get("event_id", ""),
@@ -452,12 +642,27 @@ class FeishuAdapter(MessageAdapter):
             "user_id": user_id,
             "group_id": group_id,
             "command": command_text,
+            "sender": {
+                "open_id": str(sender_ids.get("open_id") or ""),
+                "user_id": str(sender_ids.get("user_id") or ""),
+                "union_id": str(sender_ids.get("union_id") or ""),
+                "sender_type": str(sender.get("sender_type") or ""),
+                "tenant_key": str(sender.get("tenant_key") or ""),
+            },
+            "mentions": self.extract_mentions(msg_data),
         }
         logger.debug("[Feishu] payload OK, event_type=%s, bot=%s", event_type, bot_name)
         return "ok", 200, meta, msg_data
 
     def process_prepared_webhook(self, bot, msg_data: dict) -> tuple:
         """Execute and reply to an authenticated, parsed Feishu message."""
+        for mention in self.extract_mentions(msg_data):
+            self._remember_user_name(mention["open_id"], mention["name"])
+
+        user_id, _, _ = self.extract_command(msg_data)
+        app_id = self._get_config("app_id", "")
+        app_secret = self._get_config("app_secret", "")
+        self._remember_user_name(user_id, _get_user_name(app_id, app_secret, user_id))
         return self._run_command(bot, msg_data, "Feishu")
 
     def handle_webhook(self, bot, raw_form: dict, raw_args: dict, raw_body: bytes, headers: dict) -> tuple:

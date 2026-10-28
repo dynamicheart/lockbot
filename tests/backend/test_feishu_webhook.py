@@ -43,7 +43,7 @@ def _encrypt(encrypt_key, payload):
     return base64.b64encode(iv + ciphertext).decode()
 
 
-def _message_event(event_id="route-event-1"):
+def _message_event(event_id="route-event-1", message_id="om_message"):
     return {
         "schema": "2.0",
         "header": {
@@ -59,7 +59,7 @@ def _message_event(event_id="route-event-1"):
             "message": {
                 "chat_id": "oc_group",
                 "chat_type": "group",
-                "message_id": "om_message",
+                "message_id": message_id,
                 "message_type": "text",
                 "content": json.dumps({"text": "@_user_1 query"}),
                 "mentions": [{"key": "@_user_1", "name": "LockBot"}],
@@ -123,10 +123,11 @@ class TestDeferredFeishuEvent:
         adapter.process_prepared_webhook = MagicMock(return_value=("command succeed", 200, {}))
         bot = MagicMock(adapter=adapter, config=config)
         manager.get_instance.return_value = MagicMock(bot=bot)
-        payload = _message_event(event_id="route-event-dedup")
+        first_payload = _message_event(event_id="route-event-first", message_id="om_same_message")
+        retry_payload = _message_event(event_id="route-event-retry", message_id="om_same_message")
 
-        first = client.post(f"/api/bots/webhook/{bot_id}", json=payload)
-        second = client.post(f"/api/bots/webhook/{bot_id}", json=payload)
+        first = client.post(f"/api/bots/webhook/{bot_id}", json=first_payload)
+        second = client.post(f"/api/bots/webhook/{bot_id}", json=retry_payload)
 
         assert first.status_code == 200
         assert second.status_code == 200

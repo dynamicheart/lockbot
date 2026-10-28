@@ -6,7 +6,7 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
-from lockbot.core.platforms.feishu import _TOKEN_CACHE, FeishuAdapter
+from lockbot.core.platforms.feishu import _TOKEN_CACHE, _USER_NAME_CACHE, FeishuAdapter, _get_user_name
 
 
 def _make_adapter(
@@ -381,6 +381,103 @@ class TestFeishuExtractCommand:
         _, _, cmd = adapter.extract_command(msg)
         assert cmd == "query"
 
+    def test_normalizes_real_receive_v1_mention_shape(self):
+        adapter = _make_adapter()
+        msg = self._msg("@_user_1 lock node1 @_user_2")
+        msg["event"]["message"]["mentions"] = [
+            {
+                "key": "@_user_1",
+                "id": {
+                    "open_id": "ou_bot",
+                    "union_id": "on_bot",
+                    "user_id": None,
+                },
+                "mentioned_type": "bot",
+                "name": "lockbot",
+                "tenant_key": "tenant-1",
+            },
+            {
+                "key": "@_user_2",
+                "id": {
+                    "open_id": "ou_person",
+                    "union_id": "on_person",
+                    "user_id": "user-person",
+                },
+                "mentioned_type": "user",
+                "name": "张三",
+                "tenant_key": "tenant-1",
+            },
+        ]
+
+        _, _, cmd = adapter.extract_command(msg)
+        mentions = adapter.extract_mentions(msg)
+
+        assert cmd == "lock node1"
+        assert mentions == [
+            {
+                "key": "@_user_1",
+                "name": "lockbot",
+                "mentioned_type": "bot",
+                "open_id": "ou_bot",
+                "user_id": "",
+                "union_id": "on_bot",
+                "tenant_key": "tenant-1",
+            },
+            {
+                "key": "@_user_2",
+                "name": "张三",
+                "mentioned_type": "user",
+                "open_id": "ou_person",
+                "user_id": "user-person",
+                "union_id": "on_person",
+                "tenant_key": "tenant-1",
+            },
+        ]
+
+    def test_prepare_webhook_preserves_sender_ids_and_mentions(self):
+        adapter = _make_adapter(verification_token="verification-token")
+        msg = self._msg("@_user_1 query", open_id="ou_sender")
+        msg["header"].update({"event_id": "event-1", "token": "verification-token"})
+        msg["event"]["sender"].update(
+            {
+                "sender_type": "user",
+                "tenant_key": "tenant-1",
+            }
+        )
+        msg["event"]["sender"]["sender_id"].update(
+            {
+                "union_id": "on_sender",
+                "user_id": None,
+            }
+        )
+        msg["event"]["message"].update(
+            {
+                "message_id": "om_message",
+                "mentions": [
+                    {
+                        "key": "@_user_1",
+                        "id": {"open_id": "ou_bot", "union_id": "on_bot", "user_id": None},
+                        "mentioned_type": "bot",
+                        "name": "lockbot",
+                        "tenant_key": "tenant-1",
+                    }
+                ],
+            }
+        )
+
+        text, code, meta, prepared = adapter.prepare_webhook(json.dumps(msg).encode(), {})
+
+        assert (text, code, prepared) == ("ok", 200, msg)
+        assert meta["sender"] == {
+            "open_id": "ou_sender",
+            "user_id": "",
+            "union_id": "on_sender",
+            "sender_type": "user",
+            "tenant_key": "tenant-1",
+        }
+        assert meta["mentions"][0]["name"] == "lockbot"
+        assert meta["mentions"][0]["mentioned_type"] == "bot"
+
     def test_empty_text(self):
         adapter = _make_adapter()
         msg = self._msg("")
@@ -408,6 +505,51 @@ class TestFeishuExtractCommand:
         }
         _, _, cmd = adapter.extract_command(msg)
         assert cmd == ""
+
+
+class TestFeishuUserNameLookup:
+    def test_resolves_name_by_open_id_and_caches_it(self):
+        app_id = "app-user-lookup"
+        app_secret = "secret-user-lookup"
+        open_id = "ou_sender"
+        _TOKEN_CACHE[(app_id, app_secret)] = ("tenant-token", time.time() + 7200)
+        _USER_NAME_CACHE.pop((app_id, open_id), None)
+
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            "code": 0,
+            "msg": "success",
+            "data": {"user": {"open_id": open_id, "name": "张三"}},
+        }
+        response.headers = {"X-Tt-Logid": "log-id"}
+        with patch("lockbot.core.platforms.feishu.requests.get", return_value=response) as get:
+            assert _get_user_name(app_id, app_secret, open_id) == "张三"
+            assert _get_user_name(app_id, app_secret, open_id) == "张三"
+
+        get.assert_called_once_with(
+            "https://open.feishu.cn/open-apis/contact/v3/users/ou_sender",
+            params={"user_id_type": "open_id"},
+            headers={
+                "Authorization": "Bearer tenant-token",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+            timeout=10,
+        )
+
+    def test_permission_failure_falls_back_to_empty_name(self):
+        app_id = "app-no-contact-permission"
+        app_secret = "secret-no-contact-permission"
+        open_id = "ou_sender"
+        _TOKEN_CACHE[(app_id, app_secret)] = ("tenant-token", time.time() + 7200)
+        _USER_NAME_CACHE.pop((app_id, open_id), None)
+
+        response = MagicMock()
+        response.status_code = 400
+        response.json.return_value = {"code": 99991672, "msg": "Access denied"}
+        response.headers = {"X-Tt-Logid": "log-id"}
+        with patch("lockbot.core.platforms.feishu.requests.get", return_value=response):
+            assert _get_user_name(app_id, app_secret, open_id) == ""
 
 
 class TestFeishuBuildReply:
@@ -440,6 +582,15 @@ class TestFeishuBuildReply:
         adapter = _make_adapter()
         reply = adapter.build_reply(None, ["ou_user"], group_id="oc_chat")
         assert json.loads(reply["content"])["text"] == ""
+
+    def test_replaces_open_id_with_remembered_user_name_but_keeps_reply_target(self):
+        adapter = _make_adapter()
+        adapter._remember_user_name("ou_user", "张三")
+
+        reply = adapter.build_reply("node1 ou_user 2小时", ["ou_user"])
+
+        assert reply["receive_id"] == "ou_user"
+        assert json.loads(reply["content"])["text"] == "node1 张三 2小时"
 
     def test_set_reply_target(self):
         adapter = _make_adapter()

@@ -168,7 +168,7 @@ export default {
         step2:
           '2. Under "Development Config → Events & Callbacks", set this bot\'s callback URL and subscribe to im.message.receive_v1',
         step3:
-          '3. Fill in App ID, App Secret, and Verification Token; optionally set Encrypt Key for encrypted mode',
+          '3. Grant contact:contact.base:readonly and contact:user.base:readonly to display locker names; fill credentials and publish',
       },
     },
     optional: 'Optional',

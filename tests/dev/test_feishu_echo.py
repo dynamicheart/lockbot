@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,9 @@ from scripts.dev.feishu_echo import (
     create_app,
     decrypt_event,
     extract_text,
+    get_user_name,
     send_text,
+    trace,
 )
 
 
@@ -122,13 +125,67 @@ def test_group_message_strips_mention_and_replies_to_chat():
 
 def test_duplicate_event_is_acknowledged_without_second_reply():
     client = TestClient(create_app(_settings()))
-    payload = _message_event()
+    first_payload = _message_event(event_id="event-first", message_id="message-same")
+    retry_payload = _message_event(event_id="event-retry", message_id="message-same")
     with patch("scripts.dev.feishu_echo.send_echo") as send_echo:
-        first = client.post("/feishu/events", json=payload)
-        second = client.post("/feishu/events", json=payload)
+        first = client.post("/feishu/events", json=first_payload)
+        second = client.post("/feishu/events", json=retry_payload)
     assert first.json() == {"code": 0}
     assert second.json() == {"code": 0, "duplicate": True}
     send_echo.assert_called_once()
+
+
+def test_trace_keeps_message_shape_and_redacts_credentials(caplog):
+    settings = _settings(log_raw=True)
+    with caplog.at_level(logging.INFO, logger="feishu_echo"):
+        trace(
+            settings,
+            "callback_request",
+            payload={
+                "token": "verification-token",
+                "event": {
+                    "message": {
+                        "content": json.dumps({"text": "@_user_1 hello"}),
+                        "mentions": [{"key": "@_user_1", "name": "lockbot"}],
+                    }
+                },
+            },
+            authorization="Bearer secret-token",
+        )
+
+    output = caplog.text
+    assert '"name": "lockbot"' in output
+    assert "@_user_1 hello" in output
+    assert "verification-token" not in output
+    assert "secret-token" not in output
+    assert output.count("[REDACTED]") == 2
+
+
+def test_get_user_name_uses_open_id_and_cache():
+    settings = _settings()
+    runtime = RuntimeState(token="tenant-token", token_expires_at=time.time() + 7200)
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "code": 0,
+        "msg": "success",
+        "data": {"user": {"open_id": "ou_user", "name": "杨健邦"}},
+    }
+    response.headers = {"X-Tt-Logid": "log-id"}
+
+    with patch("scripts.dev.feishu_echo.requests.get", return_value=response) as get:
+        assert get_user_name(settings, runtime, "ou_user") == "杨健邦"
+        assert get_user_name(settings, runtime, "ou_user") == "杨健邦"
+
+    get.assert_called_once_with(
+        "https://open.feishu.cn/open-apis/contact/v3/users/ou_user",
+        params={"user_id_type": "open_id"},
+        headers={
+            "Authorization": "Bearer tenant-token",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        timeout=10,
+    )
 
 
 def test_non_text_event_is_acknowledged_without_reply():
