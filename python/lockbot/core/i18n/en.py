@@ -11,7 +11,7 @@ MESSAGES = {
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
-    "help.agent_lock_hint": "Send this to your Agent to request resources: {url}",
+    "help.agent_lock_hint": "Try an Agent for resource requests: {url}",
     # ── Duration formatting ──
     "duration.days": "{value} days",
     "duration.hours": "{value} hours",
