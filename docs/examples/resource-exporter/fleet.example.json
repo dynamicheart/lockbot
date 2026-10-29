@@ -1,0 +1,22 @@
+{
+  "interval_seconds": 300,
+  "max_workers": 2,
+  "targets": [
+    {
+      "node": "source-node-a",
+      "ssh_target": "monitor@node-a.example.invalid",
+      "vendor": "xpu",
+      "command": ["/usr/local/bin/xpu-smi", "-q", "-x"],
+      "timeout_seconds": 10,
+      "filesystems": {"system": "/", "data": "/srv/data"}
+    },
+    {
+      "node": "source-node-b",
+      "ssh_target": "monitor@node-b.example.invalid",
+      "vendor": "nvidia",
+      "command": ["/usr/bin/nvidia-smi", "-q", "-x"],
+      "timeout_seconds": 10,
+      "filesystems": {"system": "/"}
+    }
+  ]
+}
