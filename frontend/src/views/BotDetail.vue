@@ -504,6 +504,7 @@
             <template v-if="resourceMetrics.enabled" #metrics="{ row }">
               <ResourceMetricsCell
                 v-bind="resourceMetrics"
+                :now="metricsClock"
                 :node-id="row.metric_node_id || row.id"
                 :resource-id="row.metric_resource_id || null"
               />
@@ -583,6 +584,7 @@ import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { sourceResources } from '../utils/utilization/display'
+import { useDisplayClock } from '../utils/useDisplayClock'
 
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -635,6 +637,7 @@ const agentMetrics = computed(() =>
 
 const bot = ref(null)
 const resourceMetrics = ref({ enabled: false })
+const metricsClock = useDisplayClock()
 const datasourceConfig = computed(() => {
   try {
     return typeof bot.value?.utilization_config === 'string'
