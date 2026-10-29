@@ -234,7 +234,7 @@ class TestObservability:
         api_entries = [e for e in entries if e.get("source") == SOURCE_API]
         assert api_entries, f"no api-sourced command log entry in {entries}"
 
-    def test_credential_record_id_is_hidden_from_owner_and_available_to_super_admin(
+    def test_credential_record_id_requires_an_explicit_super_admin_private_read(
         self, client, api, auth_header, db_session
     ):
         from lockbot.backend.app.resource_auth.models import ResourceBinding
@@ -248,7 +248,15 @@ class TestObservability:
 
         db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id).role = "super_admin"
         db_session.commit()
-        assert any(e.get("credential_id") == row.id for e in self._command_logs(client, api, auth_header))
+        # A super administrator's ordinary log view is public too.
+        assert all("credential_id" not in e for e in self._command_logs(client, api, auth_header))
+        private = client.get(
+            f"/api/bots/{api['bot_id']}/logs",
+            params={"category": "command", "include_private": True},
+            headers=auth_header,
+        )
+        assert private.status_code == 200
+        assert any(e.get("credential_id") == row.id for e in private.json())
 
     def test_api_traffic_is_distinguishable_from_chat(self, client, api, auth_header):
         _post(client, api, "lock n1 1h")
