@@ -5,6 +5,7 @@ import time
 from contextlib import suppress
 
 from lockbot.core.base_bot import BaseLockBot, BotState
+from lockbot.core.command_result import completed_reply
 from lockbot.core.device_usage_alert import (
     format_alert_info,
     group_devices_by_node_user_and_mode,
@@ -244,7 +245,7 @@ class DeviceBot(BaseLockBot):
 
             log_to_file(user_id, "lock", node_key, dev_ids, duration, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "lock")
 
     def slock(self, user_id, command, *, acquisition_limit=None):
         """
@@ -314,7 +315,7 @@ class DeviceBot(BaseLockBot):
 
             log_to_file(user_id, "slock", node_key_list, dev_ids_list, duration, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "slock")
 
     def unlock(self, user_id, command):
         """
@@ -334,7 +335,7 @@ class DeviceBot(BaseLockBot):
                 reply = self.adapter.build_reply(self._msg_with_usage("success.resource_released"), [user_id])
                 log_to_file(user_id, "unlock", "all", "all", config=self.config)
                 self._save_and_notify()
-                return reply
+                return completed_reply(reply, "unlock")
 
         m = re.match(r"^\s*(unlock|free)\s+([\w\d]+)(\s*[,，、]\s*([\w\d])+)*\s*$", command)
         if m:
@@ -366,7 +367,7 @@ class DeviceBot(BaseLockBot):
                 reply = self.adapter.build_reply(self._msg_with_usage("success.resource_released"), [user_id])
                 log_to_file(user_id, "unlock", node_key, "all", config=self.config)
                 self._save_and_notify()
-                return reply
+                return completed_reply(reply, "unlock")
 
         # Case 3: Release specific devices requested by the user
         parse_ok, error_reply, node_key_list, dev_ids_list, _ = self.parse_command(user_id, "unlock|free", command)
@@ -395,7 +396,7 @@ class DeviceBot(BaseLockBot):
             )
             log_to_file(user_id, "unlock", node_key_list, dev_ids_list, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "unlock")
 
     def kickout(self, user_id, command):
         """

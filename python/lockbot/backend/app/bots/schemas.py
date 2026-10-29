@@ -83,6 +83,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     if allow_alias is not None and not isinstance(allow_alias, bool):
         errors.append("ALLOW_USER_ALIAS must be a boolean")
 
+    reaction_replies = v.get("FEISHU_REACTION_REPLIES")
+    if reaction_replies is not None and not isinstance(reaction_replies, bool):
+        errors.append("FEISHU_REACTION_REPLIES must be a boolean")
+
     display_model = v.get("DISPLAY_DEVICE_MODEL")
     if display_model is not None and not isinstance(display_model, bool):
         errors.append("DISPLAY_DEVICE_MODEL must be a boolean")

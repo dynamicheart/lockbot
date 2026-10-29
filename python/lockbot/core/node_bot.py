@@ -8,6 +8,7 @@ from lockbot.core.base_bot import (
     BaseLockBot,
     BotState,  # noqa: F401  # re-export
 )
+from lockbot.core.command_result import completed_reply
 from lockbot.core.i18n import t
 from lockbot.core.io import (
     create_or_load_node_state,
@@ -174,7 +175,7 @@ class NodeBot(BaseLockBot):
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "lock")
 
     def slock(self, user_id, command, *, acquisition_limit=None):
         """
@@ -228,7 +229,7 @@ class NodeBot(BaseLockBot):
             reply = self.adapter.build_reply(self._msg_with_usage("success.resource_locked"), [user_id])
             log_to_file(user_id, "slock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "slock")
 
     def unlock(self, user_id, command):
         """
@@ -248,7 +249,7 @@ class NodeBot(BaseLockBot):
                 )
                 log_to_file(user_id, "unlock", "all", config=self.config)
                 self._save_and_notify()
-                return reply
+                return completed_reply(reply, "unlock")
 
         parse_ok, error_reply, node_keys, _ = self._parse_resource_command(user_id, "unlock|free", command)
         if not parse_ok:
@@ -272,7 +273,7 @@ class NodeBot(BaseLockBot):
             )
             log_to_file(user_id, "unlock", node_keys, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "unlock")
 
     def kickout(self, user_id, command):
         """
