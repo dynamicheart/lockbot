@@ -64,7 +64,7 @@ def test_update_uses_put_preserves_native_post_and_no_receive_or_uuid(monkeypatc
     assert calls[0][1]["json"] == {"msg_type": "post", "content": content}
 
 
-@pytest.mark.parametrize("response", ["timeout", "invalid", "permission"])
+@pytest.mark.parametrize("response", ["timeout", "invalid", "permission", "server_error"])
 def test_panel_requests_fail_once_without_retries_or_error_body_leak(monkeypatch, response):
     client = FeishuClient("cli_app", "secret")
     monkeypatch.setattr(client, "token", lambda: "token")
@@ -74,9 +74,10 @@ def test_panel_requests_fail_once_without_retries_or_error_body_leak(monkeypatch
         calls.append(1)
         if response == "timeout":
             raise requests.Timeout("SECRET_DETAILS")
-        return SimpleNamespace(
-            status_code=200, json=lambda: {"code": 230027, "msg": "SECRET_DETAILS"} if response == "permission" else []
-        )
+        body = {"code": 230027, "msg": "SECRET_DETAILS"} if response == "permission" else []
+        if response == "server_error":
+            body = {"code": 0}
+        return SimpleNamespace(status_code=500 if response == "server_error" else 200, json=lambda: body)
 
     monkeypatch.setattr(requests, "put", put)
     with pytest.raises(FeishuPanelAPIError) as error:

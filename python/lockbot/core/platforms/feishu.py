@@ -157,6 +157,8 @@ class FeishuClient:
                 raise ValueError()
         except (requests.RequestException, ValueError, TypeError, AttributeError):
             raise FeishuPanelAPIError(uncertain=True) from None
+        if response.status_code >= 500 or (response.status_code != 200 and data["code"] == 0):
+            raise FeishuPanelAPIError(uncertain=True)
         if response.status_code != 200 or data["code"] != 0:
             raise FeishuPanelAPIError(data["code"])
         return data.get("data")
