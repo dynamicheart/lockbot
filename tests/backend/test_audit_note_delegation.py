@@ -344,6 +344,15 @@ def test_authenticated_cross_bot_denial_is_audited_without_notes(client, db_sess
     response = client.get(f"/api/audit/bots/{setup['other']}/agent-history", headers=setup["headers"])
     assert response.status_code == 403
     audit = db_session.query(AuditLog).filter_by(action="task_notes.denied").one()
-    assert audit.result == "denied"
+    assert audit.result == "failure"
     assert json.loads(audit.detail)["reason"] == "bot_scope"
     assert "CANARY" not in audit.detail and setup["grant"]["credential"] not in audit.detail
+
+
+def test_openapi_advertises_separate_bearer_family(client):
+    schema = client.get("/openapi.json").json()
+    security = schema["components"]["securitySchemes"]["TaskNoteAuditCredential"]
+    assert security["type"] == "http" and security["scheme"] == "bearer"
+    for suffix in ("agent-history", "task-notes"):
+        route = schema["paths"][f"/api/audit/bots/{{bot_id}}/{suffix}"]["get"]
+        assert {"TaskNoteAuditCredential": []} in route["security"]

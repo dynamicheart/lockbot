@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -28,6 +29,11 @@ MAX_TTL = 7 * 86400
 _TOKEN = re.compile(r"^lba1\.([A-Za-z0-9_-]{22})\.([A-Za-z0-9_-]{43})$")
 _guard = threading.RLock()
 router = APIRouter(tags=["Audit delegation"])
+audit_bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="TaskNoteAuditCredential",
+    description="Dedicated lba1 credential with task_notes:read; management JWT and OP keys are not accepted.",
+)
 
 
 class AuditCredential(Base):
@@ -133,6 +139,7 @@ def _metadata(row):
     return {
         "id": row.public_id,
         "name": row.name,
+        "api_version": "1",
         "scope": row.scope,
         "bot_ids": [item["id"] for item in json.loads(row.bots)],
         "generation": row.generation,
@@ -281,7 +288,8 @@ read_budget = ReadBudget()
 def _authorize(db, request, bot_id):
     db.rollback()
     auth = request.headers.get("Authorization", "")
-    token = auth[7:] if auth.startswith("Bearer ") else ""
+    scheme, _, value = auth.partition(" ")
+    token = value if scheme.lower() == "bearer" else ""
     match = _TOKEN.fullmatch(token)
     if match is None:
         _deny(401, "A dedicated audit credential is required")
@@ -300,7 +308,7 @@ def _authorize(db, request, bot_id):
                 grant=row,
                 bot_id=bot_id,
                 count=0,
-                result="denied",
+                result="failure",
                 reason=reason,
                 ip=request.client.host if request.client else None,
             )
@@ -375,6 +383,7 @@ def task_note_history(
     cursor: str | None = Query(None, max_length=2048),
     query: str = Query("", max_length=128),
     limit: int = Query(25, ge=1, le=100),
+    _credential=Depends(audit_bearer),
     db: Session = Depends(get_db),
 ):
     from lockbot.backend.app.resource_api.event_log import READ_BUDGET, read_history
@@ -407,6 +416,7 @@ def task_note_history(
     return {
         "bot_id": bot_id,
         "scope": SCOPE,
+        "api_version": "1",
         "audit_principal": ref,
         **result,
         "coverage": {"source": "agent_operation_notes", "complete_history": False, "read_budget_bytes": READ_BUDGET},
@@ -420,6 +430,7 @@ def current_task_notes(
     request: Request,
     response: Response,
     limit: int = Query(100, ge=1, le=200),
+    _credential=Depends(audit_bearer),
     db: Session = Depends(get_db),
 ):
     from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
@@ -456,6 +467,7 @@ def current_task_notes(
     return {
         "bot_id": bot_id,
         "scope": SCOPE,
+        "api_version": "1",
         "audit_principal": ref,
         "captured_at": captured_at.isoformat(),
         "items": items,

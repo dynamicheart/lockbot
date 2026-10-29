@@ -63,3 +63,28 @@ The Agent operation file is rotated and bounded. `coverage.complete_history` is 
 ## Upgrade and rollback
 
 The change adds the `audit_credentials` table through normal schema creation. Existing personal, OP, management and data-source credentials keep their formats and permissions. No previously public field becomes newly public, and existing routes remain unchanged. An older version ignores the added table and does not expose these endpoints. Prefer revoking delegated credentials before rolling back; retain the existing note privacy fixes.
+
+## Discovery, versioning and a consumer example
+
+`/openapi.json` lists the Audit delegation tag and dedicated `TaskNoteAuditCredential` Bearer security scheme. The OP Skill points approved consumers to this separate workflow; it never derives audit authority from an OP key. Successful audit data and credential metadata include `api_version: "1"`. This is a separate additive contract; it does not reuse the resource Agent Skill version header as an audit-grant signal. Consumers should consult OpenAPI/release notes on this same approved origin after upgrading, reject an unsupported audit API version, and contact the issuer on 401/403 instead of silently changing credentials or broadening permissions.
+
+For example, put `Authorization: Bearer <dedicated-audit-credential>` in a private header file (mode 0600), then run:
+
+```sh
+curl --fail-with-body --silent --show-error \
+  --header @/private/path/audit-authorization-header \
+  'https://lockbot.example.com/api/audit/bots/12/agent-history?limit=25'
+```
+
+Do not paste the header file or token into a report. The response contains task notes; share only a deliberately redacted summary.
+
+```mermaid
+flowchart LR
+    Admin[Current super administrator] -->|Management JWT: create / rotate / revoke| Issuer[Audit delegation API]
+    Issuer -->|Shown once: lba1 secret| Consumer[Approved audit consumer]
+    Store[(Digest + scope + bot identities + expiry)] --> Check[Recheck before and after reading]
+    Consumer -->|task_notes:read Bearer credential| Check
+    Check --> Evidence[Commit disclosure evidence without note bodies]
+    Evidence --> Notes[Bounded Agent names and detailed notes]
+    OP[Ordinary OP / personal / metrics key] -->|Rejected on audit routes| Check
+```
