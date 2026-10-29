@@ -188,6 +188,9 @@ class FeishuClient:
         except (requests.RequestException, FeishuAPIError, ValueError, AttributeError, TypeError):
             pass
         with self._names_lock:
+            previous = self._names.get(open_id)
+            if name == open_id and previous and previous[0] != open_id:
+                name = previous[0]
             self._names[open_id] = (name, time.monotonic() + ttl)
             self._names.move_to_end(open_id)
             while len(self._names) > 1024:

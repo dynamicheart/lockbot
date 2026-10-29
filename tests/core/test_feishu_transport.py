@@ -251,3 +251,29 @@ def test_group_name_is_scoped_cached_and_preserved_on_transient_error(monkeypatc
     with pytest.raises(ValueError):
         client.group_name("oc_group/../../users")
     assert len(calls) == 3
+
+
+def test_known_user_name_survives_temporary_lookup_failure(monkeypatch):
+    from types import SimpleNamespace
+
+    client = FeishuClient("cli_app", "secret")
+    monkeypatch.setattr(FeishuClient, "token", lambda self: "token")
+    monkeypatch.setattr(
+        "lockbot.core.platforms.feishu.requests.get",
+        lambda *a, **k: SimpleNamespace(
+            status_code=200,
+            json=lambda: {"code": 0, "data": {"user": {"name": "Alice"}}},
+        ),
+    )
+    client.warm_user_name("ou_alice")
+    assert client.display_text("holder: ou_alice") == "holder: Alice"
+    client._names["ou_alice"] = ("Alice", 0)
+    monkeypatch.setattr(
+        "lockbot.core.platforms.feishu.requests.get",
+        lambda *a, **k: SimpleNamespace(
+            status_code=403,
+            json=lambda: {"code": 99991672},
+        ),
+    )
+    client.warm_user_name("ou_alice")
+    assert client.display_text("holder: ou_alice") == "holder: Alice"
