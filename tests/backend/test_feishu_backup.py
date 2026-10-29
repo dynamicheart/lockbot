@@ -86,3 +86,15 @@ def test_old_archive_has_no_application_metadata():
     connection = sqlite3.connect(":memory:")
     assert read_application_metadata(connection, 1) is None
     connection.close()
+
+
+def test_restore_does_not_implicitly_enable_new_membership_policy(db_session):
+    from lockbot.backend.app.feishu.membership import greeting_enabled
+
+    value = archived()
+    value["_feishu_application"]["unbound_greeting_enabled"] = True
+    bot = make_bot(db_session)
+    restore_route(db_session, bot, value)
+    db_session.commit()
+    application = db_session.query(FeishuApplication).one()
+    assert greeting_enabled(db_session, application.id) is False

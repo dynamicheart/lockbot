@@ -21,9 +21,9 @@ Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/
 | [#33](https://github.com/dynamicheart/lockbot/issues/33) | Additional isolated-source trust/client connectivity rollout; the bastion/VPN experiment remains user-deferred |
 | [#54](https://github.com/dynamicheart/lockbot/issues/54) | Durable lifecycle audit API contract and explicit coverage |
 | [#56](https://github.com/dynamicheart/lockbot/issues/56) | Separately delegated super-administrator detailed-note credentials |
-| [#62](https://github.com/dynamicheart/lockbot/issues/62) | Optional Feishu in-place queue panels; default off, capability failure keeps normal replies |
-| [#63](https://github.com/dynamicheart/lockbot/issues/63) | Optional Feishu bot membership onboarding/removal notices; trusted event routing, default off |
-| [#64](https://github.com/dynamicheart/lockbot/issues/64) | Optional Feishu success reactions; committed-result evidence, fallback text, and unchanged Infoflow/legacy formatting |
+| [#63](https://github.com/dynamicheart/lockbot/issues/63) | Optional Feishu membership onboarding/removal notices; default off, isolated implementation/tests in progress, permission approval and real-group acceptance pending |
+| [#62](https://github.com/dynamicheart/lockbot/issues/62) | Optional Feishu in-place queue panels; default off, permission failure retains normal replies; implementation in a separate PR |
+| [#64](https://github.com/dynamicheart/lockbot/issues/64) | Optional Feishu success reactions in PR #68; default off, committed-result evidence and unchanged Infoflow/legacy messages; real rendering acceptance pending |
 | [#57](https://github.com/dynamicheart/lockbot/issues/57) | Versioned messaging credentials and an additive legacy-compatible migration |
 
 <details>
@@ -148,3 +148,7 @@ Committed PR #25 administration UI work centers bounded site settings, simplifie
 Commit `27e3cb8` adds platform filters and further simplifies the broadcast dialog; these committed changes are newer than deployed `810ae4b`. Commit `c771736` defaults the bot list and administrative bot monitor to running bots; stopped bots remain selectable through the status filter. Application management is still **pending tests and commit**: do not claim application rename/edit, credential rotation or guarded deletion is released, deployed or accepted before that work is verified. Corporate permission/approval review and post-3.0.0 issues #54/#56/#57 remain unchanged.
 
 </details>
+
+### Optional Feishu query panels (#62)
+
+An independent implementation adds default-off per-bot in-place updates for full group queries only. Original text/post rendering, Infoflow delivery, explicit operation outcomes and critical reminders remain unchanged. Verified own-app/group message references survive restart; scoped serialization, identity generations, conservative rollover and bounded fallback protect routing and concurrency. Missing/revoked editing permission requires no expanded baseline scopes. Automated API/transport tests are recorded in the PR; live authorized-group acceptance and rollout remain pending root review. See [configuration and limitations](docs/usage/feishu.md#可选原地更新查询面板).

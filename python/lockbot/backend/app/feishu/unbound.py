@@ -65,7 +65,7 @@ class UnboundHints:
         self.messages, self.groups, self.apps = OrderedDict(), OrderedDict(), OrderedDict()
         self.last_global = None
 
-    def enqueue(self, db, app, message, *, tenant, allow_unknown_tenant=False):
+    def enqueue(self, db, app, message, *, tenant, allow_unknown_tenant=False, membership_event_id=None):
         # Only router/service callers that just normalized the actual event may enter here.
         now = self.clock()
         app_id, chat_id, message_id = app.id, message["group_id"], message["message_id"]
@@ -73,7 +73,7 @@ class UnboundHints:
             db.rollback()
             return False
         key, group = (app_id, message_id), (app_id, chat_id)
-        job = (app_id, fingerprint(app), tenant, allow_unknown_tenant, chat_id, now)
+        job = (app_id, fingerprint(app), tenant, allow_unknown_tenant, chat_id, now, membership_event_id)
         factory = sessionmaker(bind=db.get_bind())
         # No request DB transaction can overlap worker token lookup or sending.
         db.rollback()
@@ -100,11 +100,25 @@ class UnboundHints:
         return True
 
     def _current(self, factory, job, *, build_client=False):
-        app_id, expected, tenant, allow_unknown, chat_id, _accepted_at = job
+        app_id, expected, tenant, allow_unknown, chat_id, _accepted_at, membership_event_id = job
         with factory() as db:
             app = db.get(FeishuApplication, app_id)
             if app is None or fingerprint(app) != expected:
                 return None
+            if membership_event_id:
+                from lockbot.backend.app.feishu.membership import greeting_enabled
+                from lockbot.backend.app.feishu.models import FeishuGroupMembership
+
+                observation = db.get(FeishuGroupMembership, (app_id, chat_id))
+                if (
+                    not greeting_enabled(db, app_id)
+                    or observation is None
+                    or observation.event_id != membership_event_id
+                    or observation.status != "present"
+                    or observation.tenant_key != tenant
+                    or observation.app_id != app.app_id
+                ):
+                    return None
             if app.tenant_key != tenant and not (allow_unknown and app.transport == "websocket" and not app.tenant_key):
                 return None
             if db.query(FeishuGroupRoute.id).filter_by(application_id=app_id, chat_id=chat_id).first():
@@ -116,7 +130,7 @@ class UnboundHints:
             return True
 
     def _deliver(self, factory, job):
-        app_id, _expected, _tenant, _allow_unknown, chat_id, accepted_at = job
+        app_id, _expected, _tenant, _allow_unknown, chat_id, accepted_at, _membership_event_id = job
         try:
             if self.clock() - accepted_at > 30:
                 return
@@ -146,5 +160,12 @@ class UnboundHints:
 unbound_hints = UnboundHints()
 
 
-def queue_hint(db, app, message, *, tenant, allow_unknown_tenant=False):
-    return unbound_hints.enqueue(db, app, message, tenant=tenant, allow_unknown_tenant=allow_unknown_tenant)
+def queue_hint(db, app, message, *, tenant, allow_unknown_tenant=False, membership_event_id=None):
+    return unbound_hints.enqueue(
+        db,
+        app,
+        message,
+        tenant=tenant,
+        allow_unknown_tenant=allow_unknown_tenant,
+        membership_event_id=membership_event_id,
+    )

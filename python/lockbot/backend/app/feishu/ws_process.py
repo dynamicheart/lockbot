@@ -35,7 +35,13 @@ def main():
         if not response or not json.loads(response).get("ack"):
             raise RuntimeError("Event was not durably accepted")
 
-    handler = lark.EventDispatcherHandler.builder("", "").register_p2_im_message_receive_v1(received).build()
+    handler = (
+        lark.EventDispatcherHandler.builder("", "")
+        .register_p2_im_message_receive_v1(received)
+        .register_p2_im_chat_member_bot_added_v1(received)
+        .register_p2_im_chat_member_bot_deleted_v1(received)
+        .build()
+    )
     client = lark.ws.Client(
         config["app_id"], config["app_secret"], event_handler=handler, log_level=lark.LogLevel.ERROR
     )
