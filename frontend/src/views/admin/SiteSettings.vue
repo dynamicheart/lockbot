@@ -63,6 +63,35 @@
           </div>
           <div class="platform-hint">{{ $t('feishu.enabledPlatformsHint') }}</div>
         </el-form-item>
+        <el-form-item :label="$t('feishu.proxy')">
+          <div class="feishu-proxy-options">
+            <el-select v-model="form.feishu_proxy_mode">
+              <el-option value="deployment" :label="$t('feishu.proxyDeployment')" />
+              <el-option value="direct" :label="$t('feishu.proxyDirect')" />
+              <el-option value="custom" :label="$t('feishu.proxyCustom')" />
+            </el-select>
+            <el-input
+              v-if="form.feishu_proxy_mode === 'custom'"
+              v-model="form.feishu_proxy_url"
+              placeholder="http://proxy.example:8188"
+            />
+            <div class="platform-hint">
+              {{ $t('feishu.proxyEffective') }}:
+              {{
+                proxyInfo.mode === 'deployment'
+                  ? $t('feishu.proxyDeployment')
+                  : proxyInfo.mode === 'direct'
+                    ? $t('feishu.proxyDirect')
+                    : $t('feishu.proxyCustom')
+              }}
+              · {{ proxyInfo.effective_url || $t('feishu.proxyDirect') }}
+              <el-button text :loading="testingProxy" @click="testProxy">{{
+                $t('feishu.proxyTest')
+              }}</el-button>
+              <span v-if="proxyResult">{{ $t('feishu.' + proxyResult) }}</span>
+            </div>
+          </div>
+        </el-form-item>
         <el-form-item :label="$t('settings.agentPromotionText')">
           <div class="agent-promotion-prefix" style="width: 100%; max-width: 640px">
             <el-input
@@ -245,6 +274,8 @@ const form = ref({
   agent_promotion_enabled: 'false',
   platform_infoflow_enabled: 'true',
   platform_feishu_enabled: 'true',
+  feishu_proxy_mode: 'deployment',
+  feishu_proxy_url: '',
   agent_promotion_text_zh: '',
   agent_promotion_text_en: '',
 })
@@ -281,10 +312,31 @@ function formatStatusTime(iso) {
   return isNaN(d) ? iso : d.toLocaleString()
 }
 
+const proxyInfo = ref({})
+const testingProxy = ref(false)
+const proxyResult = ref('')
+async function refreshProxy() {
+  proxyInfo.value = (await api.get('/admin/feishu/proxy')).data
+}
+async function testProxy() {
+  testingProxy.value = true
+  try {
+    const result = (await api.post('/admin/feishu/proxy/test')).data
+    proxyResult.value =
+      result.http === 'ok'
+        ? 'proxyHttpOk'
+        : result.http === 'no_application'
+          ? 'proxyNoApplication'
+          : 'proxyUnavailable'
+  } finally {
+    testingProxy.value = false
+  }
+}
 async function fetchSettings() {
   loading.value = true
   try {
     const res = await api.get('/admin/settings')
+    await refreshProxy()
     for (const item of res.data) {
       if (item.key in form.value) {
         form.value[item.key] = item.value || ''
@@ -343,7 +395,14 @@ async function fetchSchedulerStatus() {
 async function handleSave() {
   saving.value = true
   try {
-    await api.put('/admin/settings', { settings: form.value })
+    const result = await api.put('/admin/settings', { settings: form.value })
+    await refreshProxy()
+    proxyResult.value =
+      result.data.feishu_proxy_status === 'restart_required'
+        ? 'proxyRestartRequired'
+        : result.data.feishu_proxy_status === 'connection_pending'
+          ? 'proxyConnectionPending'
+          : ''
     ElMessage.success(t('settings.saved'))
   } catch {
     // handled by api interceptor
@@ -442,6 +501,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.feishu-proxy-options {
+  width: 100%;
+  max-width: 640px;
+  display: grid;
+  gap: 8px;
+}
 .platform-options {
   display: flex;
   flex-wrap: wrap;

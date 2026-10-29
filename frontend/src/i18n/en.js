@@ -1,5 +1,23 @@
 export default {
   feishu: {
+    groupCached: 'Cached name',
+    retryGroup: 'Retry',
+    groupCachedPermission:
+      'Showing the cached name; check the application’s group-read permission.',
+    groupCachedUnavailable: 'Showing the cached name; refresh temporarily failed. Retry.',
+
+    proxy: 'Feishu proxy',
+    proxyDeployment: 'Use deployment setting',
+    proxyDirect: 'Direct connection',
+    proxyCustom: 'Site proxy',
+    proxyEffective: 'Effective',
+    proxyTest: 'Test saved HTTP connection',
+    proxyHttpOk: 'HTTP available; WebSocket handshake not tested',
+    proxyNoApplication: 'Configure a Feishu application first',
+    proxyUnavailable: 'HTTP unavailable',
+    proxyRestartRequired: 'Saved; receiver restart required',
+    proxyConnectionPending: 'Saved; receiver connection pending',
+
     applicationManaged: 'Application credentials are managed centrally in Site settings.',
     applicationHelp:
       'A super administrator configures the application in Site settings. This bot only references the application and group.',

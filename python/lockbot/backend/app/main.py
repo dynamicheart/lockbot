@@ -478,6 +478,10 @@ async def lifespan(app: FastAPI):
     _seed_dev_admin()
     _seed_dev_users()
     from lockbot.backend.app.bots.manager import bot_manager
+    from lockbot.backend.app.feishu.proxy_settings import restore_proxy
+
+    with SessionLocal() as db:
+        restore_proxy(db)
 
     bot_manager.start_scheduler()
     _reset_running_bots()

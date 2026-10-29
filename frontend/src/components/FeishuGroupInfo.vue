@@ -2,6 +2,9 @@
   <div class="feishu-group-info">
     <div class="group-name-row">
       <span v-if="group.name" class="group-name">{{ group.name }}</span>
+      <span v-if="group.name && group.status !== 'ok'" class="group-placeholder">{{
+        $t('feishu.groupCached')
+      }}</span>
       <span v-else-if="botId" class="group-placeholder">{{ $t('feishu.groupUnknown') }}</span>
       <el-button
         text
@@ -11,7 +14,13 @@
         :disabled="!lookupPath"
         @click="load(true)"
       >
-        {{ group.name ? $t('common.refresh') : $t('feishu.lookupGroup') }}
+        {{
+          group.status && group.status !== 'ok'
+            ? $t('feishu.retryGroup')
+            : group.name
+              ? $t('common.refresh')
+              : $t('feishu.lookupGroup')
+        }}
       </el-button>
     </div>
     <el-button v-if="botId" text size="small" class="chat-id" @click="copyText(chatId)">
@@ -19,7 +28,7 @@
       ><el-icon><CopyDocument /></el-icon>
     </el-button>
     <span v-if="group.status && group.status !== 'ok'" class="group-warning">
-      {{ $t(group.status === 'permission' ? 'feishu.groupPermission' : 'feishu.groupUnavailable') }}
+      {{ $t(warningKey) }}
     </span>
   </div>
 </template>
@@ -36,6 +45,14 @@ const props = defineProps({
 const { copyText } = useHelpers()
 const group = ref({})
 const loading = ref(false)
+const warningKey = computed(() => {
+  if (!group.value.status || group.value.status === 'ok') return ''
+  if (group.value.name)
+    return group.value.status === 'permission'
+      ? 'feishu.groupCachedPermission'
+      : 'feishu.groupCachedUnavailable'
+  return group.value.status === 'permission' ? 'feishu.groupPermission' : 'feishu.groupUnavailable'
+})
 let generation = 0
 let controller = null
 const lookupPath = computed(() => {

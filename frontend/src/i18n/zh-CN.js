@@ -1,5 +1,22 @@
 export default {
   feishu: {
+    groupCached: '缓存名称',
+    retryGroup: '重试',
+    groupCachedPermission: '当前为缓存名称；请检查应用的群信息读取权限。',
+    groupCachedUnavailable: '当前为缓存名称；本次刷新暂时失败，请重试。',
+
+    proxy: '飞书专用代理',
+    proxyDeployment: '跟随部署配置',
+    proxyDirect: '直连',
+    proxyCustom: '指定代理',
+    proxyEffective: '当前生效',
+    proxyTest: '测试已保存的 HTTP 连接',
+    proxyHttpOk: 'HTTP 可用；未验证长连接握手',
+    proxyNoApplication: '请先配置飞书应用',
+    proxyUnavailable: 'HTTP 暂不可用',
+    proxyRestartRequired: '已保存；接收端需要重启',
+    proxyConnectionPending: '已保存；接收端连接待就绪',
+
     applicationManaged: '企业应用凭证在站点设置中集中管理。',
     applicationHelp:
       '由超级管理员在站点设置添加企业应用；资源机器人只关联应用和群，不重复保存应用凭证。',

@@ -2,10 +2,17 @@ import json
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
 from lockbot.backend.app.feishu import connectors
 
 
-def test_sdk_pipe_acknowledges_only_after_event_acceptance(monkeypatch):
+@pytest.mark.parametrize("mode,value", [("deployment", ""), ("custom", "http://site.example:8188"), ("direct", "")])
+def test_sdk_pipe_acknowledges_only_after_event_acceptance(monkeypatch, request, mode, value):
+    from lockbot.core.platforms.feishu_proxy import configure
+
+    monkeypatch.delenv("LOCKBOT_FEISHU_PROXY_URL", raising=False)
+    configure(mode, value)
+    request.addfinalizer(configure)
     app = SimpleNamespace(id=1, app_id="cli_test", app_secret="encrypted", transport="websocket")
     event = {"header": {"app_id": "cli_test"}}
     writes = []
@@ -65,7 +72,10 @@ def test_sdk_pipe_acknowledges_only_after_event_acceptance(monkeypatch):
     monkeypatch.setattr("lockbot.backend.app.feishu.service.accept_sdk_event", accept)
     connector._run()
     assert order == ["durable_claim", "ack"]
-    assert writes[0] == {"app_id": "cli_test", "app_secret": "secret"}
+    expected = {"app_id": "cli_test", "app_secret": "secret"}
+    if mode != "deployment":
+        expected["proxy_url"] = value
+    assert writes[0] == expected
     assert writes[1] == {"ack": True}
 
 

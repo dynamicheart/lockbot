@@ -72,3 +72,21 @@ it('isolates late names and aborts lookup on scope change and unmount', async ()
   await flush()
   expect(state.group.status).toBe('ok')
 })
+
+it('labels a retained group name as cached after failure and clears the warning on retry', async () => {
+  api.get
+    .mockResolvedValueOnce({ data: { name: 'known group', status: 'ok' } })
+    .mockRejectedValueOnce(new Error('temporary transport failure'))
+    .mockResolvedValueOnce({ data: { name: 'known group', status: 'ok' } })
+  app = renderer.createApp(FeishuGroupInfo, { botId: 1, chatId: 'oc_fixture' })
+  app.provide(ssrContextKey, { modules: new Set() })
+  app.config.warnHandler = () => {}
+  app.mount({ children: [] })
+  const state = app._instance.setupState
+  await flush()
+  await state.load(true)
+  expect(state.group.name).toBe('known group')
+  expect(state.warningKey).toBe('feishu.groupCachedUnavailable')
+  await state.load(true)
+  expect(state.warningKey).toBe('')
+})

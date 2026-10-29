@@ -55,10 +55,7 @@ class FeishuClient:
     """One client per enterprise app; serialize token refresh without retrying sends."""
 
     def __init__(self, app_id, app_secret):
-        from lockbot.core.platforms.feishu_proxy import http_options
-
         self.app_id = app_id
-        self._http_options = http_options()
         self._secret = app_secret
         self._token = ""
         self._expires = 0.0
@@ -66,6 +63,17 @@ class FeishuClient:
         self._names = OrderedDict()
         self._groups = OrderedDict()
         self._names_lock = threading.Lock()
+
+    @property
+    def _http_options(self):
+        from lockbot.core.platforms.feishu_proxy import http_options
+
+        return http_options()
+
+    def reset_transport_cache(self):
+        with self._names_lock:
+            self._names.clear()
+            self._groups.clear()
 
     def token(self):
         with self._lock:

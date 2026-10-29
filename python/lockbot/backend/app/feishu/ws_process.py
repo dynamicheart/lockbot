@@ -23,7 +23,7 @@ def main():
         channel.write(json.dumps({"status": "connected"}) + "\n")
         channel.flush()
 
-    configure_sdk_proxy(sdk_module, connected=connected)
+    configure_sdk_proxy(sdk_module, connected=connected, proxy_override=config.get("proxy_url"))
 
     def received(data):
         encoded = lark.JSON.marshal(data)

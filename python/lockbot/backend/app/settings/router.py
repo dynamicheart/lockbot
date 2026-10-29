@@ -36,6 +36,8 @@ _ENV_FALLBACKS = {
     "platform_feishu_enabled": "true",
     "agent_promotion_text_zh": "",
     "agent_promotion_text_en": "",
+    "feishu_proxy_mode": "deployment",
+    "feishu_proxy_url": "",
 }
 
 
@@ -144,6 +146,19 @@ def batch_update_settings(
             )
         ):
             raise HTTPException(status_code=422, detail=f"{key} must be plain single-line text (max 120 characters)")
+    if {"feishu_proxy_mode", "feishu_proxy_url"} & body.settings.keys():
+        from lockbot.core.platforms.feishu_proxy import validate_proxy_url
+
+        mode = body.settings.get("feishu_proxy_mode", _get_setting(db, "feishu_proxy_mode"))
+        value = body.settings.get("feishu_proxy_url", _get_setting(db, "feishu_proxy_url")) or ""
+        try:
+            if mode not in {"deployment", "direct", "custom"}:
+                raise ValueError("Invalid Feishu proxy mode")
+            if mode == "custom" and not value:
+                raise ValueError("A Feishu proxy URL is required")
+            validate_proxy_url(value)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
     updated = []
     for key, value in body.settings.items():
         if key not in allowed:
@@ -163,4 +178,38 @@ def batch_update_settings(
 
     BaseLockBot._invalidate_site_cache()
 
-    return {"updated": updated}
+    proxy_status = None
+    if {"feishu_proxy_mode", "feishu_proxy_url"} & body.settings.keys():
+        from lockbot.backend.app.feishu.proxy_settings import apply_proxy
+
+        try:
+            proxy_status = apply_proxy(db)
+        except Exception:
+            # Configuration is committed; do not replay mutations or pretend a handshake succeeded.
+            proxy_status = "restart_required"
+    return {"updated": updated, "feishu_proxy_status": proxy_status}
+
+
+@router.get("/api/admin/feishu/proxy")
+def feishu_proxy_status(_admin: User = Depends(require_super_admin)):
+    from lockbot.core.platforms.feishu_proxy import proxy_state
+
+    return proxy_state()
+
+
+@router.post("/api/admin/feishu/proxy/test")
+def test_feishu_proxy(_admin: User = Depends(require_super_admin), db: Session = Depends(get_db)):
+    from lockbot.backend.app.feishu.models import FeishuApplication
+    from lockbot.backend.app.feishu.service import application_client
+
+    app = db.query(FeishuApplication).order_by(FeishuApplication.id).first()
+    if app is None:
+        return {"http": "no_application", "websocket": "not_tested"}
+    client = application_client(app)
+    db.rollback()
+    try:
+        client.bot_identity()  # Fixed official API only, never an administrator-supplied target.
+        status = "ok"
+    except Exception:
+        status = "unavailable"
+    return {"http": status, "websocket": "not_tested"}

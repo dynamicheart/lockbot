@@ -11,6 +11,7 @@ from contextlib import suppress
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.feishu.models import FeishuApplication
+from lockbot.core.platforms.feishu_proxy import sdk_proxy_override
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,9 @@ class Connector:
                     if app is None or app.transport != "websocket":
                         return
                     config = {"app_id": app.app_id, "app_secret": encryption.decrypt(app.app_secret)}
+                    override = sdk_proxy_override()
+                    if override is not None:
+                        config["proxy_url"] = override
                 with self._lock:
                     if self._stop.is_set():
                         return
@@ -110,7 +114,7 @@ class Connector:
 class ConnectorManager:
     def __init__(self):
         self._connectors = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     def connect(self, application_id, factory=SessionLocal):
         if importlib.util.find_spec("lark_oapi") is None:
@@ -138,6 +142,16 @@ class ConnectorManager:
                     self.connect(app.id, factory=factory)
                 except Exception:
                     logger.error("Could not start Feishu application %s; other bots remain available", app.id)
+
+    def reconfigure(self, factory=SessionLocal):
+        # Hold admission until every old receiver has stopped; never run two for one app.
+        with self._lock:
+            for connector in self._connectors.values():
+                connector.stop()
+                if connector.thread.is_alive():
+                    raise RuntimeError("A Feishu receiver has not stopped; restart required")
+            self._connectors.clear()
+            self.start(factory=factory)
 
     def stop(self):
         with self._lock:
