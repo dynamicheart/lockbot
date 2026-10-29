@@ -92,7 +92,7 @@ NODE/QUEUE 整机行也逐张展示上报卡的计算利用率和已用/总显�
 
 对采用配套只读网关的数据源，管理员可选 `accessMode: short_lived`。Lockbot 只签发只读指标授权，不查询 Prometheus；浏览器直接访问指标网关，无需再输入源 key。
 
-- 服务设置 `METRICS_GRANT_SECRET_FILE`，指向独立的私有签名文件（至少 32 bytes，0600），不能复用登录 JWT 密钥、个人 key、OP key 或网页码。
+- 单数据源部署可保留 `METRICS_GRANT_SECRET_FILE`；跨信任域部署使用 `METRICS_GRANT_SIGNERS_FILE`，按精确 audience 选择各自独立签名文件。两种模式均不能复用登录 JWT 密钥、个人 key、OP key 或网页码；参见[多数据源签名配置](telemetry-deployment.md#source-specific-signing-keys)。
 - 网关配置固定 audience 为自身规范 URL、允许的 Lockbot instance issuer、bot UUID 及对应节点白名单；保存同一独立签名 key 的私有副本。
 - JWT 只使用 HS256，最长 300 秒，包含固定 audience、issuer、bot UUID 和节点集合。网关校验签名、时间及该 bot 的允许节点；与后台管理 JWT 不互通。
 - 网页需先通过原本只读链接校验，才能从资源状态响应取得短授权；授权到期不晚于该网页查看码。Agent 从已绑定 context 取得同类授权；关闭 Agent 接入后不再签发给该 key。
@@ -127,4 +127,4 @@ Validation queries only the configured node scope from the current browser. Ever
 
 Both the authorized resource page and the administrator's bot detail show the same metrics and resource ordering. Remaining lease time appears beneath each holder. A shared status line shows automatic updates, the earliest observed sample time and affected nodes when samples are missing, failed, invalid or stale. Ask the bot administrator to investigate; Lockbot continues managing queues independently. Frontend polling pauses when the page is hidden and backs off on errors; it reads cached samples rather than initiating hardware collection. Optional host metrics include available memory and buffers/cache; see the exporter guide for exact definitions and OOM limitations.
 
-Multiple isolated sources must not share an HMAC signing secret. The current automatic-grant configuration uses one signing-key file; adding a second independent environment must not overwrite it or copy it to that environment. Use an independently scoped source credential for an isolated test, and plan per-source key selection or public-key verification before enabling automatic access across trust domains. See the [deployment runbook](telemetry-deployment.md#adding-a-second-isolated-environment).
+Multiple isolated sources must not share an HMAC signing secret. Configure the deployment-only signer registry before enabling automatic grants for another trust domain; unknown candidate endpoints fail closed. The registry never enters public bot configuration, Agent discovery or application backups. Per-source signing does not provide client network access or a transport override. See the [deployment runbook](telemetry-deployment.md#source-specific-signing-keys).
