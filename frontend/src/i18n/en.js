@@ -1,7 +1,21 @@
 export default {
   feishu: {
+    queryPanelGroup: 'Feishu group messages',
+    queryPanel: 'Update query panel in place',
+    queryPanelHint:
+      'Update full resource queries in this group. Command results and reminders stay unchanged; unavailable edits fall back to ordinary replies.',
+
+    unboundGreeting: 'Show setup guidance when joining a group',
+    unboundGreetingHelp:
+      'Off by default. Requires bot membership event subscriptions. In a new unbound internal group, send this site URL and Chat ID without automatically binding resources. Enabling does not verify permission approval.',
+    membershipNotices: 'Warn when the bot leaves its group',
+    membershipNoticesHelp:
+      'Off by default. Requires bot membership events. Show removal observations in this bot’s admin page without deleting resources or messaging other groups.',
+    membershipRemoved:
+      'A bot-removal event was received. Confirm the bot is still in the group and add it back if needed.',
     reactionReplies: 'React to successful commands',
-    reactionRepliesHelp: 'Feishu only, off by default. Requires message reaction permission. Completed operations use a reaction; queries, queues, reminders and errors keep their original messages. Permission failures fall back to the original reply.',
+    reactionRepliesHelp:
+      'Feishu only, off by default. Requires message reaction permission. Completed operations use a reaction; queries, queues, reminders and errors keep their original messages. Permission failures fall back to the original reply.',
 
     editApplication: 'Edit application',
     receiverRestartAfterUpdate:

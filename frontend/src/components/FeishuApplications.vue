@@ -118,6 +118,18 @@
             <el-radio-button value="http">HTTP</el-radio-button>
           </el-radio-group>
         </el-form-item>
+        <el-form-item>
+          <template #label>
+            {{ $t('feishu.unboundGreeting') }}
+            <el-tooltip :content="$t('feishu.unboundGreetingHelp')" placement="top">
+              <el-icon class="field-help"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
+          <el-switch
+            v-model="form.unbound_greeting_enabled"
+            :aria-label="$t('feishu.unboundGreeting')"
+          />
+        </el-form-item>
         <template v-if="!editingId && form.transport === 'http'">
           <el-form-item :label="$t('feishu.tenant')" prop="tenant_key" :rules="required">
             <template #label
@@ -188,6 +200,7 @@ const form = reactive({
   app_id: '',
   app_secret: '',
   transport: 'websocket',
+  unbound_greeting_enabled: false,
   tenant_key: '',
   verification_token: '',
   encrypt_key: '',
@@ -207,13 +220,24 @@ function clearSecrets() {
 function openCreate() {
   clearSecrets()
   editingId.value = null
-  Object.assign(form, { name: '', app_id: '', transport: 'websocket', tenant_key: '' })
+  Object.assign(form, {
+    name: '',
+    app_id: '',
+    transport: 'websocket',
+    tenant_key: '',
+    unbound_greeting_enabled: false,
+  })
   dialog.value = true
 }
 function openEdit(row) {
   clearSecrets()
   editingId.value = row.id
-  Object.assign(form, { name: row.name, app_id: row.app_id, transport: row.transport })
+  Object.assign(form, {
+    name: row.name,
+    app_id: row.app_id,
+    transport: row.transport,
+    unbound_greeting_enabled: row.unbound_greeting_enabled === true,
+  })
   dialog.value = true
 }
 async function revealSecret() {
@@ -281,7 +305,10 @@ async function save() {
       payload.encrypt_key = ''
     }
     if (editingId.value) {
-      const update = { name: payload.name }
+      const update = {
+        name: payload.name,
+        unbound_greeting_enabled: payload.unbound_greeting_enabled,
+      }
       if (payload.app_secret) update.app_secret = payload.app_secret
       const { data } = await api.patch(`/feishu/applications/${editingId.value}`, update)
       restartRequired = data.receiver_restart_required === true
