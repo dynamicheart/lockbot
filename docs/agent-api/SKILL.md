@@ -645,6 +645,14 @@ and other users' public categories. Never attribute a task by machine name alone
 verified actor and resource ID. `usage: null` is not proof that nobody registered a task.
 A declaration does not prove ownership or change the queue order. It disappears when the
 lease, TTL or authorization is no longer valid. DELETE your declaration to remove it.
+For task-scoped cleanup, first verify this task's actor/resource/lease and read its own
+current declaration. When context declares `usage_privacy.conditional_cleanup`, save the
+private `revision` value and send it unchanged as the `If-Match` header on DELETE.
+The server rejects changed/expired declarations or changed leases with 412. Stop and
+re-read; never retry without the precondition or delete a replacement task's declaration.
+This deletes metadata only: it does not free or renew resources. A revision is not an
+ownership proof or credential and is hidden from other users. Old servers without this
+capability require coordination; do not assume their unconditional delete is race-safe.
 Refresh an expiring declaration without repeating `lock`, which extends resource time.
 If a mutation returns `may_have_executed`, read state before retrying.
 
