@@ -6,7 +6,7 @@ import logging
 import subprocess
 import sys
 import threading
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 
 from lockbot.backend.app.bots import encryption
@@ -148,6 +148,34 @@ class ConnectorManager:
         with self._lock:
             connector = self._connectors.get(application_id)
             return connector.snapshot() if connector else {"state": "stopped", "last_handshake_at": None}
+
+    @contextmanager
+    def application_guard(self):
+        """Serialize application removal and route creation in this single-instance service."""
+        with self._lock:
+            yield
+
+    @contextmanager
+    def application_change(self, application_id, *, before_stop=None, recover=None):
+        """Serialize configuration changes against connector admission; stop only this app."""
+        with self._lock:
+            if before_stop:
+                before_stop()
+            connector = self._connectors.get(application_id)
+            if connector:
+                connector.stop()
+                if connector.thread.is_alive():
+                    raise RuntimeError("Application receiver has not stopped")
+                self._connectors.pop(application_id, None)
+            try:
+                yield
+            except BaseException:
+                if connector is not None and recover is not None:
+                    try:
+                        recover()
+                    except Exception:
+                        logger.error("Could not recover Feishu application %s receiver", application_id)
+                raise
 
     def connect(self, application_id, factory=SessionLocal):
         if importlib.util.find_spec("lark_oapi") is None:

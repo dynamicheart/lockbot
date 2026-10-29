@@ -1,5 +1,11 @@
 export default {
   feishu: {
+    editApplication: '编辑应用',
+    receiverRestartAfterUpdate: '已保存。请刷新接收状态，并重新启动应用连接。',
+    keepSecret: '留空保留已保存的 Secret',
+    revealSecret: '查看已保存 Secret（20 秒，记录审计）',
+    deleteApplicationConfirm:
+      '删除应用“{name}”？有资源机器人关联时无法删除。此操作不会删除资源或状态。',
     proxyHelp:
       '服务器能直接访问飞书时选直连；否则可使用服务器预设或指定代理。此设置只调整飞书请求，不修改如流配置。',
     proxyUnset: '未设置专用代理',
@@ -78,6 +84,7 @@ export default {
     connecting: '已启动连接任务，连接成功后可接收群消息',
     tenant: '企业租户标识',
     none: '尚未配置飞书应用',
+    addApplicationFirst: '请超级管理员先添加飞书应用。',
     required: '请填写此项',
     platform: '消息平台',
     application: '企业应用',
@@ -969,6 +976,9 @@ export default {
       'user.force_logout': '强制登出',
       'bot.create': '创建Bot',
       'feishu.create_application': '添加飞书应用',
+      'feishu.update_application': '编辑飞书应用',
+      'feishu.delete_application': '删除飞书应用',
+      'feishu.reveal_secret': '查看飞书应用 Secret',
       'bot.update': '修改Bot配置',
       'bot.delete': '删除Bot',
       'bot.start': '启动Bot',

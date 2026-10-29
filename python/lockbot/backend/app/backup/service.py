@@ -521,6 +521,15 @@ def restore_apply(
     current_user_id: int,
     db,
 ) -> dict:
+    """Keep route restoration and its commit serialized against application removal."""
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    with connectors.application_guard():
+        db.rollback()
+        return _restore_apply(file_bytes, password, source_secret_key, selected_uuids, current_user_id, db)
+
+
+def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, current_user_id, db):
     """
     Actually restore selected bots from a backup zip.
 

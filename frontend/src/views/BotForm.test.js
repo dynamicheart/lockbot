@@ -102,6 +102,9 @@ it('switches platform without whole-form validation, clears credentials and vali
   view.form.group_id = 'old-group'
   view.form.platform = 'Feishu'
   await flush()
+  expect(view.feishuApplicationsLoaded).toBe(true)
+  expect(view.feishuApplications).toEqual([])
+  expect(view.form.feishu_application_id).toBeNull()
   expect(model.formProps.validateOnRuleChange).toBe(false)
   expect(model.validate).not.toHaveBeenCalled()
   expect(model.clear).toHaveBeenCalledWith([

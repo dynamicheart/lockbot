@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -64,6 +64,207 @@ class ApplicationCreate(BaseModel):
         if self.transport == "http" and not self.tenant_key.strip():
             raise ValueError("HTTP callbacks require the enterprise tenant key")
         return self
+
+
+class ApplicationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=128)
+    app_secret: SecretStr | None = None
+
+    @field_validator("app_secret")
+    @classmethod
+    def validate_secret(cls, value):
+        return ApplicationCreate.required_secret(value) if value is not None else value
+
+
+def _application_audit(db, user, request, app, action):
+    """Sensitive application operations fail closed if their audit cannot be committed."""
+    from lockbot.backend.app.audit.models import AuditLog
+
+    db.add(
+        AuditLog(
+            operator_id=user.id,
+            operator_username=user.username,
+            operator_role=user.role,
+            action=action,
+            target_type="feishu_application",
+            target_id=app.id,
+            target_name=app.name,
+            ip_address=request.client.host if request.client else None,
+            result="success",
+        )
+    )
+    db.flush()
+
+
+def _recover_application_receiver(db, application_id):
+    """After failed management writes, reconnect only from the persisted database state."""
+    from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.service import invalidate_application_clients
+
+    db.rollback()
+    factory = sessionmaker(bind=db.get_bind())
+    with factory() as current:
+        app = current.get(FeishuApplication, application_id)
+        if app is None:
+            return
+        invalidate_application_clients(app.app_id, secret=encryption.decrypt(app.app_secret))
+        reconnect = app.transport == "websocket"
+    if reconnect:
+        connectors.connect(application_id, factory=factory)
+
+
+@router.post("/applications/{application_id}/reveal")
+@limiter.limit("6/minute")
+def reveal_application(
+    application_id: int,
+    request: Request,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    app = db.get(FeishuApplication, application_id)
+    if app is None:
+        raise HTTPException(404, "Application not found", headers={"Cache-Control": "no-store"})
+    _application_audit(db, user, request, app, "feishu.reveal_secret")
+    db.commit()
+    return {"app_secret": encryption.decrypt(app.app_secret)}
+
+
+@router.patch("/applications/{application_id}")
+def update_application(
+    application_id: int,
+    body: ApplicationUpdate,
+    request: Request,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.service import invalidate_application_clients
+
+    response.headers["Cache-Control"] = "no-store"
+    app = db.get(FeishuApplication, application_id)
+    if app is None:
+        raise HTTPException(404, "Application not found")
+    actor_id = user.id
+    expected_identity = (app.app_id, app.bot_open_id, app.tenant_key, app.transport, app.app_secret)
+    db.rollback()  # Do not retain a SQLite read snapshot across external credential verification.
+    secret = body.app_secret.get_secret_value() if body.app_secret is not None else None
+    if secret is not None:
+        try:
+            identity = FeishuClient(expected_identity[0], secret).bot_identity()
+        except FeishuAPIError:
+            raise HTTPException(502, "Could not verify application credentials") from None
+        if identity != expected_identity[1]:
+            raise HTTPException(409, "Application bot identity must remain unchanged")
+
+    def refresh_current():
+        nonlocal app, user
+        db.rollback()
+        user = db.get(User, actor_id)
+        if user is None or user.role != "super_admin":
+            raise HTTPException(403, "Super administrator required")
+        app = db.get(FeishuApplication, application_id)
+        if app is None:
+            raise HTTPException(404, "Application not found")
+        if expected_identity != (app.app_id, app.bot_open_id, app.tenant_key, app.transport, app.app_secret):
+            raise HTTPException(409, "Application changed; refresh before editing")
+
+    def before_stop():
+        refresh_current()
+        db.rollback()  # No database read transaction may span receiver termination/join.
+
+    try:
+        # Names do not affect receiving; credentials must not leave an old receiver active.
+        with (
+            connectors.application_change(
+                application_id,
+                before_stop=before_stop,
+                recover=lambda: _recover_application_receiver(db, application_id),
+            )
+            if secret is not None
+            else connectors.application_guard()
+        ):
+            refresh_current()
+            app.name = body.name
+            if secret is not None:
+                app.app_secret = encryption.encrypt(secret)
+            _application_audit(db, user, request, app, "feishu.update_application")
+            db.commit()
+            if secret is not None:
+                invalidate_application_clients(app.app_id, secret=secret)
+                if app.transport == "websocket":
+                    try:
+                        connectors.connect(application_id, factory=sessionmaker(bind=db.get_bind()))
+                    except (ValueError, RuntimeError):
+                        return {
+                            "id": app.id,
+                            "name": app.name,
+                            "app_id": app.app_id,
+                            "transport": app.transport,
+                            "receiver_restart_required": True,
+                        }
+    except RuntimeError:
+        db.rollback()
+        raise HTTPException(
+            503, "Application receiver requires restart", headers={"Cache-Control": "no-store"}
+        ) from None
+    return {"id": app.id, "name": app.name, "app_id": app.app_id, "transport": app.transport}
+
+
+@router.delete("/applications/{application_id}", status_code=204)
+def delete_application(
+    application_id: int, request: Request, user: User = Depends(require_super_admin), db: Session = Depends(get_db)
+):
+    from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.service import invalidate_application_clients
+
+    app = db.get(FeishuApplication, application_id)
+    if app is None:
+        raise HTTPException(404, "Application not found")
+    if db.query(FeishuGroupRoute).filter_by(application_id=application_id).first():
+        raise HTTPException(409, "Application is associated with resource bots")
+    if db.query(FeishuReceivedMessage).filter_by(application_id=application_id, state="claimed").first():
+        raise HTTPException(409, "Application has an in-flight message")
+    actor_id, expected_app_id = user.id, app.app_id
+    db.rollback()
+
+    def check_unused():
+        nonlocal app, user
+        db.rollback()
+        user = db.get(User, actor_id)
+        if user is None or user.role != "super_admin":
+            raise HTTPException(403, "Super administrator required")
+        app = db.get(FeishuApplication, application_id)
+        if app is None or app.app_id != expected_app_id:
+            raise HTTPException(409, "Application changed; refresh before deleting")
+        if db.query(FeishuGroupRoute).filter_by(application_id=application_id).first():
+            raise HTTPException(409, "Application is associated with resource bots")
+        if db.query(FeishuReceivedMessage).filter_by(application_id=application_id, state="claimed").first():
+            raise HTTPException(409, "Application has an in-flight message")
+
+    def before_stop():
+        check_unused()
+        db.rollback()
+
+    try:
+        with connectors.application_change(
+            application_id, before_stop=before_stop, recover=lambda: _recover_application_receiver(db, application_id)
+        ):
+            check_unused()
+            _application_audit(db, user, request, app, "feishu.delete_application")
+            db.query(FeishuReceivedMessage).filter_by(application_id=application_id).delete()
+            app_id = app.app_id
+            db.delete(app)
+            db.commit()
+            invalidate_application_clients(app_id)
+    except RuntimeError:
+        db.rollback()
+        raise HTTPException(503, "Application receiver has not stopped") from None
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/applications")
@@ -120,6 +321,9 @@ def create_application(
     except IntegrityError:
         db.rollback()
         raise HTTPException(409, "Application already configured") from None
+    from lockbot.backend.app.feishu.service import invalidate_application_clients
+
+    invalidate_application_clients(row.app_id, secret=body.app_secret.get_secret_value())
     return {"id": row.id, "name": row.name, "app_id": row.app_id, "transport": row.transport}
 
 

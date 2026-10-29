@@ -82,6 +82,7 @@
             <el-select
               v-model="form.feishu_application_id"
               style="width: 100%"
+              :loading="feishuApplicationsLoading"
               @visible-change="loadFeishuApplications"
             >
               <el-option
@@ -91,6 +92,13 @@
                 :value="app.id"
               />
             </el-select>
+            <div
+              v-if="feishuApplicationsLoaded && !feishuApplications.length"
+              class="application-empty"
+            >
+              {{ $t('feishu.addApplicationFirst') }}
+              <router-link to="/admin/settings">{{ $t('feishu.manageApplications') }}</router-link>
+            </div>
           </el-form-item>
           <el-form-item
             prop="group_id"
@@ -521,9 +529,20 @@ const botsStore = useBotsStore()
 const auth = useAuthStore()
 const platformAccess = reactive({ Infoflow: false, Feishu: false })
 const feishuApplications = ref([])
+const feishuApplicationsLoaded = ref(false)
+const feishuApplicationsLoading = ref(false)
 async function loadFeishuApplications(visible) {
-  if (visible && auth.isSuperAdmin)
+  if (!visible || !auth.isSuperAdmin || feishuApplicationsLoading.value) return
+  feishuApplicationsLoading.value = true
+  try {
     feishuApplications.value = (await api.get('/feishu/applications')).data
+    feishuApplicationsLoaded.value = true
+  } catch {
+    feishuApplicationsLoaded.value = false
+    ElMessage.error(t('common.error'))
+  } finally {
+    feishuApplicationsLoading.value = false
+  }
 }
 
 const isEdit = computed(() => !!route.params.id)
@@ -575,6 +594,7 @@ watch(
     form.aes_key = ''
     form.token = ''
     form.feishu_application_id = null
+    if (form.platform.toLowerCase() === 'feishu') loadFeishuApplications(true)
     await nextTick()
     formRef.value?.clearValidate([
       'webhook_url',

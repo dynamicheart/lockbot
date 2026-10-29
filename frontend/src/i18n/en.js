@@ -1,5 +1,12 @@
 export default {
   feishu: {
+    editApplication: 'Edit application',
+    receiverRestartAfterUpdate:
+      'Saved. Refresh receiver status and start the application connection again.',
+    keepSecret: 'Leave empty to keep the saved Secret',
+    revealSecret: 'Reveal saved Secret for 20 seconds (audited)',
+    deleteApplicationConfirm:
+      'Delete application “{name}”? Resource bots must be unlinked first. This does not delete resources or their state.',
     proxyHelp:
       'Choose Direct when this server can reach Feishu. Otherwise use the server configuration or a specified proxy. This changes Feishu requests only, not Infoflow configuration.',
     proxyUnset: 'No dedicated proxy configured',
@@ -84,6 +91,7 @@ export default {
     connecting: 'Connection task started; messages can be received once connected',
     tenant: 'Enterprise tenant key',
     none: 'No Feishu application configured',
+    addApplicationFirst: 'Ask a super administrator to add a Feishu application first.',
     required: 'This field is required',
     platform: 'Messaging platform',
     application: 'Enterprise application',
@@ -1003,6 +1011,9 @@ export default {
       'user.force_logout': 'Force Logout',
       'bot.create': 'Create Bot',
       'feishu.create_application': 'Add Feishu application',
+      'feishu.update_application': 'Edit Feishu application',
+      'feishu.delete_application': 'Delete Feishu application',
+      'feishu.reveal_secret': 'Reveal Feishu application Secret',
       'bot.update': 'Update Bot Config',
       'bot.delete': 'Delete Bot',
       'bot.start': 'Start Bot',

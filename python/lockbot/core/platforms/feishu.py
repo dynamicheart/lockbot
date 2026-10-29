@@ -77,6 +77,14 @@ class FeishuClient:
             self._name_errors.clear()
             self._groups.clear()
 
+    def replace_application_secret(self, secret):
+        """Invalidate this app's cached token, including clients held by running bots."""
+        with self._lock:
+            self._secret = secret
+            self._token = ""
+            self._expires = 0.0
+        self.reset_transport_cache()
+
     def token(self):
         with self._lock:
             if self._token and time.monotonic() < self._expires:

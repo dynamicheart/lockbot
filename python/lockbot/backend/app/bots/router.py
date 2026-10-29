@@ -391,6 +391,17 @@ def create_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if body.platform.strip().lower() == "feishu":
+        from lockbot.backend.app.feishu.connectors import connectors
+
+        db.rollback()
+        with connectors.application_guard():
+            db.rollback()
+            return _create_bot(request, body, user, db)
+    return _create_bot(request, body, user, db)
+
+
+def _create_bot(request, body, user, db):
     if body.bot_type.upper() not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
 

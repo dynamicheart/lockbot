@@ -2,7 +2,7 @@
   <section class="feishu-applications">
     <div class="panel-heading">
       <h3>{{ $t('feishu.applications') }}</h3>
-      <el-button @click="dialog = true">{{ $t('feishu.add') }}</el-button>
+      <el-button @click="openCreate">{{ $t('feishu.add') }}</el-button>
     </div>
     <el-table v-loading="loading" :data="applications" :empty-text="$t('feishu.none')">
       <el-table-column prop="name" :label="$t('feishu.name')" />
@@ -24,7 +24,7 @@
           <span v-else>—</span>
         </template>
       </el-table-column>
-      <el-table-column width="150">
+      <el-table-column width="270">
         <template #default="{ row }">
           <el-button
             v-if="row.transport === 'websocket'"
@@ -36,12 +36,20 @@
               $t(receiverState(row) === 'stopped' ? 'feishu.connect' : 'feishu.refreshReceiver')
             }}</el-button
           >
+          <el-button link type="primary" @click="openEdit(row)">{{ $t('common.edit') }}</el-button>
+          <el-button
+            link
+            type="danger"
+            :loading="!!operations[row.id]"
+            @click="removeApplication(row)"
+            >{{ $t('common.delete') }}</el-button
+          >
         </template>
       </el-table-column>
     </el-table>
     <el-dialog
       v-model="dialog"
-      :title="$t('feishu.add')"
+      :title="$t(editingId ? 'feishu.editApplication' : 'feishu.add')"
       width="min(560px, 94vw)"
       class="feishu-application-dialog"
       @closed="clearSecrets"
@@ -72,9 +80,13 @@
           <template #label
             >App ID<el-tooltip :content="$t('feishu.appIdHelp')" placement="top" effect="light"
               ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip></template
-          ><el-input v-model="form.app_id" placeholder="cli_…" autocomplete="off"
+          ><el-input
+            v-model="form.app_id"
+            :disabled="!!editingId"
+            placeholder="cli_…"
+            autocomplete="off"
         /></el-form-item>
-        <el-form-item label="App Secret" prop="app_secret" :rules="required">
+        <el-form-item label="App Secret" prop="app_secret" :rules="editingId ? [] : required">
           <template #label
             >App Secret<el-tooltip
               :content="$t('feishu.appSecretHelp')"
@@ -86,8 +98,16 @@
             type="password"
             show-password
             autocomplete="new-password"
-        /></el-form-item>
-        <el-form-item :label="$t('feishu.transport')">
+            :placeholder="editingId ? $t('feishu.keepSecret') : ''"
+          />
+          <template v-if="editingId">
+            <el-button link type="primary" :loading="revealing" @click="revealSecret">{{
+              $t('feishu.revealSecret')
+            }}</el-button>
+            <p v-if="revealedSecret" class="revealed-secret">{{ revealedSecret }}</p>
+          </template>
+        </el-form-item>
+        <el-form-item v-if="!editingId" :label="$t('feishu.transport')">
           <template #label
             >{{ $t('feishu.transport')
             }}<el-tooltip :content="$t('feishu.transportHelp')" placement="top" effect="light"
@@ -98,7 +118,7 @@
             <el-radio-button value="http">HTTP</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <template v-if="form.transport === 'http'">
+        <template v-if="!editingId && form.transport === 'http'">
           <el-form-item :label="$t('feishu.tenant')" prop="tenant_key" :rules="required">
             <template #label
               >{{ $t('feishu.tenant')
@@ -145,9 +165,9 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref, computed } from 'vue'
+import { onMounted, onBeforeUnmount, reactive, ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
 import { QuestionFilled } from '@element-plus/icons-vue'
 
@@ -157,6 +177,11 @@ const loading = ref(false)
 const saving = ref(false)
 const operations = reactive({})
 const dialog = ref(false)
+const editingId = ref(null)
+const revealedSecret = ref('')
+const revealing = ref(false)
+let revealTimer
+let revealGeneration = 0
 const formRef = ref()
 const form = reactive({
   name: '',
@@ -174,7 +199,68 @@ function clearSecrets() {
   form.app_secret = ''
   form.verification_token = ''
   form.encrypt_key = ''
+  revealedSecret.value = ''
+  revealing.value = false
+  revealGeneration += 1
+  clearTimeout(revealTimer)
 }
+function openCreate() {
+  clearSecrets()
+  editingId.value = null
+  Object.assign(form, { name: '', app_id: '', transport: 'websocket', tenant_key: '' })
+  dialog.value = true
+}
+function openEdit(row) {
+  clearSecrets()
+  editingId.value = row.id
+  Object.assign(form, { name: row.name, app_id: row.app_id, transport: row.transport })
+  dialog.value = true
+}
+async function revealSecret() {
+  if (!editingId.value || revealing.value) return
+  const id = editingId.value
+  const generation = ++revealGeneration
+  clearTimeout(revealTimer)
+  revealedSecret.value = ''
+  revealing.value = true
+  try {
+    const { data } = await api.post(`/feishu/applications/${id}/reveal`)
+    if (generation !== revealGeneration || !dialog.value || editingId.value !== id) return
+    revealedSecret.value = data.app_secret
+    revealTimer = setTimeout(() => {
+      revealedSecret.value = ''
+    }, 20000)
+  } finally {
+    if (generation === revealGeneration) revealing.value = false
+  }
+}
+async function removeApplication(row) {
+  if (operations[row.id]) return
+  try {
+    await ElMessageBox.confirm(
+      t('feishu.deleteApplicationConfirm', { name: row.name }),
+      t('common.delete'),
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  operations[row.id] = true
+  try {
+    await api.delete(`/feishu/applications/${row.id}`)
+    await load()
+  } finally {
+    delete operations[row.id]
+  }
+}
+watch(
+  dialog,
+  (value) => {
+    if (!value) clearSecrets()
+  },
+  { flush: 'sync' }
+)
+onBeforeUnmount(clearSecrets)
 async function load() {
   loading.value = true
   try {
@@ -187,16 +273,25 @@ async function save() {
   if (!(await formRef.value.validate().catch(() => false))) return
   saving.value = true
   try {
+    let restartRequired = false
     const payload = { ...form }
     if (payload.transport === 'websocket') {
       payload.tenant_key = ''
       payload.verification_token = ''
       payload.encrypt_key = ''
     }
-    await api.post('/feishu/applications', payload)
+    if (editingId.value) {
+      const update = { name: payload.name }
+      if (payload.app_secret) update.app_secret = payload.app_secret
+      const { data } = await api.patch(`/feishu/applications/${editingId.value}`, update)
+      restartRequired = data.receiver_restart_required === true
+    } else {
+      await api.post('/feishu/applications', payload)
+    }
     dialog.value = false
     clearSecrets()
-    ElMessage.success(t('common.success'))
+    if (restartRequired) ElMessage.warning(t('feishu.receiverRestartAfterUpdate'))
+    else ElMessage.success(t('common.success'))
     await load()
   } finally {
     saving.value = false
@@ -235,6 +330,10 @@ onMounted(load)
   margin-left: 5px;
   color: var(--el-text-color-secondary);
   cursor: help;
+}
+.revealed-secret {
+  overflow-wrap: anywhere;
+  font-family: monospace;
 }
 .application-guide {
   margin: 0 0 16px;

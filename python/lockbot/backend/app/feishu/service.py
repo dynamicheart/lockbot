@@ -2,14 +2,17 @@ import hashlib
 import threading
 from collections import OrderedDict
 from dataclasses import replace
+from weakref import WeakSet
 
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
-from lockbot.core.platforms.feishu import FeishuClient
+from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
 from lockbot.core.platforms.feishu_events import FeishuIdentity, InvalidFeishuEvent, normalize_message
 
 _clients = OrderedDict()
 _clients_lock = threading.Lock()
+_client_references = WeakSet()
+_credential_generations = OrderedDict()
 
 
 def application_identity(app):
@@ -26,12 +29,30 @@ def application_client(app):
     secret = encryption.decrypt(app.app_secret)
     key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
     with _clients_lock:
+        if app.app_id in _credential_generations and _credential_generations[app.app_id] != key[1]:
+            raise FeishuAPIError("Application credentials changed; refresh before retrying")
         if key not in _clients:
             _clients[key] = FeishuClient(app.app_id, secret)
+            _client_references.add(_clients[key])
         _clients.move_to_end(key)
         while len(_clients) > 32:
             _clients.popitem(last=False)
         return _clients[key]
+
+
+def invalidate_application_clients(app_id, *, secret=""):
+    """Invalidate only this app, including references retained by running resource bots."""
+    with _clients_lock:
+        _credential_generations[app_id] = hashlib.sha256(secret.encode()).hexdigest() if secret else None
+        _credential_generations.move_to_end(app_id)
+        while len(_credential_generations) > 256:
+            _credential_generations.popitem(last=False)
+        for client in list(_client_references):
+            if client.app_id == app_id:
+                client.replace_application_secret(secret)
+        for key in list(_clients):
+            if key[0] == app_id:
+                _clients.pop(key)
 
 
 def _routed_application(bot, db):
