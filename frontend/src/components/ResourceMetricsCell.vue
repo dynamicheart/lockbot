@@ -18,7 +18,7 @@
         </div>
       </div>
       <span v-if="!cards.length" class="is-muted">—</span>
-      <div class="card-metrics-list">
+      <div v-if="cards.length" class="card-metrics-list">
         <div v-for="card in cards" :key="card.device" class="card-metric">
           <div class="card-values">
             <span class="device-name" :title="deviceName(card.device)">{{
@@ -150,7 +150,9 @@ function loadClass(card) {
 <style scoped>
 .resource-metrics {
   display: grid;
-  gap: 3px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  align-items: start;
+  gap: 8px 24px;
   font-size: 12px;
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
@@ -164,7 +166,7 @@ function loadClass(card) {
 .card-metrics-list {
   display: grid;
   gap: 2px;
-  max-width: 420px;
+  min-width: 0;
 }
 .card-values {
   display: grid;
