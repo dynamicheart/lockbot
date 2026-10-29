@@ -101,3 +101,27 @@ def test_shared_environment_file_is_rejected(tmp_path):
     env = environment(tmp_path)
     env.chmod(0o644)
     assert run(env)[0] == 1
+
+
+def test_oversized_decimal_port_returns_structured_failure_without_traceback(tmp_path):
+    env = environment(tmp_path, LOCKBOT_PORT="9" * 5000)
+    before = env.read_bytes()
+    result = subprocess.run(
+        [sys.executable, str(TOOL), "--env-file", str(env)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert result.stderr == ""
+    report = json.loads(result.stdout)
+    assert not report["ok"]
+    assert {
+        "check": "published_port",
+        "ok": False,
+        "reason": "valid_port_required_preserve_existing_on_upgrade",
+    } in report["checks"]
+    assert "private-test-canary" not in result.stdout
+    assert base64.urlsafe_b64encode(bytes(range(32))).decode() not in result.stdout
+    assert "9" * 100 not in result.stdout
+    assert env.read_bytes() == before

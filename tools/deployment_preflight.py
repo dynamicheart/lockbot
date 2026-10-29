@@ -68,7 +68,7 @@ def check(env_file, data_dir=None, upgrade=False):
     port = values.get("LOCKBOT_PORT", "8000")
     record(
         "published_port",
-        port.isdecimal() and 1 <= int(port) <= 65535,
+        1 <= len(port) <= 5 and port.isdecimal() and 1 <= int(port) <= 65535,
         "valid_port_required_preserve_existing_on_upgrade",
     )
     record(
