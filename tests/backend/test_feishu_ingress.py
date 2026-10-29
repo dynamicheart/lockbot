@@ -224,3 +224,41 @@ def test_chat_budget_is_per_verified_actor_and_application():
     assert not budget.claim(1, "charlie", now=4)
     assert budget.claim(2, "alice", now=4)
     assert budget.claim(1, "alice", now=63)
+
+
+def test_platform_creation_policy_preserves_existing_bots(setup, client, auth_header):
+    application_id, bots, _ = setup
+    response = client.put(
+        "/api/admin/settings",
+        headers=auth_header,
+        json={"settings": {"platform_feishu_enabled": "false", "platform_infoflow_enabled": "false"}},
+    )
+    assert response.status_code == 200
+    settings = {row["key"]: row["value"] for row in client.get("/api/settings").json()}
+    assert settings["platform_feishu_enabled"] == settings["platform_infoflow_enabled"] == "false"
+    for platform in ("Feishu", "Infoflow"):
+        response = client.post(
+            "/api/bots",
+            headers=auth_header,
+            json={
+                "name": "disabled-" + platform,
+                "bot_type": "QUEUE",
+                "platform": platform,
+                "group_id": "oc_disabled",
+                "feishu_application_id": application_id,
+                "webhook_url": "",
+                "cluster_configs": ["node_a"],
+            },
+        )
+        assert response.status_code == 403, response.text
+    for instance in bots:
+        bot_id = instance.config.get_val("BOT_ID")
+        assert client.get(f"/api/bots/{bot_id}", headers=auth_header).status_code == 200
+    assert (
+        client.put(
+            "/api/admin/settings",
+            headers=auth_header,
+            json={"settings": {"platform_feishu_enabled": "yes"}},
+        ).status_code
+        == 422
+    )

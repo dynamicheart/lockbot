@@ -1,5 +1,10 @@
 export default {
   feishu: {
+    enabledPlatforms: 'Enabled platforms',
+    enabledPlatformsHint: 'Applies to new bots only. Existing bots keep running.',
+    infoflow: 'Infoflow',
+    feishu: 'Feishu',
+
     applications: 'Feishu applications',
     add: 'Add application',
     name: 'Application name',

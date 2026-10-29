@@ -52,8 +52,8 @@
 
       <el-form-item v-if="auth.isSuperAdmin || isEdit" :label="$t('feishu.platform')">
         <el-select v-model="form.platform" :disabled="isEdit" style="width: 100%">
-          <el-option label="Infoflow" value="Infoflow" />
-          <el-option label="飞书 / Feishu" value="Feishu" />
+          <el-option v-if="isEdit || platformAccess.Infoflow" label="Infoflow" value="Infoflow" />
+          <el-option v-if="isEdit || platformAccess.Feishu" label="飞书 / Feishu" value="Feishu" />
         </el-select>
       </el-form-item>
       <template v-if="form.platform.toLowerCase() === 'feishu'">
@@ -457,7 +457,7 @@
         <el-button
           type="primary"
           :loading="saving"
-          :disabled="isEdit && !bot"
+          :disabled="(isEdit && !bot) || (!isEdit && !platformAccess[form.platform])"
           @click="handleSubmit"
         >
           {{ isEdit ? $t('common.save') : $t('common.create') }}
@@ -487,6 +487,7 @@ const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
 const auth = useAuthStore()
+const platformAccess = reactive({ Infoflow: false, Feishu: false })
 const feishuApplications = ref([])
 async function loadFeishuApplications(visible) {
   if (visible && auth.isSuperAdmin)
@@ -591,6 +592,17 @@ const rules = computed(() => ({
 }))
 
 onMounted(async () => {
+  try {
+    const { data } = await api.get('/settings')
+    const settings = Object.fromEntries(data.map(({ key, value }) => [key, value]))
+    platformAccess.Infoflow = settings.platform_infoflow_enabled !== 'false'
+    platformAccess.Feishu = settings.platform_feishu_enabled !== 'false'
+    if (!isEdit.value && !platformAccess.Infoflow && platformAccess.Feishu && auth.isSuperAdmin)
+      form.platform = 'Feishu'
+  } catch {
+    ElMessage.error(t('common.error'))
+  }
+
   if (isEdit.value) {
     try {
       bot.value = await botsStore.getBot(route.params.id)

@@ -46,6 +46,23 @@
             {{ $t('settings.agentPromotionHint') }}
           </span>
         </el-form-item>
+        <el-form-item :label="$t('feishu.enabledPlatforms')">
+          <div class="platform-options">
+            <el-checkbox
+              v-model="form.platform_infoflow_enabled"
+              true-value="true"
+              false-value="false"
+              >{{ $t('feishu.infoflow') }}</el-checkbox
+            >
+            <el-checkbox
+              v-model="form.platform_feishu_enabled"
+              true-value="true"
+              false-value="false"
+              >{{ $t('feishu.feishu') }}</el-checkbox
+            >
+          </div>
+          <div class="platform-hint">{{ $t('feishu.enabledPlatformsHint') }}</div>
+        </el-form-item>
         <el-form-item :label="$t('settings.newsContent')">
           <el-input
             v-model="form.news_content"
@@ -202,6 +219,8 @@ const form = ref({
   admin_contact: '',
   news_content: '',
   agent_promotion_enabled: 'false',
+  platform_infoflow_enabled: 'true',
+  platform_feishu_enabled: 'true',
 })
 
 // Backup state
@@ -395,3 +414,20 @@ onMounted(() => {
   fetchBackupSettings()
 })
 </script>
+
+<style scoped>
+.platform-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  width: 100%;
+}
+.platform-options :deep(.el-checkbox) {
+  margin-right: 0;
+}
+.platform-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+</style>

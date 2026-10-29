@@ -1,5 +1,10 @@
 export default {
   feishu: {
+    enabledPlatforms: '开放的平台',
+    enabledPlatformsHint: '仅控制新建机器人，不会停用已有机器人。',
+    infoflow: '如流',
+    feishu: '飞书',
+
     applications: '飞书应用',
     add: '添加应用',
     name: '应用名称',

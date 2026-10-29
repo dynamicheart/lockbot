@@ -377,6 +377,15 @@ def create_bot(
     if body.bot_type.upper() not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
 
+    from lockbot.backend.app.settings.router import _get_setting
+
+    selected_platform = body.platform.strip().lower()
+    if (
+        selected_platform in {"infoflow", "feishu"}
+        and _get_setting(db, f"platform_{selected_platform}_enabled") == "false"
+    ):
+        raise HTTPException(status_code=403, detail="Creation is disabled for this message platform")
+
     _validate_node_aliases(body.config_overrides, body.cluster_configs)
 
     exists = (

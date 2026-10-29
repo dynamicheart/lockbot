@@ -19,7 +19,7 @@ from lockbot.backend.app.settings.models import SiteSetting
 router = APIRouter(tags=["settings"])
 
 # --- Public keys (exposed without auth) ---
-PUBLIC_KEYS = {"platform_url", "admin_contact"}
+PUBLIC_KEYS = {"platform_url", "admin_contact", "platform_infoflow_enabled", "platform_feishu_enabled"}
 
 # --- Env-var fallbacks ---
 _DEV_MODE = os.environ.get("DEV_MODE", "false").lower() in ("true", "1", "yes")
@@ -30,6 +30,8 @@ _ENV_FALLBACKS = {
     "github_url": os.environ.get("GITHUB_URL", "https://github.com/dynamicheart/lockbot"),
     "news_content": "",
     "agent_promotion_enabled": "false",
+    "platform_infoflow_enabled": "true",
+    "platform_feishu_enabled": "true",
 }
 
 
@@ -122,8 +124,11 @@ def batch_update_settings(
     for key, value in body.settings.items():
         if key not in allowed:
             raise HTTPException(status_code=422, detail=f"Unknown setting key: {key}")
-        if key == "agent_promotion_enabled" and value not in ("true", "false"):
-            raise HTTPException(status_code=422, detail="agent_promotion_enabled must be true or false")
+        if key in {"agent_promotion_enabled", "platform_infoflow_enabled", "platform_feishu_enabled"} and value not in (
+            "true",
+            "false",
+        ):
+            raise HTTPException(status_code=422, detail=f"{key} must be true or false")
     updated = []
     for key, value in body.settings.items():
         if key not in allowed:
