@@ -192,7 +192,7 @@ READ_BUDGET = 1024 * 1024
 MAX_LINE_BYTES = 64 * 1024
 
 
-def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
+def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stream="agent"):
     """Newest first, inode/offset cursor: appends do not shift subsequent pages.
 
     A rotated-away cursor fails explicitly rather than silently skipping history. File
@@ -202,11 +202,19 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
 
     from fastapi import HTTPException
 
+    if stream not in {"agent", "lifecycle"}:
+        raise ValueError("Unknown history stream")
+    filename, line_limit, backups, file_bytes = "agent-operations.jsonl", MAX_LINE_BYTES, BACKUPS, MAX_BYTES
+    if stream == "lifecycle":
+        from lockbot.backend.app.resource_api import lease_history
+
+        filename, line_limit = lease_history.LOG_NAME, lease_history.MAX_LINE_BYTES
+        backups, file_bytes = lease_history.BACKUPS, lease_history.MAX_FILE_BYTES
     paths = get_managed_paths()
     handles = []
     try:
-        for index in range(BACKUPS + 1):
-            candidate = paths.bot_file(bot_id, "agent-operations.jsonl" + (f".{index}" if index else ""))
+        for index in range(backups + 1):
+            candidate = paths.bot_file(bot_id, filename + (f".{index}" if index else ""))
             try:
                 fd = os.open(candidate, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK)
             except FileNotFoundError:
@@ -262,7 +270,7 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
                     position += len(raw)
                 for position, raw in reversed(offsets):
                     stop = position
-                    if not raw.endswith(b"\n") or len(raw) > MAX_LINE_BYTES:
+                    if not raw.endswith(b"\n") or len(raw) > line_limit:
                         continue
                     try:
                         row = json.loads(raw)
@@ -270,40 +278,47 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
                         continue
                     if not isinstance(row, dict) or row.get("bot_id") != bot_id:
                         continue
-                    # Only event-schema fields are exposed; redact again for older files.
-                    row = _safe(
-                        {
-                            key: row[key]
-                            for key in (
-                                "schema_version",
-                                "timestamp",
-                                "bot_type",
-                                "operation",
-                                "command",
-                                "agent_label",
-                                "purpose",
-                                "task_category",
-                                "public_task",
-                                "previous_task_category",
-                                "actor",
-                                "credential_id",
-                                "credential_ref",
-                                "requested_resources",
-                                "observed_state",
-                                "reply",
-                                "http_status",
-                                "outcome",
-                                "duration_ms",
-                            )
-                            if key in row
-                        }
-                    )
-                    if isinstance(row.get("command"), str):
-                        row["command"] = redact_command_text(row["command"])
-                    if not private:
-                        from lockbot.backend.app.resource_api.privacy import public_event
+                    if stream == "lifecycle":
+                        from lockbot.backend.app.resource_api.lease_history import public_frame
 
-                        row = public_event(row)
+                        row = public_frame(row)
+                        if row is None:
+                            continue
+                    else:
+                        # Only event-schema fields are exposed; redact again for older files.
+                        row = _safe(
+                            {
+                                key: row[key]
+                                for key in (
+                                    "schema_version",
+                                    "timestamp",
+                                    "bot_type",
+                                    "operation",
+                                    "command",
+                                    "agent_label",
+                                    "purpose",
+                                    "task_category",
+                                    "public_task",
+                                    "previous_task_category",
+                                    "actor",
+                                    "credential_id",
+                                    "credential_ref",
+                                    "requested_resources",
+                                    "observed_state",
+                                    "reply",
+                                    "http_status",
+                                    "outcome",
+                                    "duration_ms",
+                                )
+                                if key in row
+                            }
+                        )
+                        if isinstance(row.get("command"), str):
+                            row["command"] = redact_command_text(row["command"])
+                        if not private:
+                            from lockbot.backend.app.resource_api.privacy import public_event
+
+                            row = public_event(row)
                     if needle and needle not in json.dumps(row, ensure_ascii=False).casefold():
                         continue
                     row["id"] = f"{inode}:{position}"
@@ -329,7 +344,7 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
             "items": items,
             "next_cursor": next_cursor,
             "scanned_bytes": scanned,
-            "retention": {"max_file_bytes": MAX_BYTES, "files": BACKUPS + 1},
+            "retention": {"max_file_bytes": file_bytes, "files": backups + 1},
         }
     except (OSError, ManagedPathError):
         raise HTTPException(503, "Agent history is temporarily unavailable") from None

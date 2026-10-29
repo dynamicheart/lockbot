@@ -148,7 +148,7 @@ class DeviceBot(BaseLockBot):
         """
         query current usage
         """
-        with self._lock:
+        with self._state_guard():
             content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
         return self._query_reply(content, user_id)
 
@@ -179,7 +179,7 @@ class DeviceBot(BaseLockBot):
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
-        with self._lock:
+        with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
             policy_error = self._resource_policy_locked(user_id, targets)
@@ -258,7 +258,7 @@ class DeviceBot(BaseLockBot):
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
-        with self._lock:
+        with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
             policy_error = self._resource_policy_locked(user_id, targets)
@@ -324,7 +324,7 @@ class DeviceBot(BaseLockBot):
         cluster_configs = self.config.get_val("CLUSTER_CONFIGS")
 
         if re.match(r"^\s*(unlock|free)\s*$", command):
-            with self._lock:
+            with self._state_guard():
                 for _, devices in self.state.bot_state.items():
                     for device in devices:
                         if device["status"] != "idle":
@@ -355,7 +355,7 @@ class DeviceBot(BaseLockBot):
                         ),
                     )
 
-            with self._lock:
+            with self._state_guard():
                 for node_key in node_key_list:
                     devices = self.state.bot_state[node_key]
                     for device in devices:
@@ -373,7 +373,7 @@ class DeviceBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        with self._lock:
+        with self._state_guard():
             for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True):
                 node_status = self.state.bot_state[node_key]
                 devices = [node_status[dev_id] for dev_id in dev_ids]
@@ -405,7 +405,7 @@ class DeviceBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        with self._lock:
+        with self._state_guard():
             users = set([user_id])
 
             content = t("success.resource_force_released", config=self.config, user_id=user_id)
@@ -433,7 +433,7 @@ class DeviceBot(BaseLockBot):
         Returns: {"ok": True, "freed": ["node/devN", ...]}
         Raises: ValueError if user not found.
         """
-        with self._lock:
+        with self._state_guard():
             target_nodes = [node_key] if node_key else list(self.state.bot_state.keys())
             freed = []
             for nk in target_nodes:
@@ -527,7 +527,7 @@ class DeviceBot(BaseLockBot):
 
         alert_tuples = []
 
-        with self._lock:
+        with self._state_guard():
             for node_key, devices in self.state.bot_state.items():
                 for device in devices:
                     if device["status"] != "idle":

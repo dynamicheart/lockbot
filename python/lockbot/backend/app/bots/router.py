@@ -1472,8 +1472,22 @@ def update_bot_state(
         # expiry sweep and chat commands contend on. Both still run inside the lease, so the
         # audit/commit never trails it.
         with lease.bot._lock:
+            from lockbot.core.command_context import command_action, command_source
+            from lockbot.core.io import observe_state_persistence
+
             lease.bot.state.bot_state = state
-            _persist_state_file()
+            source_token = command_source.set("admin")
+            action_token = command_action.set("state_edit")
+            try:
+                try:
+                    _persist_state_file()
+                except BaseException:
+                    observe_state_persistence(lease.bot.config, state, successful=False)
+                    raise
+                observe_state_persistence(lease.bot.config, state, successful=True)
+            finally:
+                command_source.reset(source_token)
+                command_action.reset(action_token)
         _audit_and_commit()
 
     # This route edits persisted state and requires a non-running bot (running bots are 409'd

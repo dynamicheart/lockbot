@@ -108,7 +108,7 @@ class NodeBot(BaseLockBot):
         """
         Query usage of a node
         """
-        with self._lock:
+        with self._state_guard():
             content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
         return self._query_reply(content, user_id)
 
@@ -122,7 +122,7 @@ class NodeBot(BaseLockBot):
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
-        with self._lock:
+        with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys)
@@ -186,7 +186,7 @@ class NodeBot(BaseLockBot):
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
-        with self._lock:
+        with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys)
@@ -235,7 +235,7 @@ class NodeBot(BaseLockBot):
         Unlock nodes
         """
         if re.match(r"^\s*(unlock|free)\s*$", command):
-            with self._lock:
+            with self._state_guard():
                 for _, node in self._resource_state().items():
                     remove_user_info(node["booking_list"], user_id)
                     if node["status"] != "idle":
@@ -254,7 +254,7 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        with self._lock:
+        with self._state_guard():
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             if not all(
                 find_user_info(node["current_users"], user_id) or find_user_info(node["booking_list"], user_id)
@@ -282,7 +282,7 @@ class NodeBot(BaseLockBot):
         if not parse_ok:
             return error_reply
 
-        with self._lock:
+        with self._state_guard():
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             users = set([user_id])
             content = t("success.resource_force_released", config=self.config, user_id=user_id)
@@ -307,7 +307,7 @@ class NodeBot(BaseLockBot):
         Returns: {"ok": True, "freed": [node_keys]}
         Raises: ValueError if user not found.
         """
-        with self._lock:
+        with self._state_guard():
             if node_key:
                 target_nodes = [node_key]
             else:
@@ -406,7 +406,7 @@ class NodeBot(BaseLockBot):
         user_ids = set()
         alert_info = self._build_alert_header()
 
-        with self._lock:
+        with self._state_guard():
             # Release expired resources
             for node_key, node in self._resource_state().items():
                 if node["status"] != "idle":

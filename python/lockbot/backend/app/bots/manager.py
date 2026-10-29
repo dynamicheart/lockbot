@@ -399,6 +399,13 @@ class BotManager:
                 scheduler=self._scheduler,  # managed mode: shared scheduler
             )
             instance.bot.binding_hook = self._make_binding_hook(bot_id, config_dict)
+            from lockbot.backend.app.resource_api.lease_history import LeaseJournal
+
+            try:
+                with instance.bot._lock:
+                    instance.config._lifecycle_observer = LeaseJournal(bot_id, instance.bot)
+            except Exception:
+                logger.warning("Bot %s lifecycle evidence is unavailable", bot_id)
 
             with self._lock:
                 # The transition owner guarantees no competing start published in the meantime.

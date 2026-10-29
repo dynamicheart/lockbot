@@ -7,6 +7,7 @@ import logging
 import re
 import threading
 from collections.abc import Callable
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from importlib.metadata import version as _pkg_version
 
@@ -103,6 +104,19 @@ class BaseLockBot:
             self.adapter.send(reply)
         except Exception:
             self.logger.warning("Failed to notify clamped users: %s", clamped)
+
+    @contextmanager
+    def _state_guard(self):
+        """Keep failure evidence inside the existing state lock; do not alter locking semantics."""
+        with self._lock:
+            try:
+                yield
+            except BaseException:
+                observer = getattr(self.config, "_lifecycle_observer", None)
+                if observer is not None:
+                    with suppress(Exception):
+                        observer.unconfirmed(self.state.bot_state)
+                raise
 
     def _notify_state_changed(self) -> None:
         """Call _on_state_changed if wired up (no-op otherwise)."""
