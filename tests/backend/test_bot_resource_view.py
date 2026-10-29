@@ -184,7 +184,7 @@ def test_other_bots_link_is_not_accepted(client, api, db_session):
 
 
 @pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE"], indirect=True)
-def test_valid_link_shows_resource_state_and_purposes_without_binding_metadata(client, api):
+def test_valid_link_shows_only_public_category_without_private_metadata(client, api):
     context = link(client, api)
     command = "lock n1 dev0 1h" if api["bot"].config.get_val("BOT_TYPE") == "DEVICE" else "lock n1 1h"
     result = client.post(
@@ -194,6 +194,7 @@ def test_valid_link_shows_resource_state_and_purposes_without_binding_metadata(c
             "command": command,
             "agent_label": "build-agent",
             "purpose": "Develop the feature",
+            "task_category": "operator_development",
         },
     )
     assert result.status_code == 200
@@ -204,8 +205,10 @@ def test_valid_link_shows_resource_state_and_purposes_without_binding_metadata(c
     resource = payload["resources"][0]
     holder = (resource.get("devices", [{}])[0].get("holders") or resource["holders"])[0]
     assert holder["external_user_id"] == "alice"
-    assert holder["usage"]["purpose"] == "Develop the feature"
-    assert holder["usage"]["agent_label"] == "build-agent"
+    assert holder["usage"]["task_category"] == "operator_development"
+    assert holder["usage"]["public_task"] == "算子开发"
+    assert "Develop the feature" not in response.text and "build-agent" not in response.text
+    assert "purpose" not in holder["usage"] and "agent_label" not in holder["usage"]
     assert "binding_id" not in holder["usage"] and "authorization_label" not in holder["usage"]
     assert "claim_command" not in response.text and "caller_queue_position" not in response.text
     assert payload["view_expires_at"] == context["view_expires_at"]

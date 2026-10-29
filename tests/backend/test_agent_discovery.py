@@ -59,7 +59,7 @@ def declare(client, case, purpose, headers=None):
 
 
 def snapshot(client, case, headers=None):
-    response = client.get(f"/api/bots/{case['bot_id']}/resources", headers=headers or case["other_headers"])
+    response = client.get(f"/api/bots/{case['bot_id']}/resources", headers=headers or case["headers"])
     assert response.status_code == 200, response.text
     return response.json()["resources"][0]
 
@@ -91,7 +91,9 @@ def test_holder_and_waiting_user_get_separate_purposes(client, api, monkeypatch)
     assert resource["holders"][0]["usage"]["purpose"] == "training"
     booking = resource["booking_list"][0]
     assert booking["external_user_id"] == "bob" and booking["position"] == 0
-    assert booking["usage"]["purpose"] == "benchmark after training"
+    assert "purpose" not in booking["usage"]
+    own_booking = snapshot(client, api, api["other_headers"])["booking_list"][0]
+    assert own_booking["usage"]["purpose"] == "benchmark after training"
     assert booking["usage"]["actor"]["external_user_id"] == "bob"
 
 
@@ -119,7 +121,7 @@ def test_expired_revoked_and_wrong_bot_declarations_are_hidden(client, api, monk
     binding = db_session.get(ResourceBinding, row.binding_id)
     binding.revoked_at = datetime.utcnow()
     db_session.commit()
-    assert snapshot(client, api)["holders"][0]["usage"] is None
+    assert snapshot(client, api, api["other_headers"])["holders"][0]["usage"] is None
     assert client.get(f"/api/bots/{api['bot_id']}/resources", headers=api["headers"]).status_code == 401
     other = client.post(
         "/api/bots",

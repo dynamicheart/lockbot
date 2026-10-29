@@ -33,13 +33,16 @@ def _safe(value):
     return value
 
 
-def begin_event(request, *, bot=None, operation, command=None, agent_label=None, purpose=None, resource_id=None):
+def begin_event(
+    request, *, bot=None, operation, command=None, agent_label=None, purpose=None, resource_id=None, task_category=None
+):
     """Only validated request fields, never a raw request body or Authorization header."""
     request.state.agent_event = {
         "operation": operation,
         "command": redact_command_text(command) if command is not None else None,
         "agent_label": agent_label,
         "purpose": purpose,
+        "task_category": task_category,
         "requested_resources": [resource_id] if resource_id is not None else [],
         "bot_uuid": getattr(bot, "uuid", None),
         "bot_type": getattr(bot, "bot_type", None),

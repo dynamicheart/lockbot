@@ -50,7 +50,13 @@
             :usage="usage"
             plain
             purpose-on-hover
-          />
+          >
+            <template #detail="{ user }"
+              ><span class="queue-time"
+                >{{ $t('resourceView.remainingTime') }} {{ remaining(user) }}</span
+              ></template
+            >
+          </ResourceParticipants>
         </template>
       </el-table-column>
       <el-table-column :label="$t('resourceView.queue')" min-width="320">
@@ -72,17 +78,8 @@
           <span v-else class="empty-value">—</span>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('resourceView.remainingTime')" width="90" align="right">
-        <template #default="{ row }">
-          <div
-            v-for="user in row.holders"
-            :key="user.external_user_id || user.user_id"
-            class="remaining"
-          >
-            {{ remaining(user) }}
-          </div>
-          <span v-if="!row.holders.length" class="empty-value">—</span>
-        </template>
+      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="320">
+        <template #default="{ row }"><slot name="metrics" :row="row" /></template>
       </el-table-column>
     </el-table>
     <div class="mobile-resource-list">
@@ -112,6 +109,7 @@
             ><span class="source">{{ remaining(user) }}</span></template
           >
         </ResourceParticipants>
+        <div v-if="$slots.metrics" class="mobile-metrics"><slot name="metrics" :row="row" /></div>
         <details v-if="row.booking_list?.length" class="mobile-queue" open>
           <summary>
             {{ $t('resourceView.queuedCount', { count: row.booking_list.length }) }}
@@ -221,6 +219,7 @@ const visibleResources = computed(() =>
         user.external_user_id || user.user_id,
         task(row, user)?.agent_label,
         task(row, user)?.purpose,
+        task(row, user)?.public_task,
       ]),
     ]
       .filter(Boolean)

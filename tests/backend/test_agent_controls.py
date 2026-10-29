@@ -35,8 +35,8 @@ def test_notification_switch_suppresses_only_api_broadcasts(client, api, auth_he
     )
     assert result.status_code == 200
     text = api["bot"].adapter.extract_reply_text(api["bot"].adapter.sent[-1])
-    assert "training worker" in text and "alice" in text
-    assert "备注：开发训练功能" in text
+    assert "alice" in text
+    assert "training worker" not in text and "开发训练功能" not in text
     assert "另有" not in text
     for field in ("agent_label", "purpose"):
         invalid = client.post(
