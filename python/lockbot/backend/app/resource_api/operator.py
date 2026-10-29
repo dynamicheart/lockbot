@@ -3,7 +3,7 @@
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,44 @@ def _require_operator(db, request, bot_id, *, fresh=False):
     request.state.traffic_bot_id = bot.id
     request.state.traffic_operator = True
     return bot
+
+
+@router.get("/{bot_id}/op/history")
+@limiter.limit("30/minute")
+def operator_history(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    cursor: str | None = Query(None, max_length=256),
+    limit: int = Query(25, ge=1, le=100),
+    query: str = Query("", max_length=128),
+    db: Session = Depends(get_db),
+):
+    """Public Agent API operation history, never private tasks or a full usage ledger."""
+    from lockbot.backend.app.resource_api.event_log import READ_BUDGET, read_history
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        _require_operator(db, request, bot_id, fresh=True)
+        result = read_history(bot_id, limit=limit, cursor=cursor, query=query, private=False)
+        # Rotation/revocation/deletion during a file read must take effect before disclosure.
+        _require_operator(db, request, bot_id, fresh=True)
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store"}
+        raise
+    return {
+        "bot_id": bot_id,
+        "history_schema_version": 1,
+        "visibility": "public",
+        **result,
+        "coverage": {
+            "source": "agent_api_operations",
+            "complete_lifecycle": False,
+            "complete_history": False,
+            "read_budget_bytes": READ_BUDGET,
+            "excludes": ["chat_commands", "op_actions", "automatic_expiry", "hardware_utilization"],
+        },
+    }
 
 
 @router.get("/{bot_id}/op/resources")

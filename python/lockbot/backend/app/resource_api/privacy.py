@@ -107,6 +107,9 @@ def public_event(entry):
     category = entry.get("task_category")
     if isinstance(category, str) and category in TASK_CATEGORIES:
         result.update(task_category=category, public_task=TASK_CATEGORIES[category])
+    previous = entry.get("previous_task_category")
+    if isinstance(previous, str) and previous in TASK_CATEGORIES:
+        result.update(previous_task_category=previous, previous_public_task=TASK_CATEGORIES[previous])
     targets = []
     requested = entry.get("requested_resources")
     for target in requested[:100] if isinstance(requested, list) else []:
