@@ -51,17 +51,26 @@
           </div></template
         >
         <div class="business-sources">
-          <span v-for="source in ['chat', 'agent', 'operator']" :key="source">
+          <span
+            v-for="source in ['chat', 'agent', 'operator']"
+            :key="source"
+            class="operation-source"
+            :class="`source-${source}`"
+          >
+            <el-icon><component :is="sourceIcons[source]" /></el-icon>
             {{ $t('serviceTraffic.businessSources.' + source) }}
             <strong>{{ number(businessCount(source)) }}</strong>
           </span>
         </div>
         <el-table :data="businessRows" :empty-text="$t('common.noData')" size="small">
-          <el-table-column :label="$t('serviceTraffic.source')" min-width="130"
-            ><template #default="{ row }">{{
-              $t('serviceTraffic.businessSources.' + row.source)
-            }}</template></el-table-column
-          >
+          <el-table-column :label="$t('serviceTraffic.source')" min-width="130">
+            <template #default="{ row }">
+              <span class="operation-source" :class="`source-${row.source}`">
+                <el-icon><component :is="sourceIcons[row.source]" /></el-icon>
+                {{ $t('serviceTraffic.businessSources.' + row.source) }}
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column prop="command" :label="$t('agentHistory.operation')" min-width="120" />
           <el-table-column
             v-for="outcome in ['dispatched', 'rejected', 'uncertain']"
@@ -211,7 +220,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, ChatDotRound, Cpu, Setting } from '@element-plus/icons-vue'
+const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 const props = defineProps({ botId: { type: [Number, String], default: null } })
@@ -326,6 +336,24 @@ function bytes(value) {
   flex-wrap: wrap;
   margin-bottom: 12px;
   color: var(--el-text-color-regular);
+}
+.operation-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.operation-source .el-icon {
+  color: var(--source-color);
+  font-size: 15px;
+}
+.source-chat {
+  --source-color: var(--el-color-primary);
+}
+.source-agent {
+  --source-color: #8b5cf6;
+}
+.source-operator {
+  --source-color: var(--el-color-warning);
 }
 .business-sources strong {
   margin-left: 8px;
