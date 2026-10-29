@@ -207,3 +207,97 @@ def test_context_requests_have_verified_credential_attribution(client, api):
     assert response.status_code == 200
     rows = client.app.state.service_traffic.snapshot(api["bot_id"])["credentials"]
     assert any(row["kind"] == "agent" and row["user"] == "alice" for row in rows)
+
+
+def test_business_operations_are_bounded_and_separate_from_http():
+    stats = TrafficStats()
+    stats.record_operation(bot_id=1, source="chat", command="lock", outcome="dispatched")
+    stats.record_operation(bot_id=2, source="agent", command="book", outcome="rejected")
+    stats.record_operation(bot_id=1, source="operator", command="opkick", outcome="uncertain")
+    for command in ("query", "help", "user supplied text", "lock secret"):
+        stats.record_operation(bot_id=1, source="chat", command=command, outcome="dispatched")
+    stats.record_operation(bot_id=1, source="invented", command="lock", outcome="dispatched")
+    assert stats.snapshot()["business_operations"]["total"] == 3
+    assert stats.snapshot()["totals"]["requests"] == 0
+    assert stats.snapshot(1)["business_operations"]["total"] == 2
+    assert stats.snapshot(2)["business_operations"]["rows"] == [
+        {"source": "agent", "command": "book", "outcome": "rejected", "count": 1}
+    ]
+    for index in range(300):
+        stats.record_operation(bot_id=index + 10, source="chat", command="lock", outcome="dispatched")
+    assert len(stats.bots) == 256
+    assert stats.snapshot(1)["business_operations"]["total"] == 0
+    assert TrafficStats().snapshot()["business_operations"]["total"] == 0
+
+
+def test_business_dispatch_is_transport_independent_and_best_effort(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from lockbot.core import command_context
+    from lockbot.core.handler import CommandNotAllowed, execute_text_command
+
+    stats = TrafficStats()
+    monkeypatch.setattr(command_context, "operation_observer", stats.record_operation)
+    config = SimpleNamespace(get_val=lambda key, default=None: 17 if key == "BOT_ID" else default)
+    bot = SimpleNamespace(config=config, supported_commands=lambda: {"lock", "free", "query", "help"})
+    bot.lock = Mock(return_value="a business reply, not proof of acquisition")
+    bot.unlock = Mock(return_value="released")
+    bot.query = Mock(return_value="state")
+    bot.print_help = Mock(return_value="help")
+    # No Request/HTTP middleware: this is also the seam for long-connection chat.
+    execute_text_command("not retained", "lock private-resource 1h", bot)
+    execute_text_command("not retained", "free private-resource", bot, source="api")
+    execute_text_command("not retained", "query", bot)
+    execute_text_command("not retained", "help", bot)
+    with pytest.raises(CommandNotAllowed):
+        execute_text_command("not retained", "lock private-resource", bot, allowed_commands={"query"}, source="api")
+    bot.lock.side_effect = RuntimeError("maybe applied")
+    with pytest.raises(RuntimeError):
+        execute_text_command("not retained", "lock private-resource", bot)
+    payload = stats.snapshot(17)["business_operations"]
+    assert payload["total"] == 4
+    assert "private-resource" not in json.dumps(payload) and "not retained" not in json.dumps(payload)
+    assert {row["outcome"] for row in payload["rows"]} == {"dispatched", "rejected", "uncertain"}
+    monkeypatch.setattr(command_context, "operation_observer", Mock(side_effect=RuntimeError("telemetry failure")))
+    assert execute_text_command("u", "free resource", bot) == "released"
+
+
+def test_direct_operator_attempt_uses_same_collector(monkeypatch):
+    from lockbot.core import command_context
+
+    stats = TrafficStats()
+    monkeypatch.setattr(command_context, "operation_observer", stats.record_operation)
+    with command_context.operation_attempt(3, "operator", "opkick"):
+        pass
+    with pytest.raises(ValueError), command_context.operation_attempt(3, "operator", "kicklock"):
+        raise ValueError("bad resource")
+    assert stats.snapshot(3)["business_operations"]["total"] == 2
+    assert {row["outcome"] for row in stats.snapshot(3)["business_operations"]["rows"]} == {"dispatched", "rejected"}
+
+
+def test_business_operations_concurrent_updates():
+    stats = TrafficStats()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(
+            pool.map(
+                lambda _: stats.record_operation(bot_id=2, source="chat", command="lock", outcome="dispatched"),
+                range(1000),
+            )
+        )
+    assert stats.snapshot()["business_operations"]["total"] == 1000
+    assert stats.snapshot(2)["business_operations"]["total"] == 1000
+
+
+def test_real_agent_command_is_counted_once_but_reads_are_not(client, api):
+    bot_id = api["bot_id"]
+    stats = client.app.state.service_traffic
+    before = stats.snapshot(bot_id)["business_operations"]["total"]
+    response = client.post(f"/api/bots/{bot_id}/commands", headers=api["headers"], json={"command": "lock n1 5m"})
+    assert response.status_code == 200
+    snapshot = stats.snapshot(bot_id)["business_operations"]
+    assert snapshot["total"] == before + 1
+    assert snapshot["rows"][-1]["source"] == "agent"
+    for _ in range(2):
+        client.get(f"/api/bots/{bot_id}/resources", headers=api["headers"])
+    assert stats.snapshot(bot_id)["business_operations"]["total"] == before + 1

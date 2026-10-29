@@ -22,6 +22,7 @@ from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.resources import snapshot_cache
 from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
+from lockbot.core.command_context import operation_attempt
 from lockbot.core.platforms.registry import normalize_platform_name
 
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
@@ -159,7 +160,8 @@ def operator_kicklock(bot_id: int, request: Request, body: KicklockRequest, db: 
             if bot.bot_type not in {"QUEUE", "QUEUE_DEVICE"}:
                 raise errors.command_not_supported("kicklock", bot.bot_type)
             try:
-                result = lease.bot.do_kicklock(body.node_keys, reason=body.reason)
+                with operation_attempt(bot_id, "operator", "kicklock"):
+                    result = lease.bot.do_kicklock(body.node_keys, reason=body.reason)
             except ValueError as exc:
                 raise HTTPException(404, str(exc)) from None
             except Exception:

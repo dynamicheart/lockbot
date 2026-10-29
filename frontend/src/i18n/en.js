@@ -19,6 +19,7 @@ export default {
     previous: 'Previous',
     next: 'Next',
     outcomes: {
+      uncertain: 'Outcome uncertain',
       dispatched: 'Dispatched',
       applied: 'Applied',
       rejected: 'Rejected',
@@ -26,6 +27,12 @@ export default {
     },
   },
   serviceTraffic: {
+    httpTitle: 'HTTP traffic',
+    businessTitle: 'Resource operations',
+    businessHelp:
+      'Dispatcher attempts since counting started, separate from HTTP requests. Excludes queries/help and requests refused before dispatch. Dispatched does not prove resource acquisition; returned business refusals may also be dispatched. Shared by chat transports including WebSocket. Restart or scope eviction resets counters.',
+    businessSources: { chat: 'Group messages', agent: 'Agent API', operator: 'OP API' },
+
     allBots: 'All bots with verified traffic',
     byCredential: 'By credential',
     credential: 'User / credential',

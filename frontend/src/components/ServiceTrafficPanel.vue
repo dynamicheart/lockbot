@@ -37,6 +37,42 @@
       :closable="false"
     />
     <template v-if="snapshot">
+      <el-card
+        v-if="snapshot.business_operations"
+        shadow="never"
+        class="traffic-panel business-panel"
+      >
+        <template #header
+          ><div class="panel-heading">
+            <span>{{ $t('serviceTraffic.businessTitle') }}</span>
+            <el-tooltip :content="$t('serviceTraffic.businessHelp')"
+              ><span tabindex="0">ⓘ</span></el-tooltip
+            >
+          </div></template
+        >
+        <div class="business-sources">
+          <span v-for="source in ['chat', 'agent', 'operator']" :key="source">
+            {{ $t('serviceTraffic.businessSources.' + source) }}
+            <strong>{{ number(businessCount(source)) }}</strong>
+          </span>
+        </div>
+        <el-table :data="businessRows" :empty-text="$t('common.noData')" size="small">
+          <el-table-column :label="$t('serviceTraffic.source')" min-width="130"
+            ><template #default="{ row }">{{
+              $t('serviceTraffic.businessSources.' + row.source)
+            }}</template></el-table-column
+          >
+          <el-table-column prop="command" :label="$t('agentHistory.operation')" min-width="120" />
+          <el-table-column
+            v-for="outcome in ['dispatched', 'rejected', 'uncertain']"
+            :key="outcome"
+            :label="$t('agentHistory.outcomes.' + outcome)"
+            min-width="110"
+            ><template #default="{ row }">{{ number(row[outcome]) }}</template></el-table-column
+          >
+        </el-table>
+      </el-card>
+      <h3 class="http-heading">{{ $t('serviceTraffic.httpTitle') }}</h3>
       <div class="traffic-stats">
         <div>
           <span>{{ $t('serviceTraffic.requests') }}</span
@@ -187,6 +223,26 @@ const loading = ref(false)
 const failed = ref(false)
 const grouping = ref('sources')
 const rows = computed(() => snapshot.value?.[grouping.value] || [])
+const businessRows = computed(() => {
+  const grouped = new Map()
+  for (const row of snapshot.value?.business_operations?.rows || []) {
+    const key = `${row.source}:${row.command}`
+    if (!grouped.has(key))
+      grouped.set(key, {
+        source: row.source,
+        command: row.command,
+        dispatched: 0,
+        rejected: 0,
+        uncertain: 0,
+      })
+    grouped.get(key)[row.outcome] += row.count
+  }
+  return [...grouped.values()]
+})
+const businessCount = (source) =>
+  (snapshot.value?.business_operations?.rows || [])
+    .filter((row) => row.source === source)
+    .reduce((sum, row) => sum + row.count, 0)
 const chartMax = computed(() =>
   Math.max(1, ...(snapshot.value?.history || []).map((point) => point.requests))
 )
@@ -257,6 +313,25 @@ function bytes(value) {
 </script>
 
 <style scoped>
+.http-heading {
+  font-size: 15px;
+  font-weight: 500;
+}
+.business-panel {
+  margin-bottom: 20px;
+}
+.business-sources {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  color: var(--el-text-color-regular);
+}
+.business-sources strong {
+  margin-left: 8px;
+  color: var(--el-text-color-primary);
+}
+
 .page-heading,
 .panel-heading,
 .traffic-footer {

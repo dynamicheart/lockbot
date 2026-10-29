@@ -67,6 +67,9 @@ def test_op_snapshot_paginates_purposes_and_kicklock_preserves_queue(client, ope
     )
     assert response.status_code == 200, response.text
     assert response.json() == {"ok": True, "freed": ["n1"], "affected_users": ["alice"]}
+    operations = client.app.state.service_traffic.snapshot(case["bot_id"])["business_operations"]
+    assert operations["total"] == 3  # Agent lock/book plus exactly one OP mutation, no snapshots.
+    assert {"source": "operator", "command": "kicklock", "outcome": "dispatched", "count": 1} in operations["rows"]
     assert case["bot"].state.bot_state["n1"]["booking_list"] == before_queue
     assert sent and "Scheduled maintenance" in case["bot"].adapter.extract_reply_text(sent[0])
     after = client.get(base + "/op/resources", headers=case["op_headers"]).json()

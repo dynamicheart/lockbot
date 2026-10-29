@@ -5,7 +5,7 @@ import math
 import re
 import threading
 import time
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -126,6 +126,45 @@ class TrafficStats:
         self.bots = OrderedDict()
         self.credentials = OrderedDict()
         self.unattributed_requests = 0
+        self.operations = Counter()
+
+    def _ensure_bot(self, bot_id):
+        if bot_id not in self.bots:
+            if len(self.bots) >= 256:
+                evicted_bot, _ = self.bots.popitem(last=False)
+                for old_key in [key for key in self.credentials if key[0] == evicted_bot]:
+                    del self.credentials[old_key]
+            self.bots[bot_id] = TrafficStats(self.clock, scoped=False)
+        self.bots.move_to_end(bot_id)
+        return self.bots[bot_id]
+
+    def record_operation(self, *, bot_id, source, command, outcome):
+        from lockbot.core.command_context import RESOURCE_OPERATIONS
+
+        if (
+            type(bot_id) is not int
+            or bot_id <= 0
+            or source not in {"chat", "agent", "operator"}
+            or command not in RESOURCE_OPERATIONS
+            or outcome not in {"dispatched", "rejected", "uncertain"}
+        ):
+            return
+        key = (source, command, outcome)
+        with self.lock:
+            self.operations[key] += 1
+            if self.scoped:
+                child = self._ensure_bot(bot_id)
+                with child.lock:
+                    child.operations[key] += 1
+
+    def _operation_payload(self):
+        return {
+            "total": sum(self.operations.values()),
+            "rows": [
+                {"source": key[0], "command": key[1], "outcome": key[2], "count": count}
+                for key, count in sorted(self.operations.items())
+            ],
+        }
 
     def record(
         self, *, source, route, status, duration_ms, received=0, sent=0, failed=False, bot_id=None, credential=None
@@ -145,13 +184,7 @@ class TrafficStats:
                 target.add(status, duration_ms, received, sent, failed)
             if self.scoped:
                 if isinstance(bot_id, int) and not isinstance(bot_id, bool) and bot_id > 0:
-                    if bot_id not in self.bots:
-                        if len(self.bots) >= 256:
-                            evicted_bot, _ = self.bots.popitem(last=False)
-                            for old_key in [key for key in self.credentials if key[0] == evicted_bot]:
-                                del self.credentials[old_key]
-                        self.bots[bot_id] = TrafficStats(self.clock, scoped=False)
-                    self.bots.move_to_end(bot_id)
+                    self._ensure_bot(bot_id)
                     self.bots[bot_id].record(
                         source=source,
                         route=route,
@@ -196,6 +229,7 @@ class TrafficStats:
         with self.lock:
             recent = sum(value for key, value in self.seconds.items() if second - 59 <= key <= second)
             return {
+                "business_operations": self._operation_payload(),
                 "bot_options": options,
                 "credentials": ranked[:50],
                 "unattributed_requests": self.unattributed_requests,

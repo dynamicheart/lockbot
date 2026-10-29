@@ -1899,7 +1899,12 @@ def api_opkick(
     # waits for it.
     try:
         with bot_manager.admit(bot_id) as lease:
-            result = lease.bot.do_opkick(body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason)
+            from lockbot.core.command_context import operation_attempt
+
+            with operation_attempt(bot_id, "operator", "opkick"):
+                result = lease.bot.do_opkick(
+                    body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason
+                )
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise api_errors.admission_http_error(exc, bot_id, legacy_not_running=True) from None
     except ValueError as e:

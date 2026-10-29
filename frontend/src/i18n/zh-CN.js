@@ -16,6 +16,7 @@ export default {
     previous: '上一页',
     next: '下一页',
     outcomes: {
+      uncertain: '结果不确定',
       dispatched: '已分派',
       applied: '已应用',
       rejected: '已拒绝',
@@ -23,6 +24,12 @@ export default {
     },
   },
   serviceTraffic: {
+    httpTitle: 'HTTP 流量',
+    businessTitle: '资源操作',
+    businessHelp:
+      '独立于 HTTP 请求，统计进入命令执行的尝试，不含查询、帮助及执行前被拦截的请求。已分派不等于资源申请成功，返回业务拒绝的命令也可能已分派。群消息含长连接来源；重启或范围淘汰后重置。',
+    businessSources: { chat: '群消息', agent: 'Agent API', operator: 'OP API' },
+
     allBots: '全部有已验证请求的机器人',
     byCredential: '按凭证',
     credential: '用户／凭证',
