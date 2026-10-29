@@ -1,5 +1,9 @@
 export default {
   utilization: {
+    accessMode: 'Source access',
+    accessAutomatic: 'Automatic short-lived read grants',
+    accessIndependent: 'Independent source credential',
+
     hostStatus: 'Host status',
     profile: 'Metric protocol',
     profileCustom: 'Custom / NVIDIA DCGM',
@@ -52,6 +56,7 @@ export default {
     peak: 'Reported maximum',
     cards: '{count} reported cards',
     errors: {
+      grant: 'Metric access is unavailable; ask the administrator to check source authorization.',
       configuration: 'Check URL, metric names, labels and JSON mappings.',
       https: 'An HTTPS page requires an HTTPS data source.',
       mapping: 'No matching node/device series. Check label mappings.',

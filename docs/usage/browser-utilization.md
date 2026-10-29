@@ -86,6 +86,19 @@ NODE/QUEUE 整机行也逐张展示上报卡的计算利用率和已用/总显�
 
 已授权的 Agent 可从 `/api/agent/context.utilization` 发现同一份非敏感配置，再用数据源自己的凭据查询；可达性、成功、新鲜度和准确性均是 best effort。源查询失败不影响 Lockbot；不能据此释放、续期或抢占资源。
 
+## 自动短期授权（可选）
+
+对采用配套只读网关的数据源，管理员可选 `accessMode: short_lived`。Lockbot 只签发只读指标授权，不查询 Prometheus；浏览器直接访问指标网关，无需再输入源 key。
+
+- 服务设置 `METRICS_GRANT_SECRET_FILE`，指向独立的私有签名文件（至少 32 bytes，0600），不能复用登录 JWT 密钥、个人 key、OP key 或网页码。
+- 网关配置固定 audience 为自身规范 URL、允许的 Lockbot instance issuer、bot UUID 及对应节点白名单；保存同一独立签名 key 的私有副本。
+- JWT 只使用 HS256，最长 300 秒，包含固定 audience、issuer、bot UUID 和节点集合。网关校验签名、时间及该 bot 的允许节点；与后台管理 JWT 不互通。
+- 网页需先通过原本只读链接校验，才能从资源状态响应取得短授权；授权到期不晚于该网页查看码。Agent 从已绑定 context 取得同类授权；关闭 Agent 接入后不再签发给该 key。
+- 短授权不写浏览器持久存储，按原资源状态刷新取得新值，不会触发硬件采样。已经签发的授权通常在最长 5 分钟内自然到期；如需立即停止指标访问，应在网关撤销 bot 范围/issuer。Lockbot key 撤销不等于提前撤销已共享的网页码。
+- 管理员“测试并保存”仅向 Lockbot 请求候选配置的短授权；真正的测试查询仍从当前浏览器发出。没有签名配置时显示授权不可用，不把管理凭证当源 key 重试。
+
+对第三方数据源保留 `accessMode: independent`，使用源自己的独立凭证，不要求第三方接受本协议。源故障/授权失败都只影响指标，Lockbot 资源功能保持可用。
+
 ## CORS、认证与负载
 
 提供方需要允许网页 origin（含协议和端口）及 POST；如果使用 Bearer token，还需正确响应 `OPTIONS` 并允许 `Authorization` 和表单内容类型。浏览器请求使用 `credentials: omit`，不携带页面 cookies，也不支持将网页登录 cookies 自动转给 Prometheus。请使用提供方自己的只读短期 Token 或合适的访问入口。

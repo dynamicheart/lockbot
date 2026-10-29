@@ -22,7 +22,9 @@
           <div class="card-values" tabindex="0">
             <span class="device-name">{{ deviceName(card.device) }}</span>
             <strong :class="loadClass(card)">{{ metricText(card.metrics.compute, true) }}</strong>
-            <span class="metrics-memory">{{ memoryText(card.metrics) }}</span>
+            <span class="metrics-memory" :class="capacityClass(card.metrics)">{{
+              memoryText(card.metrics)
+            }}</span>
           </div>
         </el-tooltip>
         <el-popover
@@ -105,6 +107,12 @@ function metricText(metric, percent = false) {
           ? t('utilization.invalid')
           : '—'
   return percent ? `${Math.round(metric.value)}%` : `${(metric.value / 1024 ** 3).toFixed(1)} GiB`
+}
+function capacityClass(metrics) {
+  if (state(metrics.used) !== 'ok' || state(metrics.total) !== 'ok' || metrics.total.value <= 0)
+    return 'is-muted'
+  const ratio = metrics.used.value / metrics.total.value
+  return ratio >= 0.9 ? 'load-high' : ratio >= 0.75 ? 'load-medium' : 'is-muted'
 }
 function memoryText(metrics) {
   return `${metricText(metrics.used)} / ${metricText(metrics.total)}`

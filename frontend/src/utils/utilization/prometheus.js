@@ -4,6 +4,7 @@ export const DEFAULT_CONFIG = {
   name: 'Prometheus',
   type: 'prometheus',
   profile: 'custom',
+  accessMode: 'independent',
   endpoint: '',
   nodeLabel: 'instance',
   deviceLabel: 'UUID',
@@ -29,6 +30,8 @@ export class ProviderError extends Error {
 }
 export function validateConfig(input) {
   const config = { ...DEFAULT_CONFIG, ...input }
+  if (!['independent', 'short_lived'].includes(config.accessMode))
+    throw new ProviderError('configuration')
   if (!['custom', 'lockbot-v1'].includes(config.profile)) throw new ProviderError('configuration')
   if (config.profile === 'lockbot-v1')
     Object.assign(config, {

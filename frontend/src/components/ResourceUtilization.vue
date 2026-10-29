@@ -9,7 +9,7 @@
       $t('common.refresh')
     }}</el-button>
     <el-button
-      v-if="config && state.error === 'auth'"
+      v-if="config && config.accessMode !== 'short_lived' && state.error === 'auth'"
       text
       size="small"
       @click="authentication = true"
@@ -59,12 +59,14 @@ import {
   prometheusDatasource,
   resolveHost,
   metricStatus,
+  ProviderError,
 } from '../utils/utilization/prometheus'
 import { useI18n } from 'vue-i18n'
 import { createMetricsPoller } from '../utils/utilization/poller'
 const props = defineProps({
   botId: { type: [String, Number], required: true },
   source: { type: Object, default: null },
+  access: { type: Object, default: null },
   nodes: { type: Array, default: () => [] },
   allowed: Boolean,
   deviceResources: Boolean,
@@ -92,8 +94,11 @@ function publish(update = {}) {
   emit('change', { ...state, enabled: !!config.value && props.allowed, config: config.value })
 }
 const poller = createMetricsPoller({
-  collect: (signal) =>
-    prometheusDatasource.query(config.value, props.nodes, { signal, bearer: activeBearer }),
+  collect: (signal) => {
+    const token = config.value?.accessMode === 'short_lived' ? props.access?.token : activeBearer
+    if (config.value?.accessMode === 'short_lived' && !token) throw new ProviderError('grant')
+    return prometheusDatasource.query(config.value, props.nodes, { signal, bearer: token || '' })
+  },
   publish,
 })
 function sync() {

@@ -14,6 +14,7 @@ class UtilizationConfig(BaseModel):
     name: str = Field(default="Prometheus", min_length=1, max_length=64)
     type: str = "prometheus"
     profile: str = "custom"
+    accessMode: str = "independent"
     endpoint: str = Field(max_length=2048)
     nodeLabel: str = "instance"
     deviceLabel: str = "UUID"
@@ -47,6 +48,8 @@ class UtilizationConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_metrics(self):
+        if self.accessMode not in {"independent", "short_lived"}:
+            raise ValueError("Unsupported metrics access mode")
         if self.profile not in {"custom", "lockbot-v1"}:
             raise ValueError("Unsupported telemetry profile")
         if self.profile == "lockbot-v1":

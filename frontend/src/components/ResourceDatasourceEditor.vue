@@ -45,7 +45,15 @@
         <el-form-item :label="$t('utilization.endpoint')"
           ><el-input v-model="draft.endpoint" placeholder="https://prometheus.example.com"
         /></el-form-item>
-        <el-form-item :label="$t('utilization.sourceToken')"
+        <el-form-item :label="$t('utilization.accessMode')">
+          <el-select v-model="draft.accessMode">
+            <el-option value="short_lived" :label="$t('utilization.accessAutomatic')" />
+            <el-option value="independent" :label="$t('utilization.accessIndependent')" />
+          </el-select>
+        </el-form-item>
+        <el-form-item
+          v-if="draft.accessMode !== 'short_lived'"
+          :label="$t('utilization.sourceToken')"
           ><el-input v-model="bearer" type="password" show-password autocomplete="off"
         /></el-form-item>
         <div class="mapping-row">
@@ -117,6 +125,7 @@ const props = defineProps({
   resources: { type: Array, default: () => [] },
   deviceResources: Boolean,
   save: { type: Function, default: null },
+  authorize: { type: Function, default: null },
 })
 const emit = defineEmits(['update:modelValue'])
 const settings = ref(false)
@@ -202,9 +211,18 @@ async function testAndEnable() {
   nextTestAt = performance.now() + Math.max(30, candidate.intervalSeconds) * 1000
   const timeout = setTimeout(() => current.abort(), 15000)
   try {
+    let sourceBearer = bearer.value
+    if (candidate.accessMode === 'short_lived') {
+      try {
+        sourceBearer = (await props.authorize?.(candidate))?.token
+      } catch {
+        throw new ProviderError('grant')
+      }
+    }
+    if (candidate.accessMode === 'short_lived' && !sourceBearer) throw new ProviderError('grant')
     const snapshot = await prometheusDatasource.testDatasource(candidate, props.nodes, {
       signal: current.signal,
-      bearer: bearer.value,
+      bearer: sourceBearer,
     })
     if (run !== scope || current.signal.aborted) return
     if (

@@ -54,6 +54,7 @@
         :key="String(route.params.id)"
         :bot-id="route.params.id"
         :source="snapshot.utilization_config || null"
+        :access="snapshot.utilization_access || null"
         :nodes="snapshot.resources.map((node) => node.id)"
         :resources="metricResourceIds"
         :allowed="!invalid && !failed && snapshot.health === 'running'"

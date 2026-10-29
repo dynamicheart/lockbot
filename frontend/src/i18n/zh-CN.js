@@ -1,5 +1,9 @@
 export default {
   utilization: {
+    accessMode: '访问授权',
+    accessAutomatic: '自动短期只读授权',
+    accessIndependent: '数据源独立凭证',
+
     hostStatus: '主机状态',
     profile: '指标协议',
     profileCustom: '自定义 / NVIDIA DCGM',
@@ -50,6 +54,7 @@ export default {
     peak: '已上报卡最高',
     cards: '已上报 {count} 张卡',
     errors: {
+      grant: '指标授权暂不可用，请管理员检查指标服务接入。',
       configuration: '请检查地址、指标名、标签及 JSON 映射。',
       https: 'HTTPS 页面需要 HTTPS 数据源。',
       mapping: '未匹配节点或设备序列，请检查标签映射。',
@@ -458,7 +463,8 @@ export default {
     apiKey: 'OP API Key',
     agentGroup: 'Agent',
     agentNotify: '群内操作通知',
-    agentNotifyHelp: '在群里播报资源命令和预设任务分类；备注及 Agent 名称仅本人、管理员和授权 OP 可查，日志可能保留。关闭通知不影响排队到号和到期提醒。',
+    agentNotifyHelp:
+      '在群里播报资源命令和预设任务分类；备注及 Agent 名称仅本人、管理员和授权 OP 可查，日志可能保留。关闭通知不影响排队到号和到期提醒。',
     agentAccess: '允许 Agent 访问',
     agentAccessHelp:
       '允许 Agent 调用资源 API，用户需先在群中授权。关闭后暂停访问并保留授权；不影响 OP API Key。',

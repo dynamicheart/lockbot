@@ -20,7 +20,7 @@ from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user, require_admin, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
-from lockbot.backend.app.bots.datasource import serialized_datasource
+from lockbot.backend.app.bots.datasource import UtilizationConfig, serialized_datasource
 from lockbot.backend.app.bots.manager import (
     AdmissionFull,
     BotNotRunning,
@@ -526,6 +526,25 @@ def get_bot(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
     return {**_mask_bot(bot, db), **view}
+
+
+@router.post("/{bot_id}/utilization-access")
+@limiter.limit("30/minute")
+def metrics_access_for_configuration(
+    bot_id: int,
+    request: Request,
+    body: UtilizationConfig,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Authorize an owner's browser test; no metrics request is made by Lockbot."""
+    bot = _get_user_bot(bot_id, user, db)
+    from lockbot.backend.app.bots.metrics_access import issue_metrics_access
+
+    grant = issue_metrics_access(db, bot, body.model_dump())
+    if grant is None:
+        raise HTTPException(503, "Metrics access is not configured for this source and bot")
+    return grant
 
 
 @router.put("/{bot_id}", response_model=BotOut)

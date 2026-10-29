@@ -461,6 +461,7 @@
           :resources="datasourceLayout.resources"
           :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
           :save="saveDatasource"
+          :authorize="authorizeDatasource"
         />
         <div v-if="editingState" class="json-editor">
           <pre
@@ -662,6 +663,10 @@ const datasourceLayout = computed(() => {
     return { nodes: [], resources: [] }
   }
 })
+async function authorizeDatasource(value) {
+  const response = await api.post(`/bots/${bot.value.id}/utilization-access`, value)
+  return response.data
+}
 async function saveDatasource(value) {
   try {
     bot.value = await botsStore.updateBot(bot.value.id, { utilization_config: value })
