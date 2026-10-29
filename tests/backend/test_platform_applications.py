@@ -495,3 +495,86 @@ def test_infoflow_chunk_retry_rechecks_guard_before_every_http_attempt(monkeypat
     with pytest.raises(CredentialUnavailable):
         adapter.send(adapter.build_reply("x" * 4500, [], group_id="123"))
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("operation", ["send", "panel_create", "panel_update", "react", "identity", "group", "name"])
+def test_expiry_during_token_refresh_prevents_next_business_request(db_session, sources, monkeypatch, operation):
+    from types import SimpleNamespace
+
+    from lockbot.backend.app.feishu.service import application_client
+    from lockbot.core.platforms.feishu import FeishuAPIError
+
+    retained = application_client(db_session.get(FeishuApplication, sources[1]))
+    retained._token = ""
+    row = db_session.query(PlatformApplication).filter_by(provider="feishu").one()
+    business = []
+
+    def request(url, **kwargs):
+        if "/auth/" in url:
+            row.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+            db_session.commit()
+            return SimpleNamespace(
+                status_code=200, json=lambda: {"code": 0, "tenant_access_token": "FAKE_TOKEN", "expire": 7200}
+            )
+        business.append(url)
+        return SimpleNamespace(status_code=200, json=lambda: {"code": 0})
+
+    for method in ("post", "put", "get"):
+        monkeypatch.setattr("lockbot.core.platforms.feishu.requests." + method, request)
+    actions = {
+        "send": lambda: retained.send({"receive_id": "oc_fixture"}),
+        "panel_create": lambda: retained.create_query_panel({"receive_id": "oc_fixture", "content": "{}"}),
+        "panel_update": lambda: retained.update_query_panel("om_fixture", {"content": "{}"}),
+        "react": lambda: retained.react("om_fixture"),
+        "identity": retained.bot_identity,
+        "group": lambda: retained.group_name("oc_fixture", refresh=True),
+        "name": lambda: retained.warm_user_name("ou_fixture"),
+    }
+    from contextlib import suppress
+
+    with suppress(FeishuAPIError):  # Lookups may safely return unavailable instead of raising.
+        actions[operation]()
+    assert business == []
+
+
+def test_cached_token_waiting_for_lock_revalidates_after_acquisition(db_session, sources, monkeypatch):
+    import threading
+    import time
+
+    from lockbot.backend.app.feishu.service import application_client
+    from lockbot.core.platforms.feishu import FeishuAPIError
+
+    retained = application_client(db_session.get(FeishuApplication, sources[1]))
+    retained._token, retained._expires = "FAKE_CACHED_TOKEN", time.monotonic() + 3600
+    lock, waiting = threading.Lock(), threading.Event()
+
+    class GatedLock:
+        def __enter__(self):
+            waiting.set()
+            lock.acquire()
+
+        def __exit__(self, *args):
+            lock.release()
+
+    retained._lock = GatedLock()
+    calls, failures = [], []
+    monkeypatch.setattr("lockbot.core.platforms.feishu.requests.post", lambda *a, **kw: calls.append(kw))
+
+    def send():
+        try:
+            retained.send({"receive_id": "oc_fixture"})
+        except FeishuAPIError:
+            failures.append(True)
+
+    lock.acquire()
+    worker = threading.Thread(target=send)
+    worker.start()
+    try:
+        assert waiting.wait(5)
+        row = db_session.query(PlatformApplication).filter_by(provider="feishu").one()
+        row.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+        db_session.commit()
+    finally:
+        lock.release()
+        worker.join(timeout=5)
+    assert not worker.is_alive() and failures == [True] and calls == []

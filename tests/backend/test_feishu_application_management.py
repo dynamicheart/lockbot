@@ -295,3 +295,42 @@ def test_restore_holds_same_application_guard_through_commit(monkeypatch):
     for thread in threads:
         thread.join(timeout=1)
     assert blocked == [True] and acquired.is_set()
+
+
+def test_legitimate_rotation_rebinds_retained_guard_and_still_enforces_expiry(
+    client, auth_header, db_session, application, monkeypatch
+):
+    from datetime import datetime, timedelta, timezone
+
+    from lockbot.backend.app.platform_applications.service import PlatformApplication
+
+    row = db_session.get(FeishuApplication, application)
+    retained = application_client(row)
+    assert (
+        client.patch(
+            f"/api/feishu/applications/{application}",
+            headers=auth_header,
+            json={"name": "Rotated", "app_secret": "FAKE_ROTATED_SECRET"},
+        ).status_code
+        == 200
+    )
+    requests = []
+
+    def post(url, **kwargs):
+        requests.append((url, kwargs))
+        if "/auth/" in url:
+            return SimpleNamespace(
+                status_code=200, json=lambda: {"code": 0, "tenant_access_token": "FAKE_TOKEN", "expire": 7200}
+            )
+        return SimpleNamespace(status_code=200, json=lambda: {"code": 0})
+
+    monkeypatch.setattr("lockbot.core.platforms.feishu.requests.post", post)
+    assert retained.send({"receive_id": "oc_fixture"}) == [(200, "platform_accepted")]
+    assert requests[0][1]["json"]["app_secret"] == "FAKE_ROTATED_SECRET"
+    envelope = db_session.query(PlatformApplication).filter_by(provider="feishu", stable_identity=row.app_id).one()
+    envelope.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+    db_session.commit()
+    requests.clear()
+    with pytest.raises(FeishuAPIError):
+        retained.send({"receive_id": "oc_fixture"})
+    assert requests == []

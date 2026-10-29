@@ -44,7 +44,7 @@ def application_client(app):
         return _clients[key]
 
 
-def invalidate_application_clients(app_id, *, secret=""):
+def invalidate_application_clients(app_id, *, secret="", credential_guard=None):
     """Invalidate only this app, including references retained by running resource bots."""
     with _clients_lock:
         _credential_generations[app_id] = hashlib.sha256(secret.encode()).hexdigest() if secret else None
@@ -53,7 +53,7 @@ def invalidate_application_clients(app_id, *, secret=""):
             _credential_generations.popitem(last=False)
         for client in list(_client_references):
             if client.app_id == app_id:
-                client.replace_application_secret(secret)
+                client.replace_application_secret(secret, credential_guard=credential_guard)
         for key in list(_clients):
             if key[0] == app_id:
                 _clients.pop(key)

@@ -24,7 +24,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute, FeishuReceivedMessage
 from lockbot.backend.app.feishu.service import application_identity
-from lockbot.backend.app.platform_applications.service import credentials_for
+from lockbot.backend.app.platform_applications.service import credentials_for, runtime_guard
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.core.handler import execute_command, redact_command_text
 from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
@@ -112,7 +112,9 @@ def _recover_application_receiver(db, application_id):
         app = current.get(FeishuApplication, application_id)
         if app is None:
             return
-        invalidate_application_clients(app.app_id, secret=credentials_for(app)["app_secret"])
+        invalidate_application_clients(
+            app.app_id, secret=credentials_for(app)["app_secret"], credential_guard=runtime_guard(app)
+        )
         reconnect = app.transport == "websocket"
     if reconnect:
         connectors.connect(application_id, factory=factory)
@@ -203,7 +205,7 @@ def update_application(
             _application_audit(db, user, request, app, "feishu.update_application")
             db.commit()
             if secret is not None:
-                invalidate_application_clients(app.app_id, secret=secret)
+                invalidate_application_clients(app.app_id, secret=secret, credential_guard=runtime_guard(app))
                 if app.transport == "websocket":
                     try:
                         connectors.connect(application_id, factory=sessionmaker(bind=db.get_bind()))
@@ -350,7 +352,9 @@ def create_application(
         raise HTTPException(409, "Application already configured") from None
     from lockbot.backend.app.feishu.service import invalidate_application_clients
 
-    invalidate_application_clients(row.app_id, secret=body.app_secret.get_secret_value())
+    invalidate_application_clients(
+        row.app_id, secret=body.app_secret.get_secret_value(), credential_guard=runtime_guard(row)
+    )
     return {"id": row.id, "name": row.name, "app_id": row.app_id, "transport": row.transport}
 
 

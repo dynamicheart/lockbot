@@ -87,21 +87,26 @@ class FeishuClient:
             self._name_errors.clear()
             self._groups.clear()
 
-    def replace_application_secret(self, secret):
+    def replace_application_secret(self, secret, *, credential_guard=None):
         """Invalidate this app's cached token, including clients held by running bots."""
         with self._lock:
             self._secret = secret
+            if credential_guard is not None:
+                self.credential_guard = credential_guard
             self._token = ""
             self._expires = 0.0
         self.reset_transport_cache()
 
-    def token(self):
+    def _check_credentials(self):
         if self.credential_guard is not None:
             try:
                 self.credential_guard()
             except Exception:
                 raise FeishuAPIError("Application credentials changed or are unavailable") from None
+
+    def token(self):
         with self._lock:
+            self._check_credentials()
             if self._token and time.monotonic() < self._expires:
                 return self._token
             if not self.app_id or not self._secret:
@@ -124,15 +129,25 @@ class FeishuClient:
             except (requests.RequestException, ValueError, KeyError, TypeError, AttributeError):
                 raise FeishuAPIError("Feishu token request failed") from None
             self._token, self._expires = token, time.monotonic() + expiry - 60
+            self._check_credentials()
             return token
+
+    def _authorized_request(self, method, url, **options):
+        token = self.token()
+        # Token refresh and lock waits may cross a credential deadline. This check
+        # guards the new business request, not the already completed auth request.
+        self._check_credentials()
+        if self.credential_guard is not None and self._token != token:
+            raise FeishuAPIError("Application credentials changed during token acquisition")
+        return method(url, headers={"Authorization": "Bearer " + token}, **options)
 
     def send(self, payload):
         try:
-            response = requests.post(
+            response = self._authorized_request(
+                requests.post,
                 API_ROOT + "/im/v1/messages",
                 params={"receive_id_type": "chat_id"},
                 json=payload,
-                headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 8),
                 allow_redirects=False,
                 **self._http_options,
@@ -149,11 +164,11 @@ class FeishuClient:
         """Single attempt, separate from the unchanged ordinary-send path."""
         try:
             request = requests.post if create else requests.put
-            response = request(
+            response = self._authorized_request(
+                request,
                 API_ROOT + path,
                 params={"receive_id_type": "chat_id"} if create else None,
                 json=payload,
-                headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 8),
                 allow_redirects=False,
                 **self._http_options,
@@ -198,10 +213,10 @@ class FeishuClient:
         if not isinstance(message_id, str) or not re.fullmatch(r"om_[A-Za-z0-9_-]{1,125}", message_id):
             raise FeishuAPIError("Invalid Feishu reaction target")
         try:
-            response = requests.post(
+            response = self._authorized_request(
+                requests.post,
                 API_ROOT + "/im/v1/messages/" + message_id + "/reactions",
                 json={"reaction_type": {"emoji_type": "DONE"}},
-                headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 5),
                 allow_redirects=False,
                 **self._http_options,
@@ -215,9 +230,9 @@ class FeishuClient:
     def bot_identity(self):
         """Discover the application's own bot without listing chats or contacts."""
         try:
-            response = requests.get(
+            response = self._authorized_request(
+                requests.get,
                 API_ROOT + "/bot/v3/info/",
-                headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 8),
                 allow_redirects=False,
                 **self._http_options,
@@ -240,9 +255,9 @@ class FeishuClient:
                 return {"name": cached[0], "status": cached[1]}
         name, status, ttl = "", "unavailable", 300
         try:
-            response = requests.get(
+            response = self._authorized_request(
+                requests.get,
                 API_ROOT + "/im/v1/chats/" + chat_id,
-                headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 5),
                 allow_redirects=False,
                 **self._http_options,
@@ -322,10 +337,10 @@ class FeishuClient:
             return
         names, failure = {}, "unavailable"
         try:
-            response = requests.get(
+            response = self._authorized_request(
+                requests.get,
                 API_ROOT + "/contact/v3/users/batch",
                 params=[("user_id_type", "open_id"), *[("user_ids", uid) for uid in missing]],
-                headers={"Authorization": "Bearer " + self.token()},
                 timeout=(2, 4),
                 allow_redirects=False,
                 **self._http_options,
@@ -372,10 +387,10 @@ class FeishuClient:
                 return
         name, ttl = open_id, 300
         try:
-            response = requests.get(
+            response = self._authorized_request(
+                requests.get,
                 API_ROOT + "/contact/v3/users/" + open_id,
                 params={"user_id_type": "open_id"},
-                headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 5),
                 allow_redirects=False,
                 **self._http_options,
