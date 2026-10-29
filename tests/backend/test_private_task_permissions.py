@@ -231,3 +231,10 @@ def test_super_admin_demotion_during_state_read_fails_closed(client, api, db_ses
     db_session.commit()
     response = client.get(f"/api/bots/{api['bot_id']}/state?include_usage=true", headers=api["auth_header"])
     assert response.status_code == 403 and "private-project-detail" not in response.text
+
+
+def test_legacy_log_projection_rejects_malformed_metadata():
+    from lockbot.backend.app.resource_api.privacy import public_log_entry
+
+    raw = {key: {"private": "hidden"} for key in ("id", "created_at", "level", "category", "source", "message")}
+    assert public_log_entry(raw) == {"message": "—", "details_restricted": True}

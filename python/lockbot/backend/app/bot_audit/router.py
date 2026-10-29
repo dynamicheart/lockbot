@@ -40,7 +40,11 @@ def bot_audit_logs(
         for item in items:
             detail = item.detail
             item.detail = (
-                {key: detail[key] for key in ("source", "platform", "external_user_id") if key in detail}
+                {
+                    key: detail[key]
+                    for key in ("source", "platform", "external_user_id")
+                    if isinstance(detail.get(key), str)
+                }
                 if isinstance(detail, dict)
                 else None
             )
