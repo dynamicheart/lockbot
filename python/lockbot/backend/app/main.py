@@ -486,8 +486,10 @@ async def lifespan(app: FastAPI):
     backup_scheduler.start()
 
     from lockbot.backend.app.broadcast.service import broadcast_worker
+    from lockbot.backend.app.resource_api.notifications import notification_budget
     from lockbot.backend.app.resource_api.usage_cleanup import usage_cleanup_loop
 
+    notification_budget.start()
     broadcast_worker.start()
     usage_cleanup = asyncio.create_task(usage_cleanup_loop())
     try:
@@ -497,6 +499,7 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await usage_cleanup
         logger.info("Shutting down all bots…")
+        notification_budget.stop()
         broadcast_worker.stop()
         backup_scheduler.stop()
         bot_manager.shutdown_all()
@@ -650,11 +653,16 @@ def create_app() -> FastAPI:
     )
 
     from lockbot.backend.app.service_traffic import ServiceTrafficMiddleware, TrafficStats
+    from lockbot.backend.app.service_traffic import bot_router as bot_service_traffic_router
     from lockbot.backend.app.service_traffic import router as service_traffic_router
 
     app.state.service_traffic = TrafficStats()
+    from lockbot.core import command_context
+
+    command_context.operation_observer = app.state.service_traffic.record_operation
     app.add_middleware(ServiceTrafficMiddleware, stats=app.state.service_traffic)
     app.include_router(service_traffic_router)
+    app.include_router(bot_service_traffic_router)
 
     from lockbot.backend.app.bot_audit.router import router as bot_audit_router
 

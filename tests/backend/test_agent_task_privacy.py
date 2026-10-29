@@ -98,7 +98,9 @@ def test_group_notifications_never_publish_private_fields_even_on_release(client
     from lockbot.backend.app.resource_api.notifications import notification_budget
 
     sent = []
-    monkeypatch.setattr(api["bot"].adapter, "send", sent.append)
+    monkeypatch.setattr(
+        api["bot"].adapter, "send_notification", lambda message: sent.append(message) or ("accepted", "ok")
+    )
     path = f"/api/bots/{api['bot_id']}/commands"
     for command in ("lock n1 1h", "free n1"):
         notification_budget.reset()

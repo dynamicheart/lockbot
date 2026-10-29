@@ -101,6 +101,13 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
     row = service.authenticate_for_any_bot(db, token=_bearer_token(request))
     if row is None:
         raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+    request.state.traffic_bot_id = row.bound_bot_id
+    request.state.traffic_credential = {
+        "id": row.public_id,
+        "kind": "agent",
+        "user": row.external_user_id,
+        "platform": row.platform,
+    }
     allowed, retry = credential_budget.check(row.id, "read")
     if not allowed:
         raise errors.rate_limited(retry)
@@ -147,7 +154,11 @@ def _context_payload(request, response, db, row):
         else None,
         "usage_privacy": {
             "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id"],
-            "private_readers": ["owner", "bot_administrator", "authorized_operator"],
+            "policy_version": 2,
+            "private_readers": ["same_verified_actor", "super_administrator"],
+            "management_private_capability": "task_private:read",
+            "ordinary_operator_private_access": False,
+            "delegated_private_access_supported": False,
             "public_task_categories": TASK_CATEGORIES,
             "legacy_purpose_visibility": "private",
         },

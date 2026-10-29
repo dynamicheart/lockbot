@@ -91,8 +91,8 @@ def test_op_card_release_keeps_sibling_holding_and_waiting_task(client, cards, o
     assert released.status_code == 200 and released.json()["freed"] == ["n1:dev0"]
     payload = client.get(base + "/op/resources", headers=operator["op_headers"]).json()
     devices = payload["resources"][0]["devices"]
-    assert not devices[0]["holders"] and devices[0]["booking_list"][0]["usage"]["purpose"] == "Regression"
-    assert devices[1]["holders"][0]["usage"]["purpose"] == "Development"
+    assert not devices[0]["holders"] and "purpose" not in devices[0]["booking_list"][0]["usage"]
+    assert "purpose" not in devices[1]["holders"][0]["usage"]
     assert all("claimable_by_you" not in device for device in devices)
 
 
