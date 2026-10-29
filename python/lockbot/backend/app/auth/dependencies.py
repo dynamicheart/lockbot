@@ -10,7 +10,7 @@ Depends(get_current_user), so no other changes are needed.
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,6 +35,7 @@ def create_access_token(user_id: int, token_version: int = 0, must_change_passwo
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_security),
     db: Session = Depends(get_db),
 ) -> User:
@@ -56,6 +57,12 @@ def get_current_user(
     if user.effective_token_version != token_version:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please login again")
 
+    request.state.traffic_management = {
+        "id": "user:" + str(user.id),
+        "kind": "management",
+        "user": user.username,
+        "platform": "",
+    }
     return user
 
 
