@@ -267,8 +267,10 @@
             </el-tooltip>
           </label>
           <el-switch
-id="feishu-reaction-replies" v-model="advancedConfig.FEISHU_REACTION_REPLIES"
-            :aria-label="$t('feishu.reactionReplies')" />
+            id="feishu-reaction-replies"
+            v-model="advancedConfig.FEISHU_REACTION_REPLIES"
+            :aria-label="$t('feishu.reactionReplies')"
+          />
         </div>
       </section>
 
