@@ -22,7 +22,7 @@ WORKDIR /app
 # Install Python dependencies
 COPY pyproject.toml ./
 COPY python/ python/
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e '.[feishu]'
 
 # Copy built frontend assets for platform mode
 COPY --from=frontend-builder /build/dist /app/frontend/dist

@@ -23,6 +23,7 @@ DEFAULT_PLATFORM = "infoflow"
 #: Lazily imported built-in adapters, keyed by normalized platform name.
 _BUILTIN_ADAPTERS = {
     DEFAULT_PLATFORM: ("lockbot.core.platforms.infoflow", "InfoflowAdapter"),
+    "feishu": ("lockbot.core.platforms.feishu", "FeishuAdapter"),
 }
 
 _REGISTRY: dict[str, type[MessageAdapter]] = {}

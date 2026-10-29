@@ -20,6 +20,7 @@
       ref="formRef"
       :model="form"
       :rules="rules"
+      :validate-on-rule-change="false"
       label-position="top"
       class="bot-form-body"
       @submit.prevent="handleSubmit"
@@ -42,11 +43,150 @@
               <el-option label="NODE" value="NODE" />
               <el-option label="DEVICE" value="DEVICE" />
               <el-option label="QUEUE" value="QUEUE" />
-              <el-option label="QueueDevice" value="QUEUE_DEVICE" />
+              <el-option label="QUEUE_DEVICE" value="QUEUE_DEVICE" />
             </el-select>
           </el-form-item>
         </el-col>
       </el-row>
+
+      <el-divider />
+
+      <el-form-item v-if="auth.isSuperAdmin || isEdit" :label="$t('feishu.platform')">
+        <el-select v-model="form.platform" :disabled="isEdit" style="width: 100%">
+          <el-option
+            v-if="isEdit || platformAccess.Infoflow"
+            :label="platformLabel('Infoflow', t)"
+            value="Infoflow"
+          />
+          <el-option
+            v-if="isEdit || platformAccess.Feishu"
+            :label="platformLabel('Feishu', t)"
+            value="Feishu"
+          />
+        </el-select>
+      </el-form-item>
+      <section class="platform-connection">
+        <h3 class="connection-title">{{ $t('feishu.connectionSettings') }}</h3>
+        <template v-if="form.platform.toLowerCase() === 'feishu'">
+          <el-form-item
+            v-if="!isEdit"
+            prop="feishu_application_id"
+            :rules="[{ required: true, message: t('feishu.required'), trigger: 'change' }]"
+          >
+            <template #label>
+              {{ $t('feishu.application') }}
+              <el-tooltip :content="$t('feishu.applicationHelp')" placement="top" effect="light">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-select
+              v-model="form.feishu_application_id"
+              style="width: 100%"
+              :loading="feishuApplicationsLoading"
+              @visible-change="loadFeishuApplications"
+            >
+              <el-option
+                v-for="app in feishuApplications"
+                :key="app.id"
+                :label="app.name"
+                :value="app.id"
+              />
+            </el-select>
+            <div
+              v-if="feishuApplicationsLoaded && !feishuApplications.length"
+              class="application-empty"
+            >
+              {{ $t('feishu.addApplicationFirst') }}
+              <router-link to="/admin/settings">{{ $t('feishu.manageApplications') }}</router-link>
+            </div>
+          </el-form-item>
+          <el-form-item
+            prop="group_id"
+            :rules="[{ required: true, message: t('feishu.required'), trigger: 'blur' }]"
+          >
+            <template #label>
+              {{ $t('feishu.group') }}
+              <el-tooltip :content="$t('feishu.groupHelp')" placement="top" effect="light">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input v-model="form.group_id" :disabled="isEdit" placeholder="oc_…" />
+            <FeishuGroupInfo
+              :bot-id="isEdit ? bot?.id : null"
+              :application-id="form.feishu_application_id"
+              :chat-id="form.group_id"
+            />
+          </el-form-item>
+        </template>
+        <!-- Credentials -->
+        <div v-if="form.platform.toLowerCase() !== 'feishu'" class="platform-fields">
+          <p class="connection-note">{{ $t('botCreate.credentialsHint') }}</p>
+          <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
+            <template #label>
+              <span>{{ $t('botCreate.webhookUrl') }}</span>
+              <el-tooltip placement="top" effect="light">
+                <template #content>
+                  <div class="help-tooltip">
+                    <div class="help-title">{{ $t('botCreate.webhookHelpTitle') }}</div>
+                    <div>{{ $t('botCreate.webhookHelpStep1') }}</div>
+                    <div>{{ $t('botCreate.webhookHelpStep2') }}</div>
+                    <div>{{ $t('botCreate.webhookHelpStep3') }}</div>
+                  </div>
+                </template>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input
+              v-model="form.webhook_url"
+              :placeholder="$t('botCreate.webhookPlaceholder')"
+            />
+          </el-form-item>
+          <el-form-item :label="$t('botCreate.token')" prop="token">
+            <template #label>
+              <span>{{ $t('botCreate.token') }}</span>
+              <el-tooltip placement="top" effect="light">
+                <template #content>
+                  <div class="help-tooltip">{{ $t('botCreate.tokenHelp') }}</div>
+                </template>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input
+              v-model="form.token"
+              :placeholder="
+                isEdit && maskedToken
+                  ? maskedToken
+                  : isEdit
+                    ? $t('botCreate.leaveBlank')
+                    : $t('botCreate.tokenPlaceholder')
+              "
+              show-password
+            />
+          </el-form-item>
+          <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
+            <template #label>
+              <span>{{ $t('botCreate.aesKey') }}</span>
+              <el-tooltip placement="top" effect="light">
+                <template #content>
+                  <div class="help-tooltip">{{ $t('botCreate.aesKeyHelp') }}</div>
+                </template>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input
+              v-model="form.aes_key"
+              :placeholder="
+                isEdit && maskedAesKey
+                  ? maskedAesKey
+                  : isEdit
+                    ? $t('botCreate.leaveBlank')
+                    : $t('botCreate.aesKeyPlaceholder')
+              "
+              show-password
+            />
+          </el-form-item>
+        </div>
+      </section>
 
       <el-divider />
 
@@ -85,74 +225,6 @@
       />
 
       <el-divider />
-
-      <!-- Credentials -->
-      <div class="credentials-card">
-        <el-alert type="info" :closable="false" show-icon class="credentials-alert">
-          <template #title>{{ $t('botCreate.credentialsHint') }}</template>
-        </el-alert>
-        <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
-          <template #label>
-            <span>{{ $t('botCreate.webhookUrl') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">
-                  <div class="help-title">{{ $t('botCreate.webhookHelpTitle') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep1') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep2') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep3') }}</div>
-                </div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="$t('botCreate.token')" prop="token">
-          <template #label>
-            <span>{{ $t('botCreate.token') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">{{ $t('botCreate.tokenHelp') }}</div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input
-            v-model="form.token"
-            :placeholder="
-              isEdit && maskedToken
-                ? maskedToken
-                : isEdit
-                  ? $t('botCreate.leaveBlank')
-                  : $t('botCreate.tokenPlaceholder')
-            "
-            show-password
-          />
-        </el-form-item>
-        <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
-          <template #label>
-            <span>{{ $t('botCreate.aesKey') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">{{ $t('botCreate.aesKeyHelp') }}</div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input
-            v-model="form.aes_key"
-            :placeholder="
-              isEdit && maskedAesKey
-                ? maskedAesKey
-                : isEdit
-                  ? $t('botCreate.leaveBlank')
-                  : $t('botCreate.aesKeyPlaceholder')
-            "
-            show-password
-          />
-        </el-form-item>
-      </div>
 
       <section class="agent-settings" :aria-label="$t('botDetail.agentGroup')">
         <div class="agent-settings-title">{{ $t('botDetail.agentGroup') }}</div>
@@ -422,7 +494,7 @@
         <el-button
           type="primary"
           :loading="saving"
-          :disabled="isEdit && !bot"
+          :disabled="(isEdit && !bot) || (!isEdit && !platformAccess[form.platform])"
           @click="handleSubmit"
         >
           {{ isEdit ? $t('common.save') : $t('common.create') }}
@@ -433,6 +505,9 @@
 </template>
 
 <script setup>
+import { copyBotTemplate } from '../utils/botTemplate'
+import { platformLabel } from '../utils/platformDisplay'
+import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -441,6 +516,7 @@ import { ArrowLeft, QuestionFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { changedConfig } from '../utils/botSave'
 import { useBotsStore } from '../stores/bots'
+import { useAuthStore } from '../stores/auth'
 import NodeBotForm from '../components/BotForm/NodeBotForm.vue'
 import DeviceBotForm from '../components/BotForm/DeviceBotForm.vue'
 import QueueBotForm from '../components/BotForm/QueueBotForm.vue'
@@ -450,6 +526,24 @@ const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
+const auth = useAuthStore()
+const platformAccess = reactive({ Infoflow: false, Feishu: false })
+const feishuApplications = ref([])
+const feishuApplicationsLoaded = ref(false)
+const feishuApplicationsLoading = ref(false)
+async function loadFeishuApplications(visible) {
+  if (!visible || !auth.isSuperAdmin || feishuApplicationsLoading.value) return
+  feishuApplicationsLoading.value = true
+  try {
+    feishuApplications.value = (await api.get('/feishu/applications')).data
+    feishuApplicationsLoaded.value = true
+  } catch {
+    feishuApplicationsLoaded.value = false
+    ElMessage.error(t('common.error'))
+  } finally {
+    feishuApplicationsLoading.value = false
+  }
+}
 
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref()
@@ -483,10 +577,34 @@ const form = reactive({
   name: '',
   bot_type: 'NODE',
   platform: 'Infoflow',
+  feishu_application_id: null,
+  group_id: '',
   webhook_url: '',
   aes_key: '',
   token: '',
 })
+
+watch(
+  () => form.platform,
+  async () => {
+    if (isEdit.value) return
+    // New-platform setup must never carry another platform's credentials or group.
+    form.group_id = ''
+    form.webhook_url = ''
+    form.aes_key = ''
+    form.token = ''
+    form.feishu_application_id = null
+    if (form.platform.toLowerCase() === 'feishu') loadFeishuApplications(true)
+    await nextTick()
+    formRef.value?.clearValidate([
+      'webhook_url',
+      'aes_key',
+      'token',
+      'group_id',
+      'feishu_application_id',
+    ])
+  }
+)
 
 // Advanced runtime config — maps to Bot.config_overrides
 const advancedConfig = reactive({
@@ -523,27 +641,51 @@ const rules = computed(() => ({
   name: [{ required: true, message: () => t('botCreate.nameRequired'), trigger: 'blur' }],
   bot_type: [{ required: true, message: () => t('botCreate.typeRequired'), trigger: 'change' }],
   webhook_url: [
-    { required: true, message: () => t('botCreate.webhookRequired'), trigger: 'blur' },
+    {
+      required: form.platform.toLowerCase() !== 'feishu',
+      message: () => t('botCreate.webhookRequired'),
+      trigger: 'blur',
+    },
     { type: 'url', message: () => t('botCreate.webhookInvalid'), trigger: 'blur' },
   ],
   aes_key: [
-    { required: !isEdit.value, message: () => t('botCreate.aesKeyRequired'), trigger: 'blur' },
+    {
+      required: !isEdit.value && form.platform.toLowerCase() !== 'feishu',
+      message: () => t('botCreate.aesKeyRequired'),
+      trigger: 'blur',
+    },
   ],
   token: [
-    { required: !isEdit.value, message: () => t('botCreate.tokenRequired'), trigger: 'blur' },
+    {
+      required: !isEdit.value && form.platform.toLowerCase() !== 'feishu',
+      message: () => t('botCreate.tokenRequired'),
+      trigger: 'blur',
+    },
   ],
 }))
 
 onMounted(async () => {
-  if (isEdit.value) {
-    try {
-      bot.value = await botsStore.getBot(route.params.id)
+  try {
+    const { data } = await api.get('/settings')
+    const settings = Object.fromEntries(data.map(({ key, value }) => [key, value]))
+    platformAccess.Infoflow = settings.platform_infoflow_enabled !== 'false'
+    platformAccess.Feishu = settings.platform_feishu_enabled !== 'false'
+    if (!isEdit.value && !platformAccess.Infoflow && platformAccess.Feishu && auth.isSuperAdmin)
+      form.platform = 'Feishu'
+  } catch {
+    ElMessage.error(t('common.error'))
+  }
 
+  if (isEdit.value || route.query.copy_from) {
+    try {
+      bot.value = await botsStore.getBot(isEdit.value ? route.params.id : route.query.copy_from)
+      if (!isEdit.value) bot.value = copyBotTemplate(bot.value)
       agentAccess.value = bot.value.resource_auth_enabled === true
       agentNotify.value = bot.value.resource_api_notify_enabled !== false
       form.name = bot.value.name
       form.bot_type = bot.value.bot_type
       form.platform = bot.value.platform
+      form.group_id = bot.value.group_id || ''
       form.webhook_url = bot.value.webhook_url_raw || ''
       form.aes_key = ''
       form.token = ''
@@ -587,6 +729,18 @@ onMounted(async () => {
       } catch {
         if (['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)) deviceClusterConfig.value = {}
         else nodeClusterConfig.value = {}
+      }
+      if (!isEdit.value) {
+        form.name = `${bot.value.name} ${t('feishu.copySuffix')}`.slice(0, 64)
+        form.group_id = ''
+        form.webhook_url = ''
+        form.aes_key = ''
+        form.token = ''
+        form.feishu_application_id = null
+        maskedAesKey.value = ''
+        maskedToken.value = ''
+        if (!auth.isSuperAdmin || !platformAccess[form.platform])
+          form.platform = platformAccess.Infoflow ? 'Infoflow' : 'Feishu'
       }
       await nextTick()
       editBaseline.value = JSON.parse(JSON.stringify(configPayload()))
@@ -769,14 +923,22 @@ async function handleSubmit() {
   width: 148px;
   max-width: 100%;
 }
-.credentials-card {
+.platform-connection {
   background: var(--el-fill-color-lighter);
   border-radius: 8px;
   padding: 16px 20px 4px;
   border: 1px solid var(--lb-border-light);
 }
-.credentials-alert {
-  margin-bottom: 16px;
+.connection-title {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.connection-note {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--lb-text-secondary);
+  line-height: 1.6;
 }
 .form-actions {
   display: flex;

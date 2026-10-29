@@ -101,6 +101,7 @@ class BotCreate(BaseModel):
     name: str
     bot_type: str  # NODE / DEVICE / QUEUE
     platform: str = "Infoflow"
+    feishu_application_id: int | None = None
     group_id: str | None = None
     webhook_url: str
     aes_key: str = ""
@@ -152,6 +153,7 @@ class BotOut(BaseModel):
     observed_group_ids: str | None = None
     identity_revision: int = 0
     last_user_id: str | None
+    last_user_display_name: str | None = None
     status: str
     last_request_at: datetime | None
     cluster_configs: str  # JSON string
@@ -172,11 +174,17 @@ class BotOut(BaseModel):
         return self
 
 
+class BotApplicationSummary(BaseModel):
+    id: int
+    name: str
+
+
 class BotDetail(BotOut):
     """Detail view with sensitive fields (both masked and raw for show/copy)."""
 
     owner: str = ""
     owner_role: str = ""
+    feishu_application: BotApplicationSummary | None = None
     webhook_url_raw: str = ""
     aes_key_raw: str = ""
     token_raw: str = ""

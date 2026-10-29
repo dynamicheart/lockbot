@@ -295,6 +295,13 @@ def execute_command_via_api(
     if not allowed:
         raise errors.rate_limited(retry_after)
 
+    # Resolve optional display metadata before authority/state locks. Stable actor IDs
+    # remain the only identity used for authorization and resource ownership.
+    if bot_row.platform.lower() == "feishu":
+        from lockbot.backend.app.feishu.service import bot_application_config
+
+        bot_application_config(bot_row, db)["_FEISHU_CLIENT"].warm_user_name(actor.external_user_id)
+
     try:
         with (
             bot_manager.admit(bot_id) as lease,

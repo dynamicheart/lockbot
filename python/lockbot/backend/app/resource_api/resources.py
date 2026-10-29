@@ -241,6 +241,10 @@ def get_resources(
     from lockbot.backend.app.resource_api.usage import visible_declarations
 
     attach_declarations(resources, visible_declarations(declarations, caller_id=actor.external_user_id))
+    if platform == "feishu":
+        from lockbot.core.platforms.feishu import decorate_people
+
+        decorate_people(resources, config)
     next_event_at, next_event_kind = compute_next_event(
         captured_at=captured_at,
         resources=resources,

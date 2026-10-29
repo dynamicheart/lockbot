@@ -10,11 +10,6 @@
           >
         </p>
       </div>
-      <el-switch
-        v-if="!props.botId && authStore.isSuperAdmin"
-        v-model="showPrivateTasks"
-        :active-text="$t('audit.privateView')"
-      />
       <el-button :loading="loading" @click="refresh"
         ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button
       >
@@ -97,7 +92,12 @@
         </div>
         <section class="operation-layer">
           <div class="trend-layer-heading">
-            <strong>{{ $t('serviceTraffic.operationLayer') }}</strong>
+            <strong
+              >{{ $t('serviceTraffic.operationLayer') }}
+              <el-tooltip :content="$t('serviceTraffic.operationTrendHelp')" placement="top">
+                <el-icon class="metric-help" tabindex="0"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </strong>
             <span class="business-sources">
               <span
                 v-for="source in operationSources"
@@ -110,7 +110,6 @@
               </span>
             </span>
           </div>
-          <p class="trend-note">{{ $t('serviceTraffic.operationTrendHelp') }}</p>
           <div
             v-if="operationTrend.hasActivity"
             class="traffic-chart operation-chart"
@@ -150,13 +149,13 @@
           <span>{{ minute(snapshot.history[0]?.at) }}</span
           ><span>{{ minute(snapshot.history.at(-1)?.at) }}</span>
         </div>
-        <details v-if="snapshot.business_operations" class="operation-details">
-          <summary>{{ $t('serviceTraffic.operationDetails') }}</summary>
-          <p class="trend-note">
-            {{ $t('serviceTraffic.since') }}
-            {{ localTime(snapshot.business_operations.observed_since || snapshot.started_at) }} ·
-            {{ $t('serviceTraffic.businessHelp') }}
-          </p>
+        <details v-if="businessRows.length" class="operation-details">
+          <summary>
+            {{ $t('serviceTraffic.operationDetails') }}
+            <el-tooltip :content="$t('serviceTraffic.businessHelp')" placement="top">
+              <el-icon class="metric-help" tabindex="0"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </summary>
           <el-table :data="businessRows" :empty-text="$t('common.noData')" size="small">
             <el-table-column :label="$t('serviceTraffic.source')" min-width="130">
               <template #default="{ row }">
@@ -203,7 +202,8 @@
                   <span v-if="!props.botId">· #{{ row.bot_id }}</span>
                 </div>
                 <small :title="`${$t('serviceTraffic.since')} ${localTime(row.since)}`"
-                  >{{ row.platform }}<span v-if="row.id"> · {{ row.id }}</span></small
+                  >{{ platformLabel(row.platform, $t)
+                  }}<span v-if="row.id"> · {{ row.id }}</span></small
                 >
               </template>
               <template v-else>{{
@@ -259,23 +259,18 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Refresh, ChatDotRound, Cpu, Setting } from '@element-plus/icons-vue'
+import { Refresh, ChatDotRound, Cpu, Setting, QuestionFilled } from '@element-plus/icons-vue'
 const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
-import { useAuthStore } from '../stores/auth'
 import { createServiceTrafficLoader } from '../utils/serviceTrafficLoader'
 import { buildOperationTrend, operationSources } from '../utils/operationTrend'
 const props = defineProps({
   botId: { type: [Number, String], default: null },
   includePrivate: { type: Boolean, default: false },
 })
-const authStore = useAuthStore()
-const showPrivateTasks = ref(false)
-const privateTaskView = computed(
-  () => authStore.isSuperAdmin && (props.botId ? props.includePrivate : showPrivateTasks.value)
-)
 const { locale, t } = useI18n()
 const selectedBot = ref(null)
 const botOptions = ref([])
@@ -310,7 +305,7 @@ let poll = null
 const scope = () => ({
   botId: props.botId || null,
   filterBot: props.botId ? null : selectedBot.value,
-  includePrivate: privateTaskView.value,
+  includePrivate: false,
 })
 const loader = createServiceTrafficLoader({
   canRequest: () => !document.hidden,
@@ -333,29 +328,19 @@ const loader = createServiceTrafficLoader({
 })
 const refresh = () => loader.refresh()
 watch(
-  [() => props.botId, selectedBot, privateTaskView],
-  ([botId, filterBot], [previousBotId, previousFilter]) => {
-    if (botId !== previousBotId || filterBot !== previousFilter) showPrivateTasks.value = false
+  [() => props.botId, selectedBot],
+  ([botId], [previousBotId]) => {
     if (botId !== previousBotId) selectedBot.value = null
     loader.setScope(scope())
   },
   { flush: 'sync' }
 )
-watch(
-  () => authStore.isSuperAdmin,
-  (allowed) => {
-    if (!allowed) showPrivateTasks.value = false
-  },
-  { flush: 'sync' }
-)
 const visible = () => {
-  if (!document.hidden && !privateTaskView.value) refresh()
+  if (!document.hidden) refresh()
 }
 onMounted(() => {
   loader.setScope(scope())
-  poll = setInterval(() => {
-    if (!privateTaskView.value) refresh()
-  }, 15000)
+  poll = setInterval(refresh, 15000)
   document.addEventListener('visibilitychange', visible)
 })
 onBeforeUnmount(() => {
@@ -379,6 +364,12 @@ function bytes(value) {
 </script>
 
 <style scoped>
+.metric-help {
+  margin-left: 4px;
+  vertical-align: middle;
+  color: var(--el-text-color-placeholder);
+  cursor: help;
+}
 .http-heading {
   font-size: 15px;
   font-weight: 500;

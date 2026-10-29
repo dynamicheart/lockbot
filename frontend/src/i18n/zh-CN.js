@@ -1,4 +1,95 @@
 export default {
+  feishu: {
+    editApplication: '编辑应用',
+    receiverRestartAfterUpdate: '已保存。请刷新接收状态，并重新启动应用连接。',
+    keepSecret: '留空保留已保存的 Secret',
+    revealSecret: '查看已保存 Secret（20 秒，记录审计）',
+    deleteApplicationConfirm:
+      '删除应用“{name}”？有资源机器人关联时无法删除。此操作不会删除资源或状态。',
+    proxyHelp:
+      '服务器能直接访问飞书时选直连；否则可使用服务器预设或指定代理。此设置只调整飞书请求，不修改如流配置。',
+    proxyUnset: '未设置专用代理',
+    manageApplications: '管理应用',
+    receiverStatus: '接收状态',
+    refreshReceiver: '刷新状态',
+    noHandshake: '暂无',
+    receiverHelp:
+      '最近握手：{time}。此处显示接收进程状态；SDK 内部断线可能未上报，最近握手不保证当前可达。',
+    receiverStates: {
+      starting: '启动中',
+      running: '接收进程运行',
+      stopped: '未启动',
+      retrying: '重试中',
+    },
+    proxyHttpHelp: '仅验证 HTTP API；长连接状态及最近握手请查看飞书应用列表。',
+    namesPending: '姓名获取中…',
+    namesUnavailable: '部分姓名未获取',
+
+    setupGuide: '接入说明',
+    nameHelp: '本站用于辨识应用的名称，不会修改飞书机器人的名称。',
+    appIdHelp: '在飞书官方开发者后台的“凭证与基础信息”复制 App ID。',
+    appSecretHelp: '在“凭证与基础信息”复制 App Secret，勿公开；Lockbot 加密保存。',
+    transportHelp:
+      '长连接只需出站访问，无需公网入站地址、Verification Token 或 Encrypt Key。HTTP 接收才需要可访问回调和事件校验配置。',
+    tenantHelp: '仅 HTTP 接收使用：填写当前应用所属企业的 tenant key。',
+    verificationHelp:
+      '仅 HTTP 接收使用：从“事件与回调”复制 Verification Token，并配置本站应用回调地址。',
+    encryptHelp: '仅 HTTP 接收使用：启用事件加密时填写匹配的 Encrypt Key，不使用如流 AES 密钥。',
+
+    connectionSettings: '平台接入配置',
+    infoflowLabel: '如流 / Infoflow',
+    feishuLabel: '飞书 / Feishu',
+    groupHelp:
+      '先将此应用的机器人加入资源群，再在群内真实 @机器人，获取当前 Chat ID 和绑定指引；把 oc_… 标识复制到这里。保存时仍会校验应用与群关联。',
+
+    groupCached: '缓存名称',
+    retryGroup: '重试',
+    groupCachedPermission: '当前为缓存名称；请检查应用的群信息读取权限。',
+    groupCachedUnavailable: '当前为缓存名称；本次刷新暂时失败，请重试。',
+
+    proxy: '飞书专用代理',
+    proxyDeployment: '使用服务器配置',
+    proxyDirect: '直连',
+    proxyCustom: '指定代理',
+    proxyEffective: '当前生效',
+    proxyTest: '测试已保存的 HTTP 连接',
+    proxyHttpOk: 'HTTP 可用',
+    proxyNoApplication: '请先配置飞书应用',
+    proxyUnavailable: 'HTTP 暂不可用',
+    proxyRestartRequired: '已保存；接收端需要重启',
+    proxyConnectionPending: '已保存；接收端连接待就绪',
+
+    applicationManaged: '企业应用凭证在站点设置中集中管理。',
+    applicationHelp:
+      '由超级管理员在站点设置添加企业应用；资源机器人只关联应用和群，不重复保存应用凭证。',
+    copyConfig: '复制配置',
+    copySuffix: '副本',
+
+    lookupGroup: '获取群名',
+    groupUnknown: '群名未获取',
+    groupPermission: '需要在飞书应用开通 im:chat:read（查看群信息）。',
+    groupUnavailable: '暂时无法获取群名，请稍后重试。',
+
+    enabledPlatforms: '开放的平台',
+    enabledPlatformsHint: '仅控制新建机器人，不会停用已有机器人。',
+    infoflow: '如流 / Infoflow',
+    feishu: '飞书 / Feishu',
+
+    applications: '飞书应用',
+    add: '添加应用',
+    name: '应用名称',
+    transport: '接收方式',
+    websocket: '长连接',
+    connect: '启动连接',
+    connecting: '已启动连接任务，连接成功后可接收群消息',
+    tenant: '企业租户标识',
+    none: '尚未配置飞书应用',
+    addApplicationFirst: '请超级管理员先添加飞书应用。',
+    required: '请填写此项',
+    platform: '消息平台',
+    application: '企业应用',
+    group: '资源群 Chat ID',
+  },
   agentHistory: {
     operations: { command: '执行命令', usage: { update: '更新用途', delete: '删除用途' } },
 
@@ -24,6 +115,12 @@ export default {
     },
   },
   utilization: {
+    configureSource: '配置',
+    connectionHint: '选择模板与当前浏览器可访问的数据源。',
+    connectionSection: '连接',
+    mappingSection: '资源映射',
+    advancedSection: '高级配置',
+
     availableMemory: '可用内存',
     cacheMemory: '缓冲/缓存',
     autoUpdate: '自动更新',
@@ -208,6 +305,10 @@ export default {
     claimReady: '已轮到，可领取资源',
   },
   broadcast: {
+    targets: '目标群聊',
+    details: '广播详情',
+    view: '查看',
+    result: '发送结果',
     title: '群广播',
     message: '广播内容',
     window: '最近活跃范围',
@@ -361,6 +462,7 @@ export default {
 
   // === Bot List ===
   botList: {
+    filterByPlatform: '按平台筛选',
     agent_authorizations: 'Agent 有效授权',
     agent_usage_registrations: '有效用途登记',
     title: '我的机器人',
@@ -478,6 +580,11 @@ export default {
 
   // === Bot Detail ===
   botDetail: {
+    agentAccessStats: '访问统计',
+    agentOperations: '操作历史',
+    agentAuthorizations: '授权记录',
+    notesScopeHelp:
+      '仅超级管理员可开启。临时展示当前操作历史中的 Agent 详细备注，读取会记录审计；离开此页后自动关闭。',
     authorizationAudit: '授权审计',
     config: '配置信息',
     status: '状态',
@@ -602,7 +709,7 @@ export default {
 
   // === Log Viewer ===
   log: {
-    privateDetailsRestricted: '仅显示操作摘要；私密任务与原始日志仅超级管理员可见。',
+    privateDetailsRestricted: '当前显示操作摘要。',
     all: '全部',
     commandLog: '操作记录',
     systemLog: '系统日志',
@@ -690,6 +797,10 @@ export default {
 
   // === Site Settings ===
   settings: {
+    basicInformation: '基本信息',
+    messagePlatforms: '消息平台',
+    agentPromotionSection: 'Agent 推广',
+
     agentPromotion: 'Agent 推广',
     agentPromotionText: '链接前文案',
     agentPromotionTextHint: '留空使用默认文案，链接自动添加。仅限单行纯文本，最多 120 字。',
@@ -826,8 +937,9 @@ export default {
       '近期检测到 {count} 次登录失败，来自 IP：{ips}。如非本人操作，建议立即修改密码。',
     dispatched: '已分派',
     dispatchedNote: '命令已分派，不代表资源操作成功。请查询资源状态核实。',
-    privateView: '显示私密任务信息（留审计）',
-    targetTypes: { bot: '机器人', user: '用户', service: '服务' },
+    privateView: '查看 Agent 详细任务备注',
+    privateViewHelp: '这里展示 Agent 主动提交的详细备注，仅本人及超级管理员可见。',
+    targetTypes: { bot: '机器人', user: '用户', service: '服务', feishu_application: '飞书应用' },
     detailFields: {
       resource_auth_enabled: '允许 Agent 访问',
       resource_api_notify_enabled: '群内操作通知',
@@ -848,7 +960,7 @@ export default {
     sources: { api: 'Agent API', chat: '群聊', service_key: 'OP API Key' },
     booleanValues: { true: '是', false: '否' },
     actions: {
-      'task_private.read': '查看私密任务信息',
+      'task_private.read': '查看 Agent 详细任务备注',
       'resource_auth.bind': '绑定 Agent 授权',
       'resource_auth.unbind': '解绑 Agent 授权',
       'bot.resource_auth_enabled': '开启 Agent 访问',
@@ -863,6 +975,10 @@ export default {
       'user.reset_password': '重置密码',
       'user.force_logout': '强制登出',
       'bot.create': '创建Bot',
+      'feishu.create_application': '添加飞书应用',
+      'feishu.update_application': '编辑飞书应用',
+      'feishu.delete_application': '删除飞书应用',
+      'feishu.reveal_secret': '查看飞书应用 Secret',
       'bot.update': '修改Bot配置',
       'bot.delete': '删除Bot',
       'bot.start': '启动Bot',

@@ -91,35 +91,27 @@ it.each([
   }
 )
 
-it('defaults global monitoring to public, pauses private polling and resets consent when filtering another bot', async () => {
+it('keeps monitoring public when filtering bots or receiving a detailed-note prop', async () => {
   vi.useFakeTimers()
-  const { view } = mount(ServiceTrafficPanel, { botId: null })
+  const { view } = mount(ServiceTrafficPanel, { botId: null, includePrivate: true })
   expect(state.pending[0].options.params.include_private).toBe(false)
   state.pending[0].resolve({ data: null })
   await flush()
-  view.showPrivateTasks = true
-  expect(state.pending.at(-1).options.params.include_private).toBe(true)
-  const privateRead = state.pending.at(-1)
-  privateRead.resolve({ data: null })
-  await flush()
   const count = state.pending.length
   await vi.advanceTimersByTimeAsync(16000)
-  expect(state.pending.length).toBe(count)
+  expect(state.pending.length).toBeGreaterThan(count)
+  expect(state.pending.at(-1).options.params.include_private).toBe(false)
   view.selectedBot = 2
-  expect(view.showPrivateTasks).toBe(false)
   expect(view.snapshot).toBe(null)
   expect(state.pending.at(-1).options.params).toMatchObject({ bot_id: 2, include_private: false })
 })
 
-it('does not publish a late global private credential snapshot after consent is closed', async () => {
+it('discards a late monitoring snapshot after switching the bot filter', async () => {
   const { view } = mount(ServiceTrafficPanel, { botId: null })
-  state.pending[0].resolve({ data: null })
-  await flush()
-  view.showPrivateTasks = true
-  const privateRead = state.pending.at(-1)
-  view.showPrivateTasks = false
-  expect(privateRead.options.signal.aborted).toBe(true)
-  privateRead.resolve({ data: { credentials: [{ id: 'fictional-private' }] } })
+  const oldRead = state.pending[0]
+  view.selectedBot = 2
+  expect(oldRead.options.signal.aborted).toBe(true)
+  oldRead.resolve({ data: { credentials: [{ id: 'fictional-old-scope' }] } })
   await flush()
   expect(view.snapshot).toBe(null)
 })

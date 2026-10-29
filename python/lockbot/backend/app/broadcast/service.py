@@ -5,6 +5,7 @@ must never be automatically resent. Only untouched pending targets resume after 
 """
 
 import logging
+import re
 import threading
 from datetime import datetime, timedelta
 
@@ -19,9 +20,13 @@ logger = logging.getLogger(__name__)
 
 def record_group_activity(db, bot, group_id):
     group_id = str(group_id)
-    if not group_id.isdecimal() or len(group_id) > 20 or int(group_id) <= 0:
-        return
-    group_id = str(int(group_id))
+    if (bot.platform or "").lower() == "feishu":
+        if not re.fullmatch(r"oc_[A-Za-z0-9_-]+", group_id):
+            return
+    else:
+        if not group_id.isdecimal() or len(group_id) > 20 or int(group_id) <= 0:
+            return
+        group_id = str(int(group_id))
     row = db.get(GroupActivity, (bot.id, group_id))
     if row is None:
         row = GroupActivity(bot_id=bot.id, group_id=group_id)
@@ -45,8 +50,7 @@ def recent_targets(db, days):
     )
     seen, targets = set(), []
     for bot, group in rows:
-        # Current broadcast delivery is Infoflow only. Never silently use another format.
-        if bot.platform.lower() != "infoflow":
+        if bot.platform.lower() not in {"infoflow", "feishu"}:
             continue
         if group.group_id in seen:
             continue

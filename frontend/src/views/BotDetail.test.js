@@ -389,43 +389,38 @@ it.each([
   expect(model.router.push).not.toHaveBeenCalled()
 })
 
-it('requires an explicit private view and clears usage while fencing a late private response', async () => {
+it('limits detailed-note consent to Agent operation history and never changes state reads', async () => {
   const view = mount()
   await ready('1')
-  expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
+  view.activityTab = 'agents'
+  view.agentTab = 'history'
   view.showPrivateTasks = true
-  expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(true)
-  latest('state', '1').resolve({ state: {}, usage: [{ purpose: 'fictional-private' }] })
-  await flush()
-  expect(view.stateUsage).toEqual([{ purpose: 'fictional-private' }])
-  const stale = view.fetchState()
-  const old = latest('state', '1')
-  view.showPrivateTasks = false
-  expect(view.stateUsage).toEqual([])
-  expect(old.options.signal.aborted).toBe(true)
+  expect(view.privateTaskView).toBe(true)
+  const pending = view.fetchState()
   expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
-  old.resolve({ state: {}, usage: [{ purpose: 'fictional-stale-private' }] })
-  await stale
-  expect(view.stateUsage).toEqual([])
+  latest('state', '1').resolve({ state: {}, usage: [] })
+  await pending
+  view.agentTab = 'access'
+  expect(view.showPrivateTasks).toBe(false)
+  expect(view.privateTaskView).toBe(false)
+  view.agentTab = 'history'
+  expect(view.privateTaskView).toBe(false)
 })
 
-it('does not carry private consent across bot navigation or poll while private view is enabled', async () => {
-  vi.useFakeTimers()
-  try {
-    const view = mount()
-    await ready('1')
-    view.showPrivateTasks = true
-    latest('state', '1').resolve({ state: {}, usage: [] })
-    await flush()
-    view.stateAutoRefresh = true
-    const count = model.store.getBotState.mock.calls.length
-    await vi.advanceTimersByTimeAsync(61000)
-    expect(model.store.getBotState.mock.calls.length).toBe(count)
-    model.route.params.id = '2'
-    expect(view.showPrivateTasks).toBe(false)
-    expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
-    expect(view.stateUsage).toEqual([])
-  } finally {
-    vi.useRealTimers()
-  }
+it('clears detailed-note consent when leaving Agent history or navigating bots', async () => {
+  const view = mount()
+  await ready('1')
+  view.activityTab = 'agents'
+  view.agentTab = 'history'
+  view.showPrivateTasks = true
+  view.activityTab = 'logs'
+  expect(view.showPrivateTasks).toBe(false)
+  view.activityTab = 'agents'
+  view.agentTab = 'history'
+  view.showPrivateTasks = true
+  model.route.params.id = '2'
+  expect(view.showPrivateTasks).toBe(false)
+  expect(view.privateTaskView).toBe(false)
+  expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
+  expect(view.stateUsage).toEqual([])
 })

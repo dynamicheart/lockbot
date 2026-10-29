@@ -1,61 +1,80 @@
 <template>
   <el-card class="broadcast-card">
     <template #header>{{ $t('broadcast.title') }}</template>
-    <el-form label-position="top">
-      <el-form-item :label="$t('broadcast.message')">
-        <el-input v-model="message" type="textarea" :rows="4" :maxlength="1800" show-word-limit />
+    <el-form label-position="top" class="broadcast-compose">
+      <el-form-item :label="$t('broadcast.message')" class="compose-message">
+        <el-input v-model="message" type="textarea" :rows="6" :maxlength="1800" show-word-limit />
       </el-form-item>
-      <div class="options">
-        <el-select v-model="days" style="width: 180px" :aria-label="$t('broadcast.window')">
-          <el-option
-            v-for="n in [1, 7, 30]"
-            :key="n"
-            :value="n"
-            :label="$t('broadcast.days', { n })"
-          />
-        </el-select>
+      <div class="compose-options">
+        <el-form-item :label="$t('broadcast.window')">
+          <el-select v-model="days" :aria-label="$t('broadcast.window')">
+            <el-option
+              v-for="n in [1, 7, 30]"
+              :key="n"
+              :value="n"
+              :label="$t('broadcast.days', { n })"
+            />
+          </el-select>
+        </el-form-item>
         <el-checkbox v-model="mentionAll">{{ $t('broadcast.mentionAll') }}</el-checkbox>
         <el-button type="primary" :disabled="!message.trim()" :loading="busy" @click="preview">
           {{ $t('broadcast.preview') }}
         </el-button>
       </div>
     </el-form>
-    <el-dialog v-model="dialog" :title="$t('broadcast.preview')" width="min(680px, 95vw)">
+    <el-dialog
+      v-model="dialog"
+      :title="$t(job?.status === 'draft' ? 'broadcast.preview' : 'broadcast.details')"
+      width="min(640px, 95vw)"
+      class="broadcast-dialog"
+    >
       <template v-if="job">
-        <div class="message-preview">{{ job.message }}</div>
-        <p>
-          {{ $t('broadcast.coverage', { n: job.total }) }} ·
-          {{ job.mention_all ? $t('broadcast.mentionAll') : $t('broadcast.noMention') }}
-        </p>
+        <section class="preview-message">
+          <h4>{{ $t('broadcast.message') }}</h4>
+          <div class="message-preview">{{ job.message }}</div>
+        </section>
+        <div class="preview-summary">
+          <span>{{ $t('broadcast.coverage', { n: job.total }) }}</span>
+          <span>{{
+            job.mention_all ? $t('broadcast.mentionAll') : $t('broadcast.noMention')
+          }}</span>
+          <span v-if="job.status !== 'draft'">{{ progress(job) }}</span>
+        </div>
         <p v-if="!job.total" class="hint">{{ $t('broadcast.empty') }}</p>
-        <p v-if="job.status !== 'draft'" class="hint">
-          {{ $t('broadcast.states.' + job.status) }} · {{ progress(job) }}
-        </p>
-        <el-progress
-          v-if="job.status !== 'draft'"
-          :percentage="
-            Math.round(
-              (100 * (job.total - (job.counts.pending || 0) - (job.counts.sending || 0))) /
-                (job.total || 1)
-            )
-          "
-          :stroke-width="6"
-          :show-text="false"
-          style="margin-bottom: 16px"
-        />
-        <el-table :data="job.targets" max-height="320">
-          <el-table-column prop="bot_name" :label="$t('broadcast.bot')" />
-          <el-table-column prop="group_id" :label="$t('broadcast.group')" />
-          <el-table-column :label="$t('broadcast.status')">
+        <h4 class="targets-heading">{{ $t('broadcast.targets') }}</h4>
+        <el-table class="targets-table" :data="job.targets" max-height="320">
+          <el-table-column :label="$t('broadcast.bot')" min-width="230">
             <template #default="{ row }">
-              <el-tooltip
-                :content="row.result_code ? $t('broadcast.results.' + row.result_code) : ''"
-                :disabled="!row.result_code"
-              >
-                <el-tag size="small" :type="statusType(row.status)">{{
-                  $t('broadcast.states.' + row.status)
-                }}</el-tag>
-              </el-tooltip>
+              <div class="target-info">
+                <span class="target-name">{{ row.bot_name || groupLabel(row) }}</span>
+                <span v-if="knownGroupName(row)" class="target-group-name">{{
+                  knownGroupName(row)
+                }}</span>
+                <div class="target-id-row">
+                  <el-tooltip :content="row.group_id" :disabled="!row.group_id">
+                    <code class="group-id">{{ row.group_id || '—' }}</code>
+                  </el-tooltip>
+                  <el-button
+                    v-if="row.group_id"
+                    link
+                    size="small"
+                    @click="copyText(row.group_id)"
+                    >{{ $t('common.copy') }}</el-button
+                  >
+                </div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="job.status !== 'draft'"
+            :label="$t('broadcast.result')"
+            width="150"
+          >
+            <template #default="{ row }">
+              <el-tag size="small" :type="statusType(row.status)" effect="plain">{{
+                $t('broadcast.states.' + row.status)
+              }}</el-tag>
+              <p v-if="resultDetail(row)" class="result-detail">{{ resultDetail(row) }}</p>
             </template>
           </el-table-column>
         </el-table>
@@ -72,7 +91,7 @@
         <el-button @click="dialog = false">{{ $t('common.close') }}</el-button>
         <el-button
           v-if="job?.status === 'draft'"
-          type="warning"
+          type="primary"
           :disabled="!job.total"
           :loading="busy"
           @click="send"
@@ -83,17 +102,29 @@
     </el-dialog>
     <div v-if="history.length" class="history">
       <h4>{{ $t('broadcast.history') }}</h4>
-      <el-table :data="history" style="cursor: pointer" @row-click="openJob">
-        <el-table-column prop="message" :label="$t('broadcast.message')" show-overflow-tooltip />
-        <el-table-column :label="$t('broadcast.status')" width="150">
-          <template #default="{ row }"
-            ><el-tag size="small" :type="statusType(row.status)">{{
-              $t('broadcast.states.' + row.status)
-            }}</el-tag></template
-          >
+      <el-table :data="history" @row-click="openJob">
+        <el-table-column :label="$t('broadcast.message')" min-width="220">
+          <template #default="{ row }">
+            <div class="history-message" :title="row.message">{{ row.message }}</div>
+            <time v-if="createdTime(row.created_at)" class="history-time">{{
+              createdTime(row.created_at)
+            }}</time>
+          </template>
         </el-table-column>
-        <el-table-column :label="$t('broadcast.progress')" min-width="180">
-          <template #default="{ row }">{{ progress(row) }}</template>
+        <el-table-column :label="$t('broadcast.status')" width="220">
+          <template #default="{ row }">
+            <div class="history-status">
+              <span>{{ $t('broadcast.states.' + row.status) }}</span>
+              <span class="history-progress">{{ progress(row) }}</span>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column width="64" align="right">
+          <template #default="{ row }"
+            ><el-button link type="primary" @click.stop="openJob(row)">{{
+              $t('broadcast.view')
+            }}</el-button></template
+          >
         </el-table-column>
       </el-table>
     </div>
@@ -104,15 +135,28 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
+import { useHelpers } from '../utils/helpers'
 const { t } = useI18n()
+const { copyText } = useHelpers()
+const knownGroupName = (row) => row.group_name || row.chat_name || row.cached_group_name || ''
+const groupLabel = (row) => knownGroupName(row) || row.group_id || '—'
+const resultDetail = (row) =>
+  row.result_code && row.status !== 'accepted' && !['pending', 'sending'].includes(row.status)
+    ? t('broadcast.results.' + row.result_code)
+    : ''
+
 const statusType = (status) =>
   ({
     accepted: 'success',
     failed: 'danger',
     unknown: 'warning',
-    running: 'primary',
-    sending: 'primary',
   })[status] || 'info'
+function createdTime(value) {
+  if (typeof value !== 'string' || !value.trim()) return ''
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : value + 'Z'
+  const timestamp = Date.parse(normalized)
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : ''
+}
 const message = ref('')
 const days = ref(7)
 const mentionAll = ref(false)
@@ -204,27 +248,145 @@ onUnmounted(() => {
 </script>
 <style scoped>
 .broadcast-card {
+  margin-bottom: 20px;
+}
+.broadcast-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 24px;
+  align-items: start;
+}
+.compose-message {
+  margin-bottom: 0;
+}
+.compose-options {
+  display: grid;
+  gap: 12px;
+  padding-left: 24px;
+  border-left: 1px solid var(--el-border-color-lighter);
+}
+.compose-options .el-form-item {
+  margin-bottom: 0;
+}
+.compose-options .el-select {
+  width: 100%;
+}
+.compose-options .el-checkbox {
+  height: 28px;
+}
+.compose-options > .el-button {
+  margin-left: 0;
+}
+.preview-message h4,
+.targets-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.targets-heading {
   margin-top: 20px;
+}
+.broadcast-card :deep(.el-table th.el-table__cell) {
+  background: var(--el-fill-color-light);
+  font-weight: 500;
+}
+.broadcast-card :deep(.el-table .el-table__cell),
+.targets-table :deep(.el-table__cell) {
+  padding-block: 9px;
+}
+.history-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-primary);
+}
+.history-time,
+.history-progress {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.history-status {
+  display: grid;
+  gap: 2px;
+}
+.target-info {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.target-name {
+  font-weight: 500;
+}
+.preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 14px 0;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.result-detail {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
+}
+.target-group-name {
+  color: var(--el-text-color-secondary);
+}
+.target-id-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.group-id {
+  max-width: 260px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.target-id-row .el-button {
+  flex-shrink: 0;
 }
 .hint {
   color: var(--el-text-color-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
-.options {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 18px;
-}
 .message-preview {
+  max-height: 180px;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  padding: 16px;
+  padding: 12px 14px;
   background: var(--el-fill-color-light);
   border-radius: 6px;
 }
+.history h4 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
 .history {
   margin-top: 24px;
+}
+@media (max-width: 680px) {
+  .broadcast-compose {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .compose-options {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .compose-options > .el-button {
+    justify-self: start;
+  }
 }
 </style>
