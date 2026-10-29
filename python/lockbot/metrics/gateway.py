@@ -199,6 +199,7 @@ class Gateway:
                     raise Rejected(429, "rate_limited", 60)
             self.budgets["global"].append(now)
             self.budgets[reader].append(now)
+            self.budgets.move_to_end("global")
             while len(self.budgets) > 65:
                 self.budgets.popitem(last=False)
 

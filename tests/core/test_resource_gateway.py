@@ -284,3 +284,12 @@ def test_grant_key_file_requires_private_permissions(tmp_path):
     pathlib.Path(gateway.config["issuers"]["service-a"]["key_file"]).chmod(0o644)
     with pytest.raises(Rejected):
         gateway.reader("Bearer " + jwt.encode(claims, key, algorithm="HS256"))
+
+
+def test_global_budget_survives_reader_lru_eviction():
+    gateway = Gateway(config(), clock=lambda: 10000)
+    for index in range(120):
+        gateway.budget(f"reader-{index}")
+    with pytest.raises(Rejected) as error:
+        gateway.budget("another-reader")
+    assert error.value.status == 429
