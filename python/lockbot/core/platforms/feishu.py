@@ -61,6 +61,7 @@ class FeishuClient:
         self._expires = 0.0
         self._lock = threading.Lock()
         self._names = OrderedDict()
+        self._groups = OrderedDict()
         self._names_lock = threading.Lock()
 
     def token(self):
@@ -122,6 +123,41 @@ class FeishuClient:
             return open_id
         except (requests.RequestException, ValueError, TypeError, AttributeError):
             raise FeishuAPIError("Feishu bot identity request failed") from None
+
+    def group_name(self, chat_id, refresh=False):
+        """Read only a selected group's display name; never enumerate groups or members."""
+        if not _CHAT_ID.fullmatch(chat_id):
+            raise ValueError("Invalid Feishu group ID")
+        with self._names_lock:
+            cached = self._groups.get(chat_id)
+            if not refresh and cached and cached[2] > time.monotonic():
+                return {"name": cached[0], "status": cached[1]}
+        name, status, ttl = "", "unavailable", 300
+        try:
+            response = requests.get(
+                API_ROOT + "/im/v1/chats/" + chat_id,
+                headers={"Authorization": "Bearer " + self.token()},
+                timeout=(3, 5),
+                allow_redirects=False,
+            )
+            data = response.json()
+            candidate = data.get("data", {}).get("name")
+            if response.status_code == 200 and data.get("code") == 0 and isinstance(candidate, str):
+                name = "".join(char for char in candidate if char.isprintable())[:256].strip()
+                status, ttl = ("ok", 21600) if name else ("unavailable", 300)
+            elif data.get("code") in {99991672, 99991679}:
+                status = "permission"
+        except (requests.RequestException, ValueError, TypeError, AttributeError, FeishuAPIError):
+            pass
+        with self._names_lock:
+            # Keep a previously known name on transient failures and name changes only affect display.
+            old = self._groups.get(chat_id)
+            name = name or (old[0] if old else "")
+            self._groups[chat_id] = (name, status, time.monotonic() + ttl)
+            self._groups.move_to_end(chat_id)
+            while len(self._groups) > 256:
+                self._groups.popitem(last=False)
+        return {"name": name, "status": status}
 
     def warm_user_name(self, open_id):
         """Optional display lookup, outside resource locks; identity never uses the name."""

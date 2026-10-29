@@ -82,6 +82,11 @@
           :rules="[{ required: true, message: t('feishu.required'), trigger: 'blur' }]"
         >
           <el-input v-model="form.group_id" :disabled="isEdit" placeholder="oc_…" />
+          <FeishuGroupInfo
+            :bot-id="isEdit ? bot?.id : null"
+            :application-id="form.feishu_application_id"
+            :chat-id="form.group_id"
+          />
         </el-form-item>
       </template>
 
@@ -468,6 +473,7 @@
 </template>
 
 <script setup>
+import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

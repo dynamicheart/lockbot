@@ -262,3 +262,46 @@ def test_platform_creation_policy_preserves_existing_bots(setup, client, auth_he
         ).status_code
         == 422
     )
+
+
+def test_group_lookup_checks_bot_and_application_scope(setup, client, auth_header, db_session, monkeypatch):
+    application_id, bots, _ = setup
+    called = []
+    monkeypatch.setattr(
+        FeishuClient,
+        "group_name",
+        lambda self, chat, refresh=False: called.append(chat) or {"name": "Display group", "status": "ok"},
+    )
+    bot_id = bots[0].config.get_val("BOT_ID")
+    response = client.get(f"/api/feishu/bots/{bot_id}/group", headers=auth_header)
+    assert response.status_code == 200
+    assert response.json() == {"chat_id": "oc_group0", "name": "Display group", "status": "ok"}
+    assert (
+        client.get(f"/api/feishu/applications/{application_id}/groups/oc_preview", headers=auth_header).status_code
+        == 200
+    )
+    assert called == ["oc_group0", "oc_preview"]
+    user = db_session.query(User).filter_by(username="testuser").one()
+    user.role = "user"
+    db_session.commit()
+    assert client.get(f"/api/feishu/bots/{bot_id}/group", headers=auth_header).status_code == 200
+    assert (
+        client.get(f"/api/feishu/applications/{application_id}/groups/oc_other", headers=auth_header).status_code == 403
+    )
+    foreign = Bot(
+        name="private group",
+        user_id=user.id + 100,
+        bot_type="QUEUE",
+        platform="Feishu",
+        group_id="oc_private",
+        webhook_url="",
+        aes_key="",
+        token="",
+        cluster_configs="[]",
+        status="stopped",
+    )
+    db_session.add(foreign)
+    db_session.commit()
+    before = len(called)
+    assert client.get(f"/api/feishu/bots/{foreign.id}/group", headers=auth_header).status_code == 404
+    assert len(called) == before

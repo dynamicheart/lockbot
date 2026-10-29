@@ -67,7 +67,12 @@
             <StatusBadge :status="bot.status" />
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.groupId')">
-            <template v-if="bot.group_id">
+            <FeishuGroupInfo
+              v-if="bot.platform.toLowerCase() === 'feishu' && bot.group_id"
+              :bot-id="bot.id"
+              :chat-id="bot.group_id"
+            />
+            <template v-else-if="bot.group_id">
               <el-tag
                 v-for="gid in bot.group_id.split(',')"
                 :key="gid"
@@ -584,6 +589,7 @@
 </template>
 
 <script setup>
+import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'

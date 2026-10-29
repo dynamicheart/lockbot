@@ -10,6 +10,7 @@ Docker 镜像包含飞书长连接依赖。Python 部署安装 `pip install 'loc
 
 - `im:message.group_at_msg:readonly`：接收群内 @机器人的消息。
 - `im:message:send_as_bot`：机器人发送回复和提醒。
+- `im:chat:read`：查看群基本信息，用于在后台显示群名；不需要群历史消息或群成员列表权限。
 - 可选的联系人基本信息权限：用于把 Open ID 显示为姓名。查询失败会保留稳定 ID，不影响身份鉴权；不需要读取手机号、邮箱或全企业通讯录。
 
 应用还需要设置可用成员范围，并完成企业的发布／审核流程。权限已开通、应用已发布、用户在可用范围、机器人已加入资源群，分别是独立的条件。范围只覆盖所有者和少量测试成员时，企业可能允许免审核发布；正式企业以自己的审批策略为准。
@@ -47,3 +48,5 @@ Docker 镜像包含飞书长连接依赖。Python 部署安装 `pip install 'loc
 HTTP 回调是可选入口：需要稳定 HTTPS URL、明确的租户范围和 Verification Token；配置 Encrypt Key 后只接受加密事件并校验原始请求签名。同一应用只启用一种接收方式，不能同时启动多个开发环境争抢长连接事件。
 
 参考：[飞书长连接接收事件](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/server-side-sdk/python--sdk/handle-events)、[接收消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)、[消息结构](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json)。
+
+后台通过已关联应用查询指定群的名称，群名仅用于展示，鉴权和路由仍使用 Chat ID。群名缓存在服务进程内，成功保留 6 小时，失败退避 5 分钟；管理员可手动刷新。失去权限或临时失败时保留最近已知名称并显示状态，不影响已有资源锁和个人授权。创建表单的群名预览仅超级管理员可用；详情页只允许现有 bot 的授权管理者查询已关联群。

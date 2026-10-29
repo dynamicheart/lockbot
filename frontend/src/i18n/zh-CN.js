@@ -1,5 +1,10 @@
 export default {
   feishu: {
+    lookupGroup: '获取群名',
+    groupUnknown: '群名未获取',
+    groupPermission: '需要在飞书应用开通 im:chat:read（查看群信息）。',
+    groupUnavailable: '暂时无法获取群名，请稍后重试。',
+
     enabledPlatforms: '开放的平台',
     enabledPlatformsHint: '仅控制新建机器人，不会停用已有机器人。',
     infoflow: '如流',

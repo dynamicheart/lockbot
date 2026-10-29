@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from lockbot.backend.app.audit.service import write_audit_log
-from lockbot.backend.app.auth.dependencies import require_super_admin
+from lockbot.backend.app.auth.dependencies import get_current_user, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, bot_manager
@@ -131,6 +132,48 @@ def connect_application(
     except ValueError as exc:
         raise HTTPException(503, str(exc)) from None
     return {"started": True}
+
+
+@router.get("/bots/{bot_id}/group")
+@limiter.limit("30/minute")
+def bot_group_info(
+    bot_id: int,
+    request: Request,
+    refresh: bool = False,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.router import _get_user_bot
+    from lockbot.backend.app.feishu.service import application_client
+
+    bot = _get_user_bot(bot_id, user, db)
+    route = db.query(FeishuGroupRoute).filter_by(bot_id=bot.id).first()
+    if bot.platform.lower() != "feishu" or route is None or route.chat_id != bot.group_id:
+        raise HTTPException(404, "Feishu group route not found")
+    app = db.get(FeishuApplication, route.application_id)
+    if app is None:
+        raise HTTPException(404, "Feishu application not found")
+    return {"chat_id": route.chat_id, **application_client(app).group_name(route.chat_id, refresh)}
+
+
+@router.get("/applications/{application_id}/groups/{chat_id}")
+@limiter.limit("30/minute")
+def preview_group_info(
+    application_id: int,
+    chat_id: str,
+    request: Request,
+    refresh: bool = False,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.feishu.service import application_client
+
+    if not re.fullmatch(r"oc_[A-Za-z0-9_]+", chat_id):
+        raise HTTPException(422, "Invalid Feishu group ID")
+    app = db.get(FeishuApplication, application_id)
+    if app is None:
+        raise HTTPException(404, "Feishu application not found")
+    return {"chat_id": chat_id, **application_client(app).group_name(chat_id, refresh)}
 
 
 def _execute(factory, application_id, message, expected_uuid, expected_revision):

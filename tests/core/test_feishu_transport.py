@@ -220,3 +220,34 @@ def test_feishu_dispatch_reuses_each_existing_bot_command_parser(kind, clusters,
     if isinstance(state, list):
         state = state[0]
     assert state["current_users"][0]["user_id"] == "ou_alice"
+
+
+def test_group_name_is_scoped_cached_and_preserved_on_transient_error(monkeypatch):
+    from types import SimpleNamespace
+
+    calls = []
+    responses = iter(
+        [
+            {"code": 0, "data": {"name": "测试群"}},
+            {"code": 99991672},
+            {"code": 0, "data": {"name": "改名后的群"}},
+        ]
+    )
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(status_code=200, json=lambda: next(responses))
+
+    monkeypatch.setattr("lockbot.core.platforms.feishu.requests.get", get)
+    monkeypatch.setattr(FeishuClient, "token", lambda self: "private-token")
+    client = FeishuClient("cli_app", "secret")
+    assert client.group_name("oc_group") == {"name": "测试群", "status": "ok"}
+    assert client.group_name("oc_group")["name"] == "测试群"
+    assert len(calls) == 1
+    assert client.group_name("oc_group", True) == {"name": "测试群", "status": "permission"}
+    assert client.group_name("oc_group", True)["name"] == "改名后的群"
+    assert all(url.endswith("/im/v1/chats/oc_group") for url, _ in calls)
+    assert all(kwargs["allow_redirects"] is False for _, kwargs in calls)
+    with pytest.raises(ValueError):
+        client.group_name("oc_group/../../users")
+    assert len(calls) == 3

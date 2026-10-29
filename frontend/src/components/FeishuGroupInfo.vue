@@ -1,0 +1,109 @@
+<template>
+  <div class="feishu-group-info">
+    <div class="group-name-row">
+      <span v-if="group.name" class="group-name">{{ group.name }}</span>
+      <span v-else-if="botId" class="group-placeholder">{{ $t('feishu.groupUnknown') }}</span>
+      <el-button
+        text
+        size="small"
+        type="primary"
+        :loading="loading"
+        :disabled="!lookupPath"
+        @click="load(true)"
+      >
+        {{ group.name ? $t('common.refresh') : $t('feishu.lookupGroup') }}
+      </el-button>
+    </div>
+    <el-button v-if="botId" text size="small" class="chat-id" @click="copyText(chatId)">
+      <code>{{ chatId }}</code
+      ><el-icon><CopyDocument /></el-icon>
+    </el-button>
+    <span v-if="group.status && group.status !== 'ok'" class="group-warning">
+      {{ $t(group.status === 'permission' ? 'feishu.groupPermission' : 'feishu.groupUnavailable') }}
+    </span>
+  </div>
+</template>
+<script setup>
+import { computed, ref, watch } from 'vue'
+import { CopyDocument } from '@element-plus/icons-vue'
+import api from '../utils/api'
+import { useHelpers } from '../utils/helpers'
+const props = defineProps({
+  botId: { type: [Number, String], default: null },
+  applicationId: { type: [Number, String], default: null },
+  chatId: { type: String, default: '' },
+})
+const { copyText } = useHelpers()
+const group = ref({})
+const loading = ref(false)
+let generation = 0
+const lookupPath = computed(() => {
+  if (props.botId) return `/feishu/bots/${props.botId}/group`
+  return props.applicationId && /^oc_[A-Za-z0-9_]+$/.test(props.chatId)
+    ? `/feishu/applications/${props.applicationId}/groups/${encodeURIComponent(props.chatId)}`
+    : null
+})
+async function load(refresh = false) {
+  if (!lookupPath.value || loading.value) return
+  const run = generation
+  loading.value = true
+  try {
+    const { data } = await api.get(lookupPath.value, { params: { refresh }, _silent: true })
+    if (run === generation) group.value = data
+  } catch {
+    if (run === generation) group.value = { ...group.value, status: 'unavailable' }
+  } finally {
+    if (run === generation) loading.value = false
+  }
+}
+watch(
+  () => [props.botId, props.applicationId, props.chatId],
+  () => {
+    generation++
+    group.value = {}
+    loading.value = false
+    if (props.botId) load()
+  },
+  { immediate: true }
+)
+</script>
+<style scoped>
+.feishu-group-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.group-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.group-name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.group-placeholder,
+.chat-id {
+  color: var(--el-text-color-secondary);
+}
+.chat-id {
+  padding: 0;
+  height: auto;
+  max-width: 100%;
+}
+.chat-id code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.chat-id .el-icon {
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.group-warning {
+  color: var(--el-color-warning-dark-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+</style>

@@ -1,5 +1,10 @@
 export default {
   feishu: {
+    lookupGroup: 'Look up group',
+    groupUnknown: 'Group name unavailable',
+    groupPermission: 'Enable im:chat:read in the Feishu application.',
+    groupUnavailable: 'Unable to retrieve the group name. Try again later.',
+
     enabledPlatforms: 'Enabled platforms',
     enabledPlatformsHint: 'Applies to new bots only. Existing bots keep running.',
     infoflow: 'Infoflow',
