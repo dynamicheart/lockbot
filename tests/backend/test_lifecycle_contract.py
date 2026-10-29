@@ -200,3 +200,123 @@ def test_durable_order_fsyncs_file_before_replace_and_directory_after(tmp_path, 
     execute_text_command("alice", "lock n1 10m", bot, source="api")
     assert calls[:3] == ["file", "replace", "directory"]
     assert calls[3:] == ["file", "directory"]
+
+
+def test_interrupted_append_retries_without_duplicate_frame(tmp_path, clock, monkeypatch):
+    bot, journal, _ = make_bot(tmp_path, clock)
+    original = journal._append
+    written = []
+
+    def append_then_fail(frame):
+        original(frame)
+        written.append(frame["contract"]["frame_id"])
+        raise OSError("acknowledgement interrupted")
+
+    monkeypatch.setattr(journal, "_append", append_then_fail)
+    clock[0] = 1001
+    execute_text_command("alice", "lock n1 10m", bot, source="api")
+    assert not journal.checkpoint(bot.state.bot_state)["consistent"]
+    monkeypatch.setattr(journal, "_append", original)
+    clock[0] = 1002
+    execute_text_command("alice", "lock n1 20m", bot, source="api")
+    assert sum(row["contract"]["frame_id"] == written[0] for row in records()) == 1
+
+
+def test_expiry_and_reacquisition_keep_system_actor_and_new_holding_identity(tmp_path, clock):
+    bot, journal, _ = make_bot(tmp_path, clock)
+    clock[0] = 1001
+    execute_text_command("alice", "lock n1 1m", bot, source="api")
+    acquired = lease_contract.contract_frame(records()[-1])["events"][0]
+    clock[0] = 1100
+    bot.state.bot_state["n1"]["current_users"] = []
+    bot.state.bot_state["n1"]["status"] = "idle"
+    from lockbot.core.io import save_bot_state_to_file
+
+    save_bot_state_to_file(bot.state.bot_state, bot.config)
+    expired = lease_contract.contract_frame(records()[-1])
+    assert expired["contract"]["initiator"] == {"kind": "system"}
+    assert expired["events"][0]["kind"] == "expired"
+    assert expired["events"][0]["occurred_at"] == 1061
+    assert expired["events"][0]["recorded_at"] == 1100
+    clock[0] = 1101
+    execute_text_command("bob", "lock n1 1m", bot, source="chat")
+    reacquired = lease_contract.contract_frame(records()[-1])["events"][0]
+    assert reacquired["lease_ref"] != acquired["lease_ref"] and reacquired["version"] == 1
+
+
+def test_resource_filter_validates_unfiltered_chain_and_projects_anchor(tmp_path, clock):
+    bot, journal, _ = make_bot(tmp_path, clock)
+    clock[0] = 1001
+    execute_text_command("alice", "lock n2 1m", bot, source="chat")
+    clock[0] = 1002
+    execute_text_command("bob", "lock n1 1m", bot, source="api")
+    clock[0] = 1003
+    execute_text_command("alice", "free n2", bot, source="chat")
+    clock[0] = 1004
+    execute_text_command("bob", "free n1", bot, source="api")
+    clock[0] = 1010
+    checkpoint = journal.checkpoint(bot.state.bot_state)
+    checkpoint.pop("state")
+    result = lifecycle_feed.read_feed(identity(), resource="n1", start=1001, end=1010, checkpoint=checkpoint)
+    assert result["coverage"]["complete_window"]
+    assert result["coverage"]["start_anchor"]["state"]["allocations"] == []
+    assert result["coverage"]["start_anchor"]["state_digest_scope"] == "whole_bot_before_resource_projection"
+    assert all(event["resource"] == "n1" for row in result["items"] for event in row["events"])
+    assert all(lease["resource"] == "n1" for row in result["items"] for lease in row["state"]["allocations"])
+
+
+def test_recovery_reconciles_exact_state_file_before_replaying_journal(tmp_path, clock, monkeypatch):
+    import os
+    import stat
+
+    bot, journal, _ = make_bot(tmp_path, clock)
+    monkeypatch.setattr(journal, "_append", lambda frame: (_ for _ in ()).throw(OSError("unavailable")))
+    clock[0] = 1001
+    execute_text_command("alice", "lock n1 1m", bot, source="api")
+    state_info = get_managed_paths().state_file(1).stat()
+    calls, synced = [], os.fsync
+
+    def fsync(fd):
+        info = os.fstat(fd)
+        calls.append(
+            "state" if info.st_ino == state_info.st_ino else ("directory" if stat.S_ISDIR(info.st_mode) else "journal")
+        )
+        return synced(fd)
+
+    monkeypatch.setattr(os, "fsync", fsync)
+    lease_history.LeaseJournal(1, bot)
+    assert calls[:2] == ["state", "directory"]
+    assert "journal" in calls[2:]
+
+
+def test_shared_holder_and_operator_actor_are_separate_references(tmp_path, clock):
+    from lockbot.core.command_context import operation_attempt
+
+    bot, journal, _ = make_bot(tmp_path, clock)
+    clock[0] = 1001
+    execute_text_command("alice", "slock n1 1m", bot, source="chat")
+    clock[0] = 1002
+    execute_text_command("bob", "slock n1 1m", bot, source="api")
+    acquired = lease_contract.contract_frame(records()[-1])
+    assert len(acquired["state"]["allocations"]) == 2
+    refs = {lease["actor"]["external_user_id"]: lease["ref"] for lease in acquired["state"]["allocations"]}
+    assert refs["alice"] != refs["bob"]
+    clock[0] = 1010
+    with operation_attempt(1, "operator", "opkick"):
+        bot.do_opkick("alice", node_key="n1", reason="never-public-operator-reason")
+    released = lease_contract.contract_frame(records()[-1])
+    assert released["contract"]["initiator"] == {"kind": "operator", "bot_id": 1}
+    assert released["events"][0]["lease_ref"] == refs["alice"]
+    assert released["events"][0]["version"] == 2
+    assert released["state"]["allocations"][0]["ref"] == refs["bob"]
+    assert "never-public" not in json.dumps(released)
+
+
+def test_acknowledged_frame_identity_memory_is_bounded(tmp_path, clock):
+    bot, journal, _ = make_bot(tmp_path, clock)
+    for minute in range(10):
+        clock[0] += 1
+        execute_text_command("alice", f"lock n1 {minute + 1}m", bot, source="api")
+    assert journal.outbox.pending == []
+    assert journal.outbox.known == set()
+    assert len(journal.outbox.versions) == 1

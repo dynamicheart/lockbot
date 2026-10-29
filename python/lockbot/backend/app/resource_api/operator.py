@@ -149,6 +149,7 @@ def operator_lifecycle_audit(
         raise HTTPException(422, "Lifecycle window must be ordered and at most seven days")
     try:
         bot = _require_operator(db, request, bot_id, fresh=True)
+        identity = (bot.uuid, bot.identity_revision)
         try:
             with bot_manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
                 journal = getattr(lease.bot.config, "_lifecycle_observer", None)
@@ -169,7 +170,9 @@ def operator_lifecycle_audit(
                     result = read_feed(bot, cursor=cursor, limit=limit, resource=resource, start=start, end=end)
         except (BotNotRunning, InstanceRetiring, AdmissionFull):
             result = read_feed(bot, cursor=cursor, limit=limit, resource=resource, start=start, end=end)
-        _require_operator(db, request, bot_id, fresh=True)
+        current = _require_operator(db, request, bot_id, fresh=True)
+        if identity != (current.uuid, current.identity_revision):
+            raise HTTPException(409, "Bot identity changed during lifecycle export; start a new export")
         return result
     except HTTPException as exc:
         exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store"}

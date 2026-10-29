@@ -51,7 +51,9 @@ Each allocator state replacement includes a bounded `lifecycle_outbox` envelope 
 `bot_state.json`. The temporary file is flushed and fsynced, atomically renamed,
 and its directory fsynced before journal acknowledgement. JSONL is a derivative:
 append and directory changes are fsynced; startup replays pending stable frame IDs
-and skips IDs already present. The persisted envelope retains the last acknowledged
+and skips IDs already present. Upgraded legacy files keep their original bytes on
+startup; their baseline is non-atomic and coverage remains unknown until a genuine
+allocator save starts the new outbox contract. The persisted envelope retains the last acknowledged
 frame as a recovery receipt. Recovery is fenced by bot ID, bot UUID and identity
 revision. Restoring files from another deployment is unsupported.
 

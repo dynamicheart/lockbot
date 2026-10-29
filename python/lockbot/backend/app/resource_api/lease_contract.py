@@ -25,6 +25,8 @@ def initiator(value):
     if not isinstance(value, dict):
         return {"kind": "system"}
     kind = value.get("kind")
+    if kind == "system":
+        return {"kind": "system"}
     if kind == "platform_user":
         platform, uid = value.get("platform"), value.get("external_user_id")
         if (
@@ -157,6 +159,24 @@ class DurableOutbox:
         self.journal_id, self.sequence = meta["journal_id"], meta["commit_sequence"]
         current_refs = {v["ref"] for field in ("allocations", "bookings") for v in current[field]}
         self.versions = {k: v for k, v in meta["versions"].items() if k in current_refs}
+        # An interrupted directory fsync can leave a visible yet unacknowledged
+        # state rename. Make this exact recovered file and its name durable before
+        # acknowledging/replaying any derivative journal frame.
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as recovered:
+            current_info = os.fstat(recovered.fileno())
+            if (current_info.st_dev, current_info.st_ino, current_info.st_size) != (
+                info.st_dev,
+                info.st_ino,
+                info.st_size,
+            ):
+                raise ValueError("Lifecycle recovery state changed before reconciliation")
+            os.fsync(recovered.fileno())
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
         self._read_known()
         try:
             self.flush()
@@ -173,6 +193,8 @@ class DurableOutbox:
 
         budget = MAX_PENDING_BYTES + 2 * MAX_LINE_BYTES
         paths = get_managed_paths()
+        pending_ids = {frame["contract"]["frame_id"] for frame in self.pending}
+        self.known.intersection_update(pending_ids)
         for index in range(BACKUPS + 1):
             path = paths.bot_file(self.journal.bot_id, LOG_NAME + (f".{index}" if index else ""))
             try:
@@ -197,7 +219,7 @@ class DurableOutbox:
                         frame = contract_frame(value)
                     except (ValueError, UnicodeError, RecursionError):
                         continue
-                    if frame:
+                    if frame and frame["contract"]["frame_id"] in pending_ids:
                         self.known.add(frame["contract"]["frame_id"])
             if budget <= 0:
                 break
@@ -259,3 +281,4 @@ class DurableOutbox:
                     raise
                 self.known.add(identity)
             self.pending.pop(0)
+            self.known.discard(identity)

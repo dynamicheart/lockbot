@@ -191,7 +191,11 @@ class LeaseJournal:
         from lockbot.backend.app.resource_api.lease_contract import DurableOutbox
 
         self.outbox = DurableOutbox(self)
-        # A baseline is persisted with the same atomic state payload, including on restart.
+        # Merely starting an upgraded bot must not rewrite a legacy state file. Its
+        # observation is explicitly non-atomic until the next real allocator save.
+        if get_managed_paths().state_file(bot_id).exists() and not self.outbox.recovered:
+            self.committed(bot.state.bot_state)
+            return
         from lockbot.core.io import _save_bot_state_atomically
 
         evidence = self.prepare_state_write(bot.state.bot_state)

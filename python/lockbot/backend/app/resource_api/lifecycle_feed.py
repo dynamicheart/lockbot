@@ -87,6 +87,16 @@ def _frozen_file(bot_id, identity):
     raise HTTPException(409, "Frozen lifecycle history was rotated or replaced; start a new export")
 
 
+def _project_resource(frame, resource):
+    frame["events"] = [event for event in frame["events"] if event.get("resource") == resource]
+    for field in ("allocations", "bookings"):
+        frame["state"][field] = [lease for lease in frame["state"][field] if lease["resource"] == resource]
+    frame["state_digest_scope"] = "whole_bot_before_resource_projection"
+    refs = {lease["ref"] for field in ("allocations", "bookings") for lease in frame["state"][field]}
+    refs.update(event.get("lease_ref") or event.get("booking_ref") for event in frame["events"])
+    frame["contract"]["versions"] = {key: value for key, value in frame["contract"]["versions"].items() if key in refs}
+
+
 def read_feed(bot, *, cursor=None, limit=25, resource="", start=None, end=None, checkpoint=None):
     """The scope selects records; a filtered record explicitly retains bot-wide digest identity."""
     scope = {
@@ -177,6 +187,8 @@ def read_feed(bot, *, cursor=None, limit=25, resource="", start=None, end=None, 
             if start is not None and frame["timestamp"] <= start:
                 # (start, end]: after-state of the last commit at/before start is the anchor.
                 # Stop here, so this large public state never needs to be encoded in a cursor.
+                if resource:
+                    _project_resource(frame, resource)
                 state["anchor"] = frame
                 state["index"] = len(state["files"])
                 break
@@ -185,15 +197,9 @@ def read_feed(bot, *, cursor=None, limit=25, resource="", start=None, end=None, 
             if (start is not None and frame["timestamp"] < start) or (end is not None and frame["timestamp"] > end):
                 continue
             if resource:
-                frame["events"] = [event for event in frame["events"] if event.get("resource") == resource]
-                for field in ("allocations", "bookings"):
-                    frame["state"][field] = [lease for lease in frame["state"][field] if lease["resource"] == resource]
+                _project_resource(frame, resource)
                 if not frame["events"] and not any(frame["state"][field] for field in ("allocations", "bookings")):
                     continue
-                frame["state_digest_scope"] = "whole_bot_before_resource_projection"
-                refs = {lease["ref"] for field in ("allocations", "bookings") for lease in frame["state"][field]}
-                refs.update(event.get("lease_ref") or event.get("booking_ref") for event in frame["events"])
-                meta["versions"] = {key: value for key, value in meta["versions"].items() if key in refs}
             frame_bytes = len(json.dumps(frame, ensure_ascii=False, separators=(",", ":")).encode())
             if response_bytes + frame_bytes > RESPONSE_ITEMS_BUDGET and items:
                 state["offset"] = position + len(line)
