@@ -43,12 +43,12 @@ def test_op_snapshot_paginates_purposes_and_kicklock_preserves_queue(client, ope
     second = client.get(base + "/op/resources?usage_limit=1&usage_offset=1", headers=case["op_headers"]).json()
     assert second["usage_page"]["has_more"] is False
     purposes = first["usage_declarations"] + second["usage_declarations"]
-    assert {p["purpose"] for p in purposes} == {"develop", "regression"}
+    assert all("purpose" not in p and "agent_label" not in p and "binding_id" not in p for p in purposes)
     assert {p["actor"]["external_user_id"] for p in purposes} == {"alice", "bob"}
     snapshot = client.get(base + "/op/resources", headers=case["op_headers"]).json()
     n1 = snapshot["resources"][0]
-    assert n1["holders"][0]["usage"]["agent_label"] == "dev-agent"
-    assert n1["booking_list"][0]["usage"]["purpose"] == "regression"
+    assert "agent_label" not in n1["holders"][0]["usage"]
+    assert "purpose" not in n1["booking_list"][0]["usage"]
     assert "claimable_by_you" not in n1
     assert "lbk_test_operator" not in json.dumps(snapshot)
     assert "webhook_url" not in snapshot
@@ -71,7 +71,7 @@ def test_op_snapshot_paginates_purposes_and_kicklock_preserves_queue(client, ope
     assert sent and "Scheduled maintenance" in case["bot"].adapter.extract_reply_text(sent[0])
     after = client.get(base + "/op/resources", headers=case["op_headers"]).json()
     assert after["resources"][0]["holders"] == []
-    assert {p["purpose"] for p in after["usage_declarations"]} == {"regression"}
+    assert all("purpose" not in p for p in after["usage_declarations"])
     audit = db_session.query(AuditLog).filter_by(action="bot.kicklock").one()
     assert audit.operator_role == "service_key" and audit.operator_id is None
     assert json.loads(audit.detail)["reason"] == "Scheduled maintenance"

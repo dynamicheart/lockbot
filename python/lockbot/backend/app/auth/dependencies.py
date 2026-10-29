@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.auth.models import User
@@ -65,9 +66,9 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-def require_super_admin(user: User = Depends(get_current_user)) -> User:
+def require_super_admin(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
     """Require super_admin only."""
-    if user.role != "super_admin":
+    if db.execute(select(User.role).where(User.id == user.id)).scalar_one_or_none() != "super_admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin required")
     return user
 
