@@ -7,7 +7,7 @@ import json
 import time
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
@@ -149,6 +149,23 @@ def _budget(actor, kind):
         raise errors.rate_limited(retry)
 
 
+def declaration_revision(row):
+    """Opaque comparison value for a private declaration; never an authorization proof."""
+    fields = [
+        row.id,
+        row.bot_id,
+        row.binding_id,
+        row.resource_id,
+        row.holding_proof,
+        row.updated_at.isoformat(),
+        row.expires_at.isoformat(),
+        row.task_category,
+        row.purpose,
+        row.agent_label,
+    ]
+    return '"' + hashlib.sha256(json.dumps(fields, separators=(",", ":")).encode()).hexdigest() + '"'
+
+
 def _payload(row, binding):
     return {
         "resource_id": row.resource_id,
@@ -160,6 +177,7 @@ def _payload(row, binding):
         "binding_id": binding.public_id,
         "agent_label": row.agent_label,
         "authorization_label": binding.label,
+        "revision": declaration_revision(row),
         "updated_at": row.updated_at.isoformat() + "Z",
         "expires_at": row.expires_at.isoformat() + "Z",
     }
@@ -442,6 +460,7 @@ def delete_usage(
     bot_id: int,
     request: Request,
     resource_id: str = Path(min_length=1, max_length=128),
+    if_match: str | None = Header(default=None, max_length=128),
     actor: ResourceActor = Depends(require_resource_actor),
     db: Session = Depends(get_db),
 ):
@@ -451,21 +470,47 @@ def delete_usage(
     _budget(actor, "write")
     try:
         with (
-            bot_manager.admit(bot_id) as _lease,
+            bot_manager.admit(bot_id) as lease,
             authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id),
         ):
             if not reverify_actor(db, request, actor):
                 raise errors.credential_invalid()
-            previous = (
-                db.query(UsageDeclaration.task_category)
-                .filter_by(bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id)
-                .first()
-            )
-            if previous:
-                request.state.agent_event["previous_task_category"] = previous[0]
-            db.query(UsageDeclaration).filter_by(
+            query = db.query(UsageDeclaration).filter_by(
                 bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id
-            ).delete(synchronize_session=False)
+            )
+            previous = (
+                db.query(UsageDeclaration)
+                .filter_by(bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id)
+                .populate_existing()
+                .one_or_none()
+            )
+            if if_match is not None:
+                captured_at, state = lease.bot.state_snapshot()
+                if (
+                    previous is None
+                    or previous.expires_at <= datetime.utcnow()
+                    or declaration_revision(previous) != if_match
+                    or holding_proof(state, resource_id, actor.external_user_id, now=captured_at.timestamp())
+                    != previous.holding_proof
+                ):
+                    raise HTTPException(412, detail="Declaration or lease changed; re-read before cleanup")
+                # Compare again in the SQL delete, including content, so a concurrent
+                # replacement cannot be removed even by a different server process.
+                query = query.filter(
+                    UsageDeclaration.id == previous.id,
+                    UsageDeclaration.updated_at == previous.updated_at,
+                    UsageDeclaration.expires_at == previous.expires_at,
+                    UsageDeclaration.holding_proof == previous.holding_proof,
+                    UsageDeclaration.purpose == previous.purpose,
+                    UsageDeclaration.agent_label == previous.agent_label,
+                    UsageDeclaration.task_category == previous.task_category,
+                )
+            if previous:
+                request.state.agent_event["previous_task_category"] = previous.task_category
+            deleted = query.delete(synchronize_session=False)
+            if if_match is not None and deleted != 1:
+                db.rollback()
+                raise HTTPException(412, detail="Declaration changed; re-read before cleanup")
             db.commit()
             request.state.agent_event["stage"] = "committed"
             return {"deleted": True}

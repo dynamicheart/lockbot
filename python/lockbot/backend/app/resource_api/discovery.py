@@ -153,7 +153,13 @@ def _context_payload(request, response, db, row):
         if public_datasource(bot)
         else None,
         "usage_privacy": {
-            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id"],
+            "conditional_cleanup": {
+                "header": "If-Match",
+                "revision_field": "revision",
+                "mismatch_status": 412,
+                "lease_required": True,
+            },
+            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id", "revision"],
             "policy_version": 2,
             "private_readers": ["same_verified_actor", "super_administrator"],
             "management_private_capability": "task_private:read",
