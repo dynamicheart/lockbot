@@ -63,7 +63,7 @@ The current proxy implementation in PR #25 is **deployment-scoped for Feishu app
 - Ignore Feishu direct messages; do not add a private-chat help reply or require private-message permissions.
 - Fix platform identity when creating a bot. Migration copies configuration into a new form and excludes credentials, group/application associations, authorizations, live state, history and platform-user exception lists.
 - Do not build a shared resource pool across platforms or attach one resource bot to both platforms. Do not run independent lock systems over the same physical resources during migration.
-- Do not add Agent contact registration or messaging between Agents by inferring that feature from purpose notes. Existing resource/usage queries remain the collaboration surface.
+- Agent contact registration and communication were an early discussion idea, not an implemented or explicitly committed delivery. Do not infer them as an extension of purpose notes; current resource/usage queries remain the collaboration surface while that decision is open.
 - The isolated-environment VPN/IT request is deferred by the user. Do not restart it as an implied dependency of telemetry.
 - Maintain `release/2.x`. A 3.x release or return to `main` requires a separate compatibility/release decision; Feishu work alone does not automatically change the branch or version line.
 - Require checks on the current PR head and prefer squash merges. Branch protection was checked on this date: force pushes/deletion disabled, protection enforced for administrators, strict current-base checks and PR merging required, and all six CI contexts required. Recheck before release rather than relying on this snapshot.
