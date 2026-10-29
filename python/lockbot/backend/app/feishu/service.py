@@ -91,7 +91,8 @@ def accept_sdk_event(db, app, data):
     """Only the private official-SDK pipe may establish an initially unknown tenant.
 
     It must first pass app identity, own-bot mention and an explicitly authorized
-    group route. HTTP never calls this function and cannot bootstrap a tenant.
+    group route. An unassociated-group hint may use the verified candidate identity
+    without persisting it. HTTP never calls this function and cannot bootstrap a tenant.
     """
     from lockbot.backend.app.feishu.router import accept_event
 
@@ -106,6 +107,9 @@ def accept_sdk_event(db, app, data):
             return {"accepted": False}
         route = db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=candidate["group_id"]).first()
         if route is None:
+            from lockbot.backend.app.feishu.unbound import queue_hint
+
+            queue_hint(db, app, candidate, tenant=tenant, allow_unknown_tenant=True)
             return {"accepted": False}
         db.query(FeishuApplication).filter_by(id=app.id, tenant_key="").update({"tenant_key": tenant})
         db.commit()

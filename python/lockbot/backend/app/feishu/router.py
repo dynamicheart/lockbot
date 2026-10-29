@@ -257,6 +257,9 @@ def accept_event(db, app, data):
     message["_accepted_at"] = time.monotonic()
     route = db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=message["group_id"]).first()
     if route is None:
+        from lockbot.backend.app.feishu.unbound import queue_hint
+
+        queue_hint(db, app, message, tenant=app.tenant_key)
         return {"accepted": False}
     bot = db.get(Bot, route.bot_id)
     if not bot or bot.is_deleted or bot.platform.lower() != "feishu" or bot.group_id != route.chat_id:

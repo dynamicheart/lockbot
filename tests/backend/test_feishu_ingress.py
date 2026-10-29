@@ -12,6 +12,12 @@ from lockbot.core.bot_instance import BotInstance
 from lockbot.core.platforms.feishu import FeishuClient
 
 
+@pytest.fixture(autouse=True)
+def _disable_unassociated_group_delivery(monkeypatch):
+    # Existing command-routing tests must not start unrelated asynchronous hint work.
+    monkeypatch.setattr("lockbot.backend.app.feishu.unbound.queue_hint", lambda *args, **kwargs: False)
+
+
 @pytest.fixture
 def setup(client, auth_header, db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(FeishuClient, "bot_identity", lambda self: "ou_bot")
