@@ -172,6 +172,10 @@ function loadClass(card) {
   align-items: baseline;
   gap: 5px;
 }
+.card-values > .is-muted {
+  grid-column: 2 / -1;
+  white-space: nowrap;
+}
 .device-name {
   color: var(--lb-text-primary);
   overflow: hidden;
