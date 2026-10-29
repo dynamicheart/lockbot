@@ -218,3 +218,16 @@ def test_public_history_rejects_malformed_nested_scalars_and_unknown_operations(
     assert public_event(raw) == {"actor": {}, "command": None, "requested_resources": []}
     assert "operation" not in public_event({"operation": "unknown private operation"})
     assert "outcome" not in public_event({"outcome": "private error details"})
+
+
+def test_super_admin_demotion_during_state_read_fails_closed(client, api, db_session, monkeypatch):
+    _register(client, api, monkeypatch)
+    owner = db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id)
+    owner.role = "super_admin"
+    db_session.commit()
+    # Simulate a role loss after projection but before privileged disclosure audit.
+    monkeypatch.setattr("lockbot.backend.app.bots.router.can_read_private_tasks", lambda db, user: True)
+    owner.role = "user"
+    db_session.commit()
+    response = client.get(f"/api/bots/{api['bot_id']}/state?include_usage=true", headers=api["auth_header"])
+    assert response.status_code == 403 and "private-project-detail" not in response.text

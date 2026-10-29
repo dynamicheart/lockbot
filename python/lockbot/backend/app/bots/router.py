@@ -1134,11 +1134,12 @@ def get_bot_state(
             if include_usage:
                 from lockbot.backend.app.resource_api.usage import active_declarations, declarations_for_state
 
+                private = can_read_private_tasks(db, user)
                 usage = visible_declarations(
                     declarations_for_state(active_declarations(db, bot, datetime.utcnow()), snapshot, captured_at),
-                    private=can_read_private_tasks(db, user),
+                    private=private,
                 )
-                if usage and can_read_private_tasks(db, user):
+                if usage and private:
                     audit_private_read(db, user, bot_id=bot_id, surface="management.state")
         return view(snapshot, usage)
     except BotNotRunning:
