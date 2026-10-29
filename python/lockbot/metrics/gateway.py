@@ -31,6 +31,8 @@ METRICS = frozenset(
         "lockbot_host_cpu_utilization_percent",
         "lockbot_host_memory_used_bytes",
         "lockbot_host_memory_total_bytes",
+        "lockbot_host_memory_available_bytes",
+        "lockbot_host_memory_cache_bytes",
         "lockbot_host_filesystem_used_bytes",
         "lockbot_host_filesystem_total_bytes",
         "lockbot_sample_timestamp_seconds",

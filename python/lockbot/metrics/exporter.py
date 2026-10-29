@@ -158,6 +158,28 @@ def host_memory(proc_root: Path):
     return total - available, total
 
 
+def host_memory_details(proc_root: Path):
+    """Supplemental procfs counters; buff/cache is Buffers + Cached + SReclaimable.
+
+    Availability and cache are distinct. These counters do not diagnose driver OOM.
+    Missing counters remain unknown, including on older probe implementations.
+    """
+    fields = {}
+    wanted = {"MemTotal", "MemAvailable", "Buffers", "Cached", "SReclaimable"}
+    for line in (proc_root / "meminfo").read_text().splitlines():
+        key, _, value = line.partition(":")
+        if key in wanted:
+            fields[key] = int(value.split()[0]) * 1024
+    total = fields.get("MemTotal", 0)
+    available = fields.get("MemAvailable")
+    cache_keys = ("Buffers", "Cached", "SReclaimable")
+    cache = sum(fields[key] for key in cache_keys) if all(key in fields for key in cache_keys) else None
+    return {
+        "available_bytes": available if available is not None and 0 <= available <= total else None,
+        "cache_bytes": cache if cache is not None and 0 <= cache <= total else None,
+    }
+
+
 def container_count(pids: tuple[int, ...] | None, proc_root: Path):
     if pids is None or len(pids) > 512:
         return None
@@ -292,6 +314,8 @@ class Collector:
             used, total = host_memory(self.proc_root)
             body += sample("lockbot_host_memory_used_bytes", used, tags, observed_at)
             body += sample("lockbot_host_memory_total_bytes", total, tags, observed_at)
+            for name, value in host_memory_details(self.proc_root).items():
+                body += sample("lockbot_host_memory_" + name, value, tags, observed_at)
             for alias, path in self.config.get("filesystems", {}).items():
                 try:
                     disk = os.statvfs(path)
@@ -398,6 +422,7 @@ def probe(config):
     try:
         result["cpu"] = cpu_counters(proc)
         result["memory"] = host_memory(proc)
+        result["memory_details"] = host_memory_details(proc)
         result["filesystems"] = {}
         for alias, path in config.get("filesystems", {}).items():
             try:
@@ -538,6 +563,8 @@ class FleetCollector:
             self.previous_cpu[node] = cpu
             body += sample("lockbot_host_memory_used_bytes", data["memory"][0], tags)
             body += sample("lockbot_host_memory_total_bytes", data["memory"][1], tags)
+            for name in ("available_bytes", "cache_bytes"):
+                body += sample("lockbot_host_memory_" + name, data.get("memory_details", {}).get(name), tags)
             for alias, (used, total) in data["filesystems"].items():
                 disk_tags = {**tags, "filesystem": alias}
                 body += sample("lockbot_host_filesystem_used_bytes", used, disk_tags)

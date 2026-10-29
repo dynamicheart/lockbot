@@ -1,9 +1,24 @@
 <template>
   <section v-if="source" class="utilization-toolbar">
-    <span>{{ $t('utilization.title') }} · {{ config?.name || source.name || 'Prometheus' }}</span>
-    <span v-if="state.error" class="source-error">{{
-      $t('utilization.errors.' + state.error)
-    }}</span>
+    <span>{{ $t('utilization.autoUpdate') }}</span>
+    <span v-if="health.sampledAt"
+      >{{ $t('utilization.sampled') }} {{ new Date(health.sampledAt).toLocaleString() }}</span
+    >
+    <span v-if="state.error" class="source-error"
+      >{{ $t('utilization.errors.' + state.error) }} · {{ $t('utilization.contactAdmin') }}</span
+    >
+    <span
+      v-else-if="health.issues.length && !state.loading"
+      class="source-error"
+      :title="
+        health.issues
+          .map((item) => item.node + ': ' + $t('utilization.healthStates.' + item.state))
+          .join(' · ')
+      "
+    >
+      {{ $t('utilization.healthWarning', { count: health.issues.length }) }}
+      {{ health.issues.map((item) => item.node).join(', ') }} · {{ $t('utilization.contactAdmin') }}
+    </span>
     <span v-else-if="state.loading">{{ $t('common.loading') }}</span>
     <el-button text size="small" :disabled="state.loading || !config" @click="poller.refresh">{{
       $t('common.refresh')
@@ -27,6 +42,10 @@
           <span
             >{{ $t('utilization.hostMemory') }} {{ hostValue(hostFor(node).used) }} /
             {{ hostValue(hostFor(node).total) }}</span
+          >
+          <span
+            >{{ $t('utilization.availableMemory') }} {{ hostValue(hostFor(node).available) }} ·
+            {{ $t('utilization.cacheMemory') }} {{ hostValue(hostFor(node).cache) }}</span
           >
           <span v-for="disk in hostFor(node).filesystems" :key="disk.name"
             >{{ $t('utilization.disk') }} {{ disk.name }} {{ hostValue(disk.used) }} /
@@ -53,7 +72,7 @@
   </section>
 </template>
 <script setup>
-import { reactive, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, reactive, ref, watch, onBeforeUnmount } from 'vue'
 import {
   validateConfig,
   prometheusDatasource,
@@ -62,6 +81,7 @@ import {
   ProviderError,
 } from '../utils/utilization/prometheus'
 import { useI18n } from 'vue-i18n'
+import { sourceHealth } from '../utils/utilization/display'
 import { createMetricsPoller } from '../utils/utilization/poller'
 const props = defineProps({
   botId: { type: [String, Number], required: true },
@@ -70,6 +90,7 @@ const props = defineProps({
   nodes: { type: Array, default: () => [] },
   allowed: Boolean,
   deviceResources: Boolean,
+  authorize: { type: Function, default: null },
 })
 const emit = defineEmits(['change'])
 const { t } = useI18n()
@@ -89,13 +110,21 @@ const bearer = ref('')
 const authentication = ref(false)
 let activeBearer = ''
 const state = reactive({ loading: false, snapshot: null, error: null })
+const health = computed(() =>
+  sourceHealth(state.snapshot, config.value, props.nodes, Date.now(), metricStatus)
+)
 function publish(update = {}) {
   Object.assign(state, update)
   emit('change', { ...state, enabled: !!config.value && props.allowed, config: config.value })
 }
 const poller = createMetricsPoller({
-  collect: (signal) => {
-    const token = config.value?.accessMode === 'short_lived' ? props.access?.token : activeBearer
+  collect: async (signal) => {
+    const grant =
+      config.value?.accessMode === 'short_lived' && props.authorize
+        ? await props.authorize(config.value)
+        : props.access
+    if (signal.aborted) throw new ProviderError('timeout')
+    const token = config.value?.accessMode === 'short_lived' ? grant?.token : activeBearer
     if (config.value?.accessMode === 'short_lived' && !token) throw new ProviderError('grant')
     return prometheusDatasource.query(config.value, props.nodes, { signal, bearer: token || '' })
   },

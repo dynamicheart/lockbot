@@ -174,3 +174,13 @@ def test_epoch_and_large_byte_metrics_preserve_round_trip_precision():
     assert int(memory_line.rsplit(" ", 1)[1]) == used_bytes
     fractional = 1234567890123.125
     assert float(sample("metric", fractional, {}).rsplit(" ", 1)[1]) == fractional
+
+
+def test_memory_cache_and_available_are_distinct_and_missing_is_unknown(tmp_path):
+    from lockbot.metrics.exporter import host_memory_details
+
+    path = tmp_path / "meminfo"
+    path.write_text("MemTotal: 1000 kB\nMemAvailable: 200 kB\nBuffers: 10 kB\nCached: 500 kB\nSReclaimable: 30 kB\n")
+    assert host_memory_details(tmp_path) == {"available_bytes": 200 * 1024, "cache_bytes": 540 * 1024}
+    path.write_text("MemTotal: 1000 kB\nMemAvailable: 200 kB\n")
+    assert host_memory_details(tmp_path)["cache_bytes"] is None

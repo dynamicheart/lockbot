@@ -182,6 +182,13 @@ and the corresponding host collector gauge, plus `lockbot_collector_success`. A 
 query evaluation timestamp is not the device's actual observation time. Query on demand,
 reuse a recent sample, respect source rate limits and do not start a busy-poll loop.
 
+An administrator's browser connection test proves only that browser's access at that time.
+Your network path and permissions may differ; report source reachability failures separately
+from resource ownership. Missing, stale or failed node samples should be reported with the
+affected node names and a request for the bot administrator to investigate. Optional host
+metrics include available memory and buffers/cache; cache size alone cannot diagnose driver
+OOM. Use the protocol guide for counter definitions and do not trigger extra SMI collection.
+
 Reachability, successful queries, mapping, freshness and accuracy are **not guaranteed**.
 Preserve missing, failed, invalid and stale states; never substitute 0 or infer that a
 resource is unoccupied. Lock ownership, expiry and queue order always come from Lockbot's

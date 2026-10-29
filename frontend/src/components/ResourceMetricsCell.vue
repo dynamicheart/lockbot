@@ -7,26 +7,30 @@
           CPU {{ metricText(host.cpu, true) }} · {{ $t('utilization.hostMemory') }}
           {{ memoryText(host) }}
         </span>
+        <span
+          >{{ $t('utilization.availableMemory') }} {{ metricText(host.available) }} ·
+          {{ $t('utilization.cacheMemory') }} {{ metricText(host.cache) }}</span
+        >
         <span v-for="disk in host.filesystems" :key="disk.name" :title="memoryText(disk)">
           {{ $t('utilization.disk') }} {{ disk.name }} {{ memoryPercent(disk) }}
         </span>
       </div>
       <span v-if="!cards.length" class="is-muted">—</span>
       <div v-for="card in cards" :key="card.device" class="card-metric">
-        <el-tooltip placement="top" effect="light">
-          <template #content>
-            {{ $t('utilization.sampled') }}: {{ sampleTime(card) }} <br />{{
-              $t('utilization.memory')
-            }}: {{ memoryText(card.metrics) }}
-          </template>
-          <div class="card-values" tabindex="0">
-            <span class="device-name">{{ deviceName(card.device) }}</span>
+        <div class="card-values">
+          <span class="device-name">{{ deviceName(card.device) }}</span>
+          <span
+            v-if="Object.values(card.metrics).every((metric) => state(metric) !== 'ok')"
+            class="is-muted"
+            >{{ metricText(card.metrics.compute, true) }}</span
+          >
+          <template v-else>
             <strong :class="loadClass(card)">{{ metricText(card.metrics.compute, true) }}</strong>
             <span class="metrics-memory" :class="capacityClass(card.metrics)">{{
               memoryText(card.metrics)
             }}</span>
-          </div>
-        </el-tooltip>
+          </template>
+        </div>
         <el-popover
           v-if="card.processes?.length || card.processesTruncated"
           trigger="click"

@@ -1,12 +1,34 @@
 export default {
   utilization: {
+    availableMemory: 'Available memory',
+    cacheMemory: 'Buffers/cache',
+    autoUpdate: 'Auto-updating',
+    contactAdmin: 'Ask the bot administrator to check the data source',
+    healthWarning: '{count} nodes have telemetry issues',
+    template: 'Connection template',
+    profileCustom: 'Custom Prometheus (advanced)',
+    templateHint:
+      'Choose a template, enter the endpoint and match resources. Every node is checked before saving; standard templates supply metric names.',
+    nodeMatch: 'Node mapping',
+    targetNode: 'Node label value in the data source',
+    deviceMatch: 'Device mapping (collector index or UUID)',
+    importMapping: 'Advanced: import node mapping JSON',
+    applyMapping: 'Apply mapping',
+    checkResources: 'Check these nodes or devices',
+    validationSuccess: 'Verified in this browser: {nodes} nodes and {cards} cards',
+    healthStates: {
+      missing: 'Missing or unmapped',
+      failed: 'Collection failed',
+      stale: 'Stale data',
+      invalid: 'Invalid data',
+    },
+
     accessMode: 'Source access',
     accessAutomatic: 'Automatic short-lived read grants',
     accessIndependent: 'Independent source credential',
 
     hostStatus: 'Host status',
     profile: 'Metric protocol',
-    profileCustom: 'Custom / NVIDIA DCGM',
     profileLockbot: 'Lockbot unified metrics (XPU / GPU / host)',
     hostMemory: 'RAM',
     disk: 'Disk',
