@@ -44,6 +44,23 @@ class FeishuReceivedMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
 
+class FeishuQueryPanel(Base):
+    """Only verified own-message references; no query text, notes or credentials."""
+
+    __tablename__ = "feishu_query_panels"
+
+    bot_id: Mapped[int] = mapped_column(Integer, ForeignKey("bots.id"), primary_key=True)
+    scope: Mapped[str] = mapped_column(Text)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+    edit_count: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(24))
+    reason: Mapped[str] = mapped_column(String(32), default="")
+    retry_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class FeishuMembershipPolicy(Base):
     """Absent rows are disabled; adding this table does not alter legacy app columns."""
 

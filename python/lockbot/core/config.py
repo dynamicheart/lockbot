@@ -35,6 +35,7 @@ _CONFIG_SCHEMA = {
         "default": "NODE",
         "description": "Bot type: NODE / DEVICE / QUEUE",
     },
+    "FEISHU_QUERY_PANEL": {"default": False, "description": "Update own Feishu query panels", "env": False},
     "FEISHU_MEMBERSHIP_NOTICES": {
         "default": False,
         "description": "Observe Feishu bot membership and warn administrators on removal",
@@ -105,6 +106,9 @@ class Config:
         cap = self.get_val("MAX_RESOURCES_PER_USER", -1)
         if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):
             raise ValueError("MAX_RESOURCES_PER_USER must be -1 or a positive integer")
+        if not isinstance(self.get_val("FEISHU_QUERY_PANEL", False), bool):
+            raise ValueError("FEISHU_QUERY_PANEL must be a boolean")
+
         if not isinstance(self.get_val("FEISHU_MEMBERSHIP_NOTICES", False), bool):
             raise ValueError("FEISHU_MEMBERSHIP_NOTICES must be a boolean")
         if not isinstance(self.get_val("FEISHU_REACTION_REPLIES", False), bool):

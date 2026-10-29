@@ -1,6 +1,7 @@
 """One callback per enterprise application, routed only to explicitly configured groups."""
 
 import asyncio
+import json
 import logging
 import re
 import threading
@@ -367,6 +368,28 @@ def connect_application(
     return {"started": True}
 
 
+@router.get("/bots/{bot_id}/query-panel")
+def query_panel_status(
+    bot_id: int, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    from lockbot.backend.app.bots.router import _get_user_bot
+    from lockbot.backend.app.feishu.models import FeishuQueryPanel
+
+    bot = _get_user_bot(bot_id, user, db)
+    if bot.platform.lower() != "feishu":
+        raise HTTPException(404, "Feishu bot not found")
+    response.headers["Cache-Control"] = "no-store"
+    row = db.get(FeishuQueryPanel, bot_id)
+    return {
+        "enabled": json.loads(bot.config_overrides or "{}").get("FEISHU_QUERY_PANEL", False) is True,
+        "status": row.status if row else "not_verified",
+        "reason": row.reason if row else "",
+        "updated_at": row.updated_at if row else None,
+        "edit_count": row.edit_count if row else 0,
+        "retry_after": row.retry_after if row else None,
+    }
+
+
 @router.get("/bots/{bot_id}/group")
 @limiter.limit("30/minute")
 def bot_group_info(
@@ -443,25 +466,30 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
             # The claim is committed before invoking the shared dispatcher. Any exception
             # after this point is uncertain, never an instruction to replay a lock/renewal.
             lease.bot.config.get_val("_FEISHU_CLIENT").warm_user_name(message["user_id"])
+            from lockbot.backend.app.feishu.query_panel import query_delivery
             from lockbot.core.command_result import capture_result
 
-            with capture_result() as command_result:
-                reply = execute_command(message, lease.bot)
-            from lockbot.backend.app.bots.router import _write_log
+            with query_delivery(
+                factory, bot_id, application_id, message, expected_uuid, expected_revision, lease.bot
+            ) as panel:
+                with capture_result() as command_result:
+                    reply = execute_command(message, lease.bot)
+                from lockbot.backend.app.bots.router import _write_log
 
-            try:
-                _write_log(
-                    bot_id,
-                    f"[{message['user_id']}] {redact_command_text(message['command'])}",
-                    category="command",
-                    source="chat",
-                )
-            except OSError:
-                logger.warning("Could not record a Feishu command for bot %s", bot_id)
-            state = "delivery_uncertain"
-            lease.bot.adapter.apply_reply_target(reply, message["group_id"])
-            lease.bot.adapter.send_command_reply(reply, message, command_result)
-            state = "completed"
+                try:
+                    _write_log(
+                        bot_id,
+                        f"[{message['user_id']}] {redact_command_text(message['command'])}",
+                        category="command",
+                        source="chat",
+                    )
+                except OSError:
+                    logger.warning("Could not record a Feishu command for bot %s", bot_id)
+                state = "delivery_uncertain"
+                lease.bot.adapter.apply_reply_target(reply, message["group_id"])
+                if panel is None or not panel.send(reply):
+                    lease.bot.adapter.send_command_reply(reply, message, command_result)
+                state = "completed"
     except (BotNotRunning, InstanceRetiring, AdmissionFull):
         state = "unavailable"
     except Exception:

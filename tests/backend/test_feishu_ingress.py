@@ -20,6 +20,10 @@ def _disable_unassociated_group_delivery(monkeypatch):
 
 @pytest.fixture
 def setup(client, auth_header, db_session, monkeypatch, tmp_path):
+    from lockbot.backend.app.feishu import traffic
+
+    # Each fake database reuses application/actor IDs; budgets must not leak between tests.
+    monkeypatch.setattr(traffic, "ingress_budget", traffic.IngressBudget())
     monkeypatch.setattr(FeishuClient, "bot_identity", lambda self: "ou_bot")
     user = db_session.query(User).filter_by(username="testuser").one()
     user.role = "super_admin"
