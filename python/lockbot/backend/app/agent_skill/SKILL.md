@@ -165,6 +165,13 @@ Use data-source credentials approved for that source, stored separately from Loc
 **Never send personal `lbr_` keys, OP keys, management JWTs or read-only page codes to it.**
 Source authentication/authorization is independent; missing credentials mean metrics are
 unavailable, not permission to try another service's token.
+When context includes `utilization.access` with `token`, `expires_at` and `scope: metrics:read`,
+it is a short-lived data-source credential, not a Lockbot management JWT. Use it only at
+`utilization.configuration.endpoint`; keep it in memory and refresh context within the
+normal API budget when needed. Do not persist it as the bot's personal key. If automatic
+source access is unavailable, report missing metrics and ask the administrator to check the
+source; do not rebind, switch bots or send a Lockbot key to compensate.
+
 
 The `lockbot-v1` profile uses Prometheus `/api/v1/query`, `node` / `device` labels and the
 `lockbot_accelerator_*`, `lockbot_host_*` metric families. Read the protocol guide referenced
