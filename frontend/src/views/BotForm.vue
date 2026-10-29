@@ -59,10 +59,15 @@
       <template v-if="form.platform.toLowerCase() === 'feishu'">
         <el-form-item
           v-if="!isEdit"
-          :label="$t('feishu.application')"
           prop="feishu_application_id"
           :rules="[{ required: true, message: t('feishu.required'), trigger: 'change' }]"
         >
+          <template #label>
+            {{ $t('feishu.application') }}
+            <el-tooltip :content="$t('feishu.applicationHelp')" placement="top" effect="light">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-select
             v-model="form.feishu_application_id"
             style="width: 100%"
@@ -473,6 +478,7 @@
 </template>
 
 <script setup>
+import { copyBotTemplate } from '../utils/botTemplate'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -609,9 +615,10 @@ onMounted(async () => {
     ElMessage.error(t('common.error'))
   }
 
-  if (isEdit.value) {
+  if (isEdit.value || route.query.copy_from) {
     try {
-      bot.value = await botsStore.getBot(route.params.id)
+      bot.value = await botsStore.getBot(isEdit.value ? route.params.id : route.query.copy_from)
+      if (!isEdit.value) bot.value = copyBotTemplate(bot.value)
       agentAccess.value = bot.value.resource_auth_enabled === true
       agentNotify.value = bot.value.resource_api_notify_enabled !== false
       form.name = bot.value.name
@@ -661,6 +668,18 @@ onMounted(async () => {
       } catch {
         if (['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)) deviceClusterConfig.value = {}
         else nodeClusterConfig.value = {}
+      }
+      if (!isEdit.value) {
+        form.name = `${bot.value.name} ${t('feishu.copySuffix')}`.slice(0, 64)
+        form.group_id = ''
+        form.webhook_url = ''
+        form.aes_key = ''
+        form.token = ''
+        form.feishu_application_id = null
+        maskedAesKey.value = ''
+        maskedToken.value = ''
+        if (!auth.isSuperAdmin || !platformAccess[form.platform])
+          form.platform = platformAccess.Infoflow ? 'Infoflow' : 'Feishu'
       }
       await nextTick()
       editBaseline.value = JSON.parse(JSON.stringify(configPayload()))

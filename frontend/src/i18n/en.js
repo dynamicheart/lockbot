@@ -1,5 +1,11 @@
 export default {
   feishu: {
+    applicationManaged: 'Application credentials are managed centrally in Site settings.',
+    applicationHelp:
+      'A super administrator configures the application in Site settings. This bot only references the application and group.',
+    copyConfig: 'Copy configuration',
+    copySuffix: 'copy',
+
     lookupGroup: 'Look up group',
     groupUnknown: 'Group name unavailable',
     groupPermission: 'Enable im:chat:read in the Feishu application.',

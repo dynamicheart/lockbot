@@ -38,6 +38,13 @@
           <el-icon><Edit /></el-icon> {{ $t('botDetail.editConfig') }}
         </el-button>
         <el-button
+          v-if="canEdit"
+          round
+          @click="$router.push({ path: '/bots/create', query: { copy_from: bot.id } })"
+        >
+          <el-icon><CopyDocument /></el-icon> {{ $t('feishu.copyConfig') }}
+        </el-button>
+        <el-button
           v-if="canDelete"
           type="danger"
           round
@@ -131,76 +138,81 @@
               {{ $t('resourceView.expires') }} {{ formatDateTime(bot.view_expires_at) }}
             </div>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
-            <div class="secret-field">
-              <code>{{ callbackUrl }}</code>
-              <el-popover
-                v-if="showCallbackHint"
-                :visible="true"
-                placement="bottom"
-                :width="240"
-                trigger="manual"
-              >
-                <template #reference>
-                  <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
-                </template>
-                <div class="callback-hint">
-                  <div class="callback-hint-title">
-                    {{ $t('botCreate.callbackHintTitle') }}
+          <template v-if="bot.platform.toLowerCase() !== 'feishu'">
+            <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
+              <div class="secret-field">
+                <code>{{ callbackUrl }}</code>
+                <el-popover
+                  v-if="showCallbackHint"
+                  :visible="true"
+                  placement="bottom"
+                  :width="240"
+                  trigger="manual"
+                >
+                  <template #reference>
+                    <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
+                  </template>
+                  <div class="callback-hint">
+                    <div class="callback-hint-title">
+                      {{ $t('botCreate.callbackHintTitle') }}
+                    </div>
+                    <div>{{ $t('botCreate.callbackHintStep1') }}</div>
+                    <div>{{ $t('botCreate.callbackHintStep2') }}</div>
+                    <div>{{ $t('botCreate.callbackHintStep3') }}</div>
                   </div>
-                  <div>{{ $t('botCreate.callbackHintStep1') }}</div>
-                  <div>{{ $t('botCreate.callbackHintStep2') }}</div>
-                  <div>{{ $t('botCreate.callbackHintStep3') }}</div>
-                </div>
-              </el-popover>
-              <el-icon v-else class="secret-icon" @click="copyText(callbackUrl)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
-            <div class="secret-field">
-              <code>{{ showWebhook ? bot.webhook_url_raw : maskText(bot.webhook_url_raw) }}</code>
-              <el-icon
-                v-if="bot.webhook_url_raw"
-                class="secret-icon"
-                role="button"
-                tabindex="0"
-                :aria-label="t(showWebhook ? 'common.hideSecret' : 'common.showSecret')"
-                @click="showWebhook = !showWebhook"
-                @keydown.enter="showWebhook = !showWebhook"
-              >
-                <View v-if="!showWebhook" /><Hide v-else />
-              </el-icon>
-              <el-icon
-                v-if="bot.webhook_url_raw"
-                class="secret-icon"
-                @click="copyText(bot.webhook_url_raw)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item :label="$t('botCreate.token')" :span="2">
-            <div class="secret-field">
-              <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
-              <el-icon class="secret-icon" @click="showToken = !showToken"
-                ><View v-if="!showToken" /><Hide v-else
-              /></el-icon>
-              <el-icon class="secret-icon" @click="copyText(bot.token_raw)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
-            <div class="secret-field">
-              <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
-              <el-icon class="secret-icon" @click="showAesKey = !showAesKey"
-                ><View v-if="!showAesKey" /><Hide v-else
-              /></el-icon>
-              <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
+                </el-popover>
+                <el-icon v-else class="secret-icon" @click="copyText(callbackUrl)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
+              <div class="secret-field">
+                <code>{{ showWebhook ? bot.webhook_url_raw : maskText(bot.webhook_url_raw) }}</code>
+                <el-icon
+                  v-if="bot.webhook_url_raw"
+                  class="secret-icon"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="t(showWebhook ? 'common.hideSecret' : 'common.showSecret')"
+                  @click="showWebhook = !showWebhook"
+                  @keydown.enter="showWebhook = !showWebhook"
+                >
+                  <View v-if="!showWebhook" /><Hide v-else />
+                </el-icon>
+                <el-icon
+                  v-if="bot.webhook_url_raw"
+                  class="secret-icon"
+                  @click="copyText(bot.webhook_url_raw)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.token')" :span="2">
+              <div class="secret-field">
+                <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
+                <el-icon class="secret-icon" @click="showToken = !showToken"
+                  ><View v-if="!showToken" /><Hide v-else
+                /></el-icon>
+                <el-icon class="secret-icon" @click="copyText(bot.token_raw)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
+              <div class="secret-field">
+                <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
+                <el-icon class="secret-icon" @click="showAesKey = !showAesKey"
+                  ><View v-if="!showAesKey" /><Hide v-else
+                /></el-icon>
+                <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+          </template>
+          <el-descriptions-item v-else :label="$t('feishu.application')" :span="2">
+            {{ $t('feishu.applicationManaged') }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.createdAt')">{{
             formatDate(bot.created_at)

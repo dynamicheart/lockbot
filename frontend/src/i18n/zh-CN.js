@@ -1,5 +1,11 @@
 export default {
   feishu: {
+    applicationManaged: '企业应用凭证在站点设置中集中管理。',
+    applicationHelp:
+      '由超级管理员在站点设置添加企业应用；资源机器人只关联应用和群，不重复保存应用凭证。',
+    copyConfig: '复制配置',
+    copySuffix: '副本',
+
     lookupGroup: '获取群名',
     groupUnknown: '群名未获取',
     groupPermission: '需要在飞书应用开通 im:chat:read（查看群信息）。',
