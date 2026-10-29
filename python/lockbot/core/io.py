@@ -229,7 +229,7 @@ def create_or_load_node_state(config=None):
 # ── State persistence ──────────────────────────────────────────
 
 
-def save_bot_state_to_file(data, config=None):
+def _save_bot_state_atomically(data, config=None):
     """Persist bot state to file using atomic write."""
     file_path = os.path.join(_bot_dir(config), "bot_state.json")
     dir_name = os.path.dirname(file_path)
@@ -246,3 +246,24 @@ def save_bot_state_to_file(data, config=None):
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         raise
+
+
+def observe_state_persistence(config, data, *, successful):
+    """Optional local evidence hook. It must never replace the allocator's result."""
+    observer = getattr(config, "_lifecycle_observer", None)
+    if observer is not None:
+        try:
+            observer.committed(data) if successful else observer.failed()
+        except Exception:
+            with contextlib.suppress(Exception):
+                observer.failed()
+            logger.warning("Lifecycle evidence callback failed")
+
+
+def save_bot_state_to_file(data, config=None):
+    try:
+        _save_bot_state_atomically(data, config)
+    except BaseException:
+        observe_state_persistence(config, data, successful=False)
+        raise
+    observe_state_persistence(config, data, successful=True)

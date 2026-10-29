@@ -63,6 +63,30 @@
           </div>
           <div class="platform-hint">{{ $t('feishu.enabledPlatformsHint') }}</div>
         </el-form-item>
+        <el-form-item :label="$t('settings.agentPromotionText')">
+          <div class="agent-promotion-prefix" style="width: 100%; max-width: 640px">
+            <el-input
+              v-model="form.agent_promotion_text_zh"
+              :maxlength="120"
+              placeholder="发送给你的Agent来申请资源："
+              clearable
+              style="margin-bottom: 8px"
+            >
+              <template #prepend>中文</template>
+            </el-input>
+            <el-input
+              v-model="form.agent_promotion_text_en"
+              :maxlength="120"
+              placeholder="Try an Agent for resource requests: "
+              clearable
+            >
+              <template #prepend>English</template>
+            </el-input>
+            <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
+              {{ $t('settings.agentPromotionTextHint') }}
+            </div>
+          </div>
+        </el-form-item>
         <el-form-item :label="$t('settings.newsContent')">
           <el-input
             v-model="form.news_content"
@@ -221,6 +245,8 @@ const form = ref({
   agent_promotion_enabled: 'false',
   platform_infoflow_enabled: 'true',
   platform_feishu_enabled: 'true',
+  agent_promotion_text_zh: '',
+  agent_promotion_text_en: '',
 })
 
 // Backup state
@@ -429,5 +455,9 @@ onMounted(() => {
   color: var(--el-text-color-secondary);
   font-size: 12px;
   line-height: 1.6;
+}
+.agent-promotion-prefix :deep(.el-input-group__prepend) {
+  box-sizing: border-box;
+  width: 88px;
 }
 </style>

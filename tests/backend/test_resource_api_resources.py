@@ -22,6 +22,8 @@ def _clear_cache():
 
 @pytest.fixture
 def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path, request):
+    # Imported fixtures do not inherit this module's autouse cache fixture.
+    snapshot_cache.clear()
     bot_type = getattr(request, "param", "NODE")
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
 

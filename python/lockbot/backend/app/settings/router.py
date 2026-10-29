@@ -3,6 +3,8 @@ Settings API — public read + admin write.
 """
 
 import os
+import re
+import unicodedata
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,6 +34,8 @@ _ENV_FALLBACKS = {
     "agent_promotion_enabled": "false",
     "platform_infoflow_enabled": "true",
     "platform_feishu_enabled": "true",
+    "agent_promotion_text_zh": "",
+    "agent_promotion_text_en": "",
 }
 
 
@@ -129,6 +133,17 @@ def batch_update_settings(
             "false",
         ):
             raise HTTPException(status_code=422, detail=f"{key} must be true or false")
+        if (
+            key in {"agent_promotion_text_zh", "agent_promotion_text_en"}
+            and value
+            and (
+                len(value) > 120
+                or any(unicodedata.category(char).startswith("C") or char in "\u2028\u2029" for char in value)
+                or any(char in value for char in "<>[]{}*_`#")
+                or re.search(r"(?:https?://|www\.)", value, re.IGNORECASE)
+            )
+        ):
+            raise HTTPException(status_code=422, detail=f"{key} must be plain single-line text (max 120 characters)")
     updated = []
     for key, value in body.settings.items():
         if key not in allowed:

@@ -591,6 +591,16 @@ Keep checks running throughout long tasks, not only at acquisition. Honour the a
 
 ## Declare work without publishing private task details
 
+For delegated/background work, carry a versioned privacy policy with the verified service,
+instance, bot UUID, resource actor and credential reference. Keep the parent's trusted policy
+outside the child's writable state; check the final encoded payload against it rather than
+trusting a child summary. Default to command-only, allow public categories only under an
+explicit policy, and send private fields only when that policy and current server capability
+both permit them. A changed scope/policy means stop, never try another key or replay a command.
+An optional stdlib [handoff/payload-gate reference](https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/agent-handoff.md)
+provides executable checks and an offline example; clients may implement equivalent checks
+without installing a Python SDK. Lease evidence uses real actor/start time, never Agent labels.
+
 Check `/api/agent/context.usage_privacy` before sending notes. On servers advertising this
 policy, `task_category` is the only public task description. Choose exactly one ID from
 `public_task_categories`, for example `operator_testing`, `communication_testing`,
@@ -638,6 +648,14 @@ and other users' public categories. Never attribute a task by machine name alone
 verified actor and resource ID. `usage: null` is not proof that nobody registered a task.
 A declaration does not prove ownership or change the queue order. It disappears when the
 lease, TTL or authorization is no longer valid. DELETE your declaration to remove it.
+For task-scoped cleanup, first verify this task's actor/resource/lease and read its own
+current declaration. When context declares `usage_privacy.conditional_cleanup`, save the
+private `revision` value and send it unchanged as the `If-Match` header on DELETE.
+The server rejects changed/expired declarations or changed leases with 412. Stop and
+re-read; never retry without the precondition or delete a replacement task's declaration.
+This deletes metadata only: it does not free or renew resources. A revision is not an
+ownership proof or credential and is hidden from other users. Old servers without this
+capability require coordination; do not assume their unconditional delete is race-safe.
 Refresh an expiring declaration without repeating `lock`, which extends resource time.
 If a mutation returns `may_have_executed`, read state before retrying.
 

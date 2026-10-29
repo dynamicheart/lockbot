@@ -640,11 +640,13 @@ def create_app() -> FastAPI:
 
     app.add_middleware(AgentIngressMiddleware)
     install_health_endpoint(app)
+    from lockbot.backend.app.resource_api.errors import install_agent_validation_errors
     from lockbot.backend.app.resource_api.versioning import AgentVersionMiddleware
     from lockbot.backend.app.resource_auth.http_errors import install_resource_auth_errors
 
     app.add_middleware(AgentVersionMiddleware)
     install_resource_auth_errors(app)
+    install_agent_validation_errors(app)
 
     # Rate limiting
     app.state.limiter = limiter
