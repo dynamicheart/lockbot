@@ -20,6 +20,7 @@ import lockbot.backend.app.feishu.models  # noqa: F401
 import lockbot.backend.app.resource_auth.models  # noqa: F401
 import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
+from lockbot.backend.app.audit.delegation import router as audit_delegation_router
 from lockbot.backend.app.audit.router import router as audit_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.backup.router import router as backup_router
@@ -693,6 +694,7 @@ def create_app() -> FastAPI:
 
     app.include_router(broadcast_router)
     app.include_router(audit_router)
+    app.include_router(audit_delegation_router)
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router
 
