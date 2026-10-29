@@ -912,6 +912,7 @@ export default {
     sources: { api: 'Agent API', chat: 'Chat', service_key: 'OP API Key' },
     booleanValues: { true: 'Yes', false: 'No' },
     actions: {
+      'task_private.read': 'Read private task details',
       'resource_auth.bind': 'Bind Agent authorization',
       'resource_auth.unbind': 'Unbind Agent authorization',
       'bot.resource_auth_enabled': 'Enable Agent access',
