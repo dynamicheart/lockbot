@@ -30,6 +30,33 @@ export default {
     application: 'Enterprise application',
     group: 'Resource group Chat ID',
   },
+  agentHistory: {
+    operations: {
+      command: 'Command',
+      usage: { update: 'Update purpose', delete: 'Remove purpose' },
+    },
+
+    resource: 'Resource',
+    title: 'Agent history',
+    search: 'Search user, operation or visible task',
+    retention:
+      'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
+    error: 'History unavailable or cursor expired; refresh to reload.',
+    time: 'Time',
+    user: 'User',
+    operation: 'Operation',
+    task: 'Task',
+    outcome: 'Processing result',
+    previous: 'Previous',
+    next: 'Next',
+    outcomes: {
+      uncertain: 'Outcome uncertain',
+      dispatched: 'Dispatched',
+      applied: 'Applied',
+      rejected: 'Rejected',
+      may_have_executed: 'Outcome uncertain',
+    },
+  },
   utilization: {
     availableMemory: 'Available memory',
     cacheMemory: 'Buffers/cache',
@@ -125,6 +152,20 @@ export default {
     },
   },
   serviceTraffic: {
+    httpTitle: 'HTTP traffic',
+    businessTitle: 'Resource operations',
+    businessHelp:
+      'Dispatcher attempts since counting started, separate from HTTP requests. Excludes queries/help and requests refused before dispatch. Dispatched does not prove resource acquisition; returned business refusals may also be dispatched. Shared by chat transports including WebSocket. Restart or scope eviction resets counters.',
+    businessSources: { chat: 'Group messages', agent: 'Agent API', operator: 'OP API' },
+
+    allBots: 'All bots with verified traffic',
+    byCredential: 'By credential',
+    credential: 'User',
+    operator: 'OP API',
+    unattributed: 'Unattributed requests:',
+    scopeHelp:
+      'HTTP counters reset on service restart; scoped counters can restart when inactive entries are evicted. Bot statistics include authenticated Agent/OP, verified running-chat callbacks and valid resource-page requests and successful authorized bot management requests. Failed management requests remain unattributed. Rankings retain up to 1,024 recently active credentials and show the top 50; shared keys are counted together. Invalid credentials remain unattributed. Existing Agent access counters are separate durable cumulative totals.',
+
     title: 'Service traffic',
     since: 'Counters since',
     unavailable: 'Unable to refresh service traffic.',
@@ -602,6 +643,8 @@ export default {
 
   // === Log Viewer ===
   log: {
+    privateDetailsRestricted:
+      'Only operation summaries are shown. Private tasks and raw logs require a super administrator.',
     all: 'All',
     commandLog: 'Command Log',
     systemLog: 'System Log',

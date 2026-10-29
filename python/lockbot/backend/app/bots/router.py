@@ -45,6 +45,12 @@ from lockbot.backend.app.database import get_db
 from lockbot.backend.app.managed_paths import get_managed_paths, sanitize_managed_overrides
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors as api_errors
+from lockbot.backend.app.resource_api.privacy import (
+    audit_private_read,
+    can_read_private_tasks,
+    public_log_entry,
+    visible_declarations,
+)
 from lockbot.backend.app.resource_api.sources import SOURCE_CHAT, SOURCE_SERVICE_KEY
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.state_migration import assert_bot_state_ready
@@ -736,6 +742,10 @@ def update_bot(
             )
             db.commit()
             db.refresh(bot)
+            if changes.get("resource_api_notify_enabled", {}).get("to") is False:
+                from lockbot.backend.app.resource_api.notifications import notification_budget
+
+                notification_budget.cancel(bot_id)
             return bot
 
 
@@ -1142,12 +1152,14 @@ def _get_bot_data_dir(bot: Bot) -> str:
 @router.get("/{bot_id}/state")
 def get_bot_state(
     bot_id: int,
+    response: Response,
     include_usage: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     import os
 
+    response.headers["Cache-Control"] = "no-store"
     bot = _get_user_bot(bot_id, user, db)
 
     def view(state, usage=None):
@@ -1171,7 +1183,13 @@ def get_bot_state(
             if include_usage:
                 from lockbot.backend.app.resource_api.usage import active_declarations, declarations_for_state
 
-                usage = declarations_for_state(active_declarations(db, bot, datetime.utcnow()), snapshot, captured_at)
+                private = can_read_private_tasks(db, user)
+                usage = visible_declarations(
+                    declarations_for_state(active_declarations(db, bot, datetime.utcnow()), snapshot, captured_at),
+                    private=private,
+                )
+                if usage and private:
+                    audit_private_read(db, user, bot_id=bot_id, surface="management.state")
         return view(snapshot, usage)
     except BotNotRunning:
         pass
@@ -1557,6 +1575,7 @@ def update_bot_state(
 @router.get("/{bot_id}/logs")
 def get_bot_logs(
     bot_id: int,
+    response: Response,
     page: int = 1,
     limit: int = 50,
     level: str | None = None,
@@ -1565,6 +1584,7 @@ def get_bot_logs(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store"
     _get_user_bot(bot_id, user, db)
 
     log_path = _get_log_file(bot_id)
@@ -1579,7 +1599,25 @@ def get_bot_logs(
                 line = line.strip()
                 if line:
                     with contextlib.suppress(json.JSONDecodeError):
-                        entries.append(json.loads(line))
+                        entry = json.loads(line)
+                        if not isinstance(entry, dict):
+                            continue
+                        # Normalize metadata before filtering/sorting. Historical JSONL
+                        # may contain null or nested values; never stringify them into
+                        # public metadata or allow a malformed row to break log reads.
+                        entry = dict(entry)
+                        level_value = entry.get("level")
+                        level_value = level_value.upper() if isinstance(level_value, str) else "UNKNOWN"
+                        entry["level"] = (
+                            level_value
+                            if level_value in ("DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL")
+                            else "UNKNOWN"
+                        )
+                        if entry.get("category") not in ("command", "system"):
+                            entry["category"] = "system"
+                        if not isinstance(entry.get("created_at"), str):
+                            entry["created_at"] = ""
+                        entries.append(entry)
     except OSError:
         return []
 
@@ -1595,7 +1633,12 @@ def get_bot_logs(
     # Sort newest first, paginate
     entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)
     offset = (page - 1) * limit
-    return entries[offset : offset + limit]
+    selected = entries[offset : offset + limit]
+    if can_read_private_tasks(db, user):
+        if selected:
+            audit_private_read(db, user, bot_id=bot_id, surface="management.logs")
+        return selected
+    return [public_log_entry(entry) for entry in selected]
 
 
 # ── Webhook endpoint ────────────────────────────────────────
@@ -1634,6 +1677,8 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     def _dispatch():
         with bot_manager.admit(bot_id) as lease:
             text, code, meta = handle_webhook(lease.bot, raw_form=form, raw_args=args, raw_body=body)
+            if code == 200:
+                request.state.traffic_bot_id = bot_id
             if code == 200 and not form.get("echostr") and bot_manager.lease_is_current(lease):
                 with metadata_session() as worker_db:
                     row = worker_db.get(Bot, bot_id)
@@ -1897,6 +1942,8 @@ def get_locked_users(
     token = auth_header[7:]
     if not _verify_api_key(bot, token):
         raise HTTPException(status_code=401, detail="Invalid API key")
+    request.state.traffic_bot_id = bot_id
+    request.state.traffic_operator = True
 
     # Read state under an admission lease + the state lock, as one detached copy. ``for_read``
     # lets a failed (error) generation still be read; the lease means this read cannot observe a
@@ -1963,13 +2010,20 @@ def api_opkick(
         raise HTTPException(status_code=401, detail="Missing API key")
     if not _verify_api_key(bot, auth_header[7:]):
         raise HTTPException(status_code=401, detail="Invalid API key")
+    request.state.traffic_bot_id = bot_id
+    request.state.traffic_operator = True
 
     # Run the kick under an admission lease, held across the whole mutation (which persists
     # state and may notify), so it cannot land on a retiring/replaced generation and a drain
     # waits for it.
     try:
         with bot_manager.admit(bot_id) as lease:
-            result = lease.bot.do_opkick(body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason)
+            from lockbot.core.command_context import operation_attempt
+
+            with operation_attempt(bot_id, "operator", "opkick"):
+                result = lease.bot.do_opkick(
+                    body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason
+                )
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise api_errors.admission_http_error(exc, bot_id, legacy_not_running=True) from None
     except ValueError as e:

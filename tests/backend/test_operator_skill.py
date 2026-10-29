@@ -10,6 +10,8 @@ def test_operator_skill_is_public_distinct_and_content_addressed(client):
     bundle = client.get(meta["download_url"])
     assert text.status_code == bundle.status_code == 200
     assert meta["name"] == "lockbot-operator-api"
+    assert "public_agent_operation_history" in meta["capabilities"]
+    assert meta["op_history_path_template"] == "/api/bots/{bot_id}/op/history"
     assert hashlib.sha256(bundle.content).hexdigest() == meta["sha256"]
     assert hashlib.sha256(text.content).hexdigest() == meta["skill_sha256"]
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as zipped:
