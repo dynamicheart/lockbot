@@ -76,6 +76,31 @@ def test_failed_replace_does_not_publish_uncommitted_acquisition(tmp_path, clock
     assert records()[-1]["events"] == []
 
 
+@pytest.mark.parametrize("persisted_uuid", [None, "foreign-bot-uuid"])
+def test_outbox_recovery_requires_matching_bot_uuid(tmp_path, clock, monkeypatch, persisted_uuid):
+    bot, journal, _ = make_bot(tmp_path, clock)
+    monkeypatch.setattr(journal, "_append", lambda frame: (_ for _ in ()).throw(OSError("offline")))
+    clock[0] += 1
+    execute_text_command("alice", "lock n1 10m", bot, source="api")
+    path = get_managed_paths().state_file(1)
+    raw = json.loads(path.read_text())
+    envelope = raw["lifecycle_outbox"]
+    assert envelope["bot_uuid"] == "bot-uuid"
+    old_journal = envelope["pending"][-1]["contract"]["journal_id"]
+    if persisted_uuid is None:
+        envelope.pop("bot_uuid")
+    else:
+        envelope["bot_uuid"] = persisted_uuid
+    path.write_text(json.dumps(raw))
+    original_bytes = path.read_bytes()
+    restarted = lease_history.LeaseJournal(1, bot)
+    assert not restarted.outbox.recovered
+    assert restarted.outbox.journal_id != old_journal
+    assert path.read_bytes() == original_bytes
+    assert records()[-1]["boundary"] == "session_start"
+    assert records()[-1]["contract"]["atomic_state"] is False
+
+
 def test_outbox_overflow_is_persisted_gap_not_silent_eviction(tmp_path, clock, monkeypatch):
     bot, journal, _ = make_bot(tmp_path, clock)
     monkeypatch.setattr(lease_contract, "MAX_PENDING_FRAMES", 2)

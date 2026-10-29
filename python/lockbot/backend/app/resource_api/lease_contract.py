@@ -260,7 +260,13 @@ class DurableOutbox:
             frame["boundary"], frame["events"] = "outbox_overflow", []
             pending = [frame]
         self.pending = pending
-        return {"version": 2, "bot_id": self.journal.bot_id, "identity_revision": self._revision(), "pending": pending}
+        return {
+            "version": 2,
+            "bot_id": self.journal.bot_id,
+            "bot_uuid": self.journal.bot.config.get_val("_LIFECYCLE_BOT_UUID", ""),
+            "identity_revision": self._revision(),
+            "pending": pending,
+        }
 
     def acknowledged_state(self, frame):
         refs = {v["ref"] for field in ("allocations", "bookings") for v in frame["state"][field]}
