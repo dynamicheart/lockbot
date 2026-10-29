@@ -699,6 +699,10 @@ def update_bot(
             )
             db.commit()
             db.refresh(bot)
+            if changes.get("resource_api_notify_enabled", {}).get("to") is False:
+                from lockbot.backend.app.resource_api.notifications import notification_budget
+
+                notification_budget.cancel(bot_id)
             return bot
 
 
