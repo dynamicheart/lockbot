@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    branches: ['release/2.x']
+    branches: ['main', 'release/2.x']
     paths:
       - 'scripts/telemetry/**'
       - 'python/lockbot/metrics/**'

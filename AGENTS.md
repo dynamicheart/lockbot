@@ -18,7 +18,7 @@ For user-authorized deployment or messaging-platform setup, also read [Agent adm
 
 ## Pull requests
 
-- Target `release/2.x` for changes to the maintained 2.x release line, unless the task specifies another base.
+- Continue targeting `release/2.x` until the 3.0.0 development and acceptance work is complete. Then align `main` to that exact accepted commit and make it the default branch; subsequent development targets `main`. Preserve the previous `main` history in an archive branch before alignment, and do not rename `release/2.x` as part of this transition.
 - Use a Conventional Commit style title suitable for the final squash commit.
 - Describe the concrete problem and resulting behavior, followed by relevant validation.
 - Scale the description to the change. Small changes need only a few sentences; larger changes should explain material compatibility, migration, or rollout considerations.
