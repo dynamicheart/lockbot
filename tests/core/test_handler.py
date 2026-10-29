@@ -132,3 +132,35 @@ def test_supported_command_node_key_query(base_msg, mock_robot):
     result = execute_command(base_msg, mock_robot)
     assert result["action"] == "help"
     mock_robot.print_help.assert_called_once_with("user123", "❌【未识别的命令】node1")
+
+
+@pytest.mark.parametrize("prefix", ["@", "@@", "＠", "!"])
+def test_malformed_mention_command_is_rejected(base_msg, mock_robot, prefix):
+    """A typed prefix plus a real mention must not turn lock into query."""
+    mock_robot.config.set_val("CLUSTER_CONFIGS", {})
+    base_msg["message"]["body"] = [
+        {"type": "TEXT", "content": prefix},
+        {"type": "AT", "atuserids": ["bot"]},
+        {"type": "TEXT", "content": " lock node1 2h"},
+    ]
+    result = execute_command(base_msg, mock_robot)
+    assert result["action"] == "help"
+    mock_robot.print_help.assert_called_once_with("user123", f"❌【未识别的命令】{prefix} lock node1 2h")
+    mock_robot.query.assert_not_called()
+    mock_robot.lock.assert_not_called()
+
+
+def test_real_mention_only_still_queries(base_msg, mock_robot):
+    base_msg["message"]["body"] = [{"type": "AT", "atuserids": ["bot"]}]
+    execute_command(base_msg, mock_robot)
+    mock_robot.query.assert_called_once_with("user123")
+
+
+def test_real_mention_followed_by_lock_still_locks(base_msg, mock_robot):
+    base_msg["message"]["body"] = [
+        {"type": "AT", "atuserids": ["bot"]},
+        {"type": "TEXT", "content": " lock node1 2h"},
+    ]
+    execute_command(base_msg, mock_robot)
+    mock_robot.lock.assert_called_once_with("user123", "lock node1 2h")
+    mock_robot.query.assert_not_called()
