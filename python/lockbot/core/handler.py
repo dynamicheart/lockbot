@@ -154,8 +154,9 @@ def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisit
     m = re.match(r"^(\w+)", text, re.I)
     cmd = m.group(1).lower() if m else ""
 
-    # Empty input defaults to query
-    if cmd == "":
+    # Only an empty mention is a query. Malformed nonempty input must reach
+    # the existing rejection path rather than silently displaying resource state.
+    if not text.strip():
         cmd = "query"
 
     # Treat known node_key as query
