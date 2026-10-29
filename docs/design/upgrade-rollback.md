@@ -38,3 +38,32 @@
 
 官方 Docker 镜像默认 `DATA_DIR=/data`，沿用 `-v lockbot-data:/data` 的挂载方式。
 显式设置其他 `DATA_DIR` 的自定义部署继续按其配置运行。
+
+
+## 飞书 3.0.0 的数据库与部署边界
+
+此节针对从正式 v2.15.2 升级到包含飞书的 3.0.0 候选；与前文无 Agent 的 2.9.5 回退验证不是同一份验收。当前候选沿用已维护的 release 历史，不引入历史 `main` 的通用平台 `credentials` JSON 方案，也不恢复 Slack/钉钉抽象。
+
+### 增量结构
+
+| 结构 | 新增内容与用途 | 既有数据处理 |
+| --- | --- | --- |
+| `feishu_applications`（新表） | 企业应用 `app_id`、名称、tenant/bot 稳定身份、加密保存的 `app_secret`/verification token/encrypt key、HTTP/WebSocket transport、创建时间 | 不从如流 webhook/token/AES 字段推断或复制飞书凭证；沿用原服务加密密钥保护新秘密 |
+| `feishu_group_routes`（新表） | application → chat → bot 关联；bot 唯一，application/chat 组合唯一 | 明确选择新群与资源机器人，不按群名或人名自动合并，不给旧如流 bot 换平台 |
+| `feishu_received_messages`（新表） | application/message 主键、bot、identity revision、处理状态和时间，用于持久去重 | 不存原始群正文、绑定码或自由任务备注；仅防重复执行，不能把结果不明的命令自动重放 |
+| `site_settings`（既有表的新行） | `platform_infoflow_enabled` / `platform_feishu_enabled` 与 `feishu_proxy_mode` / `feishu_proxy_url` | 平台默认兼容原配置；代理默认继承 `LOCKBOT_FEISHU_PROXY_URL`，保存为直连/指定代理时重启可恢复。代理URL仅超管可读写，不在公开settings或普通管理员响应中返回 |
+| `bots.platform`、`identity_revision`、`binding_accept_after`、`observed_group_ids` 与 `resource_bindings.bound_identity_revision` | 这是已有2.x身份边界字段，飞书复用它们，不是本轮新增的通用凭证JSON | 保持既有值；平台用户ID始终带平台作用域，稳定ID不被显示姓名替代 |
+
+相对于正式 v2.15.2，当前飞书候选没有重命名或删除既有 bot/授权字段；新增三表由模型注册后的建表步骤创建。历史2.x增量迁移（如 `bots.utilization_config`、用途分类和身份版本列）只在列缺失时补齐，不覆盖已有明确设置。条件用途清理与租约生命周期证据使用资源状态/日志记录，不能把它们误记为本轮新增数据库表。
+
+### 如流保留与升级验收
+
+原如流 webhook、token、AES key、个人/OP key、bot ID/UUID、授权作用域、状态目录、有效锁和队列不重新生成或搬入飞书凭证表。创建飞书机器人时平台固定；迁移复用安全的“复制配置→新建”流程，排除凭证、群/应用、用户平台列表、授权、运行状态和历史。不要让两个独立机器人同时管理同一物理资源而产生冲突。
+
+升级前保存停止写入后的数据库与状态目录一致备份、原加密密钥和部署设置；升级后分别验证旧如流命令/通知/授权/资源状态，以及新飞书群路由、唯一接收端、去重、姓名/群名、隐私投影、代理恢复和真实消息。HTTP代理测试通过不代表WebSocket已握手。包版本、数据库可打开或建表成功都不能代替这些验证。
+
+### 回退限制
+
+增量表和旧字段可读不等于飞书功能可以无损回退。旧版本不会消费飞书事件或维护它的应用/群关联与去重记录；回退前须停止飞书接收端，避免旧/新接收端竞争。旧版可能继续读取如流数据，但不得让不识别新租约证据/条件清理协议的客户端自动重放或执行过时清理。
+
+同样，数据库能读不等于隐私策略可回退：旧代码可能恢复公开自由备注/Agent名，或扩大普通管理员/OP可见范围。优先修复/保留隐私补丁；如需灾难回退，单独确认权限策略、停用飞书及新写入入口，并核对备份之后的状态，不能自动覆盖。正式发布前需对实际候选做保留数据升级验收；前文2.9.5循环验证不覆盖3.0.0所有新路径。
