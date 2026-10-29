@@ -96,7 +96,10 @@ def public_skill_manifest(kind, request, response, db):
         identity["credential_scheme"] = "lbk_bot_scoped"
         identity["capabilities"].remove("credential_context")
         identity["capabilities"].remove("resource_view_link")
-        identity["capabilities"].extend(["public_agent_operation_history", "allocator_lease_history"])
+        identity["capabilities"].extend(
+            ["public_agent_operation_history", "allocator_lease_history", "allocator_lifecycle_audit_v2"]
+        )
+        identity["lifecycle_audit_path_template"] = "/api/bots/{bot_id}/op/lifecycle-audit"
         identity["op_history_path_template"] = "/api/bots/{bot_id}/op/history"
         identity.pop("context_url")
         identity.pop("enrollment_url")
