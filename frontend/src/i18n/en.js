@@ -1,5 +1,9 @@
 export default {
   feishu: {
+    queryPanelGroup: 'Feishu group messages',
+    queryPanel: 'Update query panel in place',
+    queryPanelHint:
+      'Update full resource queries in this group. Command results and reminders stay unchanged; unavailable edits fall back to ordinary replies.',
     editApplication: 'Edit application',
     receiverRestartAfterUpdate:
       'Saved. Refresh receiver status and start the application connection again.',

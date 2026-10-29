@@ -1,5 +1,9 @@
 export default {
   feishu: {
+    queryPanelGroup: '飞书群消息',
+    queryPanel: '原地更新查询面板',
+    queryPanelHint:
+      '仅更新本群的完整资源查询；操作结果和到期提醒正常发送。消息不可编辑时自动使用普通回复。',
     editApplication: '编辑应用',
     receiverRestartAfterUpdate: '已保存。请刷新接收状态，并重新启动应用连接。',
     keepSecret: '留空保留已保存的 Secret',

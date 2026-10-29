@@ -258,6 +258,23 @@
         </div>
       </section>
 
+      <section v-if="form.platform.toLowerCase() === 'feishu'" class="agent-settings">
+        <div class="agent-settings-title">{{ $t('feishu.queryPanelGroup') }}</div>
+        <div class="agent-setting-row">
+          <label class="agent-setting-label" for="feishu-query-panel">
+            {{ $t('feishu.queryPanel') }}
+            <el-tooltip :content="$t('feishu.queryPanelHint')" placement="top">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </label>
+          <el-switch
+            id="feishu-query-panel"
+            v-model="advancedConfig.FEISHU_QUERY_PANEL"
+            :aria-label="$t('feishu.queryPanel')"
+          />
+        </div>
+      </section>
+
       <!-- Advanced Config -->
       <el-collapse>
         <el-collapse-item :title="$t('botCreate.advancedConfig')" name="advanced">
@@ -611,6 +628,7 @@ const advancedConfig = reactive({
   DEFAULT_DURATION: 7200,
   MAX_LOCK_DURATION: -1,
   FORBID_RELOCK: false,
+  FEISHU_QUERY_PANEL: false,
   MAX_RESOURCES_PER_USER: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
@@ -703,6 +721,7 @@ onMounted(async () => {
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK ?? false
+        advancedConfig.FEISHU_QUERY_PANEL = overrides.FEISHU_QUERY_PANEL ?? false
         advancedConfig.MAX_RESOURCES_PER_USER = overrides.MAX_RESOURCES_PER_USER ?? -1
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
@@ -756,6 +775,7 @@ function configPayload() {
   if (form.aes_key) data.aes_key = form.aes_key
   if (form.token) data.token = form.token
   const overrides = { ...advancedConfig }
+  if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_QUERY_PANEL
   if (overrides.NODE_ALIASES && Object.keys(overrides.NODE_ALIASES).length === 0)
     delete overrides.NODE_ALIASES
   data.config_overrides = overrides

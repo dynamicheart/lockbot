@@ -25,6 +25,15 @@ class FeishuAPIError(RuntimeError):
     """Deliberately contains no response body, credential or private message text."""
 
 
+class FeishuPanelAPIError(FeishuAPIError):
+    """A bounded panel attempt failed. Never include a platform response body."""
+
+    def __init__(self, code=None, *, uncertain=False):
+        super().__init__("Feishu query panel request failed")
+        self.code = code if type(code) is int else None
+        self.uncertain = uncertain
+
+
 def decorate_people(value, config):
     """Add cached display labels to detached snapshots without changing stable IDs."""
     client = config.get_val("_FEISHU_CLIENT") if config else None
@@ -129,6 +138,52 @@ class FeishuClient:
             # Never replay an ambiguous send automatically: the command may already have run.
             raise FeishuAPIError("Feishu message delivery uncertain") from None
         return [(200, "platform_accepted")]
+
+    def _panel_request(self, path, payload, *, create=False):
+        """Single attempt, separate from the unchanged ordinary-send path."""
+        try:
+            request = requests.post if create else requests.put
+            response = request(
+                API_ROOT + path,
+                params={"receive_id_type": "chat_id"} if create else None,
+                json=payload,
+                headers={"Authorization": "Bearer " + self.token()},
+                timeout=(3, 8),
+                allow_redirects=False,
+                **self._http_options,
+            )
+            data = response.json()
+            if not isinstance(data, dict) or type(data.get("code")) is not int:
+                raise ValueError()
+        except (requests.RequestException, ValueError, TypeError, AttributeError):
+            raise FeishuPanelAPIError(uncertain=True) from None
+        if response.status_code != 200 or data["code"] != 0:
+            raise FeishuPanelAPIError(data["code"])
+        return data.get("data")
+
+    def create_query_panel(self, payload):
+        """Return only a message reference proven to belong to this app and chat."""
+        data = self._panel_request("/im/v1/messages", payload, create=True)
+        if not isinstance(data, dict):
+            return None  # Accepted, but not safe to adopt: never send a second copy.
+        sender = data.get("sender")
+        message_id = data.get("message_id")
+        if (
+            isinstance(message_id, str)
+            and re.fullmatch(r"om_[A-Za-z0-9_-]{1,125}", message_id)
+            and data.get("chat_id") == payload.get("receive_id")
+            and isinstance(sender, dict)
+            and sender.get("sender_type") == "app"
+            and sender.get("id_type") == "app_id"
+            and sender.get("id") == self.app_id
+        ):
+            return message_id
+        return None
+
+    def update_query_panel(self, message_id, payload):
+        if not isinstance(message_id, str) or not re.fullmatch(r"om_[A-Za-z0-9_-]{1,125}", message_id):
+            raise FeishuPanelAPIError()
+        self._panel_request("/im/v1/messages/" + message_id, {"msg_type": "post", "content": payload["content"]})
 
     def bot_identity(self):
         """Discover the application's own bot without listing chats or contacts."""
@@ -438,6 +493,26 @@ class FeishuAdapter(MessageAdapter):
             part["content"] = json.dumps({"zh_cn": {"title": "", "content": chunk}}, ensure_ascii=False)
             results.extend(client.send(part))
         return results
+
+    def query_panel_payload(self, msg):
+        """A panel must fit one ordinary rich-text message; otherwise keep normal splitting."""
+        client = self._get("_FEISHU_CLIENT")
+        if not isinstance(client, FeishuClient) or not isinstance(msg, dict):
+            return None
+        group = msg.get("receive_id")
+        if group not in self._get("_AUTHORIZED_GROUP_IDS", []) or not _CHAT_ID.fullmatch(str(group)):
+            raise FeishuAPIError("Feishu reply group is not authorized")
+        try:
+            rows = json.loads(msg["content"])["zh_cn"]["content"]
+            if msg.get("msg_type") != "post" or not rows:
+                return None
+            if sum(len(json.dumps(row, ensure_ascii=False).encode()) for row in rows) > 16000:
+                return None
+        except (ValueError, KeyError, TypeError):
+            return None
+        payload = dict(msg, uuid=str(uuid.uuid4()))
+        payload["content"] = json.dumps({"zh_cn": {"title": "", "content": rows}}, ensure_ascii=False)
+        return client, payload
 
     def send_broadcast(self, content, group_id, mention_all=False):
         if not _CHAT_ID.fullmatch(group_id) or group_id not in self._get("_AUTHORIZED_GROUP_IDS", []):

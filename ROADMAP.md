@@ -144,3 +144,7 @@ Committed PR #25 administration UI work centers bounded site settings, simplifie
 Commit `27e3cb8` adds platform filters and further simplifies the broadcast dialog; these committed changes are newer than deployed `810ae4b`. Commit `c771736` defaults the bot list and administrative bot monitor to running bots; stopped bots remain selectable through the status filter. Application management is still **pending tests and commit**: do not claim application rename/edit, credential rotation or guarded deletion is released, deployed or accepted before that work is verified. Corporate permission/approval review and post-3.0.0 issues #54/#56/#57 remain unchanged.
 
 </details>
+
+### Optional Feishu query panels (#62)
+
+An independent implementation adds default-off per-bot in-place updates for full group queries only. Original text/post rendering, Infoflow delivery, explicit operation outcomes and critical reminders remain unchanged. Verified own-app/group message references survive restart; scoped serialization, identity generations, conservative rollover and bounded fallback protect routing and concurrency. Missing/revoked editing permission requires no expanded baseline scopes. Automated API/transport tests are recorded in the PR; live authorized-group acceptance and rollout remain pending root review. See [configuration and limitations](docs/usage/feishu.md#可选原地更新查询面板).
