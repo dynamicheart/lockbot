@@ -1,0 +1,7 @@
+{"id":"demo:1","timestamp":"2026-01-01T09:00:00Z","actor":{"platform":"infoflow","external_user_id":"alice"},"operation":"command","command":"lock","task_category":"operator_testing","outcome":"dispatched","http_status":200}
+{"id":"demo:2","timestamp":"2026-01-01T09:02:00Z","actor":{"platform":"infoflow","external_user_id":"alice"},"operation":"command","command":"book","task_category":"operator_testing","outcome":"dispatched","http_status":200}
+{"id":"demo:3","timestamp":"2026-01-01T09:04:00Z","actor":{"platform":"infoflow","external_user_id":"alice"},"operation":"command","command":"lock","outcome":"rejected","http_status":429}
+{"id":"demo:4","timestamp":"2026-01-01T09:06:00Z","actor":{"platform":"infoflow","external_user_id":"alice"},"operation":"command","command":"lock","outcome":"dispatched","http_status":200}
+{"id":"demo:5","timestamp":"2026-01-01T10:00:00Z","actor":{"platform":"feishu","external_user_id":"example-user"},"operation":"command","command":"lock","task_category":"model_load_testing","outcome":"may_have_executed","http_status":500}
+{"id":"demo:6","timestamp":"2026-01-01T10:10:00Z","actor":{"platform":"infoflow","external_user_id":"alice"},"operation":"usage.update","task_category":"unit_testing","previous_task_category":"operator_testing","outcome":"applied","http_status":200}
+{"id":"demo:7","timestamp":"2026-01-01T10:20:00Z","actor":{"platform":"infoflow","external_user_id":"alice"},"operation":"usage.delete","previous_task_category":"unit_testing","outcome":"applied","http_status":200}

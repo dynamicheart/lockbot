@@ -110,15 +110,35 @@ def _dispatch_binding_command(user_id, text, bot, cmd, config):
 
 def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisition_limit=None, source="chat"):
     """Set a server-controlled origin while the shared dispatcher executes."""
-    from lockbot.core.command_context import command_source
+    from lockbot.core.command_context import RESOURCE_OPERATIONS, command_source, observe_operation
 
     if source not in {"chat", "api", "unknown"}:
         raise ValueError("Unsupported command source")
     token = command_source.set(source)
+    match = re.match(r"^(\w+)", text, re.I)
+    operation = canonical_command(match.group(1).lower()) if match else ""
+    outcome = "dispatched"
     try:
         return _execute_text_command(user_id, text, bot, allowed_commands, acquisition_limit=acquisition_limit)
+    except CommandRejected:
+        outcome = "rejected"
+        raise
+    except Exception:
+        outcome = "uncertain"
+        raise
     finally:
         command_source.reset(token)
+        if operation in RESOURCE_OPERATIONS and source in {"chat", "api"}:
+            try:
+                config = getattr(bot, "config", None)
+                observe_operation(
+                    config.get_val("BOT_ID") if config else None,
+                    "agent" if source == "api" else "chat",
+                    operation,
+                    outcome,
+                )
+            except Exception:
+                logger.exception("Operation telemetry metadata unavailable")
 
 
 def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisition_limit=None):
