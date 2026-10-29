@@ -71,15 +71,21 @@ def post_webhook(msg, config=None):
     responses = []
     for i, new_msg in enumerate(new_msgs):
         logger.debug("Webhook request [%d/%d]", i + 1, len(new_msgs))
-        resp = _post_with_retry(webhook_url, new_msg, _DEFAULT_HEADERS)
+        guard = config.get_val("_MESSAGING_CREDENTIAL_GUARD") if config is not None else None
+        if guard is None:
+            resp = _post_with_retry(webhook_url, new_msg, _DEFAULT_HEADERS)
+        else:
+            resp = _post_with_retry(webhook_url, new_msg, _DEFAULT_HEADERS, guard=guard)
         responses.append(resp)
     return responses
 
 
-def _post_with_retry(url, payload, headers):
+def _post_with_retry(url, payload, headers, *, guard=None):
     """POST with simple retry on failure. Returns (status_code, response_text)."""
     last_exc = None
     for attempt in range(_MAX_RETRIES + 1):
+        if guard is not None:
+            guard()
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=5)
             if 200 <= response.status_code < 300:

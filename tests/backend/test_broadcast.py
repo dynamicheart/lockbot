@@ -8,6 +8,7 @@ from unittest.mock import Mock
 import pytest
 from lockbot.backend.app.auth.dependencies import create_access_token
 from lockbot.backend.app.auth.models import User
+from lockbot.backend.app.bots.encryption import encrypt
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.broadcast.models import BroadcastJob, BroadcastTarget, GroupActivity
 from lockbot.backend.app.broadcast.service import process_one, record_group_activity, recover_interrupted
@@ -23,7 +24,7 @@ def setup(db_session, auth_header):
         name="Broadcast bot",
         bot_type="QUEUE",
         platform="Infoflow",
-        webhook_url="encrypted-placeholder",
+        webhook_url=encrypt("https://example.invalid/fixture"),
         cluster_configs='["n1"]',
         status="running",
     )
@@ -64,7 +65,7 @@ def test_preview_has_explicit_verified_recent_deduplicated_targets(client, setup
         name="Other",
         bot_type="NODE",
         platform="Infoflow",
-        webhook_url="unused",
+        webhook_url=encrypt("https://example.invalid/unused"),
         cluster_configs="[]",
         status="running",
     )

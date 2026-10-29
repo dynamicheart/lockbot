@@ -93,7 +93,16 @@ def test_legacy_override_cannot_control_actual_io(tmp_path, caplog):
 
 
 @pytest.mark.parametrize(
-    "key", ["DATA_DIR", "STATE_FILENAME", "CONFIG_FILENAME", "LOG_DIR", "BOT_ID", "_MANAGED_BOT_DIR"]
+    "key",
+    [
+        "DATA_DIR",
+        "STATE_FILENAME",
+        "CONFIG_FILENAME",
+        "LOG_DIR",
+        "BOT_ID",
+        "_MANAGED_BOT_DIR",
+        "_MESSAGING_CREDENTIAL_GUARD",
+    ],
 )
 def test_create_update_reject_managed_controls(client, admin_header, db_session, key):
     payload = {"name": "ingest", "bot_type": "NODE", "webhook_url": "", "cluster_configs": ["n1"]}
@@ -304,7 +313,13 @@ def test_restored_control_overrides_are_sanitized(tmp_path, db_session):
     with zipfile.ZipFile(io.BytesIO(payload)) as zf:
         rows = _read_backup_bots(zf)
     rows[0]["config_overrides"] = json.dumps(
-        {"DATA_DIR": str(tmp_path / "outside"), "STATE_FILENAME": "/outside", "LANGUAGE": "en", "BOT_ID": 999}
+        {
+            "DATA_DIR": str(tmp_path / "outside"),
+            "STATE_FILENAME": "/outside",
+            "LANGUAGE": "en",
+            "BOT_ID": 999,
+            "_MESSAGING_CREDENTIAL_GUARD": "fake-guard",
+        }
     )
     with patch("lockbot.backend.app.backup.service._read_backup_bots", return_value=rows):
         result = restore_apply(payload, None, None, ["bot-uuid-1"], 1, db_session)
