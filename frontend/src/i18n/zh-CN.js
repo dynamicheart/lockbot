@@ -684,6 +684,8 @@ export default {
   // === Site Settings ===
   settings: {
     agentPromotion: 'Agent 推广',
+    agentPromotionText: '链接前文案',
+    agentPromotionTextHint: '留空使用默认文案，链接自动添加。仅限单行纯文本，最多 120 字。',
     agentPromotionHint: '在资源申请成功消息中展示 Agent 使用链接。',
     platformUrl: '部署平台 URL',
     platformUrlPlaceholder: '例如 http://192.168.1.1:8080',
@@ -838,6 +840,7 @@ export default {
     sources: { api: 'Agent API', chat: '群聊', service_key: 'OP API Key' },
     booleanValues: { true: '是', false: '否' },
     actions: {
+      'task_private.read': '查看私密任务信息',
       'resource_auth.bind': '绑定 Agent 授权',
       'resource_auth.unbind': '解绑 Agent 授权',
       'bot.resource_auth_enabled': '开启 Agent 访问',

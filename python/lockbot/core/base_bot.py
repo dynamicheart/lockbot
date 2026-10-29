@@ -7,6 +7,7 @@ import logging
 import re
 import threading
 from collections.abc import Callable
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from importlib.metadata import version as _pkg_version
 
@@ -103,6 +104,19 @@ class BaseLockBot:
             self.adapter.send(reply)
         except Exception:
             self.logger.warning("Failed to notify clamped users: %s", clamped)
+
+    @contextmanager
+    def _state_guard(self):
+        """Keep failure evidence inside the existing state lock; do not alter locking semantics."""
+        with self._lock:
+            try:
+                yield
+            except BaseException:
+                observer = getattr(self.config, "_lifecycle_observer", None)
+                if observer is not None:
+                    with suppress(Exception):
+                        observer.unconfirmed(self.state.bot_state)
+                raise
 
     def _notify_state_changed(self) -> None:
         """Call _on_state_changed if wired up (no-op otherwise)."""
@@ -305,7 +319,11 @@ class BaseLockBot:
             if self._get_site_value("agent_promotion_enabled") == "true":
                 skill_url = self._agent_skill_url()
                 if skill_url:
-                    return [content + "\n\n", (t("help.agent_lock_hint", config=self.config, url=""), skill_url), "\n"]
+                    lang = "en" if self.config.get_val("LANGUAGE") == "en" else "zh"
+                    prefix = self._get_site_value(f"agent_promotion_text_{lang}")
+                    if not prefix.strip():
+                        prefix = t("help.agent_lock_hint", config=self.config, url="")
+                    return [content + "\n\n", (prefix, skill_url), "\n"]
             return content + "\n\n"
         return message + sep + usage
 
@@ -487,7 +505,10 @@ class BaseLockBot:
                 db = SessionLocal()
                 try:
                     for row in db.query(SiteSetting).all():
-                        cls._site_cache[row.key] = row.value.strip() if row.value else ""
+                        value = row.value or ""
+                        cls._site_cache[row.key] = (
+                            value if row.key.startswith("agent_promotion_text_") else value.strip()
+                        )
                 finally:
                     db.close()
             except Exception:

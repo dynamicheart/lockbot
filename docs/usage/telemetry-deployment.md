@@ -36,8 +36,41 @@ Keep old scripts, units, configuration and TSDB before upgrading. Stop only the 
 
 ## Adding a second, isolated environment
 
-The signing-key step above describes a new single-source deployment. **Do not replace an existing Lockbot `METRICS_GRANT_SECRET_FILE` when adding another source, and do not copy that existing HMAC signing key into a separate shared-root environment.** Replacing it breaks the first source; sharing it expands the new source host's signing authority. Automatic multi-environment grants require independently selected per-source keys or an asymmetric verifier design, which the current single-file setting does not implement.
+The signing-key step above describes a new single-source deployment. **Do not replace an existing Lockbot `METRICS_GRANT_SECRET_FILE` when adding another source, and do not copy that existing HMAC signing key into a separate shared-root environment.** Replacing it breaks the first source; sharing it expands the new source host's signing authority. For automatic multi-environment grants, configure the source-specific registry below; each gateway receives only its own independently generated signing key. Existing single-file deployments remain compatible until the registry environment setting is enabled.
 
 For an isolated integration test, configure a new independent read-only gateway reader with a random secret and exact node scope. Select independent source credentials, deliver that token through the approved secure channel, and retain it only in the authorized browser's memory or the Agent's private credential store. Do not overwrite existing source configuration or signers. This is an explicitly scoped test mode, not automatic cross-environment authorization.
 
 An administrator's successful browser test proves only that browser's network/permission path at that moment. Each viewer and Agent must have its own permitted path to the source. Lockbot does not need to reach the source server. If a local SSH tunnel is approved, bind only to localhost and keep source authorization/CORS enabled; localhost is a per-client endpoint and **must not be saved as a universally reachable shared bot source**. Do not assume a bastion supports TCP forwarding or ProxyJump. If it refuses forwarding, stop and request an approved private network entry instead of opening a public service or changing network ACLs.
+
+
+## Source-specific signing keys
+
+The optional **Lockbot deployment** environment variable `METRICS_GRANT_SIGNERS_FILE` points to a private JSON file. It is not a bot setting or an HTTP request field. A sanitized example:
+
+```json
+{
+  "version": 1,
+  "sources": [
+    {
+      "audience": "https://metrics-a.example.invalid",
+      "key_file": "/run/lockbot-private/source-a.key"
+    },
+    {
+      "audience": "https://metrics-b.example.invalid/prometheus",
+      "key_file": "/run/lockbot-private/source-b.key"
+    }
+  ]
+}
+```
+
+Use independently generated random keys of 32–4096 bytes. Each gateway retains only its own key, audience, approved issuer and bot/node scope. Protect the registry and every referenced key as regular files with **exact mode 0600**, owned by the Lockbot process UID or root. Paths must be absolute; final-component symlinks are rejected. Use administrator-controlled parent directories and read-only mounts where practical. Keep these files outside application data/bot state directories and protect their separate operational backup. Application backup code includes only the database, bot state and its manifest; it does not collect signer files. Neither registry paths nor key material are stored in bot JSON or returned through context/Skill responses.
+
+Audiences must already use one exact canonical spelling: lowercase ASCII hostname, no trailing hostname dot, no default port, no trailing slash, and an optional simple ASCII path. IPv4 uses dotted decimal; IPv6 uses compressed bracketed notation. Credentials, query/fragment, percent escapes, whitespace, backslashes, duplicate path slashes and dot segments are rejected. The bot endpoint, registry audience and gateway audience **must agree exactly**. URL aliases are not interchangeable signer identities. Existing single-file mode preserves its previous `endpoint.rstrip("/")` audience spelling; switching to a registry may require explicitly aligning gateway and bot URLs first.
+
+The registry allows 1–64 sources and at most 64 KiB. Unknown fields, duplicate JSON keys/audiences, repeated key files/inodes or identical key bytes across sources reject the entire registry. All entries and keys are reread on every issuance, including administrator candidate-source tests. This deliberately trades bounded local file I/O (at most about 320 KiB per issuance) for immediate configuration reload and key-reuse checks. There is no signer cache. An invalid/missing registry, unsafe file, unmatched endpoint or revoked entry means no grant; **presence of the new environment setting disables fallback to `METRICS_GRANT_SECRET_FILE`**, even if its value is empty. No request or bot configuration can select arbitrary key paths.
+
+To migrate, retain the existing source's independent key for that source only, add a different key for the new source, align each gateway audience, prepare and verify the 0600 registry, then configure the new environment setting and restart Lockbot once. Keep the legacy setting only for a deliberate single-source rollback; removing the new setting restores legacy behavior and its single-key trust boundary. An invalid registry must be repaired explicitly rather than silently broadening authorization.
+
+Rotate keys by atomically replacing the files and coordinating the matching gateway key. New grants use the replacement immediately; existing tokens fail as soon as that gateway reloads the new key. Removing an entry stops new issuance on the next request, but already issued tokens can remain valid for up to five minutes. Revoke the gateway's bot/node or issuer allowlist for immediate denial. File reads are checked for concurrent mutation; an issuance already reading the previous valid configuration can complete during a rotation, so use gateway revocation for urgent cutoffs.
+
+This change does not query or proxy Prometheus, authorize OP keys for metrics, create a VPN, or make an isolated source reachable. Client transport overrides and isolated-network rollout remain separate work. An authorized Agent or browser still queries its gateway directly with the bounded read grant; the gateway's existing signature, audience, issuer, expiry and bot/node checks remain unchanged.

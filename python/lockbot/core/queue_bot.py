@@ -40,7 +40,7 @@ class QueueBot(NodeBot):
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
-        with self._lock:
+        with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(
@@ -144,7 +144,7 @@ class QueueBot(NodeBot):
 
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
-        with self._lock:
+        with self._state_guard():
             self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys)
@@ -190,7 +190,7 @@ class QueueBot(NodeBot):
         content += self._msg_with_usage("label.before_take")
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
-        with self._lock:
+        with self._state_guard():
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys, claim_duration=duration)
             if policy_error:
@@ -257,7 +257,7 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        with self._lock:
+        with self._state_guard():
             users = set([user_id])
             content = t("success.kicklock_cleared", config=self.config, user_id=user_id)
             content += self._msg_with_usage("label.before_release")
@@ -287,7 +287,7 @@ class QueueBot(NodeBot):
     def do_kicklock(self, node_keys, reason=""):
         """OP resource release with native kicklock semantics, preserving the whole queue."""
         notify_reply = None
-        with self._lock:
+        with self._state_guard():
             result = self._clear_current_locks(node_keys)
             if result["freed"]:
                 text = t("opkick.notify_kicked", config=self.config, node_key="\n  ".join(result["freed"]))
@@ -305,7 +305,7 @@ class QueueBot(NodeBot):
 
     def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
         """API-driven operator kick for QueueBot: only releases current_users, preserves booking_list."""
-        with self._lock:
+        with self._state_guard():
             if node_key:
                 target_nodes = [node_key]
             else:
@@ -454,7 +454,7 @@ class QueueBot(NodeBot):
 
             pending_keys.append(node_key)
 
-        with self._lock:
+        with self._state_guard():
             # 1. Release resources
             for node_key, node in self._resource_state().items():
                 # === 1. Check if current_users have expired ===

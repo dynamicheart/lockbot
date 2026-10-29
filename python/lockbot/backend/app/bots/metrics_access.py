@@ -1,33 +1,21 @@
 """Issue short read-only data-source grants; never query or proxy hardware metrics."""
 
 import json
-import os
-import stat
 import time
 from datetime import timezone
-from pathlib import Path
 
 import jwt
 
 from lockbot.backend.app.bots.datasource import public_datasource
+from lockbot.backend.app.bots.metrics_signers import select_metrics_signer
 
 
 def issue_metrics_access(db, bot, source=None, *, expires_at=None):
     source = source or public_datasource(bot)
     if not source or source.get("accessMode", "independent") != "short_lived":
         return None
-    key_path = os.environ.get("METRICS_GRANT_SECRET_FILE", "")
-    if not key_path:
-        return None
-    try:
-        path = Path(key_path)
-        info = path.stat()
-        if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o077 or info.st_size > 4096:
-            return None
-        secret = path.read_bytes()
-        if len(secret) < 32:
-            return None
-    except OSError:
+    signer = select_metrics_signer(source.get("endpoint"))
+    if signer is None:
         return None
     from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 
@@ -58,12 +46,12 @@ def issue_metrics_access(db, bot, source=None, *, expires_at=None):
         {
             "iss": ensure_instance_id(db),
             "sub": bot.uuid,
-            "aud": source["endpoint"].rstrip("/"),
+            "aud": signer.audience,
             "iat": issued,
             "exp": expiry,
             "nodes": nodes,
         },
-        secret,
+        signer.secret,
         algorithm="HS256",
     )
     return {"token": token, "expires_at": expiry, "scope": "metrics:read"}

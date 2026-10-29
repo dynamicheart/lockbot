@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 
 command_source = ContextVar("lockbot_command_source", default="unknown")
+command_action = ContextVar("lockbot_command_action", default=None)
 
 # Optional backend-owned telemetry sink. Core remains usable without the backend.
 operation_observer = None
@@ -26,6 +27,8 @@ def observe_operation(bot_id, source, command, outcome):
 def operation_attempt(bot_id, source, command):
     """Count a direct operational mutation independently of its transport."""
     outcome = "dispatched"
+    source_token = command_source.set(source)
+    action_token = command_action.set(command)
     try:
         yield
     except ValueError:
@@ -35,4 +38,6 @@ def operation_attempt(bot_id, source, command):
         outcome = "uncertain"
         raise
     finally:
+        command_source.reset(source_token)
+        command_action.reset(action_token)
         observe_operation(bot_id, source, command, outcome)
