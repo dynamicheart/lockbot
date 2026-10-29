@@ -588,6 +588,16 @@ Keep checks running throughout long tasks, not only at acquisition. Honour the a
 
 ## Declare work without publishing private task details
 
+For delegated/background work, carry a versioned privacy policy with the verified service,
+instance, bot UUID, resource actor and credential reference. Keep the parent's trusted policy
+outside the child's writable state; check the final encoded payload against it rather than
+trusting a child summary. Default to command-only, allow public categories only under an
+explicit policy, and send private fields only when that policy and current server capability
+both permit them. A changed scope/policy means stop, never try another key or replay a command.
+An optional stdlib [handoff/payload-gate reference](https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/agent-handoff.md)
+provides executable checks and an offline example; clients may implement equivalent checks
+without installing a Python SDK. Lease evidence uses real actor/start time, never Agent labels.
+
 Check `/api/agent/context.usage_privacy` before sending notes. On servers advertising this
 policy, `task_category` is the only public task description. Choose exactly one ID from
 `public_task_categories`, for example `operator_testing`, `communication_testing`,
