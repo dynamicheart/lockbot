@@ -133,6 +133,44 @@ def test_history_is_bounded_filters_and_tolerates_partial_corrupt_lines(tmp_path
     assert len(seen) == 50
 
 
+def test_oversized_newline_terminated_record_always_advances_without_losing_neighbors(tmp_path, monkeypatch):
+    budget = 512
+    monkeypatch.setattr(event_log, "READ_BUDGET", budget)
+    monkeypatch.setattr(event_log, "MAX_LINE_BYTES", 256)
+    before = row(1, "lock", actor={"platform": "infoflow", "external_user_id": "before"})
+    after = row(1, "lock", actor={"platform": "infoflow", "external_user_id": "after"})
+    target = write_rows(tmp_path, 1, [before])
+    with target.open("ab") as output:
+        output.write(b"x" * (budget * 3) + b"\n")
+        output.write(json.dumps(after).encode() + b"\n")
+    cursor, seen_cursors, actors = None, set(), []
+    for _ in range(10):
+        page = event_log.read_history(1, cursor=cursor)
+        assert page["scanned_bytes"] <= budget
+        actors.extend(item["actor"]["external_user_id"] for item in page["items"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+        assert cursor not in seen_cursors, "bad lines must not cause a repeated cursor"
+        seen_cursors.add(cursor)
+    else:
+        pytest.fail("bounded history reader did not finish after skipping the oversized line")
+    assert actors == ["after", "before"]
+
+
+@pytest.mark.parametrize("duration", [10**1000, -(10**1000), -1, float("inf"), float("nan")])
+def test_history_ignores_invalid_duration_numbers_without_failing(tmp_path, duration):
+    write_rows(tmp_path, 1, [row(1, "lock", duration_ms=duration)])
+    items = event_log.read_history(1)["items"]
+    assert len(items) == 1 and "duration_ms" not in items[0]
+
+
+@pytest.mark.parametrize("duration", [0, 12, 1.5])
+def test_history_preserves_normal_nonnegative_duration(tmp_path, duration):
+    write_rows(tmp_path, 1, [row(1, "lock", duration_ms=duration)])
+    assert event_log.read_history(1)["items"][0]["duration_ms"] == duration
+
+
 def test_history_redacts_and_cannot_follow_links_or_foreign_bot(tmp_path):
     write_rows(tmp_path, 1, [row(2, "foreign"), row(1, "bind secret-code", purpose="Bearer lbr_secret")])
     result = event_log.read_history(1)
