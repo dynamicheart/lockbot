@@ -1,0 +1,18 @@
+[Unit]
+Description=Independent resource telemetry Prometheus
+After=network.target lockbot-resource-exporter.service
+
+[Service]
+Type=simple
+User=nobody
+WorkingDirectory=/opt/lockbot-telemetry
+ExecStart=/opt/lockbot-telemetry/prometheus --config.file=/opt/lockbot-telemetry/prometheus.yml --storage.tsdb.path=/opt/lockbot-telemetry/data --storage.tsdb.retention.time=7d --storage.tsdb.retention.size=1GB --web.listen-address=127.0.0.1:19090
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/lockbot-telemetry/data
+
+[Install]
+WantedBy=multi-user.target
