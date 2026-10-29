@@ -73,7 +73,7 @@
           <el-option label="NODE" value="NODE" />
           <el-option label="DEVICE" value="DEVICE" />
           <el-option label="QUEUE" value="QUEUE" />
-          <el-option label="QueueDevice" value="QUEUE_DEVICE" />
+          <el-option label="QUEUE_DEVICE" value="QUEUE_DEVICE" />
         </el-select>
         <el-button-group v-if="authStore?.isSuperAdmin">
           <el-button @click="handleBackup">
