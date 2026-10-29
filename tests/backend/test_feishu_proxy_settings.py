@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from lockbot.backend.app.bots.encryption import encrypt
 from lockbot.backend.app.feishu.proxy_settings import restore_proxy
 from lockbot.core.platforms.feishu import FeishuClient
 from lockbot.core.platforms.feishu_proxy import configure, http_options, proxy_state, sdk_proxy_override
@@ -129,8 +130,8 @@ def test_http_probe_uses_fixed_client_after_closing_database_transaction(client,
             name="fixture",
             tenant_key="tenant",
             bot_open_id="ou_bot",
-            app_secret="not-read",
-            verification_token="not-read",
+            app_secret=encrypt("not-read"),
+            verification_token=encrypt("not-read"),
         )
     )
     db_session.commit()

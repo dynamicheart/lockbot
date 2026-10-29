@@ -9,9 +9,9 @@ import threading
 from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 
-from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.feishu.models import FeishuApplication
+from lockbot.backend.app.platform_applications.service import credentials_for
 from lockbot.core.platforms.feishu_proxy import sdk_proxy_override
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class Connector:
                     app = db.get(FeishuApplication, self.application_id)
                     if app is None or app.transport != "websocket":
                         return
-                    config = {"app_id": app.app_id, "app_secret": encryption.decrypt(app.app_secret)}
+                    config = {"app_id": app.app_id, "app_secret": credentials_for(app)["app_secret"]}
                     override = sdk_proxy_override()
                     if override is not None:
                         config["proxy_url"] = override

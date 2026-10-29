@@ -17,6 +17,7 @@ import lockbot.backend.app.auth.models  # noqa: F401
 import lockbot.backend.app.bots.models  # noqa: F401
 import lockbot.backend.app.broadcast.models  # noqa: F401
 import lockbot.backend.app.feishu.models  # noqa: F401
+import lockbot.backend.app.platform_applications.service  # noqa: F401
 import lockbot.backend.app.resource_auth.models  # noqa: F401
 import lockbot.backend.app.settings.models  # noqa: F401
 from lockbot.backend.app.admin.router import router as admin_router
@@ -26,6 +27,7 @@ from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.backup.router import router as backup_router
 from lockbot.backend.app.bots.router import router as bots_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
+from lockbot.backend.app.platform_applications.router import router as platform_applications_router
 from lockbot.backend.app.resource_api.activity import install_activity_middleware
 from lockbot.backend.app.resource_api.activity import router as activity_router
 from lockbot.backend.app.resource_api.commands import router as resource_commands_router
@@ -468,6 +470,9 @@ async def lifespan(app: FastAPI):
     _migrate_resource_bindings()
     _migrate_identity_boundaries()
     _migrate_binding_uniqueness()
+    from lockbot.backend.app.platform_applications.service import backfill
+
+    backfill(SessionLocal, strict=False)
     from lockbot.backend.app.managed_paths import get_managed_paths
     from lockbot.backend.app.state_migration import assert_state_store_ready, migrate_legacy_state_files
 
@@ -657,6 +662,23 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    from fastapi.responses import JSONResponse
+    from sqlalchemy.orm.exc import StaleDataError
+
+    from lockbot.backend.app.platform_applications.service import CredentialUnavailable
+
+    @app.exception_handler(CredentialUnavailable)
+    async def unavailable_credential(request, exc):
+        return JSONResponse(status_code=503, content={"detail": str(exc)}, headers={"Cache-Control": "no-store"})
+
+    @app.exception_handler(StaleDataError)
+    async def concurrent_credential_change(request, exc):
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "Record changed; refresh before retrying"},
+            headers={"Cache-Control": "no-store"},
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -694,6 +716,7 @@ def create_app() -> FastAPI:
 
     app.include_router(broadcast_router)
     app.include_router(audit_router)
+    app.include_router(platform_applications_router)
     app.include_router(audit_delegation_router)
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router

@@ -23,6 +23,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute, FeishuReceivedMessage
 from lockbot.backend.app.feishu.service import application_identity
+from lockbot.backend.app.platform_applications.service import credentials_for
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.core.handler import execute_command, redact_command_text
 from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
@@ -108,7 +109,7 @@ def _recover_application_receiver(db, application_id):
         app = current.get(FeishuApplication, application_id)
         if app is None:
             return
-        invalidate_application_clients(app.app_id, secret=encryption.decrypt(app.app_secret))
+        invalidate_application_clients(app.app_id, secret=credentials_for(app)["app_secret"])
         reconnect = app.transport == "websocket"
     if reconnect:
         connectors.connect(application_id, factory=factory)
@@ -130,7 +131,7 @@ def reveal_application(
         raise HTTPException(404, "Application not found", headers={"Cache-Control": "no-store"})
     _application_audit(db, user, request, app, "feishu.reveal_secret")
     db.commit()
-    return {"app_secret": encryption.decrypt(app.app_secret)}
+    return {"app_secret": credentials_for(app)["app_secret"]}
 
 
 @router.patch("/applications/{application_id}")
@@ -149,7 +150,7 @@ def update_application(
     app = db.get(FeishuApplication, application_id)
     if app is None:
         raise HTTPException(404, "Application not found")
-    actor_id = user.id
+    actor_id, actor_version = user.id, user.effective_token_version
     expected_identity = (app.app_id, app.bot_open_id, app.tenant_key, app.transport, app.app_secret)
     db.rollback()  # Do not retain a SQLite read snapshot across external credential verification.
     secret = body.app_secret.get_secret_value() if body.app_secret is not None else None
@@ -165,7 +166,7 @@ def update_application(
         nonlocal app, user
         db.rollback()
         user = db.get(User, actor_id)
-        if user is None or user.role != "super_admin":
+        if user is None or user.role != "super_admin" or user.effective_token_version != actor_version:
             raise HTTPException(403, "Super administrator required")
         app = db.get(FeishuApplication, application_id)
         if app is None:
@@ -229,14 +230,14 @@ def delete_application(
         raise HTTPException(409, "Application is associated with resource bots")
     if db.query(FeishuReceivedMessage).filter_by(application_id=application_id, state="claimed").first():
         raise HTTPException(409, "Application has an in-flight message")
-    actor_id, expected_app_id = user.id, app.app_id
+    actor_id, actor_version, expected_app_id = user.id, user.effective_token_version, app.app_id
     db.rollback()
 
     def check_unused():
         nonlocal app, user
         db.rollback()
         user = db.get(User, actor_id)
-        if user is None or user.role != "super_admin":
+        if user is None or user.role != "super_admin" or user.effective_token_version != actor_version:
             raise HTTPException(403, "Super administrator required")
         app = db.get(FeishuApplication, application_id)
         if app is None or app.app_id != expected_app_id:
@@ -291,10 +292,15 @@ def create_application(
     user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
+    actor_id, actor_version = user.id, user.effective_token_version
     try:
         bot_open_id = FeishuClient(body.app_id, body.app_secret.get_secret_value()).bot_identity()
     except FeishuAPIError:
         raise HTTPException(502, "Could not verify Feishu application credentials and bot capability") from None
+    db.rollback()  # External verification cannot retain a stale administrator snapshot.
+    user = db.get(User, actor_id)
+    if user is None or user.role != "super_admin" or user.effective_token_version != actor_version:
+        raise HTTPException(403, "Current super administrator authority required")
     row = FeishuApplication(
         name=body.name,
         app_id=body.app_id,

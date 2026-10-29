@@ -43,6 +43,7 @@ from lockbot.backend.app.bots.schemas import (
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.managed_paths import get_managed_paths, sanitize_managed_overrides
+from lockbot.backend.app.platform_applications.service import bot_credentials, credentials_for
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors as api_errors
 from lockbot.backend.app.resource_api.privacy import (
@@ -128,9 +129,9 @@ def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
     """Build detail dict with masked sensitive fields."""
     data = {c.name: getattr(bot, c.name) for c in bot.__table__.columns}
     # Decrypt to raw values (separate field names to avoid overwriting DB columns)
-    raw_webhook = encryption.decrypt(bot.webhook_url)
-    raw_aes_key = encryption.decrypt(bot.aes_key)
-    raw_token = encryption.decrypt(bot.token)
+    raw_webhook = bot_credentials(bot)["webhook_url"]
+    raw_aes_key = bot_credentials(bot)["aes_key"]
+    raw_token = bot_credentials(bot)["token"]
     data["webhook_url_raw"] = raw_webhook
     data["aes_key_raw"] = raw_aes_key
     data["token_raw"] = raw_token
@@ -321,9 +322,9 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         "BOT_NAME": bot.name,
         "BOT_TYPE": bot.bot_type,
         "PLATFORM": bot.platform,
-        "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
-        "AESKEY": encryption.decrypt(bot.aes_key),
-        "TOKEN": encryption.decrypt(bot.token),
+        "WEBHOOK_URL": bot_credentials(bot)["webhook_url"],
+        "AESKEY": bot_credentials(bot)["aes_key"],
+        "TOKEN": bot_credentials(bot)["token"],
         "CLUSTER_CONFIGS": _normalize_cluster_configs(json.loads(bot.cluster_configs)),
     }
     # Resolve owner username for help text display
@@ -1698,6 +1699,8 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     row = db.get(Bot, bot_id)
     if row is not None and row.platform.lower() == "feishu":
         raise HTTPException(404, "Use the Feishu application receiver")
+    if row is not None and (row.platform or "infoflow").lower() == "infoflow":
+        credentials_for(row)  # Reject unsupported/expired layouts before using a retained adapter.
     # Parse request data (matching Flask's request interface)
     body = await request.body()
     form = {}
@@ -1778,7 +1781,7 @@ async def _reply_bot_not_running(
     # URL verification must still work even when the bot is stopped
     echostr = form.get("echostr")
     if echostr:
-        token = encryption.decrypt(bot.token)
+        token = bot_credentials(bot)["token"]
         sig = form.get("signature")
         rn = form.get("rn")
         ts = form.get("timestamp")
@@ -1788,9 +1791,9 @@ async def _reply_bot_not_running(
 
     # Build a lightweight adapter from DB credentials
     config_dict = {
-        "WEBHOOK_URL": encryption.decrypt(bot.webhook_url),
-        "AESKEY": encryption.decrypt(bot.aes_key),
-        "TOKEN": encryption.decrypt(bot.token),
+        "WEBHOOK_URL": bot_credentials(bot)["webhook_url"],
+        "AESKEY": bot_credentials(bot)["aes_key"],
+        "TOKEN": bot_credentials(bot)["token"],
     }
     config = Config(config_dict)
     adapter = create_adapter(bot.platform, config=config)

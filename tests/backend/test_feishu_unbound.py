@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from lockbot.backend.app.bots.encryption import encrypt
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu import service, unbound
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute, FeishuReceivedMessage
@@ -161,7 +162,7 @@ def test_worker_rechecks_identity_route_and_age_before_network(client, hints, db
         route = db_session.query(FeishuGroupRoute).first()
         route.chat_id = "oc_group99"
     elif change == "secret":
-        app.app_secret = "rotated_ciphertext"
+        app.app_secret = encrypt("rotated_fixture")
     elif change == "bot_identity":
         app.bot_open_id = "ou_changed"
     elif change == "tenant":

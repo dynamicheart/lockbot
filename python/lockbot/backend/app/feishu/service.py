@@ -4,8 +4,8 @@ from collections import OrderedDict
 from dataclasses import replace
 from weakref import WeakSet
 
-from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+from lockbot.backend.app.platform_applications.service import CredentialUnavailable, credentials_for
 from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
 from lockbot.core.platforms.feishu_events import FeishuIdentity, InvalidFeishuEvent, normalize_message
 
@@ -20,13 +20,16 @@ def application_identity(app):
         app.app_id,
         app.tenant_key,
         app.bot_open_id,
-        encryption.decrypt(app.verification_token),
-        encryption.decrypt(app.encrypt_key),
+        credentials_for(app)["verification_token"],
+        credentials_for(app)["encrypt_key"],
     )
 
 
 def application_client(app):
-    secret = encryption.decrypt(app.app_secret)
+    try:
+        secret = credentials_for(app)["app_secret"]
+    except CredentialUnavailable:
+        raise FeishuAPIError("Application credentials changed or are unavailable; refresh before retrying") from None
     key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
     with _clients_lock:
         if app.app_id in _credential_generations and _credential_generations[app.app_id] != key[1]:
@@ -78,7 +81,7 @@ def cached_bot_client(bot, db):
         return None
     try:
         app = _routed_application(bot, db)
-        secret = encryption.decrypt(app.app_secret)
+        secret = credentials_for(app)["app_secret"]
         key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
     except (ValueError, InvalidToken):
         return None

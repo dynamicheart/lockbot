@@ -15,7 +15,15 @@ def read_application_metadata(connection, bot_id):
         "JOIN feishu_group_routes r ON r.application_id = a.id WHERE r.bot_id = ?",
         (bot_id,),
     ).fetchone()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    result = dict(row)
+    from lockbot.backend.app.platform_applications.backup import archived_envelope
+
+    envelope = archived_envelope(connection, result["app_id"])
+    if envelope is not None:
+        result["_versioned_credentials"] = envelope
+    return result
 
 
 def restore_route(db, bot, archived, source_key=None):
@@ -25,6 +33,14 @@ def restore_route(db, bot, archived, source_key=None):
     data = archived.get("_feishu_application")
     if not isinstance(data, dict):
         raise ValueError("Feishu application and group route are missing from this archive")
+    versioned = data.get("_versioned_credentials")
+    if versioned is not None and (
+        not isinstance(versioned, dict)
+        or versioned.get("provider") != "feishu"
+        or type(versioned.get("schema_version")) is not int
+        or versioned["schema_version"] != 1
+    ):
+        raise ValueError("Unsupported archived messaging credential schema")
     app_id = data.get("app_id", "")
     tenant = data.get("tenant_key", "")
     bot_identity = data.get("bot_open_id", "")
@@ -53,6 +69,18 @@ def restore_route(db, bot, archived, source_key=None):
             if not valid:
                 raise ValueError("Cannot decrypt archived Feishu application credentials")
             secrets[key] = encryption.encrypt(plain)
+        from lockbot.backend.app.platform_applications.backup import validate_archived
+
+        validate_archived(
+            "feishu",
+            versioned,
+            source_key,
+            {
+                "provider": "feishu",
+                "app_id": app_id,
+                **{key: encryption.decrypt(value) for key, value in secrets.items()},
+            },
+        )
         if not secrets["app_secret"] or (transport == "http" and (not secrets["verification_token"] or not tenant)):
             raise ValueError("Archived Feishu application credentials are incomplete")
         application = FeishuApplication(
