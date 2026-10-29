@@ -1,5 +1,8 @@
 export default {
   feishu: {
+    reactionReplies: 'React to successful commands',
+    reactionRepliesHelp: 'Feishu only, off by default. Requires message reaction permission. Completed operations use a reaction; queries, queues, reminders and errors keep their original messages. Permission failures fall back to the original reply.',
+
     editApplication: 'Edit application',
     receiverRestartAfterUpdate:
       'Saved. Refresh receiver status and start the application connection again.',

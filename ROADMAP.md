@@ -4,10 +4,11 @@ Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/
 
 ## Current delivery
 
-- **3.0.0 is released and formally deployed.** [Release](https://github.com/dynamicheart/lockbot/releases/tag/v3.0.0), accepted commit `80cc6a5`, PRs #25/#58. All required checks passed; full integration validation: 1,820 backend passed / 7 skipped and 170 frontend passed.
+- **3.0.2 is released and formally deployed.** [Current release](https://github.com/dynamicheart/lockbot/releases/tag/v3.0.2), commit `eccb4d1`, PRs #61/#65. Detailed-view public categories and Agent/note captions are corrected; the full-width bot page is retained. Production preservation, ordinary-owner/OP privacy projections and independent 16-host/64-card metrics passed.
+- **3.0.0 initial rollout:** [Release](https://github.com/dynamicheart/lockbot/releases/tag/v3.0.0), accepted commit `80cc6a5`, PRs #25/#58. All required checks passed; full integration validation: 1,820 backend passed / 7 skipped and 170 frontend passed.
 - The formal upgrade preserves original ports, data, keys, configuration, active locks, queues and bindings. Post-upgrade ordinary-owner and OP projections exclude other-user detailed notes. The independent source query returned 16 hosts, 64 cards and cache/available-memory metrics for all hosts.
 - `main` is the default development branch, aligned to the accepted release commit at transition. The previous main is archived in `archive/main-before-v3-20261029`; `release/2.x` remains historical. Both main and the historical release branch prohibit force pushes/deletion and require the six CI checks.
-- The image artifact was downloaded and verified: SHA-256 `e60e3340c925ffaf64215220f20047800cc34e3f132a419c89c0792a93270322` (artifact `12912523018`). Telemetry bundles for amd64/arm64 are release assets.
+- The current 3.0.2 image artifact was downloaded and verified: SHA-256 `cf9386a56ce02615dbe3472c2c79afe8511eb53ec398c41d516dacb9f10dfe6b` (artifact `12914489614`). Telemetry bundles for amd64/arm64 are release assets.
 - **Corporate Feishu approval is pending human review.** Code availability does not create or approve an enterprise application. Keep test and production application identities separate.
 
 ## Remaining work
@@ -20,6 +21,9 @@ Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/
 | [#33](https://github.com/dynamicheart/lockbot/issues/33) | Additional isolated-source trust/client connectivity rollout; the bastion/VPN experiment remains user-deferred |
 | [#54](https://github.com/dynamicheart/lockbot/issues/54) | Durable lifecycle audit API contract and explicit coverage |
 | [#56](https://github.com/dynamicheart/lockbot/issues/56) | Separately delegated super-administrator detailed-note credentials |
+| [#62](https://github.com/dynamicheart/lockbot/issues/62) | Optional Feishu in-place queue panels; default off, capability failure keeps normal replies |
+| [#63](https://github.com/dynamicheart/lockbot/issues/63) | Optional Feishu bot membership onboarding/removal notices; trusted event routing, default off |
+| [#64](https://github.com/dynamicheart/lockbot/issues/64) | Optional Feishu success reactions; committed-result evidence, fallback text, and unchanged Infoflow/legacy formatting |
 | [#57](https://github.com/dynamicheart/lockbot/issues/57) | Versioned messaging credentials and an additive legacy-compatible migration |
 
 <details>

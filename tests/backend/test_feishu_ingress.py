@@ -341,3 +341,51 @@ def test_application_receiver_metadata_is_super_admin_only_and_local(
     db_session.commit()
     assert client.get("/api/feishu/applications", headers=auth_header).status_code == 403
     assert not calls
+
+
+@pytest.mark.parametrize("transport", ["http", "websocket"])
+@pytest.mark.parametrize("mode", ["off", "enabled", "permission_error"])
+def test_optional_reaction_reply_preserves_durable_claim_and_group_scope(
+    client, setup, db_session, monkeypatch, transport, mode
+):
+    from lockbot.backend.app.feishu.models import FeishuApplication
+    from lockbot.backend.app.feishu.service import accept_sdk_event
+    from lockbot.core.platforms.feishu import FeishuAPIError
+
+    application_id, bots, calls = setup
+    bots[0].config.set_val("FEISHU_REACTION_REPLIES", mode != "off")
+    reactions, texts = [], []
+
+    def react(self, message_id):
+        reactions.append(message_id)
+        if mode == "permission_error":
+            raise FeishuAPIError("fixture denied")
+
+    monkeypatch.setattr(FeishuClient, "react", react)
+    monkeypatch.setattr(FeishuClient, "send", lambda self, payload: texts.append(payload) or [(200, "accepted")])
+    payload = message()
+    if transport == "http":
+
+        def submit():
+            return client.post(f"/api/feishu/events/{application_id}", json=payload).json()
+    else:
+        app = db_session.get(FeishuApplication, application_id)
+        app.transport = "websocket"
+        db_session.commit()
+
+        def submit():
+            return accept_sdk_event(db_session, app, payload)
+
+    assert submit() == {"accepted": True}
+    assert submit() == {"accepted": True, "duplicate": True}
+    assert len(calls) == 1
+    fn, args = calls.pop()
+    fn(*args)
+    assert len(reactions) == (0 if mode == "off" else 1)
+    assert len(texts) == (0 if mode == "enabled" else 1)
+    if texts:
+        assert texts[0]["receive_id"] == "oc_group0"
+    assert bots[0].state.bot_state["node_a"]["current_users"][0]["user_id"] == "ou_alice"
+    assert not bots[1].state.bot_state["node_a"]["current_users"]
+    db_session.expire_all()
+    assert db_session.get(FeishuReceivedMessage, (application_id, "om_first")).state == "completed"

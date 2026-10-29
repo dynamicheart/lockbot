@@ -258,6 +258,22 @@
         </div>
       </section>
 
+      <section v-if="form.platform.toLowerCase() === 'feishu'" class="agent-settings-group">
+        <div class="agent-setting-row">
+          <label class="agent-setting-label" for="feishu-reaction-replies">
+            {{ $t('feishu.reactionReplies') }}
+            <el-tooltip :content="$t('feishu.reactionRepliesHelp')" placement="top">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </label>
+          <el-switch
+            id="feishu-reaction-replies"
+            v-model="advancedConfig.FEISHU_REACTION_REPLIES"
+            :aria-label="$t('feishu.reactionReplies')"
+          />
+        </div>
+      </section>
+
       <!-- Advanced Config -->
       <el-collapse>
         <el-collapse-item :title="$t('botCreate.advancedConfig')" name="advanced">
@@ -614,6 +630,7 @@ const advancedConfig = reactive({
   MAX_RESOURCES_PER_USER: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
+  FEISHU_REACTION_REPLIES: false,
   LANGUAGE: 'zh',
   DURATION_WHITELIST: [],
   NODE_ALIASES: {},
@@ -704,6 +721,7 @@ onMounted(async () => {
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK ?? false
         advancedConfig.MAX_RESOURCES_PER_USER = overrides.MAX_RESOURCES_PER_USER ?? -1
+        if (overrides.FEISHU_REACTION_REPLIES === true) advancedConfig.FEISHU_REACTION_REPLIES = true
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
         if (Array.isArray(overrides.DURATION_WHITELIST))
@@ -756,6 +774,7 @@ function configPayload() {
   if (form.aes_key) data.aes_key = form.aes_key
   if (form.token) data.token = form.token
   const overrides = { ...advancedConfig }
+  if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_REACTION_REPLIES
   if (overrides.NODE_ALIASES && Object.keys(overrides.NODE_ALIASES).length === 0)
     delete overrides.NODE_ALIASES
   data.config_overrides = overrides
