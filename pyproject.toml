@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lockbot"
-version = "3.0.1"
+version = "3.0.2"
 description = "Cluster resource management and queuing for Infoflow and Feishu"
 readme = "README.md"
 license = {text = "MIT"}
