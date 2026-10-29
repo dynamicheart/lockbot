@@ -79,3 +79,30 @@ def test_legacy_schema_migration_is_additive_and_repeatable(monkeypatch):
     with engine.begin() as connection:
         assert connection.execute(text("SELECT name, utilization_config FROM bots")).one() == ("existing", None)
     engine.dispose()
+
+
+def test_unified_profile_normalizes_metric_names_and_rejects_unknown_profiles():
+    source = UtilizationConfig.model_validate(
+        {**SOURCE, "profile": "lockbot-v1", "intervalSeconds": 60, "staleSeconds": 660}
+    )
+    assert source.nodeLabel == "node" and source.deviceLabel == "device" and source.memoryUnit == "B"
+    assert source.utilizationMetric == "lockbot_accelerator_utilization_percent"
+    with pytest.raises(ValidationError):
+        UtilizationConfig.model_validate({**SOURCE, "profile": "unrecognized"})
+
+
+def test_agent_context_exposes_only_authorized_nonsecret_optional_source(client, api):  # noqa: F811
+    path = f"/api/bots/{api['bot_id']}"
+    assert client.get("/api/agent/context", headers=api["headers"]).json()["utilization"] is None
+    assert (
+        client.put(
+            path, headers=api["auth_header"], json={"utilization_config": {**SOURCE, "profile": "lockbot-v1"}}
+        ).status_code
+        == 200
+    )
+    payload = client.get("/api/agent/context", headers=api["headers"])
+    assert payload.status_code == 200
+    assert payload.json()["utilization"]["best_effort"] is True
+    source = payload.json()["utilization"]["configuration"]
+    assert source["profile"] == "lockbot-v1" and "bearer" not in source
+    assert client.get("/api/agent/context").status_code == 401

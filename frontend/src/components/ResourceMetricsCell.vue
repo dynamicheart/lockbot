@@ -1,37 +1,83 @@
 <template>
-  <el-tooltip v-if="enabled" placement="top" effect="light">
-    <template #content>
-      <div class="metrics-detail">
-        <span v-if="error">{{ $t('utilization.unavailable') }}</span>
-        <span v-else-if="!cards.length">{{ $t('utilization.unmapped') }}</span>
-        <div v-for="card in cards" :key="card.device">
-          <strong>{{ card.device }}</strong>
-          <span>{{ $t('utilization.compute') }}: {{ metricText(card.metrics.compute, true) }}</span>
-          <span>{{ $t('utilization.memory') }}: {{ memoryText(card) }}</span>
-          <span>{{ $t('utilization.sampled') }}: {{ sampleTime(card) }}</span>
-        </div>
+  <div v-if="enabled" class="resource-metrics">
+    <span v-if="error" class="is-muted">{{ $t('utilization.unavailable') }}</span>
+    <template v-else>
+      <div v-if="host && !resourceId" class="host-metrics">
+        <span :title="$t('utilization.hostMemory') + ': ' + memoryText(host)">
+          CPU {{ metricText(host.cpu, true) }} · {{ $t('utilization.hostMemory') }}
+          {{ memoryText(host) }}
+        </span>
+        <span v-for="disk in host.filesystems" :key="disk.name" :title="memoryText(disk)">
+          {{ $t('utilization.disk') }} {{ disk.name }} {{ memoryPercent(disk) }}
+        </span>
+      </div>
+      <span v-if="!cards.length" class="is-muted">—</span>
+      <div v-for="card in cards" :key="card.device" class="card-metric">
+        <el-tooltip placement="top" effect="light">
+          <template #content>
+            {{ $t('utilization.sampled') }}: {{ sampleTime(card) }} <br />{{
+              $t('utilization.memory')
+            }}: {{ memoryText(card.metrics) }}
+          </template>
+          <div class="card-values" tabindex="0">
+            <span class="device-name">{{ deviceName(card.device) }}</span>
+            <strong :class="loadClass(card)">{{ metricText(card.metrics.compute, true) }}</strong>
+            <span class="metrics-memory">{{ memoryText(card.metrics) }}</span>
+          </div>
+        </el-tooltip>
+        <el-popover
+          v-if="card.processes?.length || card.processesTruncated"
+          trigger="click"
+          popper-class="resource-process-popover"
+          placement="left"
+          :width="560"
+        >
+          <template #reference>
+            <button class="process-link" type="button">
+              {{ $t('utilization.processCount', { count: card.processes.length })
+              }}{{ card.processesTruncated ? '+' : '' }}
+            </button>
+          </template>
+          <div class="process-detail">
+            <strong>{{ nodeId }} · {{ deviceName(card.device) }}</strong>
+            <p>{{ $t('utilization.processNote') }}</p>
+            <table>
+              <thead>
+                <tr>
+                  <th>{{ $t('utilization.container') }}</th>
+                  <th>{{ $t('utilization.hostUser') }}</th>
+                  <th>PID</th>
+                  <th>{{ $t('utilization.command') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(process, index) in card.processes" :key="index">
+                  <td :title="process.containerId">
+                    {{
+                      process.containerName || process.containerId || $t('utilization.hostProcess')
+                    }}
+                  </td>
+                  <td>{{ process.user || '—' }}</td>
+                  <td>{{ process.pid || '—' }}</td>
+                  <td>
+                    <code>{{ process.command || '—' }}</code>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="card.processesTruncated">{{ $t('utilization.processTruncated') }}</p>
+            <p>{{ $t('utilization.sampled') }}: {{ sampleTime(card) }}</p>
+          </div>
+        </el-popover>
       </div>
     </template>
-    <span class="metrics-value" :class="loadClass" tabindex="0">
-      <template v-if="error">{{ $t('utilization.unavailable') }}</template>
-      <template v-else-if="!cards.length">—</template>
-      <template v-else-if="allUnavailable">{{ unavailableText }}</template>
-      <template v-else-if="resourceId">
-        {{ metricText(cards[0].metrics.compute, true) }}
-        <span class="metrics-memory">{{ memoryText(cards[0]) }}</span>
-      </template>
-      <template v-else>
-        {{ $t('utilization.peak') }} {{ peak }}
-        <span class="metrics-memory">{{ $t('utilization.cards', { count: cards.length }) }}</span>
-      </template>
-    </span>
-  </el-tooltip>
+  </div>
 </template>
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { loadLevel } from '../utils/utilization/display'
-import { metricStatus, resolveCards } from '../utils/utilization/prometheus'
+import { metricStatus, resolveCards, resolveHost } from '../utils/utilization/prometheus'
 const props = defineProps({
   enabled: Boolean,
   config: { type: Object, default: null },
@@ -45,19 +91,30 @@ const { t, locale } = useI18n()
 const cards = computed(() =>
   resolveCards(props.snapshot, props.config, props.nodeId, props.resourceId)
 )
+const host = computed(() => resolveHost(props.snapshot, props.config, props.nodeId))
 const state = (metric) => metricStatus(metric, props.now, props.config?.staleSeconds || 90)
+const deviceName = (device) => (/^\d+$/.test(device) ? `dev${device}` : device)
 function metricText(metric, percent = false) {
   const status = state(metric)
   if (status !== 'ok')
     return status === 'stale'
       ? t('utilization.stale')
-      : status === 'invalid'
-        ? t('utilization.invalid')
-        : '—'
+      : status === 'failed'
+        ? t('utilization.unavailable')
+        : status === 'invalid'
+          ? t('utilization.invalid')
+          : '—'
   return percent ? `${Math.round(metric.value)}%` : `${(metric.value / 1024 ** 3).toFixed(1)} GiB`
 }
-function memoryText(card) {
-  return `${metricText(card.metrics.used)} / ${metricText(card.metrics.total)}`
+function memoryText(metrics) {
+  return `${metricText(metrics.used)} / ${metricText(metrics.total)}`
+}
+function memoryPercent(metrics) {
+  return state(metrics.used) === 'ok' && state(metrics.total) === 'ok' && metrics.total.value > 0
+    ? `${Math.round((metrics.used.value / metrics.total.value) * 100)}%`
+    : state(metrics.total) !== 'ok'
+      ? metricText(metrics.total)
+      : metricText(metrics.used)
 }
 function sampleTime(card) {
   const times = Object.values(card.metrics)
@@ -65,41 +122,44 @@ function sampleTime(card) {
     .filter(Number.isFinite)
   return times.length ? new Date(Math.min(...times)).toLocaleString(locale.value) : '—'
 }
-const allUnavailable = computed(
-  () =>
-    cards.value.length &&
-    cards.value.every((card) =>
-      Object.values(card.metrics).every((metric) => state(metric) !== 'ok')
-    )
-)
-const unavailableText = computed(() => {
-  const states = cards.value.flatMap((card) => Object.values(card.metrics).map(state))
-  return states.includes('invalid')
-    ? t('utilization.invalid')
-    : states.includes('stale')
-      ? t('utilization.stale')
-      : '—'
-})
-const loadClass = computed(() => {
-  if (props.error) return 'is-muted'
-  const level = loadLevel(cards.value, props.now, props.config?.staleSeconds || 90, metricStatus)
+function loadClass(card) {
+  const level = loadLevel([card], props.now, props.config?.staleSeconds || 90, metricStatus)
   return level === 'unknown' ? 'is-muted' : `load-${level}`
-})
-const peak = computed(() => {
-  // An incomplete node cannot advertise the maximum of only the successful cards.
-  if (!cards.value.length || cards.value.some((card) => state(card.metrics.compute) !== 'ok'))
-    return '—'
-  return `${Math.round(Math.max(...cards.value.map((card) => card.metrics.compute.value)))}%`
-})
+}
 </script>
 <style scoped>
-.metrics-value {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 3px;
-  font-variant-numeric: tabular-nums;
-  color: var(--lb-text-primary);
+.resource-metrics {
+  display: grid;
+  gap: 5px;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.card-metric {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.card-values {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(30px, 0.3fr) 36px minmax(90px, 1fr);
+  align-items: baseline;
+  gap: 5px;
+}
+.device-name {
+  color: var(--lb-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.metrics-memory,
+.is-muted,
+.host-metrics {
+  color: var(--lb-text-secondary);
+}
+.host-metrics {
+  display: grid;
+  gap: 3px;
 }
 .load-low {
   color: var(--el-color-success-dark-2);
@@ -110,19 +170,39 @@ const peak = computed(() => {
 .load-high {
   color: var(--el-color-danger);
 }
-.metrics-memory,
-.is-muted {
-  color: var(--lb-text-secondary);
+.process-link {
+  border: 0;
+  background: transparent;
+  color: var(--el-color-primary);
+  font: inherit;
+  padding: 0;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.metrics-detail {
-  max-width: 360px;
-  overflow-wrap: anywhere;
+.process-detail {
+  max-height: 340px;
+  overflow: auto;
   font-size: 12px;
 }
-.metrics-detail > div {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 0;
+.process-detail table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.process-detail td,
+.process-detail th {
+  padding: 6px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  overflow-wrap: anywhere;
+}
+.process-detail p {
+  color: var(--lb-text-secondary);
+  line-height: 1.5;
+}
+</style>
+
+<style>
+.resource-process-popover {
+  max-width: calc(100vw - 24px);
 }
 </style>

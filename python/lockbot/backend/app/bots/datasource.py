@@ -13,6 +13,7 @@ class UtilizationConfig(BaseModel):
     id: str = Field(default="", pattern=r"^[a-zA-Z0-9_-]{0,64}$")
     name: str = Field(default="Prometheus", min_length=1, max_length=64)
     type: str = "prometheus"
+    profile: str = "custom"
     endpoint: str = Field(max_length=2048)
     nodeLabel: str = "instance"
     deviceLabel: str = "UUID"
@@ -46,6 +47,13 @@ class UtilizationConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_metrics(self):
+        if self.profile not in {"custom", "lockbot-v1"}:
+            raise ValueError("Unsupported telemetry profile")
+        if self.profile == "lockbot-v1":
+            self.nodeLabel, self.deviceLabel, self.memoryUnit = "node", "device", "B"
+            self.utilizationMetric = "lockbot_accelerator_utilization_percent"
+            self.memoryUsedMetric = "lockbot_accelerator_memory_used_bytes"
+            self.memoryTotalMetric = "lockbot_accelerator_memory_total_bytes"
         if self.type != "prometheus" or self.memoryUnit not in {"B", "MiB"}:
             raise ValueError("Unsupported source or memory unit")
         for label in (self.nodeLabel, self.deviceLabel):

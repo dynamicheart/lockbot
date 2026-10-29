@@ -15,6 +15,27 @@
       @click="authentication = true"
       >{{ $t('utilization.authenticate') }}</el-button
     >
+    <details
+      v-if="deviceResources && state.snapshot?.hosts?.length && !state.error"
+      class="host-panel"
+    >
+      <summary>{{ $t('utilization.hostStatus') }}</summary>
+      <div v-for="node in nodes" :key="node" class="host-summary">
+        <strong>{{ node }}</strong>
+        <template v-if="hostFor(node)">
+          <span>CPU {{ hostValue(hostFor(node).cpu, true) }}</span>
+          <span
+            >{{ $t('utilization.hostMemory') }} {{ hostValue(hostFor(node).used) }} /
+            {{ hostValue(hostFor(node).total) }}</span
+          >
+          <span v-for="disk in hostFor(node).filesystems" :key="disk.name"
+            >{{ $t('utilization.disk') }} {{ disk.name }} {{ hostValue(disk.used) }} /
+            {{ hostValue(disk.total) }}</span
+          >
+        </template>
+        <span v-else>—</span>
+      </div>
+    </details>
     <el-dialog
       v-model="authentication"
       :title="$t('utilization.authenticate')"
@@ -33,15 +54,34 @@
 </template>
 <script setup>
 import { reactive, ref, watch, onBeforeUnmount } from 'vue'
-import { validateConfig, prometheusDatasource } from '../utils/utilization/prometheus'
+import {
+  validateConfig,
+  prometheusDatasource,
+  resolveHost,
+  metricStatus,
+} from '../utils/utilization/prometheus'
+import { useI18n } from 'vue-i18n'
 import { createMetricsPoller } from '../utils/utilization/poller'
 const props = defineProps({
   botId: { type: [String, Number], required: true },
   source: { type: Object, default: null },
   nodes: { type: Array, default: () => [] },
   allowed: Boolean,
+  deviceResources: Boolean,
 })
 const emit = defineEmits(['change'])
+const { t } = useI18n()
+const hostFor = (node) => resolveHost(state.snapshot, config.value, node)
+function hostValue(metric, percent = false) {
+  const status = metricStatus(metric, Date.now(), config.value?.staleSeconds || 660)
+  if (status !== 'ok')
+    return status === 'stale'
+      ? t('utilization.stale')
+      : status === 'failed'
+        ? t('utilization.unavailable')
+        : '—'
+  return percent ? `${Math.round(metric.value)}%` : `${(metric.value / 1024 ** 3).toFixed(1)} GiB`
+}
 const config = ref(null)
 const bearer = ref('')
 const authentication = ref(false)
@@ -119,6 +159,19 @@ onBeforeUnmount(() => {
   margin-bottom: 14px;
   color: var(--lb-text-secondary);
   font-size: 12px;
+}
+.host-panel {
+  width: 100%;
+}
+.host-panel summary {
+  cursor: pointer;
+  padding: 6px 0;
+}
+.host-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 6px 0;
 }
 .source-error {
   color: var(--el-color-warning-dark-2);

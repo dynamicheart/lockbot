@@ -81,6 +81,7 @@ class AgentContextResponse(BaseModel):
     bot_rules: BotRules | None = None
     agent_access_enabled: bool
     credential_scope: Literal["one_user_one_bot"]
+    utilization: dict[str, Any] | None = None
     links: dict[str, str]
     skill: dict[str, Any]
     view_url: str | None = None
@@ -116,6 +117,7 @@ def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
     # Refresh even if another request retained this ORM identity in a reused Session.
     db.refresh(bot)
+    from lockbot.backend.app.bots.datasource import public_datasource
     from lockbot.backend.app.resource_api.skill import skill_artifacts
     from lockbot.backend.app.resource_api.view_links import view_link
 
@@ -129,6 +131,13 @@ def _context_payload(request, response, db, row):
         "bot_rules": current_bot_rules(bot, row.external_user_id),
         "agent_access_enabled": bot.resource_auth_enabled,
         "credential_scope": "one_user_one_bot",
+        "utilization": {
+            "best_effort": True,
+            "configuration": public_datasource(bot),
+            "guide_url": "https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md",
+        }
+        if public_datasource(bot)
+        else None,
         "links": {
             "resources": f"/api/bots/{bot.id}/resources",
             "commands": f"/api/bots/{bot.id}/commands",

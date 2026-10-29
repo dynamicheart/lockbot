@@ -33,6 +33,12 @@
         >{{ $t('utilization.setupGuide') }}</a
       >
       <el-form label-position="top" @submit.prevent.stop="testAndEnable">
+        <el-form-item :label="$t('utilization.profile')">
+          <el-select v-model="draft.profile" @change="applyProfile">
+            <el-option value="custom" :label="$t('utilization.profileCustom')" />
+            <el-option value="lockbot-v1" :label="$t('utilization.profileLockbot')" />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="$t('utilization.name')"
           ><el-input v-model="draft.name" maxlength="64"
         /></el-form-item>
@@ -138,6 +144,19 @@ async function removeSource() {
     // The parent displays a save error and retains the current source.
   } finally {
     testing.value = false
+  }
+}
+function applyProfile() {
+  if (draft.profile === 'lockbot-v1') {
+    Object.assign(
+      draft,
+      validateConfig({
+        ...draft,
+        endpoint: draft.endpoint || 'https://metrics.example.invalid',
+        nodeMapping: { node: 'node' },
+      }),
+      { endpoint: draft.endpoint, intervalSeconds: 60, staleSeconds: 660 }
+    )
   }
 }
 function openSettings() {

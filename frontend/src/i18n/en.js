@@ -1,5 +1,20 @@
 export default {
   utilization: {
+    hostStatus: 'Host status',
+    profile: 'Metric protocol',
+    profileCustom: 'Custom / NVIDIA DCGM',
+    profileLockbot: 'Lockbot unified metrics (XPU / GPU / host)',
+    hostMemory: 'RAM',
+    disk: 'Disk',
+    processCount: '{count} processes',
+    container: 'Container',
+    hostUser: 'Host user',
+    command: 'Program summary',
+    hostProcess: 'Host process / unknown container',
+    processNote:
+      'Host users are not IM identities or verified container owners. Arguments are omitted; data follows the sampling time.',
+    processTruncated: 'The process list reached its limit; more records may exist.',
+
     notConfigured: 'Not configured',
     remove: 'Remove',
     setupGuide: 'Setup guide',

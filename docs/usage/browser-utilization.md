@@ -46,7 +46,7 @@ Prometheus 地址填写服务根地址或入口前缀，例如 `https://metrics.
 
 只按标签值匹配，不根据查询结果顺序、卡型号或用户名称猜测。重启或更换设备后请检查映射。导出器没有稳定 UUID 时可以显式选择其设备身份标签，但应自行保证逻辑卡与物理卡不被悄悄调换。
 
-NODE/QUEUE 的整机行展示匹配设备中“已上报卡最高”计算利用率和已上报卡数，hover 可查看逐卡数据；不会用平均值掩盖忙卡；未上报的物理卡不在该统计中，不能据此证明整机空闲。DEVICE/QUEUE_DEVICE 对应精确卡显示计算利用率与已用/总显存。未知映射显示 `—`，不当作 0%。
+NODE/QUEUE 整机行也逐张展示上报卡的计算利用率和已用/总显存，不把多卡平均成一个值。统一指标模式还显示 CPU、主机内存与文件系统占用；可展开每卡容器和进程。未上报的物理卡保持未知，不能据此证明整机空闲。DEVICE/QUEUE_DEVICE 对应精确卡显示计算利用率与已用/总显存。未知映射显示 `—`，不当作 0%。
 
 ## 指标模板
 
@@ -58,7 +58,7 @@ NODE/QUEUE 的整机行展示匹配设备中“已上报卡最高”计算利用
 | 已用显存 | `DCGM_FI_DEV_FB_USED` | MiB |
 | 总显存 | `DCGM_FI_DEV_FB_TOTAL` | MiB |
 
-其他导出器可在数据源侧提供等价的单卡 gauge；填入实际指标名并选择 Bytes 或 MiB。指标必须有相同的节点与设备身份标签。V1 不运行任意 PromQL 表达式、不显示历史曲线，也不读取容器、进程或固件信息。
+其他导出器可在数据源侧提供等价的单卡 gauge；填入实际指标名并选择 Bytes 或 MiB。指标必须有相同的节点与设备身份标签。自定义模式不运行任意 PromQL 表达式，不显示历史曲线。统一指标模式按下文协议读取容器/进程摘要，不读取任意命令行或环境变量。
 
 每轮对这三个指标分别查询值和 `timestamp(raw_metric_selector)`，同一轮固定同一个评估时间，一共六个批量查询，最多两个同时进行；查询数量不随卡数线性增长。节点标签匹配按已配置的当前 bot 节点构造并转义，查询使用 POST 表单，不把凭证放在 URL。每个响应最多 2048 条序列和 1 MiB，单轮超时 15 秒；上游 query timeout 为 4 秒。
 
@@ -67,6 +67,24 @@ NODE/QUEUE 的整机行展示匹配设备中“已上报卡最高”计算利用
 计算负载以颜色辅助阅读：低于 30% 为绿色，30%–79% 为琥珀色，80% 及以上为红色；数字仍保留，颜色不替代数值。锁与排队状态独立显示，绿色低负载不代表资源可申请。
 
 未返回、NaN/Inf、越界或重复设备身份均显示未知，过期样本明确标记；读失败显示“暂不可用”，不将旧值作为新的空闲判断。低利用率不代表锁可抢，也不触发释放、续期、任务中止或进程清理。
+
+## 统一硬件协议（Lockbot v1）
+
+数据源选择“Lockbot 统一指标”，适用于独立 exporter 的 XPU、GPU 和主机指标。配置仍是 Prometheus 类型，`profile: lockbot-v1`，节点标签 `node`，设备标签 `device`，显存单位 Bytes。节点和设备必须显式映射，NODE/QUEUE 无需为卡创建额外的锁资源。
+
+- 卡：`lockbot_accelerator_utilization_percent`、`lockbot_accelerator_memory_used_bytes`、`lockbot_accelerator_memory_total_bytes`。
+- 主机：`lockbot_host_cpu_utilization_percent`、`lockbot_host_memory_used_bytes`、`lockbot_host_memory_total_bytes`。
+- 文件系统：`lockbot_host_filesystem_used_bytes`、`lockbot_host_filesystem_total_bytes`，标签 `filesystem` 是管理员别名。
+- 新鲜度：`lockbot_sample_timestamp_seconds{collector="accelerator"|"host"}` 为真实采样时刻，`lockbot_collector_success` 表示最近采集是否成功。不能用 Prometheus 查询/抓取时刻替代它。
+- 归属：`lockbot_accelerator_process_info` 的标签包含卡、PID、容器标识、容器名、主机用户、程序摘要；遍历多条进程，列表超限由 `lockbot_accelerator_process_info_truncated` 标记。主机用户不是经过核验的群聊身份或容器所有者。缺失信息不猜测。
+
+浏览器每轮使用一个固定指标白名单的批量查询，按当前 bot 已映射节点过滤；最多 8192 条序列、4 MiB 响应、4 秒源查询 timeout。不得把前端过滤当作授权，数据源入口仍须按读者范围限制查询。
+
+采集器默认每台 5 分钟并错开采样，Prometheus 抓缓存和页面刷新不会触发 SMI。网页建议 60 秒读取一次缓存，660 秒未采样显示过期；失败显示暂不可用，不以缓存旧值证明当前空闲。CPU 利用率由两次计数器差值计算；进程刚退出、PID 变化等均可能造成归属暂时缺失。
+
+容器名和主机用户是管理员授权展示的运维归属信息。程序摘要只保留程序/脚本名称，不把秘密参数、环境变量或完整任务命令写入指标。Agent 私人任务备注不会被复制进这里。
+
+已授权的 Agent 可从 `/api/agent/context.utilization` 发现同一份非敏感配置，再用数据源自己的凭据查询；可达性、成功、新鲜度和准确性均是 best effort。源查询失败不影响 Lockbot；不能据此释放、续期或抢占资源。
 
 ## CORS、认证与负载
 

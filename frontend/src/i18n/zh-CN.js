@@ -1,5 +1,19 @@
 export default {
   utilization: {
+    hostStatus: '主机状态',
+    profile: '指标协议',
+    profileCustom: '自定义 / NVIDIA DCGM',
+    profileLockbot: 'Lockbot 统一指标（XPU / GPU / 主机）',
+    hostMemory: '内存',
+    disk: '磁盘',
+    processCount: '{count} 个进程',
+    container: '容器',
+    hostUser: '主机用户',
+    command: '程序摘要',
+    hostProcess: '主机进程 / 容器未知',
+    processNote: '主机用户不等于群聊身份或容器所有者。程序摘要已省略参数；数据按采集时间更新。',
+    processTruncated: '进程较多，当前列表达到上限，未展示全部记录。',
+
     notConfigured: '未配置',
     remove: '移除',
     setupGuide: '接入文档',

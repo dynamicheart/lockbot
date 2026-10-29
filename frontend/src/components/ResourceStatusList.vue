@@ -72,7 +72,7 @@
           <span v-else class="empty-value">—</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" width="165">
+      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="320">
         <template #default="{ row }"><slot name="metrics" :row="row" /></template>
       </el-table-column>
       <el-table-column :label="$t('resourceView.remainingTime')" width="90" align="right">
