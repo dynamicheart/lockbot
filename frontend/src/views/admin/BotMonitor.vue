@@ -250,7 +250,9 @@
               <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
                 botTypeLabel(row.bot_type)
               }}</el-tag>
-              <el-tag size="small" type="info" effect="plain">{{ row.platform }}</el-tag>
+              <el-tag size="small" type="info" effect="plain">{{
+                platformLabel(row.platform, $t)
+              }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="status" :label="$t('botDetail.status')" width="110">
@@ -302,6 +304,7 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../../utils/platformDisplay'
 import { ref, computed, onMounted } from 'vue'
 import api from '../../utils/api'
 import StatusBadge from '../../components/StatusBadge.vue'

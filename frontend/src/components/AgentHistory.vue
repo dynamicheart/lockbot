@@ -31,7 +31,7 @@
             :disabled="!row.actor?.external_user_id"
             ><span>{{ actorNames.label(row.actor?.external_user_id) }}</span></el-tooltip
           ><small
-            >{{ row.actor?.platform }}
+            >{{ platformLabel(row.actor?.platform, $t) }}
             <span v-if="row.credential_ref || row.credential_id">
               · {{ row.credential_ref || '#' + row.credential_id }}</span
             ></small
@@ -73,6 +73,7 @@
   </section>
 </template>
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'

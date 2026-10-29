@@ -7,13 +7,35 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlsplit
 
 from sqlalchemy.orm import sessionmaker
 
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
 
 logger = logging.getLogger(__name__)
-HINT = "该群尚未关联资源机器人，请联系管理员在本站创建并关联本群。资源群 Chat ID：{chat_id}"
+
+
+def hint_text(factory, chat_id):
+    from lockbot.backend.app.settings.router import _get_setting
+
+    with factory() as db:
+        base = (_get_setting(db, "platform_url") or "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(base)
+        valid = (
+            parsed.scheme in {"http", "https"}
+            and parsed.hostname
+            and not (parsed.username or parsed.password or parsed.query or parsed.fragment)
+            and not any(char.isspace() for char in base)
+        )
+    except ValueError:
+        valid = False
+    location = f"\n后台：{base}" if valid else "\n请联系管理员获取本站后台地址。"
+    return (
+        "本群尚未关联资源机器人。请管理员在本站后台创建飞书机器人，选择企业应用并填写本群 Chat ID。"
+        f"{location}\n资源群 Chat ID：{chat_id}"
+    )
 
 
 def fingerprint(app):
@@ -106,11 +128,12 @@ class UnboundHints:
             client.token()
             if self.clock() - accepted_at > 30 or not self._current(factory, job):
                 return
+            text = hint_text(factory, chat_id)
             client.send(
                 {
                     "receive_id": chat_id,
                     "msg_type": "text",
-                    "content": json.dumps({"text": HINT.format(chat_id=chat_id)}, ensure_ascii=False),
+                    "content": json.dumps({"text": text}, ensure_ascii=False),
                 }
             )
         except Exception:

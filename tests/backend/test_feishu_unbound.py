@@ -284,3 +284,29 @@ def test_route_becoming_bound_during_token_refresh_cancels_the_hint(client, hint
     post(client, hints, message(group=99))
     hints.executor.run()
     assert not hints.sent
+
+
+@pytest.mark.parametrize("base", ["https://lockbot.example.test", "http://192.0.2.10:8000/team/"])
+def test_hint_links_to_the_configured_site_without_request_host_or_credentials(db_session, base):
+    from sqlalchemy.orm import sessionmaker
+    from lockbot.backend.app.settings.models import SiteSetting
+
+    db_session.add(SiteSetting(key="platform_url", value=base))
+    db_session.commit()
+    text = unbound.hint_text(sessionmaker(bind=db_session.get_bind()), "oc_fixture")
+    assert f"后台：{base.rstrip('/')}" in text
+    assert "oc_fixture" in text and "选择企业应用" in text
+
+
+@pytest.mark.parametrize(
+    "base", ["", "https://user:secret@example.test", "javascript:alert(1)", "https://example.test/?key=secret"]
+)
+def test_hint_does_not_publish_invalid_or_credential_bearing_site_urls(db_session, base):
+    from sqlalchemy.orm import sessionmaker
+    from lockbot.backend.app.settings.models import SiteSetting
+
+    db_session.add(SiteSetting(key="platform_url", value=base))
+    db_session.commit()
+    text = unbound.hint_text(sessionmaker(bind=db_session.get_bind()), "oc_fixture")
+    assert "后台地址" in text and "后台：" not in text
+    assert "secret" not in text and "javascript" not in text

@@ -42,7 +42,7 @@
               >
             </div>
             <div class="actor-note">
-              <span>{{ row.platform }}</span>
+              <span>{{ platformLabel(row.platform, $t) }}</span>
               <el-tooltip :content="t('agentActivity.labelHelp')" placement="top">
                 <span class="authorization-label">{{ row.label || '—' }}</span>
               </el-tooltip>
@@ -110,6 +110,7 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled } from '@element-plus/icons-vue'

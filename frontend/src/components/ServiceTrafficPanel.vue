@@ -202,7 +202,8 @@
                   <span v-if="!props.botId">· #{{ row.bot_id }}</span>
                 </div>
                 <small :title="`${$t('serviceTraffic.since')} ${localTime(row.since)}`"
-                  >{{ row.platform }}<span v-if="row.id"> · {{ row.id }}</span></small
+                  >{{ platformLabel(row.platform, $t)
+                  }}<span v-if="row.id"> · {{ row.id }}</span></small
                 >
               </template>
               <template v-else>{{
@@ -258,6 +259,7 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Refresh, ChatDotRound, Cpu, Setting, QuestionFilled } from '@element-plus/icons-vue'
 const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
