@@ -304,7 +304,7 @@ function shortMinutes(minutes) {
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .resource-overview,
 .queue-time {
@@ -361,7 +361,7 @@ function shortMinutes(minutes) {
   font-weight: 500;
 }
 .resource-status-list :deep(td.el-table__cell) {
-  padding: 16px 0;
+  padding: 10px 0;
   vertical-align: top;
 }
 .node-identity {
@@ -374,7 +374,7 @@ function shortMinutes(minutes) {
   display: grid;
   align-items: center;
   justify-items: start;
-  gap: 7px;
+  gap: 5px;
 }
 .resource-identity .el-tag {
   flex-shrink: 0;

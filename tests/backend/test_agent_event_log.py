@@ -7,7 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from lockbot.backend.app.audit.models import AuditLog
-from lockbot.backend.app.bots.models import BotLog
+from lockbot.backend.app.auth.models import User
+from lockbot.backend.app.bots.models import Bot, BotLog
 from lockbot.backend.app.resource_api import event_log
 from lockbot.backend.app.resource_auth.dependencies import ResourceActor
 
@@ -131,6 +132,45 @@ def test_file_failure_does_not_fail_or_replay_the_resource_command(client, api, 
 
 def _actor(bot_id=17):
     return ResourceActor("fakeim", "alice", bot_id, 1, "reference")
+
+
+@pytest.mark.parametrize("category", ["operator_testing", "legacy-arbitrary-category", None])
+def test_history_derives_identical_catalog_labels_without_widening_private_access(client, api, db_session, category):
+    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
+
+    event_log.write_event(
+        actor=_actor(api["bot_id"]),
+        event={
+            "operation": "command",
+            "command": "lock n1 1h",
+            "task_category": category,
+            "public_task": "untrusted-legacy-label",
+            "previous_task_category": "operator_testing",
+            "agent_label": "fixture-private-agent",
+            "purpose": "fixture-private-note",
+        },
+        status=200,
+        duration_ms=1,
+    )
+    path = f"/api/bots/{api['bot_id']}/agent-history"
+    public = client.get(path, headers=api["auth_header"]).json()["items"][0]
+    denied = client.get(path, headers=api["auth_header"], params={"include_private": True})
+    assert denied.status_code == 200
+    assert "fixture-private" not in denied.text
+    owner = db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id)
+    owner.role = "super_admin"
+    db_session.commit()
+    detailed = client.get(path, headers=api["auth_header"], params={"include_private": True})
+    assert detailed.status_code == 200
+    private = detailed.json()["items"][0]
+    for key in ("task_category", "public_task", "previous_task_category", "previous_public_task"):
+        assert private.get(key) == public.get(key)
+    assert public.get("public_task") == TASK_CATEGORIES.get(category)
+    assert public["previous_public_task"] == TASK_CATEGORIES["operator_testing"]
+    assert "untrusted-legacy-label" not in json.dumps(private)
+    assert "agent_label" not in public and "purpose" not in public
+    assert private["agent_label"] == "fixture-private-agent"
+    assert private["purpose"] == "fixture-private-note"
 
 
 def test_known_keys_tokens_and_view_codes_are_redacted(tmp_path, api):

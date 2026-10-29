@@ -91,6 +91,8 @@ export default {
     group: '资源群 Chat ID',
   },
   agentHistory: {
+    agentLabel: 'Agent：',
+    noteLabel: '备注：',
     operations: { command: '执行命令', usage: { update: '更新用途', delete: '删除用途' } },
 
     resource: '资源',

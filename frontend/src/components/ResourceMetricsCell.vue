@@ -150,8 +150,9 @@ function loadClass(card) {
 <style scoped>
 .resource-metrics {
   display: grid;
-  gap: 5px;
+  gap: 3px;
   font-size: 12px;
+  line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }
 .card-metric {
@@ -162,8 +163,8 @@ function loadClass(card) {
 }
 .card-metrics-list {
   display: grid;
-  gap: 3px;
-  max-width: 520px;
+  gap: 2px;
+  max-width: 420px;
 }
 .card-values {
   display: grid;
@@ -189,8 +190,8 @@ function loadClass(card) {
 }
 .host-metrics {
   display: grid;
-  gap: 3px;
-  margin-bottom: 5px;
+  gap: 2px;
+  margin-bottom: 2px;
 }
 .filesystem-metrics {
   display: flex;

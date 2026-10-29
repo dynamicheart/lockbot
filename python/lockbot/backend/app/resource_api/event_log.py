@@ -315,10 +315,23 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stre
                         )
                         if isinstance(row.get("command"), str):
                             row["command"] = redact_command_text(row["command"])
-                        if not private:
-                            from lockbot.backend.app.resource_api.privacy import public_event
+                        from lockbot.backend.app.resource_api.privacy import public_event
 
-                            row = public_event(row)
+                        public = public_event(row)
+                        if private:
+                            # Labels always come from the validated catalog, never legacy prose.
+                            # Preserve private details only in this already-authorized projection.
+                            for field in (
+                                "task_category",
+                                "public_task",
+                                "previous_task_category",
+                                "previous_public_task",
+                            ):
+                                row.pop(field, None)
+                                if field in public:
+                                    row[field] = public[field]
+                        else:
+                            row = public
                     if needle and needle not in json.dumps(row, ensure_ascii=False).casefold():
                         continue
                     row["id"] = f"{inode}:{position}"

@@ -1,5 +1,5 @@
 <template>
-  <div v-loading="loading">
+  <div v-loading="loading" class="bot-detail">
     <div class="detail-header">
       <div class="detail-header-left">
         <el-button text @click="$router.back()">
@@ -602,6 +602,7 @@
                   <el-switch
                     v-model="showPrivateTasks"
                     :active-text="$t('audit.privateView')"
+                    :aria-label="$t('audit.privateView')"
                     size="small"
                   />
                 </el-tooltip>
@@ -1545,6 +1546,10 @@ function formatDate(d) {
 </script>
 
 <style scoped>
+.bot-detail {
+  max-width: 1440px;
+  margin-inline: auto;
+}
 .display-name-status {
   display: inline-flex;
   align-items: center;
