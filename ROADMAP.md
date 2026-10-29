@@ -1,5 +1,61 @@
 # Roadmap
 
+Updated 2026-10-30. [Issue #27](https://github.com/dynamicheart/lockbot/issues/27) tracks execution; [requirement coverage](docs/design/requirement-coverage.md) maps the discussion to delivery and acceptance. **Merged, released, deployed and accepted are separate states.** The current sections supersede the folded historical snapshots below.
+
+## Formal release and accepted deployment
+
+**[v3.1.0](https://github.com/dynamicheart/lockbot/releases/tag/v3.1.0), release commit `8eba15c`, is published and formally deployed.** The deployment coordinator recorded preservation of 38 bots, 25 running bots and 14 Agent bindings, together with existing ports, keys, configuration, active locks and queues. These are preservation checks, not a list of private resource identities.
+
+Accepted against the formal service:
+
+- Dedicated, scoped `task_notes:read` delegation: authorized history/live-declaration reads, cross-bot and credential-family denial, rotation and revocation. Temporary acceptance credentials were revoked afterward. [Issue #56](https://github.com/dynamicheart/lockbot/issues/56) is **closed** for this delivered scope; see the [delegation design](docs/design/delegated-task-notes.md).
+- Ordinary bot-owner and OP reads exclude detailed Agent notes. Default UI reads remain public; super-administrator detailed-note viewing is explicit and audited. An ordinary OP key, personal key or metrics grant never inherits delegated note authority.
+- Independent metrics returned **16 hosts / 64 cards**, including cache and available-memory data for all hosts. The v3.1 browser check accepted the wide bot-detail layout and ordered device metrics. This does not establish mobile touch acceptance, NVIDIA fleet rollout or driver-lock performance impact.
+- The standard-library OP history/report consumer read three pages / 150 rows. Its 24-hour sample contained **133 requests from 8 actors**: 69 lock, 14 book and 50 unlock, reported as `dispatched`. The export is **partial** and operation-only: no successful-lock rate, allocated card-hours or productive-work attribution is inferred. Detailed fields were absent and no group messages were sent. [Issue #21](https://github.com/dynamicheart/lockbot/issues/21) remains open for broader analysis/consumer scope.
+
+The v3.1.0 release includes delegated note access and layout changes; it **does not include PR #70's lifecycle contract, PR #68's reactions, PR #71's membership notices, PR #72's queue panels or PR #74's process popover fix**. Later code on `main` is not automatically part of the installed image. The release notes' preparation-time production status is historical; the accepted deployment record above supersedes it.
+
+`main` is the protected default development branch; new PRs target `main` and use current-head checks and squash merge. The prior main remains in `archive/main-before-v3-20261029`; `release/2.x` is historical. The 3.0.0 branch transition is complete, not a remaining TODO.
+
+## Merged after the formal release: acceptance still required
+
+| Scope | Code / review evidence | Next gate |
+| --- | --- | --- |
+| [#54 lifecycle audit contract](https://github.com/dynamicheart/lockbot/issues/54) | [PR #70](https://github.com/dynamicheart/lockbot/pull/70) merged as `4c6b2ca`; final head `ea1d097` passed six CI checks. Recovery-envelope bot UUID was fixed and tested. Validation: 1,851 core/backend passed / 7 skipped plus 36 integration/developer/report checks (1,887 passed total); independent review: 21 targeted checks, not added to that total. | Isolated loopback HTTP/socket smoke on `6b72d17` passed: four frames/five pages; lock/renew/book/free and OP denial; journal-failure/SIGKILL recovery exactly once with the same bot UUID; stable IDs through two restarts, with cross-restart coverage unknown. All outbound requests were blocked, platform delivery stubbed and Feishu SDK disabled; processes exited. [Sanitized evidence](https://github.com/dynamicheart/lockbot/issues/54#issuecomment-6506254246). This is **not integration-host or formal-service acceptance**. Relay authentication still gates live integration restart/export and later release/formal rollout. **Issue remains open.** |
+| [#64 optional Feishu reactions](https://github.com/dynamicheart/lockbot/issues/64) | [PR #68](https://github.com/dynamicheart/lockbot/pull/68) merged as `b145bfa`; six checks on `aa9caeb`. Default off, Feishu only, committed short successes only; failures retain text fallback without replay. | Explicit user confirmation of the narrow reaction permission/publication and real rendering/fallback acceptance in the authorized **test enterprise only**. No corporate-tenant permission change. Issue was reopened after automatic merge closure; it is not delivered/accepted merely because code merged. |
+| [#63 optional membership guidance/notices](https://github.com/dynamicheart/lockbot/issues/63) | [PR #71](https://github.com/dynamicheart/lockbot/pull/71) merged as `6b72d17`; reviewed head `2da0817` passed six checks. | Default-off behavior still needs affected live routing/removal/onboarding acceptance and a later release record. The issue was reopened after automatic merge closure; merge does not close its acceptance gate. |
+| [#62 optional queue panels](https://github.com/dynamicheart/lockbot/issues/62) | [PR #72](https://github.com/dynamicheart/lockbot/pull/72) merged as `5133afe`; six checks on final `878e5ce`. Root independent panel/membership/reaction checks: 81 passed; author combined checks: 128, separate Infoflow/resource checks: 128 and frontend: 175 (overlapping suites, not summed). | Default off and **not deployed**. Real authorized-group update/fallback/isolation acceptance and a later release remain. Issue reopened after automatic merge closure. |
+| [PR #74 process details layout](https://github.com/dynamicheart/lockbot/pull/74) | Merged as `585fbb4`; six checks on final `88a1f3a` ([CI](https://github.com/dynamicheart/lockbot/actions/runs/40939877857)), frontend 175/lint/build passed. Actual Vue rendering with fictitious data at 390px desktop-browser viewport showed the popover within x=12…378 and container text visible; the old formal layout's 520px left overflow was reproduced. | **Not deployed**. This is constrained viewport/fake-data evidence, not physical mobile/touch or real hardware validation. Keep #28's workload/touch/rollout boundaries. |
+
+`main` includes PRs #70/#68/#71/#72/#74; these source merges do not change what is already deployed as v3.1.0. Evidence bounds and old/unsupported deployments remain explicit in the [lifecycle design](docs/design/verified-allocation-history.md) and OP Skill.
+
+## Active work and review queue
+
+| Issue / PR | Remaining scope and gate |
+| --- | --- |
+| [#24 external Agent adoption](https://github.com/dynamicheart/lockbot/issues/24) | Handoff/final-payload reference gate, response version hints and conditional cleanup are delivered. Verify real external-client installation/reload, task-summary privacy and feedback routing; the server cannot force arbitrary Agent hosts to follow a Skill. |
+| [#21 usage analysis](https://github.com/dynamicheart/lockbot/issues/21) | Retain the accepted public OP request-report consumer evidence above. Complete broader report design separately from #54's live lifecycle acceptance. No automatic leaderboard or group publication. |
+| [#28 telemetry operations](https://github.com/dynamicheart/lockbot/issues/28) | Broader NVIDIA deployment, measured SMI driver-lock/workload impact and mobile browser/touch acceptance. Preserve staggered five-minute sampling, cached queries and unknown/stale states. |
+| [#57 / PR #73 messaging credentials](https://github.com/dynamicheart/lockbot/pull/73) | **Open; frozen candidate `fdaf209` adds nine regressions** for expiry during token refresh and retained-client Secret-rotation guards. Full-suite/current-head CI, independent review and cloned-data preflight are in progress; the candidate is **not yet accepted**, merged or a formal migration. Retain old-row/key compatibility and separate Agent/OP/note/metrics authority. |
+
+## Closed scope, deliberate boundaries and deferred decisions
+
+- [#33](https://github.com/dynamicheart/lockbot/issues/33) is **closed** for independent data-source signing and documented client/connectivity protocol boundaries. Client-local source tests cannot prove that every viewer can reach a source. The separate bastion/VPN/IT network experiment was **deferred by the user**; it is not unfinished #33 scope and must not be restarted as a hidden telemetry dependency.
+- [#36 privacy](https://github.com/dynamicheart/lockbot/issues/36), [#39 trailing notifications](https://github.com/dynamicheart/lockbot/issues/39), [#29 Skill updates](https://github.com/dynamicheart/lockbot/issues/29) and [#60 category/layout regression](https://github.com/dynamicheart/lockbot/issues/60) are closed for their delivered scopes. Detailed-view categories use validated server labels; Agent/name and note lines are labeled separately. No promise of forced external-client compliance or durable notification delivery is implied.
+- Support Infoflow and Feishu with one enterprise application serving explicitly associated groups and independent resource bots. Platform is fixed at creation; migration copies safe configuration into a new form. **No shared resource pool across platforms**, in-place platform switch, same-name identity merging or private-chat support is scheduled. Standalone was removed; Slack/DingTalk abstractions are not being revived.
+- Application management, encrypted Secret rotation, explicit audited temporary Secret display, guarded deletion, proxy settings and name lookup are delivered foundations. Corporate-enterprise permission/publication decisions remain human gates; test-enterprise acceptance does not approve another enterprise. Full sanitized console screenshots and additional real permission/data-range acceptance must not be inferred from existing text guides or unit tests.
+- Agent contact registration/inter-Agent communication was an early idea without an agreed implementation commitment; retain it as an open product decision, not an accidental extension of private task notes.
+- Data-source queries are browser/Agent-direct and best effort, independent of allocator state. Metrics grants, CORS, network reachability and detailed-note delegation are separate. CPU available memory and buffers/cache do not diagnose a driver OOM by themselves; low utilization never authorizes reclaim or process termination.
+- [Agent deployment/onboarding guides](docs/agents/AGENTS.md), read-only preflight and [managed-hosting guidance](docs/hosting/README.md) are delivered. Real provider deployment/one-click hosting is not accepted by documentation or Compose parsing alone. Deployment, permission expansion, credential reveal and group messages still require the user's concrete authorized scope.
+- Upgrades preserve data/key/state compatibility; database readability does **not** make downgrading to old privacy behavior safe. See [upgrade/rollback](docs/design/upgrade-rollback.md). Keep release/tag, artifact checksum, deployment preservation and real acceptance records separate.
+
+## Historical evidence appendix
+
+<details>
+<summary>Archived tracking before the accepted v3.1.0 rollout — superseded status wording</summary>
+
+**Historical record only.** References below to “current”, “pending”, “unreleased”, an integration candidate, v2.15.2/v3.0.x production or a future main transition describe their earlier snapshots. They are not current TODOs. Use the current sections above for status; preserve these records for PR heads, test counts and earlier user requirements.
+
 Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/issues/27) tracks execution and [the requirement coverage matrix](docs/design/requirement-coverage.md) maps the discussion to evidence and remaining acceptance. Implementation, merge, release, deployment and acceptance are different states. An open PR or a successful local test is not a production rollout.
 
 ## Current delivery
@@ -152,3 +208,5 @@ Commit `27e3cb8` adds platform filters and further simplifies the broadcast dial
 ### Optional Feishu query panels (#62)
 
 An independent implementation adds default-off per-bot in-place updates for full group queries only. Original text/post rendering, Infoflow delivery, explicit operation outcomes and critical reminders remain unchanged. Verified own-app/group message references survive restart; scoped serialization, identity generations, conservative rollover and bounded fallback protect routing and concurrency. Missing/revoked editing permission requires no expanded baseline scopes. Automated API/transport tests are recorded in the PR; live authorized-group acceptance and rollout remain pending root review. See [configuration and limitations](docs/usage/feishu.md#可选原地更新查询面板).
+
+</details>
