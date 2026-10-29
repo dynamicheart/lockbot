@@ -38,3 +38,71 @@ python3 scripts/lease_history/report.py --input authorized-lease-pages.jsonl \
 ```
 
 Follow every non-null cursor, including empty pages. A 409 requires a new export; do not stitch an old cursor into a complete report. The local input is capped at 20 MiB. The script prints a local JSON report only. Review scope, gaps and public content before any separately authorized summary publication.
+
+## V2 durable export contract
+
+`allocator_lifecycle_audit_v2` advertises the additive
+`GET /api/bots/{bot_id}/op/lifecycle-audit` endpoint. The original schema-1 endpoint
+and reporting script remain compatible. V2 is public OP evidence, not the separate
+super-administrator delegated detailed-note API. It never includes Agent labels,
+detailed notes, raw commands/replies, headers, paths or holding proofs.
+
+Each allocator state replacement includes a bounded `lifecycle_outbox` envelope in
+`bot_state.json`. The temporary file is flushed and fsynced, atomically renamed,
+and its directory fsynced before journal acknowledgement. JSONL is a derivative:
+append and directory changes are fsynced; startup replays pending stable frame IDs
+and skips IDs already present. The persisted envelope retains the last acknowledged
+frame as a recovery receipt. Recovery is fenced by bot ID, bot UUID and identity
+revision. Restoring files from another deployment is unsupported.
+
+The envelope holds at most 16 frames / 4 MiB. If a journal outage exceeds that
+bound, the next atomic state records an `outbox_overflow` boundary rather than
+claiming complete history. A persistence failure, migration, offline state edit,
+startup baseline, invalid state or broken chain similarly leaves explicit unknown
+coverage. This is bounded local durability, not remote replication or an audit of
+administrator filesystem changes. Directory-fsync support is required.
+
+The additive `contract.version=2` metadata contains a stable journal ID, persistent
+commit sequence, frame ID, authenticated initiator and server-generated correlation
+ID. Event IDs derive from frame ID plus position. Public holding references retain
+the same identity across renewals; reacquisition gets a new reference. Each changed
+holding/booking increments its version. System expiry records its lease deadline
+as `occurred_at`; `recorded_at` is the observation/commit time. An initiator is
+separate from a lease holder: platform commands use their verified platform user,
+OP actions use the bot-scoped operator identity, live administrative edits use the
+current management account, and timers use `system`. Correlation is a safe server
+reference; it is not a client idempotency key or authority to mutate resources.
+
+### Frozen bounded reads
+
+Use `start` and `end` together as UTC Unix seconds, with a maximum seven-day window;
+the semantics are `(start, end]`. `resource` optionally selects an exact canonical
+resource ID. `limit` is 1–100; reading is limited to 1 MiB per request and 30
+requests/minute. Items have a separate 1 MiB serialization budget; a final public
+state anchor can add one bounded record. Empty pages may have a non-null cursor.
+
+The first page captures an `as_of`, bot identity, credential digest, filters, window,
+page size, file inode/size high-water marks and a live public checkpoint. An HMAC
+cursor binds these values for 15 minutes. Continue with the same parameters;
+new appends, including equal timestamps, are excluded. Rotation is followed by
+inode while retained. Eviction/replacement returns 409; modified parameters or
+invalid signatures return 400. Current OP revocation/deletion is checked again
+before returning every page. A cursor grants no authority by itself.
+
+A resource-filtered frame has a filtered state and event list; its digests still
+identify the whole-bot committed state (`state_digest_scope` says this explicitly).
+Do not recompute a whole-state digest from that projection. Sequence gaps in a
+filtered result are not lost evidence: the server verifies unfiltered frames.
+The final page provides the last atomic after-state at/before `start` as
+`coverage.start_anchor`. Only a continuous valid chain from that anchor to a
+matching frozen live checkpoint can set `complete_window=true`; no earlier history
+is certified. Without an anchor/checkpoint, for legacy records, or across a known
+boundary, coverage stays unknown. `complete_history` is always false because
+retention is finite. Offline administrative changes are not silently invented as
+committed events; they establish a new session baseline when the bot starts.
+
+Consumers must deduplicate event IDs and keep request counts, subject-grant
+allocation time, physical occupancy and measured hardware utilization separate.
+The existing schema-1 local report accepts the original endpoint. Consumers of the
+V2 filtered projection must use its V2 anchor/coverage contract instead of passing
+filtered digests to the schema-1 report.
