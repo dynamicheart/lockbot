@@ -186,6 +186,17 @@ no-cache request, verify its SHA-256, and reload it without replacing another pl
 skill. An unknown API major version means stop mutations and request compatible instructions;
 a server version change within API 1 does not itself require a new key or new binding.
 Never renew/revoke credentials merely to update a skill.
+For authenticated API calls, send `X-Lockbot-Client-Skill-Version: <loaded skill version>`.
+Use the revision of the instructions actually loaded for this task, not a newer manifest
+which you have not read. Context, resource and command responses include `skill_update` in
+the JSON body: `unknown` means no usable client version was reported; `update_available`
+means it differs; `current` means the reported revision matches. These are equality checks,
+not proof of successful local installation. Follow same-origin `manifest_url` / `skill_url`
+and read the latest instructions before the next mutation when an update is needed. A
+notice after a command does not mean that command failed: verify its state and never replay
+it merely to update the Skill. Old clients may need the user to share the latest Skill URL
+once because their installed copy contains no update rule or hook.
+
 The API advertises updates; the Agent client performs the download and reload. A server
 cannot automatically install a skill in a client that does not support it. Keep checking the
 manifest at task start even if that client loaded an older installed copy.

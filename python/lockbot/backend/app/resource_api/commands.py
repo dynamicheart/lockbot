@@ -233,6 +233,7 @@ class CommandActor(BaseModel):
 
 
 class CommandResponse(BaseModel):
+    skill_update: dict = Field(default_factory=dict)
     next_step: str | None = None
     bot_id: int
     bot_type: str
@@ -398,7 +399,10 @@ def execute_command_via_api(
 
     record_api_command(actor=actor, bot_id=bot_id, command=text)
 
+    from lockbot.backend.app.resource_api.skill import client_skill_notice
+
     return CommandResponse(
+        skill_update=client_skill_notice(request),
         next_step=(
             "book is only a booking, not ownership. Keep polling GET /resources; when claimable_by_you "
             "is true, send claim_command, then verify your holding before using the resource. "

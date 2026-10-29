@@ -82,6 +82,7 @@ class AgentContextResponse(BaseModel):
     agent_access_enabled: bool
     credential_scope: Literal["one_user_one_bot"]
     usage_privacy: dict[str, Any]
+    skill_update: dict[str, Any]
     links: dict[str, str]
     skill: dict[str, Any]
     view_url: str | None = None
@@ -117,7 +118,7 @@ def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
     # Refresh even if another request retained this ORM identity in a reused Session.
     db.refresh(bot)
-    from lockbot.backend.app.resource_api.skill import skill_artifacts
+    from lockbot.backend.app.resource_api.skill import client_skill_notice, skill_artifacts
     from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
     from lockbot.backend.app.resource_api.view_links import view_link
 
@@ -144,5 +145,6 @@ def _context_payload(request, response, db, row):
             "skill_manifest": "/api/agent-skill",
         },
         "skill": skill_artifacts()[2],
+        "skill_update": client_skill_notice(request),
         **view,
     }

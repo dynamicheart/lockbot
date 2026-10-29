@@ -48,6 +48,35 @@ def skill_artifacts(kind="agent"):
     )
 
 
+def client_skill_notice(request):
+    """A body-level bootstrap for old clients which never inspect response headers.
+
+    An absent/invalid report is unknown, not proof of an outdated installation.
+    This is advisory and cannot verify a client's download or loaded instructions.
+    """
+    import re
+
+    current = skill_artifacts()[2]["version"]
+    reported = request.headers.get("X-Lockbot-Client-Skill-Version", "")
+    if not re.fullmatch(r"[a-f0-9]{16}", reported):
+        reported = None
+    status = "unknown" if reported is None else "current" if reported == current else "update_available"
+    return {
+        "status": status,
+        "current_version": current,
+        "reported_version": reported,
+        "manifest_url": "/api/agent-skill",
+        "skill_url": "/api/agent-skill/SKILL.md",
+        "message": None
+        if status == "current"
+        else (
+            "Before the next resource mutation, check the manifest on this same approved origin, "
+            "load the latest Skill, and report its version in X-Lockbot-Client-Skill-Version. "
+            "Update an installed copy only within the user's authorized setup. Do not rebind or retry the last command."
+        ),
+    }
+
+
 def _zip_skill(markdown, name):
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
