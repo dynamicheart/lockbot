@@ -95,8 +95,8 @@ export const useBotsStore = defineStore('bots', () => {
     return res.data
   }
 
-  async function getBot(id) {
-    const res = await api.get(`/bots/${id}`)
+  async function getBot(id, options = {}) {
+    const res = await api.get(`/bots/${id}`, options)
     return res.data
   }
 
@@ -124,8 +124,8 @@ export const useBotsStore = defineStore('bots', () => {
     return res.data
   }
 
-  async function getBotState(id, params = {}) {
-    const res = await api.get(`/bots/${id}/state`, { params })
+  async function getBotState(id, params = {}, options = {}) {
+    const res = await api.get(`/bots/${id}/state`, { ...options, params })
     return res.data
   }
 
