@@ -41,50 +41,6 @@
       :closable="false"
     />
     <template v-if="snapshot">
-      <el-card
-        v-if="snapshot.business_operations"
-        shadow="never"
-        class="traffic-panel business-panel"
-      >
-        <template #header
-          ><div class="panel-heading">
-            <span>{{ $t('serviceTraffic.businessTitle') }}</span>
-            <el-tooltip :content="$t('serviceTraffic.businessHelp')"
-              ><span tabindex="0">ⓘ</span></el-tooltip
-            >
-          </div></template
-        >
-        <div class="business-sources">
-          <span
-            v-for="source in ['chat', 'agent', 'operator']"
-            :key="source"
-            class="operation-source"
-            :class="`source-${source}`"
-          >
-            <el-icon><component :is="sourceIcons[source]" /></el-icon>
-            {{ $t('serviceTraffic.businessSources.' + source) }}
-            <strong>{{ number(businessCount(source)) }}</strong>
-          </span>
-        </div>
-        <el-table :data="businessRows" :empty-text="$t('common.noData')" size="small">
-          <el-table-column :label="$t('serviceTraffic.source')" min-width="130">
-            <template #default="{ row }">
-              <span class="operation-source" :class="`source-${row.source}`">
-                <el-icon><component :is="sourceIcons[row.source]" /></el-icon>
-                {{ $t('serviceTraffic.businessSources.' + row.source) }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="command" :label="$t('agentHistory.operation')" min-width="120" />
-          <el-table-column
-            v-for="outcome in ['dispatched', 'rejected', 'uncertain']"
-            :key="outcome"
-            :label="$t('agentHistory.outcomes.' + outcome)"
-            min-width="110"
-            ><template #default="{ row }">{{ number(row[outcome]) }}</template></el-table-column
-          >
-        </el-table>
-      </el-card>
       <h3 class="http-heading">{{ $t('serviceTraffic.httpTitle') }}</h3>
       <div class="traffic-stats">
         <div>
@@ -109,13 +65,16 @@
       <el-card shadow="never" class="traffic-panel">
         <template #header
           ><div class="panel-heading">
-            <span>{{ $t('serviceTraffic.trend') }}</span
-            ><span class="chart-legend"
-              ><i></i>{{ $t('serviceTraffic.requests') }}<i class="errors"></i
-              >{{ $t('serviceTraffic.serverErrors') }}</span
-            >
+            <span>{{ $t('serviceTraffic.trend') }}</span>
           </div></template
         >
+        <div class="trend-layer-heading">
+          <strong>{{ $t('serviceTraffic.httpLayer') }}</strong>
+          <span class="chart-legend"
+            ><i></i>{{ $t('serviceTraffic.requests') }}<i class="errors"></i
+            >{{ $t('serviceTraffic.serverErrors') }}</span
+          >
+        </div>
         <div class="traffic-chart" role="img" :aria-label="$t('serviceTraffic.trend')">
           <span class="axis-high">{{ chartMax }}</span>
           <div class="traffic-bars">
@@ -135,11 +94,88 @@
               ></span>
             </div>
           </div>
-          <div class="axis-times">
-            <span>{{ minute(snapshot.history[0]?.at) }}</span
-            ><span>{{ minute(snapshot.history.at(-1)?.at) }}</span>
-          </div>
         </div>
+        <section class="operation-layer">
+          <div class="trend-layer-heading">
+            <strong>{{ $t('serviceTraffic.operationLayer') }}</strong>
+            <span class="business-sources">
+              <span
+                v-for="source in operationSources"
+                :key="source"
+                class="operation-source"
+                :class="`source-${source}`"
+              >
+                <i class="source-dot"></i>{{ $t('serviceTraffic.businessSources.' + source) }}
+                <b>{{ number(operationTrend.totals[source]) }}</b>
+              </span>
+            </span>
+          </div>
+          <p class="trend-note">{{ $t('serviceTraffic.operationTrendHelp') }}</p>
+          <div
+            v-if="operationTrend.hasActivity"
+            class="traffic-chart operation-chart"
+            role="img"
+            :aria-label="$t('serviceTraffic.operationLayer')"
+          >
+            <span class="axis-high">{{ operationTrend.max }}</span>
+            <div class="traffic-bars">
+              <div
+                v-for="point in operationTrend.history"
+                :key="point.at"
+                class="traffic-minute"
+                :class="{ 'is-unobserved': !point.observed }"
+                :title="operationTooltip(point)"
+              >
+                <span
+                  v-for="segment in point.segments"
+                  :key="segment.source"
+                  class="operation-segment"
+                  :class="`source-${segment.source}`"
+                  :style="{ height: `${segment.height}%`, bottom: `${segment.bottom}%` }"
+                ></span>
+              </div>
+            </div>
+          </div>
+          <p v-else class="trend-empty">
+            {{
+              $t(
+                operationTrend.history.some((point) => point.observed)
+                  ? 'serviceTraffic.noRecentOperations'
+                  : 'serviceTraffic.operationHistoryUnavailable'
+              )
+            }}
+          </p>
+        </section>
+        <div class="axis-times shared-axis">
+          <span>{{ minute(snapshot.history[0]?.at) }}</span
+          ><span>{{ minute(snapshot.history.at(-1)?.at) }}</span>
+        </div>
+        <details v-if="snapshot.business_operations" class="operation-details">
+          <summary>{{ $t('serviceTraffic.operationDetails') }}</summary>
+          <p class="trend-note">
+            {{ $t('serviceTraffic.since') }}
+            {{ localTime(snapshot.business_operations.observed_since || snapshot.started_at) }} ·
+            {{ $t('serviceTraffic.businessHelp') }}
+          </p>
+          <el-table :data="businessRows" :empty-text="$t('common.noData')" size="small">
+            <el-table-column :label="$t('serviceTraffic.source')" min-width="130">
+              <template #default="{ row }">
+                <span class="operation-source" :class="`source-${row.source}`">
+                  <el-icon><component :is="sourceIcons[row.source]" /></el-icon>
+                  {{ $t('serviceTraffic.businessSources.' + row.source) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="command" :label="$t('agentHistory.operation')" min-width="120" />
+            <el-table-column
+              v-for="outcome in ['dispatched', 'rejected', 'uncertain']"
+              :key="outcome"
+              :label="$t('agentHistory.outcomes.' + outcome)"
+              min-width="110"
+              ><template #default="{ row }">{{ number(row[outcome]) }}</template></el-table-column
+            >
+          </el-table>
+        </details>
       </el-card>
       <el-card shadow="never" class="traffic-panel">
         <el-tabs v-model="grouping"
@@ -230,6 +266,7 @@ import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/auth'
 import { createServiceTrafficLoader } from '../utils/serviceTrafficLoader'
+import { buildOperationTrend, operationSources } from '../utils/operationTrend'
 const props = defineProps({
   botId: { type: [Number, String], default: null },
   includePrivate: { type: Boolean, default: false },
@@ -239,7 +276,7 @@ const showPrivateTasks = ref(false)
 const privateTaskView = computed(
   () => authStore.isSuperAdmin && (props.botId ? props.includePrivate : showPrivateTasks.value)
 )
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 const selectedBot = ref(null)
 const botOptions = ref([])
 const snapshot = ref(null)
@@ -263,10 +300,9 @@ const businessRows = computed(() => {
   }
   return [...grouped.values()]
 })
-const businessCount = (source) =>
-  (snapshot.value?.business_operations?.rows || [])
-    .filter((row) => row.source === source)
-    .reduce((sum, row) => sum + row.count, 0)
+const operationTrend = computed(() => buildOperationTrend(snapshot.value))
+const operationTooltip = (point) =>
+  `${localTime(point.at)} · ${point.observed ? operationSources.map((source) => `${t('serviceTraffic.businessSources.' + source)} ${point.sources[source]}`).join(' / ') : t('serviceTraffic.operationHistoryUnavailable')}`
 const chartMax = computed(() =>
   Math.max(1, ...(snapshot.value?.history || []).map((point) => point.requests))
 )
@@ -347,14 +383,10 @@ function bytes(value) {
   font-size: 15px;
   font-weight: 500;
 }
-.business-panel {
-  margin-bottom: 20px;
-}
 .business-sources {
   display: flex;
-  gap: 32px;
+  gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 12px;
   color: var(--el-text-color-regular);
 }
 .operation-source {
@@ -367,15 +399,15 @@ function bytes(value) {
   font-size: 15px;
 }
 .source-chat {
-  --source-color: var(--el-color-primary);
+  --source-color: var(--el-color-success);
 }
 .source-agent {
-  --source-color: #8b5cf6;
+  --source-color: var(--el-color-primary);
 }
 .source-operator {
   --source-color: var(--el-color-warning);
 }
-.business-sources strong {
+.business-sources b {
   margin-left: 8px;
   color: var(--el-text-color-primary);
 }
@@ -498,8 +530,56 @@ h2 {
   width: 100%;
   background: var(--el-color-primary);
 }
+.traffic-minute .operation-segment {
+  background: var(--source-color);
+}
+.traffic-minute.is-unobserved {
+  background: var(--el-fill-color-light);
+}
 .traffic-minute .errors {
   background: var(--el-color-danger);
+}
+.trend-layer-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.operation-layer {
+  border-top: 1px solid var(--lb-border-color);
+  margin-top: 20px;
+  padding-top: 16px;
+}
+.operation-chart .traffic-bars {
+  height: 100px;
+}
+.source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--source-color);
+}
+.trend-note,
+.trend-empty {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.trend-empty {
+  margin: 12px 0 4px;
+}
+.shared-axis {
+  padding-left: 25px;
+}
+.operation-details {
+  margin-top: 16px;
+  font-size: 13px;
+}
+.operation-details summary {
+  cursor: pointer;
+  color: var(--el-text-color-regular);
 }
 .axis-times {
   display: flex;
