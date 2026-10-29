@@ -194,3 +194,7 @@ def test_public_event_allowlist_excludes_future_fields_and_searchable_private_te
     assert public["requested_resources"] == [{"resource_id": "n1", "device_ids": [0]}]
     assert "private-" not in json.dumps(public) and "future_private" not in public
     assert public_event({"requested_resources": None})["requested_resources"] == []
+
+
+def test_public_usage_event_keeps_legacy_resource_identifier():
+    assert public_event({"requested_resources": ["n1:dev0"]})["requested_resources"] == [{"resource_id": "n1:dev0"}]

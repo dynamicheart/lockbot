@@ -102,6 +102,8 @@ def public_event(entry):
     targets = []
     requested = entry.get("requested_resources")
     for target in requested[:100] if isinstance(requested, list) else []:
+        if isinstance(target, str):
+            target = {"resource_id": target}
         if not isinstance(target, dict) or not isinstance(target.get("resource_id"), str):
             continue
         item = {"resource_id": target["resource_id"][:256]}
