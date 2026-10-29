@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -47,7 +48,11 @@ TASK_CATEGORIES = {
 
 def validate_task_category(value):
     if value is not None and value not in TASK_CATEGORIES:
-        raise ValueError("task_category must be one of the categories listed in /api/agent/context")
+        raise PydanticCustomError(
+            "invalid_task_category",
+            "task_category must be one of the allowed category IDs; see allowed_categories or /api/agent/context",
+            {"allowed_categories": TASK_CATEGORIES, "context_url": "/api/agent/context"},
+        )
     return value
 
 
