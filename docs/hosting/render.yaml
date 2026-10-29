@@ -1,0 +1,28 @@
+# Review paid compute and disk charges before creating this Blueprint.
+# This is a single-writer deployment: never add replicas or autoscaling.
+services:
+  - type: web
+    name: lockbot
+    runtime: docker
+    dockerfilePath: ./docker/Dockerfile
+    dockerContext: .
+    plan: 0.5c-512mb
+    numInstances: 1
+    autoDeployTrigger: 'off'
+    healthCheckPath: /api/health
+    disk:
+      name: lockbot-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: PORT
+        value: '8000'
+      - key: WEB_CONCURRENCY
+        value: '1'
+      - key: JWT_SECRET
+        generateValue: true
+      # Generate with tools/gen_keys.py; generic random text is not a Fernet key.
+      - key: ENCRYPTION_KEY
+        sync: false
