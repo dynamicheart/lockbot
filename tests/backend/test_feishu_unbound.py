@@ -63,7 +63,11 @@ def hints(setup, db_session, monkeypatch):
         sent.append(payload)
         return [(200, "platform_accepted")]
 
-    monkeypatch.setattr(FeishuClient, "token", lambda self: "fixture-token")
+    def fixture_token(self):
+        self._token = "fixture-token"
+        return self._token
+
+    monkeypatch.setattr(FeishuClient, "token", fixture_token)
     monkeypatch.setattr(FeishuClient, "send", send)
     return SimpleNamespace(
         request_sessions=request_sessions,
@@ -224,7 +228,12 @@ def test_hint_uses_the_fixed_feishu_proxy_after_all_owned_transactions_close(cli
     monkeypatch.setattr(feishu_proxy, "_mode", "custom")
     monkeypatch.setattr(feishu_proxy, "_configured", "http://proxy.example:8188")
     monkeypatch.setattr(FeishuClient, "send", _ORIGINAL_SEND)
-    monkeypatch.setattr(FeishuClient, "token", lambda self: "fixture-token")
+
+    def fixture_token(self):
+        self._token = "fixture-token"
+        return self._token
+
+    monkeypatch.setattr(FeishuClient, "token", fixture_token)
 
     def network(url, **kwargs):
         assert all(not session.in_transaction() for session in hints.request_sessions + hints.worker_sessions)
