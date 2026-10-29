@@ -28,16 +28,44 @@
       v-model="dialog"
       :title="$t('feishu.add')"
       width="min(560px, 94vw)"
+      class="feishu-application-dialog"
       @closed="clearSecrets"
     >
-      <el-form ref="formRef" :model="form" label-position="top" @submit.prevent="save">
-        <el-form-item :label="$t('feishu.name')" prop="name" :rules="required"
+      <p class="application-guide">
+        <a
+          href="https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/feishu.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          >{{ $t('feishu.setupGuide') }}</a
+        >
+      </p>
+      <el-form
+        ref="formRef"
+        :model="form"
+        :validate-on-rule-change="false"
+        label-position="top"
+        @submit.prevent="save"
+      >
+        <el-form-item :label="$t('feishu.name')" prop="name" :rules="required">
+          <template #label
+            >{{ $t('feishu.name')
+            }}<el-tooltip :content="$t('feishu.nameHelp')" placement="top" effect="light"
+              ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip></template
           ><el-input v-model="form.name" maxlength="128"
         /></el-form-item>
-        <el-form-item label="App ID" prop="app_id" :rules="required"
+        <el-form-item label="App ID" prop="app_id" :rules="required">
+          <template #label
+            >App ID<el-tooltip :content="$t('feishu.appIdHelp')" placement="top" effect="light"
+              ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip></template
           ><el-input v-model="form.app_id" placeholder="cli_…" autocomplete="off"
         /></el-form-item>
-        <el-form-item label="App Secret" prop="app_secret" :rules="required"
+        <el-form-item label="App Secret" prop="app_secret" :rules="required">
+          <template #label
+            >App Secret<el-tooltip
+              :content="$t('feishu.appSecretHelp')"
+              placement="top"
+              effect="light"
+              ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip></template
           ><el-input
             v-model="form.app_secret"
             type="password"
@@ -45,23 +73,44 @@
             autocomplete="new-password"
         /></el-form-item>
         <el-form-item :label="$t('feishu.transport')">
+          <template #label
+            >{{ $t('feishu.transport')
+            }}<el-tooltip :content="$t('feishu.transportHelp')" placement="top" effect="light"
+              ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip
+          ></template>
           <el-radio-group v-model="form.transport">
             <el-radio-button value="websocket">{{ $t('feishu.websocket') }}</el-radio-button>
             <el-radio-button value="http">HTTP</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <template v-if="form.transport === 'http'">
-          <el-form-item :label="$t('feishu.tenant')" prop="tenant_key" :rules="required"
+          <el-form-item :label="$t('feishu.tenant')" prop="tenant_key" :rules="required">
+            <template #label
+              >{{ $t('feishu.tenant')
+              }}<el-tooltip :content="$t('feishu.tenantHelp')" placement="top" effect="light"
+                ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip></template
             ><el-input v-model="form.tenant_key"
           /></el-form-item>
-          <el-form-item label="Verification Token" prop="verification_token" :rules="required"
+          <el-form-item label="Verification Token" prop="verification_token" :rules="required">
+            <template #label
+              >Verification Token<el-tooltip
+                :content="$t('feishu.verificationHelp')"
+                placement="top"
+                effect="light"
+                ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip></template
             ><el-input
               v-model="form.verification_token"
               type="password"
               show-password
               autocomplete="new-password"
           /></el-form-item>
-          <el-form-item label="Encrypt Key"
+          <el-form-item label="Encrypt Key">
+            <template #label
+              >Encrypt Key<el-tooltip
+                :content="$t('feishu.encryptHelp')"
+                placement="top"
+                effect="light"
+                ><el-icon class="field-help"><QuestionFilled /></el-icon></el-tooltip></template
             ><el-input
               v-model="form.encrypt_key"
               type="password"
@@ -85,6 +134,7 @@ import { onMounted, reactive, ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import api from '../utils/api'
+import { QuestionFilled } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const applications = ref([])
@@ -144,6 +194,23 @@ onMounted(load)
 </script>
 
 <style scoped>
+.field-help {
+  margin-left: 5px;
+  color: var(--el-text-color-secondary);
+  cursor: help;
+}
+.application-guide {
+  margin: 0 0 16px;
+  font-size: 13px;
+}
+.application-guide a {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+.application-guide a:hover {
+  text-decoration: underline;
+}
+
 .feishu-applications {
   margin-top: 24px;
   padding-top: 20px;
@@ -161,5 +228,12 @@ onMounted(load)
   gap: 16px;
   margin-bottom: 12px;
   flex-wrap: wrap;
+}
+</style>
+
+<style>
+.feishu-application-dialog .el-dialog__body {
+  max-height: 60vh;
+  overflow-y: auto;
 }
 </style>

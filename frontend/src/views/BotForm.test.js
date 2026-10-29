@@ -18,7 +18,9 @@ vi.mock('../stores/bots', () => ({ useBotsStore: () => ({ createBot: model.creat
 vi.mock('../utils/api', () => ({ default: { get: vi.fn(async () => ({ data: [] })) } }))
 vi.mock('element-plus', () => ({ ElMessage: { error: vi.fn(), success: vi.fn() } }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key, locale: ref('zh') }) }))
-vi.mock('../components/BotForm/NodeBotForm.vue', () => ({ default: { render: () => null } }))
+vi.mock('../components/BotForm/NodeBotForm.vue', () => ({
+  default: { render: () => h('div', { 'data-test': 'resource-config' }, 'resource-config') },
+}))
 vi.mock('../components/BotForm/DeviceBotForm.vue', () => ({ default: { render: () => null } }))
 vi.mock('../components/BotForm/QueueBotForm.vue', () => ({ default: { render: () => null } }))
 vi.mock('../components/BotForm/ClusterPreview.vue', () => ({ default: { render: () => null } }))
@@ -87,7 +89,9 @@ it('switches platform without whole-form validation, clears credentials and vali
   app.directive('loading', {})
   app.config.warnHandler = () => {}
   app.config.globalProperties.$t = (key) => key
-  await renderToString(app)
+  const html = await renderToString(app)
+  expect(html.indexOf('platform-connection')).toBeLessThan(html.indexOf('resource-config'))
+  expect(html.indexOf('botCreate.webhookUrl')).toBeLessThan(html.indexOf('resource-config'))
   app.mount({ children: [] })
   const view = app._instance.setupState
   view.formRef = { clearValidate: model.clear, validate: model.validate }

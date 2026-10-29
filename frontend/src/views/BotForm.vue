@@ -65,49 +65,122 @@
           />
         </el-select>
       </el-form-item>
-      <template v-if="form.platform.toLowerCase() === 'feishu'">
-        <el-form-item
-          v-if="!isEdit"
-          prop="feishu_application_id"
-          :rules="[{ required: true, message: t('feishu.required'), trigger: 'change' }]"
-        >
-          <template #label>
-            {{ $t('feishu.application') }}
-            <el-tooltip :content="$t('feishu.applicationHelp')" placement="top" effect="light">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-select
-            v-model="form.feishu_application_id"
-            style="width: 100%"
-            @visible-change="loadFeishuApplications"
+      <section class="platform-connection">
+        <h3 class="connection-title">{{ $t('feishu.connectionSettings') }}</h3>
+        <template v-if="form.platform.toLowerCase() === 'feishu'">
+          <el-form-item
+            v-if="!isEdit"
+            prop="feishu_application_id"
+            :rules="[{ required: true, message: t('feishu.required'), trigger: 'change' }]"
           >
-            <el-option
-              v-for="app in feishuApplications"
-              :key="app.id"
-              :label="app.name"
-              :value="app.id"
+            <template #label>
+              {{ $t('feishu.application') }}
+              <el-tooltip :content="$t('feishu.applicationHelp')" placement="top" effect="light">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-select
+              v-model="form.feishu_application_id"
+              style="width: 100%"
+              @visible-change="loadFeishuApplications"
+            >
+              <el-option
+                v-for="app in feishuApplications"
+                :key="app.id"
+                :label="app.name"
+                :value="app.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item
+            prop="group_id"
+            :rules="[{ required: true, message: t('feishu.required'), trigger: 'blur' }]"
+          >
+            <template #label>
+              {{ $t('feishu.group') }}
+              <el-tooltip :content="$t('feishu.groupHelp')" placement="top" effect="light">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input v-model="form.group_id" :disabled="isEdit" placeholder="oc_…" />
+            <FeishuGroupInfo
+              :bot-id="isEdit ? bot?.id : null"
+              :application-id="form.feishu_application_id"
+              :chat-id="form.group_id"
             />
-          </el-select>
-        </el-form-item>
-        <el-form-item
-          prop="group_id"
-          :rules="[{ required: true, message: t('feishu.required'), trigger: 'blur' }]"
-        >
-          <template #label>
-            {{ $t('feishu.group') }}
-            <el-tooltip :content="$t('feishu.groupHelp')" placement="top" effect="light">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input v-model="form.group_id" :disabled="isEdit" placeholder="oc_…" />
-          <FeishuGroupInfo
-            :bot-id="isEdit ? bot?.id : null"
-            :application-id="form.feishu_application_id"
-            :chat-id="form.group_id"
-          />
-        </el-form-item>
-      </template>
+          </el-form-item>
+        </template>
+        <!-- Credentials -->
+        <div v-if="form.platform.toLowerCase() !== 'feishu'" class="platform-fields">
+          <p class="connection-note">{{ $t('botCreate.credentialsHint') }}</p>
+          <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
+            <template #label>
+              <span>{{ $t('botCreate.webhookUrl') }}</span>
+              <el-tooltip placement="top" effect="light">
+                <template #content>
+                  <div class="help-tooltip">
+                    <div class="help-title">{{ $t('botCreate.webhookHelpTitle') }}</div>
+                    <div>{{ $t('botCreate.webhookHelpStep1') }}</div>
+                    <div>{{ $t('botCreate.webhookHelpStep2') }}</div>
+                    <div>{{ $t('botCreate.webhookHelpStep3') }}</div>
+                  </div>
+                </template>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input
+              v-model="form.webhook_url"
+              :placeholder="$t('botCreate.webhookPlaceholder')"
+            />
+          </el-form-item>
+          <el-form-item :label="$t('botCreate.token')" prop="token">
+            <template #label>
+              <span>{{ $t('botCreate.token') }}</span>
+              <el-tooltip placement="top" effect="light">
+                <template #content>
+                  <div class="help-tooltip">{{ $t('botCreate.tokenHelp') }}</div>
+                </template>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input
+              v-model="form.token"
+              :placeholder="
+                isEdit && maskedToken
+                  ? maskedToken
+                  : isEdit
+                    ? $t('botCreate.leaveBlank')
+                    : $t('botCreate.tokenPlaceholder')
+              "
+              show-password
+            />
+          </el-form-item>
+          <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
+            <template #label>
+              <span>{{ $t('botCreate.aesKey') }}</span>
+              <el-tooltip placement="top" effect="light">
+                <template #content>
+                  <div class="help-tooltip">{{ $t('botCreate.aesKeyHelp') }}</div>
+                </template>
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-input
+              v-model="form.aes_key"
+              :placeholder="
+                isEdit && maskedAesKey
+                  ? maskedAesKey
+                  : isEdit
+                    ? $t('botCreate.leaveBlank')
+                    : $t('botCreate.aesKeyPlaceholder')
+              "
+              show-password
+            />
+          </el-form-item>
+        </div>
+      </section>
+
+      <el-divider />
 
       <!-- Cluster Config -->
       <NodeBotForm
@@ -144,74 +217,6 @@
       />
 
       <el-divider />
-
-      <!-- Credentials -->
-      <div v-if="form.platform.toLowerCase() !== 'feishu'" class="credentials-card">
-        <el-alert type="info" :closable="false" show-icon class="credentials-alert">
-          <template #title>{{ $t('botCreate.credentialsHint') }}</template>
-        </el-alert>
-        <el-form-item :label="$t('botCreate.webhookUrl')" prop="webhook_url">
-          <template #label>
-            <span>{{ $t('botCreate.webhookUrl') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">
-                  <div class="help-title">{{ $t('botCreate.webhookHelpTitle') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep1') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep2') }}</div>
-                  <div>{{ $t('botCreate.webhookHelpStep3') }}</div>
-                </div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input v-model="form.webhook_url" :placeholder="$t('botCreate.webhookPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="$t('botCreate.token')" prop="token">
-          <template #label>
-            <span>{{ $t('botCreate.token') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">{{ $t('botCreate.tokenHelp') }}</div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input
-            v-model="form.token"
-            :placeholder="
-              isEdit && maskedToken
-                ? maskedToken
-                : isEdit
-                  ? $t('botCreate.leaveBlank')
-                  : $t('botCreate.tokenPlaceholder')
-            "
-            show-password
-          />
-        </el-form-item>
-        <el-form-item :label="$t('botCreate.aesKey')" prop="aes_key">
-          <template #label>
-            <span>{{ $t('botCreate.aesKey') }}</span>
-            <el-tooltip placement="top" effect="light">
-              <template #content>
-                <div class="help-tooltip">{{ $t('botCreate.aesKeyHelp') }}</div>
-              </template>
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-input
-            v-model="form.aes_key"
-            :placeholder="
-              isEdit && maskedAesKey
-                ? maskedAesKey
-                : isEdit
-                  ? $t('botCreate.leaveBlank')
-                  : $t('botCreate.aesKeyPlaceholder')
-            "
-            show-password
-          />
-        </el-form-item>
-      </div>
 
       <section class="agent-settings" :aria-label="$t('botDetail.agentGroup')">
         <div class="agent-settings-title">{{ $t('botDetail.agentGroup') }}</div>
@@ -898,14 +903,22 @@ async function handleSubmit() {
   width: 148px;
   max-width: 100%;
 }
-.credentials-card {
+.platform-connection {
   background: var(--el-fill-color-lighter);
   border-radius: 8px;
   padding: 16px 20px 4px;
   border: 1px solid var(--lb-border-light);
 }
-.credentials-alert {
-  margin-bottom: 16px;
+.connection-title {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.connection-note {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--lb-text-secondary);
+  line-height: 1.6;
 }
 .form-actions {
   display: flex;

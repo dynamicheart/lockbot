@@ -2,11 +2,14 @@
   <section class="utilization-control">
     <div class="utilization-toolbar">
       <div class="source-summary">
-        <strong>{{ $t('utilization.title') }}</strong>
-        <span class="source-name">{{ modelValue?.name || $t('utilization.notConfigured') }}</span>
+        <span class="source-name" :class="{ 'is-configured': modelValue }">{{
+          modelValue?.name || $t('utilization.notConfigured')
+        }}</span>
       </div>
       <div class="source-actions">
-        <el-button size="small" @click="openSettings">{{ $t('utilization.configure') }}</el-button>
+        <el-button size="small" @click="openSettings">{{
+          modelValue ? $t('common.edit') : $t('utilization.configureSource')
+        }}</el-button>
         <el-button
           v-if="modelValue"
           text
@@ -21,10 +24,10 @@
     <el-dialog
       v-model="settings"
       :title="$t('utilization.configure')"
-      width="640px"
+      width="min(760px, 94vw)"
       class="utilization-dialog"
     >
-      <p class="config-note">{{ $t('utilization.templateHint') }}</p>
+      <p class="config-note config-intro">{{ $t('utilization.connectionHint') }}</p>
       <a
         class="setup-guide"
         href="https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md"
@@ -33,67 +36,76 @@
         >{{ $t('utilization.setupGuide') }}</a
       >
       <el-form label-position="top" @submit.prevent.stop="testAndEnable">
-        <el-form-item :label="$t('utilization.template')">
-          <el-select v-model="preset" @change="applyPreset">
-            <el-option value="lockbot-v1" :label="$t('utilization.profileLockbot')" />
-            <el-option value="dcgm" label="NVIDIA DCGM" />
-            <el-option value="custom" :label="$t('utilization.profileCustom')" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="$t('utilization.name')"
-          ><el-input v-model="draft.name" maxlength="64"
-        /></el-form-item>
-        <el-form-item :label="$t('utilization.endpoint')"
-          ><el-input v-model="draft.endpoint" placeholder="https://prometheus.example.com"
-        /></el-form-item>
-        <el-form-item :label="$t('utilization.accessMode')">
-          <el-select v-model="draft.accessMode">
-            <el-option value="short_lived" :label="$t('utilization.accessAutomatic')" />
-            <el-option value="independent" :label="$t('utilization.accessIndependent')" />
-          </el-select>
-        </el-form-item>
-        <el-form-item
-          v-if="draft.accessMode !== 'short_lived'"
-          :label="$t('utilization.sourceToken')"
-          ><el-input v-model="bearer" type="password" show-password autocomplete="off"
-        /></el-form-item>
-        <el-form-item :label="$t('utilization.nodeMatch')">
-          <div class="mapping-table">
-            <div v-for="node in nodes" :key="node" class="mapping-entry">
-              <strong>{{ node }}</strong>
-              <el-input
-                v-model="nodeMapping[node]"
-                :aria-label="node + ' ' + $t('utilization.targetNode')"
-                :placeholder="$t('utilization.targetNode')"
-              />
-            </div>
+        <section class="datasource-section">
+          <h3>{{ $t('utilization.connectionSection') }}</h3>
+          <div class="connection-grid">
+            <el-form-item :label="$t('utilization.template')">
+              <el-select v-model="preset" @change="applyPreset">
+                <el-option value="lockbot-v1" :label="$t('utilization.profileLockbot')" />
+                <el-option value="dcgm" label="NVIDIA DCGM" />
+                <el-option value="custom" :label="$t('utilization.profileCustom')" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="$t('utilization.name')"
+              ><el-input v-model="draft.name" maxlength="64"
+            /></el-form-item>
+            <el-form-item class="connection-wide" :label="$t('utilization.endpoint')"
+              ><el-input v-model="draft.endpoint" placeholder="https://prometheus.example.com"
+            /></el-form-item>
+            <el-form-item :label="$t('utilization.accessMode')">
+              <el-select v-model="draft.accessMode">
+                <el-option value="short_lived" :label="$t('utilization.accessAutomatic')" />
+                <el-option value="independent" :label="$t('utilization.accessIndependent')" />
+              </el-select>
+            </el-form-item>
+            <el-form-item
+              v-if="draft.accessMode !== 'short_lived'"
+              :label="$t('utilization.sourceToken')"
+              ><el-input v-model="bearer" type="password" show-password autocomplete="off"
+            /></el-form-item>
           </div>
-        </el-form-item>
-        <el-form-item v-if="deviceResources" :label="$t('utilization.deviceMatch')">
-          <div class="mapping-table">
-            <div v-for="id in resources" :key="id" class="mapping-entry">
-              <span>{{ id }}</span
-              ><el-input
-                v-model="deviceMapping[id]"
-                :aria-label="id + ' ' + $t('utilization.deviceLabel')"
-              />
+        </section>
+        <section class="datasource-section">
+          <h3>{{ $t('utilization.mappingSection') }}</h3>
+          <el-form-item :label="$t('utilization.nodeMatch')">
+            <div class="mapping-table">
+              <div v-for="node in nodes" :key="node" class="mapping-entry">
+                <strong>{{ node }}</strong>
+                <el-input
+                  v-model="nodeMapping[node]"
+                  :aria-label="node + ' ' + $t('utilization.targetNode')"
+                  :placeholder="$t('utilization.targetNode')"
+                />
+              </div>
             </div>
-          </div>
-        </el-form-item>
-        <details class="mapping-import">
-          <summary>{{ $t('utilization.importMapping') }}</summary>
-          <el-input
-            v-model="nodeMappingText"
-            type="textarea"
-            :rows="4"
-            :placeholder="$t('utilization.nodeMapping')"
-          />
-          <el-button size="small" @click="importMapping">{{
-            $t('utilization.applyMapping')
-          }}</el-button>
-        </details>
-        <el-collapse v-if="preset === 'custom'">
-          <el-collapse-item :title="$t('utilization.metrics')" name="metrics">
+          </el-form-item>
+          <el-form-item v-if="deviceResources" :label="$t('utilization.deviceMatch')">
+            <div class="mapping-table">
+              <div v-for="id in resources" :key="id" class="mapping-entry">
+                <span>{{ id }}</span
+                ><el-input
+                  v-model="deviceMapping[id]"
+                  :aria-label="id + ' ' + $t('utilization.deviceLabel')"
+                />
+              </div>
+            </div>
+          </el-form-item>
+        </section>
+        <details class="advanced-settings">
+          <summary>{{ $t('utilization.advancedSection') }}</summary>
+          <details class="mapping-import">
+            <summary>{{ $t('utilization.importMapping') }}</summary>
+            <el-input
+              v-model="nodeMappingText"
+              type="textarea"
+              :rows="4"
+              :placeholder="$t('utilization.nodeMapping')"
+            />
+            <el-button size="small" @click="importMapping">{{
+              $t('utilization.applyMapping')
+            }}</el-button>
+          </details>
+          <div v-if="preset === 'custom'" class="custom-metrics">
             <div class="mapping-row">
               <el-form-item :label="$t('utilization.nodeLabel')"
                 ><el-input v-model="draft.nodeLabel"
@@ -122,8 +134,8 @@
                 ><el-input-number v-model="draft.intervalSeconds" :min="30" :max="3600"
               /></el-form-item>
             </div>
-          </el-collapse-item>
-        </el-collapse>
+          </div>
+        </details>
         <p class="config-note">{{ $t('utilization.boundary') }}</p>
         <p v-if="validationIssues.length" class="source-error">
           {{ $t('utilization.checkResources') }}: {{ validationIssues.join(', ') }}
@@ -371,7 +383,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
 }
-.source-summary strong {
+.source-name.is-configured {
   font-size: 14px;
   font-weight: 500;
 }
@@ -380,7 +392,7 @@ onBeforeUnmount(() => {
   color: var(--el-color-primary);
   font-size: 12px;
   text-decoration: none;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .setup-guide:hover {
   text-decoration: underline;
@@ -396,8 +408,14 @@ onBeforeUnmount(() => {
 }
 .mapping-table {
   width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  padding: 8px;
+  box-sizing: border-box;
   display: grid;
-  gap: 8px;
+  gap: 4px;
 }
 .mapping-entry {
   display: grid;
@@ -408,6 +426,40 @@ onBeforeUnmount(() => {
 .mapping-entry > :first-child {
   overflow-wrap: anywhere;
   font-size: 13px;
+}
+.connection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 16px;
+}
+.connection-grid .connection-wide {
+  grid-column: 1 / -1;
+}
+.datasource-section + .datasource-section {
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 16px;
+}
+.datasource-section h3 {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.advanced-settings {
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 14px;
+  margin-top: 8px;
+}
+.advanced-settings > summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.config-intro {
+  margin: 0 0 4px;
+}
+.custom-metrics {
+  margin-top: 16px;
 }
 .mapping-import {
   margin: 16px 0;
@@ -432,6 +484,7 @@ onBeforeUnmount(() => {
   line-height: 1.6;
 }
 @media (max-width: 600px) {
+  .connection-grid,
   .mapping-row {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -443,8 +496,12 @@ onBeforeUnmount(() => {
   max-width: calc(100vw - 24px);
 }
 .utilization-dialog .el-dialog__body {
-  max-height: min(65vh, 680px);
+  max-height: min(60vh, 620px);
   overflow-y: auto;
+}
+.utilization-dialog .el-dialog__footer {
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 14px;
 }
 .utilization-dialog .el-select {
   width: 100%;

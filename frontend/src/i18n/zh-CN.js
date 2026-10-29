@@ -1,5 +1,17 @@
 export default {
   feishu: {
+    setupGuide: '接入说明',
+    nameHelp: '本站用于辨识应用的名称，不会修改飞书机器人的名称。',
+    appIdHelp: '在飞书官方开发者后台的“凭证与基础信息”复制 App ID。',
+    appSecretHelp: '在“凭证与基础信息”复制 App Secret，勿公开；Lockbot 加密保存。',
+    transportHelp:
+      '长连接只需出站访问，无需公网入站地址、Verification Token 或 Encrypt Key。HTTP 接收才需要可访问回调和事件校验配置。',
+    tenantHelp: '仅 HTTP 接收使用：填写当前应用所属企业的 tenant key。',
+    verificationHelp:
+      '仅 HTTP 接收使用：从“事件与回调”复制 Verification Token，并配置本站应用回调地址。',
+    encryptHelp: '仅 HTTP 接收使用：启用事件加密时填写匹配的 Encrypt Key，不使用如流 AES 密钥。',
+
+    connectionSettings: '平台接入配置',
     infoflowLabel: '如流 / Infoflow',
     feishuLabel: '飞书 / Feishu',
     groupHelp:
@@ -77,6 +89,12 @@ export default {
     },
   },
   utilization: {
+    configureSource: '配置',
+    connectionHint: '选择模板与当前浏览器可访问的数据源。',
+    connectionSection: '连接',
+    mappingSection: '资源映射',
+    advancedSection: '高级配置',
+
     availableMemory: '可用内存',
     cacheMemory: '缓冲/缓存',
     autoUpdate: '自动更新',

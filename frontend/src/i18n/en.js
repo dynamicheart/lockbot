@@ -1,5 +1,21 @@
 export default {
   feishu: {
+    setupGuide: 'Setup guide',
+    nameHelp:
+      'A local label used to identify this application in Lockbot. It does not rename the Feishu bot.',
+    appIdHelp:
+      'Copy App ID from Credentials & Basic Info in the official Feishu developer console.',
+    appSecretHelp:
+      'Copy App Secret from Credentials & Basic Info. Keep it private; Lockbot stores it encrypted.',
+    transportHelp:
+      'WebSocket needs outbound access only and does not require Verification Token or Encrypt Key. HTTP receiving requires a reachable callback and event verification settings.',
+    tenantHelp: 'HTTP receiving only: use the enterprise tenant key for this application.',
+    verificationHelp:
+      'HTTP receiving only: copy Verification Token from Events & Callbacks and configure the Lockbot application callback URL.',
+    encryptHelp:
+      'HTTP receiving only: if event encryption is enabled, enter the matching Encrypt Key. Do not reuse an Infoflow AES key.',
+
+    connectionSettings: 'Platform connection',
     infoflowLabel: '如流 / Infoflow',
     feishuLabel: '飞书 / Feishu',
     groupHelp:
@@ -81,6 +97,12 @@ export default {
     },
   },
   utilization: {
+    configureSource: 'Configure',
+    connectionHint: 'Choose a template and a data source reachable from this browser.',
+    connectionSection: 'Connection',
+    mappingSection: 'Resource mapping',
+    advancedSection: 'Advanced',
+
     availableMemory: 'Available memory',
     cacheMemory: 'Buffers/cache',
     autoUpdate: 'Auto-updating',
@@ -902,7 +924,12 @@ export default {
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
     privateView: 'Show Agent task notes',
-    targetTypes: { bot: 'Bot', user: 'User', service: 'Service', feishu_application: 'Feishu application' },
+    targetTypes: {
+      bot: 'Bot',
+      user: 'User',
+      service: 'Service',
+      feishu_application: 'Feishu application',
+    },
     detailFields: {
       resource_auth_enabled: 'Allow Agent access',
       resource_api_notify_enabled: 'Group operation notifications',
