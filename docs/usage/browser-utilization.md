@@ -88,6 +88,8 @@ NODE/QUEUE 整机行也逐张展示上报卡的计算利用率和已用/总显�
 
 ## 自动短期授权（可选）
 
+授权流程图、组件责任及撤销边界见 [指标访问与授权设计](../design/telemetry-authorization.md)。Prometheus 本身不依赖 Lockbot；配套部署只开放受控查询网关，普通查看者使用短期只读授权。
+
 对采用配套只读网关的数据源，管理员可选 `accessMode: short_lived`。Lockbot 只签发只读指标授权，不查询 Prometheus；浏览器直接访问指标网关，无需再输入源 key。
 
 - 单数据源部署可保留 `METRICS_GRANT_SECRET_FILE`；跨信任域部署使用 `METRICS_GRANT_SIGNERS_FILE`，按精确 audience 选择各自独立签名文件。两种模式均不能复用登录 JWT 密钥、个人 key、OP key 或网页码；参见[多数据源签名配置](telemetry-deployment.md#source-specific-signing-keys)。
