@@ -4,6 +4,7 @@ import re
 import time
 from contextlib import suppress
 
+from lockbot.core.command_result import completed_reply
 from lockbot.core.i18n import t
 from lockbot.core.io import (
     log_to_file,
@@ -129,7 +130,7 @@ class QueueBot(NodeBot):
             reply = self.adapter.build_reply(content, list(users_to_notify))
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "lock", reaction_safe=len(users_to_notify) == 1)
 
     def slock(self, user_id, command):
         return self.show_error(user_id, t("error.slock_not_supported", config=self.config))

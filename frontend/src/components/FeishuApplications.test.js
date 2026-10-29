@@ -177,7 +177,7 @@ it('discards a late reveal when the dialog changes to another application', asyn
   expect(view.revealedSecret).toBe('')
   expect(view.editingId).toBe(2)
 })
-it('updates only name and an explicitly entered replacement Secret', async () => {
+it('updates name, opt-in policy and only an explicitly entered replacement Secret', async () => {
   api.get.mockResolvedValue({ data: [] })
   api.patch.mockResolvedValue({ data: {} })
   const view = mountView()
@@ -185,12 +185,16 @@ it('updates only name and an explicitly entered replacement Secret', async () =>
   view.formRef = { validate: () => Promise.resolve(true) }
   view.form.name = 'Renamed'
   await view.save()
-  expect(api.patch).toHaveBeenLastCalledWith('/feishu/applications/7', { name: 'Renamed' })
+  expect(api.patch).toHaveBeenLastCalledWith('/feishu/applications/7', {
+    name: 'Renamed',
+    unbound_greeting_enabled: false,
+  })
   view.openEdit({ id: 7, name: 'Renamed', app_id: 'cli_fixture', transport: 'http' })
   view.form.app_secret = 'FAKE_REPLACEMENT'
   await view.save()
   expect(api.patch).toHaveBeenLastCalledWith('/feishu/applications/7', {
     name: 'Renamed',
+    unbound_greeting_enabled: false,
     app_secret: 'FAKE_REPLACEMENT',
   })
   expect(view.form.app_secret).toBe('')
@@ -219,4 +223,22 @@ it('warns when saved credentials need a receiver restart', async () => {
   await view.save()
   expect(ElMessage.warning).toHaveBeenCalledWith('feishu.receiverRestartAfterUpdate')
   expect(ElMessage.success).not.toHaveBeenCalled()
+})
+
+it('defaults onboarding off and loads each application opt-in independently', async () => {
+  api.get.mockResolvedValue({ data: [] })
+  api.patch.mockResolvedValue({ data: {} })
+  const view = mountView()
+  view.openCreate()
+  expect(view.form.unbound_greeting_enabled).toBe(false)
+  view.openEdit({ id: 7, name: 'Enabled', app_id: 'cli_fixture', unbound_greeting_enabled: true })
+  expect(view.form.unbound_greeting_enabled).toBe(true)
+  view.formRef = { validate: () => Promise.resolve(true) }
+  await view.save()
+  expect(api.patch).toHaveBeenLastCalledWith('/feishu/applications/7', {
+    name: 'Enabled',
+    unbound_greeting_enabled: true,
+  })
+  view.openEdit({ id: 8, name: 'Other', app_id: 'cli_other' })
+  expect(view.form.unbound_greeting_enabled).toBe(false)
 })

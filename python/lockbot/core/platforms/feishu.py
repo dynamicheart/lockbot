@@ -187,6 +187,25 @@ class FeishuClient:
             raise FeishuPanelAPIError()
         self._panel_request("/im/v1/messages/" + message_id, {"msg_type": "post", "content": payload["content"]})
 
+    def react(self, message_id):
+        """One bounded request; caller supplies a trusted inbound message ID."""
+        if not isinstance(message_id, str) or not re.fullmatch(r"om_[A-Za-z0-9_-]{1,125}", message_id):
+            raise FeishuAPIError("Invalid Feishu reaction target")
+        try:
+            response = requests.post(
+                API_ROOT + "/im/v1/messages/" + message_id + "/reactions",
+                json={"reaction_type": {"emoji_type": "DONE"}},
+                headers={"Authorization": "Bearer " + self.token()},
+                timeout=(3, 5),
+                allow_redirects=False,
+                **self._http_options,
+            )
+            data = response.json()
+            if response.status_code != 200 or data.get("code") != 0:
+                raise FeishuAPIError("Feishu reaction request rejected")
+        except (requests.RequestException, ValueError, TypeError, AttributeError):
+            raise FeishuAPIError("Feishu reaction delivery uncertain") from None
+
     def bot_identity(self):
         """Discover the application's own bot without listing chats or contacts."""
         try:
@@ -515,6 +534,29 @@ class FeishuAdapter(MessageAdapter):
         payload = dict(msg, uuid=str(uuid.uuid4()))
         payload["content"] = json.dumps({"zh_cn": {"title": "", "content": rows}}, ensure_ascii=False)
         return client, payload
+
+    def send_command_reply(self, reply, message, result):
+        """Optional chat-only acknowledgement, never a change to API notifications."""
+        eligible = (
+            self._get("FEISHU_REACTION_REPLIES", False) is True
+            and result.committed
+            and result.reaction_safe
+            and result.operation in {"lock", "slock", "unlock", "alias"}
+            and message.get("group_id") in self._get("_AUTHORIZED_GROUP_IDS", [])
+            and reply.get("receive_id") == message.get("group_id")
+        )
+        client = self._get("_FEISHU_CLIENT")
+        if eligible and isinstance(client, FeishuClient):
+            try:
+                client.react(message.get("message_id"))
+                return [(200, "reaction_accepted")]
+            except FeishuAPIError:
+                # The allocation is never replayed. Fall back to the unchanged reply,
+                # even when the reaction response was ambiguous.
+                import logging
+
+                logging.getLogger(__name__).warning("Feishu reaction unavailable; using normal command reply")
+        return self.send(reply)
 
     def send_broadcast(self, content, group_id, mention_all=False):
         if not _CHAT_ID.fullmatch(group_id) or group_id not in self._get("_AUTHORIZED_GROUP_IDS", []):

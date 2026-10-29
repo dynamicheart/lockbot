@@ -164,5 +164,12 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
         assert paths[path][method]["security"] == [{"OpApiKey": []}]
     assert paths["/api/resource-auth/bindings"]["post"]["security"] == []
     assert paths["/api/agent-skill/SKILL.md"]["get"]["security"] == []
-    assert not any("audit" in path or "agent-activity" in path for path in paths)
+    lifecycle = "/api/bots/{bot_id}/op/lifecycle-audit"
+    assert paths[lifecycle]["get"]["tags"] == ["OP API"]
+    assert paths[lifecycle]["get"]["security"] == [{"OpApiKey": []}]
+    for operation_path in ("/api/bots/{bot_id}/op/history", "/api/bots/{bot_id}/op/lease-history"):
+        assert paths[operation_path]["get"]["tags"] == ["OP API"]
+        assert paths[operation_path]["get"]["security"] == [{"OpApiKey": []}]
+    # The public OP contract does not advertise management or delegated detailed notes.
+    assert not any(("audit" in path and path != lifecycle) or "agent-activity" in path for path in paths)
     assert set(schema["components"]["securitySchemes"]) == {"AgentKey", "OpApiKey"}

@@ -363,3 +363,69 @@ def test_stale_orm_membership_invalidation_uses_atomic_generation(panel_env):
         row = db.get(FeishuQueryPanel, bid)
         assert row.generation == initial_generation + 2
         assert row.message_id is None
+
+
+def test_panel_and_reaction_modes_compose_without_swallowing_outcomes(panel_env, client, monkeypatch):
+    factory, bots, events, _, _, app_id, calls = panel_env
+    bots[0].config.set_val("FEISHU_REACTION_REPLIES", True)
+    with factory() as db:
+        row = db.get(Bot, bots[0].config.get_val("BOT_ID"))
+        row.config_overrides = json.dumps({"FEISHU_QUERY_PANEL": True, "FEISHU_REACTION_REPLIES": True})
+        db.commit()
+    reactions = []
+    monkeypatch.setattr(FeishuClient, "react", lambda self, mid: reactions.append(mid))
+    for index, command in enumerate(["query", "lock node_a 2m", "query", "lock nonexistent 2m", "help"]):
+        response = client.post(
+            f"/api/feishu/events/{app_id}", json=message(message_id=f"om_combo{index}", command=command)
+        )
+        assert response.status_code == 200
+        fn, args = calls.pop(0)
+        fn(*args)
+    assert reactions == ["om_combo1"]
+    assert [event[0] for event in events] == ["create", "update", "normal", "normal"]
+
+
+def test_real_membership_hook_invalidates_panel_with_notices_disabled(panel_env, client):
+    from lockbot.backend.app.feishu.models import FeishuGroupMembership
+
+    from tests.backend.test_feishu_membership import event
+
+    factory, bots, events, panel, reply, app_id, _ = panel_env
+    panel().send(reply())
+    bid = bots[0].config.get_val("BOT_ID")
+    with factory() as db:
+        original_generation = db.get(FeishuQueryPanel, bid).generation
+    removed = event(kind="deleted", event_id="panel_removed")
+    assert client.post(f"/api/feishu/events/{app_id}", json=removed).json() == {"accepted": True}
+    with factory() as db:
+        row = db.get(FeishuQueryPanel, bid)
+        assert row.message_id is None and row.status == "invalidated"
+        assert row.generation > original_generation
+        removed_generation = row.generation
+        assert db.get(FeishuGroupMembership, (app_id, "oc_group0")).status == "removed"
+        assert json.loads(db.get(Bot, bid).config_overrides).get("FEISHU_MEMBERSHIP_NOTICES", False) is False
+    assert client.post(f"/api/feishu/events/{app_id}", json=removed).json()["duplicate"] is True
+    with factory() as db:
+        assert db.get(FeishuQueryPanel, bid).generation == removed_generation
+    added = event(kind="added", event_id="panel_rejoined", offset=10)
+    assert client.post(f"/api/feishu/events/{app_id}", json=added).json() == {"accepted": True}
+    panel().send(reply())
+    assert [item[0] for item in events] == ["create", "create"]
+
+
+def test_membership_during_panel_http_cannot_restore_reference(panel_env, client, monkeypatch):
+    from tests.backend.test_feishu_membership import event
+
+    factory, bots, _, panel, reply, app_id, _ = panel_env
+
+    def create(*args):
+        result = client.post(f"/api/feishu/events/{app_id}", json=event(kind="deleted", event_id="during_create"))
+        assert result.json() == {"accepted": True}
+        return "om_stale_created"
+
+    monkeypatch.setattr(FeishuClient, "create_query_panel", create)
+    with pytest.raises(FeishuAPIError):
+        panel().send(reply())
+    with factory() as db:
+        row = db.get(FeishuQueryPanel, bots[0].config.get_val("BOT_ID"))
+        assert row.message_id is None and row.status == "invalidated"

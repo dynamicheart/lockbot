@@ -267,7 +267,7 @@ class BaseLockBot:
         self.config.set_val("NODE_ALIASES", aliases)
 
         # Persist to DB if running under platform mode
-        self._persist_config_override("NODE_ALIASES", aliases)
+        persisted = self._persist_config_override("NODE_ALIASES", aliases)
 
         if alias_val:
             self.logger.info("user=%s set alias %s -> %s", user_id, node_key, alias_val)
@@ -275,7 +275,12 @@ class BaseLockBot:
         else:
             self.logger.info("user=%s cleared alias %s", user_id, node_key)
             msg = t("alias.clear_ok", config=self.config, node_key=node_key)
-        return self.adapter.build_reply(msg, [user_id])
+        reply = self.adapter.build_reply(msg, [user_id])
+        if persisted:
+            from lockbot.core.command_result import completed_reply
+
+            return completed_reply(reply, "alias")
+        return reply
 
     def _persist_config_override(self, key, value):
         """Persist a single config_override key to DB (best-effort)."""
@@ -296,6 +301,7 @@ class BaseLockBot:
                     overrides[key] = value
                     bot.config_overrides = json.dumps(overrides, ensure_ascii=False)
                     db.commit()
+                    return True
             finally:
                 db.close()
         except Exception:

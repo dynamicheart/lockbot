@@ -29,7 +29,10 @@
       <code>{{ chatId }}</code
       ><el-icon><CopyDocument /></el-icon>
     </el-button>
-    <span v-if="group.status && group.status !== 'ok'" class="group-warning">
+    <span v-if="group.membership?.status === 'removed'" class="group-warning">
+      {{ $t('feishu.membershipRemoved') }}
+    </span>
+    <span v-else-if="group.status && group.status !== 'ok'" class="group-warning">
       {{ $t(warningKey) }}
     </span>
   </div>
