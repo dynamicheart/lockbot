@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="site-settings">
     <div
       style="
         display: flex;
@@ -13,8 +13,9 @@
         <el-icon><Check /></el-icon> {{ $t('common.save') }}
       </el-button>
     </div>
-    <el-card>
-      <el-form v-loading="loading" label-width="140px">
+    <el-card class="settings-section">
+      <template #header>{{ $t('settings.basicInformation') }}</template>
+      <el-form v-loading="loading" label-width="140px" class="settings-form">
         <el-form-item :label="$t('settings.platformUrl')">
           <el-input
             v-model="form.platform_url"
@@ -36,16 +37,24 @@
             clearable
           />
         </el-form-item>
-        <el-form-item :label="$t('settings.agentPromotion')">
-          <el-switch
-            v-model="form.agent_promotion_enabled"
-            active-value="true"
-            inactive-value="false"
+        <el-form-item :label="$t('settings.newsContent')">
+          <el-input
+            v-model="form.news_content"
+            type="textarea"
+            :rows="3"
+            :maxlength="30"
+            show-word-limit
+            :placeholder="$t('settings.newsContentPlaceholder')"
           />
-          <span style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 12px">
-            {{ $t('settings.agentPromotionHint') }}
-          </span>
+          <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
+            {{ $t('settings.newsHint') }}
+          </div>
         </el-form-item>
+      </el-form>
+    </el-card>
+    <el-card class="settings-section">
+      <template #header>{{ $t('settings.messagePlatforms') }}</template>
+      <el-form v-loading="loading" label-width="140px" class="settings-form">
         <el-form-item :label="$t('feishu.enabledPlatforms')">
           <div class="platform-options">
             <el-checkbox
@@ -75,7 +84,7 @@
               v-model="form.feishu_proxy_url"
               placeholder="http://proxy.example:8188"
             />
-            <div class="platform-hint">
+            <div class="proxy-effective platform-hint">
               {{ $t('feishu.proxyEffective') }}:
               {{
                 proxyInfo.mode === 'deployment'
@@ -85,12 +94,32 @@
                     : $t('feishu.proxyCustom')
               }}
               · {{ proxyInfo.effective_url || $t('feishu.proxyDirect') }}
-              <el-button text :loading="testingProxy" @click="testProxy">{{
+            </div>
+            <div class="proxy-test-row">
+              <el-button :loading="testingProxy" @click="testProxy">{{
                 $t('feishu.proxyTest')
               }}</el-button>
-              <span v-if="proxyResult">{{ $t('feishu.' + proxyResult) }}</span>
+              <span v-if="proxyResult" class="platform-hint">{{
+                $t('feishu.' + proxyResult)
+              }}</span>
             </div>
           </div>
+        </el-form-item>
+      </el-form>
+      <FeishuApplications />
+    </el-card>
+    <el-card class="settings-section">
+      <template #header>{{ $t('settings.agentPromotionSection') }}</template>
+      <el-form v-loading="loading" label-width="140px" class="settings-form">
+        <el-form-item :label="$t('settings.agentPromotion')">
+          <el-switch
+            v-model="form.agent_promotion_enabled"
+            active-value="true"
+            inactive-value="false"
+          />
+          <span style="color: var(--el-text-color-secondary); font-size: 12px; margin-left: 12px">
+            {{ $t('settings.agentPromotionHint') }}
+          </span>
         </el-form-item>
         <el-form-item :label="$t('settings.agentPromotionText')">
           <div class="agent-promotion-prefix" style="width: 100%; max-width: 640px">
@@ -116,24 +145,9 @@
             </div>
           </div>
         </el-form-item>
-        <el-form-item :label="$t('settings.newsContent')">
-          <el-input
-            v-model="form.news_content"
-            type="textarea"
-            :rows="3"
-            :maxlength="30"
-            show-word-limit
-            :placeholder="$t('settings.newsContentPlaceholder')"
-          />
-          <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
-            {{ $t('settings.newsHint') }}
-          </div>
-        </el-form-item>
       </el-form>
     </el-card>
-
     <SiteBroadcast />
-    <FeishuApplications />
 
     <!-- Backup Configuration -->
     <el-card style="margin-top: 20px">
@@ -501,6 +515,30 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.site-settings {
+  max-width: 1120px;
+}
+.settings-section {
+  margin-bottom: 20px;
+}
+.settings-form {
+  max-width: 860px;
+}
+.settings-form :deep(.el-form-item:last-child) {
+  margin-bottom: 0;
+}
+.proxy-effective {
+  overflow-wrap: anywhere;
+}
+.proxy-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.proxy-test-row .el-button {
+  margin: 0;
+}
 .feishu-proxy-options {
   width: 100%;
   max-width: 640px;

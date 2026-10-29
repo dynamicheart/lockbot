@@ -256,6 +256,7 @@ export default {
     claimReady: 'Ready to claim',
   },
   broadcast: {
+    result: 'Result',
     title: 'Group broadcast',
     message: 'Message',
     window: 'Recent activity window',
@@ -751,6 +752,10 @@ export default {
 
   // === Site Settings ===
   settings: {
+    basicInformation: 'Basic information',
+    messagePlatforms: 'Messaging platforms',
+    agentPromotionSection: 'Agent promotion',
+
     agentPromotion: 'Agent promotion',
     agentPromotionText: 'Link prefix',
     agentPromotionTextHint:

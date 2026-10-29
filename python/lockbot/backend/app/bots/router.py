@@ -142,6 +142,12 @@ def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
         owner = db.get(User, bot.user_id)
         data["owner"] = owner.username if owner else ""
         data["owner_role"] = owner.role if owner else ""
+    if db and str(bot.platform).lower() == "feishu":
+        from lockbot.backend.app.feishu.service import cached_bot_client
+
+        client = cached_bot_client(bot, db)
+        if client:
+            data["last_user_display_name"] = client.cached_user_name(bot.last_user_id)
     data["has_api_key"] = bool(bot.api_key)
     data["api_key"] = bot.api_key or ""
     return data
@@ -1599,7 +1605,7 @@ def get_bot_logs(
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "no-store"
-    _get_user_bot(bot_id, user, db)
+    bot = _get_user_bot(bot_id, user, db)
 
     log_path = _get_log_file(bot_id)
     if not os.path.exists(log_path):
@@ -1648,11 +1654,14 @@ def get_bot_logs(
     entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)
     offset = (page - 1) * limit
     selected = entries[offset : offset + limit]
+    from lockbot.backend.app.feishu.service import cached_bot_client, decorate_log_actors
+
+    display_client = cached_bot_client(bot, db)
     if can_read_private_tasks(db, user):
         if selected:
             audit_private_read(db, user, bot_id=bot_id, surface="management.logs")
-        return selected
-    return [public_log_entry(entry) for entry in selected]
+        return decorate_log_actors(selected, display_client)
+    return decorate_log_actors([public_log_entry(entry) for entry in selected], display_client)
 
 
 # ── Webhook endpoint ────────────────────────────────────────

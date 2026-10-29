@@ -34,14 +34,57 @@ def application_client(app):
         return _clients[key]
 
 
-def bot_application_config(bot, db):
+def _routed_application(bot, db):
     route = db.query(FeishuGroupRoute).filter_by(bot_id=bot.id).first()
     if route is None or bot.group_id != route.chat_id:
         raise ValueError("Feishu bot requires an explicit application and group route")
     app = db.get(FeishuApplication, route.application_id)
     if app is None:
         raise ValueError("Feishu application not found")
+    return app
+
+
+def bot_application_config(bot, db):
+    app = _routed_application(bot, db)
     return {"_FEISHU_CLIENT": application_client(app), "_FEISHU_APPLICATION_ID": app.id}
+
+
+def cached_bot_client(bot, db):
+    """Use only this bot's routed app cache; cold/restarted caches stay unknown."""
+    from cryptography.fernet import InvalidToken
+
+    if str(bot.platform).lower() != "feishu":
+        return None
+    try:
+        app = _routed_application(bot, db)
+        secret = encryption.decrypt(app.app_secret)
+        key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
+    except (ValueError, InvalidToken):
+        return None
+    with _clients_lock:
+        return _clients.get(key)
+
+
+def decorate_log_actors(entries, client):
+    """Metadata only, after privacy projection. Preserve stored/downloaded message text."""
+    import re
+
+    if client is None:
+        return entries
+    result = []
+    for entry in entries:
+        value = dict(entry)
+        message = value.get("message")
+        match = re.match(r"^\[(ou_[A-Za-z0-9_-]+)\]\s", message) if isinstance(message, str) else None
+        if value.get("category") == "command" and match:
+            identity = match[1]
+            actor = {"platform": "feishu", "external_user_id": identity}
+            label = client.cached_user_name(identity)
+            if label:
+                actor["display_name"] = label
+            value["actor"] = actor
+        result.append(value)
+    return result
 
 
 def accept_sdk_event(db, app, data):

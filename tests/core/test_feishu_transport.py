@@ -280,3 +280,24 @@ def test_known_user_name_survives_temporary_lookup_failure(monkeypatch):
     )
     client.warm_user_name("ou_alice")
     assert client.display_text("holder: ou_alice") == "holder: Alice"
+
+
+def test_cached_person_and_group_labels_are_exact_non_network_reads(monkeypatch):
+    import requests
+
+    client = FeishuClient("cli_fixture", "secret")
+    monkeypatch.setattr(requests, "get", lambda *a, **k: pytest.fail("cached lookup attempted network"))
+    monkeypatch.setattr(requests, "post", lambda *a, **k: pytest.fail("cached lookup attempted token request"))
+    client._names.update({"ou_alice": ("Same name", 10**12), "ou_bob": ("Same name", 10**12)})
+    client._groups["oc_fixture"] = ("Example group", "ok", 10**12)
+    assert client.cached_user_name("ou_alice") == client.cached_user_name("ou_bob") == "Same name"
+    assert client.cached_group_name("oc_fixture") == "Example group"
+    for invalid in (None, {}, "ou_alice extra", "Alice", "ou_unknown"):
+        assert client.cached_user_name(invalid) is None
+    for invalid in (None, {}, "oc_fixture/../../", "oc_unknown"):
+        assert client.cached_group_name(invalid) is None
+    client._names["ou_alice"] = ("Expired name", 0)
+    client._groups["oc_fixture"] = ("Expired group", "ok", 0)
+    assert client.cached_user_name("ou_alice") is None and client.cached_group_name("oc_fixture") is None
+    restarted = FeishuClient("cli_fixture", "secret")
+    assert restarted.cached_user_name("ou_bob") is None

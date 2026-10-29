@@ -1,11 +1,9 @@
 <template>
-  <el-card class="feishu-applications">
-    <template #header>
-      <div class="panel-heading">
-        <span>{{ $t('feishu.applications') }}</span>
-        <el-button @click="dialog = true">{{ $t('feishu.add') }}</el-button>
-      </div>
-    </template>
+  <section class="feishu-applications">
+    <div class="panel-heading">
+      <h3>{{ $t('feishu.applications') }}</h3>
+      <el-button @click="dialog = true">{{ $t('feishu.add') }}</el-button>
+    </div>
     <el-table v-loading="loading" :data="applications" :empty-text="$t('feishu.none')">
       <el-table-column prop="name" :label="$t('feishu.name')" />
       <el-table-column prop="app_id" label="App ID" min-width="190" />
@@ -79,7 +77,7 @@
         }}</el-button>
       </template>
     </el-dialog>
-  </el-card>
+  </section>
 </template>
 
 <script setup>
@@ -147,12 +145,21 @@ onMounted(load)
 
 <style scoped>
 .feishu-applications {
-  margin-top: 20px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+.panel-heading h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 .panel-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 </style>

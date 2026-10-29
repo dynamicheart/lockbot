@@ -5,7 +5,9 @@
       <span v-if="group.name && group.status !== 'ok'" class="group-placeholder">{{
         $t('feishu.groupCached')
       }}</span>
-      <span v-else-if="botId" class="group-placeholder">{{ $t('feishu.groupUnknown') }}</span>
+      <span v-else-if="!group.name && botId" class="group-placeholder">{{
+        $t('feishu.groupUnknown')
+      }}</span>
       <el-button
         text
         size="small"

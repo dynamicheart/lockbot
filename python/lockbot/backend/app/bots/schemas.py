@@ -153,6 +153,7 @@ class BotOut(BaseModel):
     observed_group_ids: str | None = None
     identity_revision: int = 0
     last_user_id: str | None
+    last_user_display_name: str | None = None
     status: str
     last_request_at: datetime | None
     cluster_configs: str  # JSON string

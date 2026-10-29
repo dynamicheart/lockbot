@@ -249,6 +249,7 @@ export default {
     claimReady: '已轮到，可领取资源',
   },
   broadcast: {
+    result: '发送结果',
     title: '群广播',
     message: '广播内容',
     window: '最近活跃范围',
@@ -731,6 +732,10 @@ export default {
 
   // === Site Settings ===
   settings: {
+    basicInformation: '基本信息',
+    messagePlatforms: '消息平台',
+    agentPromotionSection: 'Agent 推广',
+
     agentPromotion: 'Agent 推广',
     agentPromotionText: '链接前文案',
     agentPromotionTextHint: '留空使用默认文案，链接自动添加。仅限单行纯文本，最多 120 字。',

@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { createRenderer, nextTick, ssrContextKey } from 'vue'
+import { createRenderer, createSSRApp, nextTick, ssrContextKey } from 'vue'
+import { renderToString } from 'vue/server-renderer'
 import FeishuGroupInfo from './FeishuGroupInfo.vue'
 import api from '../utils/api'
 vi.mock('../utils/api', () => ({ default: { get: vi.fn() } }))
@@ -89,4 +90,27 @@ it('labels a retained group name as cached after failure and clears the warning 
   expect(state.warningKey).toBe('feishu.groupCachedUnavailable')
   await state.load(true)
   expect(state.warningKey).toBe('')
+})
+
+it('renders a successfully resolved name without an unknown or cached label', async () => {
+  const rendered = createSSRApp(
+    {
+      ...FeishuGroupInfo,
+      setup: () => ({
+        group: { name: 'resolved group', status: 'ok' },
+        loading: false,
+        lookupPath: '/feishu/bots/1/group',
+        warningKey: '',
+        load: () => {},
+        copyText: () => {},
+      }),
+    },
+    { botId: 1, chatId: 'oc_fixture' }
+  )
+  rendered.config.globalProperties.$t = (key) => key
+  rendered.config.warnHandler = () => {}
+  const html = await renderToString(rendered)
+  expect(html).toContain('resolved group')
+  expect(html).not.toContain('feishu.groupUnknown')
+  expect(html).not.toContain('feishu.groupCached')
 })

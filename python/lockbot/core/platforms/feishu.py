@@ -174,6 +174,26 @@ class FeishuClient:
                 self._groups.popitem(last=False)
         return {"name": name, "status": status}
 
+    def cached_user_name(self, open_id):
+        """Read an exact cached label only; never issue a contact request."""
+        if not isinstance(open_id, str) or not _OPEN_ID.fullmatch(open_id):
+            return None
+        with self._names_lock:
+            cached = self._names.get(open_id)
+            if cached and cached[1] > time.monotonic() and cached[0] != open_id:
+                return cached[0]
+        return None
+
+    def cached_group_name(self, chat_id):
+        """Read a selected group's cached label without fetching or listing chats."""
+        if not isinstance(chat_id, str) or not _CHAT_ID.fullmatch(chat_id):
+            return None
+        with self._names_lock:
+            cached = self._groups.get(chat_id)
+            if cached and cached[2] > time.monotonic() and cached[0]:
+                return cached[0]
+        return None
+
     def warm_user_name(self, open_id):
         """Optional display lookup, outside resource locks; identity never uses the name."""
         if not _OPEN_ID.fullmatch(open_id):
