@@ -31,7 +31,8 @@
       <el-button
         v-if="category !== 'agent'"
         size="small"
-        :disabled="logs.length === 0"
+        :disabled="logs.length === 0 || downloading"
+        :loading="downloading"
         @click="downloadLogs"
       >
         <el-icon><Download /></el-icon> {{ $t('log.download') }}
@@ -81,9 +82,10 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useBotsStore } from '../stores/bots'
 import AgentHistory from './AgentHistory.vue'
+import { createLogViewerLoader } from '../utils/logViewerLoader'
 
 const props = defineProps({
   botId: { type: [Number, String], required: true },
@@ -96,94 +98,41 @@ const loadingMore = ref(false)
 const level = ref('')
 const category = ref('')
 const autoRefresh = ref(false)
-const page = ref(1)
 const hasMore = ref(false)
-let timer = null
-
-async function fetchLogs(append = false) {
-  if (append) {
-    loadingMore.value = true
-  } else {
-    loading.value = true
-  }
-  try {
-    const params = { page: page.value, limit: 50 }
-    if (level.value) params.level = level.value
-    if (category.value) params.category = category.value
-    const data = await botsStore.getBotLogs(props.botId, params)
-    if (append) {
-      logs.value = [...logs.value, ...data]
-    } else {
-      logs.value = data
-    }
-    hasMore.value = data.length === 50
-  } catch {
-    // handled by interceptor
-  } finally {
-    loading.value = false
-    loadingMore.value = false
-  }
-}
-
-async function pollNewLogs() {
-  if (logs.value.length === 0) {
-    return fetchLogs()
-  }
-  try {
-    const since = logs.value[0]?.created_at
-    if (!since) return
-    const params = { page: 1, limit: 50, since }
-    if (level.value) params.level = level.value
-    if (category.value) params.category = category.value
-    const data = await botsStore.getBotLogs(props.botId, params)
-    if (data.length > 0) {
-      const existingIds = new Set(logs.value.map((l) => l.id))
-      const newLogs = data.filter((l) => !existingIds.has(l.id))
-      if (newLogs.length > 0) {
-        logs.value = [...newLogs, ...logs.value]
-      }
-    }
-  } catch {
-    // handled by interceptor
-  }
-}
-
 const refreshing = ref(false)
-
-async function refreshLogs() {
-  if (logs.value.length === 0) {
-    return fetchLogs()
-  }
-  refreshing.value = true
-  try {
-    const since = logs.value[0]?.created_at
-    if (!since) {
-      refreshing.value = false
-      return fetchLogs()
+const downloading = ref(false)
+let timer = null
+const loader = createLogViewerLoader({
+  request: (botId, params, signal) => botsStore.getBotLogs(botId, params, { signal }),
+  publish: (update) => {
+    if ('logs' in update) logs.value = update.logs
+    if ('hasMore' in update) hasMore.value = update.hasMore
+    if ('loading' in update) loading.value = update.loading
+    if ('loadingMore' in update) loadingMore.value = update.loadingMore
+    if ('refreshing' in update) refreshing.value = update.refreshing
+    if ('downloading' in update) downloading.value = update.downloading
+  },
+  save: ({ rows, filename }) => {
+    const text = rows
+      .map(
+        (log) => `[${formatTime(log.created_at)}] [${log.category}] ${log.level}: ${log.message}`
+      )
+      .join('\n')
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+    try {
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.click()
+    } finally {
+      URL.revokeObjectURL(url)
     }
-    const params = { page: 1, limit: 50, since }
-    if (level.value) params.level = level.value
-    if (category.value) params.category = category.value
-    const data = await botsStore.getBotLogs(props.botId, params)
-    if (data.length > 0) {
-      const existingIds = new Set(logs.value.map((l) => l.id))
-      const newLogs = data.filter((l) => !existingIds.has(l.id))
-      if (newLogs.length > 0) {
-        logs.value = [...newLogs, ...logs.value]
-      }
-    }
-  } catch {
-    // handled by interceptor
-  } finally {
-    refreshing.value = false
-  }
-}
-
-function loadMore() {
-  if (loadingMore.value) return
-  page.value++
-  fetchLogs(true)
-}
+  },
+})
+const scope = () => ({ botId: props.botId, level: level.value, category: category.value })
+const refreshLogs = () => loader.refresh()
+const loadMore = () => loader.loadMore()
+const downloadLogs = () => loader.download()
 
 function formatTime(t) {
   if (!t) return ''
@@ -194,55 +143,14 @@ function formatTime(t) {
   return new Date(t).toLocaleString()
 }
 
-async function downloadLogs() {
-  // Fetch all logs (no pagination) for current filters
-  try {
-    const params = { page: 1, limit: 10000 }
-    if (level.value) params.level = level.value
-    if (category.value) params.category = category.value
-    const allLogs = await botsStore.getBotLogs(props.botId, params)
-
-    const text = allLogs
-      .map(
-        (log) => `[${formatTime(log.created_at)}] [${log.category}] ${log.level}: ${log.message}`
-      )
-      .join('\n')
-
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    const suffix = category.value || 'all'
-    a.download = `bot_${props.botId}_${suffix}_logs.txt`
-    a.click()
-    URL.revokeObjectURL(url)
-  } catch {
-    // handled by interceptor
-  }
-}
-
-watch(level, () => {
-  page.value = 1
-  fetchLogs()
-})
-
-watch(category, () => {
-  page.value = 1
-  if (category.value !== 'agent') fetchLogs()
-})
-
+watch([() => props.botId, level, category], () => loader.setScope(scope()), { flush: 'sync' })
 watch(autoRefresh, (val) => {
-  if (val) {
-    timer = setInterval(() => pollNewLogs(), 5000)
-  } else {
-    clearInterval(timer)
-  }
+  clearInterval(timer)
+  if (val) timer = setInterval(() => loader.refresh(), 5000)
 })
-
-onMounted(() => {
-  fetchLogs()
-})
-onUnmounted(() => {
+onMounted(() => loader.setScope(scope()))
+onBeforeUnmount(() => {
+  loader.dispose()
   clearInterval(timer)
 })
 </script>
