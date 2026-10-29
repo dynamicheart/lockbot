@@ -43,7 +43,10 @@ def instant(value):
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         raise ValueError("Use an explicit timezone, for example 2026-01-01T00:00:00Z")
-    return parsed.astimezone(timezone.utc)
+    try:
+        return parsed.astimezone(timezone.utc)
+    except OverflowError:
+        raise ValueError("Timestamp is outside the supported UTC range") from None
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):

@@ -68,6 +68,30 @@ def test_explicit_half_open_window_and_malformed_records():
         report.analyze([], UNTIL, SINCE)
 
 
+@pytest.mark.parametrize("timestamp", ["9999-12-31T23:59:59-01:00", "0001-01-01T00:00:00+01:00"])
+def test_utc_boundary_overflow_is_skipped_without_disrupting_valid_records(timestamp):
+    result = report.analyze([row("bad", timestamp=timestamp, purpose="private-row-body"), row("good")], SINCE, UNTIL)
+    assert result["actors"][0]["records"] == 1
+    assert result["skipped_invalid_records"] == 1
+    assert timestamp not in json.dumps(result) and "private-row-body" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("timestamp", ["9999-12-31T23:59:59-01:00", "0001-01-01T00:00:00+01:00"])
+@pytest.mark.parametrize("argument", ["--since", "--until"])
+def test_cli_utc_boundary_overflow_is_a_fixed_parameter_error(tmp_path, capsys, timestamp, argument):
+    source = tmp_path / "history.jsonl"
+    source.write_text(json.dumps(row("private-row-body")) + "\n")
+    args = ["--input", str(source), "--since", SINCE.isoformat(), "--until", UNTIL.isoformat()]
+    args[args.index(argument) + 1] = timestamp
+    with pytest.raises(SystemExit) as error:
+        report.main(args)
+    assert error.value.code == 2
+    output = capsys.readouterr()
+    assert "Timestamp is outside the supported UTC range" in output.err
+    assert timestamp not in output.err and "private-row-body" not in output.err
+    assert not output.out
+
+
 def test_collection_cursor_budget_empty_filtered_page_and_retention_gap(monkeypatch):
     monkeypatch.setattr(report.time, "sleep", lambda seconds: None)
     calls = []
