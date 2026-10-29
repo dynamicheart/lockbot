@@ -128,7 +128,19 @@ def public_log_entry(entry):
     reconstruct the actor and fixed command word from command records. Raw log
     details are available to an elevated management reader only.
     """
-    result = {key: entry[key] for key in ("id", "created_at", "level", "category", "source") if key in entry}
+    result = {}
+    if type(entry.get("id")) is int:
+        result["id"] = entry["id"]
+    if isinstance(entry.get("created_at"), str):
+        result["created_at"] = entry["created_at"][:64]
+    for key, allowed in (
+        ("level", {"DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL"}),
+        ("category", {"command", "system"}),
+        ("source", {"chat", "api", "service_key"}),
+    ):
+        value = entry.get(key)
+        if isinstance(value, str) and value in allowed:
+            result[key] = value
     message = entry.get("message")
     match = re.fullmatch(r"\[([^\]\r\n]{1,256})\]\s+(.+)", message) if isinstance(message, str) else None
     word = public_command(match[2]) if match and entry.get("category") == "command" else None
