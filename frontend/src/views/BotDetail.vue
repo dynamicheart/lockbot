@@ -1071,7 +1071,7 @@ async function refreshBot() {
   if (!read) return
   loading.value = true
   try {
-    const result = await botsStore.getBot(read.id, { signal: read.signal, _silent: true })
+    const result = await botsStore.getBot(read.id, { signal: read.signal })
     if (!read.isCurrent()) return
     bot.value = result
     try {
