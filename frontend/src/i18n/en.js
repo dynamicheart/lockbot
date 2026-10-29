@@ -901,7 +901,8 @@ export default {
     dispatched: 'Dispatched',
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
-    targetTypes: { bot: 'Bot', user: 'User', feishu_application: 'Feishu application' },
+    privateView: 'Show Agent task notes',
+    targetTypes: { bot: 'Bot', user: 'User', service: 'Service', feishu_application: 'Feishu application' },
     detailFields: {
       resource_auth_enabled: 'Allow Agent access',
       resource_api_notify_enabled: 'Group operation notifications',

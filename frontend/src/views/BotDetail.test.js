@@ -388,3 +388,44 @@ it.each([
   expect(model.store.getBot.mock.calls.filter(([id]) => String(id) === '2')).toHaveLength(1)
   expect(model.router.push).not.toHaveBeenCalled()
 })
+
+it('requires an explicit private view and clears usage while fencing a late private response', async () => {
+  const view = mount()
+  await ready('1')
+  expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
+  view.showPrivateTasks = true
+  expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(true)
+  latest('state', '1').resolve({ state: {}, usage: [{ purpose: 'fictional-private' }] })
+  await flush()
+  expect(view.stateUsage).toEqual([{ purpose: 'fictional-private' }])
+  const stale = view.fetchState()
+  const old = latest('state', '1')
+  view.showPrivateTasks = false
+  expect(view.stateUsage).toEqual([])
+  expect(old.options.signal.aborted).toBe(true)
+  expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
+  old.resolve({ state: {}, usage: [{ purpose: 'fictional-stale-private' }] })
+  await stale
+  expect(view.stateUsage).toEqual([])
+})
+
+it('does not carry private consent across bot navigation or poll while private view is enabled', async () => {
+  vi.useFakeTimers()
+  try {
+    const view = mount()
+    await ready('1')
+    view.showPrivateTasks = true
+    latest('state', '1').resolve({ state: {}, usage: [] })
+    await flush()
+    view.stateAutoRefresh = true
+    const count = model.store.getBotState.mock.calls.length
+    await vi.advanceTimersByTimeAsync(61000)
+    expect(model.store.getBotState.mock.calls.length).toBe(count)
+    model.route.params.id = '2'
+    expect(view.showPrivateTasks).toBe(false)
+    expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
+    expect(view.stateUsage).toEqual([])
+  } finally {
+    vi.useRealTimers()
+  }
+})

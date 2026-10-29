@@ -73,7 +73,10 @@
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
-const props = defineProps({ botId: { type: [Number, String], required: true } })
+const props = defineProps({
+  botId: { type: [Number, String], required: true },
+  includePrivate: { type: Boolean, default: false },
+})
 const { locale } = useI18n()
 const query = ref('')
 const activeQuery = ref('')
@@ -106,7 +109,12 @@ async function load() {
   error.value = false
   try {
     const { data } = await api.get(`/bots/${props.botId}/agent-history`, {
-      params: { cursor: cursors[page.value] || undefined, query: activeQuery.value, limit: 25 },
+      params: {
+        cursor: cursors[page.value] || undefined,
+        query: activeQuery.value,
+        limit: 25,
+        include_private: props.includePrivate,
+      },
       signal: controller.signal,
     })
     if (current === generation) {
@@ -140,7 +148,14 @@ function previous() {
   page.value--
   load()
 }
-watch(() => props.botId, reset)
+watch(
+  [() => props.botId, () => props.includePrivate],
+  () => {
+    query.value = ''
+    reset()
+  },
+  { flush: 'sync' }
+)
 onMounted(load)
 onBeforeUnmount(() => {
   generation++

@@ -41,7 +41,7 @@ def test_management_state_uses_current_role_not_bot_ownership_or_username(
     user.role = management_role
     user.username = "alice"  # Matching an IM user is not a verified identity link.
     db_session.commit()
-    path = f"/api/bots/{api['bot_id']}/state?include_usage=true"
+    path = f"/api/bots/{api['bot_id']}/state?include_usage=true&include_private=true"
     response = client.get(path, headers=api["auth_header"])
     assert response.status_code == 200
     if management_role == "super_admin":
@@ -165,7 +165,10 @@ def test_legacy_log_query_cannot_download_or_page_into_private_text(client, api,
     user = db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id)
     user.role = "super_admin"
     db_session.commit()
-    assert "private-project-detail" in client.get(endpoint, headers=api["auth_header"]).text
+    assert (
+        "private-project-detail"
+        in client.get(endpoint, params={"include_private": True}, headers=api["auth_header"]).text
+    )
 
 
 def test_public_event_allowlist_excludes_future_fields_and_searchable_private_text():
@@ -226,7 +229,7 @@ def test_super_admin_demotion_during_state_read_fails_closed(client, api, db_ses
     owner.role = "super_admin"
     db_session.commit()
     # Simulate a role loss after projection but before privileged disclosure audit.
-    monkeypatch.setattr("lockbot.backend.app.bots.router.can_read_private_tasks", lambda db, user: True)
+    monkeypatch.setattr("lockbot.backend.app.bots.router.private_task_view", lambda db, user, include_private: True)
     owner.role = "user"
     db_session.commit()
     response = client.get(f"/api/bots/{api['bot_id']}/state?include_usage=true", headers=api["auth_header"])
