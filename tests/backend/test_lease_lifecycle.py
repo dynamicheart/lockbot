@@ -32,6 +32,8 @@ def make_bot(tmp_path, clock, kind="NODE"):
         kind,
         {
             "BOT_ID": 1,
+            "_LIFECYCLE_BOT_UUID": "bot-uuid",
+            "_IDENTITY_REVISION": 0,
             "DATA_DIR": str(tmp_path / "bots"),
             "CLUSTER_CONFIGS": cluster,
             "TIME_ALERT": 5,

@@ -229,19 +229,33 @@ def create_or_load_node_state(config=None):
 # ── State persistence ──────────────────────────────────────────
 
 
-def _save_bot_state_atomically(data, config=None):
+def _save_bot_state_atomically(data, config=None, *, evidence=None):
     """Persist bot state to file using atomic write."""
     file_path = os.path.join(_bot_dir(config), "bot_state.json")
     dir_name = os.path.dirname(file_path)
 
     os.makedirs(dir_name, exist_ok=True)
+    observer = getattr(config, "_lifecycle_observer", None)
+    if evidence is None and observer is not None and hasattr(observer, "prepare_state_write"):
+        evidence = observer.prepare_state_write(data)
+    payload = {"bot_state": data}
+    if evidence is not None:
+        payload["lifecycle_outbox"] = evidence
 
     # Write to temp file first, then atomic rename
     fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump({"bot_state": data}, f, ensure_ascii=False, indent=4)
+            json.dump(payload, f, ensure_ascii=False, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp_path, file_path)
+        # Persist the rename as well as the file contents before acknowledging a lease commit.
+        directory = os.open(dir_name, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)

@@ -722,7 +722,9 @@ def create_app() -> FastAPI:
         for path, methods in schema.get("paths", {}).items():
             for method, detail in methods.items():
                 if "Public API" in detail.get("tags", []):
-                    if path.endswith(("/locked-users", "/opkick", "/kicklock")) or "/op/resources" in path:
+                    if path.endswith(("/locked-users", "/opkick", "/kicklock")) or (
+                        path.startswith("/api/bots/") and "/op/" in path
+                    ):
                         group, scheme = "OP API", "OpApiKey"
                     elif path.startswith("/api/resource-auth/"):
                         group, scheme = "Agent 绑定", None

@@ -110,7 +110,16 @@ def _dispatch_binding_command(user_id, text, bot, cmd, config):
 
 def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisition_limit=None, source="chat"):
     """Set a server-controlled origin while the shared dispatcher executes."""
-    from lockbot.core.command_context import RESOURCE_OPERATIONS, command_action, command_source, observe_operation
+    import uuid
+
+    from lockbot.core.command_context import (
+        RESOURCE_OPERATIONS,
+        command_action,
+        command_correlation,
+        command_initiator,
+        command_source,
+        observe_operation,
+    )
 
     if source not in {"chat", "api", "unknown"}:
         raise ValueError("Unsupported command source")
@@ -118,6 +127,14 @@ def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisiti
     match = re.match(r"^(\w+)", text, re.I)
     operation = canonical_command(match.group(1).lower()) if match else ""
     action_token = command_action.set(operation)
+    actor_token = command_initiator.set(
+        {
+            "kind": "platform_user",
+            "platform": str(getattr(getattr(bot, "adapter", None), "platform_name", "unknown")).lower(),
+            "external_user_id": user_id,
+        }
+    )
+    correlation_token = command_correlation.set(uuid.uuid4().hex)
     outcome = "dispatched"
     try:
         return _execute_text_command(user_id, text, bot, allowed_commands, acquisition_limit=acquisition_limit)
@@ -130,6 +147,8 @@ def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisiti
     finally:
         command_source.reset(token)
         command_action.reset(action_token)
+        command_initiator.reset(actor_token)
+        command_correlation.reset(correlation_token)
         if operation in RESOURCE_OPERATIONS and source in {"chat", "api"}:
             try:
                 config = getattr(bot, "config", None)
