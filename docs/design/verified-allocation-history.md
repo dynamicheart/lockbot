@@ -28,7 +28,7 @@ The standalone stdlib script `scripts/lease_history/report.py` consumes authoriz
 
 A lease contributes the intersection of its previous committed snapshot interval and its previous deadline. An early free/OP release ends at the next commit; delayed expiry closes at the known deadline, not sweep time. A renewal observed after the old deadline starts another confirmed segment and **does not fill the expired gap**. Identical event rows do not duplicate time, and repeated requests are not acquisitions unless state actually gains a new incarnation.
 
-NODE/QUEUE produce node subject-grant seconds. DEVICE/QUEUE_DEVICE produce device subject-grant seconds. Shared grants are separated from exclusive grants and count each subject's reservation independently; their sum is not physical card occupancy or utilization. No node-to-card multiplier is guessed. This verifies committed allocation intervals, not workload execution, billing or physical device activity. Administrative/platform credential holders and OS/root remain existing trust boundaries.
+NODE/QUEUE produce node subject-grant seconds. DEVICE/QUEUE_DEVICE produce device subject-grant seconds. Shared grants are separated from exclusive grants and count each subject's reservation independently; their sum is not physical card occupancy or utilization. No node-to-card multiplier is guessed. This verifies committed allocation intervals, not workload execution, billing or physical device activity. Digest links check internal consistency, not digital signatures: use trusted authorized OP exports; an editor of a local export can recompute hashes. Administrative/platform credential holders and OS/root remain existing trust boundaries.
 
 Example after an OP Agent has saved each returned page as one JSON line:
 
