@@ -20,6 +20,7 @@ from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user, require_admin, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
+from lockbot.backend.app.bots.datasource import UtilizationConfig, serialized_datasource
 from lockbot.backend.app.bots.manager import (
     AdmissionFull,
     BotNotRunning,
@@ -404,6 +405,7 @@ def create_bot(
         config_overrides=json.dumps(body.config_overrides or {}, ensure_ascii=False),
         resource_auth_enabled=body.resource_auth_enabled,
         resource_api_notify_enabled=body.resource_api_notify_enabled,
+        utilization_config=serialized_datasource(body.utilization_config),
     )
     db.add(bot)
     db.flush()
@@ -526,6 +528,25 @@ def get_bot(
     return {**_mask_bot(bot, db), **view}
 
 
+@router.post("/{bot_id}/utilization-access")
+@limiter.limit("30/minute")
+def metrics_access_for_configuration(
+    bot_id: int,
+    request: Request,
+    body: UtilizationConfig,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Authorize an owner's browser test; no metrics request is made by Lockbot."""
+    bot = _get_user_bot(bot_id, user, db)
+    from lockbot.backend.app.bots.metrics_access import issue_metrics_access
+
+    grant = issue_metrics_access(db, bot, body.model_dump())
+    if grant is None:
+        raise HTTPException(503, "Metrics access is not configured for this source and bot")
+    return grant
+
+
 @router.put("/{bot_id}", response_model=BotOut)
 def update_bot(
     bot_id: int,
@@ -629,6 +650,13 @@ def update_bot(
             if diff:
                 changes["config_overrides"] = diff
             bot.config_overrides = json.dumps(body.config_overrides, ensure_ascii=False)
+
+        if "utilization_config" in body.model_fields_set:
+            new_source = serialized_datasource(body.utilization_config)
+            if new_source != bot.utilization_config:
+                # Do not copy internal source addresses/mappings into the audit detail.
+                changes["utilization_config"] = "updated" if new_source else "removed"
+                bot.utilization_config = new_source
 
         # Identity cutover: if the signing credentials change, the bot now authenticates a
         # DIFFERENT IM identity, so agent credentials bound to the old identity must not carry

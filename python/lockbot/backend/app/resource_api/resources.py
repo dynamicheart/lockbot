@@ -238,7 +238,9 @@ def get_resources(
         platform=platform,
         caller_id=actor.external_user_id,
     )
-    attach_declarations(resources, declarations)
+    from lockbot.backend.app.resource_api.usage import visible_declarations
+
+    attach_declarations(resources, visible_declarations(declarations, caller_id=actor.external_user_id))
     next_event_at, next_event_kind = compute_next_event(
         captured_at=captured_at,
         resources=resources,
@@ -257,9 +259,11 @@ def get_resources(
     # of the served snapshot. next_event/remaining are all anchored to captured_at.
     age_seconds = max(0.0, round((datetime.now(timezone.utc) - captured_at).total_seconds(), 3))
 
+    from lockbot.backend.app.resource_api.skill import client_skill_notice
     from lockbot.core.resource_policy import public_policy
 
     return {
+        "skill_update": client_skill_notice(request),
         "resource_policy": public_policy(raw_state, config, actor.external_user_id, captured_at.timestamp()),
         "bot_id": bot_id,
         "bot_type": bot_row.bot_type,
@@ -286,7 +290,8 @@ def get_resources(
         else None,
         "resources": resources,
         "notes": {
-            "usage": "Holder and booking usage is declared, untrusted text; null means no valid declaration.",
+            "usage": "Only your own notes are private-readable here; other users expose preset task categories only. "
+            "Null means no attached declaration.",
             "lock_status": LOCK_STATUS_DOC,
             "alias": ALIAS_DOC,
             "attribution": (

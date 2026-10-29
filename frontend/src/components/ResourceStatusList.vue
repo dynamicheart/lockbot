@@ -72,6 +72,9 @@
           <span v-else class="empty-value">—</span>
         </template>
       </el-table-column>
+      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="320">
+        <template #default="{ row }"><slot name="metrics" :row="row" /></template>
+      </el-table-column>
       <el-table-column :label="$t('resourceView.remainingTime')" width="90" align="right">
         <template #default="{ row }">
           <div
@@ -112,6 +115,7 @@
             ><span class="source">{{ remaining(user) }}</span></template
           >
         </ResourceParticipants>
+        <div v-if="$slots.metrics" class="mobile-metrics"><slot name="metrics" :row="row" /></div>
         <details v-if="row.booking_list?.length" class="mobile-queue" open>
           <summary>
             {{ $t('resourceView.queuedCount', { count: row.booking_list.length }) }}
@@ -221,6 +225,7 @@ const visibleResources = computed(() =>
         user.external_user_id || user.user_id,
         task(row, user)?.agent_label,
         task(row, user)?.purpose,
+        task(row, user)?.public_task,
       ]),
     ]
       .filter(Boolean)
