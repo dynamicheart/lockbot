@@ -301,3 +301,64 @@ def test_cached_person_and_group_labels_are_exact_non_network_reads(monkeypatch)
     assert client.cached_user_name("ou_alice") is None and client.cached_group_name("oc_fixture") is None
     restarted = FeishuClient("cli_fixture", "secret")
     assert restarted.cached_user_name("ou_bob") is None
+
+
+def test_batch_names_use_one_exact_id_request_and_discard_other_contact_fields(monkeypatch):
+    from types import SimpleNamespace
+
+    import requests
+
+    calls = []
+
+    def response(url, **kwargs):
+        calls.append((url, kwargs))
+        return SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                "code": 0,
+                "data": {
+                    "items": [
+                        {"open_id": "ou_one", "name": "First", "mobile": "private-phone", "email": "private-email"},
+                        {"open_id": "ou_two", "name": "Second"},
+                        {"open_id": "ou_foreign", "name": "Not requested"},
+                    ]
+                },
+            },
+        )
+
+    monkeypatch.setattr(requests, "get", response)
+    client = FeishuClient("cli_fixture", "secret")
+    monkeypatch.setattr(client, "token", lambda: "fixture-token")
+    client.warm_user_names(["ou_one", "ou_two", "ou_one"])
+    client.warm_user_names(["ou_one", "ou_two"])
+    assert len(calls) == 1 and calls[0][0].endswith("/contact/v3/users/batch")
+    assert calls[0][1]["params"] == [("user_id_type", "open_id"), ("user_ids", "ou_one"), ("user_ids", "ou_two")]
+    assert calls[0][1]["timeout"] == (2, 4) and not calls[0][1]["allow_redirects"]
+    assert client.user_name_states(["ou_one", "ou_two"]) == {
+        "ou_one": {"status": "ready", "name": "First"},
+        "ou_two": {"status": "ready", "name": "Second"},
+    }
+    assert "private-" not in str(client.__dict__) and client.cached_user_name("ou_foreign") is None
+    with pytest.raises(ValueError):
+        client.warm_user_names([f"ou_{index}" for index in range(33)])
+
+
+def test_batch_name_failures_are_negative_cached_for_five_minutes(monkeypatch):
+    from types import SimpleNamespace
+
+    import requests
+    from lockbot.core.platforms import feishu
+
+    now, calls = [100.0], []
+    monkeypatch.setattr(feishu.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(
+        requests, "get", lambda *a, **k: calls.append(1) or SimpleNamespace(status_code=403, json=lambda: {"code": 1})
+    )
+    client = FeishuClient("cli_fixture", "secret")
+    monkeypatch.setattr(client, "token", lambda: "fixture-token")
+    client.warm_user_names(["ou_one"])
+    client.warm_user_names(["ou_one"])
+    assert len(calls) == 1 and client.user_name_states(["ou_one"])["ou_one"]["status"] == "permission"
+    now[0] += 301
+    client.warm_user_names(["ou_one"])
+    assert len(calls) == 2

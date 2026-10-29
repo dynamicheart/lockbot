@@ -61,6 +61,7 @@ class FeishuClient:
         self._expires = 0.0
         self._lock = threading.Lock()
         self._names = OrderedDict()
+        self._name_errors = {}
         self._groups = OrderedDict()
         self._names_lock = threading.Lock()
 
@@ -73,6 +74,7 @@ class FeishuClient:
     def reset_transport_cache(self):
         with self._names_lock:
             self._names.clear()
+            self._name_errors.clear()
             self._groups.clear()
 
     def token(self):
@@ -194,6 +196,82 @@ class FeishuClient:
                 return cached[0]
         return None
 
+    def user_name_states(self, identities):
+        """Closed display-only state; raw contact responses never escape this client."""
+        now = time.monotonic()
+        result = {}
+        with self._names_lock:
+            for identity in identities:
+                cached = self._names.get(identity)
+                if cached and cached[1] > now:
+                    result[identity] = (
+                        {"status": "ready", "name": cached[0]}
+                        if cached[0] != identity
+                        else {"status": self._name_errors.get(identity, "unavailable")}
+                    )
+                else:
+                    result[identity] = {"status": "unknown"}
+        return result
+
+    def warm_user_names(self, identities):
+        """One exact-ID request (<=32); only open_id/name enter the bounded cache.
+
+        Official contact/v3/users/batch supports repeated user_ids (up to 50).
+        Admission and per-application single-flight belong to the backend batch worker.
+        """
+        if (
+            not isinstance(identities, (list, tuple))
+            or len(identities) > 32
+            or any(not isinstance(uid, str) or not _OPEN_ID.fullmatch(uid) for uid in identities)
+        ):
+            raise ValueError("At most 32 exact Feishu open IDs are allowed")
+        identities = list(dict.fromkeys(identities))
+        states = self.user_name_states(identities)
+        missing = [uid for uid in identities if states[uid]["status"] == "unknown"]
+        if not missing:
+            return
+        names, failure = {}, "unavailable"
+        try:
+            response = requests.get(
+                API_ROOT + "/contact/v3/users/batch",
+                params=[("user_id_type", "open_id"), *[("user_ids", uid) for uid in missing]],
+                headers={"Authorization": "Bearer " + self.token()},
+                timeout=(2, 4),
+                allow_redirects=False,
+                **self._http_options,
+            )
+            if response.status_code == 403:
+                failure = "permission"
+            body = response.json()
+            if response.status_code == 200 and isinstance(body, dict) and body.get("code") == 0:
+                items = body.get("data", {}).get("items", [])
+                for item in items[:50] if isinstance(items, list) else []:
+                    if not isinstance(item, dict):
+                        continue
+                    uid, name = item.get("open_id"), item.get("name")
+                    if uid in missing and isinstance(name, str) and name.strip():
+                        names[uid] = name.strip()[:80]
+        except requests.Timeout:
+            failure = "timeout"
+        except (requests.RequestException, FeishuAPIError, ValueError, TypeError, AttributeError):
+            pass
+        now = time.monotonic()
+        with self._names_lock:
+            for uid in missing:
+                # A concurrent successful command-side warm must not be replaced by failure.
+                previous = self._names.get(uid)
+                if uid not in names and previous and previous[1] > now and previous[0] != uid:
+                    continue
+                self._names[uid] = (names.get(uid, uid), now + (21600 if uid in names else 300))
+                self._names.move_to_end(uid)
+                if uid in names:
+                    self._name_errors.pop(uid, None)
+                else:
+                    self._name_errors[uid] = failure
+            while len(self._names) > 1024:
+                evicted, _ = self._names.popitem(last=False)
+                self._name_errors.pop(evicted, None)
+
     def warm_user_name(self, open_id):
         """Optional display lookup, outside resource locks; identity never uses the name."""
         if not _OPEN_ID.fullmatch(open_id):
@@ -230,7 +308,8 @@ class FeishuClient:
             self._names[open_id] = (name, time.monotonic() + ttl)
             self._names.move_to_end(open_id)
             while len(self._names) > 1024:
-                self._names.popitem(last=False)
+                evicted, _ = self._names.popitem(last=False)
+                self._name_errors.pop(evicted, None)
 
     def display_text(self, text):
         with self._names_lock:

@@ -684,6 +684,9 @@ def create_app() -> FastAPI:
     from lockbot.backend.app.feishu.router import router as feishu_router
 
     app.include_router(feishu_router)
+    from lockbot.backend.app.feishu.display_names import router as display_names_router
+
+    app.include_router(display_names_router)
     app.include_router(admin_router)
     app.include_router(settings_router)
     from lockbot.backend.app.broadcast.router import router as broadcast_router
