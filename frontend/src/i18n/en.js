@@ -1,4 +1,102 @@
 export default {
+  feishu: {
+    editApplication: 'Edit application',
+    receiverRestartAfterUpdate:
+      'Saved. Refresh receiver status and start the application connection again.',
+    keepSecret: 'Leave empty to keep the saved Secret',
+    revealSecret: 'Reveal saved Secret for 20 seconds (audited)',
+    deleteApplicationConfirm:
+      'Delete application “{name}”? Resource bots must be unlinked first. This does not delete resources or their state.',
+    proxyHelp:
+      'Choose Direct when this server can reach Feishu. Otherwise use the server configuration or a specified proxy. This changes Feishu requests only, not Infoflow configuration.',
+    proxyUnset: 'No dedicated proxy configured',
+    manageApplications: 'Manage applications',
+    receiverStatus: 'Receiver status',
+    refreshReceiver: 'Refresh status',
+    noHandshake: 'None recorded',
+    receiverHelp:
+      'Last handshake: {time}. This is receiver process status. The SDK may not report internal disconnects; a previous handshake does not guarantee current reachability.',
+    receiverStates: {
+      starting: 'Starting',
+      running: 'Receiver process running',
+      stopped: 'Not started',
+      retrying: 'Retrying',
+    },
+    proxyHttpHelp:
+      'Tests HTTP API access only. See the application list for receiver status and the last WebSocket handshake.',
+    namesPending: 'Resolving names…',
+    namesUnavailable: 'Some names unavailable',
+
+    setupGuide: 'Setup guide',
+    nameHelp:
+      'A local label used to identify this application in Lockbot. It does not rename the Feishu bot.',
+    appIdHelp:
+      'Copy App ID from Credentials & Basic Info in the official Feishu developer console.',
+    appSecretHelp:
+      'Copy App Secret from Credentials & Basic Info. Keep it private; Lockbot stores it encrypted.',
+    transportHelp:
+      'WebSocket needs outbound access only and does not require Verification Token or Encrypt Key. HTTP receiving requires a reachable callback and event verification settings.',
+    tenantHelp: 'HTTP receiving only: use the enterprise tenant key for this application.',
+    verificationHelp:
+      'HTTP receiving only: copy Verification Token from Events & Callbacks and configure the Lockbot application callback URL.',
+    encryptHelp:
+      'HTTP receiving only: if event encryption is enabled, enter the matching Encrypt Key. Do not reuse an Infoflow AES key.',
+
+    connectionSettings: 'Platform connection',
+    infoflowLabel: '如流 / Infoflow',
+    feishuLabel: '飞书 / Feishu',
+    groupHelp:
+      'Add this application’s bot to the resource group, then mention it in a real group message to receive the current Chat ID and setup instructions. Copy the oc_… ID here. The server still validates the application and group association.',
+
+    groupCached: 'Cached name',
+    retryGroup: 'Retry',
+    groupCachedPermission:
+      'Showing the cached name; check the application’s group-read permission.',
+    groupCachedUnavailable: 'Showing the cached name; refresh temporarily failed. Retry.',
+
+    proxy: 'Feishu proxy',
+    proxyDeployment: 'Use server configuration',
+    proxyDirect: 'Direct connection',
+    proxyCustom: 'Site proxy',
+    proxyEffective: 'Effective',
+    proxyTest: 'Test saved HTTP connection',
+    proxyHttpOk: 'HTTP available',
+    proxyNoApplication: 'Configure a Feishu application first',
+    proxyUnavailable: 'HTTP unavailable',
+    proxyRestartRequired: 'Saved; receiver restart required',
+    proxyConnectionPending: 'Saved; receiver connection pending',
+
+    applicationManaged: 'Application credentials are managed centrally in Site settings.',
+    applicationHelp:
+      'A super administrator configures the application in Site settings. This bot only references the application and group.',
+    copyConfig: 'Copy configuration',
+    copySuffix: 'copy',
+
+    lookupGroup: 'Look up group',
+    groupUnknown: 'Group name unavailable',
+    groupPermission: 'Enable im:chat:read in the Feishu application.',
+    groupUnavailable: 'Unable to retrieve the group name. Try again later.',
+
+    enabledPlatforms: 'Enabled platforms',
+    enabledPlatformsHint: 'Applies to new bots only. Existing bots keep running.',
+    infoflow: '如流 / Infoflow',
+    feishu: '飞书 / Feishu',
+
+    applications: 'Feishu applications',
+    add: 'Add application',
+    name: 'Application name',
+    transport: 'Receiving mode',
+    websocket: 'WebSocket',
+    connect: 'Start connection',
+    connecting: 'Connection task started; messages can be received once connected',
+    tenant: 'Enterprise tenant key',
+    none: 'No Feishu application configured',
+    addApplicationFirst: 'Ask a super administrator to add a Feishu application first.',
+    required: 'This field is required',
+    platform: 'Messaging platform',
+    application: 'Enterprise application',
+    group: 'Resource group Chat ID',
+  },
   agentHistory: {
     operations: {
       command: 'Command',
@@ -27,6 +125,12 @@ export default {
     },
   },
   utilization: {
+    configureSource: 'Configure',
+    connectionHint: 'Choose a template and a data source reachable from this browser.',
+    connectionSection: 'Connection',
+    mappingSection: 'Resource mapping',
+    advancedSection: 'Advanced',
+
     availableMemory: 'Available memory',
     cacheMemory: 'Buffers/cache',
     autoUpdate: 'Auto-updating',
@@ -214,6 +318,10 @@ export default {
     claimReady: 'Ready to claim',
   },
   broadcast: {
+    targets: 'Target groups',
+    details: 'Broadcast details',
+    view: 'View',
+    result: 'Result',
     title: 'Group broadcast',
     message: 'Message',
     window: 'Recent activity window',
@@ -369,6 +477,7 @@ export default {
 
   // === Bot List ===
   botList: {
+    filterByPlatform: 'Filter by platform',
     agent_authorizations: 'Active Agent authorizations',
     agent_usage_registrations: 'Active task registrations',
     title: 'My Bots',
@@ -493,6 +602,11 @@ export default {
 
   // === Bot Detail ===
   botDetail: {
+    agentAccessStats: 'Access statistics',
+    agentOperations: 'Operation history',
+    agentAuthorizations: 'Authorization records',
+    notesScopeHelp:
+      'Super administrators only. Temporarily shows detailed Agent notes in this operation history. Reads are audited; leaving this view turns it off.',
     authorizationAudit: 'Authorization audit',
     config: 'Configuration',
     status: 'Status',
@@ -619,8 +733,7 @@ export default {
 
   // === Log Viewer ===
   log: {
-    privateDetailsRestricted:
-      'Only operation summaries are shown. Private tasks and raw logs require a super administrator.',
+    privateDetailsRestricted: 'Showing operation summaries.',
     all: 'All',
     commandLog: 'Command Log',
     systemLog: 'System Log',
@@ -709,6 +822,10 @@ export default {
 
   // === Site Settings ===
   settings: {
+    basicInformation: 'Basic information',
+    messagePlatforms: 'Messaging platforms',
+    agentPromotionSection: 'Agent promotion',
+
     agentPromotion: 'Agent promotion',
     agentPromotionText: 'Link prefix',
     agentPromotionTextHint:
@@ -849,8 +966,15 @@ export default {
     dispatched: 'Dispatched',
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
-    privateView: 'Show private task details (audited)',
-    targetTypes: { bot: 'Bot', user: 'User', service: 'Service' },
+    privateView: 'Show Agent task notes',
+    privateViewHelp:
+      'Notes are submitted by the Agent and are visible only to the same user and super administrators.',
+    targetTypes: {
+      bot: 'Bot',
+      user: 'User',
+      service: 'Service',
+      feishu_application: 'Feishu application',
+    },
     detailFields: {
       resource_auth_enabled: 'Allow Agent access',
       resource_api_notify_enabled: 'Group operation notifications',
@@ -871,7 +995,7 @@ export default {
     sources: { api: 'Agent API', chat: 'Chat', service_key: 'OP API Key' },
     booleanValues: { true: 'Yes', false: 'No' },
     actions: {
-      'task_private.read': 'Read private task details',
+      'task_private.read': 'Read Agent task notes',
       'resource_auth.bind': 'Bind Agent authorization',
       'resource_auth.unbind': 'Unbind Agent authorization',
       'bot.resource_auth_enabled': 'Enable Agent access',
@@ -886,6 +1010,10 @@ export default {
       'user.reset_password': 'Reset Password',
       'user.force_logout': 'Force Logout',
       'bot.create': 'Create Bot',
+      'feishu.create_application': 'Add Feishu application',
+      'feishu.update_application': 'Edit Feishu application',
+      'feishu.delete_application': 'Delete Feishu application',
+      'feishu.reveal_secret': 'Reveal Feishu application Secret',
       'bot.update': 'Update Bot Config',
       'bot.delete': 'Delete Bot',
       'bot.start': 'Start Bot',

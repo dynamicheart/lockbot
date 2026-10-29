@@ -33,9 +33,9 @@ describe('Agent audit localization', () => {
     // BotAudit and AuditLogsView both resolve the persisted action through this map.
     const row = Object.freeze({ action: 'task_private.read' })
     const i18n = createI18n({ legacy: false, locale: 'zh', messages })
-    expect(i18n.global.tm('audit.actions')[row.action]).toBe('查看私密任务信息')
+    expect(i18n.global.tm('audit.actions')[row.action]).toBe('查看 Agent 详细任务备注')
     i18n.global.locale.value = 'en'
-    expect(i18n.global.tm('audit.actions')[row.action]).toBe('Read private task details')
+    expect(i18n.global.tm('audit.actions')[row.action]).toBe('Read Agent task notes')
     expect(row.action).toBe('task_private.read')
   })
   it('localizes known metadata while keeping actor, commands and untrusted text intact', () => {

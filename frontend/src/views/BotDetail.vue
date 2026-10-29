@@ -9,11 +9,6 @@
         <StatusBadge v-if="bot" :status="bot.status" />
       </div>
       <div class="detail-header-actions">
-        <el-switch
-          v-if="authStore.isSuperAdmin"
-          v-model="showPrivateTasks"
-          :active-text="$t('audit.privateView')"
-        />
         <el-button
           v-if="canOperate && (bot?.status === 'stopped' || bot?.status === 'error')"
           type="success"
@@ -43,6 +38,13 @@
           <el-icon><Edit /></el-icon> {{ $t('botDetail.editConfig') }}
         </el-button>
         <el-button
+          v-if="canEdit"
+          round
+          @click="$router.push({ path: '/bots/create', query: { copy_from: bot.id } })"
+        >
+          <el-icon><CopyDocument /></el-icon> {{ $t('feishu.copyConfig') }}
+        </el-button>
+        <el-button
           v-if="canDelete"
           type="danger"
           round
@@ -66,13 +68,20 @@
             <el-tag size="small" effect="plain" :class="botTypeTagClass(bot.bot_type)">{{
               botTypeLabel(bot.bot_type)
             }}</el-tag>
-            <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
+            <el-tag size="small" type="info" effect="plain">{{
+              platformLabel(bot.platform, $t)
+            }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.status')">
             <StatusBadge :status="bot.status" />
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.groupId')">
-            <template v-if="bot.group_id">
+            <FeishuGroupInfo
+              v-if="bot.platform.toLowerCase() === 'feishu' && bot.group_id"
+              :bot-id="bot.id"
+              :chat-id="bot.group_id"
+            />
+            <template v-else-if="bot.group_id">
               <el-tag
                 v-for="gid in bot.group_id.split(',')"
                 :key="gid"
@@ -131,76 +140,95 @@
               {{ $t('resourceView.expires') }} {{ formatDateTime(bot.view_expires_at) }}
             </div>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
-            <div class="secret-field">
-              <code>{{ callbackUrl }}</code>
-              <el-popover
-                v-if="showCallbackHint"
-                :visible="true"
-                placement="bottom"
-                :width="240"
-                trigger="manual"
-              >
-                <template #reference>
-                  <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
-                </template>
-                <div class="callback-hint">
-                  <div class="callback-hint-title">
-                    {{ $t('botCreate.callbackHintTitle') }}
+          <template v-if="bot.platform.toLowerCase() !== 'feishu'">
+            <el-descriptions-item :label="$t('botDetail.callbackUrl')" :span="2">
+              <div class="secret-field">
+                <code>{{ callbackUrl }}</code>
+                <el-popover
+                  v-if="showCallbackHint"
+                  :visible="true"
+                  placement="bottom"
+                  :width="240"
+                  trigger="manual"
+                >
+                  <template #reference>
+                    <el-icon class="secret-icon" @click="copyCallbackUrl"><CopyDocument /></el-icon>
+                  </template>
+                  <div class="callback-hint">
+                    <div class="callback-hint-title">
+                      {{ $t('botCreate.callbackHintTitle') }}
+                    </div>
+                    <div>{{ $t('botCreate.callbackHintStep1') }}</div>
+                    <div>{{ $t('botCreate.callbackHintStep2') }}</div>
+                    <div>{{ $t('botCreate.callbackHintStep3') }}</div>
                   </div>
-                  <div>{{ $t('botCreate.callbackHintStep1') }}</div>
-                  <div>{{ $t('botCreate.callbackHintStep2') }}</div>
-                  <div>{{ $t('botCreate.callbackHintStep3') }}</div>
-                </div>
-              </el-popover>
-              <el-icon v-else class="secret-icon" @click="copyText(callbackUrl)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
-            <div class="secret-field">
-              <code>{{ showWebhook ? bot.webhook_url_raw : maskText(bot.webhook_url_raw) }}</code>
-              <el-icon
-                v-if="bot.webhook_url_raw"
-                class="secret-icon"
-                role="button"
-                tabindex="0"
-                :aria-label="t(showWebhook ? 'common.hideSecret' : 'common.showSecret')"
-                @click="showWebhook = !showWebhook"
-                @keydown.enter="showWebhook = !showWebhook"
-              >
-                <View v-if="!showWebhook" /><Hide v-else />
-              </el-icon>
-              <el-icon
-                v-if="bot.webhook_url_raw"
-                class="secret-icon"
-                @click="copyText(bot.webhook_url_raw)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item :label="$t('botCreate.token')" :span="2">
-            <div class="secret-field">
-              <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
-              <el-icon class="secret-icon" @click="showToken = !showToken"
-                ><View v-if="!showToken" /><Hide v-else
-              /></el-icon>
-              <el-icon class="secret-icon" @click="copyText(bot.token_raw)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
-          </el-descriptions-item>
-          <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
-            <div class="secret-field">
-              <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
-              <el-icon class="secret-icon" @click="showAesKey = !showAesKey"
-                ><View v-if="!showAesKey" /><Hide v-else
-              /></el-icon>
-              <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"
-                ><CopyDocument
-              /></el-icon>
-            </div>
+                </el-popover>
+                <el-icon v-else class="secret-icon" @click="copyText(callbackUrl)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botDetail.webhookUrl')" :span="2">
+              <div class="secret-field">
+                <code>{{ showWebhook ? bot.webhook_url_raw : maskText(bot.webhook_url_raw) }}</code>
+                <el-icon
+                  v-if="bot.webhook_url_raw"
+                  class="secret-icon"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="t(showWebhook ? 'common.hideSecret' : 'common.showSecret')"
+                  @click="showWebhook = !showWebhook"
+                  @keydown.enter="showWebhook = !showWebhook"
+                >
+                  <View v-if="!showWebhook" /><Hide v-else />
+                </el-icon>
+                <el-icon
+                  v-if="bot.webhook_url_raw"
+                  class="secret-icon"
+                  @click="copyText(bot.webhook_url_raw)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.token')" :span="2">
+              <div class="secret-field">
+                <code>{{ showToken ? bot.token_raw : maskText(bot.token_raw) }}</code>
+                <el-icon class="secret-icon" @click="showToken = !showToken"
+                  ><View v-if="!showToken" /><Hide v-else
+                /></el-icon>
+                <el-icon class="secret-icon" @click="copyText(bot.token_raw)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+            <el-descriptions-item :label="$t('botCreate.aesKey')" :span="2">
+              <div class="secret-field">
+                <code>{{ showAesKey ? bot.aes_key_raw : maskText(bot.aes_key_raw) }}</code>
+                <el-icon class="secret-icon" @click="showAesKey = !showAesKey"
+                  ><View v-if="!showAesKey" /><Hide v-else
+                /></el-icon>
+                <el-icon class="secret-icon" @click="copyText(bot.aes_key_raw)"
+                  ><CopyDocument
+                /></el-icon>
+              </div>
+            </el-descriptions-item>
+          </template>
+          <el-descriptions-item v-else :span="2">
+            <template #label>
+              {{ $t('feishu.application') }}
+              <el-tooltip :content="$t('feishu.applicationManaged')" placement="top">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <span>{{ bot.feishu_application?.name || '—' }}</span>
+            <el-button
+              v-if="authStore.isSuperAdmin"
+              link
+              type="primary"
+              size="small"
+              @click="$router.push('/admin/settings')"
+              >{{ $t('feishu.manageApplications') }}</el-button
+            >
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.createdAt')">{{
             formatDate(bot.created_at)
@@ -211,9 +239,27 @@
           <el-descriptions-item :label="$t('botDetail.lastActive')">{{
             bot.last_request_at ? formatRelativeTime(bot.last_request_at) : '-'
           }}</el-descriptions-item>
-          <el-descriptions-item :label="$t('botDetail.lastOperator')">{{
-            bot.last_user_id || '-'
-          }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.lastOperator')">
+            <el-tooltip :content="bot.last_user_id || ''" :disabled="!bot.last_user_id">
+              <span>{{ actorNames.label(bot.last_user_id, bot.last_user_display_name) }}</span>
+            </el-tooltip>
+            <span v-if="displayNameScope" class="display-name-status">
+              <span v-if="actorNames.status.value !== 'ready'">{{
+                $t(
+                  actorNames.status.value === 'pending'
+                    ? 'feishu.namesPending'
+                    : 'feishu.namesUnavailable'
+                )
+              }}</span>
+              <el-button
+                text
+                size="small"
+                :loading="actorNames.status.value === 'pending'"
+                @click="actorNames.refresh()"
+                >{{ $t('common.refresh') }}</el-button
+              >
+            </span>
+          </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.botLanguage')">
             <el-radio-group v-model="botLanguage" size="small" @change="handleLanguageChange">
               <el-radio-button value="zh">中文</el-radio-button>
@@ -395,7 +441,9 @@
               effect="plain"
               style="margin: 2px"
             >
-              {{ user }}
+              <el-tooltip :content="user"
+                ><span>{{ actorNames.label(user) }}</span></el-tooltip
+              >
             </el-tag>
             <el-tag
               v-if="overflowUserCount > 0"
@@ -520,38 +568,57 @@
 
       <!-- Logs -->
       <el-card style="margin-bottom: 20px">
-        <template #header
-          ><span>{{ $t('botDetail.logsAndStats') }}</span></template
-        >
+        <template #header>
+          <div class="activity-heading">
+            <span>{{ $t('botDetail.logsAndStats') }}</span>
+          </div>
+        </template>
         <el-tabs v-model="activityTab">
           <el-tab-pane :label="$t('botDetail.logs')" name="logs">
-            <LogViewer
-              v-if="activityTab === 'logs'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-            />
+            <LogViewer v-if="activityTab === 'logs'" :bot-id="bot.id" />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('serviceTraffic.title')" name="traffic">
-            <ServiceTrafficPanel
-              v-if="activityTab === 'traffic'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-            />
+            <ServiceTrafficPanel v-if="activityTab === 'traffic'" :bot-id="bot.id" />
           </el-tab-pane>
-          <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
-            <AgentActivity
-              v-if="activityTab === 'agents'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-              @updated="loadAgentSummary"
-            />
-          </el-tab-pane>
-          <el-tab-pane v-if="canEdit" :label="$t('botDetail.authorizationAudit')" name="audit">
-            <BotAudit
-              v-if="activityTab === 'audit'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-            />
+          <el-tab-pane v-if="canEdit" label="Agent" name="agents">
+            <template v-if="activityTab === 'agents'">
+              <div class="agent-toolbar">
+                <el-radio-group v-model="agentTab" size="small" class="agent-sections">
+                  <el-radio-button value="access">{{
+                    $t('botDetail.agentAccessStats')
+                  }}</el-radio-button>
+                  <el-radio-button value="history">{{
+                    $t('botDetail.agentOperations')
+                  }}</el-radio-button>
+                  <el-radio-button value="audit">{{
+                    $t('botDetail.agentAuthorizations')
+                  }}</el-radio-button>
+                </el-radio-group>
+                <el-tooltip
+                  v-if="agentTab === 'history' && authStore.isSuperAdmin"
+                  :content="$t('botDetail.notesScopeHelp')"
+                  placement="top"
+                >
+                  <el-switch
+                    v-model="showPrivateTasks"
+                    :active-text="$t('audit.privateView')"
+                    size="small"
+                  />
+                </el-tooltip>
+              </div>
+              <AgentActivity
+                v-if="agentTab === 'access'"
+                :bot-id="bot.id"
+                :hide-heading="true"
+                @updated="loadAgentSummary"
+              />
+              <AgentHistory
+                v-else-if="agentTab === 'history'"
+                :bot-id="bot.id"
+                :include-private="privateTaskView"
+              />
+              <BotAudit v-else :bot-id="bot.id" />
+            </template>
           </el-tab-pane>
         </el-tabs>
       </el-card>
@@ -598,17 +665,21 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
+import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { sourceResources } from '../utils/utilization/display'
 import { useDisplayClock } from '../utils/useDisplayClock'
 
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, provide, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import AgentActivity from '../components/AgentActivity.vue'
+import AgentHistory from '../components/AgentHistory.vue'
+import { actorDisplayKey, useFeishuDisplayNames } from '../utils/useFeishuDisplayNames'
 import ServiceTrafficPanel from '../components/ServiceTrafficPanel.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import BotAudit from '../components/BotAudit.vue'
@@ -639,6 +710,7 @@ const routeGeneration = ref(0)
 const authStore = useAuthStore()
 
 const activityTab = ref('logs')
+const agentTab = ref('access')
 const agentSummary = ref(null)
 const agentMetrics = computed(() =>
   canEdit.value || authStore.isAdmin
@@ -654,6 +726,26 @@ const agentMetrics = computed(() =>
 )
 
 const bot = ref(null)
+const displayNameScope = computed(() => {
+  const current = bot.value
+  const viewer = authStore.user
+  if (!current || String(current.platform).toLowerCase() !== 'feishu' || viewer?.id == null)
+    return null
+  return {
+    id: current.id,
+    key: JSON.stringify([
+      current.id,
+      current.uuid,
+      current.group_id,
+      current.identity_revision,
+      viewer.id,
+      viewer.role,
+      viewer.token_version,
+    ]),
+  }
+})
+const actorNames = useFeishuDisplayNames(displayNameScope)
+provide(actorDisplayKey, actorNames)
 const resourceMetrics = ref({ enabled: false })
 const metricsClock = useDisplayClock()
 const datasourceConfig = computed(() => {
@@ -746,13 +838,12 @@ function onVisibilityChange() {
 }
 
 function startStateTimer() {
-  if (privateTaskView.value) return
   clearInterval(stateTimer)
   stateTimer = setInterval(() => fetchState(), 60000)
 }
 
 watch(stateAutoRefresh, (val) => {
-  if (val && !privateTaskView.value) startStateTimer()
+  if (val) startStateTimer()
   else {
     clearInterval(stateTimer)
     stateTimer = null
@@ -787,7 +878,13 @@ const stateText = ref('')
 const stateData = ref(null)
 const stateUsage = ref([])
 const showPrivateTasks = ref(false)
-const privateTaskView = computed(() => authStore.isSuperAdmin && showPrivateTasks.value)
+const privateTaskView = computed(
+  () =>
+    authStore.isSuperAdmin &&
+    activityTab.value === 'agents' &&
+    agentTab.value === 'history' &&
+    showPrivateTasks.value
+)
 const stateSaving = ref(false)
 
 // Secret field visibility
@@ -1160,7 +1257,7 @@ async function fetchState() {
   try {
     const data = await botsStore.getBotState(
       read.id,
-      { include_usage: true, include_private: privateTaskView.value },
+      { include_usage: true, include_private: false },
       { signal: read.signal }
     )
     if (!read.isCurrent()) return
@@ -1395,12 +1492,9 @@ async function handleDelete() {
 }
 
 watch(
-  privateTaskView,
-  () => {
-    detailScope.cancel('state')
-    stateUsage.value = []
-    stateAutoRefresh.value = false
-    if (captureBot()) fetchState()
+  [activityTab, agentTab],
+  ([section, tab]) => {
+    if (section !== 'agents' || tab !== 'history') showPrivateTasks.value = false
   },
   { flush: 'sync' }
 )
@@ -1434,6 +1528,7 @@ watch(
     botLanguage.value = 'zh'
     loading.value = false
     activityTab.value = 'logs'
+    agentTab.value = 'access'
     stateAutoRefresh.value = false
     clearInterval(stateTimer)
     stateTimer = null
@@ -1450,6 +1545,37 @@ function formatDate(d) {
 </script>
 
 <style scoped>
+.display-name-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.activity-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.agent-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.help-icon {
+  margin-left: 5px;
+  font-size: 13px;
+  vertical-align: middle;
+  color: var(--el-text-color-secondary);
+  cursor: help;
+}
+
 .group-tag {
   cursor: pointer;
   margin-right: 4px;

@@ -73,16 +73,25 @@
           <el-option label="NODE" value="NODE" />
           <el-option label="DEVICE" value="DEVICE" />
           <el-option label="QUEUE" value="QUEUE" />
-          <el-option label="QueueDevice" value="QUEUE_DEVICE" />
+          <el-option label="QUEUE_DEVICE" value="QUEUE_DEVICE" />
         </el-select>
-        <el-button-group v-if="authStore?.isSuperAdmin">
-          <el-button @click="handleBackup">
-            <el-icon><Download /></el-icon> {{ $t('admin.downloadBackup') }}
-          </el-button>
-          <el-button @click="showRestoreDialog = true">
-            <el-icon><Upload /></el-icon> {{ $t('admin.restoreBackup') }}
-          </el-button>
-        </el-button-group>
+        <el-select
+          v-model="platformFilter"
+          :placeholder="$t('botList.filterByPlatform')"
+          clearable
+          style="width: 170px"
+        >
+          <el-option :label="$t('feishu.infoflowLabel')" value="infoflow" />
+          <el-option :label="$t('feishu.feishuLabel')" value="feishu" />
+        </el-select>
+      </div>
+      <div v-if="authStore?.isSuperAdmin" class="toolbar-actions">
+        <el-button @click="handleBackup">
+          <el-icon><Download /></el-icon> {{ $t('admin.downloadBackup') }}
+        </el-button>
+        <el-button @click="showRestoreDialog = true">
+          <el-icon><Upload /></el-icon> {{ $t('admin.restoreBackup') }}
+        </el-button>
       </div>
     </div>
 
@@ -250,7 +259,9 @@
               <el-tag size="small" effect="plain" :class="botTypeTagClass(row.bot_type)">{{
                 botTypeLabel(row.bot_type)
               }}</el-tag>
-              <el-tag size="small" type="info" effect="plain">{{ row.platform }}</el-tag>
+              <el-tag size="small" type="info" effect="plain">{{
+                platformLabel(row.platform, $t)
+              }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column prop="status" :label="$t('botDetail.status')" width="110">
@@ -302,6 +313,7 @@
 </template>
 
 <script setup>
+import { platformLabel, matchesPlatform } from '../../utils/platformDisplay'
 import { ref, computed, onMounted } from 'vue'
 import api from '../../utils/api'
 import StatusBadge from '../../components/StatusBadge.vue'
@@ -317,8 +329,9 @@ const { formatDate, formatRelativeTime, copyText } = useHelpers()
 const allBots = ref([])
 const loading = ref(false)
 const search = ref('')
-const statusFilter = ref('')
+const statusFilter = ref('running')
 const typeFilter = ref('')
+const platformFilter = ref('')
 const ownerFilter = ref('')
 const showStats = ref(true)
 const showRestoreDialog = ref(false)
@@ -456,6 +469,7 @@ const filtered = computed(() => {
     if (ownerFilter.value && b.owner !== ownerFilter.value) return false
     if (statusFilter.value && b.status !== statusFilter.value) return false
     if (typeFilter.value && b.bot_type !== typeFilter.value) return false
+    if (!matchesPlatform(b.platform, platformFilter.value)) return false
     return true
   })
 })
@@ -574,6 +588,15 @@ async function handleBackup() {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.toolbar-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.toolbar-actions .el-button {
+  margin: 0;
 }
 .bot-table :deep(tr) {
   cursor: pointer;

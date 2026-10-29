@@ -2,7 +2,7 @@
   <section class="agent-activity" :aria-label="t('agentActivity.title')">
     <div class="activity-toolbar">
       <div>
-        <h3>{{ t('agentActivity.title') }}</h3>
+        <h3 v-if="!hideHeading">{{ t('agentActivity.title') }}</h3>
         <p>{{ t('agentActivity.description') }}</p>
       </div>
       <el-button size="small" :loading="loading" @click="refresh">
@@ -36,9 +36,13 @@
       >
         <el-table-column :label="t('agentActivity.user')" min-width="230">
           <template #default="{ row }">
-            <div class="actor-name">{{ row.external_user_id }}</div>
+            <div class="actor-name">
+              <el-tooltip :content="row.external_user_id"
+                ><span>{{ actorNames.label(row.external_user_id) }}</span></el-tooltip
+              >
+            </div>
             <div class="actor-note">
-              <span>{{ row.platform }}</span>
+              <span>{{ platformLabel(row.platform, $t) }}</span>
               <el-tooltip :content="t('agentActivity.labelHelp')" placement="top">
                 <span class="authorization-label">{{ row.label || '—' }}</span>
               </el-tooltip>
@@ -106,18 +110,22 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
+import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 import { formatActivityTime } from '../utils/activityDisplay'
 
 const props = defineProps({
+  hideHeading: { type: Boolean, default: false },
   botId: { type: Number, required: true },
   includePrivate: { type: Boolean, default: false },
 })
 const emit = defineEmits(['updated'])
 const { t, locale } = useI18n()
+const actorNames = useActorDisplay()
 const items = ref([])
 const loading = ref(false)
 const error = ref(false)

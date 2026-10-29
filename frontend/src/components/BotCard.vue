@@ -11,7 +11,7 @@
       <el-tag size="small" effect="plain" :class="botTypeTagClass(bot.bot_type)">{{
         botTypeLabel(bot.bot_type)
       }}</el-tag>
-      <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
+      <el-tag size="small" type="info" effect="plain">{{ platformLabel(bot.platform, $t) }}</el-tag>
     </div>
     <div class="card-stats">
       <span class="stat-item">
@@ -47,6 +47,7 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
 import { computed } from 'vue'
 import { Monitor } from '@element-plus/icons-vue'
 import StatusBadge from './StatusBadge.vue'

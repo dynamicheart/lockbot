@@ -35,7 +35,7 @@ class TestNormalization:
         """Rows written before the platform value was read mean 'infoflow'."""
         assert normalize_platform_name(stored) == DEFAULT_PLATFORM
 
-    @pytest.mark.parametrize("stored", ["feishu", "slack", "infoflow2", "如流"])
+    @pytest.mark.parametrize("stored", ["unsupported", "slack", "infoflow2", "如流"])
     def test_unknown_platform_raises_instead_of_falling_back(self, stored):
         with pytest.raises(UnknownPlatformError) as exc:
             normalize_platform_name(stored)
@@ -62,7 +62,7 @@ class TestAdapterResolution:
 
     def test_unknown_platform_raises_on_create(self):
         with pytest.raises(UnknownPlatformError):
-            create_adapter("feishu")
+            create_adapter("unsupported")
 
     def test_registered_platform_resolves_without_touching_infoflow(self, fake_platform):
         adapter = create_adapter(fake_platform.upper())
@@ -121,14 +121,14 @@ class TestBotAdapterSelection:
         with pytest.raises(UnknownPlatformError):
             BotInstance(
                 "NODE",
-                {"BOT_NAME": "p3", "CLUSTER_CONFIGS": {"n1": "m1"}, "PLATFORM": "feishu"},
+                {"BOT_NAME": "p3", "CLUSTER_CONFIGS": {"n1": "m1"}, "PLATFORM": "unsupported"},
             )
 
     def test_injected_adapter_wins_and_skips_platform_resolution(self):
         """An explicitly injected adapter is authoritative: no lookup happens at all."""
         injected = FakeAdapter()
         bot = NodeBot(
-            config_dict={"BOT_NAME": "p4", "CLUSTER_CONFIGS": {"n1": "m1"}, "PLATFORM": "feishu"},
+            config_dict={"BOT_NAME": "p4", "CLUSTER_CONFIGS": {"n1": "m1"}, "PLATFORM": "unsupported"},
             adapter=injected,
         )
         assert bot.adapter is injected

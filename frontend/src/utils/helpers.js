@@ -23,7 +23,7 @@ export function getNodeOrder(cc) {
 }
 
 export function botTypeLabel(type) {
-  return type === 'QUEUE_DEVICE' ? 'QueueDevice' : type
+  return type
 }
 
 export function botTypeTagClass(type) {

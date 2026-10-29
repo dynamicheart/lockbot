@@ -142,6 +142,16 @@ def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
         owner = db.get(User, bot.user_id)
         data["owner"] = owner.username if owner else ""
         data["owner_role"] = owner.role if owner else ""
+    if db and str(bot.platform).lower() == "feishu":
+        from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+        from lockbot.backend.app.feishu.service import cached_bot_client
+
+        route = db.query(FeishuGroupRoute).filter_by(bot_id=bot.id, chat_id=bot.group_id).first()
+        app = db.get(FeishuApplication, route.application_id) if route else None
+        data["feishu_application"] = {"id": app.id, "name": app.name} if app else None
+        client = cached_bot_client(bot, db)
+        if client:
+            data["last_user_display_name"] = client.cached_user_name(bot.last_user_id)
     data["has_api_key"] = bool(bot.api_key)
     data["api_key"] = bot.api_key or ""
     return data
@@ -334,6 +344,12 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
 
     config["_BOT_VIEW_LINK"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): group_view_link(bot_id, uuid)
     config["_IDENTITY_REVISION"] = getattr(bot, "identity_revision", 0)
+    if (bot.platform or "").lower() == "feishu":
+        from lockbot.backend.app.feishu.service import bot_application_config
+
+        if db is None:
+            raise ValueError("Feishu configuration requires the application database")
+        config.update(bot_application_config(bot, db))
     config["DATA_DIR"] = str(paths.bots_root)
     config["STATE_FILENAME"] = str(paths.state_file(bot_id))
     config["_MANAGED_BOT_DIR"] = lambda: paths.core_directory(bot_id)
@@ -375,8 +391,28 @@ def create_bot(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    if body.platform.strip().lower() == "feishu":
+        from lockbot.backend.app.feishu.connectors import connectors
+
+        db.rollback()
+        with connectors.application_guard():
+            db.rollback()
+            return _create_bot(request, body, user, db)
+    return _create_bot(request, body, user, db)
+
+
+def _create_bot(request, body, user, db):
     if body.bot_type.upper() not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
+
+    from lockbot.backend.app.settings.router import _get_setting
+
+    selected_platform = body.platform.strip().lower()
+    if (
+        selected_platform in {"infoflow", "feishu"}
+        and _get_setting(db, f"platform_{selected_platform}_enabled") == "false"
+    ):
+        raise HTTPException(status_code=403, detail="Creation is disabled for this message platform")
 
     _validate_node_aliases(body.config_overrides, body.cluster_configs)
 
@@ -392,6 +428,8 @@ def create_bot(
     if exists:
         raise HTTPException(status_code=409, detail="Bot name already exists")
 
+    if body.platform.strip().lower() == "feishu":
+        body.platform = "Feishu"
     bot = Bot(
         uuid=str(_uuid_mod.uuid4()),
         user_id=user.id,
@@ -415,6 +453,24 @@ def create_bot(
     )
     db.add(bot)
     db.flush()
+    if (body.platform or "").lower() == "feishu":
+        import re
+
+        from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+
+        if user.role != "super_admin":
+            raise HTTPException(403, "A super administrator must authorize the Feishu group route")
+        if not body.group_id or not re.fullmatch(r"oc_[A-Za-z0-9_-]+", body.group_id):
+            raise HTTPException(422, "Configure exactly one Feishu group")
+        if not body.feishu_application_id or db.get(FeishuApplication, body.feishu_application_id) is None:
+            raise HTTPException(422, "Select a configured Feishu application")
+        if (
+            db.query(FeishuGroupRoute)
+            .filter_by(application_id=body.feishu_application_id, chat_id=body.group_id)
+            .first()
+        ):
+            raise HTTPException(409, "Feishu group already has a resource bot")
+        db.add(FeishuGroupRoute(application_id=body.feishu_application_id, chat_id=body.group_id, bot_id=bot.id))
     write_audit_log(
         db,
         user,
@@ -567,6 +623,8 @@ def update_bot(
     _get_user_bot(bot_id, user, db)
 
     with _owned_bot(bot_id, user, db) as bot:
+        if (bot.platform or "").lower() == "feishu" and body.group_id is not None and body.group_id != bot.group_id:
+            raise HTTPException(422, "Changing an existing Feishu group route requires explicit re-enrollment")
         identity_changed = (body.group_id is not None and body.group_id != bot.group_id) or any(
             getattr(body, key) is not None and getattr(body, key) != encryption.decrypt(getattr(bot, key))
             for key in ("webhook_url", "aes_key", "token")
@@ -748,6 +806,10 @@ def delete_bot(
         from lockbot.backend.app.resource_auth.service import revoke_bindings_for_bot
 
         revoke_bindings_for_bot(db, bot_id)
+        if (bot.platform or "").lower() == "feishu":
+            from lockbot.backend.app.feishu.models import FeishuGroupRoute
+
+            db.query(FeishuGroupRoute).filter_by(bot_id=bot_id).delete()
         write_audit_log(
             db,
             user,
@@ -1135,6 +1197,10 @@ def get_bot_state(
             db.rollback()
             bot = _get_user_bot(bot_id, user, db)
             captured_at, snapshot = lease.bot.state_snapshot()
+            if (bot.platform or "").lower() == "feishu":
+                from lockbot.core.platforms.feishu import decorate_people
+
+                decorate_people(snapshot, lease.bot.config)
             usage = []
             if include_usage:
                 from lockbot.backend.app.resource_api.usage import active_declarations, declarations_for_state
@@ -1556,7 +1622,7 @@ def get_bot_logs(
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "no-store"
-    _get_user_bot(bot_id, user, db)
+    bot = _get_user_bot(bot_id, user, db)
 
     log_path = _get_log_file(bot_id)
     if not os.path.exists(log_path):
@@ -1605,11 +1671,14 @@ def get_bot_logs(
     entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)
     offset = (page - 1) * limit
     selected = entries[offset : offset + limit]
+    from lockbot.backend.app.feishu.service import cached_bot_client, decorate_log_actors
+
+    display_client = cached_bot_client(bot, db)
     if private_task_view(db, user, include_private):
         if selected:
             audit_private_read(db, user, bot_id=bot_id, surface="management.logs")
-        return selected
-    return [public_log_entry(entry) for entry in selected]
+        return decorate_log_actors(selected, display_client)
+    return decorate_log_actors([public_log_entry(entry) for entry in selected], display_client)
 
 
 # ── Webhook endpoint ────────────────────────────────────────
@@ -1626,6 +1695,9 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
 
     No JWT auth required — the IM platform authenticates via signature.
     """
+    row = db.get(Bot, bot_id)
+    if row is not None and row.platform.lower() == "feishu":
+        raise HTTPException(404, "Use the Feishu application receiver")
     # Parse request data (matching Flask's request interface)
     body = await request.body()
     form = {}

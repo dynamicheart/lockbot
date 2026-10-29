@@ -329,6 +329,10 @@ def _read_backup_bots(zf) -> list[dict]:
             result = []
             for r in rows:
                 d = dict(r)
+                if (d.get("platform") or "").lower() == "feishu":
+                    from lockbot.backend.app.feishu.backup import read_application_metadata
+
+                    d["_feishu_application"] = read_application_metadata(conn, d["id"])
                 if "uuid" not in d:
                     d["uuid"] = None
                 result.append(d)
@@ -517,6 +521,15 @@ def restore_apply(
     current_user_id: int,
     db,
 ) -> dict:
+    """Keep route restoration and its commit serialized against application removal."""
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    with connectors.application_guard():
+        db.rollback()
+        return _restore_apply(file_bytes, password, source_secret_key, selected_uuids, current_user_id, db)
+
+
+def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, current_user_id, db):
     """
     Actually restore selected bots from a backup zip.
 
@@ -743,6 +756,9 @@ def restore_apply(
                             existing.token = token_enc
                         existing.status = "recovery_required"
                         existing.pid = None
+                        from lockbot.backend.app.feishu.backup import restore_route
+
+                        restore_route(db, existing, bb, source_secret_key)
                         # Commit the new config, then install the archived state atomically. If
                         # the state cannot be installed after the config commit (or the commit
                         # result is unknown), the row and its saved state may be inconsistent — a
@@ -794,6 +810,9 @@ def restore_apply(
                 db.add(bot_obj)
                 try:
                     db.flush()  # get bot_obj.id
+                    from lockbot.backend.app.feishu.backup import restore_route
+
+                    restore_route(db, bot_obj, bb, source_secret_key)
                     db.commit()
                 except IntegrityError:
                     db.rollback()

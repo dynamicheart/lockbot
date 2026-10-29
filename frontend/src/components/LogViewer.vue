@@ -5,10 +5,8 @@
         <el-radio-button value="">{{ $t('log.all') }}</el-radio-button>
         <el-radio-button value="command">{{ $t('log.commandLog') }}</el-radio-button>
         <el-radio-button value="system">{{ $t('log.systemLog') }}</el-radio-button>
-        <el-radio-button value="agent">{{ $t('agentHistory.title') }}</el-radio-button>
       </el-radio-group>
       <el-select
-        v-if="category !== 'agent'"
         v-model="level"
         :placeholder="$t('log.allLevels')"
         clearable
@@ -20,16 +18,10 @@
         <el-option label="ERROR" value="ERROR" />
       </el-select>
       <!-- <el-switch v-model="autoRefresh" :active-text="$t('log.autoRefresh')" size="small" /> -->
-      <el-button
-        v-if="category !== 'agent'"
-        size="small"
-        :loading="refreshing"
-        @click="refreshLogs"
-      >
+      <el-button size="small" :loading="refreshing" @click="refreshLogs">
         <el-icon><Refresh /></el-icon> {{ $t('log.refresh') }}
       </el-button>
       <el-button
-        v-if="category !== 'agent'"
         size="small"
         :disabled="logs.length === 0 || downloading"
         :loading="downloading"
@@ -38,57 +30,55 @@
         <el-icon><Download /></el-icon> {{ $t('log.download') }}
       </el-button>
     </div>
-    <AgentHistory
-      v-if="category === 'agent'"
-      :bot-id="botId"
-      :include-private="props.includePrivate"
-    />
-    <template v-else>
-      <p v-if="logs.some((entry) => entry.details_restricted)" class="log-privacy-note">
-        {{ $t('log.privateDetailsRestricted') }}
-      </p>
-      <div ref="logContainer" class="log-container">
-        <div v-if="loading" style="text-align: center; padding: 20px">
-          <el-icon class="is-loading"><Loading /></el-icon> {{ $t('common.loading') }}
-        </div>
+    <p v-if="logs.some((entry) => entry.details_restricted)" class="log-privacy-note">
+      {{ $t('log.privateDetailsRestricted') }}
+    </p>
+    <div ref="logContainer" class="log-container">
+      <div v-if="loading" style="text-align: center; padding: 20px">
+        <el-icon class="is-loading"><Loading /></el-icon> {{ $t('common.loading') }}
+      </div>
+      <div
+        v-else-if="logs.length === 0"
+        style="text-align: center; padding: 20px; color: var(--lb-text-secondary)"
+      >
+        {{ $t('log.noLogs') }}
+      </div>
+      <div v-else>
         <div
-          v-else-if="logs.length === 0"
-          style="text-align: center; padding: 20px; color: var(--lb-text-secondary)"
+          v-for="log in logs"
+          :key="log.id"
+          class="log-line"
+          :class="'log-' + log.level.toLowerCase()"
         >
-          {{ $t('log.noLogs') }}
-        </div>
-        <div v-else>
-          <div
-            v-for="log in logs"
-            :key="log.id"
-            class="log-line"
-            :class="'log-' + log.level.toLowerCase()"
+          <span class="log-time">{{ formatTime(log.created_at) }}</span>
+          <span :class="'log-level log-level-' + log.level.toLowerCase()">{{ log.level }}</span>
+          <span v-if="log.category === 'command'" class="log-cmd">CMD</span>
+          <span v-if="logDisplay(log)" class="log-msg"
+            ><el-tooltip :content="logDisplay(log).id"
+              ><span>[{{ logDisplay(log).name }}]</span></el-tooltip
+            >{{ logDisplay(log).rest }}</span
           >
-            <span class="log-time">{{ formatTime(log.created_at) }}</span>
-            <span :class="'log-level log-level-' + log.level.toLowerCase()">{{ log.level }}</span>
-            <span v-if="log.category === 'command'" class="log-cmd">CMD</span>
-            <span class="log-msg">{{ log.message }}</span>
-          </div>
+          <span v-else class="log-msg">{{ log.message }}</span>
         </div>
       </div>
-      <div v-if="hasMore" style="text-align: center; padding: 8px">
-        <el-button
-          size="small"
-          text
-          :loading="loadingMore"
-          :disabled="loadingMore"
-          @click="loadMore"
-          >{{ $t('log.loadMore') }}</el-button
-        >
-      </div>
-    </template>
+    </div>
+    <div v-if="hasMore" style="text-align: center; padding: 8px">
+      <el-button
+        size="small"
+        text
+        :loading="loadingMore"
+        :disabled="loadingMore"
+        @click="loadMore"
+        >{{ $t('log.loadMore') }}</el-button
+      >
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useBotsStore } from '../stores/bots'
-import AgentHistory from './AgentHistory.vue'
+import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 import { createLogViewerLoader } from '../utils/logViewerLoader'
 
 const props = defineProps({
@@ -97,6 +87,14 @@ const props = defineProps({
 })
 
 const botsStore = useBotsStore()
+const actorNames = useActorDisplay()
+function logDisplay(log) {
+  const match =
+    log.category === 'command' &&
+    typeof log.message === 'string' &&
+    /^\[(ou_[A-Za-z0-9_-]+)\]([\s\S]*)$/.exec(log.message)
+  return match ? { id: match[1], name: actorNames.label(match[1]), rest: match[2] } : null
+}
 const logs = ref([])
 const loading = ref(false)
 const loadingMore = ref(false)
@@ -111,6 +109,7 @@ const loader = createLogViewerLoader({
   request: (botId, params, signal) => botsStore.getBotLogs(botId, params, { signal }),
   publish: (update) => {
     if ('logs' in update) logs.value = update.logs
+    if (update.page > 1) actorNames.refresh?.(update.page)
     if ('hasMore' in update) hasMore.value = update.hasMore
     if ('loading' in update) loading.value = update.loading
     if ('loadingMore' in update) loadingMore.value = update.loadingMore

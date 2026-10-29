@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="site-settings">
     <div
       style="
         display: flex;
@@ -13,8 +13,9 @@
         <el-icon><Check /></el-icon> {{ $t('common.save') }}
       </el-button>
     </div>
-    <el-card>
-      <el-form v-loading="loading" label-width="140px">
+    <el-card class="settings-section">
+      <template #header>{{ $t('settings.basicInformation') }}</template>
+      <el-form v-loading="loading" label-width="140px" class="settings-form">
         <el-form-item :label="$t('settings.platformUrl')">
           <el-input
             v-model="form.platform_url"
@@ -36,6 +37,89 @@
             clearable
           />
         </el-form-item>
+        <el-form-item :label="$t('settings.newsContent')">
+          <el-input
+            v-model="form.news_content"
+            type="textarea"
+            :rows="3"
+            :maxlength="30"
+            show-word-limit
+            :placeholder="$t('settings.newsContentPlaceholder')"
+          />
+          <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
+            {{ $t('settings.newsHint') }}
+          </div>
+        </el-form-item>
+      </el-form>
+    </el-card>
+    <el-card class="settings-section">
+      <template #header>{{ $t('settings.messagePlatforms') }}</template>
+      <el-form v-loading="loading" label-width="140px" class="settings-form">
+        <el-form-item :label="$t('feishu.enabledPlatforms')">
+          <div class="platform-options">
+            <el-checkbox
+              v-model="form.platform_infoflow_enabled"
+              true-value="true"
+              false-value="false"
+              >{{ $t('feishu.infoflow') }}</el-checkbox
+            >
+            <el-checkbox
+              v-model="form.platform_feishu_enabled"
+              true-value="true"
+              false-value="false"
+              >{{ $t('feishu.feishu') }}</el-checkbox
+            >
+          </div>
+          <div class="platform-hint">{{ $t('feishu.enabledPlatformsHint') }}</div>
+        </el-form-item>
+        <el-form-item :label="$t('feishu.proxy')">
+          <template #label
+            >{{ $t('feishu.proxy')
+            }}<el-tooltip :content="$t('feishu.proxyHelp')" placement="top"
+              ><el-icon class="proxy-help"><QuestionFilled /></el-icon></el-tooltip
+          ></template>
+          <div class="feishu-proxy-options">
+            <el-select v-model="form.feishu_proxy_mode">
+              <el-option value="deployment" :label="$t('feishu.proxyDeployment')" />
+              <el-option value="direct" :label="$t('feishu.proxyDirect')" />
+              <el-option value="custom" :label="$t('feishu.proxyCustom')" />
+            </el-select>
+            <el-input
+              v-if="form.feishu_proxy_mode === 'custom'"
+              v-model="form.feishu_proxy_url"
+              placeholder="http://proxy.example:8188"
+            />
+            <div class="proxy-effective platform-hint">
+              {{ $t('feishu.proxyEffective') }}:
+              {{
+                proxyInfo.mode === 'deployment'
+                  ? $t('feishu.proxyDeployment')
+                  : proxyInfo.mode === 'direct'
+                    ? $t('feishu.proxyDirect')
+                    : $t('feishu.proxyCustom')
+              }}
+              ·
+              {{
+                proxyInfo.effective_url ||
+                $t(proxyInfo.mode === 'direct' ? 'feishu.proxyDirect' : 'feishu.proxyUnset')
+              }}
+            </div>
+            <div class="proxy-test-row">
+              <el-button :loading="testingProxy" @click="testProxy">{{
+                $t('feishu.proxyTest')
+              }}</el-button>
+              <el-tooltip v-if="proxyResult" :content="$t('feishu.proxyHttpHelp')" effect="light">
+                <span class="platform-hint">{{ $t('feishu.' + proxyResult) }}</span>
+              </el-tooltip>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <FeishuApplications />
+    </el-card>
+    <el-card class="settings-section">
+      <template #header>{{ $t('settings.agentPromotionSection') }}</template>
+      <el-form v-loading="loading" label-width="140px" class="settings-form">
         <el-form-item :label="$t('settings.agentPromotion')">
           <el-switch
             v-model="form.agent_promotion_enabled"
@@ -70,22 +154,8 @@
             </div>
           </div>
         </el-form-item>
-        <el-form-item :label="$t('settings.newsContent')">
-          <el-input
-            v-model="form.news_content"
-            type="textarea"
-            :rows="3"
-            :maxlength="30"
-            show-word-limit
-            :placeholder="$t('settings.newsContentPlaceholder')"
-          />
-          <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 4px">
-            {{ $t('settings.newsHint') }}
-          </div>
-        </el-form-item>
       </el-form>
     </el-card>
-
     <SiteBroadcast />
 
     <!-- Backup Configuration -->
@@ -211,9 +281,10 @@
 import { ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { Check } from '@element-plus/icons-vue'
+import { Check, QuestionFilled } from '@element-plus/icons-vue'
 import api from '../../utils/api'
 import SiteBroadcast from '../../components/SiteBroadcast.vue'
+import FeishuApplications from '../../components/FeishuApplications.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -224,6 +295,10 @@ const form = ref({
   admin_contact: '',
   news_content: '',
   agent_promotion_enabled: 'false',
+  platform_infoflow_enabled: 'true',
+  platform_feishu_enabled: 'true',
+  feishu_proxy_mode: 'deployment',
+  feishu_proxy_url: '',
   agent_promotion_text_zh: '',
   agent_promotion_text_en: '',
 })
@@ -260,10 +335,31 @@ function formatStatusTime(iso) {
   return isNaN(d) ? iso : d.toLocaleString()
 }
 
+const proxyInfo = ref({})
+const testingProxy = ref(false)
+const proxyResult = ref('')
+async function refreshProxy() {
+  proxyInfo.value = (await api.get('/admin/feishu/proxy')).data
+}
+async function testProxy() {
+  testingProxy.value = true
+  try {
+    const result = (await api.post('/admin/feishu/proxy/test')).data
+    proxyResult.value =
+      result.http === 'ok'
+        ? 'proxyHttpOk'
+        : result.http === 'no_application'
+          ? 'proxyNoApplication'
+          : 'proxyUnavailable'
+  } finally {
+    testingProxy.value = false
+  }
+}
 async function fetchSettings() {
   loading.value = true
   try {
     const res = await api.get('/admin/settings')
+    await refreshProxy()
     for (const item of res.data) {
       if (item.key in form.value) {
         form.value[item.key] = item.value || ''
@@ -322,7 +418,14 @@ async function fetchSchedulerStatus() {
 async function handleSave() {
   saving.value = true
   try {
-    await api.put('/admin/settings', { settings: form.value })
+    const result = await api.put('/admin/settings', { settings: form.value })
+    await refreshProxy()
+    proxyResult.value =
+      result.data.feishu_proxy_status === 'restart_required'
+        ? 'proxyRestartRequired'
+        : result.data.feishu_proxy_status === 'connection_pending'
+          ? 'proxyConnectionPending'
+          : ''
     ElMessage.success(t('settings.saved'))
   } catch {
     // handled by api interceptor
@@ -421,6 +524,58 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.proxy-help {
+  margin-left: 5px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  vertical-align: middle;
+  cursor: help;
+}
+.site-settings {
+  max-width: 1120px;
+  margin-inline: auto;
+}
+.settings-section {
+  margin-bottom: 20px;
+}
+.settings-form {
+  max-width: 860px;
+}
+.settings-form :deep(.el-form-item:last-child) {
+  margin-bottom: 0;
+}
+.proxy-effective {
+  overflow-wrap: anywhere;
+}
+.proxy-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.proxy-test-row .el-button {
+  margin: 0;
+}
+.feishu-proxy-options {
+  width: 100%;
+  max-width: 640px;
+  display: grid;
+  gap: 8px;
+}
+.platform-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  width: 100%;
+}
+.platform-options :deep(.el-checkbox) {
+  margin-right: 0;
+}
+.platform-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
 .agent-promotion-prefix :deep(.el-input-group__prepend) {
   box-sizing: border-box;
   width: 88px;
