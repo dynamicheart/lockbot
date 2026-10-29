@@ -21,6 +21,7 @@ realApi.interceptors.request.use((config) => {
 realApi.interceptors.response.use(
   (res) => res,
   (err) => {
+    if (err.code === 'ERR_CANCELED') return Promise.reject(err)
     if (err.config?._silent) return Promise.reject(err)
     const status = err.response?.status
     const url = err.config?.url
