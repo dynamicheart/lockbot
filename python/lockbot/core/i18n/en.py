@@ -1,6 +1,10 @@
 """English (en) message translations for lockbot."""
 
 MESSAGES = {
+    "notify.api_overflow": (
+        "{count} additional operation notices exceeded the queue limit; "
+        "ask an administrator to inspect operation history."
+    ),
     "alert.early_no_renewal": "Renewal is disabled. Finish and release on time; queue again for further work.\n\n",
     "help.rule1_no_renewal": "    Rule 1: Default {default_duration}; no renewal; claims cannot extend bookings\n",
     "error.relock_forbidden": "Renewal disabled: current holders cannot renew or book the same resource.",
@@ -8,6 +12,7 @@ MESSAGES = {
     "error.resource_count_limit": "Resource limit: at most {limit} held or booked resources per user.",
     "view.link": "Resource page: ",
     "help.agent_commands": "{number}. Agent:\n    bind <code> (provided by your Agent) / bindings / unbind\n",
+    "notify.api_task_category": "\nTask: {category}",
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",

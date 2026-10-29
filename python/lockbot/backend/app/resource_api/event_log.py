@@ -23,23 +23,46 @@ _secrets = re.compile(
 _secret_values = re.compile(r"(?i)(\b(?:api[_-]?key|access[_-]?token|token|password|authorization)\s*[:=]\s*)\S+")
 
 
-def _safe(value):
+def _safe(value, depth=0):
+    if depth >= 20:
+        return "[truncated]"
     if isinstance(value, str):
         return _secret_values.sub(r"\1[redacted]", _secrets.sub("[redacted]", value))
     if isinstance(value, dict):
-        return {key: _safe(item) for key, item in value.items()}
+        return {
+            key: (
+                "[redacted]"
+                if key.lower()
+                in {
+                    "authorization",
+                    "password",
+                    "app_secret",
+                    "api_key",
+                    "credential_digest",
+                    "access_token",
+                    "refresh_token",
+                    "token",
+                    "encryption_key",
+                }
+                else _safe(item, depth + 1)
+            )
+            for key, item in value.items()
+        }
     if isinstance(value, list):
-        return [_safe(item) for item in value[:100]]
+        return [_safe(item, depth + 1) for item in value[:100]]
     return value
 
 
-def begin_event(request, *, bot=None, operation, command=None, agent_label=None, purpose=None, resource_id=None):
+def begin_event(
+    request, *, bot=None, operation, command=None, agent_label=None, purpose=None, resource_id=None, task_category=None
+):
     """Only validated request fields, never a raw request body or Authorization header."""
     request.state.agent_event = {
         "operation": operation,
         "command": redact_command_text(command) if command is not None else None,
         "agent_label": agent_label,
         "purpose": purpose,
+        "task_category": task_category,
         "requested_resources": [resource_id] if resource_id is not None else [],
         "bot_uuid": getattr(bot, "uuid", None),
         "bot_type": getattr(bot, "bot_type", None),
@@ -127,6 +150,7 @@ def write_event(*, actor, event, status, duration_ms):
             "bot_id": actor.bot_id,
             "actor": {"platform": actor.platform, "external_user_id": actor.external_user_id},
             "credential_id": actor.binding_record_id,
+            "credential_ref": actor.binding_public_id,
             **{key: value for key, value in event.items() if key != "stage"},
             "http_status": status,
             "outcome": outcome,
@@ -161,3 +185,169 @@ def write_event(*, actor, event, status, duration_ms):
                 output.write(body)
     except Exception:
         logger.warning("Bot %s: could not append Agent operation history", actor.bot_id, exc_info=True)
+
+
+# Reading is bounded independently of the size/rotation policy used by the writer.
+READ_BUDGET = 1024 * 1024
+MAX_LINE_BYTES = 64 * 1024
+
+
+def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stream="agent"):
+    """Newest first, inode/offset cursor: appends do not shift subsequent pages.
+
+    A rotated-away cursor fails explicitly rather than silently skipping history. File
+    names are always selected by the server; cursor contents never become a path.
+    """
+    import base64
+
+    from fastapi import HTTPException
+
+    if stream not in {"agent", "lifecycle"}:
+        raise ValueError("Unknown history stream")
+    filename, line_limit, backups, file_bytes = "agent-operations.jsonl", MAX_LINE_BYTES, BACKUPS, MAX_BYTES
+    if stream == "lifecycle":
+        from lockbot.backend.app.resource_api import lease_history
+
+        filename, line_limit = lease_history.LOG_NAME, lease_history.MAX_LINE_BYTES
+        backups, file_bytes = lease_history.BACKUPS, lease_history.MAX_FILE_BYTES
+    paths = get_managed_paths()
+    handles = []
+    try:
+        for index in range(backups + 1):
+            candidate = paths.bot_file(bot_id, filename + (f".{index}" if index else ""))
+            try:
+                fd = os.open(candidate, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK)
+            except FileNotFoundError:
+                continue
+            handle = os.fdopen(fd, "rb")
+            info = os.fstat(handle.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                handle.close()
+                raise ManagedPathError("Agent history is not a private regular file")
+            if any(inode == info.st_ino for inode, _, _ in handles):
+                handle.close()
+                continue
+            handles.append((info.st_ino, info.st_size, handle))
+        start_index, end = 0, None
+        if cursor:
+            try:
+                inode, end = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
+                assert type(inode) is int and type(end) is int and end >= 0
+            except Exception:
+                raise HTTPException(400, "Invalid history cursor") from None
+            found = [i for i, (ino, size, _) in enumerate(handles) if ino == inode and end <= size]
+            if not found:
+                raise HTTPException(409, "History rotated; refresh the first page")
+            start_index = found[0]
+        items, scanned, next_position = [], 0, None
+        needle = query.casefold()
+        for index in range(start_index, len(handles)):
+            inode, size, handle = handles[index]
+            stop = end if index == start_index and end is not None else size
+            while stop > 0 and scanned < READ_BUDGET:
+                start = max(0, stop - (READ_BUDGET - scanned))
+                handle.seek(start)
+                body = handle.read(stop - start)
+                scanned += len(body)
+                # Do not parse a partial line at a bounded chunk's beginning.
+                if start:
+                    chunk_start = start
+                    handle.seek(start - 1)
+                    if handle.read(1) != b"\n":
+                        boundary = body.find(b"\n")
+                        if boundary < 0:
+                            stop = start
+                            break
+                        body, start = body[boundary + 1 :], start + boundary + 1
+                        if not body:
+                            # A bad line fills the whole chunk through its final newline.
+                            # Advance backwards instead of returning the same cursor forever.
+                            stop = chunk_start
+                            break
+                offsets, position = [], start
+                for raw in body.splitlines(keepends=True):
+                    offsets.append((position, raw))
+                    position += len(raw)
+                for position, raw in reversed(offsets):
+                    stop = position
+                    if not raw.endswith(b"\n") or len(raw) > line_limit:
+                        continue
+                    try:
+                        row = json.loads(raw)
+                    except (ValueError, UnicodeError, RecursionError):
+                        continue
+                    if not isinstance(row, dict) or row.get("bot_id") != bot_id:
+                        continue
+                    if stream == "lifecycle":
+                        from lockbot.backend.app.resource_api.lease_history import public_frame
+
+                        row = public_frame(row)
+                        if row is None:
+                            continue
+                    else:
+                        # Only event-schema fields are exposed; redact again for older files.
+                        row = _safe(
+                            {
+                                key: row[key]
+                                for key in (
+                                    "schema_version",
+                                    "timestamp",
+                                    "bot_type",
+                                    "operation",
+                                    "command",
+                                    "agent_label",
+                                    "purpose",
+                                    "task_category",
+                                    "public_task",
+                                    "previous_task_category",
+                                    "actor",
+                                    "credential_id",
+                                    "credential_ref",
+                                    "requested_resources",
+                                    "observed_state",
+                                    "reply",
+                                    "http_status",
+                                    "outcome",
+                                    "duration_ms",
+                                )
+                                if key in row
+                            }
+                        )
+                        if isinstance(row.get("command"), str):
+                            row["command"] = redact_command_text(row["command"])
+                        if not private:
+                            from lockbot.backend.app.resource_api.privacy import public_event
+
+                            row = public_event(row)
+                    if needle and needle not in json.dumps(row, ensure_ascii=False).casefold():
+                        continue
+                    row["id"] = f"{inode}:{position}"
+                    items.append(row)
+                    if len(items) >= limit:
+                        next_position = (inode, position)
+                        break
+                if next_position:
+                    break
+                stop = start
+            if next_position:
+                break
+            if stop > 0:
+                next_position = (inode, stop)
+                break
+            if scanned >= READ_BUDGET and index + 1 < len(handles):
+                next_position = handles[index + 1][:2]
+                break
+        next_cursor = None
+        if next_position:
+            next_cursor = base64.urlsafe_b64encode(json.dumps(next_position).encode()).decode().rstrip("=")
+        return {
+            "items": items,
+            "next_cursor": next_cursor,
+            "scanned_bytes": scanned,
+            "retention": {"max_file_bytes": file_bytes, "files": backups + 1},
+        }
+    except (OSError, ManagedPathError):
+        raise HTTPException(503, "Agent history is temporarily unavailable") from None
+    finally:
+        for _, _, handle in handles:
+            handle.close()

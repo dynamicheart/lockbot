@@ -1,6 +1,7 @@
 """Chinese (zh) message translations for lockbot."""
 
 MESSAGES = {
+    "notify.api_overflow": "另有 {count} 条操作通知因积压未包含，请管理员查看操作记录。",
     "alert.early_no_renewal": "当前禁止续期，请按时完成任务并释放资源；后续需求请重新排队。\n\n",
     "help.rule1_no_renewal": "    规则1: 默认时长{default_duration}，禁止续期；领取时长不得超过原预约时长\n",
     "error.relock_forbidden": "【禁止续期】当前占用者不能续期或预约同一资源。",
@@ -8,10 +9,11 @@ MESSAGES = {
     "error.resource_count_limit": "【资源数量限制】每人最多同时占用或预约 {limit} 个资源。",
     "view.link": "网页查看：",
     "help.agent_commands": "{number}. Agent:\n    bind <绑定码>(由 Agent 提供) / bindings / unbind\n",
+    "notify.api_task_category": "\n用途：{category}",
     "notify.api_purpose": "\n备注：{purpose}",
     "notify.api_agent_label": "\nAgent：{label}",
     "help.agent_skill": "Agent 使用：",
-    "help.agent_lock_hint": "推荐让Agent申请资源：{url}",
+    "help.agent_lock_hint": "发送给你的Agent来申请资源：{url}",
     # ── Duration formatting ──
     "duration.days": "{value} 天",
     "duration.hours": "{value} 小时",

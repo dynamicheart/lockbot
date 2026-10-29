@@ -1,0 +1,18 @@
+[Unit]
+Description=Independent cached resource telemetry exporter
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/lockbot-telemetry
+ExecStart=/usr/bin/python3 /opt/lockbot-telemetry/exporter.py --config /opt/lockbot-telemetry/config.json --lock-file /run/lockbot-resource-exporter/collector.lock
+RuntimeDirectory=lockbot-resource-exporter
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/run/lockbot-resource-exporter
+
+[Install]
+WantedBy=multi-user.target

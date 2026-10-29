@@ -1,0 +1,19 @@
+[Unit]
+Description=Scoped read-only resource metric gateway
+After=network.target lockbot-prometheus.service
+
+[Service]
+Type=simple
+User=lockbot-metrics
+Group=lockbot-metrics
+WorkingDirectory=/opt/lockbot-telemetry
+ExecStart=/usr/bin/python3 /opt/lockbot-telemetry/gateway.py --config /opt/lockbot-telemetry/gateway.json --listen 127.0.0.1 --port 19091
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

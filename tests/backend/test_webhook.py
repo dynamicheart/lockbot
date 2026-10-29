@@ -184,7 +184,7 @@ class TestWebhookCommandLog:
         logs = client.get(f"/api/bots/{bot_id}/logs", headers=auth_header).json()
         command_logs = [e for e in logs if e["category"] == "command"]
         assert len(command_logs) == 1
-        assert "[alice] lock n1" in command_logs[0]["message"]
+        assert command_logs[0]["message"] == "[alice] lock"
 
     @patch("lockbot.backend.app.bots.router.bot_manager")
     @patch("lockbot.backend.app.bots.router.handle_webhook")
@@ -213,7 +213,8 @@ class TestWebhookCommandLog:
         logs = client.get(f"/api/bots/{bot_id}/logs", headers=auth_header).json()
         command_logs = [e for e in logs if e["category"] == "command"]
         assert len(command_logs) == 1
-        assert "[unknown] status" in command_logs[0]["message"]
+        assert command_logs[0]["details_restricted"]
+        assert "status" not in command_logs[0]["message"]
 
 
 class TestWebhookLastRequestAt:

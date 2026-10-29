@@ -153,8 +153,8 @@ ruff format --check python/ tests/
    验证完成前保留旧镜像和备份。
 
 机器人核心类仍可独立构造用于测试，使用各自的 `Config` 实例；平台调度、状态格式和
-旧状态迁移继续保留。`docs/examples/xpu_monitor` 是独立的外部监控示例，其可选 Flask
-Webhook 按该示例的依赖说明运行，不随主包删除。
+旧状态迁移继续保留。独立利用率采集和 Prometheus 部署请参阅
+[资源采集器](docs/usage/resource-exporter.md)。
 
 ## 许可证
 

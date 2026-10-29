@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
+from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.manager import (
     AdmissionFull,
     BotNotRunning,
@@ -39,6 +40,7 @@ def _authorized(db, bot_id, request, *, fresh=False):
             {"code": "view_link_invalid", "message": "Get a new link from your group or Agent."},
             headers=PRIVATE_HEADERS,
         )
+    request.state.traffic_bot_id = bot.id
     return bot, window
 
 
@@ -115,13 +117,19 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
             for declaration in declarations:
                 declaration.pop("binding_id", None)
                 declaration.pop("authorization_label", None)
+            from lockbot.backend.app.resource_api.usage import visible_declarations
+
+            declarations = visible_declarations(declarations)
             attach_declarations(resources, declarations)
             _display_details(resources, state, lease.bot.config.get_val("NODE_ALIASES", {}))
             # Re-check expiry after assembling the payload; cached state is never cached authorization.
             bot, window = _authorized(db, bot_id, request, fresh=True)
+            from lockbot.backend.app.bots.metrics_access import issue_metrics_access
             from lockbot.core.resource_policy import public_policy
 
             return {
+                "utilization_access": issue_metrics_access(db, bot, expires_at=window.expires_at),
+                "utilization_config": public_datasource(bot),
                 "resource_policy": public_policy(state, lease.bot.config, now=captured_at.timestamp()),
                 **metadata,
                 "name": bot.name,

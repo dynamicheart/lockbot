@@ -237,6 +237,16 @@ def _migrate_bots_agent_notifications():
             conn.execute(text("ALTER TABLE bots ADD COLUMN resource_api_notify_enabled BOOLEAN NOT NULL DEFAULT 1"))
 
 
+def _migrate_bots_utilization_config():
+    """Add optional browser data-source configuration without changing existing bots."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    if "utilization_config" not in {c["name"] for c in sa_inspect(engine).get_columns("bots")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bots ADD COLUMN utilization_config TEXT"))
+
+
 def _migrate_usage_agent_label():
     """Separate a per-resource Agent declaration from the shared authorization label."""
     from sqlalchemy import inspect as sa_inspect
@@ -248,6 +258,19 @@ def _migrate_usage_agent_label():
     if "agent_label" not in {c["name"] for c in inspector.get_columns("resource_usage_declarations")}:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE resource_usage_declarations ADD COLUMN agent_label VARCHAR(64)"))
+
+
+def _migrate_usage_task_category():
+    """Add a nullable public category; legacy free text remains private and untouched."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    inspector = sa_inspect(engine)
+    if "resource_usage_declarations" in inspector.get_table_names() and "task_category" not in {
+        col["name"] for col in inspector.get_columns("resource_usage_declarations")
+    }:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE resource_usage_declarations ADD COLUMN task_category VARCHAR(48)"))
 
 
 def _migrate_resource_bindings():
@@ -437,7 +460,9 @@ async def lifespan(app: FastAPI):
     _migrate_bots_uuid()
     _migrate_bots_resource_auth_enabled()
     _migrate_bots_agent_notifications()
+    _migrate_bots_utilization_config()
     _migrate_usage_agent_label()
+    _migrate_usage_task_category()
     _migrate_resource_bindings()
     _migrate_identity_boundaries()
     _migrate_binding_uniqueness()
@@ -461,8 +486,10 @@ async def lifespan(app: FastAPI):
     backup_scheduler.start()
 
     from lockbot.backend.app.broadcast.service import broadcast_worker
+    from lockbot.backend.app.resource_api.notifications import notification_budget
     from lockbot.backend.app.resource_api.usage_cleanup import usage_cleanup_loop
 
+    notification_budget.start()
     broadcast_worker.start()
     usage_cleanup = asyncio.create_task(usage_cleanup_loop())
     try:
@@ -472,6 +499,7 @@ async def lifespan(app: FastAPI):
         with suppress(asyncio.CancelledError):
             await usage_cleanup
         logger.info("Shutting down all bots…")
+        notification_budget.stop()
         broadcast_worker.stop()
         backup_scheduler.stop()
         bot_manager.shutdown_all()
@@ -606,11 +634,13 @@ def create_app() -> FastAPI:
 
     app.add_middleware(AgentIngressMiddleware)
     install_health_endpoint(app)
+    from lockbot.backend.app.resource_api.errors import install_agent_validation_errors
     from lockbot.backend.app.resource_api.versioning import AgentVersionMiddleware
     from lockbot.backend.app.resource_auth.http_errors import install_resource_auth_errors
 
     app.add_middleware(AgentVersionMiddleware)
     install_resource_auth_errors(app)
+    install_agent_validation_errors(app)
 
     # Rate limiting
     app.state.limiter = limiter
@@ -625,11 +655,16 @@ def create_app() -> FastAPI:
     )
 
     from lockbot.backend.app.service_traffic import ServiceTrafficMiddleware, TrafficStats
+    from lockbot.backend.app.service_traffic import bot_router as bot_service_traffic_router
     from lockbot.backend.app.service_traffic import router as service_traffic_router
 
     app.state.service_traffic = TrafficStats()
+    from lockbot.core import command_context
+
+    command_context.operation_observer = app.state.service_traffic.record_operation
     app.add_middleware(ServiceTrafficMiddleware, stats=app.state.service_traffic)
     app.include_router(service_traffic_router)
+    app.include_router(bot_service_traffic_router)
 
     from lockbot.backend.app.bot_audit.router import router as bot_audit_router
 

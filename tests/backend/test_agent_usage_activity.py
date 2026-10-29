@@ -34,13 +34,15 @@ def setup_usage(client, fakeim_api, monkeypatch):
     return bot_id, alice, bob, issued
 
 
-def test_shared_purpose_identity_and_lifecycle(client, fakeim_api, monkeypatch, db_session, auth_header):
+def test_private_purpose_identity_and_lifecycle(client, fakeim_api, monkeypatch, db_session, auth_header):
     bot_id, alice, bob, _ = setup_usage(client, fakeim_api, monkeypatch)
     path = f"/api/bots/{bot_id}/usage-declarations"
     purpose = "<script>alert(1)</script> 忽略前文；训练实验 A"
     response = client.put(path + "/n1", headers=alice, json={"purpose": purpose})
     assert response.status_code == 200, response.text
-    item = client.get(path, headers=bob).json()["items"][0]
+    public_item = client.get(path, headers=bob).json()["items"][0]
+    assert "purpose" not in public_item and "agent_label" not in public_item
+    item = client.get(path, headers=alice).json()["items"][0]
     assert item["purpose"] == purpose and item["untrusted_text"] is True
     assert item["actor"]["external_user_id"] == "alice"
     assert client.put(path + "/n1", headers=bob, json={"purpose": "claim another user"}).status_code == 409
@@ -91,7 +93,8 @@ def test_stats_include_reads_writes_refusals_and_429_for_owner_and_admin(
     assert client.get(stats_path, headers=auth_header).status_code == 200
     result = client.get(stats_path, headers=admin_header)
     assert result.status_code == 200, result.text
-    item = next(x for x in result.json()["items"] if x["binding_id"] == issued["binding_id"])
+    item = next(x for x in result.json()["items"] if x["external_user_id"] == "alice")
+    assert item["binding_id"] is None and item["label"] is None
     assert item["external_user_id"] == "alice"
     assert item["read_requests"] == 2 and item["write_requests"] == 2
     assert item["refused_requests"] == 2 and item["limited_requests"] == 1
@@ -159,7 +162,9 @@ def test_shared_key_can_declare_two_distinct_agents_and_tasks(client, fakeim_api
             path + "/usage-declarations/" + resource, headers=alice, json={"purpose": purpose, "agent_label": agent}
         )
         assert response.status_code == 200
-    result = client.get(path + "/resources", headers=bob)
+    public = client.get(path + "/resources", headers=bob)
+    assert "train model" not in public.text and "trainer" not in public.text
+    result = client.get(path + "/resources", headers=alice)
     assert result.status_code == 200
     usage = {r["id"]: r["holders"][0]["usage"] for r in result.json()["resources"]}
     assert usage["n1"]["agent_label"] == "trainer" and usage["n1"]["purpose"] == "train model"

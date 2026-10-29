@@ -50,7 +50,7 @@
       </div>
     </div>
 
-    <div v-if="bot">
+    <div v-if="bot" :key="routeGeneration">
       <el-card style="margin-bottom: 20px">
         <template #header
           ><span>{{ $t('botDetail.config') }}</span></template
@@ -330,6 +330,20 @@
               }}</el-button>
             </div>
           </el-descriptions-item>
+          <el-descriptions-item :label="$t('utilization.configure')" :span="2">
+            <ResourceDatasourceEditor
+              v-if="canEdit"
+              :model-value="datasourceConfig"
+              :nodes="datasourceLayout.nodes"
+              :resources="datasourceLayout.resources"
+              :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
+              :save="datasourceActions.save"
+              :authorize="datasourceActions.authorize"
+            />
+            <span v-if="!canEdit">{{
+              datasourceConfig?.name || $t('utilization.notConfigured')
+            }}</span>
+          </el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -454,6 +468,15 @@
             </div>
           </div>
         </template>
+        <ResourceUtilization
+          :bot-id="bot.id"
+          :source="datasourceConfig"
+          :nodes="datasourceLayout.nodes"
+          :allowed="canEdit && bot.status === 'running' && !editingState && !viewJson"
+          :authorize="datasourceActions.authorize"
+          :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
+          @change="receiveMetrics"
+        />
         <div v-if="editingState" class="json-editor">
           <pre
             class="json-editor-backdrop"
@@ -477,46 +500,16 @@
             :image-size="60"
           />
 
-          <!-- DEVICE bot: card list -->
-          <div v-else-if="botType === 'DEVICE'" class="cluster-cards">
-            <div v-for="node in parsedState" :key="node.nodeName" class="cluster-node-card">
-              <div class="cluster-node-header">
-                <span class="cluster-node-name">
-                  <el-icon :size="16"><Monitor /></el-icon>
-                  {{ node.nodeName }}
-                  <span v-if="botConfig.NODE_ALIASES[node.nodeName]" class="node-alias-tag">{{
-                    botConfig.NODE_ALIASES[node.nodeName]
-                  }}</span>
-                </span>
-                <span class="cluster-node-summary">{{
-                  $t('clusterState.summary', {
-                    total: node.devices.length,
-                    inUse: node.devices.filter(
-                      (d) => d.status === 'exclusive' || d.status === 'shared'
-                    ).length,
-                  })
-                }}</span>
-              </div>
-              <div class="cluster-device-list">
-                <div v-for="dev in node.devices" :key="dev.devId" class="cluster-device-item">
-                  <div class="cluster-device-left">
-                    <span
-                      class="status-dot"
-                      :class="'status-dot--' + (dev.status || 'idle')"
-                    ></span>
-                    <span class="cluster-device-model">{{ dev.devModel || dev.devId }}</span>
-                  </div>
-                  <ResourceParticipants
-                    :users="dev.currentUsers"
-                    :resource-id="node.nodeName"
-                    :usage="stateUsage"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <ResourceStatusList v-else :resources="nodeResources" :usage="stateUsage" />
+          <ResourceStatusList v-else :resources="nodeResources" :usage="stateUsage">
+            <template v-if="resourceMetrics.enabled" #metrics="{ row }">
+              <ResourceMetricsCell
+                v-bind="resourceMetrics"
+                :now="metricsClock"
+                :node-id="row.metric_node_id || row.id"
+                :resource-id="row.metric_resource_id || null"
+              />
+            </template>
+          </ResourceStatusList>
         </template>
       </el-card>
 
@@ -528,6 +521,9 @@
         <el-tabs v-model="activityTab">
           <el-tab-pane :label="$t('botDetail.logs')" name="logs">
             <LogViewer v-if="activityTab === 'logs'" :bot-id="bot.id" />
+          </el-tab-pane>
+          <el-tab-pane v-if="canEdit" :label="$t('serviceTraffic.title')" name="traffic">
+            <ServiceTrafficPanel v-if="activityTab === 'traffic'" :bot-id="bot.id" />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
             <AgentActivity
@@ -584,19 +580,26 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
+import ResourceUtilization from '../components/ResourceUtilization.vue'
+import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
+import { sourceResources } from '../utils/utilization/display'
+import { useDisplayClock } from '../utils/useDisplayClock'
+
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import AgentActivity from '../components/AgentActivity.vue'
-import ResourceParticipants from '../components/ResourceParticipants.vue'
+import ServiceTrafficPanel from '../components/ServiceTrafficPanel.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import BotAudit from '../components/BotAudit.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import LogViewer from '../components/LogViewer.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, User, Monitor, Refresh } from '@element-plus/icons-vue'
+import { Download, User, Refresh } from '@element-plus/icons-vue'
 import api from '../utils/api'
+import { createBotDetailScope } from '../utils/botDetailScope'
 import { validateBotState } from '../utils/stateValidation'
 import { useI18n } from 'vue-i18n'
 import {
@@ -613,6 +616,8 @@ const { formatDateTime, formatRelativeTime, maskText, copyText } = useHelpers()
 const route = useRoute()
 const router = useRouter()
 const botsStore = useBotsStore()
+const detailScope = createBotDetailScope()
+const routeGeneration = ref(0)
 const authStore = useAuthStore()
 
 const activityTab = ref('logs')
@@ -631,6 +636,77 @@ const agentMetrics = computed(() =>
 )
 
 const bot = ref(null)
+const resourceMetrics = ref({ enabled: false })
+const metricsClock = useDisplayClock()
+const datasourceConfig = computed(() => {
+  try {
+    return typeof bot.value?.utilization_config === 'string'
+      ? JSON.parse(bot.value.utilization_config)
+      : bot.value?.utilization_config || null
+  } catch {
+    return null
+  }
+})
+const datasourceLayout = computed(() => {
+  try {
+    const cluster =
+      typeof bot.value?.cluster_configs === 'string'
+        ? JSON.parse(bot.value.cluster_configs)
+        : bot.value?.cluster_configs
+    return sourceResources(cluster, bot.value?.bot_type)
+  } catch {
+    return { nodes: [], resources: [] }
+  }
+})
+async function authorizeDatasource(value, target) {
+  if (!target.isCurrent())
+    throw Object.assign(new Error('Detail scope changed'), { code: 'ERR_CANCELED' })
+  const read = detailScope.begin('datasourceAccess')
+  if (!read) return
+  try {
+    const response = await api.post(`/bots/${target.id}/utilization-access`, value, {
+      signal: read.signal,
+    })
+    if (!read.isCurrent())
+      throw Object.assign(new Error('Detail scope changed'), { code: 'ERR_CANCELED' })
+    return response.data
+  } finally {
+    read.finish()
+  }
+}
+async function saveDatasource(value, target) {
+  if (!target.isCurrent())
+    throw Object.assign(new Error('Detail scope changed'), { code: 'ERR_CANCELED' })
+  try {
+    const result = await botsStore.updateBot(target.id, { utilization_config: value })
+    if (!target.isCurrent())
+      throw Object.assign(new Error('Detail scope changed'), { code: 'ERR_CANCELED' })
+    bot.value = result
+    ElMessage.success(t('common.success'))
+  } catch (error) {
+    if (target.isCurrent()) ElMessage.error(t('common.error'))
+    throw error
+  }
+}
+const datasourceActions = computed(() => {
+  routeGeneration.value
+  const target = detailScope.capture()
+  return {
+    authorize: (value) => authorizeDatasource(value, target),
+    save: (value) => saveDatasource(value, target),
+  }
+})
+const receiveMetrics = computed(() => {
+  routeGeneration.value
+  const target = detailScope.capture()
+  return (value) => {
+    if (target.isCurrent()) resourceMetrics.value = value
+  }
+})
+function captureBot() {
+  const target = detailScope.capture()
+  return bot.value && String(bot.value.id) === target.id ? target : null
+}
 const loading = ref(false)
 const actionLoading = ref(false)
 const viewLinkLoading = ref(false)
@@ -665,11 +741,15 @@ watch(stateAutoRefresh, (val) => {
 })
 async function fetchUsers() {
   if (cachedUsers.value.length) return
+  const read = detailScope.begin('users')
+  if (!read) return
   try {
-    const res = await api.get('/admin/users')
-    cachedUsers.value = res.data || []
+    const res = await api.get('/admin/users', { signal: read.signal })
+    if (read.isCurrent()) cachedUsers.value = res.data || []
   } catch {
     /* non-admin, no suggestions */
+  } finally {
+    read.finish()
   }
 }
 function searchUsers(query, cb) {
@@ -764,8 +844,11 @@ const hasAdvancedConfig = computed(() => {
 
 // OP API Key
 async function handleGenerateApiKey() {
+  const target = captureBot()
+  if (!target) return
   try {
-    const res = await api.post(`/bots/${bot.value.id}/api-key`)
+    const res = await api.post(`/bots/${target.id}/api-key`)
+    if (!target.isCurrent()) return
     bot.value.api_key = res.data.api_key
     showOpApiKey.value = false
     ElMessage.success(t('botDetail.apiKeyGenerated'))
@@ -775,8 +858,11 @@ async function handleGenerateApiKey() {
 }
 
 async function handleRevokeApiKey() {
+  const target = captureBot()
+  if (!target) return
   try {
-    await api.delete(`/bots/${bot.value.id}/api-key`)
+    await api.delete(`/bots/${target.id}/api-key`)
+    if (!target.isCurrent()) return
     bot.value.api_key = ''
     ElMessage.success(t('botDetail.apiKeyRevoked'))
   } catch {
@@ -803,13 +889,17 @@ function formatDuration(seconds) {
 // - user: can only operate own bots, no transfer
 const canEdit = computed(() => authStore.canEditBot(bot.value))
 async function loadAgentSummary() {
-  const id = bot.value?.id
-  if (!id || (!canEdit.value && !authStore.isAdmin)) return
+  const target = captureBot()
+  if (!target || (!canEdit.value && !authStore.isAdmin)) return
+  const read = detailScope.begin('summary')
+  if (!read) return
   try {
-    const { data } = await api.get(`/bots/${id}/agent-summary`)
-    if (bot.value?.id === id) agentSummary.value = data
+    const { data } = await api.get(`/bots/${read.id}/agent-summary`, { signal: read.signal })
+    if (read.isCurrent()) agentSummary.value = data
   } catch {
-    agentSummary.value = null
+    if (read.isCurrent()) agentSummary.value = null
+  } finally {
+    read.finish()
   }
 }
 watch(
@@ -879,9 +969,9 @@ const parsedState = computed(() => {
   if (!stateData.value || !isValidState(stateData.value)) return null
   const data = stateData.value
   const cc =
-    typeof bot.value.cluster_configs === 'string'
+    typeof bot.value?.cluster_configs === 'string'
       ? JSON.parse(bot.value.cluster_configs)
-      : bot.value.cluster_configs || {}
+      : bot.value?.cluster_configs || {}
   if (['DEVICE', 'QUEUE_DEVICE'].includes(botType.value)) {
     // cc is array format [{node_key, devices}] from API
     const nodeOrder = getNodeOrder(cc)
@@ -910,10 +1000,12 @@ const parsedState = computed(() => {
 })
 
 const nodeResources = computed(() =>
-  botType.value === 'QUEUE_DEVICE'
+  ['DEVICE', 'QUEUE_DEVICE'].includes(botType.value)
     ? (parsedState.value || []).flatMap((node) =>
         node.devices.map((dev) => ({
           id: `${node.nodeName}:dev${dev.devId}`,
+          metric_node_id: node.nodeName,
+          metric_resource_id: `${node.nodeName}:dev${dev.devId}`,
           display_name: `${node.nodeName} dev${dev.devId}`,
           alias: [botConfig.value.NODE_ALIASES[node.nodeName], dev.devModel]
             .filter(Boolean)
@@ -959,9 +1051,9 @@ const highlightedJson = computed(() => highlightJson(stateText.value || ''))
 const viewJsonHighlighted = computed(() => {
   if (!stateData.value) return ''
   const cc =
-    typeof bot.value.cluster_configs === 'string'
+    typeof bot.value?.cluster_configs === 'string'
       ? JSON.parse(bot.value.cluster_configs)
-      : bot.value.cluster_configs || {}
+      : bot.value?.cluster_configs || {}
   return highlightJson(orderedStringify(stateData.value, cc))
 })
 
@@ -970,66 +1062,71 @@ function syncScroll(e) {
   if (pre) pre.scrollTop = e.target.scrollTop
 }
 
-onMounted(() => {
-  refreshBot()
-  fetchState()
-  fetchCommandLogs()
-  document.addEventListener('visibilitychange', onVisibilityChange)
-})
-
-onUnmounted(() => {
+onMounted(() => document.addEventListener('visibilitychange', onVisibilityChange))
+onBeforeUnmount(() => {
+  detailScope.dispose()
   clearInterval(stateTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 
 async function refreshBot() {
+  const read = detailScope.begin('bot')
+  if (!read) return
   loading.value = true
   try {
-    bot.value = await botsStore.getBot(route.params.id)
-    // Init bot language from config_overrides
+    const result = await botsStore.getBot(read.id, { signal: read.signal })
+    if (!read.isCurrent()) return
+    bot.value = result
     try {
-      const overrides = JSON.parse(bot.value.config_overrides || '{}')
+      const overrides = JSON.parse(result.config_overrides || '{}')
       botLanguage.value = overrides.LANGUAGE || 'zh'
     } catch {
       botLanguage.value = 'zh'
     }
   } catch (e) {
-    if (e.response?.status === 404) {
-      router.replace({ name: 'NotFound' })
-      return
-    }
-    ElMessage.error(t('common.error'))
+    if (!read.isCurrent()) return
+    bot.value = null
+    detailScope.cancel('state')
+    detailScope.cancel('logs')
+    stateData.value = null
+    stateUsage.value = []
+    commandLogs.value = []
+    if (e.response?.status === 404) router.replace({ name: 'NotFound' })
+    else ElMessage.error(t('common.error'))
   } finally {
-    loading.value = false
+    if (read.isCurrent()) loading.value = false
+    read.finish()
   }
 }
 
 async function refreshViewLink() {
-  const id = bot.value?.id
-  if (!id || viewLinkLoading.value) return
+  if (!captureBot() || viewLinkLoading.value) return
+  const read = detailScope.begin('viewLink')
+  if (!read) return
   viewLinkLoading.value = true
   try {
-    const current = await botsStore.getBot(id)
-    if (bot.value?.id === id) {
-      bot.value.view_url = current.view_url
-      bot.value.view_expires_at = current.view_expires_at
-    }
+    const current = await botsStore.getBot(read.id, { signal: read.signal })
+    if (!read.isCurrent()) return
+    bot.value.view_url = current.view_url
+    bot.value.view_expires_at = current.view_expires_at
   } catch {
     /* handled by the API client */
   } finally {
-    viewLinkLoading.value = false
+    if (read.isCurrent()) viewLinkLoading.value = false
+    read.finish()
   }
 }
 
 async function handleLanguageChange(lang) {
+  const target = captureBot()
+  if (!target) return
   try {
-    await botsStore.setBotLanguage(bot.value.id, lang)
-    ElMessage.success(t('common.success'))
+    await botsStore.setBotLanguage(target.id, lang)
+    if (target.isCurrent()) ElMessage.success(t('common.success'))
   } catch {
-    // revert on failure
+    if (!target.isCurrent()) return
     try {
-      const overrides = JSON.parse(bot.value.config_overrides || '{}')
-      botLanguage.value = overrides.LANGUAGE || 'zh'
+      botLanguage.value = JSON.parse(bot.value.config_overrides || '{}').LANGUAGE || 'zh'
     } catch {
       botLanguage.value = 'zh'
     }
@@ -1037,28 +1134,40 @@ async function handleLanguageChange(lang) {
 }
 
 async function fetchState() {
+  const read = detailScope.begin('state')
+  if (!read) return
   try {
-    const data = await botsStore.getBotState(route.params.id, {
-      include_usage: true,
-    })
+    const data = await botsStore.getBotState(
+      read.id,
+      { include_usage: true },
+      { signal: read.signal }
+    )
+    if (!read.isCurrent()) return
     stateData.value = data.state
     stateUsage.value = data.usage || []
   } catch {
+    if (!read.isCurrent()) return
     stateData.value = null
     stateUsage.value = []
+  } finally {
+    read.finish()
   }
 }
 
 async function fetchCommandLogs() {
+  const read = detailScope.begin('logs')
+  if (!read) return
   try {
-    const data = await botsStore.getBotLogs(route.params.id, {
-      category: 'command',
-      page: 1,
-      limit: 1000,
-    })
-    commandLogs.value = data
+    const data = await botsStore.getBotLogs(
+      read.id,
+      { category: 'command', page: 1, limit: 1000 },
+      { signal: read.signal }
+    )
+    if (read.isCurrent()) commandLogs.value = data
   } catch {
-    commandLogs.value = []
+    if (read.isCurrent()) commandLogs.value = []
+  } finally {
+    read.finish()
   }
 }
 
@@ -1109,6 +1218,8 @@ function startEditState() {
 }
 
 async function saveState() {
+  const target = captureBot()
+  if (!target) return
   let parsed
   try {
     parsed = JSON.parse(stateText.value)
@@ -1118,9 +1229,9 @@ async function saveState() {
   }
   // Pre-validate on client side
   const cc =
-    typeof bot.value.cluster_configs === 'string'
+    typeof bot.value?.cluster_configs === 'string'
       ? JSON.parse(bot.value.cluster_configs)
-      : bot.value.cluster_configs || {}
+      : bot.value?.cluster_configs || {}
   const { warnings: clientWarnings } = validateBotState(parsed, bot.value.bot_type, cc, t)
   if (clientWarnings.length > 0) {
     try {
@@ -1137,9 +1248,11 @@ async function saveState() {
       return // user cancelled
     }
   }
+  if (!target.isCurrent()) return
   stateSaving.value = true
   try {
-    const res = await botsStore.updateBotState(route.params.id, parsed)
+    const res = await botsStore.updateBotState(target.id, parsed)
+    if (!target.isCurrent()) return
     if (res.warnings && res.warnings.length > 0) {
       ElMessage.warning(res.warnings.join('\n'))
     } else {
@@ -1150,7 +1263,7 @@ async function saveState() {
   } catch {
     // handled by interceptor
   } finally {
-    stateSaving.value = false
+    if (target.isCurrent()) stateSaving.value = false
   }
 }
 
@@ -1171,32 +1284,40 @@ function downloadState() {
 }
 
 async function handleStart() {
+  const target = captureBot()
+  if (!target) return
   actionLoading.value = true
   try {
-    await botsStore.startBot(bot.value.id)
+    await botsStore.startBot(target.id)
+    if (!target.isCurrent()) return
     ElMessage.success(t('common.success'))
     await refreshBot()
   } catch {
     // handled by interceptor
   } finally {
-    actionLoading.value = false
+    if (target.isCurrent()) actionLoading.value = false
   }
 }
 
 async function handleStop() {
+  const target = captureBot()
+  if (!target) return
   actionLoading.value = true
   try {
-    await botsStore.stopBot(bot.value.id)
+    await botsStore.stopBot(target.id)
+    if (!target.isCurrent()) return
     ElMessage.success(t('common.success'))
     await refreshBot()
   } catch {
     // handled by interceptor
   } finally {
-    actionLoading.value = false
+    if (target.isCurrent()) actionLoading.value = false
   }
 }
 
 async function handleTransferOwner() {
+  const target = captureBot()
+  if (!target) return
   const username = transferUsername.value.trim()
   if (!username) return
   try {
@@ -1212,9 +1333,11 @@ async function handleTransferOwner() {
   } catch {
     return
   }
+  if (!target.isCurrent()) return
   transferLoading.value = true
   try {
-    await botsStore.transferOwner(bot.value.id, username)
+    await botsStore.transferOwner(target.id, username)
+    if (!target.isCurrent()) return
     ElMessage.success(t('botDetail.transferOwnerSuccess', { username }))
     showTransferOwner.value = false
     transferUsername.value = ''
@@ -1222,11 +1345,13 @@ async function handleTransferOwner() {
   } catch {
     // handled by interceptor
   } finally {
-    transferLoading.value = false
+    if (target.isCurrent()) transferLoading.value = false
   }
 }
 
 async function handleDelete() {
+  const target = captureBot()
+  if (!target) return
   try {
     await ElMessageBox.confirm(t('botDetail.confirmDelete'), t('common.warning'), {
       type: 'warning',
@@ -1234,17 +1359,50 @@ async function handleDelete() {
   } catch {
     return // user cancelled
   }
+  if (!target.isCurrent()) return
   actionLoading.value = true
   try {
-    await botsStore.deleteBot(bot.value.id)
+    await botsStore.deleteBot(target.id)
+    if (!target.isCurrent()) return
     ElMessage.success(t('common.success'))
     router.push('/bots')
   } catch {
     // handled by interceptor
   } finally {
-    actionLoading.value = false
+    if (target.isCurrent()) actionLoading.value = false
   }
 }
+
+watch(
+  () => String(route.params.id || ''),
+  (id) => {
+    detailScope.enter(id)
+    routeGeneration.value++
+    bot.value = null
+    stateData.value = null
+    stateUsage.value = []
+    commandLogs.value = []
+    agentSummary.value = null
+    resourceMetrics.value = { enabled: false }
+    cachedUsers.value = []
+    editingState.value = viewJson.value = false
+    stateText.value = ''
+    showAesKey.value = showToken.value = showWebhook.value = showOpApiKey.value = false
+    stateSaving.value = actionLoading.value = transferLoading.value = viewLinkLoading.value = false
+    showTransferOwner.value = callbackCopied.value = false
+    transferUsername.value = ''
+    botLanguage.value = 'zh'
+    loading.value = false
+    activityTab.value = 'logs'
+    stateAutoRefresh.value = false
+    clearInterval(stateTimer)
+    stateTimer = null
+    refreshBot()
+    fetchState()
+    fetchCommandLogs()
+  },
+  { immediate: true, flush: 'sync' }
+)
 
 function formatDate(d) {
   return formatDateTime(d)

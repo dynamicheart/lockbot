@@ -87,33 +87,26 @@ class TestBasicScheduling:
             sched.stop()
 
     def test_active_bot_uses_returned_delay(self):
-        """Bot returning N seconds should be checked again in ~N seconds."""
-        next_wakeup = 0.2  # fast for testing
-        calls = []
-
-        inst = MagicMock()
-        inst.config.get_val.return_value = "bot"
-
-        def check():
-            calls.append(time.monotonic())
-            return next_wakeup
-
-        inst.bot._check_and_notify.side_effect = check
-
+        """Verify deadlines without making CI worker scheduling a correctness condition."""
+        next_wakeup = 0.2
+        inst = _make_instance(return_value=next_wakeup)
         sched = BotScheduler()
-        sched.start()
-        # Patch _MIN_INTERVAL so small test delays aren't clamped to 1s
-        with patch("lockbot.core.scheduler._MIN_INTERVAL", 0.01):
-            try:
-                sched.add(1, inst, delay=0.0)
-                assert _wait_for(lambda: len(calls) >= 4, timeout=3.0)
-                # Gaps between consecutive checks should be ~next_wakeup
-                gaps = [calls[i + 1] - calls[i] for i in range(len(calls) - 1)]
-                for g in gaps:
-                    assert g >= next_wakeup * 0.7, f"Gap too short: {g:.3f}s (expected ~{next_wakeup}s)"
-                    assert g <= next_wakeup * 3.0, f"Gap too long: {g:.3f}s"
-            finally:
-                sched.stop()
+        # Replace only the scheduler's clock object, not the process-wide time module.
+        # A busy runner can pause a real thread arbitrarily long between valid deadlines.
+        with patch("lockbot.core.scheduler.time") as clock, patch("lockbot.core.scheduler._MIN_INTERVAL", 0.01):
+            clock.monotonic.return_value = 100.0
+            sched.add(1, inst, delay=0.0)
+            sched._fire_due()
+            assert inst.bot._check_and_notify.call_count == 1
+            for expected_calls in range(2, 5):
+                assert abs(sched._next_sleep() - next_wakeup) < 1e-9
+                deadline = clock.monotonic.return_value + next_wakeup
+                clock.monotonic.return_value = deadline - 0.01
+                sched._fire_due()
+                assert inst.bot._check_and_notify.call_count == expected_calls - 1
+                clock.monotonic.return_value = deadline
+                sched._fire_due()
+                assert inst.bot._check_and_notify.call_count == expected_calls
 
 
 # ── cancellation ─────────────────────────────────────────────────────────────

@@ -112,8 +112,6 @@ h2 {
   color: var(--lb-text-primary);
 }
 .quick-groups {
-  max-height: 280px;
-  overflow-y: auto;
   padding-right: 2px;
 }
 .quick-group + .quick-group {
@@ -139,8 +137,6 @@ h3 span {
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 8px;
-  max-height: 132px;
-  overflow-y: auto;
 }
 .idle-machine {
   display: flex;
@@ -249,9 +245,6 @@ h3 span {
 @media (max-width: 560px) {
   .quick-grid {
     grid-template-columns: 1fr;
-  }
-  .quick-groups {
-    max-height: 240px;
   }
 }
 </style>

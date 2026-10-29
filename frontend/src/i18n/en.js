@@ -1,5 +1,140 @@
 export default {
+  agentHistory: {
+    operations: {
+      command: 'Command',
+      usage: { update: 'Update purpose', delete: 'Remove purpose' },
+    },
+
+    resource: 'Resource',
+    title: 'Agent history',
+    search: 'Search user, operation or visible task',
+    retention:
+      'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
+    error: 'History unavailable or cursor expired; refresh to reload.',
+    time: 'Time',
+    user: 'User',
+    operation: 'Operation',
+    task: 'Task',
+    outcome: 'Processing result',
+    previous: 'Previous',
+    next: 'Next',
+    outcomes: {
+      uncertain: 'Outcome uncertain',
+      dispatched: 'Dispatched',
+      applied: 'Applied',
+      rejected: 'Rejected',
+      may_have_executed: 'Outcome uncertain',
+    },
+  },
+  utilization: {
+    availableMemory: 'Available memory',
+    cacheMemory: 'Buffers/cache',
+    autoUpdate: 'Auto-updating',
+    contactAdmin: 'Ask the bot administrator to check the data source',
+    healthWarning: '{count} nodes have telemetry issues',
+    template: 'Connection template',
+    profileCustom: 'Custom Prometheus (advanced)',
+    templateHint:
+      'Choose a template, enter the endpoint and match resources. Every node is checked before saving; standard templates supply metric names.',
+    nodeMatch: 'Node mapping',
+    targetNode: 'Node label value in the data source',
+    deviceMatch: 'Device mapping (collector index or UUID)',
+    importMapping: 'Advanced: import node mapping JSON',
+    applyMapping: 'Apply mapping',
+    checkResources: 'Check these nodes or devices',
+    validationSuccess: 'Verified in this browser: {nodes} nodes and {cards} cards',
+    healthStates: {
+      missing: 'Missing or unmapped',
+      failed: 'Collection failed',
+      stale: 'Stale data',
+      invalid: 'Invalid data',
+    },
+
+    accessMode: 'Source access',
+    accessAutomatic: 'Automatic short-lived read grants',
+    accessIndependent: 'Independent source credential',
+
+    hostStatus: 'Host status',
+    profile: 'Metric protocol',
+    profileLockbot: 'Lockbot unified metrics (XPU / GPU / host)',
+    hostMemory: 'RAM',
+    disk: 'Disk',
+    processCount: '{count} processes',
+    container: 'Container',
+    hostUser: 'Host user',
+    command: 'Program summary',
+    hostProcess: 'Host process / unknown container',
+    processNote:
+      'Host users are not IM identities or verified container owners. Arguments are omitted; data follows the sampling time.',
+    processTruncated: 'The process list reached its limit; more records may exist.',
+
+    notConfigured: 'Not configured',
+    remove: 'Remove',
+    setupGuide: 'Setup guide',
+    adminHint:
+      'Configure once for this bot. Prepare the source URL, metric names, labels and node/device mappings. Test from this browser, then save the bot. Never save shared source secrets.',
+    testSave: 'Test and save',
+    authenticate: 'Source authentication',
+
+    invalid: 'Invalid sample',
+    title: 'Utilization',
+    show: 'Show utilization',
+    configure: 'Data source',
+    name: 'Name',
+    endpoint: 'Prometheus URL',
+    sourceToken: 'Data-source Bearer token (memory only, optional)',
+    nodeLabel: 'Node label',
+    deviceLabel: 'Device identity label',
+    nodeMapping: 'Resource node → Prometheus node label value (JSON)',
+    deviceMapping: 'Resource ID → device UUID/identity (JSON)',
+    metrics: 'Metrics and polling',
+    computeMetric: 'Compute utilization metric (%)',
+    usedMetric: 'Memory used metric',
+    totalMetric: 'Memory total metric',
+    memoryUnit: 'Memory unit',
+    interval: 'Polling interval (seconds)',
+    boundary:
+      'Browser connects directly to this source. Configure its CORS and read permissions; never enter a Lockbot key.',
+    testEnable: 'Test and enable',
+    unavailable: 'Unavailable',
+    unmapped: 'No matching device mapping',
+    compute: 'Compute',
+    memory: 'Memory',
+    sampled: 'Oldest sample',
+    stale: 'Stale',
+    peak: 'Reported maximum',
+    cards: '{count} reported cards',
+    errors: {
+      grant: 'Metric access is unavailable; ask the administrator to check source authorization.',
+      configuration: 'Check URL, metric names, labels and JSON mappings.',
+      https: 'An HTTPS page requires an HTTPS data source.',
+      mapping: 'No matching node/device series. Check label mappings.',
+      credential: 'Use a data-source credential, not a Lockbot key.',
+      format: 'Unsupported Prometheus query response.',
+      size: 'Too many series or response too large. Narrow the source query scope.',
+      network: 'Source unreachable. Check browser access, CORS and network permissions.',
+      auth: 'Data source denied access. Check its read credential.',
+      limited: 'Refresh limited; wait before trying again.',
+      upstream: 'Data source query failed.',
+      timeout: 'Data source timed out.',
+      samples: 'No complete fresh samples. Check metrics and scrape freshness.',
+    },
+  },
   serviceTraffic: {
+    httpTitle: 'HTTP traffic',
+    businessTitle: 'Resource operations',
+    businessHelp:
+      'Dispatcher attempts since counting started, separate from HTTP requests. Excludes queries/help and requests refused before dispatch. Dispatched does not prove resource acquisition; returned business refusals may also be dispatched. Shared by chat transports including WebSocket. Restart or scope eviction resets counters.',
+    businessSources: { chat: 'Group messages', agent: 'Agent API', operator: 'OP API' },
+
+    allBots: 'All bots with verified traffic',
+    byCredential: 'By credential',
+    credential: 'User',
+    operator: 'OP API',
+    unattributed: 'Unattributed requests:',
+    scopeHelp:
+      'HTTP counters reset on service restart; scoped counters can restart when inactive entries are evicted. Bot statistics include authenticated Agent/OP, verified running-chat callbacks and valid resource-page requests and successful authorized bot management requests. Failed management requests remain unattributed. Rankings retain up to 1,024 recently active credentials and show the top 50; shared keys are counted together. Invalid credentials remain unattributed. Existing Agent access counters are separate durable cumulative totals.',
+
     title: 'Service traffic',
     since: 'Counters since',
     unavailable: 'Unable to refresh service traffic.',
@@ -404,7 +539,7 @@ export default {
     agentGroup: 'Agent',
     agentNotify: 'Group operation notifications',
     agentNotifyHelp:
-      'Announce Agent resource commands in the group. Queue-turn and expiry alerts are unaffected.',
+      'Announce resource commands and preset task categories. Notes and Agent names are private to the owner, administrators and authorized OP; operational logs may retain them. Queue and expiry reminders remain enabled.',
     agentAccess: 'Allow Agent access',
     agentAccessHelp:
       'Allow resource API calls after in-chat authorization. Disabling suspends access and retains authorizations. OP API Key is unaffected.',
@@ -477,6 +612,8 @@ export default {
 
   // === Log Viewer ===
   log: {
+    privateDetailsRestricted:
+      'Only operation summaries are shown. Private tasks and raw logs require a super administrator.',
     all: 'All',
     commandLog: 'Command Log',
     systemLog: 'System Log',
@@ -566,6 +703,9 @@ export default {
   // === Site Settings ===
   settings: {
     agentPromotion: 'Agent promotion',
+    agentPromotionText: 'Link prefix',
+    agentPromotionTextHint:
+      'Leave blank for defaults. The link is added automatically. Plain single-line text, up to 120 characters.',
     agentPromotionHint: 'Show the Agent skill link after successful resource requests.',
     platformUrl: 'Platform URL',
     platformUrlPlaceholder: 'e.g. http://192.168.1.1:8080',
@@ -723,6 +863,7 @@ export default {
     sources: { api: 'Agent API', chat: 'Chat', service_key: 'OP API Key' },
     booleanValues: { true: 'Yes', false: 'No' },
     actions: {
+      'task_private.read': 'Read private task details',
       'resource_auth.bind': 'Bind Agent authorization',
       'resource_auth.unbind': 'Unbind Agent authorization',
       'bot.resource_auth_enabled': 'Enable Agent access',

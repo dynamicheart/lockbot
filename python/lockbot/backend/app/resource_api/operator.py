@@ -3,7 +3,7 @@
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -19,9 +19,11 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
+from lockbot.backend.app.resource_api.privacy import visible_declarations
 from lockbot.backend.app.resource_api.resources import snapshot_cache
 from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
+from lockbot.core.command_context import operation_attempt
 from lockbot.core.platforms.registry import normalize_platform_name
 
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
@@ -37,7 +39,91 @@ def _require_operator(db, request, bot_id, *, fresh=False):
     token = auth[7:] if auth.startswith("Bearer ") else ""
     if not bot.api_key or not token or not secrets.compare_digest(bot.api_key.encode(), token.encode()):
         raise HTTPException(401, "Invalid OP API key")
+    request.state.traffic_bot_id = bot.id
+    request.state.traffic_operator = True
     return bot
+
+
+@router.get("/{bot_id}/op/history")
+@limiter.limit("30/minute")
+def operator_history(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    cursor: str | None = Query(None, max_length=256),
+    limit: int = Query(25, ge=1, le=100),
+    query: str = Query("", max_length=128),
+    db: Session = Depends(get_db),
+):
+    """Public Agent API operation history, never private tasks or a full usage ledger."""
+    from lockbot.backend.app.resource_api.event_log import READ_BUDGET, read_history
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        _require_operator(db, request, bot_id, fresh=True)
+        result = read_history(bot_id, limit=limit, cursor=cursor, query=query, private=False)
+        # Rotation/revocation/deletion during a file read must take effect before disclosure.
+        _require_operator(db, request, bot_id, fresh=True)
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store"}
+        raise
+    return {
+        "bot_id": bot_id,
+        "history_schema_version": 1,
+        "visibility": "public",
+        **result,
+        "coverage": {
+            "source": "agent_api_operations",
+            "complete_lifecycle": False,
+            "complete_history": False,
+            "read_budget_bytes": READ_BUDGET,
+            "excludes": ["chat_commands", "op_actions", "automatic_expiry", "hardware_utilization"],
+        },
+    }
+
+
+@router.get("/{bot_id}/op/lease-history")
+@limiter.limit("30/minute")
+def operator_lease_history(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    cursor: str | None = Query(None, max_length=256),
+    limit: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.resource_api.event_log import READ_BUDGET, read_history
+    from lockbot.backend.app.resource_api.lease_history import MAX_LINE_BYTES
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        _require_operator(db, request, bot_id, fresh=True)
+        result = read_history(bot_id, limit=limit, cursor=cursor, stream="lifecycle")
+        checkpoint = None
+        try:
+            with bot_manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
+                journal = getattr(lease.bot.config, "_lifecycle_observer", None)
+                if journal is not None:
+                    checkpoint = journal.checkpoint(lease.bot.state.bot_state)
+        except (BotNotRunning, InstanceRetiring, AdmissionFull):
+            pass
+        _require_operator(db, request, bot_id, fresh=True)
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store"}
+        raise
+    return {
+        "bot_id": bot_id,
+        **result,
+        "checkpoint": checkpoint,
+        "coverage": {
+            "source": "allocator_commits",
+            "complete_history": False,
+            "read_budget_bytes": READ_BUDGET,
+            "max_record_bytes": MAX_LINE_BYTES,
+            "units": ["node_seconds", "device_seconds"],
+            "physical_utilization": False,
+        },
+    }
 
 
 @router.get("/{bot_id}/op/resources")
@@ -49,7 +135,7 @@ def operator_resources(
     usage_limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    """Fresh OP snapshot: bot health, holders, cards, queues and active task purposes.
+    """Fresh OP snapshot: operational state and public task categories, never private notes.
 
     Resource state is complete; task declarations are paginated independently. Follow
     usage_page.next_offset until null. A null embedded usage on a partial page does not
@@ -62,7 +148,7 @@ def operator_resources(
             captured_at, state = lease.bot.state_snapshot()
             rows = active_declarations(db, bot, datetime.utcnow(), limit=usage_limit + 1, offset=usage_offset)
             has_more = len(rows) > usage_limit
-            declarations = declarations_for_state(rows[:usage_limit], state, captured_at)
+            declarations = visible_declarations(declarations_for_state(rows[:usage_limit], state, captured_at))
             resources = scrub_private(
                 build_resources(
                     captured_at=captured_at,
@@ -157,7 +243,8 @@ def operator_kicklock(bot_id: int, request: Request, body: KicklockRequest, db: 
             if bot.bot_type not in {"QUEUE", "QUEUE_DEVICE"}:
                 raise errors.command_not_supported("kicklock", bot.bot_type)
             try:
-                result = lease.bot.do_kicklock(body.node_keys, reason=body.reason)
+                with operation_attempt(bot_id, "operator", "kicklock"):
+                    result = lease.bot.do_kicklock(body.node_keys, reason=body.reason)
             except ValueError as exc:
                 raise HTTPException(404, str(exc)) from None
             except Exception:
