@@ -91,8 +91,8 @@ def test_op_card_release_keeps_sibling_holding_and_waiting_task(client, cards, o
     assert released.status_code == 200 and released.json()["freed"] == ["n1:dev0"]
     payload = client.get(base + "/op/resources", headers=operator["op_headers"]).json()
     devices = payload["resources"][0]["devices"]
-    assert not devices[0]["holders"] and devices[0]["booking_list"][0]["usage"]["purpose"] == "Regression"
-    assert devices[1]["holders"][0]["usage"]["purpose"] == "Development"
+    assert not devices[0]["holders"] and "purpose" not in devices[0]["booking_list"][0]["usage"]
+    assert "purpose" not in devices[1]["holders"][0]["usage"]
     assert all("claimable_by_you" not in device for device in devices)
 
 
@@ -121,7 +121,8 @@ def test_card_readonly_view_includes_full_queue_and_omits_caller_fields(client, 
     assert payload.status_code == 200, payload.text
     device = payload.json()["resources"][0]["devices"][0]
     assert device["booking_list"][0]["duration_seconds"] == 1800
-    assert device["booking_list"][0]["usage"]["purpose"] == "Regression"
+    assert "purpose" not in device["booking_list"][0]["usage"]
+    assert "Regression" not in payload.text
     assert "claimable_by_you" not in device and "binding_id" not in json.dumps(device)
 
 

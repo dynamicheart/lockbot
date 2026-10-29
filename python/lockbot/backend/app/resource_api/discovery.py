@@ -81,6 +81,9 @@ class AgentContextResponse(BaseModel):
     bot_rules: BotRules | None = None
     agent_access_enabled: bool
     credential_scope: Literal["one_user_one_bot"]
+    utilization: dict[str, Any] | None = None
+    usage_privacy: dict[str, Any]
+    skill_update: dict[str, Any]
     links: dict[str, str]
     skill: dict[str, Any]
     view_url: str | None = None
@@ -123,7 +126,10 @@ def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
     # Refresh even if another request retained this ORM identity in a reused Session.
     db.refresh(bot)
-    from lockbot.backend.app.resource_api.skill import skill_artifacts
+    from lockbot.backend.app.bots.datasource import public_datasource
+    from lockbot.backend.app.bots.metrics_access import issue_metrics_access
+    from lockbot.backend.app.resource_api.skill import client_skill_notice, skill_artifacts
+    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
     from lockbot.backend.app.resource_api.view_links import view_link
 
     response.headers["Cache-Control"] = "no-store"
@@ -136,6 +142,26 @@ def _context_payload(request, response, db, row):
         "bot_rules": current_bot_rules(bot, row.external_user_id),
         "agent_access_enabled": bot.resource_auth_enabled,
         "credential_scope": "one_user_one_bot",
+        "utilization": {
+            "best_effort": True,
+            "configuration": public_datasource(bot),
+            "access": issue_metrics_access(db, bot, expires_at=row.credential_expires_at)
+            if bot.resource_auth_enabled
+            else None,
+            "guide_url": "https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md",
+        }
+        if public_datasource(bot)
+        else None,
+        "usage_privacy": {
+            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id"],
+            "policy_version": 2,
+            "private_readers": ["same_verified_actor", "super_administrator"],
+            "management_private_capability": "task_private:read",
+            "ordinary_operator_private_access": False,
+            "delegated_private_access_supported": False,
+            "public_task_categories": TASK_CATEGORIES,
+            "legacy_purpose_visibility": "private",
+        },
         "links": {
             "resources": f"/api/bots/{bot.id}/resources",
             "commands": f"/api/bots/{bot.id}/commands",
@@ -143,5 +169,6 @@ def _context_payload(request, response, db, row):
             "skill_manifest": "/api/agent-skill",
         },
         "skill": skill_artifacts()[2],
+        "skill_update": client_skill_notice(request),
         **view,
     }

@@ -20,6 +20,7 @@ from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.dependencies import get_current_user, require_admin, require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
+from lockbot.backend.app.bots.datasource import UtilizationConfig, serialized_datasource
 from lockbot.backend.app.bots.manager import (
     AdmissionFull,
     BotNotRunning,
@@ -44,6 +45,12 @@ from lockbot.backend.app.database import get_db
 from lockbot.backend.app.managed_paths import get_managed_paths, sanitize_managed_overrides
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors as api_errors
+from lockbot.backend.app.resource_api.privacy import (
+    audit_private_read,
+    can_read_private_tasks,
+    public_log_entry,
+    visible_declarations,
+)
 from lockbot.backend.app.resource_api.sources import SOURCE_CHAT, SOURCE_SERVICE_KEY
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.state_migration import assert_bot_state_ready
@@ -404,6 +411,7 @@ def create_bot(
         config_overrides=json.dumps(body.config_overrides or {}, ensure_ascii=False),
         resource_auth_enabled=body.resource_auth_enabled,
         resource_api_notify_enabled=body.resource_api_notify_enabled,
+        utilization_config=serialized_datasource(body.utilization_config),
     )
     db.add(bot)
     db.flush()
@@ -526,6 +534,25 @@ def get_bot(
     return {**_mask_bot(bot, db), **view}
 
 
+@router.post("/{bot_id}/utilization-access")
+@limiter.limit("30/minute")
+def metrics_access_for_configuration(
+    bot_id: int,
+    request: Request,
+    body: UtilizationConfig,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Authorize an owner's browser test; no metrics request is made by Lockbot."""
+    bot = _get_user_bot(bot_id, user, db)
+    from lockbot.backend.app.bots.metrics_access import issue_metrics_access
+
+    grant = issue_metrics_access(db, bot, body.model_dump())
+    if grant is None:
+        raise HTTPException(503, "Metrics access is not configured for this source and bot")
+    return grant
+
+
 @router.put("/{bot_id}", response_model=BotOut)
 def update_bot(
     bot_id: int,
@@ -629,6 +656,13 @@ def update_bot(
             if diff:
                 changes["config_overrides"] = diff
             bot.config_overrides = json.dumps(body.config_overrides, ensure_ascii=False)
+
+        if "utilization_config" in body.model_fields_set:
+            new_source = serialized_datasource(body.utilization_config)
+            if new_source != bot.utilization_config:
+                # Do not copy internal source addresses/mappings into the audit detail.
+                changes["utilization_config"] = "updated" if new_source else "removed"
+                bot.utilization_config = new_source
 
         # Identity cutover: if the signing credentials change, the bot now authenticates a
         # DIFFERENT IM identity, so agent credentials bound to the old identity must not carry
@@ -1073,12 +1107,14 @@ def _get_bot_data_dir(bot: Bot) -> str:
 @router.get("/{bot_id}/state")
 def get_bot_state(
     bot_id: int,
+    response: Response,
     include_usage: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     import os
 
+    response.headers["Cache-Control"] = "no-store"
     bot = _get_user_bot(bot_id, user, db)
 
     def view(state, usage=None):
@@ -1098,7 +1134,12 @@ def get_bot_state(
             if include_usage:
                 from lockbot.backend.app.resource_api.usage import active_declarations, declarations_for_state
 
-                usage = declarations_for_state(active_declarations(db, bot, datetime.utcnow()), snapshot, captured_at)
+                usage = visible_declarations(
+                    declarations_for_state(active_declarations(db, bot, datetime.utcnow()), snapshot, captured_at),
+                    private=can_read_private_tasks(db, user),
+                )
+                if usage and can_read_private_tasks(db, user):
+                    audit_private_read(db, user, bot_id=bot_id, surface="management.state")
         return view(snapshot, usage)
     except BotNotRunning:
         pass
@@ -1484,6 +1525,7 @@ def update_bot_state(
 @router.get("/{bot_id}/logs")
 def get_bot_logs(
     bot_id: int,
+    response: Response,
     page: int = 1,
     limit: int = 50,
     level: str | None = None,
@@ -1492,6 +1534,7 @@ def get_bot_logs(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    response.headers["Cache-Control"] = "no-store"
     _get_user_bot(bot_id, user, db)
 
     log_path = _get_log_file(bot_id)
@@ -1522,7 +1565,12 @@ def get_bot_logs(
     # Sort newest first, paginate
     entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)
     offset = (page - 1) * limit
-    return entries[offset : offset + limit]
+    selected = entries[offset : offset + limit]
+    if can_read_private_tasks(db, user):
+        if selected:
+            audit_private_read(db, user, bot_id=bot_id, surface="management.logs")
+        return selected
+    return [public_log_entry(entry) for entry in selected]
 
 
 # ── Webhook endpoint ────────────────────────────────────────

@@ -1,0 +1,5 @@
+{
+  "upstream": "http://127.0.0.1:19090",
+  "origins": ["https://lockbot.example.invalid"],
+  "readers": []
+}

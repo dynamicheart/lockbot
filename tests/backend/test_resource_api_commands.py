@@ -109,7 +109,7 @@ class TestAllowedOperations:
 
     def test_response_is_platform_neutral(self, client, api):
         body = _post(client, api, "query").json()
-        assert set(body) == {"bot_id", "bot_type", "platform", "actor", "command", "reply"}
+        assert set(body) == {"bot_id", "bot_type", "platform", "actor", "command", "reply", "skill_update"}
         assert body["bot_type"] == "NODE"
         assert body["platform"] == "infoflow"
         assert body["actor"] == {"platform": PLATFORM, "external_user_id": ACTOR}

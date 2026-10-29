@@ -39,6 +39,9 @@
     </div>
     <AgentHistory v-if="category === 'agent'" :bot-id="botId" />
     <template v-else>
+      <p v-if="logs.some((entry) => entry.details_restricted)" class="log-privacy-note">
+        {{ $t('log.privateDetailsRestricted') }}
+      </p>
       <div ref="logContainer" class="log-container">
         <div v-if="loading" style="text-align: center; padding: 20px">
           <el-icon class="is-loading"><Loading /></el-icon> {{ $t('common.loading') }}
@@ -245,6 +248,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.log-privacy-note { color: var(--lb-text-secondary); font-size: 12px; }
 .log-header {
   display: flex;
   flex-wrap: wrap;

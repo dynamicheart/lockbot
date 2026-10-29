@@ -19,6 +19,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
+from lockbot.backend.app.resource_api.privacy import visible_declarations
 from lockbot.backend.app.resource_api.resources import snapshot_cache
 from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
@@ -52,7 +53,7 @@ def operator_resources(
     usage_limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    """Fresh OP snapshot: bot health, holders, cards, queues and active task purposes.
+    """Fresh OP snapshot: operational state and public task categories, never private notes.
 
     Resource state is complete; task declarations are paginated independently. Follow
     usage_page.next_offset until null. A null embedded usage on a partial page does not
@@ -65,7 +66,7 @@ def operator_resources(
             captured_at, state = lease.bot.state_snapshot()
             rows = active_declarations(db, bot, datetime.utcnow(), limit=usage_limit + 1, offset=usage_offset)
             has_more = len(rows) > usage_limit
-            declarations = declarations_for_state(rows[:usage_limit], state, captured_at)
+            declarations = visible_declarations(declarations_for_state(rows[:usage_limit], state, captured_at))
             resources = scrub_private(
                 build_resources(
                     captured_at=captured_at,

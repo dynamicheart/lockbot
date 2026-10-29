@@ -8,6 +8,7 @@ MESSAGES = {
     "error.resource_count_limit": "Resource limit: at most {limit} held or booked resources per user.",
     "view.link": "Resource page: ",
     "help.agent_commands": "{number}. Agent:\n    bind <code> (provided by your Agent) / bindings / unbind\n",
+    "notify.api_task_category": "\nTask: {category}",
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",

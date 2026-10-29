@@ -74,7 +74,10 @@ const tasks = computed(
 )
 const originKey = (user) =>
   ({ chat: 'originChat', api: 'originAgent' })[user.source] || 'originUnknown'
-const taskFor = (user) => tasks.value.get(user.user_id || user.userId || user)
+const taskFor = (user) => {
+  const task = tasks.value.get(user.user_id || user.userId || user)
+  return task ? { ...task, purpose: task.purpose || task.public_task } : undefined
+}
 </script>
 
 <style scoped>
