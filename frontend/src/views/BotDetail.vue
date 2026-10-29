@@ -454,6 +454,15 @@
             </div>
           </div>
         </template>
+        <ResourceDatasourceEditor
+          v-if="canEdit"
+          :model-value="datasourceConfig"
+          :nodes="datasourceLayout.nodes"
+          :resources="datasourceLayout.resources"
+          :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
+          :save="saveDatasource"
+          :authorize="authorizeDatasource"
+        />
         <div v-if="editingState" class="json-editor">
           <pre
             class="json-editor-backdrop"
@@ -584,6 +593,9 @@
 </template>
 
 <script setup>
+import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
+import { sourceResources } from '../utils/utilization/display'
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
@@ -631,6 +643,39 @@ const agentMetrics = computed(() =>
 )
 
 const bot = ref(null)
+const datasourceConfig = computed(() => {
+  try {
+    return typeof bot.value?.utilization_config === 'string'
+      ? JSON.parse(bot.value.utilization_config)
+      : bot.value?.utilization_config || null
+  } catch {
+    return null
+  }
+})
+const datasourceLayout = computed(() => {
+  try {
+    const cluster =
+      typeof bot.value?.cluster_configs === 'string'
+        ? JSON.parse(bot.value.cluster_configs)
+        : bot.value?.cluster_configs
+    return sourceResources(cluster, bot.value?.bot_type)
+  } catch {
+    return { nodes: [], resources: [] }
+  }
+})
+async function authorizeDatasource(value) {
+  const response = await api.post(`/bots/${bot.value.id}/utilization-access`, value)
+  return response.data
+}
+async function saveDatasource(value) {
+  try {
+    bot.value = await botsStore.updateBot(bot.value.id, { utilization_config: value })
+    ElMessage.success(t('common.success'))
+  } catch (error) {
+    ElMessage.error(t('common.error'))
+    throw error
+  }
+}
 const loading = ref(false)
 const actionLoading = ref(false)
 const viewLinkLoading = ref(false)

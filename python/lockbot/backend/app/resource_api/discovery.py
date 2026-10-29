@@ -81,6 +81,7 @@ class AgentContextResponse(BaseModel):
     bot_rules: BotRules | None = None
     agent_access_enabled: bool
     credential_scope: Literal["one_user_one_bot"]
+    utilization: dict[str, Any] | None = None
     usage_privacy: dict[str, Any]
     skill_update: dict[str, Any]
     links: dict[str, str]
@@ -118,6 +119,8 @@ def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
     # Refresh even if another request retained this ORM identity in a reused Session.
     db.refresh(bot)
+    from lockbot.backend.app.bots.datasource import public_datasource
+    from lockbot.backend.app.bots.metrics_access import issue_metrics_access
     from lockbot.backend.app.resource_api.skill import client_skill_notice, skill_artifacts
     from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
     from lockbot.backend.app.resource_api.view_links import view_link
@@ -132,6 +135,16 @@ def _context_payload(request, response, db, row):
         "bot_rules": current_bot_rules(bot, row.external_user_id),
         "agent_access_enabled": bot.resource_auth_enabled,
         "credential_scope": "one_user_one_bot",
+        "utilization": {
+            "best_effort": True,
+            "configuration": public_datasource(bot),
+            "access": issue_metrics_access(db, bot, expires_at=row.credential_expires_at)
+            if bot.resource_auth_enabled
+            else None,
+            "guide_url": "https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md",
+        }
+        if public_datasource(bot)
+        else None,
         "usage_privacy": {
             "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id"],
             "private_readers": ["owner", "bot_administrator", "authorized_operator"],

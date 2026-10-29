@@ -52,7 +52,14 @@ def super_admin_header(client):
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-def _build_backup_zip(bot_uuid="bot-uuid-1", bot_name="restored-bot", state_data=None, bot_id=1, agent_options=None):
+def _build_backup_zip(
+    bot_uuid="bot-uuid-1",
+    bot_name="restored-bot",
+    state_data=None,
+    bot_id=1,
+    agent_options=None,
+    utilization_config=...,
+):
     """Build a minimal backup zip with one bot.
 
     Args:
@@ -78,6 +85,10 @@ def _build_backup_zip(bot_uuid="bot-uuid-1", bot_name="restored-bot", state_data
             assert key in {"resource_auth_enabled", "resource_api_notify_enabled"}
             conn.execute(f"ALTER TABLE bots ADD COLUMN {key} BOOLEAN")
             conn.execute(f"UPDATE bots SET {key} = ?", (value,))
+        if utilization_config is not ...:
+            conn.execute("ALTER TABLE bots ADD COLUMN utilization_config TEXT")
+            value = json.dumps(utilization_config) if isinstance(utilization_config, dict) else utilization_config
+            conn.execute("UPDATE bots SET utilization_config = ?", (value,))
         conn.commit()
         conn.close()
         with open(f.name, "rb") as db_file:
@@ -620,3 +631,65 @@ def test_restore_rejects_corrupted_agent_setting_without_creating_a_bot(client, 
     )
     assert result["restored"] == 0 and len(result["errors"]) == 1
     assert db_session.query(Bot).filter_by(uuid="invalid-agent-settings").count() == 0
+
+
+@pytest.mark.parametrize("overwrite", [False, True])
+@pytest.mark.parametrize("source_case", ["omitted", "configured", "removed", "invalid"])
+def test_restore_utilization_config_roundtrip_and_legacy_compatibility(
+    client, auth_header, db_session, overwrite, source_case
+):
+    from lockbot.backend.app.auth.models import User
+    from lockbot.backend.app.backup.service import restore_apply
+    from lockbot.backend.app.bots.datasource import UtilizationConfig
+
+    owner = db_session.query(User).filter_by(username="testuser").one()
+    previous = {"endpoint": "https://old-metrics.example.test", "nodeMapping": {"node1": "old-host"}}
+    configured = {"endpoint": "https://metrics.example.test", "nodeMapping": {"node1": "host:9400"}}
+    uuid = f"datasource-archive-{source_case}"
+    if overwrite:
+        response = client.post(
+            "/api/bots",
+            headers=auth_header,
+            json={
+                "name": "existing-source",
+                "bot_type": "NODE",
+                "webhook_url": "https://example.invalid/hook",
+                "cluster_configs": ["node1"],
+                "utilization_config": previous,
+            },
+        )
+        assert response.status_code == 201
+        uuid = response.json()["uuid"]
+    archived_source = {
+        "omitted": ...,
+        "configured": configured,
+        "removed": None,
+        "invalid": {**configured, "bearer": "must-never-be-restored"},
+    }[source_case]
+    archive = _build_backup_zip(bot_uuid=uuid, state_data={"bot_state": {}}, utilization_config=archived_source)
+    result = restore_apply(
+        file_bytes=archive,
+        password=None,
+        source_secret_key=None,
+        selected_uuids=[uuid],
+        current_user_id=owner.id,
+        db=db_session,
+    )
+    db_session.expire_all()
+    row = db_session.query(Bot).filter_by(uuid=uuid).one_or_none()
+    if source_case == "invalid":
+        assert result["restored"] == 0 and len(result["errors"]) == 1
+        assert "must-never-be-restored" not in json.dumps(result)
+        if overwrite:
+            assert row.name == "existing-source"
+            assert json.loads(row.utilization_config) == UtilizationConfig.model_validate(previous).model_dump()
+        else:
+            assert row is None
+        return
+    assert result["restored"] == 1 and result["errors"] == []
+    expected = (
+        configured if source_case == "configured" else previous if source_case == "omitted" and overwrite else None
+    )
+    assert (json.loads(row.utilization_config) if row.utilization_config else None) == (
+        UtilizationConfig.model_validate(expected).model_dump() if expected is not None else None
+    )

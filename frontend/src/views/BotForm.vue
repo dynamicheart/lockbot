@@ -538,6 +538,7 @@ onMounted(async () => {
   if (isEdit.value) {
     try {
       bot.value = await botsStore.getBot(route.params.id)
+
       agentAccess.value = bot.value.resource_auth_enabled === true
       agentNotify.value = bot.value.resource_api_notify_enabled !== false
       form.name = bot.value.name
