@@ -343,3 +343,23 @@ def test_runtime_toggle_off_never_edits_cached_message(panel_env):
         db.commit()
     assert panel().send(reply()) is False
     assert [event[0] for event in events] == ["create"]
+
+
+def test_stale_orm_membership_invalidation_uses_atomic_generation(panel_env):
+    factory, bots, _, panel, reply, _, _ = panel_env
+    panel().send(reply())
+    bid = bots[0].config.get_val("BOT_ID")
+    with factory() as stale:
+        cached = stale.get(FeishuQueryPanel, bid)
+        initial_generation = cached.generation
+        with factory() as current:
+            current.query(FeishuQueryPanel).filter_by(bot_id=bid).update(
+                {FeishuQueryPanel.generation: FeishuQueryPanel.generation + 1}
+            )
+            current.commit()
+        invalidate_query_panel(stale, bid)
+        stale.commit()
+    with factory() as db:
+        row = db.get(FeishuQueryPanel, bid)
+        assert row.generation == initial_generation + 2
+        assert row.message_id is None

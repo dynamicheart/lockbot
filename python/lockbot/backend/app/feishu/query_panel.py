@@ -25,13 +25,16 @@ class _Mutex:
 
 def invalidate_query_panel(db, bot_id):
     """Invalidate within the caller's transaction, including on membership changes."""
-    row = db.get(FeishuQueryPanel, bot_id)
-    if row:
-        row.generation += 1
-        row.message_id = None
-        row.status = "invalidated"
-        row.reason = "membership_changed"
-        row.retry_after = None
+    db.query(FeishuQueryPanel).filter_by(bot_id=bot_id).update(
+        {
+            FeishuQueryPanel.generation: FeishuQueryPanel.generation + 1,
+            FeishuQueryPanel.message_id: None,
+            FeishuQueryPanel.status: "invalidated",
+            FeishuQueryPanel.reason: "membership_changed",
+            FeishuQueryPanel.retry_after: None,
+        },
+        synchronize_session="fetch",
+    )
 
 
 def _scope(db, bot_id, application_id, expected_uuid, revision, chat_id):
@@ -89,6 +92,13 @@ class QueryPanel:
                     reason="",
                 )
                 db.add(row)
+                db.flush()
+            # Obtain the row's write lock and increment from the current SQL value.
+            # A membership transaction may have invalidated an ORM-cached reference.
+            db.query(FeishuQueryPanel).filter_by(bot_id=self.args[0]).update(
+                {FeishuQueryPanel.generation: FeishuQueryPanel.generation + 1}, synchronize_session=False
+            )
+            db.refresh(row)
             if row.scope != scope:
                 row.scope, row.message_id, row.created_at, row.edit_count = scope, None, None, 0
                 row.retry_after = None
@@ -97,7 +107,6 @@ class QueryPanel:
             message_id = row.message_id
             if row.edit_count >= MAX_EDITS or not row.created_at or now - row.created_at >= MAX_AGE:
                 message_id = None
-            row.generation += 1
             generation = row.generation
             row.status = "updating" if message_id else "creating"
             row.updated_at, row.retry_after = now, now + COOLDOWN
@@ -137,15 +146,24 @@ class QueryPanel:
             row = db.get(FeishuQueryPanel, self.args[0])
             if not row or current_scope != scope or row.scope != scope or row.generation != generation or not enabled:
                 raise FeishuAPIError("Feishu query panel changed during delivery")
-            row.updated_at, row.reason = datetime.utcnow(), reason
+            values = {"updated_at": datetime.utcnow(), "reason": reason}
             if result_id:
-                row.message_id = result_id
-                row.edit_count = row.edit_count + 1 if message_id else 0
-                row.created_at = row.created_at if message_id else now
-                row.status, row.retry_after = "active", None
+                values.update(
+                    message_id=result_id,
+                    edit_count=row.edit_count + 1 if message_id else 0,
+                    created_at=row.created_at if message_id else now,
+                    status="active",
+                    retry_after=None,
+                )
             else:
-                row.message_id = None
-                row.status = "fallback"
+                values.update(message_id=None, status="fallback")
+            changed = (
+                db.query(FeishuQueryPanel)
+                .filter_by(bot_id=self.args[0], scope=scope, generation=generation)
+                .update(values, synchronize_session=False)
+            )
+            if changed != 1:
+                raise FeishuAPIError("Feishu query panel changed during delivery")
             db.commit()
         if reason == "delivery_uncertain" and not message_id:
             # A create may already have been accepted. Never duplicate it automatically.
