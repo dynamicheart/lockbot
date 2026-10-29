@@ -60,3 +60,5 @@ A real 390px iframe CSS viewport check covered 16 cards without horizontal overf
 Promotion PR #19 was squash-merged as `8da2cf5` after six checks on reviewed `2343f4a`; its final synchronized promotion suite passed 28 tests. This is merged configuration/default-copy behavior, not yet released or deployed.
 
 Issue #24 conditional metadata cleanup is tracked independently by PR #48: private revision/If-Match, live lease/declaration checks and a conditional SQL delete; 76 related tests pass, including a separately committed replacement between read and DELETE. CI/review/merge/rollout remain pending. It does not turn resource free/unlock into atomic compare-and-release or prove arbitrary external-client adoption.
+
+Handoff PR #43 is merged as `0bf7d55` after reviewed `ef79531` six green checks, with seven in-process HTTP API cases. It is unreleased, and external-client adoption remains unproven. Full lifecycle accounting is tracked in PR #49, under final testing and independent review; no deployed or verified production-hours claim is made.
