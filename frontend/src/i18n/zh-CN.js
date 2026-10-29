@@ -393,7 +393,7 @@ export default {
     apiKey: 'OP API Key',
     agentGroup: 'Agent',
     agentNotify: '群内操作通知',
-    agentNotifyHelp: '在群里播报 Agent 的资源命令；不影响排队到号和到期提醒。',
+    agentNotifyHelp: '在群里播报资源命令和预设任务分类；备注及 Agent 名称仅本人、管理员和授权 OP 可查，日志可能保留。关闭通知不影响排队到号和到期提醒。',
     agentAccess: '允许 Agent 访问',
     agentAccessHelp:
       '允许 Agent 调用资源 API，用户需先在群中授权。关闭后暂停访问并保留授权；不影响 OP API Key。',

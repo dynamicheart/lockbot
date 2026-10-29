@@ -250,6 +250,19 @@ def _migrate_usage_agent_label():
             conn.execute(text("ALTER TABLE resource_usage_declarations ADD COLUMN agent_label VARCHAR(64)"))
 
 
+def _migrate_usage_task_category():
+    """Add a nullable public category; legacy free text remains private and untouched."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    inspector = sa_inspect(engine)
+    if "resource_usage_declarations" in inspector.get_table_names() and "task_category" not in {
+        col["name"] for col in inspector.get_columns("resource_usage_declarations")
+    }:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE resource_usage_declarations ADD COLUMN task_category VARCHAR(48)"))
+
+
 def _migrate_resource_bindings():
     """Create resource_bindings table if it doesn't exist (backward-compatible migration)."""
     from sqlalchemy import inspect as sa_inspect
@@ -438,6 +451,7 @@ async def lifespan(app: FastAPI):
     _migrate_bots_resource_auth_enabled()
     _migrate_bots_agent_notifications()
     _migrate_usage_agent_label()
+    _migrate_usage_task_category()
     _migrate_resource_bindings()
     _migrate_identity_boundaries()
     _migrate_binding_uniqueness()
