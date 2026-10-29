@@ -91,6 +91,32 @@ never sends messages. Publish any summary only to a user-approved destination af
 the actual report. If the capability or endpoint is absent, report unsupported history;
 never fall back to raw management logs or ask for a broader private credential.
 
+## Verified allocation lifecycle (when advertised)
+
+If the manifest advertises `allocator_lease_history`, read
+`GET /api/bots/{bot_id}/op/lease-history` with this same bot OP key. Follow the bounded
+cursor pages (1–100 items, 1 MiB scan/request, 30 reads/minute), respect `Retry-After`, and
+restart collection on 409. This is a separate allocator-commit stream, not the Agent
+request stream. It covers persisted chat, Agent, OP, timer and live administrative state
+changes for NODE/QUEUE/DEVICE/QUEUE_DEVICE; startup/offline changes are explicit baselines.
+
+Only public actor/resource/mode/deadline facts and non-authorizing correlation hashes are
+returned. Never use a lease reference as a holding proof or send OP keys to hardware sources.
+Private purposes, Agent labels, authorization notes and credentials remain inaccessible.
+A `checkpoint.consistent=false`, missing checkpoint, sequence/digest gap, restart boundary,
+clock reversal, invalid/oversized snapshot or finite retention must not be interpreted as
+zero usage or complete history.
+
+For allocated-time analysis, export authorized pages as JSONL and use the stdlib-only
+`scripts/lease_history/report.py` with explicit timezone-aware `--since` / `--until`.
+It counts only verified linked allocation segments, clips expiry to the old deadline,
+and never fills an expired gap with a late renewal. A window with missing evidence has
+`verified_allocated_seconds: null`, with unknown gaps and separately verified segments.
+NODE/QUEUE use node-seconds; card types use device-seconds. Shared subject-grant time is
+separate from exclusive time and physical utilization. Do not turn requests, waiting,
+claim windows or node counts into allocated card-hours. The script never sends messages;
+publication still requires an explicit destination and content authorization.
+
 ## Authorized release
 
 First read current holders and confirm the specific user/resource against the authorized

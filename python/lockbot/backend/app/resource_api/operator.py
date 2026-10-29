@@ -82,6 +82,50 @@ def operator_history(
     }
 
 
+@router.get("/{bot_id}/op/lease-history")
+@limiter.limit("30/minute")
+def operator_lease_history(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    cursor: str | None = Query(None, max_length=256),
+    limit: int = Query(25, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.resource_api.event_log import READ_BUDGET, read_history
+    from lockbot.backend.app.resource_api.lease_history import MAX_LINE_BYTES
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        _require_operator(db, request, bot_id, fresh=True)
+        result = read_history(bot_id, limit=limit, cursor=cursor, stream="lifecycle")
+        checkpoint = None
+        try:
+            with bot_manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
+                journal = getattr(lease.bot.config, "_lifecycle_observer", None)
+                if journal is not None:
+                    checkpoint = journal.checkpoint(lease.bot.state.bot_state)
+        except (BotNotRunning, InstanceRetiring, AdmissionFull):
+            pass
+        _require_operator(db, request, bot_id, fresh=True)
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store"}
+        raise
+    return {
+        "bot_id": bot_id,
+        **result,
+        "checkpoint": checkpoint,
+        "coverage": {
+            "source": "allocator_commits",
+            "complete_history": False,
+            "read_budget_bytes": READ_BUDGET,
+            "max_record_bytes": MAX_LINE_BYTES,
+            "units": ["node_seconds", "device_seconds"],
+            "physical_utilization": False,
+        },
+    }
+
+
 @router.get("/{bot_id}/op/resources")
 @limiter.limit("60/minute")
 def operator_resources(
