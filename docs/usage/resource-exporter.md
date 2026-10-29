@@ -100,3 +100,24 @@ JWT 使用 `Authorization: Bearer`，必须包含 `iss`（实例标识）、`sub
 网关每次读当前 issuer/bot 配置和 key，先验证再查缓存；限流主体为 issuer + bot，不因每 30 秒换一份短期 token 获得新预算。原不透明只读 key 保留作运维后备。网页如何取得授权、网页只读权限到期/撤销，以及 Lockbot 侧签发接口单独实现；仅部署本模块不等于已经接通网页自动授权。
 
 key 文件必须是普通文件、0600、32–4096 字节，按原始 bytes 读取，不 strip 或解码。建议独立系统用户运行网关，key 目录 0700 属该用户，key 0600 属该用户；公共配置只给该用户只读权限。不要与 Prometheus 共用能读取签名 key 的服务身份。仅添加 QA issuer/bot 的测试不能当作正式授权配置完成。
+
+### Host memory and cache
+
+The additive gauges `lockbot_host_memory_available_bytes` and `lockbot_host_memory_cache_bytes` use `/proc/meminfo` during the existing scheduled host probe (default 300 seconds). Available memory is `MemAvailable`; buffers/cache is `Buffers + Cached + SReclaimable`, in bytes. This is a documented counter definition, not a guarantee that every distribution's `free` release calculates its display identically. Existing used memory remains `MemTotal - MemAvailable`. Missing optional cache counters are omitted, never replaced with zero. Older exporters remain usable and the browser displays unknown supplemental counters.
+
+Cache size alone does not diagnose driver OOM or allocation failures. Inspect available memory alongside cache and investigate driver logs separately; Lockbot never drops caches or triggers additional SMI probes on refresh.
+
+## 部署组成与交付内容
+
+数据链路：`xpu-smi / nvidia-smi XML → exporter → Prometheus → 只读查询网关 → 浏览器 / Agent`。Prometheus 不解析厂商 XML。采集器 `python/lockbot/metrics/exporter.py` 执行 SMI 并解析 XML；XPU 使用 `xpu-smi -q -x`，NVIDIA 使用 `nvidia-smi -q -x`，主机信息来自 procfs。SSH 集中模式将相同探测代码发送给配置的目标执行，不要求每台机器安装整个 Lockbot 服务。
+
+只复制 Prometheus YAML 不够，需要以下部分：
+
+- 采集器脚本或已安装的 Lockbot Python 包、私有机器清单、SSH 访问配置和目标 SMI。采集器使用 Python 标准库。
+- Prometheus 官方发行的程序（或官方 `prom/prometheus` 容器）、抓取配置，以及独立 TSDB 持久化目录。
+- 只读查询网关及 PyJWT 依赖、私有授权范围、独立签名 key 和 CORS 配置。
+- Lockbot 中的数据源模板、节点/设备映射和签名 key 文件配置。
+
+`docs/examples/resource-exporter/` 提供脱敏配置和 systemd 模板。Python 模块随 Lockbot wheel 发布，无需单独的 XML 解析产出包；可安装同版本 wheel 后分别运行 `python -m lockbot.metrics.exporter` 和 `python -m lockbot.metrics.gateway`。部署独立脚本时须同步依赖和版本。
+
+当前验收部署使用 systemd 管理 exporter、Prometheus 和网关；Prometheus 不是容器运行。程序、私有配置和 TSDB 独立于 Lockbot 容器。官方容器是可选部署方式，当前交付的是 systemd 模板，尚未验证容器部署。无论选择哪种方式，都需要保留数据目录。

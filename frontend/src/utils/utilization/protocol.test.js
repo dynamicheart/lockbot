@@ -36,6 +36,8 @@ function payload({ age = 300, success = 1 } = {}) {
     sample('lockbot_host_cpu_utilization_percent', 26),
     sample('lockbot_host_memory_used_bytes', 100),
     sample('lockbot_host_memory_total_bytes', 1000),
+    sample('lockbot_host_memory_available_bytes', 900),
+    sample('lockbot_host_memory_cache_bytes', 500),
     sample('lockbot_host_filesystem_used_bytes', 50, { filesystem: 'system' }),
     sample('lockbot_host_filesystem_total_bytes', 100, { filesystem: 'system' }),
     sample('lockbot_accelerator_process_info', 1, {
@@ -85,6 +87,8 @@ describe('Lockbot unified Prometheus telemetry', () => {
     expect(card.processesTruncated).toBe(true)
     const host = resolveHost(result, config(), 'clusterNode')
     expect(host.cpu.value).toBe(26)
+    expect(host.available.value).toBe(900)
+    expect(host.cache.value).toBe(500)
     expect(host.filesystems[0].name).toBe('system')
     expect(host.used.observedAt).toBe(now - 300000)
     const request = fetchImpl.mock.calls[0][1]

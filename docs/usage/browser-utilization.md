@@ -116,3 +116,13 @@ CORS 不是权限控制。浏览器中的节点过滤只是节省查询，不是
 第一版只有浏览器 Prometheus 适配器。本地 fake provider 已用于浏览器测试；用户实际指标服务尚未指定，不能据此宣称真实集群、企业浏览器策略和真实上游鉴权已完成联调。
 
 参考：[Grafana 数据源教程](https://grafana.com/developers/plugin-tools/tutorials/build-a-data-source-plugin)、[Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/)、[Prometheus timestamp](https://prometheus.io/docs/prometheus/latest/querying/functions/#timestamp)、[MDN CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS)。
+
+### Template setup and troubleshooting
+
+Open the bot detail page → Configuration → Data source. Choose **Lockbot collector** for the unified XPU/GPU/host protocol, **NVIDIA DCGM** for its standard GPU metrics, or **Custom Prometheus** for advanced metric/label overrides. Presets provide metric names, labels and units. Enter the endpoint, then match the already configured bot nodes and devices in the mapping table. Standard device indices are suggestions: verify them against the collector's actual identities. Advanced node JSON import is optional.
+
+Validation queries only the configured node scope from the current browser. Every configured node and device must have fresh, successful samples before saving; failures identify affected resources. Browser network/CORS errors and source authentication errors are reported separately. These checks do not guarantee future reachability. Access credentials remain independent of Lockbot keys; automatic short-lived grants require the existing server/gateway signing configuration described above.
+
+Both the authorized resource page and the administrator's bot detail show the same metrics and resource ordering. Remaining lease time appears beneath each holder. A shared status line shows automatic updates, the earliest observed sample time and affected nodes when samples are missing, failed, invalid or stale. Ask the bot administrator to investigate; Lockbot continues managing queues independently. Frontend polling pauses when the page is hidden and backs off on errors; it reads cached samples rather than initiating hardware collection. Optional host metrics include available memory and buffers/cache; see the exporter guide for exact definitions and OOM limitations.
+
+Multiple isolated sources must not share an HMAC signing secret. The current automatic-grant configuration uses one signing-key file; adding a second independent environment must not overwrite it or copy it to that environment. Use an independently scoped source credential for an isolated test, and plan per-source key selection or public-key verification before enabling automatic access across trust domains. See the [deployment runbook](telemetry-deployment.md#adding-a-second-isolated-environment).

@@ -21,10 +21,10 @@
     <el-dialog
       v-model="settings"
       :title="$t('utilization.configure')"
-      width="560px"
+      width="640px"
       class="utilization-dialog"
     >
-      <p class="config-note">{{ $t('utilization.adminHint') }}</p>
+      <p class="config-note">{{ $t('utilization.templateHint') }}</p>
       <a
         class="setup-guide"
         href="https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md"
@@ -33,10 +33,11 @@
         >{{ $t('utilization.setupGuide') }}</a
       >
       <el-form label-position="top" @submit.prevent.stop="testAndEnable">
-        <el-form-item :label="$t('utilization.profile')">
-          <el-select v-model="draft.profile" @change="applyProfile">
-            <el-option value="custom" :label="$t('utilization.profileCustom')" />
+        <el-form-item :label="$t('utilization.template')">
+          <el-select v-model="preset" @change="applyPreset">
             <el-option value="lockbot-v1" :label="$t('utilization.profileLockbot')" />
+            <el-option value="dcgm" label="NVIDIA DCGM" />
+            <el-option value="custom" :label="$t('utilization.profileCustom')" />
           </el-select>
         </el-form-item>
         <el-form-item :label="$t('utilization.name')"
@@ -56,22 +57,51 @@
           :label="$t('utilization.sourceToken')"
           ><el-input v-model="bearer" type="password" show-password autocomplete="off"
         /></el-form-item>
-        <div class="mapping-row">
-          <el-form-item :label="$t('utilization.nodeLabel')"
-            ><el-input v-model="draft.nodeLabel"
-          /></el-form-item>
-          <el-form-item :label="$t('utilization.deviceLabel')"
-            ><el-input v-model="draft.deviceLabel"
-          /></el-form-item>
-        </div>
-        <el-form-item :label="$t('utilization.nodeMapping')"
-          ><el-input v-model="nodeMappingText" type="textarea" :rows="2"
-        /></el-form-item>
-        <el-form-item v-if="deviceResources" :label="$t('utilization.deviceMapping')"
-          ><el-input v-model="deviceMappingText" type="textarea" :rows="3"
-        /></el-form-item>
-        <el-collapse>
+        <el-form-item :label="$t('utilization.nodeMatch')">
+          <div class="mapping-table">
+            <div v-for="node in nodes" :key="node" class="mapping-entry">
+              <strong>{{ node }}</strong>
+              <el-input
+                v-model="nodeMapping[node]"
+                :aria-label="node + ' ' + $t('utilization.targetNode')"
+                :placeholder="$t('utilization.targetNode')"
+              />
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="deviceResources" :label="$t('utilization.deviceMatch')">
+          <div class="mapping-table">
+            <div v-for="id in resources" :key="id" class="mapping-entry">
+              <span>{{ id }}</span
+              ><el-input
+                v-model="deviceMapping[id]"
+                :aria-label="id + ' ' + $t('utilization.deviceLabel')"
+              />
+            </div>
+          </div>
+        </el-form-item>
+        <details class="mapping-import">
+          <summary>{{ $t('utilization.importMapping') }}</summary>
+          <el-input
+            v-model="nodeMappingText"
+            type="textarea"
+            :rows="4"
+            :placeholder="$t('utilization.nodeMapping')"
+          />
+          <el-button size="small" @click="importMapping">{{
+            $t('utilization.applyMapping')
+          }}</el-button>
+        </details>
+        <el-collapse v-if="preset === 'custom'">
           <el-collapse-item :title="$t('utilization.metrics')" name="metrics">
+            <div class="mapping-row">
+              <el-form-item :label="$t('utilization.nodeLabel')"
+                ><el-input v-model="draft.nodeLabel"
+              /></el-form-item>
+              <el-form-item :label="$t('utilization.deviceLabel')"
+                ><el-input v-model="draft.deviceLabel"
+              /></el-form-item>
+            </div>
             <el-form-item :label="$t('utilization.computeMetric')"
               ><el-input v-model="draft.utilizationMetric"
             /></el-form-item>
@@ -95,6 +125,9 @@
           </el-collapse-item>
         </el-collapse>
         <p class="config-note">{{ $t('utilization.boundary') }}</p>
+        <p v-if="validationIssues.length" class="source-error">
+          {{ $t('utilization.checkResources') }}: {{ validationIssues.join(', ') }}
+        </p>
         <p v-if="configError" class="source-error">{{ $t('utilization.errors.' + configError) }}</p>
       </el-form>
       <template #footer>
@@ -112,12 +145,16 @@
 </template>
 <script setup>
 import { reactive, ref, watch, onBeforeUnmount } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
+import { sourceHealth } from '../utils/utilization/display'
 import {
   DEFAULT_CONFIG,
   validateConfig,
   prometheusDatasource,
   resolveCards,
   ProviderError,
+  metricStatus,
 } from '../utils/utilization/prometheus'
 const props = defineProps({
   modelValue: { type: Object, default: null },
@@ -128,10 +165,14 @@ const props = defineProps({
   authorize: { type: Function, default: null },
 })
 const emit = defineEmits(['update:modelValue'])
+const { t } = useI18n()
+const preset = ref('lockbot-v1')
+const nodeMapping = reactive({})
+const deviceMapping = reactive({})
+const validationIssues = ref([])
 const settings = ref(false)
 const draft = reactive({ ...DEFAULT_CONFIG })
 const nodeMappingText = ref('{}')
-const deviceMappingText = ref('{}')
 const bearer = ref('')
 const configError = ref(null)
 const testing = ref(false)
@@ -155,8 +196,25 @@ async function removeSource() {
     testing.value = false
   }
 }
-function applyProfile() {
-  if (draft.profile === 'lockbot-v1') {
+function importMapping() {
+  try {
+    const value = JSON.parse(nodeMappingText.value)
+    if (
+      !value ||
+      Array.isArray(value) ||
+      typeof value !== 'object' ||
+      Object.values(value).some((v) => typeof v !== 'string')
+    )
+      throw new Error()
+    for (const node of props.nodes) if (Object.hasOwn(value, node)) nodeMapping[node] = value[node]
+    configError.value = null
+  } catch {
+    configError.value = 'configuration'
+  }
+}
+function applyPreset() {
+  draft.profile = preset.value === 'lockbot-v1' ? 'lockbot-v1' : 'custom'
+  if (preset.value === 'lockbot-v1') {
     Object.assign(
       draft,
       validateConfig({
@@ -164,24 +222,39 @@ function applyProfile() {
         endpoint: draft.endpoint || 'https://metrics.example.invalid',
         nodeMapping: { node: 'node' },
       }),
-      { endpoint: draft.endpoint, intervalSeconds: 60, staleSeconds: 660 }
+      {
+        endpoint: draft.endpoint,
+        intervalSeconds: 60,
+        staleSeconds: 660,
+        accessMode: 'short_lived',
+      }
     )
+  } else if (preset.value === 'dcgm') {
+    const endpoint = draft.endpoint
+    Object.assign(draft, DEFAULT_CONFIG, { endpoint, name: 'NVIDIA DCGM', intervalSeconds: 60 })
   }
+  for (const id of props.resources)
+    deviceMapping[id] = preset.value === 'lockbot-v1' ? id.match(/:dev([0-9]+)$/)?.[1] || '' : ''
 }
 function openSettings() {
   cancelTest()
   Object.assign(draft, props.modelValue || DEFAULT_CONFIG)
-  nodeMappingText.value = JSON.stringify(
-    props.modelValue?.nodeMapping || Object.fromEntries(props.nodes.map((node) => [node, node])),
-    null,
-    2
-  )
-  deviceMappingText.value = JSON.stringify(
-    props.modelValue?.deviceMapping ||
-      Object.fromEntries(props.resources.map((id) => [id, '<device UUID>'])),
-    null,
-    2
-  )
+  preset.value =
+    props.modelValue?.profile === 'lockbot-v1' || !props.modelValue
+      ? 'lockbot-v1'
+      : props.modelValue?.utilizationMetric === DEFAULT_CONFIG.utilizationMetric
+        ? 'dcgm'
+        : 'custom'
+  for (const key of Object.keys(nodeMapping)) delete nodeMapping[key]
+  for (const key of Object.keys(deviceMapping)) delete deviceMapping[key]
+  if (!props.modelValue) applyPreset()
+  for (const node of props.nodes) nodeMapping[node] = props.modelValue?.nodeMapping?.[node] || node
+  for (const id of props.resources)
+    deviceMapping[id] =
+      props.modelValue?.deviceMapping?.[id] ||
+      (preset.value === 'lockbot-v1' ? id.match(/:dev([0-9]+)$/)?.[1] || '' : '')
+  nodeMappingText.value = JSON.stringify(nodeMapping, null, 2)
+  validationIssues.value = []
   configError.value = null
   settings.value = true
 }
@@ -195,8 +268,10 @@ async function testAndEnable() {
   try {
     candidate = validateConfig({
       ...draft,
-      nodeMapping: JSON.parse(nodeMappingText.value),
-      deviceMapping: JSON.parse(deviceMappingText.value),
+      nodeMapping: Object.fromEntries(props.nodes.map((node) => [node, nodeMapping[node]?.trim()])),
+      deviceMapping: props.deviceResources
+        ? Object.fromEntries(props.resources.map((id) => [id, deviceMapping[id]?.trim()]))
+        : {},
     })
   } catch (error) {
     configError.value = error.code || 'configuration'
@@ -225,15 +300,28 @@ async function testAndEnable() {
       bearer: sourceBearer,
     })
     if (run !== scope || current.signal.aborted) return
-    if (
-      props.deviceResources &&
-      !props.resources.some(
-        (id) => resolveCards(snapshot, candidate, id.replace(/:dev[0-9]+$/, ''), id).length
-      )
-    )
-      throw new ProviderError('mapping')
+    const health = sourceHealth(snapshot, candidate, props.nodes, Date.now(), metricStatus)
+    const missingDevices = props.deviceResources
+      ? props.resources.filter((id) => {
+          const cards = resolveCards(snapshot, candidate, id.replace(/:dev[0-9]+$/, ''), id)
+          return (
+            cards.length !== 1 ||
+            Object.values(cards[0].metrics).some(
+              (metric) => metricStatus(metric, Date.now(), candidate.staleSeconds) !== 'ok'
+            )
+          )
+        })
+      : []
+    validationIssues.value = [...health.issues.map((item) => item.node), ...missingDevices]
+    if (validationIssues.value.length) throw new ProviderError('samples')
     await props.save?.(candidate)
     emit('update:modelValue', candidate)
+    ElMessage.success(
+      t('utilization.validationSuccess', {
+        nodes: props.nodes.length,
+        cards: snapshot.cards.length,
+      })
+    )
     settings.value = false
   } catch (error) {
     if (run === scope)
@@ -268,9 +356,7 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .utilization-control {
-  margin: 0 0 18px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--el-border-color-lighter);
+  width: 100%;
 }
 .utilization-toolbar {
   display: flex;
@@ -308,6 +394,30 @@ onBeforeUnmount(() => {
   color: var(--el-color-warning-dark-2);
   font-size: 12px;
 }
+.mapping-table {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+.mapping-entry {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(150px, 2fr);
+  gap: 12px;
+  align-items: center;
+}
+.mapping-entry > :first-child {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.mapping-import {
+  margin: 16px 0;
+  font-size: 12px;
+  color: var(--lb-text-secondary);
+}
+.mapping-import summary {
+  cursor: pointer;
+  margin-bottom: 8px;
+}
 .mapping-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -331,5 +441,12 @@ onBeforeUnmount(() => {
 <style>
 .utilization-dialog {
   max-width: calc(100vw - 24px);
+}
+.utilization-dialog .el-dialog__body {
+  max-height: min(65vh, 680px);
+  overflow-y: auto;
+}
+.utilization-dialog .el-select {
+  width: 100%;
 }
 </style>

@@ -182,6 +182,13 @@ and the corresponding host collector gauge, plus `lockbot_collector_success`. A 
 query evaluation timestamp is not the device's actual observation time. Query on demand,
 reuse a recent sample, respect source rate limits and do not start a busy-poll loop.
 
+An administrator's browser connection test proves only that browser's access at that time.
+Your network path and permissions may differ; report source reachability failures separately
+from resource ownership. Missing, stale or failed node samples should be reported with the
+affected node names and a request for the bot administrator to investigate. Optional host
+metrics include available memory and buffers/cache; cache size alone cannot diagnose driver
+OOM. Use the protocol guide for counter definitions and do not trigger extra SMI collection.
+
 Reachability, successful queries, mapping, freshness and accuracy are **not guaranteed**.
 Preserve missing, failed, invalid and stale states; never substitute 0 or infer that a
 resource is unoccupied. Lock ownership, expiry and queue order always come from Lockbot's
@@ -213,7 +220,14 @@ The manifest separates `server_version`, stable `api_version`, and the opaque co
 skill `version` (plus full `skill_sha256`). Compare skill revisions for **equality**, not as
 ordered semantic versions. Check the manifest at task start and after reconnecting. Personal
 API responses also include `X-Lockbot-Service-ID`, `X-Lockbot-API-Version`,
-`X-Lockbot-Server-Version`, and `X-Lockbot-Skill-Version`.
+`X-Lockbot-Server-Version`, and `X-Lockbot-Skill-Version`. Check these on **every API response,
+including errors**, not only context. Also send `X-Lockbot-Client-API-Version: 1`.
+`X-Lockbot-Skill-Update` is `unknown`, `current` or `update_available`;
+`X-Lockbot-API-Compatibility` is `unknown`, `current` or `incompatible`.
+`X-Lockbot-Skill-URL` is the same-origin update path. A mismatch must cause a manifest check,
+verified Skill download and reload before the next mutation; incompatible API versions must
+pause mutations. Never replay a completed command merely because its response announces an
+update. Propagate the actually loaded revisions and this check to delegated/background clients.
 
 If the skill revision changes, re-fetch the manifest and this skill from the same trusted
 origin before the next resource mutation. Use a cache-busting `?version=<revision>` or a

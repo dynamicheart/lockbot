@@ -50,7 +50,13 @@
             :usage="usage"
             plain
             purpose-on-hover
-          />
+          >
+            <template #detail="{ user }"
+              ><span class="queue-time"
+                >{{ $t('resourceView.remainingTime') }} {{ remaining(user) }}</span
+              ></template
+            >
+          </ResourceParticipants>
         </template>
       </el-table-column>
       <el-table-column :label="$t('resourceView.queue')" min-width="320">
@@ -74,18 +80,6 @@
       </el-table-column>
       <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="320">
         <template #default="{ row }"><slot name="metrics" :row="row" /></template>
-      </el-table-column>
-      <el-table-column :label="$t('resourceView.remainingTime')" width="90" align="right">
-        <template #default="{ row }">
-          <div
-            v-for="user in row.holders"
-            :key="user.external_user_id || user.user_id"
-            class="remaining"
-          >
-            {{ remaining(user) }}
-          </div>
-          <span v-if="!row.holders.length" class="empty-value">—</span>
-        </template>
       </el-table-column>
     </el-table>
     <div class="mobile-resource-list">

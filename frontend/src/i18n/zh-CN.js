@@ -1,12 +1,34 @@
 export default {
   utilization: {
+    availableMemory: '可用内存',
+    cacheMemory: '缓冲/缓存',
+    autoUpdate: '自动更新',
+    contactAdmin: '请联系机器人管理员检查数据源',
+    healthWarning: '{count} 个节点数据异常',
+    template: '接入模板',
+    profileCustom: '自定义 Prometheus（高级）',
+    templateHint:
+      '选择模板，填写数据源地址和资源对应关系。保存前会检查每个节点的数据；标准模板无需填写指标名。',
+    nodeMatch: '节点匹配',
+    targetNode: '数据源中的节点标签值',
+    deviceMatch: '设备匹配（按采集器的设备编号或 UUID）',
+    importMapping: '高级：导入节点映射 JSON',
+    applyMapping: '应用映射',
+    checkResources: '请检查这些节点或设备',
+    validationSuccess: '本浏览器验证通过：{nodes} 个节点，{cards} 张卡',
+    healthStates: {
+      missing: '无数据或未匹配',
+      failed: '采集失败',
+      stale: '数据过期',
+      invalid: '数据异常',
+    },
+
     accessMode: '访问授权',
     accessAutomatic: '自动短期只读授权',
     accessIndependent: '数据源独立凭证',
 
     hostStatus: '主机状态',
     profile: '指标协议',
-    profileCustom: '自定义 / NVIDIA DCGM',
     profileLockbot: 'Lockbot 统一指标（XPU / GPU / 主机）',
     hostMemory: '内存',
     disk: '磁盘',

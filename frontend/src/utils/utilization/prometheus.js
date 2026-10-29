@@ -265,6 +265,8 @@ const PROTOCOL_METRICS = [
   'lockbot_host_cpu_utilization_percent',
   'lockbot_host_memory_used_bytes',
   'lockbot_host_memory_total_bytes',
+  'lockbot_host_memory_available_bytes',
+  'lockbot_host_memory_cache_bytes',
   'lockbot_host_filesystem_used_bytes',
   'lockbot_host_filesystem_total_bytes',
   'lockbot_sample_timestamp_seconds',
@@ -406,6 +408,8 @@ async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now
           cpu: empty(node, 'host'),
           used: empty(node, 'host'),
           total: empty(node, 'host'),
+          available: empty(node, 'host'),
+          cache: empty(node, 'host'),
           filesystems: [],
         })
       const host = hosts.get(node)
@@ -413,6 +417,8 @@ async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now
         lockbot_host_cpu_utilization_percent: 'cpu',
         lockbot_host_memory_used_bytes: 'used',
         lockbot_host_memory_total_bytes: 'total',
+        lockbot_host_memory_available_bytes: 'available',
+        lockbot_host_memory_cache_bytes: 'cache',
       }[name]
       if (field) {
         const next = metric(value, node, 'host', field === 'cpu' ? 'percent' : field)

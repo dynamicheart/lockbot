@@ -1,0 +1,69 @@
+name: Publish Telemetry Bundle
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: ['release/2.x']
+    paths:
+      - 'scripts/telemetry/**'
+      - 'python/lockbot/metrics/**'
+      - 'docs/examples/resource-exporter/**'
+      - 'docs/usage/telemetry-deployment.md'
+      - '.github/workflows/telemetry-bundle.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform: [linux-amd64, linux-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=preview-${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build verified deployment bundle
+        env:
+          BUNDLE_VERSION: ${{ steps.version.outputs.value }}
+          BUNDLE_PLATFORM: ${{ matrix.platform }}
+        run: python scripts/telemetry/build_bundle.py --version "$BUNDLE_VERSION" --platform "$BUNDLE_PLATFORM" --output dist-telemetry
+      - name: Smoke-test offline deployment on amd64
+        if: matrix.platform == 'linux-amd64'
+        shell: bash
+        run: |
+          cd dist-telemetry
+          sha256sum -c *.sha256
+          mkdir smoke
+          tar -xzf *.tar.gz -C smoke
+          cd smoke/lockbot-telemetry-*
+          bash prepare.sh
+          .venv/bin/python exporter.py --help
+          .venv/bin/python gateway.py --help
+          ./prometheus --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-${{ matrix.platform }}
+          path: |
+            dist-telemetry/*.tar.gz
+            dist-telemetry/*.sha256
+          retention-days: 90
+      - name: Publish release assets
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes || gh release view "$GITHUB_REF_NAME"
+          gh release upload "$GITHUB_REF_NAME" dist-telemetry/*.tar.gz dist-telemetry/*.sha256 --clobber
+    permissions:
+      contents: write
