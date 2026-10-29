@@ -56,6 +56,13 @@ class MessageAdapter(ABC):
             List of (status_code, response_text) tuples.
         """
 
+    def send_notification(self, msg: dict) -> tuple[str, str]:
+        """Single-attempt adapters may reuse send; retrying transports must override."""
+        results = self.send(msg)
+        if results and all(200 <= status < 300 for status, _body in results):
+            return "accepted", "platform_accepted"
+        return "unknown", "delivery_uncertain"
+
     @abstractmethod
     def apply_reply_target(self, msg: dict, conversation_id) -> dict:
         """Direct an already-built reply at a conversation, in place.

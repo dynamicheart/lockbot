@@ -7,7 +7,7 @@ import logging
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import DateTime, ForeignKey, Integer, and_, func, or_
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from lockbot.backend.app.auth.dependencies import get_current_user
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.database import Base, get_db
+from lockbot.backend.app.resource_api.privacy import audit_private_read, can_read_private_tasks
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 logger = logging.getLogger(__name__)
@@ -145,9 +146,12 @@ def agent_summary(db, bots):
 
 
 @router.get("/{bot_id}/agent-summary")
-def get_agent_summary(bot_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_agent_summary(
+    bot_id: int, response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
     from lockbot.backend.app.bots.router import _get_user_bot
 
+    response.headers["Cache-Control"] = "no-store"
     bot = _get_user_bot(bot_id, user, db)
     return agent_summary(db, [bot])
 
@@ -155,6 +159,7 @@ def get_agent_summary(bot_id: int, user: User = Depends(get_current_user), db: S
 @router.get("/{bot_id}/agent-activity")
 def get_agent_activity(
     bot_id: int,
+    response: Response,
     status: str = Query("active", pattern="^(active|history|all)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -163,6 +168,7 @@ def get_agent_activity(
 ):
     from lockbot.backend.app.bots.router import _get_user_bot
 
+    response.headers["Cache-Control"] = "no-store"
     bot = _get_user_bot(bot_id, user, db)
     now = datetime.utcnow()
     valid = valid_binding_filter(bot, now)
@@ -182,8 +188,9 @@ def get_agent_activity(
         .limit(limit)
         .all()
     )
+    private = can_read_private_tasks(db, user)
     items = []
-    for binding, activity in rows:
+    for index, (binding, activity) in enumerate(rows):
         active = (
             binding.revoked_at is None
             and binding.bound_bot_uuid == bot.uuid
@@ -192,8 +199,9 @@ def get_agent_activity(
         )
         items.append(
             dict(
-                binding_id=binding.public_id,
-                label=binding.label,
+                row_key=f"{page}:{index}",
+                binding_id=binding.public_id if private else None,
+                label=binding.label if private else None,
                 platform=binding.platform,
                 external_user_id=binding.external_user_id,
                 revoked=binding.revoked_at is not None,
@@ -211,4 +219,6 @@ def get_agent_activity(
                 },
             )
         )
+    if private and items:
+        audit_private_read(db, user, bot_id=bot_id, surface="management.agent_activity")
     return dict(bot_id=bot_id, total=total, page=page, limit=limit, items=items)

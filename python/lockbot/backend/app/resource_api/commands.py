@@ -20,7 +20,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from lockbot.backend.app.bots.manager import (
     AdmissionFull,
@@ -34,7 +34,7 @@ from lockbot.backend.app.config import RESOURCE_API_MAX_HELD_PER_IDENTITY
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
-from lockbot.backend.app.resource_api.notifications import notify_group, should_notify
+from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, should_notify
 from lockbot.backend.app.resource_api.observability import record_api_command
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.backend.app.resource_auth.authority import authority_guard
@@ -130,7 +130,8 @@ the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
 {"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
 ```
 
-Other users receive only preset public task categories; private notes and Agent names are owner/admin/OP scoped.
+Other users receive only preset public task categories. Private notes and Agent names are scoped
+to the same verified actor and super administrators.
 Registrations are scoped to user authorization + resource, not individual Agent processes.
 On DEVICE, the current registration covers the node resource; different cards on the same
 node do **not** have independent task registrations. QUEUE_DEVICE saves tasks independently
@@ -220,7 +221,7 @@ class CommandRequest(BaseModel):
         max_length=512,
         pattern=r"^[^\r\n\x00-\x1f\x7f]+$",
         description=(
-            "Private task note, visible only to the owner, administrators and authorized OP. "
+            "Private task note, visible only to the same verified actor and super administrators. "
             "Successful lock/slock/book also registers resource usage; "
             "other commands do not publish it in group notifications."
         ),
@@ -392,6 +393,7 @@ def execute_command_via_api(
                     agent_label=body.agent_label,
                     purpose=body.purpose,
                     task_category=body.task_category,
+                    target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
                 )
 
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
