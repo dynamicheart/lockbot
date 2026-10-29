@@ -123,6 +123,12 @@ def accept_sdk_event(db, app, data):
 
     if app.transport != "websocket":
         raise InvalidFeishuEvent("WebSocket receiver is disabled")
+    from lockbot.core.platforms.feishu_events import MEMBERSHIP_EVENTS
+
+    if data.get("header", {}).get("event_type") in MEMBERSHIP_EVENTS:
+        from lockbot.backend.app.feishu.membership import accept_membership
+
+        return accept_membership(db, app, data, allow_unknown_tenant=not app.tenant_key)
     if not app.tenant_key:
         tenant = data.get("header", {}).get("tenant_key")
         if not isinstance(tenant, str) or not tenant or len(tenant) > 128:

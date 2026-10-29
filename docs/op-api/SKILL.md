@@ -117,6 +117,31 @@ separate from exclusive time and physical utilization. Do not turn requests, wai
 claim windows or node counts into allocated card-hours. The script never sends messages;
 publication still requires an explicit destination and content authorization.
 
+## Frozen lifecycle export (V2, when advertised)
+
+When the manifest advertises `allocator_lifecycle_audit_v2`, use
+`GET /api/bots/{bot_id}/op/lifecycle-audit` with the same current bot OP key.
+Supply `start` and `end` together as UTC Unix seconds (at most seven days,
+`(start, end]`), optionally an exact `resource` and `limit` 1–100. Follow non-null
+cursors even after empty pages. Keep all parameters unchanged. Cursors expire after
+15 minutes, freeze file high-water marks and reject changed scopes (400) or lost
+retained files (409). A cursor does not replace authentication.
+
+Use stable `contract.frame_id`, event `event_id`, holding references and versions to
+deduplicate commits. Authenticated initiators differ from lease holders; safe
+correlation IDs are not holding proofs or idempotency keys. Read the final
+`coverage.start_anchor`, frozen public checkpoint and `complete_window` before
+reconstructing time. Missing anchors/checkpoints, legacy records, persistence gaps,
+restart baselines and offline edits leave coverage unknown. `complete_history` is
+always false. Only a continuous atomic commit chain for the selected window can
+verify that window. Filtered frames retain whole-bot digests, explicitly marked by
+`state_digest_scope`; do not hash the filtered state as if it were the whole bot.
+
+This is public allocator evidence. Detailed Agent notes, Agent labels, raw commands,
+replies and credentials remain inaccessible. The original `/op/lease-history` and
+schema-1 report remain available; do not feed a V2 filtered projection to that report.
+See `docs/design/verified-allocation-history.md` for durability and coverage limits.
+
 ## Authorized release
 
 First read current holders and confirm the specific user/resource against the authorized

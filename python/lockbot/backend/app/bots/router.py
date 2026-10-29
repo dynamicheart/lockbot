@@ -345,6 +345,7 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
 
     config["_BOT_VIEW_LINK"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): group_view_link(bot_id, uuid)
     config["_IDENTITY_REVISION"] = getattr(bot, "identity_revision", 0)
+    config["_LIFECYCLE_BOT_UUID"] = getattr(bot, "uuid", "")
     if (bot.platform or "").lower() == "feishu":
         from lockbot.backend.app.feishu.service import bot_application_config
 
@@ -1516,7 +1517,14 @@ def update_bot_state(
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump({"bot_state": state}, f, ensure_ascii=False, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, state_file)
+            directory = os.open(os.path.dirname(state_file), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         except BaseException:
             with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
@@ -1542,15 +1550,24 @@ def update_bot_state(
         # expiry sweep and chat commands contend on. Both still run inside the lease, so the
         # audit/commit never trails it.
         with lease.bot._lock:
-            from lockbot.core.command_context import command_action, command_source
-            from lockbot.core.io import observe_state_persistence
+            import uuid
+
+            from lockbot.core.command_context import (
+                command_action,
+                command_correlation,
+                command_initiator,
+                command_source,
+            )
+            from lockbot.core.io import _save_bot_state_atomically, observe_state_persistence
 
             lease.bot.state.bot_state = state
             source_token = command_source.set("admin")
             action_token = command_action.set("state_edit")
+            actor_token = command_initiator.set({"kind": "management_user", "user_id": user.id})
+            correlation_token = command_correlation.set(uuid.uuid4().hex)
             try:
                 try:
-                    _persist_state_file()
+                    _save_bot_state_atomically(state, lease.bot.config)
                 except BaseException:
                     observe_state_persistence(lease.bot.config, state, successful=False)
                     raise
@@ -1558,6 +1575,8 @@ def update_bot_state(
             finally:
                 command_source.reset(source_token)
                 command_action.reset(action_token)
+                command_initiator.reset(actor_token)
+                command_correlation.reset(correlation_token)
         _audit_and_commit()
 
     # This route edits persisted state and requires a non-running bot (running bots are 409'd

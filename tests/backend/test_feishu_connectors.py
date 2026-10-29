@@ -104,7 +104,8 @@ def test_manager_reuses_one_connection_per_application(monkeypatch):
     assert counts == [("start", 1), ("start", 2), ("stop", 1), ("stop", 2)]
 
 
-def test_pinned_sdk_event_model_roundtrips_through_private_pipe(monkeypatch):
+@pytest.mark.parametrize("event_kind", ["message", "added", "deleted"])
+def test_pinned_sdk_event_model_roundtrips_through_private_pipe(monkeypatch, event_kind):
     import io
     import sys
     import time
@@ -135,6 +136,9 @@ def test_pinned_sdk_event_model_roundtrips_through_private_pipe(monkeypatch):
             },
         },
     }
+    if event_kind != "message":
+        event["header"]["event_type"] = f"im.chat.member.bot.{event_kind}_v1"
+        event["event"] = {"chat_id": "oc_group", "external": False, "operator_tenant_key": "tenant"}
     channel = io.StringIO()
     config = json.dumps({"app_id": "cli_test", "app_secret": "test-only-secret"})
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO((config + '\n{"ack":true}\n').encode())))
@@ -152,7 +156,11 @@ def test_pinned_sdk_event_model_roundtrips_through_private_pipe(monkeypatch):
     main()
     frame = json.loads(channel.getvalue())
     assert frame["event"]["header"]["app_id"] == "cli_test"
-    assert frame["event"]["event"]["message"]["chat_id"] == "oc_group"
+    if event_kind == "message":
+        assert frame["event"]["event"]["message"]["chat_id"] == "oc_group"
+    else:
+        assert frame["event"]["event"]["chat_id"] == "oc_group"
+        assert frame["event"]["event"]["external"] is False
     assert "test-only-secret" not in channel.getvalue()
 
 

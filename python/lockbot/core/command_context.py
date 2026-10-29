@@ -1,10 +1,13 @@
 """Internal command origin; never chosen by a personal API request body."""
 
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 
 command_source = ContextVar("lockbot_command_source", default="unknown")
 command_action = ContextVar("lockbot_command_action", default=None)
+command_initiator = ContextVar("lockbot_command_initiator", default=None)
+command_correlation = ContextVar("lockbot_command_correlation", default=None)
 
 # Optional backend-owned telemetry sink. Core remains usable without the backend.
 operation_observer = None
@@ -29,6 +32,8 @@ def operation_attempt(bot_id, source, command):
     outcome = "dispatched"
     source_token = command_source.set(source)
     action_token = command_action.set(command)
+    actor_token = command_initiator.set({"kind": "operator", "bot_id": bot_id} if source == "operator" else None)
+    correlation_token = command_correlation.set(uuid.uuid4().hex)
     try:
         yield
     except ValueError:
@@ -40,4 +45,6 @@ def operation_attempt(bot_id, source, command):
     finally:
         command_source.reset(source_token)
         command_action.reset(action_token)
+        command_initiator.reset(actor_token)
+        command_correlation.reset(correlation_token)
         observe_operation(bot_id, source, command, outcome)

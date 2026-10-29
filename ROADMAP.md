@@ -4,10 +4,11 @@ Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/
 
 ## Current delivery
 
-- **3.0.0 is released and formally deployed.** [Release](https://github.com/dynamicheart/lockbot/releases/tag/v3.0.0), accepted commit `80cc6a5`, PRs #25/#58. All required checks passed; full integration validation: 1,820 backend passed / 7 skipped and 170 frontend passed.
+- **3.0.2 is released and formally deployed.** [Current release](https://github.com/dynamicheart/lockbot/releases/tag/v3.0.2), commit `eccb4d1`, PRs #61/#65. Detailed-view public categories and Agent/note captions are corrected; the full-width bot page is retained. Production preservation, ordinary-owner/OP privacy projections and independent 16-host/64-card metrics passed.
+- **3.0.0 initial rollout:** [Release](https://github.com/dynamicheart/lockbot/releases/tag/v3.0.0), accepted commit `80cc6a5`, PRs #25/#58. All required checks passed; full integration validation: 1,820 backend passed / 7 skipped and 170 frontend passed.
 - The formal upgrade preserves original ports, data, keys, configuration, active locks, queues and bindings. Post-upgrade ordinary-owner and OP projections exclude other-user detailed notes. The independent source query returned 16 hosts, 64 cards and cache/available-memory metrics for all hosts.
 - `main` is the default development branch, aligned to the accepted release commit at transition. The previous main is archived in `archive/main-before-v3-20261029`; `release/2.x` remains historical. Both main and the historical release branch prohibit force pushes/deletion and require the six CI checks.
-- The image artifact was downloaded and verified: SHA-256 `e60e3340c925ffaf64215220f20047800cc34e3f132a419c89c0792a93270322` (artifact `12912523018`). Telemetry bundles for amd64/arm64 are release assets.
+- The current 3.0.2 image artifact was downloaded and verified: SHA-256 `cf9386a56ce02615dbe3472c2c79afe8511eb53ec398c41d516dacb9f10dfe6b` (artifact `12914489614`). Telemetry bundles for amd64/arm64 are release assets.
 - **Corporate Feishu approval is pending human review.** Code availability does not create or approve an enterprise application. Keep test and production application identities separate.
 
 ## Remaining work
@@ -20,6 +21,9 @@ Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/
 | [#33](https://github.com/dynamicheart/lockbot/issues/33) | Additional isolated-source trust/client connectivity rollout; the bastion/VPN experiment remains user-deferred |
 | [#54](https://github.com/dynamicheart/lockbot/issues/54) | Durable lifecycle audit API contract and explicit coverage |
 | [#56](https://github.com/dynamicheart/lockbot/issues/56) | Separately delegated super-administrator detailed-note credentials |
+| [#63](https://github.com/dynamicheart/lockbot/issues/63) | Optional Feishu membership onboarding/removal notices; default off, isolated implementation/tests in progress, permission approval and real-group acceptance pending |
+| [#62](https://github.com/dynamicheart/lockbot/issues/62) | Optional Feishu in-place queue panels; default off, permission failure retains normal replies; implementation in a separate PR |
+| [#64](https://github.com/dynamicheart/lockbot/issues/64) | Optional Feishu success reactions in PR #68; default off, committed-result evidence and unchanged Infoflow/legacy messages; real rendering acceptance pending |
 | [#57](https://github.com/dynamicheart/lockbot/issues/57) | Versioned messaging credentials and an additive legacy-compatible migration |
 
 <details>
@@ -144,3 +148,7 @@ Committed PR #25 administration UI work centers bounded site settings, simplifie
 Commit `27e3cb8` adds platform filters and further simplifies the broadcast dialog; these committed changes are newer than deployed `810ae4b`. Commit `c771736` defaults the bot list and administrative bot monitor to running bots; stopped bots remain selectable through the status filter. Application management is still **pending tests and commit**: do not claim application rename/edit, credential rotation or guarded deletion is released, deployed or accepted before that work is verified. Corporate permission/approval review and post-3.0.0 issues #54/#56/#57 remain unchanged.
 
 </details>
+
+### Optional Feishu query panels (#62)
+
+An independent implementation adds default-off per-bot in-place updates for full group queries only. Original text/post rendering, Infoflow delivery, explicit operation outcomes and critical reminders remain unchanged. Verified own-app/group message references survive restart; scoped serialization, identity generations, conservative rollover and bounded fallback protect routing and concurrency. Missing/revoked editing permission requires no expanded baseline scopes. Automated API/transport tests are recorded in the PR; live authorized-group acceptance and rollout remain pending root review. See [configuration and limitations](docs/usage/feishu.md#可选原地更新查询面板).

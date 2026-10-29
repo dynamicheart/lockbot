@@ -43,6 +43,8 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     errors: list[str] = []
     if "FORBID_RELOCK" in v and not isinstance(v["FORBID_RELOCK"], bool):
         errors.append("FORBID_RELOCK must be a boolean")
+    if "FEISHU_QUERY_PANEL" in v and not isinstance(v["FEISHU_QUERY_PANEL"], bool):
+        errors.append("FEISHU_QUERY_PANEL must be a boolean")
     cap = v.get("MAX_RESOURCES_PER_USER", -1)
     if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):
         errors.append("MAX_RESOURCES_PER_USER must be -1 or a positive integer")
@@ -82,6 +84,13 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
     allow_alias = v.get("ALLOW_USER_ALIAS")
     if allow_alias is not None and not isinstance(allow_alias, bool):
         errors.append("ALLOW_USER_ALIAS must be a boolean")
+
+    membership_notices = v.get("FEISHU_MEMBERSHIP_NOTICES")
+    if membership_notices is not None and not isinstance(membership_notices, bool):
+        errors.append("FEISHU_MEMBERSHIP_NOTICES must be a boolean")
+    reaction_replies = v.get("FEISHU_REACTION_REPLIES")
+    if reaction_replies is not None and not isinstance(reaction_replies, bool):
+        errors.append("FEISHU_REACTION_REPLIES must be a boolean")
 
     display_model = v.get("DISPLAY_DEVICE_MODEL")
     if display_model is not None and not isinstance(display_model, bool):

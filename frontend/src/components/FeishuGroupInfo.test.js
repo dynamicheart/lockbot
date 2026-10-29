@@ -61,9 +61,12 @@ it('isolates late names and aborts lookup on scope change and unmount', async ()
   expect(current.path).toBe('/feishu/bots/2/group')
   current.resolve({ data: { name: 'second group', status: 'ok' } })
   await flush()
-  requests[0].resolve({ data: { name: 'old group', status: 'ok' } })
+  requests[0].resolve({
+    data: { name: 'old group', status: 'ok', membership: { status: 'removed' } },
+  })
   await flush()
   expect(state.group.name).toBe('second group')
+  expect(state.group.membership).toBeUndefined()
   state.load(true)
   const pending = requests.at(-1)
   app.unmount()
@@ -113,4 +116,26 @@ it('renders a successfully resolved name without an unknown or cached label', as
   expect(html).toContain('resolved group')
   expect(html).not.toContain('feishu.groupUnknown')
   expect(html).not.toContain('feishu.groupCached')
+})
+
+it('shows a scoped removal observation instead of a generic lookup warning', async () => {
+  const rendered = createSSRApp(
+    {
+      ...FeishuGroupInfo,
+      setup: () => ({
+        group: { name: 'fixture', status: 'unavailable', membership: { status: 'removed' } },
+        loading: false,
+        lookupPath: '/feishu/bots/1/group',
+        warningKey: 'feishu.groupCachedUnavailable',
+        load: () => {},
+        copyText: () => {},
+      }),
+    },
+    { botId: 1, chatId: 'oc_fixture' }
+  )
+  rendered.config.globalProperties.$t = (key) => key
+  rendered.config.warnHandler = () => {}
+  const html = await renderToString(rendered)
+  expect(html).toContain('feishu.membershipRemoved')
+  expect(html).not.toContain('feishu.groupCachedUnavailable')
 })

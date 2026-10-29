@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from lockbot.backend.app.bots.manager import AdmissionFull, InstanceRetiring
+from lockbot.core.config import Config
 
 
 def _create_node_bot(client, admin_header, tmp_path):
@@ -43,6 +44,9 @@ class TestUpdateStateHoldsLeaseThroughPersistence:
             lease = MagicMock()
             lease.bot._lock = threading.Lock()
             lease.bot.state = SimpleNamespace(bot_state={})
+            # Persistence uses the admitted generation's real config, as in production.
+            # A MagicMock config invents an observer and is not a valid bot generation.
+            lease.bot.config = Config({"BOT_ID": bot_id, "DATA_DIR": str(tmp_path / "bots")})
             try:
                 yield lease
             finally:
