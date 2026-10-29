@@ -840,6 +840,7 @@ export default {
     sources: { api: 'Agent API', chat: '群聊', service_key: 'OP API Key' },
     booleanValues: { true: '是', false: '否' },
     actions: {
+      'task_private.read': '查看私密任务信息',
       'resource_auth.bind': '绑定 Agent 授权',
       'resource_auth.unbind': '解绑 Agent 授权',
       'bot.resource_auth_enabled': '开启 Agent 访问',
