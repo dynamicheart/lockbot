@@ -18,7 +18,7 @@ def test_legacy_client_sees_update_in_json_without_losing_command_result(client,
         assert response.status_code == 200, response.text
         notice = response.json()["skill_update"]
         assert notice["status"] == "unknown" and notice["reported_version"] is None
-        assert notice["skill_url"] == "/api/agent-skill/SKILL.md" and notice["message"]
+        assert notice["skill_url"] == "/api/agent-skill/SKILL.md" and notice["instructions"]
     assert api["bot"].state.bot_state["n1"]["current_users"][0]["user_id"] == "alice"
 
 
@@ -31,5 +31,5 @@ def test_client_reported_revision_is_compared_not_trusted_as_installation_proof(
         notice = response.json()["skill_update"]
         assert notice["status"] == expected and notice["current_version"] == revision
         assert notice["reported_version"] == (None if expected == "unknown" else reported)
-        assert (notice["message"] is None) == (expected == "current")
+        assert (notice["instructions"] is None) == (expected == "current")
         assert "untrusted-version" not in response.text

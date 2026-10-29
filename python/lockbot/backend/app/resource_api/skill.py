@@ -67,7 +67,7 @@ def client_skill_notice(request):
         "reported_version": reported,
         "manifest_url": "/api/agent-skill",
         "skill_url": "/api/agent-skill/SKILL.md",
-        "message": None
+        "instructions": None
         if status == "current"
         else (
             "Before the next resource mutation, check the manifest on this same approved origin, "
