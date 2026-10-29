@@ -261,6 +261,7 @@ def test_backup_envelope_validation_is_versioned_and_provider_typed(provider):
     envelope = {
         "provider": provider,
         "schema_version": 1,
+        "expires_at": None,
         "encrypted_payload": encryption.encrypt(json.dumps(expected)),
     }
     validate_archived(provider, envelope, None, expected)

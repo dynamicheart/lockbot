@@ -607,10 +607,11 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
         ak_plain, ak_ok = _decrypt_field(bb.get("aes_key", ""), source_secret_key)
         tk_plain, tk_ok = _decrypt_field(bb.get("token", ""), source_secret_key)
 
+        imported_expiry = None
         if (platform or "infoflow").lower() == "infoflow":
             from lockbot.backend.app.platform_applications.backup import validate_archived
 
-            validate_archived(
+            imported_expiry = validate_archived(
                 "infoflow",
                 bb.get("_versioned_credentials"),
                 source_secret_key,
@@ -772,6 +773,12 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
                         from lockbot.backend.app.feishu.backup import restore_route
 
                         restore_route(db, existing, bb, source_secret_key)
+                        if (platform or "infoflow").lower() == "infoflow":
+                            from lockbot.backend.app.platform_applications.backup import set_imported_expiry
+
+                            set_imported_expiry(
+                                db, existing, imported_expiry, legacy_archive=bb.get("_versioned_credentials") is None
+                            )
                         # Commit the new config, then install the archived state atomically. If
                         # the state cannot be installed after the config commit (or the commit
                         # result is unknown), the row and its saved state may be inconsistent — a
@@ -826,6 +833,12 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
                     from lockbot.backend.app.feishu.backup import restore_route
 
                     restore_route(db, bot_obj, bb, source_secret_key)
+                    if (platform or "infoflow").lower() == "infoflow":
+                        from lockbot.backend.app.platform_applications.backup import set_imported_expiry
+
+                        set_imported_expiry(
+                            db, bot_obj, imported_expiry, legacy_archive=bb.get("_versioned_credentials") is None
+                        )
                     db.commit()
                 except IntegrityError:
                     db.rollback()

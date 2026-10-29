@@ -59,7 +59,14 @@ def restore_route(db, bot, archived, source_key=None):
     if application:
         if application.bot_open_id != bot_identity or (application.tenant_key and application.tenant_key != tenant):
             raise ValueError("Feishu application identity conflicts with this deployment")
-        # Keep the target's working (possibly rotated) secrets and transport.
+        from lockbot.backend.app.platform_applications.service import credentials_for
+
+        credentials_for(application)  # A bad/expired target cannot be revived by selecting old archive data.
+        if versioned is not None:
+            from lockbot.backend.app.platform_applications.backup import archived_expiry
+
+            archived_expiry(versioned, allow_expired=True)  # Still reject malformed expiry evidence.
+        # Keep the target's working (possibly rotated) secrets, expiry and transport.
     else:
         from lockbot.backend.app.backup.service import _decrypt_field
 
@@ -69,9 +76,9 @@ def restore_route(db, bot, archived, source_key=None):
             if not valid:
                 raise ValueError("Cannot decrypt archived Feishu application credentials")
             secrets[key] = encryption.encrypt(plain)
-        from lockbot.backend.app.platform_applications.backup import validate_archived
+        from lockbot.backend.app.platform_applications.backup import set_imported_expiry, validate_archived
 
-        validate_archived(
+        imported_expiry = validate_archived(
             "feishu",
             versioned,
             source_key,
@@ -93,6 +100,7 @@ def restore_route(db, bot, archived, source_key=None):
         )
         db.add(application)
         db.flush()
+        set_imported_expiry(db, application, imported_expiry)
     conflict = db.query(FeishuGroupRoute).filter_by(application_id=application.id, chat_id=bot.group_id).first()
     if conflict is not None and conflict.bot_id != bot.id:
         raise ValueError("Feishu group is already assigned to another resource bot")
