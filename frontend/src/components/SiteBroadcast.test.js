@@ -63,6 +63,11 @@ it('uses only supplied cached names and preserves preview-confirm-send without l
   app.mount({ children: [] })
   const view = app._instance.setupState
   await flush()
+  expect(api.post).not.toHaveBeenCalled()
+  expect(view.createdTime(undefined)).toBe('')
+  expect(view.createdTime('not-a-date')).toBe('')
+  expect(view.createdTime('2026-10-29T10:00:00')).toBe(view.createdTime('2026-10-29T10:00:00Z'))
+  expect(view.createdTime('2026-10-29T10:00:00Z')).not.toBe('')
   expect(view.resultDetail({ status: 'accepted', result_code: 'platform_accepted' })).toBe('')
   expect(view.resultDetail({ status: 'pending' })).toBe('')
   expect(view.resultDetail({ status: 'failed', result_code: 'platform_rejected' })).toBe(

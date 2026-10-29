@@ -288,8 +288,8 @@ def test_route_becoming_bound_during_token_refresh_cancels_the_hint(client, hint
 
 @pytest.mark.parametrize("base", ["https://lockbot.example.test", "http://192.0.2.10:8000/team/"])
 def test_hint_links_to_the_configured_site_without_request_host_or_credentials(db_session, base):
-    from sqlalchemy.orm import sessionmaker
     from lockbot.backend.app.settings.models import SiteSetting
+    from sqlalchemy.orm import sessionmaker
 
     db_session.add(SiteSetting(key="platform_url", value=base))
     db_session.commit()
@@ -302,8 +302,8 @@ def test_hint_links_to_the_configured_site_without_request_host_or_credentials(d
     "base", ["", "https://user:secret@example.test", "javascript:alert(1)", "https://example.test/?key=secret"]
 )
 def test_hint_does_not_publish_invalid_or_credential_bearing_site_urls(db_session, base):
-    from sqlalchemy.orm import sessionmaker
     from lockbot.backend.app.settings.models import SiteSetting
+    from sqlalchemy.orm import sessionmaker
 
     db_session.add(SiteSetting(key="platform_url", value=base))
     db_session.commit()

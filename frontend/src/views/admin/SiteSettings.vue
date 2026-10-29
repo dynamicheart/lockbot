@@ -73,6 +73,11 @@
           <div class="platform-hint">{{ $t('feishu.enabledPlatformsHint') }}</div>
         </el-form-item>
         <el-form-item :label="$t('feishu.proxy')">
+          <template #label
+            >{{ $t('feishu.proxy')
+            }}<el-tooltip :content="$t('feishu.proxyHelp')" placement="top"
+              ><el-icon class="proxy-help"><QuestionFilled /></el-icon></el-tooltip
+          ></template>
           <div class="feishu-proxy-options">
             <el-select v-model="form.feishu_proxy_mode">
               <el-option value="deployment" :label="$t('feishu.proxyDeployment')" />
@@ -93,7 +98,11 @@
                     ? $t('feishu.proxyDirect')
                     : $t('feishu.proxyCustom')
               }}
-              · {{ proxyInfo.effective_url || $t('feishu.proxyDirect') }}
+              ·
+              {{
+                proxyInfo.effective_url ||
+                $t(proxyInfo.mode === 'direct' ? 'feishu.proxyDirect' : 'feishu.proxyUnset')
+              }}
             </div>
             <div class="proxy-test-row">
               <el-button :loading="testingProxy" @click="testProxy">{{
@@ -272,7 +281,7 @@
 import { ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { Check } from '@element-plus/icons-vue'
+import { Check, QuestionFilled } from '@element-plus/icons-vue'
 import api from '../../utils/api'
 import SiteBroadcast from '../../components/SiteBroadcast.vue'
 import FeishuApplications from '../../components/FeishuApplications.vue'
@@ -515,6 +524,13 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.proxy-help {
+  margin-left: 5px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+  vertical-align: middle;
+  cursor: help;
+}
 .site-settings {
   max-width: 1120px;
   margin-inline: auto;

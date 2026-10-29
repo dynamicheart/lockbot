@@ -1,5 +1,8 @@
 export default {
   feishu: {
+    proxyHelp:
+      'Choose Direct when this server can reach Feishu. Otherwise use the server configuration or a specified proxy. This changes Feishu requests only, not Infoflow configuration.',
+    proxyUnset: 'No dedicated proxy configured',
     manageApplications: 'Manage applications',
     receiverStatus: 'Receiver status',
     refreshReceiver: 'Refresh status',
@@ -45,7 +48,7 @@ export default {
     groupCachedUnavailable: 'Showing the cached name; refresh temporarily failed. Retry.',
 
     proxy: 'Feishu proxy',
-    proxyDeployment: 'Use deployment setting',
+    proxyDeployment: 'Use server configuration',
     proxyDirect: 'Direct connection',
     proxyCustom: 'Site proxy',
     proxyEffective: 'Effective',
@@ -307,6 +310,7 @@ export default {
     claimReady: 'Ready to claim',
   },
   broadcast: {
+    targets: 'Target groups',
     details: 'Broadcast details',
     view: 'View',
     result: 'Result',
@@ -465,6 +469,7 @@ export default {
 
   // === Bot List ===
   botList: {
+    filterByPlatform: 'Filter by platform',
     agent_authorizations: 'Active Agent authorizations',
     agent_usage_registrations: 'Active task registrations',
     title: 'My Bots',

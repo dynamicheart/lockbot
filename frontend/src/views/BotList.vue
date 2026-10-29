@@ -144,6 +144,15 @@
           <el-option label="QUEUE" value="QUEUE" />
           <el-option label="QUEUE_DEVICE" value="QUEUE_DEVICE" />
         </el-select>
+        <el-select
+          v-model="platformFilter"
+          :placeholder="$t('botList.filterByPlatform')"
+          clearable
+          style="width: 170px"
+        >
+          <el-option :label="$t('feishu.infoflowLabel')" value="infoflow" />
+          <el-option :label="$t('feishu.feishuLabel')" value="feishu" />
+        </el-select>
       </div>
       <div class="toolbar-right">
         <!-- View toggle -->
@@ -274,7 +283,7 @@
 </template>
 
 <script setup>
-import { platformLabel } from '../utils/platformDisplay'
+import { platformLabel, matchesPlatform } from '../utils/platformDisplay'
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
@@ -295,6 +304,7 @@ const platformStats = ref({ total_users: 0, total_bots: 0, running_bots: 0 })
 const search = ref('')
 const statusFilter = ref('')
 const typeFilter = ref('')
+const platformFilter = ref('')
 const viewMode = ref(localStorage.getItem(VIEW_KEY) || 'card')
 const showStats = ref(localStorage.getItem(STATS_KEY) !== 'false')
 const showPlatformStats = ref(localStorage.getItem(PLATFORM_STATS_KEY) !== 'false')
@@ -339,6 +349,7 @@ const filtered = computed(() => {
     if (search.value && !b.name.toLowerCase().includes(search.value.toLowerCase())) return false
     if (statusFilter.value && b.status !== statusFilter.value) return false
     if (typeFilter.value && b.bot_type !== typeFilter.value) return false
+    if (!matchesPlatform(b.platform, platformFilter.value)) return false
     return true
   })
 })

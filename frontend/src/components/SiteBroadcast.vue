@@ -2,18 +2,20 @@
   <el-card class="broadcast-card">
     <template #header>{{ $t('broadcast.title') }}</template>
     <el-form label-position="top" class="broadcast-compose">
-      <el-form-item :label="$t('broadcast.message')">
-        <el-input v-model="message" type="textarea" :rows="3" :maxlength="1800" show-word-limit />
+      <el-form-item :label="$t('broadcast.message')" class="compose-message">
+        <el-input v-model="message" type="textarea" :rows="6" :maxlength="1800" show-word-limit />
       </el-form-item>
-      <div class="options">
-        <el-select v-model="days" style="width: 180px" :aria-label="$t('broadcast.window')">
-          <el-option
-            v-for="n in [1, 7, 30]"
-            :key="n"
-            :value="n"
-            :label="$t('broadcast.days', { n })"
-          />
-        </el-select>
+      <div class="compose-options">
+        <el-form-item :label="$t('broadcast.window')">
+          <el-select v-model="days" :aria-label="$t('broadcast.window')">
+            <el-option
+              v-for="n in [1, 7, 30]"
+              :key="n"
+              :value="n"
+              :label="$t('broadcast.days', { n })"
+            />
+          </el-select>
+        </el-form-item>
         <el-checkbox v-model="mentionAll">{{ $t('broadcast.mentionAll') }}</el-checkbox>
         <el-button type="primary" :disabled="!message.trim()" :loading="busy" @click="preview">
           {{ $t('broadcast.preview') }}
@@ -27,7 +29,10 @@
       class="broadcast-dialog"
     >
       <template v-if="job">
-        <div class="message-preview">{{ job.message }}</div>
+        <section class="preview-message">
+          <h4>{{ $t('broadcast.message') }}</h4>
+          <div class="message-preview">{{ job.message }}</div>
+        </section>
         <div class="preview-summary">
           <span>{{ $t('broadcast.coverage', { n: job.total }) }}</span>
           <span>{{
@@ -36,7 +41,8 @@
           <span v-if="job.status !== 'draft'">{{ progress(job) }}</span>
         </div>
         <p v-if="!job.total" class="hint">{{ $t('broadcast.empty') }}</p>
-        <el-table :data="job.targets" max-height="320">
+        <h4 class="targets-heading">{{ $t('broadcast.targets') }}</h4>
+        <el-table class="targets-table" :data="job.targets" max-height="320">
           <el-table-column :label="$t('broadcast.bot')" min-width="230">
             <template #default="{ row }">
               <div class="target-info">
@@ -97,21 +103,21 @@
     <div v-if="history.length" class="history">
       <h4>{{ $t('broadcast.history') }}</h4>
       <el-table :data="history" @row-click="openJob">
-        <el-table-column
-          prop="message"
-          :label="$t('broadcast.message')"
-          min-width="220"
-          show-overflow-tooltip
-        />
-        <el-table-column :label="$t('broadcast.status')" width="120">
-          <template #default="{ row }"
-            ><el-tag size="small" :type="statusType(row.status)">{{
-              $t('broadcast.states.' + row.status)
-            }}</el-tag></template
-          >
+        <el-table-column :label="$t('broadcast.message')" min-width="220">
+          <template #default="{ row }">
+            <div class="history-message" :title="row.message">{{ row.message }}</div>
+            <time v-if="createdTime(row.created_at)" class="history-time">{{
+              createdTime(row.created_at)
+            }}</time>
+          </template>
         </el-table-column>
-        <el-table-column :label="$t('broadcast.progress')" width="260">
-          <template #default="{ row }">{{ progress(row) }}</template>
+        <el-table-column :label="$t('broadcast.status')" width="220">
+          <template #default="{ row }">
+            <div class="history-status">
+              <span>{{ $t('broadcast.states.' + row.status) }}</span>
+              <span class="history-progress">{{ progress(row) }}</span>
+            </div>
+          </template>
         </el-table-column>
         <el-table-column width="64" align="right">
           <template #default="{ row }"
@@ -145,6 +151,12 @@ const statusType = (status) =>
     failed: 'danger',
     unknown: 'warning',
   })[status] || 'info'
+function createdTime(value) {
+  if (typeof value !== 'string' || !value.trim()) return ''
+  const normalized = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value) ? value : value + 'Z'
+  const timestamp = Date.parse(normalized)
+  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : ''
+}
 const message = ref('')
 const days = ref(7)
 const mentionAll = ref(false)
@@ -239,7 +251,65 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 .broadcast-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 24px;
+  align-items: start;
+}
+.compose-message {
+  margin-bottom: 0;
+}
+.compose-options {
+  display: grid;
+  gap: 12px;
+  padding-left: 24px;
+  border-left: 1px solid var(--el-border-color-lighter);
+}
+.compose-options .el-form-item {
+  margin-bottom: 0;
+}
+.compose-options .el-select {
   width: 100%;
+}
+.compose-options .el-checkbox {
+  height: 28px;
+}
+.compose-options > .el-button {
+  margin-left: 0;
+}
+.preview-message h4,
+.targets-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.targets-heading {
+  margin-top: 20px;
+}
+.broadcast-card :deep(.el-table th.el-table__cell) {
+  background: var(--el-fill-color-light);
+  font-weight: 500;
+}
+.broadcast-card :deep(.el-table .el-table__cell),
+.targets-table :deep(.el-table__cell) {
+  padding-block: 9px;
+}
+.history-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--el-text-color-primary);
+}
+.history-time,
+.history-progress {
+  display: block;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.history-status {
+  display: grid;
+  gap: 2px;
 }
 .target-info {
   min-width: 0;
@@ -289,13 +359,9 @@ onUnmounted(() => {
   font-size: 13px;
   line-height: 1.6;
 }
-.options {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
 .message-preview {
+  max-height: 180px;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding: 12px 14px;
@@ -309,5 +375,18 @@ onUnmounted(() => {
 }
 .history {
   margin-top: 24px;
+}
+@media (max-width: 680px) {
+  .broadcast-compose {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .compose-options {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .compose-options > .el-button {
+    justify-self: start;
+  }
 }
 </style>

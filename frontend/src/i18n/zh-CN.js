@@ -1,5 +1,8 @@
 export default {
   feishu: {
+    proxyHelp:
+      '服务器能直接访问飞书时选直连；否则可使用服务器预设或指定代理。此设置只调整飞书请求，不修改如流配置。',
+    proxyUnset: '未设置专用代理',
     manageApplications: '管理应用',
     receiverStatus: '接收状态',
     refreshReceiver: '刷新状态',
@@ -39,7 +42,7 @@ export default {
     groupCachedUnavailable: '当前为缓存名称；本次刷新暂时失败，请重试。',
 
     proxy: '飞书专用代理',
-    proxyDeployment: '跟随部署配置',
+    proxyDeployment: '使用服务器配置',
     proxyDirect: '直连',
     proxyCustom: '指定代理',
     proxyEffective: '当前生效',
@@ -295,6 +298,7 @@ export default {
     claimReady: '已轮到，可领取资源',
   },
   broadcast: {
+    targets: '目标群聊',
     details: '广播详情',
     view: '查看',
     result: '发送结果',
@@ -451,6 +455,7 @@ export default {
 
   // === Bot List ===
   botList: {
+    filterByPlatform: '按平台筛选',
     agent_authorizations: 'Agent 有效授权',
     agent_usage_registrations: '有效用途登记',
     title: '我的机器人',
