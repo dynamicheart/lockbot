@@ -592,8 +592,8 @@ export default {
     agentAccessStats: 'Access statistics',
     agentOperations: 'Operation history',
     agentAuthorizations: 'Authorization records',
-    notesScopeHelp: 'Super administrators only. Temporarily shows detailed Agent notes and original logs for this bot. Reads are audited; switching bots turns this off.',
-
+    notesScopeHelp:
+      'Super administrators only. Temporarily shows detailed Agent notes in this operation history. Reads are audited; leaving this view turns it off.',
     authorizationAudit: 'Authorization audit',
     config: 'Configuration',
     status: 'Status',
@@ -720,8 +720,7 @@ export default {
 
   // === Log Viewer ===
   log: {
-    privateDetailsRestricted:
-      'Showing operation summaries. Super administrators can enable detailed Agent notes; access is audited.',
+    privateDetailsRestricted: 'Showing operation summaries.',
     all: 'All',
     commandLog: 'Command Log',
     systemLog: 'System Log',

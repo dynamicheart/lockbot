@@ -213,11 +213,14 @@
               </div>
             </el-descriptions-item>
           </template>
-          <el-descriptions-item v-else :label="$t('feishu.application')" :span="2">
+          <el-descriptions-item v-else :span="2">
+            <template #label>
+              {{ $t('feishu.application') }}
+              <el-tooltip :content="$t('feishu.applicationManaged')" placement="top">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
             <span>{{ bot.feishu_application?.name || '—' }}</span>
-            <el-tooltip :content="$t('feishu.applicationManaged')" placement="top">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
             <el-button
               v-if="authStore.isSuperAdmin"
               link
@@ -568,51 +571,44 @@
         <template #header>
           <div class="activity-heading">
             <span>{{ $t('botDetail.logsAndStats') }}</span>
-            <el-tooltip
-              v-if="authStore.isSuperAdmin"
-              :content="$t('botDetail.notesScopeHelp')"
-              placement="top"
-            >
-              <el-switch
-                v-model="showPrivateTasks"
-                :active-text="$t('audit.privateView')"
-                size="small"
-              />
-            </el-tooltip>
           </div>
         </template>
         <el-tabs v-model="activityTab">
           <el-tab-pane :label="$t('botDetail.logs')" name="logs">
-            <LogViewer
-              v-if="activityTab === 'logs'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-            />
+            <LogViewer v-if="activityTab === 'logs'" :bot-id="bot.id" />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('serviceTraffic.title')" name="traffic">
-            <ServiceTrafficPanel
-              v-if="activityTab === 'traffic'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-            />
+            <ServiceTrafficPanel v-if="activityTab === 'traffic'" :bot-id="bot.id" />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" label="Agent" name="agents">
             <template v-if="activityTab === 'agents'">
-              <el-radio-group v-model="agentTab" size="small" class="agent-sections">
-                <el-radio-button value="access">{{
-                  $t('botDetail.agentAccessStats')
-                }}</el-radio-button>
-                <el-radio-button value="history">{{
-                  $t('botDetail.agentOperations')
-                }}</el-radio-button>
-                <el-radio-button value="audit">{{
-                  $t('botDetail.agentAuthorizations')
-                }}</el-radio-button>
-              </el-radio-group>
+              <div class="agent-toolbar">
+                <el-radio-group v-model="agentTab" size="small" class="agent-sections">
+                  <el-radio-button value="access">{{
+                    $t('botDetail.agentAccessStats')
+                  }}</el-radio-button>
+                  <el-radio-button value="history">{{
+                    $t('botDetail.agentOperations')
+                  }}</el-radio-button>
+                  <el-radio-button value="audit">{{
+                    $t('botDetail.agentAuthorizations')
+                  }}</el-radio-button>
+                </el-radio-group>
+                <el-tooltip
+                  v-if="agentTab === 'history' && authStore.isSuperAdmin"
+                  :content="$t('botDetail.notesScopeHelp')"
+                  placement="top"
+                >
+                  <el-switch
+                    v-model="showPrivateTasks"
+                    :active-text="$t('audit.privateView')"
+                    size="small"
+                  />
+                </el-tooltip>
+              </div>
               <AgentActivity
                 v-if="agentTab === 'access'"
                 :bot-id="bot.id"
-                :include-private="privateTaskView"
                 :hide-heading="true"
                 @updated="loadAgentSummary"
               />
@@ -621,7 +617,7 @@
                 :bot-id="bot.id"
                 :include-private="privateTaskView"
               />
-              <BotAudit v-else :bot-id="bot.id" :include-private="privateTaskView" />
+              <BotAudit v-else :bot-id="bot.id" />
             </template>
           </el-tab-pane>
         </el-tabs>
@@ -842,13 +838,12 @@ function onVisibilityChange() {
 }
 
 function startStateTimer() {
-  if (privateTaskView.value) return
   clearInterval(stateTimer)
   stateTimer = setInterval(() => fetchState(), 60000)
 }
 
 watch(stateAutoRefresh, (val) => {
-  if (val && !privateTaskView.value) startStateTimer()
+  if (val) startStateTimer()
   else {
     clearInterval(stateTimer)
     stateTimer = null
@@ -883,7 +878,13 @@ const stateText = ref('')
 const stateData = ref(null)
 const stateUsage = ref([])
 const showPrivateTasks = ref(false)
-const privateTaskView = computed(() => authStore.isSuperAdmin && showPrivateTasks.value)
+const privateTaskView = computed(
+  () =>
+    authStore.isSuperAdmin &&
+    activityTab.value === 'agents' &&
+    agentTab.value === 'history' &&
+    showPrivateTasks.value
+)
 const stateSaving = ref(false)
 
 // Secret field visibility
@@ -1256,7 +1257,7 @@ async function fetchState() {
   try {
     const data = await botsStore.getBotState(
       read.id,
-      { include_usage: true, include_private: privateTaskView.value },
+      { include_usage: true, include_private: false },
       { signal: read.signal }
     )
     if (!read.isCurrent()) return
@@ -1491,12 +1492,9 @@ async function handleDelete() {
 }
 
 watch(
-  privateTaskView,
-  () => {
-    detailScope.cancel('state')
-    stateUsage.value = []
-    stateAutoRefresh.value = false
-    if (captureBot()) fetchState()
+  [activityTab, agentTab],
+  ([section, tab]) => {
+    if (section !== 'agents' || tab !== 'history') showPrivateTasks.value = false
   },
   { flush: 'sync' }
 )
@@ -1562,8 +1560,20 @@ function formatDate(d) {
   flex-wrap: wrap;
   gap: 8px 20px;
 }
-.agent-sections {
+.agent-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 18px;
+}
+.help-icon {
+  margin-left: 5px;
+  font-size: 13px;
+  vertical-align: middle;
+  color: var(--el-text-color-secondary);
+  cursor: help;
 }
 
 .group-tag {

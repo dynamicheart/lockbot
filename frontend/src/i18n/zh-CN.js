@@ -571,8 +571,8 @@ export default {
     agentAccessStats: '访问统计',
     agentOperations: '操作历史',
     agentAuthorizations: '授权记录',
-    notesScopeHelp: '仅超级管理员可开启。临时展示本机器人详情中的 Agent 详细备注及原始日志；每次读取会记录审计，切换机器人后自动关闭。',
-
+    notesScopeHelp:
+      '仅超级管理员可开启。临时展示当前操作历史中的 Agent 详细备注，读取会记录审计；离开此页后自动关闭。',
     authorizationAudit: '授权审计',
     config: '配置信息',
     status: '状态',
@@ -697,7 +697,7 @@ export default {
 
   // === Log Viewer ===
   log: {
-    privateDetailsRestricted: '当前显示操作摘要；超级管理员可开启详细备注，访问会记录审计。',
+    privateDetailsRestricted: '当前显示操作摘要。',
     all: '全部',
     commandLog: '操作记录',
     systemLog: '系统日志',
