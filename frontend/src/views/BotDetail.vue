@@ -9,6 +9,11 @@
         <StatusBadge v-if="bot" :status="bot.status" />
       </div>
       <div class="detail-header-actions">
+        <el-switch
+          v-if="authStore.isSuperAdmin"
+          v-model="showPrivateTasks"
+          :active-text="$t('audit.privateView')"
+        />
         <el-button
           v-if="canOperate && (bot?.status === 'stopped' || bot?.status === 'error')"
           type="success"
@@ -520,20 +525,33 @@
         >
         <el-tabs v-model="activityTab">
           <el-tab-pane :label="$t('botDetail.logs')" name="logs">
-            <LogViewer v-if="activityTab === 'logs'" :bot-id="bot.id" />
+            <LogViewer
+              v-if="activityTab === 'logs'"
+              :bot-id="bot.id"
+              :include-private="privateTaskView"
+            />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('serviceTraffic.title')" name="traffic">
-            <ServiceTrafficPanel v-if="activityTab === 'traffic'" :bot-id="bot.id" />
+            <ServiceTrafficPanel
+              v-if="activityTab === 'traffic'"
+              :bot-id="bot.id"
+              :include-private="privateTaskView"
+            />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
             <AgentActivity
               v-if="activityTab === 'agents'"
               :bot-id="bot.id"
+              :include-private="privateTaskView"
               @updated="loadAgentSummary"
             />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('botDetail.authorizationAudit')" name="audit">
-            <BotAudit v-if="activityTab === 'audit'" :bot-id="bot.id" />
+            <BotAudit
+              v-if="activityTab === 'audit'"
+              :bot-id="bot.id"
+              :include-private="privateTaskView"
+            />
           </el-tab-pane>
         </el-tabs>
       </el-card>
@@ -728,12 +746,13 @@ function onVisibilityChange() {
 }
 
 function startStateTimer() {
+  if (privateTaskView.value) return
   clearInterval(stateTimer)
   stateTimer = setInterval(() => fetchState(), 60000)
 }
 
 watch(stateAutoRefresh, (val) => {
-  if (val) startStateTimer()
+  if (val && !privateTaskView.value) startStateTimer()
   else {
     clearInterval(stateTimer)
     stateTimer = null
@@ -767,6 +786,8 @@ const viewJson = ref(false)
 const stateText = ref('')
 const stateData = ref(null)
 const stateUsage = ref([])
+const showPrivateTasks = ref(false)
+const privateTaskView = computed(() => authStore.isSuperAdmin && showPrivateTasks.value)
 const stateSaving = ref(false)
 
 // Secret field visibility
@@ -1139,7 +1160,7 @@ async function fetchState() {
   try {
     const data = await botsStore.getBotState(
       read.id,
-      { include_usage: true },
+      { include_usage: true, include_private: privateTaskView.value },
       { signal: read.signal }
     )
     if (!read.isCurrent()) return
@@ -1374,9 +1395,28 @@ async function handleDelete() {
 }
 
 watch(
+  privateTaskView,
+  () => {
+    detailScope.cancel('state')
+    stateUsage.value = []
+    stateAutoRefresh.value = false
+    if (captureBot()) fetchState()
+  },
+  { flush: 'sync' }
+)
+watch(
+  () => authStore.isSuperAdmin,
+  (allowed) => {
+    if (!allowed) showPrivateTasks.value = false
+  },
+  { flush: 'sync' }
+)
+
+watch(
   () => String(route.params.id || ''),
   (id) => {
     detailScope.enter(id)
+    showPrivateTasks.value = false
     routeGeneration.value++
     bot.value = null
     stateData.value = null

@@ -82,3 +82,17 @@ describe('service traffic scope lifecycle', () => {
     expect(f.publish).toHaveBeenCalledTimes(count)
   })
 })
+
+it('treats private consent as part of the scope and fences late credential snapshots', async () => {
+  const f = fixture()
+  const privateRead = f.loader.setScope({ botId: 1, includePrivate: true })
+  const publicRead = f.loader.setScope({ botId: 1, includePrivate: false })
+  expect(f.state.snapshot).toBe(null)
+  expect(f.pending[0].signal.aborted).toBe(true)
+  f.pending[0].resolve({ credentials: [{ id: 'fictional-private' }] })
+  await privateRead
+  expect(f.state.snapshot).toBe(null)
+  f.pending[1].resolve({ credentials: [{ user: 'alice' }] })
+  await publicRead
+  expect(f.state.snapshot.credentials).toEqual([{ user: 'alice' }])
+})
