@@ -1,35 +1,106 @@
 # Roadmap
 
-## 2025 H1 — v2.0 Open Source Release
+Updated 2026-10-29. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/issues/27) tracks execution and [the requirement coverage matrix](docs/design/requirement-coverage.md) maps the discussion to evidence and remaining acceptance. Implementation, merge, release, deployment and acceptance are different states. An open PR or a successful local test is not a production rollout.
 
-- [x] Bot class: classmethod -> instance mode (multi-bot per process)
-- [x] Config: class singleton -> instance config
-- [x] Core library decoupled from Flask server
-- [x] Multi-instance data isolation tests
-- [x] FastAPI backend: auth (JWT), bot CRUD, bot lifecycle, webhook routing
-- [x] Sensitive data encryption (Fernet)
-- [x] Vue 3 frontend: login/register, bot management, admin panel, logs
-- [x] i18n: bilingual (zh-CN / en) for both bot replies and frontend UI
-- [x] Role-based access control (super_admin / admin / user)
-- [x] Database backup (SQLite)
-- [x] JSONL file-based logging
-- [x] Auto-detect heterogeneous GPU nodes
-- [x] GitHub Actions CI + PyPI auto-publish
-- [x] Docker multi-stage build
-- [x] Open source cleanup (LICENSE, README, pyproject.toml)
+## Delivery snapshot
 
-## 2026 Q3 — Multi-Platform Support
+| State | Evidence and next gate |
+| --- | --- |
+| Formal deployment | **[v2.15.2](https://github.com/dynamicheart/lockbot/releases/tag/v2.15.2)**, release commit `f4badac`. The two P0 fixes are released: private-task role separation (#40) and trailing notification delivery (#42). Existing keys/configuration/locks/queues were preserved; actual formal OP/owner projection, Skill/version and direct-source 16-node/64-card checks passed. |
+| Merged, outside formal release | Promotion #19, private history/scoped monitoring #22, authorization documentation #35, safe category validation #37, resource layout #38, per-source signers #41, client handoff #43, public OP history/report #44, log scope #46, detail route scope #47, conditional declaration cleanup #48, verified lifecycle accounting #49, audit action translation #50 (`88a9a11`), layered operation trends #51 (`4f76627`), explicit Agent-note opt-in #52 (`37bb316`) hosting guidance #55 (`445bea7`) and deployment/onboarding preflight #53. Each passed its final required checks before squash merge; PR/Issue records retain reviewed heads and test evidence. These are outside formal v2.15.2. |
+| Lifecycle accounting candidate | [PR #49](https://github.com/dynamicheart/lockbot/pull/49): committed allocation evidence and verified interval reporting. Strict checkpoint validation fixes a reproduced false-coverage bug. Squash-merged as `ef00d76` after independent review, 114 frozen-candidate targeted checks and six final-head CI checks on `a6fe893`. Formal release remains required; real integration reports now verify complete current-process intervals and correctly mark cross-restart evidence gaps unknown. This measures grants, never hardware utilization or actual work. |
+| Feishu candidate | [PR #25](https://github.com/dynamicheart/lockbot/pull/25) remains a draft. Integration deployment `592e9b0` contains the latest UI, explicit Agent-note opt-in and layered trends; later `84b6f59` only integrates hosting documentation. Frozen-candidate validation passed **1,786 backend tests / 7 skipped and 162 frontend tests**. Real checks observed three default log reads adding zero detailed-note audit events, one explicit read adding one event, cold display-name lookup ready with one name, and successful group-name lookup. Existing application/routes/proxy and the single receiver were preserved. These are integration results, not formal rollout or complete two-group/rendering acceptance; formal production remains v2.15.2 without Feishu. |
+| Real acceptance preparation | A second temporary Feishu group was explicitly authorized, created through the logged-in user UI, and its original application/bot and verified owner were confirmed through API; counts show one user and one bot. Detailed member-list permission is unavailable and was not expanded. No current-candidate two-group success is claimed yet. Finish isolation, messages, cleanup and browser acceptance before rollout. |
+| Remaining work | Real external-client adoption/task cleanup (#24), broader lifecycle/report rollout (#21), telemetry operational/performance acceptance (#28), and source-trust rollout boundaries (#33). The requirement coverage matrix distinguishes delivered behavior, missing evidence, limitations and user-deferred network work. |
 
-- [ ] IM adapter abstraction layer (`core/platforms/`)
-- [ ] Slack adapter
-- [ ] DingTalk adapter
-- [ ] Feishu/Lark adapter
-- [ ] WeChat Official Account adapter
-- [x] Audit log system (operation history, admin/super_admin visible)
+Merge, tag/release, image/artifact build, deployment and real acceptance remain separate gates. Issues #36/#39 are closed for their delivered P0 scope; subsequent endpoints and candidates need their own checks.
 
-## 2026 Q4 — Cloud & Scale
+## Priorities and dependency order
 
-- [ ] Serverless deployment (Vercel / Cloud Functions)
-- [ ] Cloud database support (PostgreSQL / PlanetScale / Neon)
-- [ ] Redis-based state persistence for distributed deployment
-- [x] Rate limiting and abuse prevention (slowapi, Redis-optional)
+| Priority | Work | Delivery boundary and next gate |
+| --- | --- | --- |
+| P0 | Stop silently losing Agent resource notifications | [#39](https://github.com/dynamicheart/lockbot/issues/39), [PR #42](https://github.com/dynamicheart/lockbot/pull/42): released/deployed in v2.15.2. Real authorized test-group acceptance observed the trailing resource notice without a fourth request; pending batches remain in-memory best effort and uncertain sends are not retried |
+| P0 | Separate private task access from bot administration and OP maintenance | [#36](https://github.com/dynamicheart/lockbot/issues/36), [PR #40](https://github.com/dynamicheart/lockbot/pull/40): squash-merged after fresh review and six green checks; retain own-user access and default other-user access to super administrators. Existing server projections, bundled Skills and metadata are released; actual formal OP/owner projection checks passed. Future history/search/export surfaces must reuse and separately validate this policy |
+| P1 | Finish private history and scoped service monitoring | [PR #22](https://github.com/dynamicheart/lockbot/pull/22) merged as `d3c86e1` after six checks; 62 focused backend and 97 frontend tests passed. Current authority and ordinary-owner public projection precede query/page/JSON; ordinary OP has no inherited private-history access. Formal release/production deployment remain; integration history/public projection and explicit-read auditing passed |
+| P1 | Close the small UI, documentation, validation and promotion changes | [#34](https://github.com/dynamicheart/lockbot/issues/34), PRs [#19](https://github.com/dynamicheart/lockbot/pull/19), [#35](https://github.com/dynamicheart/lockbot/pull/35), [#37](https://github.com/dynamicheart/lockbot/pull/37), [#38](https://github.com/dynamicheart/lockbot/pull/38). Keep the ordered device list; preserve custom promotion text; PR #19 is squash-merged as `8da2cf5` after six checks on reviewed `2343f4a`; the configurable localized prefix remains outside formal v2.15.2 (included in the integration test candidate). Legacy LogViewer scope PR #46 is squash-merged as `7a89b0c` after review and six green checks on final `da7b2ca`, but remains outside formal v2.15.2 (included in the integration test candidate). PR #38 and #37 are merged but unreleased. BotDetail parameter-only navigation refresh PR #47 is also merged as `0796763`, not yet formally released (included in the integration test candidate); verify current-head CI, merge and deployment separately |
+| P1 | Finish Feishu alongside Infoflow | [PR #25](https://github.com/dynamicheart/lockbot/pull/25) and rendering gallery [#23](https://github.com/dynamicheart/lockbot/pull/23): release integration/regression, permissions, multi-group isolation, forms, migration and real message acceptance before formal rollout |
+| P1 | Make client privacy handoffs verifiable | [#24](https://github.com/dynamicheart/lockbot/issues/24), [PR #43](https://github.com/dynamicheart/lockbot/pull/43): stdlib reference gate and offline example implemented, with seven additional real in-process HTTP serialization/API cases passing. Conditional metadata cleanup is implemented separately in [PR #48](https://github.com/dynamicheart/lockbot/pull/48), with 76 related checks including 15 cleanup cases passing; PR #43 is squash-merged as `0bf7d55` after six checks on final `ef79531`; PR #48 is merged as `edcd476`; formal release and actual external-client adoption remain; real integration cleanup returned 412 for an old revision and succeeded for the current replacement revision. Server privacy and version hints do not prove an external Agent obeys them |
+| P2 | Scoped OP history and explainable usage analysis | [#21](https://github.com/dynamicheart/lockbot/issues/21), [PR #44](https://github.com/dynamicheart/lockbot/pull/44) phase 1 merged as `77b9d67` after review and six checks; fixed public projection precedes query/page and OP keys are rechecked before/after reads. Formal release/deployment remain pending; the integration candidate has real report acceptance, and v2.15.2 does not include it. Start with operation counts and observed outcomes; verified card-hours require complete lifecycle evidence across chat, Agent, OP, expiry and renewal |
+| P2 | Close telemetry portability and operational acceptance | [#28](https://github.com/dynamicheart/lockbot/issues/28): formal XPU rollout is complete; broader NVIDIA deployment, actual driver-lock/workload impact measurements remain; a real 390px iframe CSS viewport passed for 16 cards without horizontal overflow, but mobile-engine/touch acceptance is separate |
+| P2 | Isolate data-source trust across environments | [#33](https://github.com/dynamicheart/lockbot/issues/33), [PR #41](https://github.com/dynamicheart/lockbot/pull/41): per-source signer registry merged as `01be77b` after independent review and eight CI checks passed; migration/deployment and explicit client transport rules remain. The specific bastion-network/VPN experiment is deferred, not an active deployment task |
+
+## Important current boundaries
+
+### Agent task privacy
+
+Released v2.15.1 hides free-form `purpose`, Agent names and credential/authorization details from group notifications, protected shared pages and other users' Agent reads. Only the optional server preset `task_category` is public; old clients may omit it and no free-form note is auto-classified.
+
+The **current v2.15.2 release restricts private task fields to the same actor and super administrators**. Ordinary bot administration and OP maintenance do not grant other-user private reads. Actual formal-service ordinary OP and owner-management projection checks passed; no new test credentials were created. Reviewed role regressions cover own-actor/super-admin behavior; do not present them as every role freshly exercised against production. A later automation capability for private analysis must be explicitly delegated; `metrics:read` and an ordinary OP key do not grant it. OS/root file access is outside application RBAC.
+
+### Telemetry
+
+Lockbot's service does not collect hardware data, retain time series or proxy ordinary metric queries. The repository ships an independently deployed exporter, Prometheus and a query gateway. Browsers and Agents query that data source directly; the service may issue short-lived, bot/node-scoped metrics grants through an explicitly configured trust relationship. Data-source credentials, CORS, network reachability and task-private permissions are separate concerns.
+
+Default hardware collection is staggered at five-minute intervals; page queries read cached samples and do not trigger SMI. Missing, failed or stale readings stay unknown, not zero. Low utilization never grants a lock or triggers release, renewal, preemption or process termination. Available memory and buffers/cache are distinct metrics; cache alone is not a driver-OOM diagnosis. The released automatic signer still uses one configured HMAC key; it is not multi-source trust isolation. Merged PR #41 (`01be77b`) adds an optional deployment-only registry with independent keys, strict audience matching, fail-closed selection and reload-on-issuance rotation/revocation semantics. Existing tokens still require gateway revocation or expiry; deployment has not changed.
+
+### Feishu
+
+One enterprise application routes explicitly configured resource groups to independent resource bots. Application connectivity and resource-bot running state must both be checked. Stop old local/test receivers before moving an application connection; a successful handshake alone does not prove resource operations or replies are ready.
+
+PR #25 now adds super-admin-only persistent site proxy modes: follow the deployment setting (default), direct, or a credential-free HTTP(S) proxy. One authoritative policy covers Feishu HTTP/SDK discovery/WebSocket; only effective changes clear caches and stop old receivers before reconnecting. Public settings exclude proxy addresses. Fixed official HTTP probing explicitly leaves WebSocket untested. This site policy does not change global, Infoflow or metric-source proxies; per-application independent proxies remain outside this change. Real group tests include emoji, links and mentions; one successful message cannot replace the reusable rendering matrix or multi-group isolation tests.
+
+## Released foundations
+
+| Scope | Merged work |
+| --- | --- |
+| Agent personal binding, OP operations/Skill and queued broadcasts including optional mentions | [#1](https://github.com/dynamicheart/lockbot/pull/1); maintenance keys remain distinct from ordinary Agent keys |
+| Legacy state files, Docker data path, additive upgrade and rollback guidance | [#2](https://github.com/dynamicheart/lockbot/pull/2), [upgrade design](docs/design/upgrade-rollback.md); a code rollback can restore older privacy behavior even when the database remains readable |
+| Key-only bot discovery, service/instance identity, Skill installation and multi-bot connection records | [#4](https://github.com/dynamicheart/lockbot/pull/4), [#12](https://github.com/dynamicheart/lockbot/pull/12), [#16](https://github.com/dynamicheart/lockbot/pull/16); update discovery completed in [#29](https://github.com/dynamicheart/lockbot/issues/29), not a guarantee of external-client reload |
+| Protected per-bot queue pages, daily lazy link generation, short links, visible queues and overview selection | [#6](https://github.com/dynamicheart/lockbot/pull/6), [#10](https://github.com/dynamicheart/lockbot/pull/10), [#11](https://github.com/dynamicheart/lockbot/pull/11) |
+| HTTP traffic and private rotating Agent JSONL files | [#8](https://github.com/dynamicheart/lockbot/pull/8); the richer administration UI in PR #22 is merged but not formally released (included in the integration test candidate) |
+| QUEUE_DEVICE, preview/model display and optional continuous-device display merging | [#9](https://github.com/dynamicheart/lockbot/pull/9), [#13](https://github.com/dynamicheart/lockbot/pull/13); merging is not enabled by default |
+| Renewal prohibition, per-person resource caps and form spacing | [#15](https://github.com/dynamicheart/lockbot/pull/15), [#17](https://github.com/dynamicheart/lockbot/pull/17); existing bots default to allowing renewal and unlimited resource counts |
+| Standalone removal and malformed-command feedback | [#14](https://github.com/dynamicheart/lockbot/pull/14), [#31](https://github.com/dynamicheart/lockbot/pull/31); malformed nonempty input is rejected rather than silently interpreted as query |
+| Public task-category privacy, real telemetry and reproducible offline bundles | [#26](https://github.com/dynamicheart/lockbot/pull/26), [#20](https://github.com/dynamicheart/lockbot/pull/20), [#30](https://github.com/dynamicheart/lockbot/pull/30), [#32](https://github.com/dynamicheart/lockbot/pull/32), released through v2.15.1 |
+| Private task-role separation and reliable trailing notifications | [#40](https://github.com/dynamicheart/lockbot/pull/40), [#42](https://github.com/dynamicheart/lockbot/pull/42), focused v2.15.2 release [#45](https://github.com/dynamicheart/lockbot/pull/45); release/build/formal upgrade and scoped real acceptance completed |
+
+## v2.15.2 acceptance record
+
+The authorized test-group burst completed three mutations in 0.358 seconds, then recorded two platform-accepted notifications and two queued events over 12 seconds without another triggering request. Lock/configuration cleanup was verified privately. This is not recipient read confirmation or a promise of durable delivery; already-lost historical notifications are not reconstructed.
+
+The published image archive SHA-256 is `f29e21e655bdcf9ecdc0d475cae51ded0c4c5932b822df90286693e945032596` (artifact ID `12884505359`). The formal service serves Agent Skill `7197d0e6d8316d46` and OP Skill `9e6c6949e73bc662`. Runtime credentials, addresses, deployment journal paths and raw evidence stay private.
+
+## Product and release boundaries
+
+- Support Infoflow and Feishu. Slack, DingTalk, WeChat, serverless and distributed-state deployments are not scheduled.
+- Ignore Feishu direct messages; do not add a private-chat help reply or require private-message permissions.
+- Fix platform identity when creating a bot. Migration copies configuration into a new form and excludes credentials, group/application associations, authorizations, live state, history and platform-user exception lists.
+- Do not build a shared resource pool across platforms or attach one resource bot to both platforms. Do not run independent lock systems over the same physical resources during migration.
+- Agent contact registration and communication were an early discussion idea, not an implemented or explicitly committed delivery. Do not infer them as an extension of purpose notes; current resource/usage queries remain the collaboration surface while that decision is open.
+- The isolated-environment VPN/IT request is deferred by the user. Do not restart it as an implied dependency of telemetry.
+- Latest explicit release decision: develop and merge all current PRs on `release/2.x` through 3.0.0 testing/acceptance. After acceptance, preserve historical `main`, align `main` to the exact final `release/2.x` commit, then make `main` the default. Do not rename the release branch; the main agent coordinates execution. The 3.0.0 target is approved, but alignment/default changes and release are not recorded as completed.
+- Require checks on the current PR head and prefer squash merges. Branch protection was checked on this date: force pushes/deletion disabled, protection enforced for administrators, strict current-base checks and PR merging required, and all six CI contexts required. Recheck before release rather than relying on this snapshot.
+- Track merge, version/tag, image/artifact build and checksum, deployment, configuration/key/state preservation and real acceptance explicitly. Do not turn a test-service upgrade or a client screenshot into a formal release claim.
+
+
+## Latest user feedback
+
+- Audit action translation PR #50 is merged as `88a9a11`; display labels only, no permission changes, formal release pending.
+- Current test-service group-name read and explicit refresh returned HTTP 200 with a name. PR #25 now marks retained names as cached after transient failure, distinguishes permission vs temporary failures and offers retry. No missing-permission claim is inferred from the earlier warning.
+- PR #25 integration candidate `592e9b0` passed the recorded backend/frontend suites and is deployed to the integration service with configuration preserved. Site proxy, group-name HTTP lookup/refresh and a real authorized-group query/reply are verified. Formal production remains v2.15.2 without Feishu. Default/explicit detailed-note reads passed integration acceptance; complete two-group/rendering acceptance remains pending. Explicit opt-in for Agent detailed notes (#52) and layered operation trends (#51) are merged and included in the integration candidate, outside formal production.
+
+
+### Approved 3.0.0 branch migration sequence
+
+The latest user decision supersedes the earlier deferred version choice. Before changing the default line, preserve the existing historical `main` as `archive/main-before-v3-20261029`. It has 24 unique historical commits while the maintained release line has 75 unique commits at the comparison snapshot; do not force-push over that history or blindly merge the abandoned generic-platform/credentials-JSON implementation back into the product.
+
+Continue development, PR targeting and merges on `release/2.x` until the 3.0.0 candidate passes required testing/acceptance. Then align `main` to the exact final commit of `release/2.x`, copy the six mandatory CI checks/protection and update CI/telemetry/docs/default-branch references as coordinated by the main agent. This is commit alignment, not renaming `release/2.x` to `main`. Current PRs keep their release target during development; stop maintaining the release line only after the accepted transition. The main agent coordinates the exact execution order. No branch deletion, force push, default change or release is recorded as completed by this document update.
+
+See [upgrade and database compatibility](docs/design/upgrade-rollback.md#飞书-300-的数据库与部署边界) for the additive schema and rollback boundaries.
+
+## Latest integrated acceptance and deployment guidance
+
+- PR #51 operation-source trends and PR #52 explicit **Agent detailed notes** access are merged. Default administration reads remain public; the super administrator must explicitly opt in, which produces an audit event. Actual integration checks observed zero events from three default reads and one from one explicit read. The UI term is “Agent 详细任务备注”; technical permission/field identifiers remain unchanged.
+- Real integration lifecycle reports return complete intervals within the current process and accurately return unknown coverage across restart gaps. Conditional declaration cleanup rejects stale If-Match revisions with 412 and accepts the current revision. This does not prove external Agents adopt the handoff helper or measure actual hardware/work hours.
+- Hosting guidance PR #55 is merged (`445bea7`). Deployment/onboarding guidance and the read-only preflight helper in [PR #53](https://github.com/dynamicheart/lockbot/pull/53) are squash-merged after six successful checks on final `8976e94`; the oversized-port regression now returns structured failure without a traceback. Twelve focused CLI checks and Ruff passed; Compose/container execution was not performed locally because Docker CLI was unavailable. These instructions do not authorize deployment, permission expansion or real group messages.
+- Private proof and sanitized PR #25 acceptance summaries are tracked in [the integration record](https://github.com/dynamicheart/lockbot/pull/25#issuecomment-6500258587). Hardware workload/driver-lock measurements and external-client adoption remain open.

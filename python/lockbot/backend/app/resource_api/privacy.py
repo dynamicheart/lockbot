@@ -24,6 +24,11 @@ def can_read_private_tasks(db, user):
     )
 
 
+def private_task_view(db, user, include_private):
+    """Private projection is an explicit per-request choice, never a role default."""
+    return include_private is True and can_read_private_tasks(db, user)
+
+
 def audit_private_read(db, user, *, bot_id, surface):
     """Audit elevated disclosure without copying any task body or credential ID."""
     import json
@@ -31,6 +36,7 @@ def audit_private_read(db, user, *, bot_id, surface):
     from fastapi import HTTPException
 
     from lockbot.backend.app.audit.models import AuditLog
+    from lockbot.backend.app.bots.models import Bot
 
     if not can_read_private_tasks(db, user):
         raise HTTPException(403, "Private task access requires super administrator")
@@ -40,8 +46,11 @@ def audit_private_read(db, user, *, bot_id, surface):
             operator_username=user.username,
             operator_role="super_admin",
             action="task_private.read",
-            target_type="bot",
+            target_type="bot" if bot_id is not None else "service",
             target_id=bot_id,
+            target_name=(db.execute(select(Bot.name).where(Bot.id == bot_id)).scalar_one_or_none() or f"#{bot_id}")
+            if bot_id is not None
+            else "Lockbot",
             detail=json.dumps({"surface": surface}),
             result="success",
         )

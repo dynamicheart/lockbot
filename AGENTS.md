@@ -1,5 +1,7 @@
 # Repository contribution guidelines
 
+For user-authorized deployment or messaging-platform setup, also read [Agent administration guidance](docs/agents/AGENTS.md). These contribution rules continue to apply to repository changes.
+
 ## Language
 
 - Write commit subjects and bodies, PR titles and descriptions, and code review comments in English.

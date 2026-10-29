@@ -142,7 +142,14 @@ export default {
     lastMinute: 'Requests in last minute',
     p95: 'Estimated P95 latency',
     errorRate: 'Server error rate',
-    trend: 'Requests in the last 60 minutes',
+    httpLayer: 'HTTP requests / minute',
+    operationLayer: 'Resource operations / minute',
+    operationTrendHelp:
+      'Command calls by source, including rejected or uncertain outcomes. These are neither successful grants nor HTTP request counts.',
+    noRecentOperations: 'No resource operations in the last 60 minutes',
+    operationHistoryUnavailable: 'No operation minute observations for this period',
+    operationDetails: 'Cumulative operation details',
+    trend: 'Traffic and operations in the last 60 minutes',
     serverErrors: 'Server errors',
     bySource: 'By source',
     byRoute: 'By endpoint',
@@ -842,7 +849,8 @@ export default {
     dispatched: 'Dispatched',
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
-    targetTypes: { bot: 'Bot', user: 'User' },
+    privateView: 'Show private task details (audited)',
+    targetTypes: { bot: 'Bot', user: 'User', service: 'Service' },
     detailFields: {
       resource_auth_enabled: 'Allow Agent access',
       resource_api_notify_enabled: 'Group operation notifications',

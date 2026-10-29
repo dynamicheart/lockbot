@@ -325,6 +325,7 @@ def test_business_operations_concurrent_updates():
         )
     assert stats.snapshot()["business_operations"]["total"] == 1000
     assert stats.snapshot(2)["business_operations"]["total"] == 1000
+    assert sum(p["sources"]["chat"] for p in stats.snapshot(2)["business_operations"]["history"]) == 1000
 
 
 def test_real_agent_command_is_counted_once_but_reads_are_not(client, api):
@@ -373,7 +374,7 @@ def test_private_history_projection_precedes_search_pagination_and_export(client
     owner = db_session.query(User).filter_by(username="testuser").one()
     owner.role = "super_admin"
     db_session.commit()
-    private = client.get(url, params={"query": "private-task"}, headers=auth_header)
+    private = client.get(url, params={"query": "private-task", "include_private": True}, headers=auth_header)
     assert len(private.json()["items"]) == 3 and "private-agent" in private.text
     audit = db_session.query(AuditLog).filter_by(action="task_private.read").one()
     assert json.loads(audit.detail) == {"surface": "management.agent_history"}
@@ -393,4 +394,37 @@ def test_bot_monitoring_hides_credential_identifiers_but_retains_caller_counts(c
     owner = db_session.query(User).filter_by(username="testuser").one()
     owner.role = "super_admin"
     db_session.commit()
-    assert "private-credential-identifier" in client.get(url, headers=auth_header).text
+    assert (
+        "private-credential-identifier" in client.get(url, params={"include_private": True}, headers=auth_header).text
+    )
+
+
+def test_operation_minutes_preserve_scope_sources_and_do_not_invent_prior_history():
+    now = [3600.0]
+    stats = TrafficStats(clock=lambda: now[0])
+    stats.record_operation(bot_id=1, source="chat", command="lock", outcome="dispatched")
+    stats.record_operation(bot_id=1, source="agent", command="book", outcome="rejected")
+    stats.record_operation(bot_id=2, source="operator", command="opkick", outcome="uncertain")
+    history = stats.snapshot()["business_operations"]["history"]
+    assert len(history) == 60 and not any(point["observed"] for point in history[:-1])
+    assert history[-1]["observed"] and history[-1]["sources"] == {"chat": 1, "agent": 1, "operator": 1}
+    assert stats.snapshot(1)["business_operations"]["history"][-1]["sources"]["operator"] == 0
+    assert stats.snapshot()["history"][-1]["requests"] == 0
+    now[0] += 60
+    last = stats.snapshot()["business_operations"]["history"][-1]
+    assert last["observed"] and not any(last["sources"].values())
+    assert stats.snapshot()["business_operations"]["total"] == 3
+
+
+def test_operation_minutes_are_bounded_and_expire_without_new_operations():
+    now = [3600.0]
+    stats = TrafficStats(clock=lambda: now[0])
+    for index in range(70):
+        now[0] = 3600 + index * 60
+        stats.record_operation(bot_id=1, source="chat", command="lock", outcome="dispatched")
+    assert len(stats.operation_minutes) == len(stats.bots[1].operation_minutes) == 60
+    assert all(len(bucket) <= 9 for bucket in stats.operation_minutes.values())
+    assert sum(point["sources"]["chat"] for point in stats.snapshot()["business_operations"]["history"]) == 60
+    now[0] += 3600
+    assert not any(sum(point["sources"].values()) for point in stats.snapshot()["business_operations"]["history"])
+    assert stats.snapshot()["business_operations"]["total"] == 70

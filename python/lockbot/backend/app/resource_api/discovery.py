@@ -163,6 +163,7 @@ def _context_payload(request, response, db, row):
             "policy_version": 2,
             "private_readers": ["same_verified_actor", "super_administrator"],
             "management_private_capability": "task_private:read",
+            "management_private_requires_opt_in": True,
             "ordinary_operator_private_access": False,
             "delegated_private_access_supported": False,
             "public_task_categories": TASK_CATEGORIES,

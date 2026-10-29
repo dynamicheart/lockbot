@@ -26,3 +26,17 @@ export function formatAuditDetail(detail, { fields, sources, booleans, dispatche
     })
     .join('\n')
 }
+
+/** Render retained rows without rewriting historical audit evidence. */
+export function auditTarget(row) {
+  const globalRead =
+    row?.action === 'task_private.read' &&
+    row?.target_id == null &&
+    row?.detail?.surface === 'management.global_service_traffic'
+  return {
+    type: globalRead ? 'service' : row?.target_type,
+    name:
+      row?.target_name ||
+      (globalRead ? 'Lockbot' : row?.target_id != null ? `#${row.target_id}` : ''),
+  }
+}
