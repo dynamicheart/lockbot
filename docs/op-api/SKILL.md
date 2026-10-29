@@ -54,6 +54,43 @@ bot is **unknown state**, not proof of idle resources. Back off on errors, notif
 meaningful changes, and send messages only to user-authorized destinations. Keep OP keys
 separate for each monitored bot; they do not grant platform-wide discovery or admin access.
 
+## Public Agent API operation history
+
+When the OP manifest advertises `public_agent_operation_history`, use
+`GET /api/bots/{bot_id}/op/history?limit=25` with this bot's OP key. It is read-only;
+the key still has its pre-existing release authority, not a newly restricted read-only scope.
+The endpoint works for stopped bots and never inherits the issuing administrator's private
+role. Personal keys, management JWTs and other bots' OP keys are refused.
+
+Follow `next_cursor` until null, including empty filtered pages. `limit` is 1–100;
+`query` searches only the already projected public fields. Each request scans at most 1 MiB
+and reads are limited to 30/minute. Pace sequential collection at least 2.1 seconds apart;
+respect `Retry-After` on 429. A malformed cursor returns 400; a cursor whose retained file
+has disappeared returns 409: start a new report, do not silently stitch it into a supposedly
+complete time window. The response uses `Cache-Control: no-store` and reports retention and
+coverage. Ten 5 MiB files is a size limit, not a guarantee of a complete date range.
+
+Items include verified actor/platform, UTC timestamp, safe operation word, requested resource
+identifiers/cards, preset task category and observed processing outcome. Available prior
+categories on `usage.update` / `usage.delete` appear as `previous_task_category`; older events
+are not backfilled. Never infer a missing category from private purpose. This OP route never
+returns Agent labels, private purpose, authorization notes, credential identifiers, replies
+or holding proofs, including when a super administrator generated the key.
+
+Coverage is **Agent API operation records only**. It excludes complete group-message,
+OP-release and automatic-expiry lifecycles. HTTP 200 / `dispatched` does not prove a successful
+lock; `applied` describes a declaration update, not hardware use. Booking requests, failed
+requests and retries are distinct requests, not current holdings. Agents sharing the same
+verified actor aggregate under that actor, not `agent_label`.
+
+Use the repository's standard-library-only `scripts/op_history/report.py` for bounded local
+analysis with explicit `--since` / `--until` timezone-aware timestamps. It groups request and
+outcome counts; successful acquisitions, allocated card-hours and measured utilization remain
+unknown. It does not need MPI or a monitoring data source. It prints a local JSON report and
+never sends messages. Publish any summary only to a user-approved destination after reviewing
+the actual report. If the capability or endpoint is absent, report unsupported history;
+never fall back to raw management logs or ask for a broader private credential.
+
 ## Authorized release
 
 First read current holders and confirm the specific user/resource against the authorized

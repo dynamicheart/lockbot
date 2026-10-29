@@ -367,6 +367,13 @@ def put_usage(
                 raise HTTPException(409, detail="A current holding or booking is required")
             now = datetime.utcnow()
             db.query(UsageDeclaration).filter(UsageDeclaration.expires_at <= now).delete(synchronize_session=False)
+            previous = (
+                db.query(UsageDeclaration.task_category)
+                .filter_by(bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id)
+                .first()
+            )
+            if previous:
+                request.state.agent_event["previous_task_category"] = previous[0]
             store_declaration(
                 db,
                 bot_id=bot_id,
@@ -444,6 +451,13 @@ def delete_usage(
         ):
             if not reverify_actor(db, request, actor):
                 raise errors.credential_invalid()
+            previous = (
+                db.query(UsageDeclaration.task_category)
+                .filter_by(bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id)
+                .first()
+            )
+            if previous:
+                request.state.agent_event["previous_task_category"] = previous[0]
             db.query(UsageDeclaration).filter_by(
                 bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id
             ).delete(synchronize_session=False)
