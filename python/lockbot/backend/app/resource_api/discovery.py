@@ -101,6 +101,13 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
     row = service.authenticate_for_any_bot(db, token=_bearer_token(request))
     if row is None:
         raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+    request.state.traffic_bot_id = row.bound_bot_id
+    request.state.traffic_credential = {
+        "id": row.public_id,
+        "kind": "agent",
+        "user": row.external_user_id,
+        "platform": row.platform,
+    }
     allowed, retry = credential_budget.check(row.id, "read")
     if not allowed:
         raise errors.rate_limited(retry)

@@ -1,4 +1,28 @@
 export default {
+  agentHistory: {
+    operations: { command: '执行命令', usage: { update: '更新用途', delete: '删除用途' } },
+
+    resource: '资源',
+    title: 'Agent 历史',
+    search: '搜索用户、操作或可见任务',
+    retention:
+      '操作文件按大小轮转，最多 10 × 5 MiB。每页最多扫描 1 MiB，筛选后空页可能仍有后续记录。旧文件被轮转清理时请刷新。已分派不代表资源操作成功。',
+    error: '历史暂不可用或游标已失效，请刷新重试。',
+    time: '时间',
+    user: '用户',
+    operation: '操作',
+    task: '任务',
+    outcome: '处理结果',
+    previous: '上一页',
+    next: '下一页',
+    outcomes: {
+      uncertain: '结果不确定',
+      dispatched: '已分派',
+      applied: '已应用',
+      rejected: '已拒绝',
+      may_have_executed: '结果不确定',
+    },
+  },
   utilization: {
     availableMemory: '可用内存',
     cacheMemory: '缓冲/缓存',
@@ -92,6 +116,20 @@ export default {
     },
   },
   serviceTraffic: {
+    httpTitle: 'HTTP 流量',
+    businessTitle: '资源操作',
+    businessHelp:
+      '独立于 HTTP 请求，统计进入命令执行的尝试，不含查询、帮助及执行前被拦截的请求。已分派不等于资源申请成功，返回业务拒绝的命令也可能已分派。群消息含长连接来源；重启或范围淘汰后重置。',
+    businessSources: { chat: '群消息', agent: 'Agent API', operator: 'OP API' },
+
+    allBots: '全部有已验证请求的机器人',
+    byCredential: '按凭证',
+    credential: '用户',
+    operator: 'OP API',
+    unattributed: '未归因请求：',
+    scopeHelp:
+      'HTTP 计数在服务重启后清零；未活跃条目淘汰后重新计数。机器人统计包含已鉴权 Agent/OP、已验证运行中群回调和有效资源网页请求及成功的已授权后台请求；失败的后台请求不归因。最多保留最近活跃的 1024 个凭证，展示调用量前 50 名；共享 key 合并计数。无效凭证不归因。Agent 访问页另有持久累计计数。',
+
     title: '服务监控',
     since: '统计开始于',
     unavailable: '暂时无法更新服务监控数据。',
