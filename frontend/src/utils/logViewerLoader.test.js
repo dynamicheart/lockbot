@@ -171,3 +171,22 @@ describe('legacy log request scope', () => {
     expect(f.save.mock.calls[0][0].filename).toBe('bot_1_all_logs.txt')
   })
 })
+
+it('clears private logs and cancels a private download when consent is closed', async () => {
+  const f = fixture()
+  await loaded(f, { ...scope(), includePrivate: true }, [
+    { ...row(1), message: 'fictional-private' },
+  ])
+  const download = f.loader.download()
+  expect(f.pending[1].params.include_private).toBe(true)
+  const publicRead = f.loader.setScope({ ...scope(), includePrivate: false })
+  expect(f.state.logs).toEqual([])
+  expect(f.pending[1].signal.aborted).toBe(true)
+  expect(f.pending[2].params.include_private).toBe(false)
+  f.pending[1].resolve([{ ...row(2), message: 'fictional-private-export' }])
+  await download
+  expect(f.save).not.toHaveBeenCalled()
+  f.pending[2].resolve([row(3)])
+  await publicRead
+  expect(f.state.logs).toEqual([row(3)])
+})

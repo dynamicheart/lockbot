@@ -47,7 +47,7 @@ from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors as api_errors
 from lockbot.backend.app.resource_api.privacy import (
     audit_private_read,
-    can_read_private_tasks,
+    private_task_view,
     public_log_entry,
     visible_declarations,
 )
@@ -1113,6 +1113,7 @@ def get_bot_state(
     bot_id: int,
     response: Response,
     include_usage: bool = False,
+    include_private: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1138,7 +1139,7 @@ def get_bot_state(
             if include_usage:
                 from lockbot.backend.app.resource_api.usage import active_declarations, declarations_for_state
 
-                private = can_read_private_tasks(db, user)
+                private = private_task_view(db, user, include_private)
                 usage = visible_declarations(
                     declarations_for_state(active_declarations(db, bot, datetime.utcnow()), snapshot, captured_at),
                     private=private,
@@ -1550,6 +1551,7 @@ def get_bot_logs(
     level: str | None = None,
     category: str | None = None,
     since: str | None = None,
+    include_private: bool = False,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -1603,7 +1605,7 @@ def get_bot_logs(
     entries.sort(key=lambda e: e.get("created_at", ""), reverse=True)
     offset = (page - 1) * limit
     selected = entries[offset : offset + limit]
-    if can_read_private_tasks(db, user):
+    if private_task_view(db, user, include_private):
         if selected:
             audit_private_read(db, user, bot_id=bot_id, surface="management.logs")
         return selected

@@ -9,7 +9,7 @@ from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bot_audit.models import BotAuditLog
 from lockbot.backend.app.bots.router import _get_user_bot
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.resource_api.privacy import audit_private_read, can_read_private_tasks
+from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 
 router = APIRouter(tags=["bots"])
 
@@ -18,6 +18,7 @@ router = APIRouter(tags=["bots"])
 def bot_audit_logs(
     bot_id: int,
     response: Response,
+    include_private: bool = False,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user),
@@ -32,7 +33,7 @@ def bot_audit_logs(
         .limit(limit)
         .all()
     )
-    private = can_read_private_tasks(db, user)
+    private = private_task_view(db, user, include_private)
     items = [_to_out(row) for row in rows]
     if private and items:
         audit_private_read(db, user, bot_id=bot_id, surface="management.authorization_audit")

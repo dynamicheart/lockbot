@@ -826,7 +826,8 @@ export default {
       '近期检测到 {count} 次登录失败，来自 IP：{ips}。如非本人操作，建议立即修改密码。',
     dispatched: '已分派',
     dispatchedNote: '命令已分派，不代表资源操作成功。请查询资源状态核实。',
-    targetTypes: { bot: '机器人', user: '用户' },
+    privateView: '显示私密任务信息（留审计）',
+    targetTypes: { bot: '机器人', user: '用户', service: '服务' },
     detailFields: {
       resource_auth_enabled: '允许 Agent 访问',
       resource_api_notify_enabled: '群内操作通知',

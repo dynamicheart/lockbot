@@ -28,12 +28,15 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { useHelpers } from '../utils/helpers'
-const props = defineProps({ botId: { type: Number, required: true } })
+const props = defineProps({
+  botId: { type: Number, required: true },
+  includePrivate: { type: Boolean, default: false },
+})
 const { t } = useI18n()
 const { formatDateTime } = useHelpers()
 const items = ref([])
@@ -46,7 +49,7 @@ async function load() {
   loading.value = true
   try {
     const { data } = await api.get(`/bots/${props.botId}/audit-logs`, {
-      params: { page: page.value, limit: 20 },
+      params: { page: page.value, limit: 20, include_private: props.includePrivate },
     })
     if (revision === current) {
       items.value = data.items
@@ -59,13 +62,14 @@ async function load() {
   }
 }
 watch(
-  () => props.botId,
+  [() => props.botId, () => props.includePrivate],
   () => {
     items.value = []
     total.value = 0
     page.value = 1
     load()
   },
-  { immediate: true }
+  { immediate: true, flush: 'sync' }
 )
+onBeforeUnmount(() => revision++)
 </script>
