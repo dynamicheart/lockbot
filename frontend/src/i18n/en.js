@@ -588,7 +588,7 @@ export default {
 
   // === Bot Detail ===
   botDetail: {
-    agentAccess: 'Access statistics',
+    agentAccessStats: 'Access statistics',
     agentOperations: 'Operation history',
     agentAuthorizations: 'Authorization records',
     notesScopeHelp: 'Super administrators only. Temporarily shows detailed Agent notes and original logs for this bot. Reads are audited; switching bots turns this off.',

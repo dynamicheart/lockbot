@@ -567,7 +567,7 @@ export default {
 
   // === Bot Detail ===
   botDetail: {
-    agentAccess: '访问统计',
+    agentAccessStats: '访问统计',
     agentOperations: '操作历史',
     agentAuthorizations: '授权记录',
     notesScopeHelp: '仅超级管理员可开启。临时展示本机器人详情中的 Agent 详细备注及原始日志；每次读取会记录审计，切换机器人后自动关闭。',

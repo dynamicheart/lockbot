@@ -588,7 +588,7 @@
           <el-tab-pane v-if="canEdit" label="Agent" name="agents">
             <template v-if="activityTab === 'agents'">
               <el-radio-group v-model="agentTab" size="small" class="agent-sections">
-                <el-radio-button value="access">{{ $t('botDetail.agentAccess') }}</el-radio-button>
+                <el-radio-button value="access">{{ $t('botDetail.agentAccessStats') }}</el-radio-button>
                 <el-radio-button value="history">{{
                   $t('botDetail.agentOperations')
                 }}</el-radio-button>
