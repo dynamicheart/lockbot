@@ -55,7 +55,10 @@ class FeishuClient:
     """One client per enterprise app; serialize token refresh without retrying sends."""
 
     def __init__(self, app_id, app_secret):
+        from lockbot.core.platforms.feishu_proxy import http_options
+
         self.app_id = app_id
+        self._http_options = http_options()
         self._secret = app_secret
         self._token = ""
         self._expires = 0.0
@@ -76,6 +79,7 @@ class FeishuClient:
                     json={"app_id": self.app_id, "app_secret": self._secret},
                     timeout=(3, 8),
                     allow_redirects=False,
+                    **self._http_options,
                 )
                 data = response.json()
                 if response.status_code != 200 or data.get("code") != 0:
@@ -98,6 +102,7 @@ class FeishuClient:
                 headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 8),
                 allow_redirects=False,
+                **self._http_options,
             )
             data = response.json()
             if response.status_code != 200 or data.get("code") != 0:
@@ -115,6 +120,7 @@ class FeishuClient:
                 headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 8),
                 allow_redirects=False,
+                **self._http_options,
             )
             data = response.json()
             open_id = data.get("bot", {}).get("open_id", "")
@@ -139,6 +145,7 @@ class FeishuClient:
                 headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 5),
                 allow_redirects=False,
+                **self._http_options,
             )
             data = response.json()
             candidate = data.get("data", {}).get("name")
@@ -175,6 +182,7 @@ class FeishuClient:
                 headers={"Authorization": "Bearer " + self.token()},
                 timeout=(3, 5),
                 allow_redirects=False,
+                **self._http_options,
             )
             data = response.json()
             candidate = data.get("data", {}).get("user", {}).get("name")

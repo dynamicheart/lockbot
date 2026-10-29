@@ -69,7 +69,11 @@ class Connector:
                         break
                     if len(line) > 256 * 1024 or not line.endswith(b"\n"):
                         raise ValueError("Invalid connector frame")
-                    data = json.loads(line)["event"]
+                    frame = json.loads(line)
+                    if frame == {"status": "connected"}:
+                        logger.info("Feishu application %s WebSocket handshake completed", self.application_id)
+                        continue
+                    data = frame["event"]
                     ack = False
                     try:
                         from lockbot.backend.app.feishu.service import accept_sdk_event

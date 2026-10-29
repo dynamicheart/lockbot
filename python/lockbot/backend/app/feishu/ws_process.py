@@ -15,6 +15,15 @@ def main():
     config = json.loads(sys.stdin.buffer.readline(8192))
     # Import only after redirecting SDK output away from the framed event channel.
     import lark_oapi as lark
+    import lark_oapi.ws.client as sdk_module
+
+    from lockbot.backend.app.feishu.ws_proxy import configure_sdk_proxy
+
+    def connected():
+        channel.write(json.dumps({"status": "connected"}) + "\n")
+        channel.flush()
+
+    configure_sdk_proxy(sdk_module, connected=connected)
 
     def received(data):
         encoded = lark.JSON.marshal(data)

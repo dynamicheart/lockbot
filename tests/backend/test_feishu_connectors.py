@@ -12,7 +12,12 @@ def test_sdk_pipe_acknowledges_only_after_event_acceptance(monkeypatch):
     order = []
 
     class Output:
+        ready = False
+
         def readline(self, limit):
+            if not self.ready:
+                self.ready = True
+                return b'{"status":"connected"}\n'
             return (json.dumps({"event": event}) + "\n").encode()
 
         def close(self):
