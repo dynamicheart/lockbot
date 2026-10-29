@@ -200,3 +200,10 @@ Prepare a redacted report for [Lockbot GitHub Issues](https://github.com/dynamic
 version, endpoint, status/error code, expected and actual behavior. Remove credentials, bind
 codes, webhook secrets and private task data. Do not publish logs or file issues without
 user authorization.
+
+
+## Detailed Agent notes require a separate audit grant
+
+An ordinary OP key never authorizes other users' Agent names or detailed task notes. If an approved audit consumer needs these fields, ask a current super administrator to issue a separate, expiring `task_notes:read` credential through `POST /api/admin/audit-credentials` with explicit bot IDs. Management, rotation and revocation require that administrator's management session. The secret is shown once; keep it in a separate secret store and send it only in the Authorization header, never a URL. Do not substitute a personal key, OP key or management JWT for this audit credential.
+
+The dedicated routes are `GET /api/audit/bots/{bot_id}/agent-history` and `GET /api/audit/bots/{bot_id}/task-notes`. They return bounded notes, not complete resource-use totals. Refer to the repository's `docs/design/delegated-task-notes.md` and the server's `/openapi.json` (Audit delegation tag) for the versioned contract and permission boundaries. Existing Agent/OP Skill version checks do not grant or renew audit authority.

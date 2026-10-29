@@ -17,6 +17,7 @@ BACKUPS = 9
 _write_lock = threading.Lock()
 _secrets = re.compile(
     r"/#/r/[0-9]+/[A-Za-z0-9_-]{22}|(?:lbr_|lbk_)[A-Za-z0-9_-]+|lbv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"|lba1\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}"
     r"|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|(?i:Bearer\s+\S+)"
 )
@@ -192,7 +193,7 @@ READ_BUDGET = 1024 * 1024
 MAX_LINE_BYTES = 64 * 1024
 
 
-def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stream="agent"):
+def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stream="agent", project=None):
     """Newest first, inode/offset cursor: appends do not shift subsequent pages.
 
     A rotated-away cursor fails explicitly rather than silently skipping history. File
@@ -332,6 +333,8 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False, stre
                                     row[field] = public[field]
                         else:
                             row = public
+                    if project is not None:
+                        row = project(row)
                     if needle and needle not in json.dumps(row, ensure_ascii=False).casefold():
                         continue
                     row["id"] = f"{inode}:{position}"
