@@ -220,7 +220,14 @@ The manifest separates `server_version`, stable `api_version`, and the opaque co
 skill `version` (plus full `skill_sha256`). Compare skill revisions for **equality**, not as
 ordered semantic versions. Check the manifest at task start and after reconnecting. Personal
 API responses also include `X-Lockbot-Service-ID`, `X-Lockbot-API-Version`,
-`X-Lockbot-Server-Version`, and `X-Lockbot-Skill-Version`.
+`X-Lockbot-Server-Version`, and `X-Lockbot-Skill-Version`. Check these on **every API response,
+including errors**, not only context. Also send `X-Lockbot-Client-API-Version: 1`.
+`X-Lockbot-Skill-Update` is `unknown`, `current` or `update_available`;
+`X-Lockbot-API-Compatibility` is `unknown`, `current` or `incompatible`.
+`X-Lockbot-Skill-URL` is the same-origin update path. A mismatch must cause a manifest check,
+verified Skill download and reload before the next mutation; incompatible API versions must
+pause mutations. Never replay a completed command merely because its response announces an
+update. Propagate the actually loaded revisions and this check to delegated/background clients.
 
 If the skill revision changes, re-fetch the manifest and this skill from the same trusted
 origin before the next resource mutation. Use a cache-busting `?version=<revision>` or a
