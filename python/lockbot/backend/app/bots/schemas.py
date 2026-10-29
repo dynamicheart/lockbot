@@ -174,11 +174,17 @@ class BotOut(BaseModel):
         return self
 
 
+class BotApplicationSummary(BaseModel):
+    id: int
+    name: str
+
+
 class BotDetail(BotOut):
     """Detail view with sensitive fields (both masked and raw for show/copy)."""
 
     owner: str = ""
     owner_role: str = ""
+    feishu_application: BotApplicationSummary | None = None
     webhook_url_raw: str = ""
     aes_key_raw: str = ""
     token_raw: str = ""

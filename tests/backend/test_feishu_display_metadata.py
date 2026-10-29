@@ -60,6 +60,7 @@ def test_detail_and_logs_expose_only_cached_display_metadata_without_changing_or
     assert detail.status_code == 200, detail.text
     assert detail.json()["last_user_id"] == "ou_alice"
     assert detail.json()["last_user_display_name"] == "Example name"
+    assert detail.json()["feishu_application"] == {"id": app.id, "name": "fixture"}
     logs = client.get(f"/api/bots/{bot.id}/logs", headers=auth_header)
     assert logs.status_code == 200
     command = next(row for row in logs.json() if row["category"] == "command")

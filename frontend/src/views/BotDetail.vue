@@ -214,7 +214,18 @@
             </el-descriptions-item>
           </template>
           <el-descriptions-item v-else :label="$t('feishu.application')" :span="2">
-            {{ $t('feishu.applicationManaged') }}
+            <span>{{ bot.feishu_application?.name || '—' }}</span>
+            <el-tooltip :content="$t('feishu.applicationManaged')" placement="top">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+            <el-button
+              v-if="authStore.isSuperAdmin"
+              link
+              type="primary"
+              size="small"
+              @click="$router.push('/admin/settings')"
+              >{{ $t('feishu.manageApplications') }}</el-button
+            >
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.createdAt')">{{
             formatDate(bot.created_at)
@@ -588,7 +599,9 @@
           <el-tab-pane v-if="canEdit" label="Agent" name="agents">
             <template v-if="activityTab === 'agents'">
               <el-radio-group v-model="agentTab" size="small" class="agent-sections">
-                <el-radio-button value="access">{{ $t('botDetail.agentAccessStats') }}</el-radio-button>
+                <el-radio-button value="access">{{
+                  $t('botDetail.agentAccessStats')
+                }}</el-radio-button>
                 <el-radio-button value="history">{{
                   $t('botDetail.agentOperations')
                 }}</el-radio-button>

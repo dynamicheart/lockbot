@@ -1,5 +1,6 @@
 export default {
   feishu: {
+    manageApplications: '管理应用',
     receiverStatus: '接收状态',
     refreshReceiver: '刷新状态',
     noHandshake: '暂无',

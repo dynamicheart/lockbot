@@ -143,8 +143,12 @@ def _mask_bot(bot: Bot, db: Session | None = None) -> dict:
         data["owner"] = owner.username if owner else ""
         data["owner_role"] = owner.role if owner else ""
     if db and str(bot.platform).lower() == "feishu":
+        from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
         from lockbot.backend.app.feishu.service import cached_bot_client
 
+        route = db.query(FeishuGroupRoute).filter_by(bot_id=bot.id, chat_id=bot.group_id).first()
+        app = db.get(FeishuApplication, route.application_id) if route else None
+        data["feishu_application"] = {"id": app.id, "name": app.name} if app else None
         client = cached_bot_client(bot, db)
         if client:
             data["last_user_display_name"] = client.cached_user_name(bot.last_user_id)
