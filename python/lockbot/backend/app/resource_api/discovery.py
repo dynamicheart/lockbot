@@ -82,6 +82,8 @@ class AgentContextResponse(BaseModel):
     agent_access_enabled: bool
     credential_scope: Literal["one_user_one_bot"]
     utilization: dict[str, Any] | None = None
+    usage_privacy: dict[str, Any]
+    skill_update: dict[str, Any]
     links: dict[str, str]
     skill: dict[str, Any]
     view_url: str | None = None
@@ -118,7 +120,8 @@ def _context_payload(request, response, db, row):
     # Refresh even if another request retained this ORM identity in a reused Session.
     db.refresh(bot)
     from lockbot.backend.app.bots.datasource import public_datasource
-    from lockbot.backend.app.resource_api.skill import skill_artifacts
+    from lockbot.backend.app.resource_api.skill import client_skill_notice, skill_artifacts
+    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
     from lockbot.backend.app.resource_api.view_links import view_link
 
     response.headers["Cache-Control"] = "no-store"
@@ -138,6 +141,12 @@ def _context_payload(request, response, db, row):
         }
         if public_datasource(bot)
         else None,
+        "usage_privacy": {
+            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id"],
+            "private_readers": ["owner", "bot_administrator", "authorized_operator"],
+            "public_task_categories": TASK_CATEGORIES,
+            "legacy_purpose_visibility": "private",
+        },
         "links": {
             "resources": f"/api/bots/{bot.id}/resources",
             "commands": f"/api/bots/{bot.id}/commands",
@@ -145,5 +154,6 @@ def _context_payload(request, response, db, row):
             "skill_manifest": "/api/agent-skill",
         },
         "skill": skill_artifacts()[2],
+        "skill_update": client_skill_notice(request),
         **view,
     }

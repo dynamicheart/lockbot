@@ -225,6 +225,7 @@ const visibleResources = computed(() =>
         user.external_user_id || user.user_id,
         task(row, user)?.agent_label,
         task(row, user)?.purpose,
+        task(row, user)?.public_task,
       ]),
     ]
       .filter(Boolean)

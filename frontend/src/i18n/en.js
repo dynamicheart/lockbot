@@ -471,7 +471,7 @@ export default {
     agentGroup: 'Agent',
     agentNotify: 'Group operation notifications',
     agentNotifyHelp:
-      'Announce Agent resource commands in the group. Queue-turn and expiry alerts are unaffected.',
+      'Announce resource commands and preset task categories. Notes and Agent names are private to the owner, administrators and authorized OP; operational logs may retain them. Queue and expiry reminders remain enabled.',
     agentAccess: 'Allow Agent access',
     agentAccessHelp:
       'Allow resource API calls after in-chat authorization. Disabling suspends access and retains authorizations. OP API Key is unaffected.',

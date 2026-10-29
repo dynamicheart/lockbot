@@ -80,7 +80,15 @@ def should_notify(command_word: str) -> bool:
 
 
 def notify_group(
-    bot, *, bot_id: int, command: str, actor_id: str, command_word: str, agent_label=None, purpose=None
+    bot,
+    *,
+    bot_id: int,
+    command: str,
+    actor_id: str,
+    command_word: str,
+    agent_label=None,
+    purpose=None,
+    task_category=None,
 ) -> bool:
     """Announce an API-originated mutation. Returns whether a message was sent.
 
@@ -96,10 +104,12 @@ def notify_group(
     key = "notify.api_alias" if canonical_command(command_word) == "alias" else "notify.api_mutation"
     try:
         text = t(key, config=config, actor=actor_id, command=command).rstrip()
-        if agent_label and agent_label.strip():
-            text += t("notify.api_agent_label", config=config, label=agent_label.strip())
-        if purpose and purpose.strip():
-            text += t("notify.api_purpose", config=config, purpose=purpose.strip())
+        from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
+
+        # Never publish legacy free-form notes or Agent names, including on free/alias.
+        public_task = TASK_CATEGORIES.get(task_category)
+        if public_task:
+            text += t("notify.api_task_category", config=config, category=public_task)
         text = text.rstrip() + "\n\n"
         # Built here, then sent with no conversation id so it reaches the bot's configured
         # webhook target. The bot's state lock is already released by this point.

@@ -116,6 +116,9 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
             for declaration in declarations:
                 declaration.pop("binding_id", None)
                 declaration.pop("authorization_label", None)
+            from lockbot.backend.app.resource_api.usage import visible_declarations
+
+            declarations = visible_declarations(declarations)
             attach_declarations(resources, declarations)
             _display_details(resources, state, lease.bot.config.get_val("NODE_ALIASES", {}))
             # Re-check expiry after assembling the payload; cached state is never cached authorization.
