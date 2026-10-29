@@ -24,7 +24,7 @@
   </div>
 </template>
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { CopyDocument } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { useHelpers } from '../utils/helpers'
@@ -37,6 +37,7 @@ const { copyText } = useHelpers()
 const group = ref({})
 const loading = ref(false)
 let generation = 0
+let controller = null
 const lookupPath = computed(() => {
   if (props.botId) return `/feishu/bots/${props.botId}/group`
   return props.applicationId && /^oc_[A-Za-z0-9_]+$/.test(props.chatId)
@@ -46,26 +47,42 @@ const lookupPath = computed(() => {
 async function load(refresh = false) {
   if (!lookupPath.value || loading.value) return
   const run = generation
+  const pending = new AbortController()
+  controller = pending
   loading.value = true
   try {
-    const { data } = await api.get(lookupPath.value, { params: { refresh }, _silent: true })
+    const { data } = await api.get(lookupPath.value, {
+      params: { refresh },
+      signal: pending.signal,
+      _silent: true,
+    })
     if (run === generation) group.value = data
   } catch {
     if (run === generation) group.value = { ...group.value, status: 'unavailable' }
   } finally {
-    if (run === generation) loading.value = false
+    if (run === generation) {
+      loading.value = false
+      controller = null
+    }
   }
 }
 watch(
   () => [props.botId, props.applicationId, props.chatId],
   () => {
     generation++
+    controller?.abort()
+    controller = null
     group.value = {}
     loading.value = false
     if (props.botId) load()
   },
-  { immediate: true }
+  { immediate: true, flush: 'sync' }
 )
+onBeforeUnmount(() => {
+  generation++
+  controller?.abort()
+  controller = null
+})
 </script>
 <style scoped>
 .feishu-group-info {
