@@ -21,9 +21,9 @@ Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/
 | [#33](https://github.com/dynamicheart/lockbot/issues/33) | Additional isolated-source trust/client connectivity rollout; the bastion/VPN experiment remains user-deferred |
 | [#54](https://github.com/dynamicheart/lockbot/issues/54) | Durable lifecycle audit API contract and explicit coverage |
 | [#56](https://github.com/dynamicheart/lockbot/issues/56) | Separately delegated super-administrator detailed-note credentials |
-| [#62](https://github.com/dynamicheart/lockbot/issues/62) | Optional Feishu in-place queue panels; default off, capability failure keeps normal replies |
-| [#63](https://github.com/dynamicheart/lockbot/issues/63) | Optional Feishu bot membership onboarding/removal notices; trusted event routing, default off |
-| [#64](https://github.com/dynamicheart/lockbot/issues/64) | Optional Feishu success reactions; committed-result evidence, fallback text, and unchanged Infoflow/legacy formatting |
+| [#63](https://github.com/dynamicheart/lockbot/issues/63) | Optional Feishu membership onboarding/removal notices; default off, isolated implementation/tests in progress, permission approval and real-group acceptance pending |
+| [#62](https://github.com/dynamicheart/lockbot/issues/62) | Optional Feishu in-place queue panels; default off, permission failure retains normal replies; implementation in a separate PR |
+| [#64](https://github.com/dynamicheart/lockbot/issues/64) | Optional Feishu success reactions in PR #68; default off, committed-result evidence and unchanged Infoflow/legacy messages; real rendering acceptance pending |
 | [#57](https://github.com/dynamicheart/lockbot/issues/57) | Versioned messaging credentials and an additive legacy-compatible migration |
 
 <details>

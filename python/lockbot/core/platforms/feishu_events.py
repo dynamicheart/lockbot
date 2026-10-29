@@ -25,6 +25,53 @@ class FeishuIdentity:
     encrypt_key: str = ""
 
 
+MEMBERSHIP_EVENTS = {
+    "im.chat.member.bot.added_v1": "present",
+    "im.chat.member.bot.deleted_v1": "removed",
+}
+
+
+def normalize_membership(data, identity: FeishuIdentity):
+    """Only consume a verified app-recipient event, never an arbitrary bot/user join.
+
+    Official bot-membership events describe the receiving application's bot and
+    contain no separate added-bot ID. Trust comes from HTTP verification or the
+    private official-SDK channel plus the exact app/tenant header match.
+    """
+    try:
+        header = data["header"]
+        if header.get("event_type") not in MEMBERSHIP_EVENTS:
+            return None
+        if (
+            not identity.tenant_key
+            or header.get("app_id") != identity.app_id
+            or header.get("tenant_key") != identity.tenant_key
+        ):
+            raise ValueError()
+        event = data["event"]
+        if event.get("external") is not False:
+            return None  # External groups are outside this internal-tenant feature.
+        operator_tenant = event.get("operator_tenant_key")
+        if operator_tenant and operator_tenant != identity.tenant_key:
+            raise ValueError()
+        chat_id, event_id = event["chat_id"], header["event_id"]
+        if not isinstance(chat_id, str) or not re.fullmatch(r"oc_[A-Za-z0-9_-]{1,125}", chat_id):
+            raise ValueError()
+        if not isinstance(event_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", event_id):
+            raise ValueError()
+        timestamp = int(header["create_time"])
+        if abs(time.time() - timestamp / 1000) > 600:
+            raise ValueError()
+        return {
+            "group_id": chat_id,
+            "event_id": event_id,
+            "event_time_ms": timestamp,
+            "status": MEMBERSHIP_EVENTS[header["event_type"]],
+        }
+    except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        raise InvalidFeishuEvent("Invalid bot membership event") from None
+
+
 def verify_http(body: bytes, headers, identity: FeishuIdentity, *, now=None):
     """Fail closed; an encrypted application never accepts a plaintext downgrade.
 

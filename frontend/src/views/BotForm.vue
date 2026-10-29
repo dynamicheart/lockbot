@@ -117,6 +117,18 @@
               :chat-id="form.group_id"
             />
           </el-form-item>
+          <el-form-item>
+            <template #label>
+              {{ $t('feishu.membershipNotices') }}
+              <el-tooltip :content="$t('feishu.membershipNoticesHelp')" placement="top">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <el-switch
+              v-model="advancedConfig.FEISHU_MEMBERSHIP_NOTICES"
+              :aria-label="$t('feishu.membershipNotices')"
+            />
+          </el-form-item>
         </template>
         <!-- Credentials -->
         <div v-if="form.platform.toLowerCase() !== 'feishu'" class="platform-fields">
@@ -630,6 +642,7 @@ const advancedConfig = reactive({
   MAX_RESOURCES_PER_USER: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
+  FEISHU_MEMBERSHIP_NOTICES: false,
   FEISHU_REACTION_REPLIES: false,
   LANGUAGE: 'zh',
   DURATION_WHITELIST: [],
@@ -721,6 +734,8 @@ onMounted(async () => {
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
         advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK ?? false
         advancedConfig.MAX_RESOURCES_PER_USER = overrides.MAX_RESOURCES_PER_USER ?? -1
+        if (overrides.FEISHU_MEMBERSHIP_NOTICES === true)
+          advancedConfig.FEISHU_MEMBERSHIP_NOTICES = true
         if (overrides.FEISHU_REACTION_REPLIES === true) advancedConfig.FEISHU_REACTION_REPLIES = true
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
@@ -774,6 +789,7 @@ function configPayload() {
   if (form.aes_key) data.aes_key = form.aes_key
   if (form.token) data.token = form.token
   const overrides = { ...advancedConfig }
+  if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_MEMBERSHIP_NOTICES
   if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_REACTION_REPLIES
   if (overrides.NODE_ALIASES && Object.keys(overrides.NODE_ALIASES).length === 0)
     delete overrides.NODE_ALIASES

@@ -42,6 +42,7 @@ class ApplicationCreate(BaseModel):
     verification_token: SecretStr = SecretStr("")
     encrypt_key: SecretStr = SecretStr("")
     transport: Literal["http", "websocket"] = "websocket"
+    unbound_greeting_enabled: bool = False
 
     @field_validator("app_secret")
     @classmethod
@@ -70,6 +71,7 @@ class ApplicationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=128)
     app_secret: SecretStr | None = None
+    unbound_greeting_enabled: bool | None = None
 
     @field_validator("app_secret")
     @classmethod
@@ -190,6 +192,10 @@ def update_application(
         ):
             refresh_current()
             app.name = body.name
+            if body.unbound_greeting_enabled is not None:
+                from lockbot.backend.app.feishu.membership import set_greeting_policy
+
+                set_greeting_policy(db, app.id, body.unbound_greeting_enabled)
             if secret is not None:
                 app.app_secret = encryption.encrypt(secret)
             _application_audit(db, user, request, app, "feishu.update_application")
@@ -258,6 +264,14 @@ def delete_application(
             _application_audit(db, user, request, app, "feishu.delete_application")
             db.query(FeishuReceivedMessage).filter_by(application_id=application_id).delete()
             app_id = app.app_id
+            from lockbot.backend.app.feishu.models import (
+                FeishuGroupMembership,
+                FeishuMembershipEvent,
+                FeishuMembershipPolicy,
+            )
+
+            for model in (FeishuGroupMembership, FeishuMembershipEvent, FeishuMembershipPolicy):
+                db.query(model).filter_by(application_id=app.id).delete()
             db.delete(app)
             db.commit()
             invalidate_application_clients(app_id)
@@ -270,6 +284,7 @@ def delete_application(
 @router.get("/applications")
 def applications(response: Response, user: User = Depends(require_super_admin), db: Session = Depends(get_db)):
     from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.membership import greeting_enabled
 
     response.headers["Cache-Control"] = "no-store"
     return [
@@ -278,6 +293,7 @@ def applications(response: Response, user: User = Depends(require_super_admin), 
             "name": row.name,
             "app_id": row.app_id,
             "transport": row.transport,
+            "unbound_greeting_enabled": greeting_enabled(db, row.id),
             "receiver": connectors.snapshot(row.id) if row.transport == "websocket" else None,
         }
         for row in db.query(FeishuApplication).order_by(FeishuApplication.id).all()
@@ -308,6 +324,10 @@ def create_application(
     db.add(row)
     try:
         db.flush()
+        if body.unbound_greeting_enabled:
+            from lockbot.backend.app.feishu.membership import set_greeting_policy
+
+            set_greeting_policy(db, row.id, True)
         write_audit_log(
             db,
             user,
@@ -366,7 +386,13 @@ def bot_group_info(
     app = db.get(FeishuApplication, route.application_id)
     if app is None:
         raise HTTPException(404, "Feishu application not found")
-    return {"chat_id": route.chat_id, **application_client(app).group_name(route.chat_id, refresh)}
+    from lockbot.backend.app.feishu.membership import membership_status
+
+    result = {"chat_id": route.chat_id, **application_client(app).group_name(route.chat_id, refresh)}
+    observation = membership_status(db, app, bot, route.chat_id)
+    if observation is not None:
+        result["membership"] = observation
+    return result
 
 
 @router.get("/applications/{application_id}/groups/{chat_id}")
@@ -467,6 +493,12 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
 
 
 def accept_event(db, app, data):
+    from lockbot.core.platforms.feishu_events import MEMBERSHIP_EVENTS
+
+    if data.get("header", {}).get("event_type") in MEMBERSHIP_EVENTS:
+        from lockbot.backend.app.feishu.membership import accept_membership
+
+        return accept_membership(db, app, data)
     message = normalize_message(data, application_identity(app))
     if message is None:
         return {"accepted": False}
