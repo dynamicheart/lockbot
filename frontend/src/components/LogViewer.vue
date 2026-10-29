@@ -249,8 +249,9 @@ onUnmounted(() => {
 
 <style scoped>
 .log-privacy-note {
-  color: var(--lb-text-secondary);
+  color: var(--el-text-color-secondary);
   font-size: 12px;
+  margin: 0 0 12px;
 }
 .log-header {
   display: flex;
