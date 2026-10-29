@@ -42,8 +42,19 @@ def valid_state(state):
     for field in ("allocations", "bookings"):
         if not isinstance(state[field], list) or len(state[field]) > 2048:
             return False
+        expected = {"ref", "resource", "actor", "unit", "mode", "start", "deadline", "origin"}
+        if field == "bookings":
+            expected.add("notified")
         for item in state[field]:
-            if not isinstance(item, dict) or not re.fullmatch(r"[a-f0-9]{64}", str(item.get("ref", ""))):
+            if (
+                not isinstance(item, dict)
+                or set(item) != expected
+                or not isinstance(item.get("ref"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", item["ref"])
+                or not isinstance(item.get("origin"), str)
+                or item["origin"] not in {"chat", "api", "service_key", "unknown"}
+                or (field == "bookings" and type(item.get("notified")) is not bool)
+            ):
                 return False
             actor = item.get("actor")
             if (
@@ -83,6 +94,8 @@ def analyze(frames, since, until, checkpoint=None):
                 or frame["schema_version"] != 1
                 or type(frame.get("bot_id")) is not int
                 or frame["bot_id"] <= 0
+                or not isinstance(frame.get("session"), str)
+                or not re.fullmatch(r"[a-f0-9]{32}", frame["session"])
                 or type(frame["sequence"]) is not int
                 or frame["sequence"] < 1
                 or not number(frame["timestamp"])
@@ -108,24 +121,48 @@ def analyze(frames, since, until, checkpoint=None):
             malformed += 1
     runs = [sorted(items.values(), key=lambda f: f["sequence"]) for items in sessions.values() if items]
     runs.sort(key=lambda run: run[0]["timestamp"])
-    if checkpoint and checkpoint.get("consistent"):
-        for run in runs:
-            last = run[-1]
-            if (
-                checkpoint.get("session") == last["session"]
-                and checkpoint.get("sequence") == last["sequence"]
-                and checkpoint.get("after_digest") == last["after_digest"]
-                and checkpoint.get("timestamp", 0) >= last["timestamp"]
-            ):
-                run.append(
-                    {
-                        **last,
-                        "sequence": last["sequence"] + 1,
-                        "timestamp": checkpoint["timestamp"],
-                        "before_digest": last["after_digest"],
-                        "boundary": None,
-                    }
-                )
+    if checkpoint is not None:
+        valid_checkpoint = (
+            isinstance(checkpoint, dict)
+            and checkpoint.get("consistent") is True
+            and checkpoint.get("integrity_boundary") is None
+            and isinstance(checkpoint.get("session"), str)
+            and bool(re.fullmatch(r"[a-f0-9]{32}", checkpoint["session"]))
+            and type(checkpoint.get("sequence")) is int
+            and checkpoint["sequence"] >= 1
+            and number(checkpoint.get("timestamp"))
+            and isinstance(checkpoint.get("after_digest"), str)
+            and bool(re.fullmatch(r"[a-f0-9]{64}", checkpoint["after_digest"]))
+            and valid_state(checkpoint.get("state"))
+            and checkpoint["state"]["complete"] is True
+            and digest(checkpoint["state"]) == checkpoint["after_digest"]
+        )
+        matched = False
+        if valid_checkpoint:
+            for run in runs:
+                last = run[-1]
+                if (
+                    checkpoint["session"] == last["session"]
+                    and checkpoint["sequence"] == last["sequence"]
+                    and checkpoint["after_digest"] == last["after_digest"]
+                    and checkpoint["state"] == last["state"]
+                    and checkpoint["timestamp"] >= last["timestamp"]
+                ):
+                    matched = True
+                    run.append(
+                        {
+                            **last,
+                            "sequence": last["sequence"] + 1,
+                            "timestamp": checkpoint["timestamp"],
+                            "before_digest": last["after_digest"],
+                            "boundary": None,
+                        }
+                    )
+        # An explicitly inconsistent live checkpoint cannot seal a tail. Malformed or
+        # falsely matching evidence also invalidates the report, even for an older window.
+        explicitly_inconsistent = isinstance(checkpoint, dict) and checkpoint.get("consistent") is False
+        if not matched and not explicitly_inconsistent:
+            malformed += 1
     segments, gaps, covered = [], [], []
     if len(runs) > 1:
         for earlier, later in zip(runs, runs[1:], strict=False):
@@ -263,7 +300,7 @@ def main(argv=None):
                 continue
             if isinstance(value, dict) and isinstance(value.get("items"), list):
                 frames.extend(value["items"])
-                if value.get("checkpoint"):
+                if "checkpoint" in value and value["checkpoint"] is not None:
                     checkpoint = value["checkpoint"]
             else:
                 frames.append(value)

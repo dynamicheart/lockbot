@@ -311,3 +311,74 @@ def test_entry_bound_and_malformed_report_cannot_claim_complete_coverage(tmp_pat
     result = report.analyze(frames() + [None, {"state": {"purpose": "private-value"}}], 1000, 1001)
     assert result["verified_allocated_seconds"] is None and result["malformed_records"] == 2
     assert "private-value" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("timestamp", float("inf")),
+        ("timestamp", float("nan")),
+        ("timestamp", True),
+        ("timestamp", "1010"),
+        ("timestamp", []),
+        ("timestamp", 253402300800),
+        ("consistent", "true"),
+        ("consistent", 1),
+        ("sequence", True),
+        ("sequence", "1"),
+        ("session", "not-a-session"),
+        ("after_digest", "wrong-digest"),
+        ("state", []),
+        ("state", {"allocations": [], "bookings": [], "complete": False}),
+    ],
+)
+def test_invalid_checkpoint_never_seals_evidence(tmp_path, clock, field, value, capsys):
+    import copy
+
+    bot, journal, _target = make_bot(tmp_path, clock)
+    clock[0] = 1010
+    checkpoint = copy.deepcopy(journal.checkpoint(bot.state.bot_state))
+    checkpoint[field] = value
+    result = report.analyze(frames(), 1000, 1010, checkpoint)
+    assert not result["coverage_complete"] and result["verified_allocated_seconds"] is None
+    assert result["malformed_records"] == 1 and result["unknown_gaps"]
+    exported = tmp_path / "malformed-checkpoint.jsonl"
+    exported.write_text(json.dumps({"items": frames(), "checkpoint": checkpoint}) + "\n")
+    assert (
+        report.main(["--input", str(exported), "--since", "1970-01-01T00:16:40Z", "--until", "1970-01-01T00:16:50Z"])
+        is None
+    )
+    output = capsys.readouterr()
+    assert "Traceback" not in output.err
+    assert json.loads(output.out)["verified_allocated_seconds"] is None
+
+
+def test_non_object_checkpoint_and_invalid_session_are_malformed(tmp_path, clock, capsys):
+    import copy
+
+    bot, journal, _target = make_bot(tmp_path, clock)
+    clock[0] = 1010
+    valid = journal.checkpoint(bot.state.bot_state)
+    assert report.analyze(frames(), 1000, 1010, valid)["coverage_complete"]
+    for checkpoint in (["malformed"], [], {}, True, "malformed"):
+        result = report.analyze(frames(), 1000, 1010, checkpoint)
+        assert not result["coverage_complete"] and result["malformed_records"] == 1
+    wrong = copy.deepcopy(valid)
+    wrong["state"]["allocations"] = [{"private": "never-output"}]
+    result = report.analyze(frames(), 1000, 1010, wrong)
+    assert result["malformed_records"] == 1 and "never-output" not in json.dumps(result)
+    for session in ("invalid", None, True, [], "a" * 31, "g" * 32):
+        raw = frames()[0]
+        raw["session"] = session
+        assert report.analyze([raw], 1000, 1010)["malformed_records"] == 1
+    raw = frames()[0]
+    raw["state"]["private"] = {"purpose": "never-output"}
+    assert report.analyze([raw], 1000, 1010)["malformed_records"] == 1
+    exported = tmp_path / "non-object-checkpoint.jsonl"
+    exported.write_text(json.dumps({"items": frames(), "checkpoint": ["malformed"]}) + "\n")
+    assert (
+        report.main(["--input", str(exported), "--since", "1970-01-01T00:16:40Z", "--until", "1970-01-01T00:16:50Z"])
+        is None
+    )
+    output = capsys.readouterr()
+    assert "Traceback" not in output.err and not json.loads(output.out)["coverage_complete"]
