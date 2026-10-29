@@ -5,6 +5,8 @@ export default {
     membershipNotices: 'Warn when the bot leaves its group',
     membershipNoticesHelp: 'Off by default. Requires bot membership events. Show removal observations in this bot’s admin page without deleting resources or messaging other groups.',
     membershipRemoved: 'A bot-removal event was received. Confirm the bot is still in the group and add it back if needed.',
+    reactionReplies: 'React to successful commands',
+    reactionRepliesHelp: 'Feishu only, off by default. Requires message reaction permission. Completed operations use a reaction; queries, queues, reminders and errors keep their original messages. Permission failures fall back to the original reply.',
 
     editApplication: 'Edit application',
     receiverRestartAfterUpdate:
