@@ -18,7 +18,7 @@ For user-authorized deployment or messaging-platform setup, also read [Agent adm
 
 ## Pull requests
 
-- Continue targeting `release/2.x` until the 3.0.0 development and acceptance work is complete. Then align `main` to that exact accepted commit and make it the default branch; subsequent development targets `main`. Preserve the previous `main` history in an archive branch before alignment, and do not rename `release/2.x` as part of this transition.
+- Target `main` for new development. The 3.0.0 transition is complete: `main` is the default branch, and previous main history is preserved in `archive/main-before-v3-20261029`. Keep `release/2.x` as a historical branch; do not revive or rename it for new feature work.
 - Use a Conventional Commit style title suitable for the final squash commit.
 - Describe the concrete problem and resulting behavior, followed by relevant validation.
 - Scale the description to the change. Small changes need only a few sentences; larger changes should explain material compatibility, migration, or rollout considerations.

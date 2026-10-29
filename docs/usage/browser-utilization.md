@@ -115,7 +115,7 @@ CORS 不是权限控制。浏览器中的节点过滤只是节省查询，不是
 
 借鉴 Grafana 的“数据源实例 + 配置编辑 + query/testDatasource + 独立渲染”分层，仅在 Lockbot 保存 bot 级非敏感配置，不移植 Grafana 的后端代理、共享凭证存储和完整插件加载系统。适配器返回内部 `schema_version: 1` 的逐卡快照；不要求上游部署 Lockbot 专用 API 或 Lockbot 命名的指标。
 
-第一版只有浏览器 Prometheus 适配器。本地 fake provider 已用于浏览器测试；用户实际指标服务尚未指定，不能据此宣称真实集群、企业浏览器策略和真实上游鉴权已完成联调。
+当前提供 Prometheus 适配器及独立部署的采集器、Prometheus 和只读查询网关，已有真实 XPU 集群的逐卡、主机内存及短期授权联调记录；fake provider 用于可重复的界面测试。每个客户端的网络、CORS 和数据源授权仍须单独验证。更广泛的 NVIDIA 部署和采集对驱动锁/工作负载的影响继续在 Issue #28 跟踪。
 
 参考：[Grafana 数据源教程](https://grafana.com/developers/plugin-tools/tutorials/build-a-data-source-plugin)、[Prometheus HTTP API](https://prometheus.io/docs/prometheus/latest/querying/api/)、[Prometheus timestamp](https://prometheus.io/docs/prometheus/latest/querying/functions/#timestamp)、[MDN CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS)。
 

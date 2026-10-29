@@ -56,7 +56,7 @@
     >
       <p class="application-guide">
         <a
-          href="https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/feishu.md"
+          href="https://github.com/dynamicheart/lockbot/blob/main/docs/usage/feishu.md"
           target="_blank"
           rel="noopener noreferrer"
           >{{ $t('feishu.setupGuide') }}</a

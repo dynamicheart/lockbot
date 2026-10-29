@@ -39,7 +39,7 @@ These are based on the official [Vercel Container Runtime](https://vercel.com/do
 5. In site settings set the deployment URL to the actual HTTPS service URL. Configure allowed platforms, enterprise application credentials, proxy if needed, and resource-group bindings. A local or private callback URL is not reachable merely because the UI is public.
 6. Verify health, login, bot state and persistence over a controlled restart. In an authorized test group verify query, short lock, queue, expiry/reminder, Agent binding and generated links. Confirm only one event consumer is active. Check runtime logs without publishing secrets.
 
-The repository's current release Dockerfile installs core dependencies. **Feishu support additionally requires the reviewed Feishu implementation and its optional runtime dependencies in the selected image.** Do not treat this hosting template as completion of the Feishu integration or enable it on a core-only image.
+Official Lockbot 3.x images include the Feishu implementation and optional SDK dependencies. Custom Python installations need `lockbot[feishu]`. Verify the selected image/version; this hosting template alone does not configure enterprise permissions, outbound connectivity or group associations.
 
 Render's official [Blueprint specification](https://render.com/docs/blueprint-spec) and [Deploy button documentation](https://render.com/docs/deploy-to-render) define the fields and button behavior. The following is a **button example for your fork after adding root render.yaml**, not an active deployment button for this repository:
 

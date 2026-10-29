@@ -1,6 +1,6 @@
 # lockbot
 
-Cluster resource management bot for IM platforms (e.g., Baidu InfoFlow).
+Cluster resource management and queuing for Infoflow and Feishu.
 
 Lock and unlock GPU devices, cluster nodes, and queue slots via chat commands.
 Runs as a multi-bot platform with FastAPI and a Vue.js frontend.
@@ -17,73 +17,47 @@ Runs as a multi-bot platform with FastAPI and a Vue.js frontend.
 - **Device Lock Bot** — Lock/unlock individual GPUs or devices on a cluster
 - **Node Lock Bot** — Lock/unlock entire cluster nodes
 - **Queue Bot** — Manage a queue for resource allocation with booking and preemption
+- **Device Queue Bot** — Book and queue for individual cards with `QUEUE_DEVICE`
+- **Agent integration** — Personal authorization, resource discovery and versioned Skills
+- **Utilization** — Optional browser/Agent access to independent Prometheus data sources
 - **Platform Mode** — Web UI (Vue 3 + Element Plus) for managing multiple bots, user authentication (JWT), role-based access control, and real-time logs
 - **State Persistence** — Bot state survives restarts (JSON file)
 - **Bilingual** — English and Chinese UI and bot responses
 
-## Quick Start — Platform Mode (Recommended)
+## Quick Start — Docker
 
-Full management platform with Web UI, multi-bot orchestration, user authentication, and admin panel.
-
-1. Install:
+The published image includes the web UI and Feishu dependencies. Prepare a private environment file with `JWT_SECRET` and `ENCRYPTION_KEY` following the [deployment guide](docs/agents/deployment/AGENTS.md). For upgrades, keep the original keys and data volume.
 
 ```bash
-pip install lockbot
-```
-
-2. Set environment variables:
-
-```bash
-export JWT_SECRET="your-jwt-secret"
-export ENCRYPTION_KEY="your-fernet-key"    # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-export DEV_MODE="true"                      # dev mode, auto-create admin user
-```
-
-3. Start:
-
-```bash
-# Backend
-uvicorn lockbot.backend.app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Frontend (another terminal)
-cd frontend && npm install && npm run dev
-```
-
-4. Open `http://localhost:8000` in your browser.
-
-### Docker
-
-```bash
-# 1. Generate ENCRYPTION_KEY and JWT_SECRET
-python tools/gen_keys.py
-
-# 2. Pull pre-built image (or build from source)
-docker pull ghcr.io/dynamicheart/lockbot:latest
-# docker build -f docker/Dockerfile -t lockbot .
-
-# 3. Run (replace the keys with generated values)
+docker pull ghcr.io/dynamicheart/lockbot:v3.0.0
 docker run -d --name lockbot -p 8000:8000 \
-  -e JWT_SECRET=your-secret \
-  -e ENCRYPTION_KEY=your-fernet-key \
+  --env-file /private/path/lockbot.env \
   -v lockbot-data:/data \
-  ghcr.io/dynamicheart/lockbot:latest
+  ghcr.io/dynamicheart/lockbot:v3.0.0
 
-# 4. Create super_admin (password auto-generated and printed)
+# New installation only: create the initial super administrator interactively.
 docker exec -it lockbot python tools/create_super_admin.py --username admin --email admin@example.com
 ```
 
-> **Data persistence**: All data (SQLite DB, bot state files) stored under `/data`. Override with `DATA_DIR` env var.
+Open `http://localhost:8000`. Data persists under `/data`; select the intended host port without replacing an upgrade's existing mount. Run a single process/instance per data directory.
+
+- [Agent-assisted deployment and upgrades](docs/agents/deployment/AGENTS.md), including environment validation and a Compose template
+- [Infoflow and Feishu setup](docs/agents/platforms/AGENTS.md) and [illustrated Feishu guide](docs/usage/feishu-setup.md)
+- [Agent API and Skill](docs/agent-api/SKILL.md)
+- [Independent telemetry deployment](docs/usage/telemetry-deployment.md) and [browser utilization](docs/usage/browser-utilization.md)
+
+In Feishu, one enterprise application can serve multiple resource groups, with a separate resource bot per group. Direct messages are unsupported. Platform credentials and users remain separate from Infoflow; copying configuration does not share live locks or authorizations.
 
 ## Bot Configuration
 
 | Key | Description | Default |
 |---|---|---|
-| `BOT_TYPE` | `DEVICE`, `NODE`, or `QUEUE` | (required) |
+| `BOT_TYPE` | `NODE`, `DEVICE`, `QUEUE`, or `QUEUE_DEVICE` | (required) |
 | `BOT_NAME` | Bot instance name | `demo_bot` |
 | `CLUSTER_CONFIGS` | Cluster layout (dict or list) | `{}` |
-| `TOKEN` | Bot signature verification token | `""` |
-| `AESKEY` | Message decryption AES key | `""` |
-| `WEBHOOK_URL` | Message webhook URL | `""` |
+| `TOKEN` | Infoflow signature verification token | `""` |
+| `AESKEY` | Infoflow message decryption AES key | `""` |
+| `WEBHOOK_URL` | Infoflow message webhook URL | `""` |
 | `DEFAULT_DURATION` | Default lock duration (seconds) | `7200` (2h) |
 | `MAX_LOCK_DURATION` | Max lock duration (seconds) | `-1` (unlimited) |
 | `EARLY_NOTIFY` | Notify before lock expiry | `false` |
@@ -112,7 +86,7 @@ See `python/lockbot/core/config.py` for the full configuration reference.
 
 ```bash
 # Install dependencies
-pip install -e ".[dev]"
+pip install -e ".[dev,feishu]"
 cd frontend && npm install && cd ..
 
 # Start backend (port 8002, hot-reload)
@@ -122,13 +96,13 @@ bash scripts/dev/backend.sh
 bash scripts/dev/frontend.sh
 ```
 
-Both servers support hot-reload — code changes take effect automatically.
+Open the frontend at `http://localhost:8001`; it proxies API requests to port 8002. These hot-reload scripts are for development, not production. New development targets `main`.
 
 ### Testing
 
 ```bash
-# Run tests
-pytest
+# Run tests with file-isolated parallel workers
+pytest -n auto --maxprocesses=4 --dist=loadfile
 
 # Lint + format check
 ruff check python/ tests/

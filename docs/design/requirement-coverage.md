@@ -1,5 +1,14 @@
 # Discussion requirement coverage
 
+## Current release status — 2026-10-30
+
+3.0.0 is published and formally deployed from `80cc6a5`, preserving original keys, configuration, locks, queues and bindings. PR #25 final head `7d15888` passed 1,820 backend tests / 7 skipped, 170 frontend tests and six required checks; PR #58 passed its own current-head checks. The integration service runs `7d15888`. Post-upgrade ordinary-owner/OP privacy checks and independent-source queries passed (16 hosts / 64 cards, including host cache/available memory).
+
+`main` is now the protected default branch. New PRs target `main`; the old main is archived and `release/2.x` is historical. Corporate application approval/publication is still pending human review. Follow-up issues #21/#24/#28/#33/#54/#56/#57 retain their remaining scope in [ROADMAP](../../ROADMAP.md).
+
+The matrix below is a chronological evidence record, including pre-release snapshots. Older references to pending formal rollout or a future branch transition describe those dated stages, not the current installation.
+
+
 Snapshot: 2026-10-29. This matrix complements [ROADMAP.md](../../ROADMAP.md) and [issue #27](https://github.com/dynamicheart/lockbot/issues/27). It records the user discussion's decisions, current evidence and next gate without copying private addresses, accounts, tokens, inventories, container names or task text. Statuses must be updated after merge, release and deployment, not only after implementation.
 
 ## Requirement matrix

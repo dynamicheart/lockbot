@@ -2,7 +2,7 @@
 
 ## Shared workflow and authority
 
-Keep the enterprise application, resource bot and resource group distinct. Use the selected Lockbot service's current UI and documentation. Do not invent HTTP endpoints or guess identities from display names. The Feishu integration is delivered separately from older released Infoflow-only images: verify the selected release supports it before promising onboarding.
+Keep the enterprise application, resource bot and resource group distinct. Use the selected Lockbot service's current UI and documentation. Do not invent HTTP endpoints or guess identities from display names. Feishu is included in official 3.x images; older Infoflow-only deployments must upgrade first. Verify the actual installed version before onboarding.
 
 An Agent can explain fields, open approved consoles, prepare configuration, check an existing application's granted scopes, guide the user through approval, and test a specifically authorized group. Enterprise login/MFA, terms, administrative approval, secret entry and permission grants remain governed by the host's action/confirmation rules. Never approve the application as another person, bypass review or request a broader directory range to make a test pass.
 

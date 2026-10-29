@@ -30,7 +30,7 @@
       <p class="config-note config-intro">{{ $t('utilization.connectionHint') }}</p>
       <a
         class="setup-guide"
-        href="https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md"
+        href="https://github.com/dynamicheart/lockbot/blob/main/docs/usage/browser-utilization.md"
         target="_blank"
         rel="noopener noreferrer"
         >{{ $t('utilization.setupGuide') }}</a
