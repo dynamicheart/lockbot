@@ -21,7 +21,6 @@
       clearable
       :placeholder="$t('serviceTraffic.allBots')"
       class="bot-filter"
-      @change="refresh"
     >
       <el-option
         v-for="row in botOptions"
@@ -224,6 +223,7 @@ import { Refresh, ChatDotRound, Cpu, Setting } from '@element-plus/icons-vue'
 const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
+import { createServiceTrafficLoader } from '../utils/serviceTrafficLoader'
 const props = defineProps({ botId: { type: [Number, String], default: null } })
 const { locale } = useI18n()
 const selectedBot = ref(null)
@@ -256,55 +256,46 @@ const businessCount = (source) =>
 const chartMax = computed(() =>
   Math.max(1, ...(snapshot.value?.history || []).map((point) => point.requests))
 )
-let controller = null
 let poll = null
-let disposed = false
-let generation = 0
-async function refresh() {
-  if (loading.value || document.hidden || disposed) return
-  const current = ++generation
-  loading.value = true
-  controller = new AbortController()
-  try {
-    const endpoint = props.botId ? `/bots/${props.botId}/service-traffic` : '/admin/service-traffic'
-    const response = await api.get(endpoint, {
-      signal: controller.signal,
-      params: { bot_id: selectedBot.value || undefined },
+const scope = () => ({
+  botId: props.botId || null,
+  filterBot: props.botId ? null : selectedBot.value,
+})
+const loader = createServiceTrafficLoader({
+  canRequest: () => !document.hidden,
+  request: async ({ botId, filterBot }, signal) => {
+    const endpoint = botId ? `/bots/${botId}/service-traffic` : '/admin/service-traffic'
+    const { data } = await api.get(endpoint, {
+      signal,
+      params: { bot_id: filterBot || undefined },
     })
-    if (!disposed && current === generation) {
-      snapshot.value = response.data
-      if (response.data.bot_options) botOptions.value = response.data.bot_options
-      failed.value = false
+    return data
+  },
+  publish: (update) => {
+    if ('snapshot' in update) {
+      snapshot.value = update.snapshot
+      if (update.snapshot?.bot_options) botOptions.value = update.snapshot.bot_options
     }
-  } catch (error) {
-    if (error.code !== 'ERR_CANCELED' && !disposed && current === generation) failed.value = true
-  } finally {
-    if (!disposed && current === generation) loading.value = false
-  }
-}
-watch(
-  () => props.botId,
-  () => {
-    generation++
-    controller?.abort()
-    loading.value = false
-    snapshot.value = null
-    selectedBot.value = null
-    refresh()
-  }
-)
+    if ('failed' in update) failed.value = update.failed
+    if ('loading' in update) loading.value = update.loading
+  },
+})
+const refresh = () => loader.refresh()
+watch([() => props.botId, selectedBot], ([botId], [previousBotId]) => {
+  if (botId !== previousBotId) selectedBot.value = null
+  loader.setScope(scope())
+})
 const visible = () => {
   if (!document.hidden) refresh()
 }
 onMounted(() => {
-  refresh()
+  loader.setScope(scope())
   poll = setInterval(refresh, 15000)
   document.addEventListener('visibilitychange', visible)
 })
 onBeforeUnmount(() => {
-  disposed = true
+  loader.dispose()
   clearInterval(poll)
-  controller?.abort()
   document.removeEventListener('visibilitychange', visible)
 })
 const number = (value) =>
