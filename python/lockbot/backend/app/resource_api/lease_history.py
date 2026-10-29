@@ -26,6 +26,7 @@ BOUNDARIES = {
     "invalid_state",
     "clock_reversal",
     "unconfirmed_mutation",
+    "outbox_overflow",
 }
 SOURCES = {"chat", "api", "operator", "admin", "internal"}
 ACTIONS = {
@@ -186,7 +187,26 @@ class LeaseJournal:
         self.lock = threading.Lock()
         self.state = {"allocations": [], "bookings": [], "complete": True}
         self.gap, self.timestamp = "session_start", 0
+        self._prepared = None
+        from lockbot.backend.app.resource_api.lease_contract import DurableOutbox
+
+        self.outbox = DurableOutbox(self)
+        # Merely starting an upgraded bot must not rewrite a legacy state file. Its
+        # observation is explicitly non-atomic until the next real allocator save.
+        if get_managed_paths().state_file(bot_id).exists() and not self.outbox.recovered:
+            self.committed(bot.state.bot_state)
+            return
+        from lockbot.core.io import _save_bot_state_atomically
+
+        evidence = self.prepare_state_write(bot.state.bot_state)
+        try:
+            _save_bot_state_atomically(bot.state.bot_state, bot.config, evidence=evidence)
+        except Exception:
+            self.failed()
+            raise
         self.committed(bot.state.bot_state)
+
+    _digest = staticmethod(digest)
 
     def _canonical(self, data):
         platform = str(self.bot.adapter.platform_name).lower()
@@ -224,6 +244,12 @@ class LeaseJournal:
             os.fchmod(output.fileno(), 0o600)
             output.write(body)
             output.flush()
+            os.fsync(output.fileno())
+        directory = os.open(paths.bot_dir(self.bot_id), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
 
     def unconfirmed(self, data):
         with self.lock:
@@ -232,39 +258,71 @@ class LeaseJournal:
 
     def failed(self):
         with self.lock:
+            if self._prepared is not None:
+                _, pending, sequence = self._prepared
+                self.outbox.pending, self.outbox.sequence = pending, sequence
+                self._prepared = None
             self.gap = "state_persist_failed"
+
+    def _frame(self, data, *, atomic):
+        now = time.time()
+        current = self._canonical(data)
+        boundary = self.gap
+        if not current["complete"]:
+            boundary = "invalid_state"
+        if now < self.timestamp:
+            boundary = "clock_reversal"
+        source, action = command_source.get(), command_action.get()
+        frame = {
+            "schema": "lockbot.resource-lifecycle",
+            "schema_version": 1,
+            "bot_id": self.bot_id,
+            "session": self.session,
+            "sequence": self.sequence + 1,
+            "timestamp": now,
+            "before_digest": digest(self.state),
+            "after_digest": digest(current),
+            "boundary": boundary,
+            "state": current,
+            "source": source if source in SOURCES else "internal",
+            "action": action if action in ACTIONS else None,
+            "events": transitions(self.state, current, now) if not boundary else [],
+        }
+        before = {item["ref"]: item for field in ("allocations", "bookings") for item in self.state[field]}
+        for event in frame["events"]:
+            old = before.get(event.get("lease_ref") or event.get("booking_ref"))
+            event["occurred_at"] = old["deadline"] if old and event["kind"] in {"expired", "claim_timeout"} else now
+        return self.outbox.decorate(frame, atomic=atomic)
+
+    def prepare_state_write(self, data):
+        """Stage evidence before the core atomically replaces the allocator state."""
+        with self.lock:
+            if self._prepared is not None:
+                raise RuntimeError("Lifecycle state write is already pending")
+            pending, sequence = list(self.outbox.pending), self.outbox.sequence
+            frame = self._frame(data, atomic=True)
+            self._prepared = frame, pending, sequence
+            return self.outbox.envelope(frame)
 
     def committed(self, data):
         with self.lock:
-            now = time.time()
+            if self._prepared is not None:
+                frame = self._prepared[0]
+                self._prepared = None
+            else:
+                # External/legacy persistence hooks cannot assert atomic coupling.
+                frame = self._frame(data, atomic=False)
+                self.outbox.envelope(frame)
             current = self._canonical(data)
-            boundary = self.gap
-            if not current["complete"]:
-                boundary = "invalid_state"
-            if now < self.timestamp:
-                boundary = "clock_reversal"
+            if digest(current) != frame["after_digest"]:
+                self.gap = "unconfirmed_mutation"
+                return
             self.sequence += 1
-            source = command_source.get()
-            action = command_action.get()
-            frame = {
-                "schema": "lockbot.resource-lifecycle",
-                "schema_version": 1,
-                "bot_id": self.bot_id,
-                "session": self.session,
-                "sequence": self.sequence,
-                "timestamp": now,
-                "before_digest": digest(self.state),
-                "after_digest": digest(current),
-                "boundary": boundary,
-                "state": current,
-                "source": source if source in SOURCES else "internal",
-                "action": action if action in ACTIONS else None,
-                "events": transitions(self.state, current, now) if not boundary else [],
-            }
+            self.outbox.acknowledged_state(frame)
             try:
-                self._append(frame)
+                self.outbox.flush()
                 self.gap = None if current["complete"] else "invalid_state"
-                self.timestamp = now
+                self.timestamp = frame["timestamp"]
             except Exception:
                 self.gap = "journal_write_failed"
                 logger.warning("Bot %s lifecycle evidence append failed", self.bot_id)
@@ -272,16 +330,25 @@ class LeaseJournal:
 
     def checkpoint(self, data):
         with self.lock:
+            captured_at = time.time()
             current = self._canonical(data)
+            if captured_at < self.timestamp:
+                self.gap = "clock_reversal"
             if len(json.dumps(current, ensure_ascii=False).encode()) > MAX_LINE_BYTES:
                 current = {"allocations": [], "bookings": [], "complete": False}
             if current != self.state and self.gap is None:
                 self.gap = "unconfirmed_mutation"
             return {
+                "contract": {
+                    "version": 2,
+                    "journal_id": self.outbox.journal_id,
+                    "commit_sequence": self.outbox.sequence,
+                    "pending_frames": len(self.outbox.pending),
+                },
                 "integrity_boundary": self.gap,
                 "session": self.session,
                 "sequence": self.sequence,
-                "timestamp": time.time(),
+                "timestamp": captured_at,
                 "after_digest": digest(current),
                 "state": current,
                 "consistent": not self.gap and current["complete"] and current == self.state,

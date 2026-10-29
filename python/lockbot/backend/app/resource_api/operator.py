@@ -126,6 +126,59 @@ def operator_lease_history(
     }
 
 
+@router.get("/{bot_id}/op/lifecycle-audit")
+@limiter.limit("30/minute")
+def operator_lifecycle_audit(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    cursor: str | None = Query(None, max_length=16384),
+    limit: int = Query(25, ge=1, le=100),
+    resource: str = Query("", max_length=160),
+    start: float | None = Query(None, ge=0, le=253402300799),
+    end: float | None = Query(None, ge=0, le=253402300799),
+    db: Session = Depends(get_db),
+):
+    """Frozen public allocator evidence; ordinary OP credentials never reveal detailed notes."""
+    from lockbot.backend.app.resource_api.lifecycle_feed import read_feed
+
+    response.headers["Cache-Control"] = "no-store"
+    if (start is None) != (end is None):
+        raise HTTPException(422, "Supply both start and end for a lifecycle window")
+    if start is not None and end is not None and (start > end or end - start > 7 * 86400):
+        raise HTTPException(422, "Lifecycle window must be ordered and at most seven days")
+    try:
+        bot = _require_operator(db, request, bot_id, fresh=True)
+        identity = (bot.uuid, bot.identity_revision)
+        try:
+            with bot_manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
+                journal = getattr(lease.bot.config, "_lifecycle_observer", None)
+                if journal is not None:
+                    checkpoint = journal.checkpoint(lease.bot.state.bot_state)
+                    checkpoint.pop("state", None)
+                    with journal.lock:
+                        result = read_feed(
+                            bot,
+                            cursor=cursor,
+                            limit=limit,
+                            resource=resource,
+                            start=start,
+                            end=end,
+                            checkpoint=checkpoint,
+                        )
+                else:
+                    result = read_feed(bot, cursor=cursor, limit=limit, resource=resource, start=start, end=end)
+        except (BotNotRunning, InstanceRetiring, AdmissionFull):
+            result = read_feed(bot, cursor=cursor, limit=limit, resource=resource, start=start, end=end)
+        current = _require_operator(db, request, bot_id, fresh=True)
+        if identity != (current.uuid, current.identity_revision):
+            raise HTTPException(409, "Bot identity changed during lifecycle export; start a new export")
+        return result
+    except HTTPException as exc:
+        exc.headers = {**(exc.headers or {}), "Cache-Control": "no-store"}
+        raise
+
+
 @router.get("/{bot_id}/op/resources")
 @limiter.limit("60/minute")
 def operator_resources(
