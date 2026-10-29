@@ -78,7 +78,7 @@ The published image archive SHA-256 is `f29e21e655bdcf9ecdc0d475cae51ded0c4c5932
 - Do not build a shared resource pool across platforms or attach one resource bot to both platforms. Do not run independent lock systems over the same physical resources during migration.
 - Agent contact registration and communication were an early discussion idea, not an implemented or explicitly committed delivery. Do not infer them as an extension of purpose notes; current resource/usage queries remain the collaboration surface while that decision is open.
 - The isolated-environment VPN/IT request is deferred by the user. Do not restart it as an implied dependency of telemetry.
-- Maintain `release/2.x`. A 3.x release or return to `main` requires a separate compatibility/release decision; Feishu work alone does not automatically change the branch or version line.
+- Latest explicit release decision: ship the Feishu integration as **3.0.0**, return the default development line to `main`, and stop maintaining `release/2.x`. The main agent is checking branch differences/protection and coordinating PR retargeting before executing migration; this decision does not imply the branch migration or release is already complete.
 - Require checks on the current PR head and prefer squash merges. Branch protection was checked on this date: force pushes/deletion disabled, protection enforced for administrators, strict current-base checks and PR merging required, and all six CI contexts required. Recheck before release rather than relying on this snapshot.
 - Track merge, version/tag, image/artifact build and checksum, deployment, configuration/key/state preservation and real acceptance explicitly. Do not turn a test-service upgrade or a client screenshot into a formal release claim.
 
@@ -88,3 +88,12 @@ The published image archive SHA-256 is `f29e21e655bdcf9ecdc0d475cae51ded0c4c5932
 - Audit action translation PR #50 is merged as `88a9a11`; display labels only, no permission changes, formal release pending.
 - Current test-service group-name read and explicit refresh returned HTTP 200 with a name. PR #25 now marks retained names as cached after transient failure, distinguishes permission vs temporary failures and offers retry. No missing-permission claim is inferred from the earlier warning.
 - New PR #25 head `20dff0e` integrates `88a9a11` and the site proxy/cache feedback. Local frontend 136 checks/lint/build, 212 cross-layer focused tests and 10 overlapping final proxy/connector tests passed; current-head CI is running. It remains draft and is not yet deployed. The deployed test source is still `5c7f3f4`, and formal production remains v2.15.2 without Feishu. Real proxy-save/restart/handshake and complete current-candidate group acceptance remain pending.
+
+
+### Approved 3.0.0 branch migration sequence
+
+The latest user decision supersedes the earlier deferred version choice. Before changing the default line, preserve the existing historical `main` as `archive/main-before-v3-20261029`. It has 24 unique historical commits while the maintained release line has 75 unique commits at the comparison snapshot; do not force-push over that history or blindly merge the abandoned generic-platform/credentials-JSON implementation back into the product.
+
+After the integrated candidate passes required acceptance, migrate the maintained release history to `main`, copy the six mandatory CI checks and protection policy, retarget open PRs, update CI/telemetry/docs branch references, and make `main` the default with 3.0.0. Stop maintaining `release/2.x` afterward. The main agent coordinates the exact execution order. No branch deletion, force push, default change or release is recorded as completed by this document update.
+
+See [upgrade and database compatibility](docs/design/upgrade-rollback.md#飞书-300-的数据库与部署边界) for the additive schema and rollback boundaries.

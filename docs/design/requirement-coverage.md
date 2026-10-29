@@ -67,3 +67,5 @@ Conditional cleanup PR #48 is merged as `edcd476` after final `4d9e4ff` six gree
 
 
 Latest feedback: PR #50 audit labels are merged (`88a9a11`) without permission changes. PR #25 `20dff0e` adds super-admin site proxy configuration and explicit cached group-name/error/retry states; public settings exclude proxy addresses, HTTP success is not WebSocket acceptance, and no new app scopes were requested. These remain separate from formal v2.15.2 rollout.
+
+Latest explicit user decision supersedes the earlier deferred version/branch choice: Feishu targets 3.0.0, the default line returns to `main`, and `release/2.x` will no longer be maintained. Branch reconciliation/protection and PR retargeting are coordinated by the main agent; do not mark migration or release complete before execution.
