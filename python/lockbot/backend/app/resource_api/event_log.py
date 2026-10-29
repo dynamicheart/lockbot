@@ -243,6 +243,7 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
                 scanned += len(body)
                 # Do not parse a partial line at a bounded chunk's beginning.
                 if start:
+                    chunk_start = start
                     handle.seek(start - 1)
                     if handle.read(1) != b"\n":
                         boundary = body.find(b"\n")
@@ -250,6 +251,11 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
                             stop = start
                             break
                         body, start = body[boundary + 1 :], start + boundary + 1
+                        if not body:
+                            # A bad line fills the whole chunk through its final newline.
+                            # Advance backwards instead of returning the same cursor forever.
+                            stop = chunk_start
+                            break
                 offsets, position = [], start
                 for raw in body.splitlines(keepends=True):
                     offsets.append((position, raw))
