@@ -170,3 +170,34 @@ def test_invalid_promotion_prefix_is_rejected_atomically(value, client, admin_he
         )
         assert response.status_code == 422
         assert db_session.get(SiteSetting, "agent_promotion_enabled") is None
+
+
+@pytest.mark.parametrize("role,expected", [("anonymous", 401), ("user", 403), ("admin", 403)])
+def test_only_super_admin_can_change_prefixes(role, expected, client, auth_header, admin_header, db_session):
+    from lockbot.backend.app.settings.models import SiteSetting
+
+    headers = {"anonymous": {}, "user": auth_header, "admin": admin_header}[role]
+    settings = {"agent_promotion_enabled": "true", "agent_promotion_text_zh": "自定义文案："}
+    response = client.put("/api/admin/settings", headers=headers, json={"settings": settings})
+    assert response.status_code == expected
+    assert all(db_session.get(SiteSetting, key) is None for key in settings)
+
+
+def test_unrelated_settings_and_toggle_preserve_saved_localized_prefixes(client, admin_header, db_session, site_cache):
+    from lockbot.backend.app.auth.models import User
+
+    db_session.query(User).filter_by(username="adminuser").one().role = "super_admin"
+    db_session.commit()
+    endpoint = "/api/admin/settings"
+    prefixes = {"agent_promotion_text_zh": "交给你的 Agent：", "agent_promotion_text_en": "Ask your Agent: "}
+    assert client.put(endpoint, headers=admin_header, json={"settings": prefixes}).status_code == 200
+    for key, value in prefixes.items():
+        assert BaseLockBot._get_site_value(key) == value
+    # Ordinary later settings saves and toggling promotion must not replace custom copy.
+    for enabled in ("true", "false", "true"):
+        settings = {"agent_promotion_enabled": enabled, "news_content": "Service notice"}
+        assert client.put(endpoint, headers=admin_header, json={"settings": settings}).status_code == 200
+        rows = {row["key"]: row["value"] for row in client.get(endpoint, headers=admin_header).json()}
+        for key, value in prefixes.items():
+            assert rows[key] == value
+            assert BaseLockBot._get_site_value(key) == value
