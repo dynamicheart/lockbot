@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -110,3 +112,36 @@ def test_remote_input_rejects_embedded_credentials_and_requires_environment_key(
             ]
         )
     assert "user:secret" not in capsys.readouterr().err
+
+
+def test_http_redirect_cannot_forward_op_credential():
+    reached = []
+
+    class RedirectHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            reached.append(self.path)
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{self.server.server_port}/sink")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler) as server:
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with pytest.raises(report.CollectionError, match="HTTP 302"):
+                report.fetch_page(f"http://127.0.0.1:{server.server_port}", 1, "test-only-key", None, 25)
+        finally:
+            server.shutdown()
+            thread.join(2)
+    assert len(reached) == 1 and "/sink" not in reached
+
+
+def test_equal_display_ids_on_distinct_platforms_remain_distinct_actors():
+    result = report.analyze(
+        [row("1"), row("2", actor={"platform": "feishu", "external_user_id": "alice"})], SINCE, UNTIL
+    )
+    assert len(result["actors"]) == 2
