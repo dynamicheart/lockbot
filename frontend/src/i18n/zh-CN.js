@@ -1,5 +1,8 @@
 export default {
   feishu: {
+    reactionReplies: '成功操作使用表情回复',
+    reactionRepliesHelp: '飞书专属，默认关闭。需发送消息表情权限；成功操作用完成表情替代回复，查询、排队、提醒和失败仍发原消息。缺少权限时回退原消息。',
+
     editApplication: '编辑应用',
     receiverRestartAfterUpdate: '已保存。请刷新接收状态，并重新启动应用连接。',
     keepSecret: '留空保留已保存的 Secret',

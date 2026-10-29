@@ -417,7 +417,10 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
             # The claim is committed before invoking the shared dispatcher. Any exception
             # after this point is uncertain, never an instruction to replay a lock/renewal.
             lease.bot.config.get_val("_FEISHU_CLIENT").warm_user_name(message["user_id"])
-            reply = execute_command(message, lease.bot)
+            from lockbot.core.command_result import capture_result
+
+            with capture_result() as command_result:
+                reply = execute_command(message, lease.bot)
             from lockbot.backend.app.bots.router import _write_log
 
             try:
@@ -431,7 +434,7 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
                 logger.warning("Could not record a Feishu command for bot %s", bot_id)
             state = "delivery_uncertain"
             lease.bot.adapter.apply_reply_target(reply, message["group_id"])
-            lease.bot.adapter.send(reply)
+            lease.bot.adapter.send_command_reply(reply, message, command_result)
             state = "completed"
     except (BotNotRunning, InstanceRetiring, AdmissionFull):
         state = "unavailable"
