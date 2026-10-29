@@ -24,8 +24,8 @@ def test_admin_state_keeps_metadata_outside_editable_state(client, api, monkeypa
     assert raw.status_code == view.status_code == 200
     assert view.json()["state"] == raw.json()
     assert "Untrusted task" not in raw.text
-    assert view.json()["usage"][0]["agent_label"] == "dev-agent"
-    assert view.json()["usage"][0]["untrusted_text"] is True
+    assert "agent_label" not in view.json()["usage"][0]
+    assert "Untrusted task" not in view.text
     assert client.get(path + "?include_usage=true", headers=api["headers"]).status_code == 401
     assert post(client, api, f"free {target}").status_code == 200
     assert client.get(path + "?include_usage=true", headers=api["auth_header"]).json()["usage"] == []
@@ -36,6 +36,6 @@ def test_admin_state_shows_booker_task_and_hides_task_after_native_release(clien
     monkeypatch.setattr("lockbot.backend.app.bots.router.bot_manager", api["manager"])
     assert post(client, api, "book n1 10m", agent_label="queue-agent", purpose="Next regression").status_code == 200
     path = f"/api/bots/{api['bot_id']}/state?include_usage=true"
-    assert client.get(path, headers=api["auth_header"]).json()["usage"][0]["purpose"] == "Next regression"
+    assert "purpose" not in client.get(path, headers=api["auth_header"]).json()["usage"][0]
     api["bot"].unlock("alice", "free n1")
     assert client.get(path, headers=api["auth_header"]).json()["usage"] == []

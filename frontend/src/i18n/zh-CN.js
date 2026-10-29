@@ -557,6 +557,7 @@ export default {
 
   // === Log Viewer ===
   log: {
+    privateDetailsRestricted: '仅显示操作摘要；私密任务与原始日志仅超级管理员可见。',
     all: '全部',
     commandLog: '操作记录',
     systemLog: '系统日志',

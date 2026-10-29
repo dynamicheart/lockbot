@@ -147,7 +147,11 @@ def _context_payload(request, response, db, row):
         else None,
         "usage_privacy": {
             "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id"],
-            "private_readers": ["owner", "bot_administrator", "authorized_operator"],
+            "policy_version": 2,
+            "private_readers": ["same_verified_actor", "super_administrator"],
+            "management_private_capability": "task_private:read",
+            "ordinary_operator_private_access": False,
+            "delegated_private_access_supported": False,
             "public_task_categories": TASK_CATEGORIES,
             "legacy_purpose_visibility": "private",
         },

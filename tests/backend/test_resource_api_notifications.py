@@ -230,13 +230,21 @@ class TestObservability:
         api_entries = [e for e in entries if e.get("source") == SOURCE_API]
         assert api_entries, f"no api-sourced command log entry in {entries}"
 
-    def test_the_command_log_entry_carries_the_credential_record_id(self, client, api, auth_header, db_session):
+    def test_credential_record_id_is_hidden_from_owner_and_available_to_super_admin(
+        self, client, api, auth_header, db_session
+    ):
         from lockbot.backend.app.resource_auth.models import ResourceBinding
 
         _post(client, api, "lock n1 1h")
         row = db_session.query(ResourceBinding).one()
         entries = self._command_logs(client, api, auth_header)
-        assert any(e.get("credential_id") == row.id for e in entries)
+        assert all("credential_id" not in e for e in entries)
+        from lockbot.backend.app.auth.models import User
+        from lockbot.backend.app.bots.models import Bot
+
+        db_session.get(User, db_session.get(Bot, api["bot_id"]).user_id).role = "super_admin"
+        db_session.commit()
+        assert any(e.get("credential_id") == row.id for e in self._command_logs(client, api, auth_header))
 
     def test_api_traffic_is_distinguishable_from_chat(self, client, api, auth_header):
         _post(client, api, "lock n1 1h")
