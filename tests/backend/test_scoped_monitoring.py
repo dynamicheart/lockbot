@@ -105,13 +105,13 @@ def row(bot_id, number, **extra):
 
 def test_history_cursor_survives_append_and_rotation(tmp_path):
     current = write_rows(tmp_path, 1, [row(1, i) for i in range(5)])
-    first = event_log.read_history(1, limit=2)
+    first = event_log.read_history(1, limit=2, private=True)
     assert [r["command"] for r in first["items"]] == ["4", "3"]
     current.rename(Path(str(current) + ".1"))
     write_rows(tmp_path, 1, [row(1, 6)])
-    second = event_log.read_history(1, limit=2, cursor=first["next_cursor"])
+    second = event_log.read_history(1, limit=2, private=True, cursor=first["next_cursor"])
     assert [r["command"] for r in second["items"]] == ["2", "1"]
-    third = event_log.read_history(1, limit=2, cursor=second["next_cursor"])
+    third = event_log.read_history(1, limit=2, private=True, cursor=second["next_cursor"])
     assert [r["command"] for r in third["items"]] == ["0"]
     assert third["next_cursor"] is None
 
@@ -122,12 +122,12 @@ def test_history_is_bounded_filters_and_tolerates_partial_corrupt_lines(tmp_path
     with path.open("ab") as file:
         file.write(b'not json\n{"bot_id":1')
     monkeypatch.setattr(event_log, "READ_BUDGET", 500)
-    result = event_log.read_history(1, limit=25, query="target")
+    result = event_log.read_history(1, limit=25, private=True, query="target")
     assert result["scanned_bytes"] <= 500 and result["next_cursor"]
     assert all(r["purpose"] == "target" for r in result["items"])
     seen = {r["command"] for r in result["items"]}
     while result["next_cursor"]:
-        result = event_log.read_history(1, limit=25, query="target", cursor=result["next_cursor"])
+        result = event_log.read_history(1, limit=25, private=True, query="target", cursor=result["next_cursor"])
         assert not seen.intersection(r["command"] for r in result["items"])
         seen.update(r["command"] for r in result["items"])
     assert len(seen) == 50
@@ -165,7 +165,7 @@ def test_history_endpoint_preserves_file_schema_and_authentication(client, admin
     write_rows(tmp_path, bot_id, [row(bot_id, 1, agent_label="test-agent", purpose="Regression complete")])
     response = client.get(f"/api/bots/{bot_id}/agent-history", headers=admin_header)
     assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
-    assert response.json()["items"][0]["purpose"] == "Regression complete"
+    assert "Regression complete" not in response.text and "test-agent" not in response.text
     assert response.json()["items"][0]["outcome"] == "dispatched"
     assert (
         client.get(f"/api/bots/{bot_id}/agent-history", headers={"Authorization": "Bearer lbk_fake"}).status_code == 401
@@ -301,3 +301,58 @@ def test_real_agent_command_is_counted_once_but_reads_are_not(client, api):
     for _ in range(2):
         client.get(f"/api/bots/{bot_id}/resources", headers=api["headers"])
     assert stats.snapshot(bot_id)["business_operations"]["total"] == before + 1
+
+
+def test_private_history_projection_precedes_search_pagination_and_export(client, auth_header, db_session, tmp_path):
+    from lockbot.backend.app.audit.models import AuditLog
+
+    bot_id = client.post("/api/bots", headers=auth_header, json=_sample_bot("privacy")).json()["id"]
+    rows = [
+        row(
+            bot_id,
+            "alias node1 private-alias-body",
+            agent_label="private-agent",
+            purpose="private-task",
+            credential_ref="private-credential",
+            task_category="operator_testing",
+            actor={"platform": "infoflow", "external_user_id": "alice", "future_private": "private-task"},
+            reply="private-reply",
+            future_private="private-future",
+        )
+        for _ in range(3)
+    ]
+    write_rows(tmp_path, bot_id, rows)
+    url = f"/api/bots/{bot_id}/agent-history"
+    for needle in ("private-task", "private-agent", "private-credential", "private-alias-body", "private-reply"):
+        result = client.get(url, params={"query": needle}, headers=auth_header)
+        assert result.status_code == 200 and result.json()["items"] == []
+    first = client.get(url, params={"limit": 1}, headers=auth_header).json()
+    second = client.get(url, params={"limit": 1, "cursor": first["next_cursor"]}, headers=auth_header).json()
+    exported = json.dumps(first["items"] + second["items"])
+    assert "private-" not in exported and "future_private" not in exported
+    assert all(item["command"] == "alias" and item["public_task"] == "算子测试" for item in first["items"])
+    assert first["items"][0]["id"] != second["items"][0]["id"]
+    owner = db_session.query(User).filter_by(username="testuser").one()
+    owner.role = "super_admin"
+    db_session.commit()
+    private = client.get(url, params={"query": "private-task"}, headers=auth_header)
+    assert len(private.json()["items"]) == 3 and "private-agent" in private.text
+    audit = db_session.query(AuditLog).filter_by(action="task_private.read").one()
+    assert json.loads(audit.detail) == {"surface": "management.agent_history"}
+    assert "private-task" not in audit.detail
+    owner.role = "user"
+    db_session.commit()
+    assert client.get(url, params={"query": "private-task"}, headers=auth_header).json()["items"] == []
+
+
+def test_bot_monitoring_hides_credential_identifiers_but_retains_caller_counts(client, auth_header, db_session):
+    bot_id = client.post("/api/bots", headers=auth_header, json=_sample_bot("metrics-privacy")).json()["id"]
+    hit(client.app.state.service_traffic, bot_id, "private-credential-identifier", "alice")
+    url = f"/api/bots/{bot_id}/service-traffic"
+    result = client.get(url, headers=auth_header)
+    assert result.status_code == 200 and "private-credential-identifier" not in result.text
+    assert any(row["user"] == "alice" and row["requests"] == 1 for row in result.json()["credentials"])
+    owner = db_session.query(User).filter_by(username="testuser").one()
+    owner.role = "super_admin"
+    db_session.commit()
+    assert "private-credential-identifier" in client.get(url, headers=auth_header).text

@@ -7,14 +7,14 @@ export default {
 
     resource: 'Resource',
     title: 'Agent history',
-    search: 'Search user, command, Agent or task',
+    search: 'Search user, operation or visible task',
     retention:
       'Private operation files are size-rotated (up to 10 × 5 MiB). Pages scan at most 1 MiB; filtered pages can be empty with more history available. Refresh if older files have rotated away. Dispatch does not prove the requested resource operation succeeded.',
     error: 'History unavailable or cursor expired; refresh to reload.',
     time: 'Time',
-    user: 'User / credential',
+    user: 'User',
     operation: 'Operation',
-    task: 'Agent / public purpose',
+    task: 'Task',
     outcome: 'Processing result',
     previous: 'Previous',
     next: 'Next',
@@ -129,7 +129,7 @@ export default {
 
     allBots: 'All bots with verified traffic',
     byCredential: 'By credential',
-    credential: 'User / credential',
+    credential: 'User',
     operator: 'OP API',
     unattributed: 'Unattributed requests:',
     scopeHelp:

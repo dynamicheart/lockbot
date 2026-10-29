@@ -4,14 +4,14 @@ export default {
 
     resource: '资源',
     title: 'Agent 历史',
-    search: '搜索用户、命令、Agent 或用途',
+    search: '搜索用户、操作或可见任务',
     retention:
       '操作文件按大小轮转，最多 10 × 5 MiB。每页最多扫描 1 MiB，筛选后空页可能仍有后续记录。旧文件被轮转清理时请刷新。已分派不代表资源操作成功。',
     error: '历史暂不可用或游标已失效，请刷新重试。',
     time: '时间',
-    user: '用户／凭证',
+    user: '用户',
     operation: '操作',
-    task: 'Agent／公开用途',
+    task: '任务',
     outcome: '处理结果',
     previous: '上一页',
     next: '下一页',
@@ -124,7 +124,7 @@ export default {
 
     allBots: '全部有已验证请求的机器人',
     byCredential: '按凭证',
-    credential: '用户／凭证',
+    credential: '用户',
     operator: 'OP API',
     unattributed: '未归因请求：',
     scopeHelp:

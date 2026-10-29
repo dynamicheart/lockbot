@@ -345,6 +345,10 @@ async def service_traffic(
         _get_user_bot(bot_id, user, db)
     response.headers["Cache-Control"] = "no-store"
     payload = request.app.state.service_traffic.snapshot(bot_id)
+    if payload.get("credentials"):
+        from lockbot.backend.app.resource_api.privacy import audit_private_read
+
+        audit_private_read(db, user, bot_id=bot_id, surface="management.global_service_traffic")
     # Resolve display names only when reading the admin dashboard, never on requests.
     from lockbot.backend.app.bots.models import Bot
 
@@ -371,8 +375,17 @@ def bot_service_traffic(
 
     _get_user_bot(bot_id, user, db)
     response.headers["Cache-Control"] = "no-store"
+    from lockbot.backend.app.resource_api.privacy import audit_private_read, can_read_private_tasks
+
     payload = request.app.state.service_traffic.snapshot(bot_id)
     payload.pop("bot_options", None)
+    if can_read_private_tasks(db, user):
+        if payload.get("credentials"):
+            audit_private_read(db, user, bot_id=bot_id, surface="management.service_traffic")
+    else:
+        payload["credentials"] = [
+            {key: value for key, value in row.items() if key != "id"} for row in payload.get("credentials", [])
+        ]
     return payload
 
 
@@ -391,4 +404,11 @@ def agent_history(
 
     _get_user_bot(bot_id, user, db)
     response.headers["Cache-Control"] = "no-store"
-    return read_history(bot_id, limit=limit, cursor=cursor, query=query)
+    from lockbot.backend.app.resource_api.privacy import audit_private_read, can_read_private_tasks
+
+    private = can_read_private_tasks(db, user)
+    result = read_history(bot_id, limit=limit, cursor=cursor, query=query, private=private)
+    if private and result["items"]:
+        audit_private_read(db, user, bot_id=bot_id, surface="management.agent_history")
+    result["details_restricted"] = not private
+    return result

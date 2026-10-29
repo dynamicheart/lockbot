@@ -192,7 +192,7 @@ READ_BUDGET = 1024 * 1024
 MAX_LINE_BYTES = 64 * 1024
 
 
-def read_history(bot_id, *, limit=25, cursor=None, query=""):
+def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
     """Newest first, inode/offset cursor: appends do not shift subsequent pages.
 
     A rotated-away cursor fails explicitly rather than silently skipping history. File
@@ -274,6 +274,8 @@ def read_history(bot_id, *, limit=25, cursor=None, query=""):
                                 "command",
                                 "agent_label",
                                 "purpose",
+                                "task_category",
+                                "public_task",
                                 "actor",
                                 "credential_id",
                                 "credential_ref",
@@ -289,6 +291,10 @@ def read_history(bot_id, *, limit=25, cursor=None, query=""):
                     )
                     if isinstance(row.get("command"), str):
                         row["command"] = redact_command_text(row["command"])
+                    if not private:
+                        from lockbot.backend.app.resource_api.privacy import public_event
+
+                        row = public_event(row)
                     if needle and needle not in json.dumps(row, ensure_ascii=False).casefold():
                         continue
                     row["id"] = f"{inode}:{position}"

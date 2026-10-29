@@ -13,6 +13,7 @@
       }}</el-button>
       <el-tooltip :content="$t('agentHistory.retention')"><span tabindex="0">ⓘ</span></el-tooltip>
     </div>
+    <p v-if="restricted" class="privacy-note">{{ $t('log.privateDetailsRestricted') }}</p>
     <el-alert v-if="error" :title="$t('agentHistory.error')" type="warning" :closable="false" />
     <el-table v-loading="loading" :data="items" row-key="id" :empty-text="$t('common.noData')">
       <el-table-column type="expand">
@@ -27,8 +28,10 @@
         ><template #default="{ row }"
           >{{ row.actor?.external_user_id || '—'
           }}<small
-            >{{ row.actor?.platform }} ·
-            {{ row.credential_ref || (row.credential_id ? '#' + row.credential_id : '—') }}</small
+            >{{ row.actor?.platform }}
+            <span v-if="row.credential_ref || row.credential_id">
+              · {{ row.credential_ref || '#' + row.credential_id }}</span
+            ></small
           ></template
         ></el-table-column
       >
@@ -42,7 +45,10 @@
       </el-table-column>
       <el-table-column :label="$t('agentHistory.task')" min-width="220" show-overflow-tooltip
         ><template #default="{ row }"
-          >{{ row.agent_label || '—' }}<small>{{ row.purpose || '—' }}</small></template
+          >{{ row.public_task || '—'
+          }}<small v-if="row.agent_label || row.purpose"
+            >{{ row.agent_label }} {{ row.purpose }}</small
+          ></template
         ></el-table-column
       >
       <el-table-column :label="$t('agentHistory.outcome')" min-width="150"
@@ -72,6 +78,7 @@ const { locale } = useI18n()
 const query = ref('')
 const activeQuery = ref('')
 const items = ref([])
+const restricted = ref(false)
 const error = ref(false)
 const loading = ref(false)
 const page = ref(0)
@@ -103,6 +110,7 @@ async function load() {
       signal: controller.signal,
     })
     if (current === generation) {
+      restricted.value = !!data.details_restricted
       items.value = data.items
       nextCursor.value = data.next_cursor
     }
@@ -140,6 +148,10 @@ onBeforeUnmount(() => {
 })
 </script>
 <style scoped>
+.privacy-note {
+  color: var(--lb-text-secondary);
+  font-size: 12px;
+}
 .history-toolbar {
   display: flex;
   align-items: center;

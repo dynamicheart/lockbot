@@ -163,7 +163,7 @@
                   <span v-if="!props.botId">· #{{ row.bot_id }}</span>
                 </div>
                 <small :title="`${$t('serviceTraffic.since')} ${localTime(row.since)}`"
-                  >{{ row.platform }} · {{ row.id }}</small
+                  >{{ row.platform }}<span v-if="row.id"> · {{ row.id }}</span></small
                 >
               </template>
               <template v-else>{{
