@@ -187,12 +187,6 @@
       </section>
 
       <!-- Advanced Config -->
-      <ResourceDatasourceEditor
-        v-model="utilizationConfig"
-        :nodes="datasourceNodes"
-        :resources="datasourceResources"
-        :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(form.bot_type)"
-      />
       <el-collapse>
         <el-collapse-item :title="$t('botCreate.advancedConfig')" name="advanced">
           <el-row :gutter="16">
@@ -439,8 +433,6 @@
 </template>
 
 <script setup>
-import { sourceResources } from '../utils/utilization/display'
-import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -465,10 +457,6 @@ const deviceFormRef = ref()
 const saving = ref(false)
 const clusterHasError = ref(false)
 const bot = ref(null)
-const utilizationConfig = ref(null)
-const datasourceLayout = computed(() => sourceResources(clusterConfig.value, form.bot_type))
-const datasourceNodes = computed(() => datasourceLayout.value.nodes)
-const datasourceResources = computed(() => datasourceLayout.value.resources)
 const agentAccess = ref(true)
 const agentNotify = ref(true)
 const editBaseline = ref(null)
@@ -550,9 +538,7 @@ onMounted(async () => {
   if (isEdit.value) {
     try {
       bot.value = await botsStore.getBot(route.params.id)
-      utilizationConfig.value = bot.value.utilization_config
-        ? JSON.parse(bot.value.utilization_config)
-        : null
+
       agentAccess.value = bot.value.resource_auth_enabled === true
       agentNotify.value = bot.value.resource_api_notify_enabled !== false
       form.name = bot.value.name
@@ -683,13 +669,6 @@ async function handleSubmit() {
   try {
     if (isEdit.value) {
       const data = { ...configChanges.value }
-      if (
-        JSON.stringify(utilizationConfig.value) !==
-        JSON.stringify(
-          bot.value.utilization_config ? JSON.parse(bot.value.utilization_config) : null
-        )
-      )
-        data.utilization_config = utilizationConfig.value
       if (agentAccess.value !== bot.value.resource_auth_enabled)
         data.resource_auth_enabled = agentAccess.value
       if (agentNotify.value !== bot.value.resource_api_notify_enabled)
@@ -709,7 +688,6 @@ async function handleSubmit() {
         cluster_configs: clusterConfig.value,
         resource_auth_enabled: agentAccess.value,
         resource_api_notify_enabled: agentNotify.value,
-        utilization_config: utilizationConfig.value,
       })
       ElMessage.success(t('botCreate.createSuccess'))
       if (created.status === 'stopped') {

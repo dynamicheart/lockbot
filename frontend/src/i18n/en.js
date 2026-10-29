@@ -5,7 +5,7 @@ export default {
     setupGuide: 'Setup guide',
     adminHint:
       'Configure once for this bot. Prepare the source URL, metric names, labels and node/device mappings. Test from this browser, then save the bot. Never save shared source secrets.',
-    testSave: 'Test and apply to form',
+    testSave: 'Test and save',
     authenticate: 'Source authentication',
 
     invalid: 'Invalid sample',

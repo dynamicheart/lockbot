@@ -1,28 +1,37 @@
 <template>
   <section class="utilization-control">
     <div class="utilization-toolbar">
-      <strong>{{ $t('utilization.configure') }}</strong>
-      <span class="source-name">{{ modelValue?.name || $t('utilization.notConfigured') }}</span>
-      <el-button text type="primary" @click="openSettings">{{
-        $t('utilization.configure')
-      }}</el-button>
-      <el-button v-if="modelValue" text type="danger" @click="$emit('update:modelValue', null)">{{
-        $t('utilization.remove')
-      }}</el-button>
-      <a
-        href="https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md"
-        target="_blank"
-        rel="noopener noreferrer"
-        >{{ $t('utilization.setupGuide') }}</a
-      >
+      <div class="source-summary">
+        <strong>{{ $t('utilization.title') }}</strong>
+        <span class="source-name">{{ modelValue?.name || $t('utilization.notConfigured') }}</span>
+      </div>
+      <div class="source-actions">
+        <el-button size="small" @click="openSettings">{{ $t('utilization.configure') }}</el-button>
+        <el-button
+          v-if="modelValue"
+          text
+          size="small"
+          type="danger"
+          :disabled="testing"
+          @click="removeSource"
+          >{{ $t('utilization.remove') }}</el-button
+        >
+      </div>
     </div>
-    <p class="config-note">{{ $t('utilization.adminHint') }}</p>
     <el-dialog
       v-model="settings"
       :title="$t('utilization.configure')"
       width="560px"
       class="utilization-dialog"
     >
+      <p class="config-note">{{ $t('utilization.adminHint') }}</p>
+      <a
+        class="setup-guide"
+        href="https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md"
+        target="_blank"
+        rel="noopener noreferrer"
+        >{{ $t('utilization.setupGuide') }}</a
+      >
       <el-form label-position="top" @submit.prevent.stop="testAndEnable">
         <el-form-item :label="$t('utilization.name')"
           ><el-input v-model="draft.name" maxlength="64"
@@ -101,6 +110,7 @@ const props = defineProps({
   nodes: { type: Array, default: () => [] },
   resources: { type: Array, default: () => [] },
   deviceResources: Boolean,
+  save: { type: Function, default: null },
 })
 const emit = defineEmits(['update:modelValue'])
 const settings = ref(false)
@@ -118,6 +128,17 @@ function cancelTest() {
   controller?.abort()
   testing.value = false
   bearer.value = ''
+}
+async function removeSource() {
+  testing.value = true
+  try {
+    await props.save?.(null)
+    emit('update:modelValue', null)
+  } catch {
+    // The parent displays a save error and retains the current source.
+  } finally {
+    testing.value = false
+  }
 }
 function openSettings() {
   cancelTest()
@@ -174,6 +195,7 @@ async function testAndEnable() {
       )
     )
       throw new ProviderError('mapping')
+    await props.save?.(candidate)
     emit('update:modelValue', candidate)
     settings.value = false
   } catch (error) {
@@ -209,16 +231,36 @@ onBeforeUnmount(() => {
 </script>
 <style scoped>
 .utilization-control {
-  margin: 0 0 14px;
+  margin: 0 0 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
 .utilization-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 12px;
+  justify-content: space-between;
+  gap: 12px;
 }
-.utilization-toolbar :deep(.el-checkbox) {
-  margin-right: 0;
+.source-summary,
+.source-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.source-summary strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.setup-guide {
+  display: inline-block;
+  color: var(--el-color-primary);
+  font-size: 12px;
+  text-decoration: none;
+  margin-bottom: 16px;
+}
+.setup-guide:hover {
+  text-decoration: underline;
 }
 .source-name,
 .config-note {
