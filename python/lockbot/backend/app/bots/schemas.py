@@ -7,6 +7,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, field_validator, model_validator
 
+from lockbot.backend.app.bots.datasource import UtilizationConfig
 from lockbot.backend.app.managed_paths import protected_override_keys
 
 # ── config_overrides value bounds ─────────────────────────────────────────────
@@ -108,6 +109,7 @@ class BotCreate(BaseModel):
     config_overrides: dict | None = None
     resource_auth_enabled: bool = True
     resource_api_notify_enabled: bool = True
+    utilization_config: UtilizationConfig | None = None
 
     @field_validator("config_overrides")
     @classmethod
@@ -131,6 +133,7 @@ class BotUpdate(BaseModel):
     config_overrides: dict | None = None
     resource_auth_enabled: bool | None = None
     resource_api_notify_enabled: bool | None = None
+    utilization_config: UtilizationConfig | None = None
 
     @field_validator("config_overrides")
     @classmethod
@@ -155,6 +158,7 @@ class BotOut(BaseModel):
     config_overrides: str
     resource_auth_enabled: bool = True
     resource_api_notify_enabled: bool = True
+    utilization_config: str | None = None
     created_at: datetime
     updated_at: datetime
 

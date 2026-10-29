@@ -156,8 +156,8 @@ For an old standalone deployment:
 
 The core bot classes remain independently constructible for tests, with per-instance
 `Config` objects. Platform scheduling, persisted state formats and legacy state migrations
-remain supported. The external XPU monitoring example under `docs/examples/xpu_monitor`
-is a separate program; its optional Flask webhook still uses its documented own dependencies.
+remain supported. Independent utilization collection and Prometheus setup are documented
+in [Resource exporter](docs/usage/resource-exporter.md).
 
 ## License
 
