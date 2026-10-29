@@ -92,7 +92,12 @@
         </div>
         <section class="operation-layer">
           <div class="trend-layer-heading">
-            <strong>{{ $t('serviceTraffic.operationLayer') }}</strong>
+            <strong
+              >{{ $t('serviceTraffic.operationLayer') }}
+              <el-tooltip :content="$t('serviceTraffic.operationTrendHelp')" placement="top">
+                <el-icon class="metric-help" tabindex="0"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </strong>
             <span class="business-sources">
               <span
                 v-for="source in operationSources"
@@ -105,7 +110,6 @@
               </span>
             </span>
           </div>
-          <p class="trend-note">{{ $t('serviceTraffic.operationTrendHelp') }}</p>
           <div
             v-if="operationTrend.hasActivity"
             class="traffic-chart operation-chart"
@@ -145,13 +149,13 @@
           <span>{{ minute(snapshot.history[0]?.at) }}</span
           ><span>{{ minute(snapshot.history.at(-1)?.at) }}</span>
         </div>
-        <details v-if="snapshot.business_operations" class="operation-details">
-          <summary>{{ $t('serviceTraffic.operationDetails') }}</summary>
-          <p class="trend-note">
-            {{ $t('serviceTraffic.since') }}
-            {{ localTime(snapshot.business_operations.observed_since || snapshot.started_at) }} ·
-            {{ $t('serviceTraffic.businessHelp') }}
-          </p>
+        <details v-if="businessRows.length" class="operation-details">
+          <summary>
+            {{ $t('serviceTraffic.operationDetails') }}
+            <el-tooltip :content="$t('serviceTraffic.businessHelp')" placement="top">
+              <el-icon class="metric-help" tabindex="0"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </summary>
           <el-table :data="businessRows" :empty-text="$t('common.noData')" size="small">
             <el-table-column :label="$t('serviceTraffic.source')" min-width="130">
               <template #default="{ row }">
@@ -255,7 +259,7 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Refresh, ChatDotRound, Cpu, Setting } from '@element-plus/icons-vue'
+import { Refresh, ChatDotRound, Cpu, Setting, QuestionFilled } from '@element-plus/icons-vue'
 const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
@@ -358,6 +362,12 @@ function bytes(value) {
 </script>
 
 <style scoped>
+.metric-help {
+  margin-left: 4px;
+  vertical-align: middle;
+  color: var(--el-text-color-placeholder);
+  cursor: help;
+}
 .http-heading {
   font-size: 15px;
   font-weight: 500;
