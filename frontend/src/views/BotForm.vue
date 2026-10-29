@@ -20,6 +20,7 @@
       ref="formRef"
       :model="form"
       :rules="rules"
+      :validate-on-rule-change="false"
       label-position="top"
       class="bot-form-body"
       @submit.prevent="handleSubmit"
@@ -52,8 +53,16 @@
 
       <el-form-item v-if="auth.isSuperAdmin || isEdit" :label="$t('feishu.platform')">
         <el-select v-model="form.platform" :disabled="isEdit" style="width: 100%">
-          <el-option v-if="isEdit || platformAccess.Infoflow" label="Infoflow" value="Infoflow" />
-          <el-option v-if="isEdit || platformAccess.Feishu" label="飞书 / Feishu" value="Feishu" />
+          <el-option
+            v-if="isEdit || platformAccess.Infoflow"
+            :label="platformLabel('Infoflow', t)"
+            value="Infoflow"
+          />
+          <el-option
+            v-if="isEdit || platformAccess.Feishu"
+            :label="platformLabel('Feishu', t)"
+            value="Feishu"
+          />
         </el-select>
       </el-form-item>
       <template v-if="form.platform.toLowerCase() === 'feishu'">
@@ -82,10 +91,15 @@
           </el-select>
         </el-form-item>
         <el-form-item
-          :label="$t('feishu.group')"
           prop="group_id"
           :rules="[{ required: true, message: t('feishu.required'), trigger: 'blur' }]"
         >
+          <template #label>
+            {{ $t('feishu.group') }}
+            <el-tooltip :content="$t('feishu.groupHelp')" placement="top" effect="light">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-input v-model="form.group_id" :disabled="isEdit" placeholder="oc_…" />
           <FeishuGroupInfo
             :bot-id="isEdit ? bot?.id : null"
@@ -479,6 +493,7 @@
 
 <script setup>
 import { copyBotTemplate } from '../utils/botTemplate'
+import { platformLabel } from '../utils/platformDisplay'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -544,6 +559,27 @@ const form = reactive({
   aes_key: '',
   token: '',
 })
+
+watch(
+  () => form.platform,
+  async () => {
+    if (isEdit.value) return
+    // New-platform setup must never carry another platform's credentials or group.
+    form.group_id = ''
+    form.webhook_url = ''
+    form.aes_key = ''
+    form.token = ''
+    form.feishu_application_id = null
+    await nextTick()
+    formRef.value?.clearValidate([
+      'webhook_url',
+      'aes_key',
+      'token',
+      'group_id',
+      'feishu_application_id',
+    ])
+  }
+)
 
 // Advanced runtime config — maps to Bot.config_overrides
 const advancedConfig = reactive({

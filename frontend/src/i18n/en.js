@@ -1,5 +1,10 @@
 export default {
   feishu: {
+    infoflowLabel: '如流 / Infoflow',
+    feishuLabel: '飞书 / Feishu',
+    groupHelp:
+      'Add this application’s bot to the resource group, then mention it in a real group message to receive the current Chat ID and setup instructions. Copy the oc_… ID here. The server still validates the application and group association.',
+
     groupCached: 'Cached name',
     retryGroup: 'Retry',
     groupCachedPermission:
@@ -31,8 +36,8 @@ export default {
 
     enabledPlatforms: 'Enabled platforms',
     enabledPlatformsHint: 'Applies to new bots only. Existing bots keep running.',
-    infoflow: 'Infoflow',
-    feishu: 'Feishu',
+    infoflow: '如流 / Infoflow',
+    feishu: '飞书 / Feishu',
 
     applications: 'Feishu applications',
     add: 'Add application',
@@ -917,7 +922,7 @@ export default {
     sources: { api: 'Agent API', chat: 'Chat', service_key: 'OP API Key' },
     booleanValues: { true: 'Yes', false: 'No' },
     actions: {
-      'task_private.read': 'Read private task details',
+      'task_private.read': 'Read Agent task notes',
       'resource_auth.bind': 'Bind Agent authorization',
       'resource_auth.unbind': 'Unbind Agent authorization',
       'bot.resource_auth_enabled': 'Enable Agent access',

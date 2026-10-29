@@ -1,5 +1,10 @@
 export default {
   feishu: {
+    infoflowLabel: '如流 / Infoflow',
+    feishuLabel: '飞书 / Feishu',
+    groupHelp:
+      '先将此应用的机器人加入资源群，再在群内真实 @机器人，获取当前 Chat ID 和绑定指引；把 oc_… 标识复制到这里。保存时仍会校验应用与群关联。',
+
     groupCached: '缓存名称',
     retryGroup: '重试',
     groupCachedPermission: '当前为缓存名称；请检查应用的群信息读取权限。',
@@ -30,8 +35,8 @@ export default {
 
     enabledPlatforms: '开放的平台',
     enabledPlatformsHint: '仅控制新建机器人，不会停用已有机器人。',
-    infoflow: '如流',
-    feishu: '飞书',
+    infoflow: '如流 / Infoflow',
+    feishu: '飞书 / Feishu',
 
     applications: '飞书应用',
     add: '添加应用',
@@ -893,7 +898,7 @@ export default {
     sources: { api: 'Agent API', chat: '群聊', service_key: 'OP API Key' },
     booleanValues: { true: '是', false: '否' },
     actions: {
-      'task_private.read': '查看私密任务信息',
+      'task_private.read': '查看 Agent 详细任务备注',
       'resource_auth.bind': '绑定 Agent 授权',
       'resource_auth.unbind': '解绑 Agent 授权',
       'bot.resource_auth_enabled': '开启 Agent 访问',

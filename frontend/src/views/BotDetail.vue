@@ -68,7 +68,9 @@
             <el-tag size="small" effect="plain" :class="botTypeTagClass(bot.bot_type)">{{
               botTypeLabel(bot.bot_type)
             }}</el-tag>
-            <el-tag size="small" type="info" effect="plain">{{ bot.platform }}</el-tag>
+            <el-tag size="small" type="info" effect="plain">{{
+              platformLabel(bot.platform, $t)
+            }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.status')">
             <StatusBadge :status="bot.status" />
@@ -597,6 +599,7 @@
 </template>
 
 <script setup>
+import { platformLabel } from '../utils/platformDisplay'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
