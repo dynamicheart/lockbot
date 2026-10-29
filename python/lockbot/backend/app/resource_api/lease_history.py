@@ -330,7 +330,10 @@ class LeaseJournal:
 
     def checkpoint(self, data):
         with self.lock:
+            captured_at = time.time()
             current = self._canonical(data)
+            if captured_at < self.timestamp:
+                self.gap = "clock_reversal"
             if len(json.dumps(current, ensure_ascii=False).encode()) > MAX_LINE_BYTES:
                 current = {"allocations": [], "bookings": [], "complete": False}
             if current != self.state and self.gap is None:
@@ -345,7 +348,7 @@ class LeaseJournal:
                 "integrity_boundary": self.gap,
                 "session": self.session,
                 "sequence": self.sequence,
-                "timestamp": time.time(),
+                "timestamp": captured_at,
                 "after_digest": digest(current),
                 "state": current,
                 "consistent": not self.gap and current["complete"] and current == self.state,

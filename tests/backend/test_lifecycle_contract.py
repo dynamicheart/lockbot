@@ -320,3 +320,16 @@ def test_acknowledged_frame_identity_memory_is_bounded(tmp_path, clock):
     assert journal.outbox.pending == []
     assert journal.outbox.known == set()
     assert len(journal.outbox.versions) == 1
+
+
+def test_checkpoint_clock_reversal_cannot_verify_a_window_without_another_write(tmp_path, clock):
+    bot, journal, _ = make_bot(tmp_path, clock)
+    clock[0] = 1010
+    execute_text_command("alice", "lock n1 1m", bot, source="api")
+    clock[0] = 1005
+    checkpoint = journal.checkpoint(bot.state.bot_state)
+    assert checkpoint["consistent"] is False
+    assert checkpoint["integrity_boundary"] == "clock_reversal"
+    assert not lifecycle_feed.read_feed(identity(), start=1000, end=1005, checkpoint=checkpoint)["coverage"][
+        "complete_window"
+    ]
