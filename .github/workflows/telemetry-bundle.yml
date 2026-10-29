@@ -54,7 +54,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: telemetry-${{ matrix.platform }}
-          path: dist-telemetry/*
+          path: |
+            dist-telemetry/*.tar.gz
+            dist-telemetry/*.sha256
           retention-days: 90
       - name: Publish release assets
         if: github.ref_type == 'tag'
@@ -62,6 +64,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes || gh release view "$GITHUB_REF_NAME"
-          gh release upload "$GITHUB_REF_NAME" dist-telemetry/* --clobber
+          gh release upload "$GITHUB_REF_NAME" dist-telemetry/*.tar.gz dist-telemetry/*.sha256 --clobber
     permissions:
       contents: write
