@@ -98,6 +98,8 @@ export default {
     group: 'Resource group Chat ID',
   },
   agentHistory: {
+    agentLabel: 'Agent:',
+    noteLabel: 'Note:',
     operations: {
       command: 'Command',
       usage: { update: 'Update purpose', delete: 'Remove purpose' },

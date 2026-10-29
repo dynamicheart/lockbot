@@ -48,10 +48,11 @@
       </el-table-column>
       <el-table-column :label="$t('agentHistory.task')" min-width="220" show-overflow-tooltip
         ><template #default="{ row }"
-          >{{ row.public_task || '—'
-          }}<small v-if="row.agent_label || row.purpose"
-            >{{ row.agent_label }} {{ row.purpose }}</small
-          ></template
+          ><span v-if="row.public_task">{{ row.public_task }}</span
+          ><small v-if="row.agent_label"
+            >{{ $t('agentHistory.agentLabel') }} {{ row.agent_label }}</small
+          ><small v-if="row.purpose">{{ $t('agentHistory.noteLabel') }} {{ row.purpose }}</small
+          ><span v-if="!row.public_task && !row.agent_label && !row.purpose">—</span></template
         ></el-table-column
       >
       <el-table-column :label="$t('agentHistory.outcome')" min-width="150"
