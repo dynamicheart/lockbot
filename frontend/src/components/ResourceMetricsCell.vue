@@ -11,70 +11,78 @@
           >{{ $t('utilization.availableMemory') }} {{ metricText(host.available) }} ·
           {{ $t('utilization.cacheMemory') }} {{ metricText(host.cache) }}</span
         >
-        <span v-for="disk in host.filesystems" :key="disk.name" :title="memoryText(disk)">
-          {{ $t('utilization.disk') }} {{ disk.name }} {{ memoryPercent(disk) }}
-        </span>
+        <div v-if="host.filesystems?.length" class="filesystem-metrics">
+          <span v-for="disk in host.filesystems" :key="disk.name" :title="memoryText(disk)">
+            {{ $t('utilization.disk') }} {{ disk.name }} {{ memoryPercent(disk) }}
+          </span>
+        </div>
       </div>
       <span v-if="!cards.length" class="is-muted">—</span>
-      <div v-for="card in cards" :key="card.device" class="card-metric">
-        <div class="card-values">
-          <span class="device-name">{{ deviceName(card.device) }}</span>
-          <span
-            v-if="Object.values(card.metrics).every((metric) => state(metric) !== 'ok')"
-            class="is-muted"
-            >{{ metricText(card.metrics.compute, true) }}</span
-          >
-          <template v-else>
-            <strong :class="loadClass(card)">{{ metricText(card.metrics.compute, true) }}</strong>
-            <span class="metrics-memory" :class="capacityClass(card.metrics)">{{
-              memoryText(card.metrics)
+      <div class="card-metrics-grid">
+        <div v-for="card in cards" :key="card.device" class="card-metric">
+          <div class="card-values">
+            <span class="device-name" :title="deviceName(card.device)">{{
+              deviceName(card.device)
             }}</span>
-          </template>
-        </div>
-        <el-popover
-          v-if="card.processes?.length || card.processesTruncated"
-          trigger="click"
-          popper-class="resource-process-popover"
-          placement="left"
-          :width="560"
-        >
-          <template #reference>
-            <button class="process-link" type="button">
-              {{ $t('utilization.processCount', { count: card.processes.length })
-              }}{{ card.processesTruncated ? '+' : '' }}
-            </button>
-          </template>
-          <div class="process-detail">
-            <strong>{{ nodeId }} · {{ deviceName(card.device) }}</strong>
-            <p>{{ $t('utilization.processNote') }}</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>{{ $t('utilization.container') }}</th>
-                  <th>{{ $t('utilization.hostUser') }}</th>
-                  <th>PID</th>
-                  <th>{{ $t('utilization.command') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(process, index) in card.processes" :key="index">
-                  <td :title="process.containerId">
-                    {{
-                      process.containerName || process.containerId || $t('utilization.hostProcess')
-                    }}
-                  </td>
-                  <td>{{ process.user || '—' }}</td>
-                  <td>{{ process.pid || '—' }}</td>
-                  <td>
-                    <code>{{ process.command || '—' }}</code>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p v-if="card.processesTruncated">{{ $t('utilization.processTruncated') }}</p>
-            <p>{{ $t('utilization.sampled') }}: {{ sampleTime(card) }}</p>
+            <span
+              v-if="Object.values(card.metrics).every((metric) => state(metric) !== 'ok')"
+              class="is-muted"
+              >{{ metricText(card.metrics.compute, true) }}</span
+            >
+            <template v-else>
+              <strong :class="loadClass(card)">{{ metricText(card.metrics.compute, true) }}</strong>
+              <span class="metrics-memory" :class="capacityClass(card.metrics)">{{
+                memoryText(card.metrics)
+              }}</span>
+            </template>
           </div>
-        </el-popover>
+          <el-popover
+            v-if="card.processes?.length || card.processesTruncated"
+            trigger="click"
+            popper-class="resource-process-popover"
+            placement="left"
+            :width="560"
+          >
+            <template #reference>
+              <button class="process-link" type="button">
+                {{ $t('utilization.processCount', { count: card.processes.length })
+                }}{{ card.processesTruncated ? '+' : '' }}
+              </button>
+            </template>
+            <div class="process-detail">
+              <strong>{{ nodeId }} · {{ deviceName(card.device) }}</strong>
+              <p>{{ $t('utilization.processNote') }}</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>{{ $t('utilization.container') }}</th>
+                    <th>{{ $t('utilization.hostUser') }}</th>
+                    <th>PID</th>
+                    <th>{{ $t('utilization.command') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(process, index) in card.processes" :key="index">
+                    <td :title="process.containerId">
+                      {{
+                        process.containerName ||
+                        process.containerId ||
+                        $t('utilization.hostProcess')
+                      }}
+                    </td>
+                    <td>{{ process.user || '—' }}</td>
+                    <td>{{ process.pid || '—' }}</td>
+                    <td>
+                      <code>{{ process.command || '—' }}</code>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p v-if="card.processesTruncated">{{ $t('utilization.processTruncated') }}</p>
+              <p>{{ $t('utilization.sampled') }}: {{ sampleTime(card) }}</p>
+            </div>
+          </el-popover>
+        </div>
       </div>
     </template>
   </div>
@@ -150,11 +158,20 @@ function loadClass(card) {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+}
+.card-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 6px 10px;
 }
 .card-values {
   display: grid;
   flex: 1;
-  grid-template-columns: minmax(30px, 0.3fr) 36px minmax(90px, 1fr);
+  grid-template-columns: 36px 34px minmax(0, 1fr);
   align-items: baseline;
   gap: 5px;
 }
@@ -172,6 +189,12 @@ function loadClass(card) {
 .host-metrics {
   display: grid;
   gap: 3px;
+  margin-bottom: 5px;
+}
+.filesystem-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
 }
 .load-low {
   color: var(--el-color-success-dark-2);
