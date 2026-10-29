@@ -15,14 +15,19 @@ ACTOR = "alice"
 
 
 @pytest.fixture(autouse=True)
-def _reset_budget():
+def _reset_budget(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(notification_budget, "clock", lambda: clock[0])
     notification_budget.reset()
-    yield
+    yield clock
     notification_budget.reset()
 
 
 @pytest.fixture
 def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path):
+    clock = [0.0]
+    monkeypatch.setattr(notification_budget, "clock", lambda: clock[0])
+    notification_budget.reset()
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
 
     created = client.post(
@@ -56,6 +61,10 @@ def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path)
             "ALLOW_USER_ALIAS": True,
         },
     )
+    from lockbot.backend.app.bots.models import Bot
+
+    db_session.get(Bot, bot_id).status = "running"
+    db_session.commit()
     bot = manager.get_instance(bot_id).bot
     bot.adapter = FakeAdapter(config=bot.config)
 
@@ -71,6 +80,7 @@ def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path)
             "credential": issued["credential"],
             "bind_code": issued["bind_code"],
             "log_dir": tmp_path,
+            "clock": clock,
         }
     manager.shutdown_all()
 
@@ -184,37 +194,31 @@ class TestCoalescing:
     def test_burst_suppression_does_not_add_counter_noise(self, client, api):
         for _ in range(3):
             _post(client, api, "lock n1 1m")
-        notification_budget._last_sent.clear()  # the interval has notionally elapsed
-        _post(client, api, "lock n1 1m")
+        api["clock"][0] = 10.0
+        assert notification_budget.run_due() == 1
         assert len(api["bot"].adapter.sent) == 2
         assert "另有" not in _sent_text(api)
 
-    def test_concurrent_claims_yield_exactly_one_send(self):
-        """The budget itself must be the serialization point.
+    def test_concurrent_offers_yield_one_first_send(self):
+        from lockbot.backend.app.resource_api.notification_queue import NotificationQueue, PublicEvent
+        from lockbot.backend.app.resource_api.notifications import NotificationTarget
 
-        Exercised directly rather than over HTTP: the test suite shares one SQLite
-        connection, so hammering the route from threads tests the fixture, not the budget.
-        """
-        from lockbot.backend.app.resource_api.notifications import _NotificationBudget
-
-        budget = _NotificationBudget(min_interval=60.0)
+        budget = NotificationQueue(lambda target, text: "accepted", clock=lambda: 0.0, interval=60)
+        target = NotificationTarget(4242, "fixture", 0, 1, "route", "zh")
         barrier = threading.Barrier(8)
         granted = []
 
-        def claim():
+        def offer():
             barrier.wait()
-            may_send, _ = budget.claim(4242)
-            if may_send:
-                granted.append(1)
+            granted.append(budget.offer(target, PublicEvent("operation", "lock"), immediate=lambda text: "accepted"))
 
-        threads = [threading.Thread(target=claim, daemon=True) for _ in range(8)]
+        threads = [threading.Thread(target=offer) for _ in range(8)]
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(10)
-
+            thread.join(2)
         assert sum(granted) == 1
-        assert budget._suppressed[4242] == 7
+        assert len(budget._batches[4242].events) == 7
 
 
 class TestObservability:
