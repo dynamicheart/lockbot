@@ -1,5 +1,11 @@
 export default {
   feishu: {
+    unboundGreeting: 'Show setup guidance when joining a group',
+    unboundGreetingHelp: 'Off by default. Requires bot membership event subscriptions. In a new unbound internal group, send this site URL and Chat ID without automatically binding resources. Enabling does not verify permission approval.',
+    membershipNotices: 'Warn when the bot leaves its group',
+    membershipNoticesHelp: 'Off by default. Requires bot membership events. Show removal observations in this bot’s admin page without deleting resources or messaging other groups.',
+    membershipRemoved: 'A bot-removal event was received. Confirm the bot is still in the group and add it back if needed.',
+
     editApplication: 'Edit application',
     receiverRestartAfterUpdate:
       'Saved. Refresh receiver status and start the application connection again.',

@@ -1,5 +1,11 @@
 export default {
   feishu: {
+    unboundGreeting: '入群后提示资源绑定',
+    unboundGreetingHelp: '默认关闭。需订阅机器人进出群事件；应用进入尚未绑定的内部群时，发送本站后台地址与当前群 Chat ID，不自动绑定资源。开启不代表事件权限已获批。',
+    membershipNotices: '机器人退群提示',
+    membershipNoticesHelp: '默认关闭。需订阅机器人进出群事件。接到退群事件后在本机器人后台提示，不删除资源或向其它群发消息。',
+    membershipRemoved: '最近收到机器人退群事件，请确认机器人仍在群内，必要时重新添加。',
+
     editApplication: '编辑应用',
     receiverRestartAfterUpdate: '已保存。请刷新接收状态，并重新启动应用连接。',
     keepSecret: '留空保留已保存的 Secret',
