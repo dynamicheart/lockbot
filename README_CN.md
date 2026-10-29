@@ -1,6 +1,6 @@
 # lockbot
 
-集群资源管理机器人，支持通过即时通讯平台（如百度如流）的对话命令锁定和释放 GPU 设备、集群节点和队列资源。
+支持如流 / Infoflow、飞书 / Feishu 的集群资源管理与排队机器人，通过群聊命令锁定、预约和释放节点或设备。
 
 统一使用 FastAPI + Vue.js 管理平台部署，支持管理一个或多个机器人。
 
@@ -16,74 +16,48 @@
 - **设备锁机器人** — 按单个 GPU/设备维度锁定和释放
 - **节点锁机器人** — 按整个集群节点维度锁定和释放
 - **队列机器人** — 管理资源分配队列，支持预约和抢占
+- **按卡排队机器人** — 使用 `QUEUE_DEVICE` 按设备预约和排队
+- **Agent 接入** — 个人授权、资源发现和版本化 Skill
+- **利用率** — 浏览器和 Agent 可选直连独立 Prometheus 数据源
 - **平台模式** — Web 管理界面（Vue 3 + Element Plus），支持多机器人管理、
   用户认证（JWT）、角色权限控制和实时日志
 - **状态持久化** — 机器人状态重启后自动恢复（文件存储）
 - **双语支持** — 界面和机器人回复均支持中英文
 
-## 快速开始 — 平台模式（推荐）
+## 快速开始 — Docker
 
-完整管理平台，包含 Web UI、多机器人编排、用户认证和管理员面板。
-
-1. 安装：
+正式镜像包含网页界面和飞书依赖。按照[部署指南](docs/agents/deployment/AGENTS.md)准备私有环境文件，配置 `JWT_SECRET` 和 `ENCRYPTION_KEY`。升级时保留原密钥和数据卷。
 
 ```bash
-pip install lockbot
-```
-
-2. 设置环境变量：
-
-```bash
-export JWT_SECRET="your-jwt-secret"
-export ENCRYPTION_KEY="your-fernet-key"    # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-export DEV_MODE="true"                      # 开发模式，自动创建管理员用户
-```
-
-3. 启动：
-
-```bash
-# 后端
-uvicorn lockbot.backend.app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 前端（另一个终端）
-cd frontend && npm install && npm run dev
-```
-
-4. 打开 `http://localhost:8000`。
-
-### Docker 部署
-
-```bash
-# 1. 生成 ENCRYPTION_KEY 和 JWT_SECRET
-python tools/gen_keys.py
-
-# 2. 拉取预构建镜像（或从源码构建）
-docker pull ghcr.io/dynamicheart/lockbot:latest
-# docker build -f docker/Dockerfile -t lockbot .
-
-# 3. 运行（将密钥替换为生成的值）
+docker pull ghcr.io/dynamicheart/lockbot:v3.0.0
 docker run -d --name lockbot -p 8000:8000 \
-  -e JWT_SECRET=your-secret \
-  -e ENCRYPTION_KEY=your-fernet-key \
+  --env-file /private/path/lockbot.env \
   -v lockbot-data:/data \
-  ghcr.io/dynamicheart/lockbot:latest
+  ghcr.io/dynamicheart/lockbot:v3.0.0
 
-# 4. 创建 super_admin（密码自动生成并打印）
+# 仅新安装：在交互终端创建初始超级管理员。
 docker exec -it lockbot python tools/create_super_admin.py --username admin --email admin@example.com
 ```
 
-> **数据持久化**：所有数据（SQLite 数据库、机器人状态文件）统一存储在 `/data` 目录下，可通过 `DATA_DIR` 环境变量自定义。
+打开 `http://localhost:8000`。数据保存在 `/data`；升级沿用原端口和挂载。同一数据目录只运行一个进程实例。
+
+- [Agent 辅助部署与升级](docs/agents/deployment/AGENTS.md)：环境检查和 Compose 模板
+- [如流与飞书配置](docs/agents/platforms/AGENTS.md)、[飞书图文指南](docs/usage/feishu-setup.md)
+- [Agent API 与 Skill](docs/agent-api/SKILL.md)
+- [独立利用率服务部署](docs/usage/telemetry-deployment.md)、[网页利用率](docs/usage/browser-utilization.md)
+
+飞书采用一个企业应用服务多个资源群，每群对应独立的资源机器人，不支持单聊操作。如流与飞书的凭证和用户独立，复制配置不会共享实时锁或授权。
 
 ## 机器人配置
 
 | 配置项 | 说明 | 默认值 |
 |---|---|---|
-| `BOT_TYPE` | `DEVICE`、`NODE` 或 `QUEUE` | （必填） |
+| `BOT_TYPE` | `NODE`、`DEVICE`、`QUEUE` 或 `QUEUE_DEVICE` | （必填） |
 | `BOT_NAME` | 机器人实例名称 | `demo_bot` |
 | `CLUSTER_CONFIGS` | 集群布局（字典或列表） | `{}` |
-| `TOKEN` | 机器人签名验证 Token | `""` |
-| `AESKEY` | 消息解密 AES 密钥 | `""` |
-| `WEBHOOK_URL` | 消息发送 Webhook URL | `""` |
+| `TOKEN` | 如流签名验证 Token | `""` |
+| `AESKEY` | 如流消息解密 AES 密钥 | `""` |
+| `WEBHOOK_URL` | 如流消息发送 Webhook URL | `""` |
 | `DEFAULT_DURATION` | 默认锁定时长（秒） | `7200`（2小时） |
 | `MAX_LOCK_DURATION` | 最大锁定时长（秒） | `-1`（不限制） |
 | `EARLY_NOTIFY` | 锁定到期前通知 | `false` |
@@ -112,7 +86,7 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 
 ```bash
 # 安装依赖
-pip install -e ".[dev]"
+pip install -e ".[dev,feishu]"
 cd frontend && npm install && cd ..
 
 # 启动后端（端口 8002，支持热重载）
@@ -122,13 +96,13 @@ bash scripts/dev/backend.sh
 bash scripts/dev/frontend.sh
 ```
 
-前后端均支持热重载，修改代码后自动生效。
+开发页面位于 `http://localhost:8001`，API 代理到 8002。热重载脚本用于开发环境，正式部署使用上面的镜像；后续开发基于 `main`。
 
 ### 测试
 
 ```bash
-# 运行测试
-pytest
+# 按文件隔离的并发测试
+pytest -n auto --maxprocesses=4 --dist=loadfile
 
 # 代码检查 + 格式化
 ruff check python/ tests/

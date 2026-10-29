@@ -1,6 +1,31 @@
 # Roadmap
 
-Updated 2026-10-29. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/issues/27) tracks execution and [the requirement coverage matrix](docs/design/requirement-coverage.md) maps the discussion to evidence and remaining acceptance. Implementation, merge, release, deployment and acceptance are different states. An open PR or a successful local test is not a production rollout.
+Updated 2026-10-30. [Roadmap issue #27](https://github.com/dynamicheart/lockbot/issues/27) tracks execution and [the requirement coverage matrix](docs/design/requirement-coverage.md) maps the discussion to evidence and remaining acceptance. Implementation, merge, release, deployment and acceptance are different states. An open PR or a successful local test is not a production rollout.
+
+## Current delivery
+
+- **3.0.0 is released and formally deployed.** [Release](https://github.com/dynamicheart/lockbot/releases/tag/v3.0.0), accepted commit `80cc6a5`, PRs #25/#58. All required checks passed; full integration validation: 1,820 backend passed / 7 skipped and 170 frontend passed.
+- The formal upgrade preserves original ports, data, keys, configuration, active locks, queues and bindings. Post-upgrade ordinary-owner and OP projections exclude other-user detailed notes. The independent source query returned 16 hosts, 64 cards and cache/available-memory metrics for all hosts.
+- `main` is the default development branch, aligned to the accepted release commit at transition. The previous main is archived in `archive/main-before-v3-20261029`; `release/2.x` remains historical. Both main and the historical release branch prohibit force pushes/deletion and require the six CI checks.
+- The image artifact was downloaded and verified: SHA-256 `e60e3340c925ffaf64215220f20047800cc34e3f132a419c89c0792a93270322` (artifact `12912523018`). Telemetry bundles for amd64/arm64 are release assets.
+- **Corporate Feishu approval is pending human review.** Code availability does not create or approve an enterprise application. Keep test and production application identities separate.
+
+## Remaining work
+
+| Issue | Remaining scope |
+| --- | --- |
+| [#24](https://github.com/dynamicheart/lockbot/issues/24) | Actual external Agent adoption of handoff/version/privacy rules; server hints cannot compel arbitrary clients |
+| [#21](https://github.com/dynamicheart/lockbot/issues/21) | Further explainable resource-use analysis; report only measured allocation evidence, not hardware work |
+| [#28](https://github.com/dynamicheart/lockbot/issues/28) | Broader NVIDIA deployment and measured driver-lock/workload impact; retain five-minute collection defaults |
+| [#33](https://github.com/dynamicheart/lockbot/issues/33) | Additional isolated-source trust/client connectivity rollout; the bastion/VPN experiment remains user-deferred |
+| [#54](https://github.com/dynamicheart/lockbot/issues/54) | Durable lifecycle audit API contract and explicit coverage |
+| [#56](https://github.com/dynamicheart/lockbot/issues/56) | Separately delegated super-administrator detailed-note credentials |
+| [#57](https://github.com/dynamicheart/lockbot/issues/57) | Versioned messaging credentials and an additive legacy-compatible migration |
+
+<details>
+<summary>Historical delivery and acceptance snapshots before the 3.0.0 rollout</summary>
+
+The following records preserve earlier implementation/release boundaries. Their pending rollout and branch-transition wording describes those historical snapshots; use the current delivery and remaining-work sections above for present status.
 
 ## Delivery snapshot
 
@@ -117,3 +142,5 @@ See [upgrade and database compatibility](docs/design/upgrade-rollback.md#飞书-
 Committed PR #25 administration UI work centers bounded site settings, simplifies broadcast preview/results, separates Agent access statistics / operation history / authorization records, limits the detailed-note switch to Agent operation history, keeps other bot-detail views public-only, and moves long monitoring explanations into tooltips. Feishu application names and receiver state are displayed explicitly, and resource-type labels preserve uppercase `QUEUE_DEVICE`. Integration screenshot/API acceptance is recorded privately. The 169-test frontend result is not proof of formal rollout or a hardware-performance measurement.
 
 Commit `27e3cb8` adds platform filters and further simplifies the broadcast dialog; these committed changes are newer than deployed `810ae4b`. Commit `c771736` defaults the bot list and administrative bot monitor to running bots; stopped bots remain selectable through the status filter. Application management is still **pending tests and commit**: do not claim application rename/edit, credential rotation or guarded deletion is released, deployed or accepted before that work is verified. Corporate permission/approval review and post-3.0.0 issues #54/#56/#57 remain unchanged.
+
+</details>

@@ -148,7 +148,7 @@ def _context_payload(request, response, db, row):
             "access": issue_metrics_access(db, bot, expires_at=row.credential_expires_at)
             if bot.resource_auth_enabled
             else None,
-            "guide_url": "https://github.com/dynamicheart/lockbot/blob/release/2.x/docs/usage/browser-utilization.md",
+            "guide_url": "https://github.com/dynamicheart/lockbot/blob/main/docs/usage/browser-utilization.md",
         }
         if public_datasource(bot)
         else None,

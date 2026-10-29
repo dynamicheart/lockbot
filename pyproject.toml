@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lockbot"
 version = "3.0.0"
-description = "Cluster resource management bot for IM platforms"
+description = "Cluster resource management and queuing for Infoflow and Feishu"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
