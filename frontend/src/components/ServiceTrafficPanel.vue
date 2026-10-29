@@ -10,12 +10,6 @@
           >
         </p>
       </div>
-      <el-switch
-        v-if="!props.botId && authStore.isSuperAdmin"
-        v-model="showPrivateTasks"
-        :active-text="$t('audit.privateView')"
-        :title="$t('audit.privateViewHelp')"
-      />
       <el-button :loading="loading" @click="refresh"
         ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button
       >
@@ -265,18 +259,12 @@ import { Refresh, ChatDotRound, Cpu, Setting } from '@element-plus/icons-vue'
 const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
-import { useAuthStore } from '../stores/auth'
 import { createServiceTrafficLoader } from '../utils/serviceTrafficLoader'
 import { buildOperationTrend, operationSources } from '../utils/operationTrend'
 const props = defineProps({
   botId: { type: [Number, String], default: null },
   includePrivate: { type: Boolean, default: false },
 })
-const authStore = useAuthStore()
-const showPrivateTasks = ref(false)
-const privateTaskView = computed(
-  () => authStore.isSuperAdmin && (props.botId ? props.includePrivate : showPrivateTasks.value)
-)
 const { locale, t } = useI18n()
 const selectedBot = ref(null)
 const botOptions = ref([])
@@ -311,7 +299,7 @@ let poll = null
 const scope = () => ({
   botId: props.botId || null,
   filterBot: props.botId ? null : selectedBot.value,
-  includePrivate: privateTaskView.value,
+  includePrivate: false,
 })
 const loader = createServiceTrafficLoader({
   canRequest: () => !document.hidden,
@@ -334,29 +322,19 @@ const loader = createServiceTrafficLoader({
 })
 const refresh = () => loader.refresh()
 watch(
-  [() => props.botId, selectedBot, privateTaskView],
-  ([botId, filterBot], [previousBotId, previousFilter]) => {
-    if (botId !== previousBotId || filterBot !== previousFilter) showPrivateTasks.value = false
+  [() => props.botId, selectedBot],
+  ([botId], [previousBotId]) => {
     if (botId !== previousBotId) selectedBot.value = null
     loader.setScope(scope())
   },
   { flush: 'sync' }
 )
-watch(
-  () => authStore.isSuperAdmin,
-  (allowed) => {
-    if (!allowed) showPrivateTasks.value = false
-  },
-  { flush: 'sync' }
-)
 const visible = () => {
-  if (!document.hidden && !privateTaskView.value) refresh()
+  if (!document.hidden) refresh()
 }
 onMounted(() => {
   loader.setScope(scope())
-  poll = setInterval(() => {
-    if (!privateTaskView.value) refresh()
-  }, 15000)
+  poll = setInterval(refresh, 15000)
   document.addEventListener('visibilitychange', visible)
 })
 onBeforeUnmount(() => {
