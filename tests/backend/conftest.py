@@ -58,6 +58,8 @@ def _setup_db(tmp_path, _managed_deployment):
 
     _broadcast_patcher = patch("lockbot.backend.app.broadcast.service.broadcast_worker.start")
     _broadcast_patcher.start()
+    _notification_patcher = patch("lockbot.backend.app.resource_api.notifications.notification_budget.start")
+    _notification_patcher.start()
 
     # Disable rate limiting in tests — the in-memory limiter state persists
     # across fixture calls within a session and causes spurious 429 errors.
@@ -89,6 +91,7 @@ def _setup_db(tmp_path, _managed_deployment):
 
     Base.metadata.create_all(bind=_engine)
     yield
+    _notification_patcher.stop()
     _broadcast_patcher.stop()
     _limiter_patcher.stop()
     _patcher.stop()

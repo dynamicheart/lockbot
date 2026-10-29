@@ -238,3 +238,36 @@ def test_legacy_log_projection_rejects_malformed_metadata():
 
     raw = {key: {"private": "hidden"} for key in ("id", "created_at", "level", "category", "source", "message")}
     assert public_log_entry(raw) == {"message": "—", "details_restricted": True}
+
+
+@pytest.mark.parametrize("bad", [{"private": "hidden-task"}, ["hidden-task"], None])
+def test_legacy_logs_route_normalizes_bad_metadata_before_filter_sort_and_download(client, api, monkeypatch, bad):
+    from pathlib import Path
+
+    from lockbot.backend.app.bots.router import _get_log_file
+
+    monkeypatch.setattr("lockbot.backend.app.bots.router.bot_manager", api["manager"])
+    entries = [
+        {"level": bad, "category": bad, "created_at": bad, "message": "hidden-task"},
+        {"level": "INFO", "category": "command", "created_at": "2026-01-01 00:00:00", "message": "[alice] query"},
+        bad,  # Non-object JSON rows must not break filters or pagination either.
+    ]
+    Path(_get_log_file(api["bot_id"])).write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+    endpoint = f"/api/bots/{api['bot_id']}/logs"
+    for query in (
+        "",
+        "?level=INFO",
+        "?level=UNKNOWN",
+        "?category=system",
+        "?since=2025-01-01",
+        "?page=1&limit=10000",
+        "?page=2&limit=1",
+    ):
+        response = client.get(endpoint + query, headers=api["auth_header"])
+        assert response.status_code == 200
+        assert "hidden-task" not in response.text and "private" not in response.text
+        assert response.headers["Cache-Control"] == "no-store"
+        assert all(isinstance(row["level"], str) and isinstance(row["created_at"], str) for row in response.json())
+    rows = client.get(endpoint, headers=api["auth_header"]).json()
+    assert rows[0]["message"] == "[alice] query"
+    assert any(row["level"] == "UNKNOWN" and row["message"] == "—" for row in rows)

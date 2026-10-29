@@ -134,7 +134,7 @@ def public_log_entry(entry):
     if isinstance(entry.get("created_at"), str):
         result["created_at"] = entry["created_at"][:64]
     for key, allowed in (
-        ("level", {"DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL"}),
+        ("level", {"DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL", "UNKNOWN"}),
         ("category", {"command", "system"}),
         ("source", {"chat", "api", "service_key"}),
     ):

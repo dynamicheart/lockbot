@@ -1,6 +1,7 @@
 """Chinese (zh) message translations for lockbot."""
 
 MESSAGES = {
+    "notify.api_overflow": "另有 {count} 条操作通知因积压未包含，请管理员查看操作记录。",
     "alert.early_no_renewal": "当前禁止续期，请按时完成任务并释放资源；后续需求请重新排队。\n\n",
     "help.rule1_no_renewal": "    规则1: 默认时长{default_duration}，禁止续期；领取时长不得超过原预约时长\n",
     "error.relock_forbidden": "【禁止续期】当前占用者不能续期或预约同一资源。",

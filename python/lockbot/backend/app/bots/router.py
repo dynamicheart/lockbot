@@ -705,6 +705,10 @@ def update_bot(
             )
             db.commit()
             db.refresh(bot)
+            if changes.get("resource_api_notify_enabled", {}).get("to") is False:
+                from lockbot.backend.app.resource_api.notifications import notification_budget
+
+                notification_budget.cancel(bot_id)
             return bot
 
 
@@ -1550,7 +1554,25 @@ def get_bot_logs(
                 line = line.strip()
                 if line:
                     with contextlib.suppress(json.JSONDecodeError):
-                        entries.append(json.loads(line))
+                        entry = json.loads(line)
+                        if not isinstance(entry, dict):
+                            continue
+                        # Normalize metadata before filtering/sorting. Historical JSONL
+                        # may contain null or nested values; never stringify them into
+                        # public metadata or allow a malformed row to break log reads.
+                        entry = dict(entry)
+                        level_value = entry.get("level")
+                        level_value = level_value.upper() if isinstance(level_value, str) else "UNKNOWN"
+                        entry["level"] = (
+                            level_value
+                            if level_value in ("DEBUG", "INFO", "WARN", "WARNING", "ERROR", "CRITICAL")
+                            else "UNKNOWN"
+                        )
+                        if entry.get("category") not in ("command", "system"):
+                            entry["category"] = "system"
+                        if not isinstance(entry.get("created_at"), str):
+                            entry["created_at"] = ""
+                        entries.append(entry)
     except OSError:
         return []
 
