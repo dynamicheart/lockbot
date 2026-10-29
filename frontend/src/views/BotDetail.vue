@@ -13,6 +13,7 @@
           v-if="authStore.isSuperAdmin"
           v-model="showPrivateTasks"
           :active-text="$t('audit.privateView')"
+          :title="$t('audit.privateViewHelp')"
         />
         <el-button
           v-if="canOperate && (bot?.status === 'stopped' || bot?.status === 'error')"
@@ -230,9 +231,27 @@
           <el-descriptions-item :label="$t('botDetail.lastActive')">{{
             bot.last_request_at ? formatRelativeTime(bot.last_request_at) : '-'
           }}</el-descriptions-item>
-          <el-descriptions-item :label="$t('botDetail.lastOperator')">{{
-            bot.last_user_id || '-'
-          }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('botDetail.lastOperator')">
+            <el-tooltip :content="bot.last_user_id || ''" :disabled="!bot.last_user_id">
+              <span>{{ actorNames.label(bot.last_user_id, bot.last_user_display_name) }}</span>
+            </el-tooltip>
+            <span v-if="displayNameScope" class="display-name-status">
+              <span v-if="actorNames.status.value !== 'ready'">{{
+                $t(
+                  actorNames.status.value === 'pending'
+                    ? 'feishu.namesPending'
+                    : 'feishu.namesUnavailable'
+                )
+              }}</span>
+              <el-button
+                text
+                size="small"
+                :loading="actorNames.status.value === 'pending'"
+                @click="actorNames.refresh()"
+                >{{ $t('common.refresh') }}</el-button
+              >
+            </span>
+          </el-descriptions-item>
           <el-descriptions-item :label="$t('botDetail.botLanguage')">
             <el-radio-group v-model="botLanguage" size="small" @change="handleLanguageChange">
               <el-radio-button value="zh">中文</el-radio-button>
@@ -414,7 +433,9 @@
               effect="plain"
               style="margin: 2px"
             >
-              {{ user }}
+              <el-tooltip :content="user"
+                ><span>{{ actorNames.label(user) }}</span></el-tooltip
+              >
             </el-tag>
             <el-tag
               v-if="overflowUserCount > 0"
@@ -558,12 +579,17 @@
             />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
-            <AgentActivity
-              v-if="activityTab === 'agents'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-              @updated="loadAgentSummary"
-            />
+            <template v-if="activityTab === 'agents'">
+              <AgentActivity
+                :bot-id="bot.id"
+                :include-private="privateTaskView"
+                @updated="loadAgentSummary"
+              />
+              <section class="agent-history-section">
+                <h3>{{ $t('agentHistory.title') }}</h3>
+                <AgentHistory :bot-id="bot.id" :include-private="privateTaskView" />
+              </section>
+            </template>
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('botDetail.authorizationAudit')" name="audit">
             <BotAudit
@@ -625,11 +651,13 @@ import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { sourceResources } from '../utils/utilization/display'
 import { useDisplayClock } from '../utils/useDisplayClock'
 
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, provide, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import AgentActivity from '../components/AgentActivity.vue'
+import AgentHistory from '../components/AgentHistory.vue'
+import { actorDisplayKey, useFeishuDisplayNames } from '../utils/useFeishuDisplayNames'
 import ServiceTrafficPanel from '../components/ServiceTrafficPanel.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import BotAudit from '../components/BotAudit.vue'
@@ -675,6 +703,26 @@ const agentMetrics = computed(() =>
 )
 
 const bot = ref(null)
+const displayNameScope = computed(() => {
+  const current = bot.value
+  const viewer = authStore.user
+  if (!current || String(current.platform).toLowerCase() !== 'feishu' || viewer?.id == null)
+    return null
+  return {
+    id: current.id,
+    key: JSON.stringify([
+      current.id,
+      current.uuid,
+      current.group_id,
+      current.identity_revision,
+      viewer.id,
+      viewer.role,
+      viewer.token_version,
+    ]),
+  }
+})
+const actorNames = useFeishuDisplayNames(displayNameScope)
+provide(actorDisplayKey, actorNames)
 const resourceMetrics = ref({ enabled: false })
 const metricsClock = useDisplayClock()
 const datasourceConfig = computed(() => {
@@ -1471,6 +1519,25 @@ function formatDate(d) {
 </script>
 
 <style scoped>
+.display-name-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.agent-history-section {
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 20px;
+  margin-top: 20px;
+}
+.agent-history-section h3 {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .group-tag {
   cursor: pointer;
   margin-right: 4px;

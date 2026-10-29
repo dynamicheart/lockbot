@@ -1,5 +1,8 @@
 export default {
   feishu: {
+    namesPending: '姓名获取中…',
+    namesUnavailable: '部分姓名未获取',
+
     setupGuide: '接入说明',
     nameHelp: '本站用于辨识应用的名称，不会修改飞书机器人的名称。',
     appIdHelp: '在飞书官方开发者后台的“凭证与基础信息”复制 App ID。',
@@ -674,7 +677,7 @@ export default {
 
   // === Log Viewer ===
   log: {
-    privateDetailsRestricted: '仅显示操作摘要；私密任务与原始日志仅超级管理员可见。',
+    privateDetailsRestricted: '当前显示操作摘要；超级管理员可开启详细备注，访问会记录审计。',
     all: '全部',
     commandLog: '操作记录',
     systemLog: '系统日志',
@@ -903,6 +906,7 @@ export default {
     dispatched: '已分派',
     dispatchedNote: '命令已分派，不代表资源操作成功。请查询资源状态核实。',
     privateView: '查看 Agent 详细任务备注',
+    privateViewHelp: '这里展示 Agent 主动提交的详细备注，仅本人及超级管理员可见。',
     targetTypes: { bot: '机器人', user: '用户', service: '服务', feishu_application: '飞书应用' },
     detailFields: {
       resource_auth_enabled: '允许 Agent 访问',

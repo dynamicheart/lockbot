@@ -26,8 +26,11 @@
       >
       <el-table-column :label="$t('agentHistory.user')" min-width="150"
         ><template #default="{ row }"
-          >{{ row.actor?.external_user_id || '—'
-          }}<small
+          ><el-tooltip
+            :content="row.actor?.external_user_id || ''"
+            :disabled="!row.actor?.external_user_id"
+            ><span>{{ actorNames.label(row.actor?.external_user_id) }}</span></el-tooltip
+          ><small
             >{{ row.actor?.platform }}
             <span v-if="row.credential_ref || row.credential_id">
               · {{ row.credential_ref || '#' + row.credential_id }}</span
@@ -73,11 +76,13 @@
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
+import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 const props = defineProps({
   botId: { type: [Number, String], required: true },
   includePrivate: { type: Boolean, default: false },
 })
 const { locale } = useI18n()
+const actorNames = useActorDisplay()
 const query = ref('')
 const activeQuery = ref('')
 const items = ref([])

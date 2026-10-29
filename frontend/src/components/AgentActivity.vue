@@ -36,7 +36,11 @@
       >
         <el-table-column :label="t('agentActivity.user')" min-width="230">
           <template #default="{ row }">
-            <div class="actor-name">{{ row.external_user_id }}</div>
+            <div class="actor-name">
+              <el-tooltip :content="row.external_user_id"
+                ><span>{{ actorNames.label(row.external_user_id) }}</span></el-tooltip
+              >
+            </div>
             <div class="actor-note">
               <span>{{ row.platform }}</span>
               <el-tooltip :content="t('agentActivity.labelHelp')" placement="top">
@@ -110,6 +114,7 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
+import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 import { formatActivityTime } from '../utils/activityDisplay'
 
 const props = defineProps({
@@ -118,6 +123,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['updated'])
 const { t, locale } = useI18n()
+const actorNames = useActorDisplay()
 const items = ref([])
 const loading = ref(false)
 const error = ref(false)

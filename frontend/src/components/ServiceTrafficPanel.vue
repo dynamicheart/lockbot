@@ -14,6 +14,7 @@
         v-if="!props.botId && authStore.isSuperAdmin"
         v-model="showPrivateTasks"
         :active-text="$t('audit.privateView')"
+        :title="$t('audit.privateViewHelp')"
       />
       <el-button :loading="loading" @click="refresh"
         ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button

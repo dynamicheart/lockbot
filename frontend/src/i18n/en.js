@@ -1,5 +1,8 @@
 export default {
   feishu: {
+    namesPending: 'Resolving names…',
+    namesUnavailable: 'Some names unavailable',
+
     setupGuide: 'Setup guide',
     nameHelp:
       'A local label used to identify this application in Lockbot. It does not rename the Feishu bot.',
@@ -697,7 +700,7 @@ export default {
   // === Log Viewer ===
   log: {
     privateDetailsRestricted:
-      'Only operation summaries are shown. Private tasks and raw logs require a super administrator.',
+      'Showing operation summaries. Super administrators can enable detailed Agent notes; access is audited.',
     all: 'All',
     commandLog: 'Command Log',
     systemLog: 'System Log',
@@ -931,6 +934,8 @@ export default {
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
     privateView: 'Show Agent task notes',
+    privateViewHelp:
+      'Notes are submitted by the Agent and are visible only to the same user and super administrators.',
     targetTypes: {
       bot: 'Bot',
       user: 'User',
