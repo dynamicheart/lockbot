@@ -269,13 +269,16 @@ def read_history(bot_id, *, limit=25, cursor=None, query="", private=False):
                         {
                             key: row[key]
                             for key in (
+                                "schema_version",
                                 "timestamp",
+                                "bot_type",
                                 "operation",
                                 "command",
                                 "agent_label",
                                 "purpose",
                                 "task_category",
                                 "public_task",
+                                "previous_task_category",
                                 "actor",
                                 "credential_id",
                                 "credential_ref",
