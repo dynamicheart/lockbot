@@ -121,7 +121,8 @@ def test_card_readonly_view_includes_full_queue_and_omits_caller_fields(client, 
     assert payload.status_code == 200, payload.text
     device = payload.json()["resources"][0]["devices"][0]
     assert device["booking_list"][0]["duration_seconds"] == 1800
-    assert device["booking_list"][0]["usage"]["purpose"] == "Regression"
+    assert "purpose" not in device["booking_list"][0]["usage"]
+    assert "Regression" not in payload.text
     assert "claimable_by_you" not in device and "binding_id" not in json.dumps(device)
 
 

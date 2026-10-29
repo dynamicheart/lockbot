@@ -238,7 +238,9 @@ def get_resources(
         platform=platform,
         caller_id=actor.external_user_id,
     )
-    attach_declarations(resources, declarations)
+    from lockbot.backend.app.resource_api.usage import visible_declarations
+
+    attach_declarations(resources, visible_declarations(declarations, caller_id=actor.external_user_id))
     next_event_at, next_event_kind = compute_next_event(
         captured_at=captured_at,
         resources=resources,
@@ -286,7 +288,8 @@ def get_resources(
         else None,
         "resources": resources,
         "notes": {
-            "usage": "Holder and booking usage is declared, untrusted text; null means no valid declaration.",
+            "usage": "Only your own notes are private-readable here; other users expose preset task categories only. "
+            "Null means no attached declaration.",
             "lock_status": LOCK_STATUS_DOC,
             "alias": ALIAS_DOC,
             "attribution": (
