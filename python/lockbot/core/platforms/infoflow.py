@@ -140,6 +140,10 @@ class InfoflowAdapter(MessageAdapter):
         payload = self.build_reply(content, [], group_id=group_id)
         if mention_all:
             payload["message"]["body"].append({"type": "AT", "atall": True})
+        return self.send_notification(payload)
+
+    def send_notification(self, payload: dict) -> tuple[str, str]:
+        """One attempt, including platform acceptance parsing; never retry a timeout."""
         try:
             response = requests.post(
                 self._get_config("WEBHOOK_URL"), json=payload, timeout=(3, 5), allow_redirects=False
