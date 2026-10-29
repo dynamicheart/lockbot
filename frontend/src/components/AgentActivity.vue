@@ -106,13 +106,16 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { formatActivityTime } from '../utils/activityDisplay'
 
-const props = defineProps({ botId: { type: Number, required: true } })
+const props = defineProps({
+  botId: { type: Number, required: true },
+  includePrivate: { type: Boolean, default: false },
+})
 const emit = defineEmits(['updated'])
 const { t, locale } = useI18n()
 const items = ref([])
@@ -139,7 +142,12 @@ async function refresh() {
   error.value = false
   try {
     const { data } = await api.get(`/bots/${props.botId}/agent-activity`, {
-      params: { status: status.value, page: page.value, limit: 20 },
+      params: {
+        status: status.value,
+        page: page.value,
+        limit: 20,
+        include_private: props.includePrivate,
+      },
     })
     if (current === generation) {
       items.value = data.items
@@ -154,14 +162,16 @@ async function refresh() {
 }
 onMounted(refresh)
 watch(
-  () => props.botId,
+  [() => props.botId, () => props.includePrivate],
   () => {
     items.value = []
     total.value = 0
     page.value = 1
     refresh()
-  }
+  },
+  { flush: 'sync' }
 )
+onBeforeUnmount(() => generation++)
 </script>
 
 <style scoped>

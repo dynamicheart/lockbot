@@ -145,19 +145,22 @@
 
         <el-table-column :label="$t('audit.target')" min-width="140">
           <template #default="{ row }">
-            <span v-if="row.target_name">
+            <span v-if="auditTarget(row).name">
               <span style="font-size: 11px; color: var(--lb-text-muted); margin-right: 4px">
-                [{{ tm('audit.targetTypes')?.[row.target_type] || row.target_type }}]
+                [{{ tm('audit.targetTypes')?.[auditTarget(row).type] || auditTarget(row).type }}]
               </span>
               <router-link
                 v-if="row.target_type === 'bot' && row.target_id"
                 :to="`/bots/${row.target_id}`"
                 style="color: var(--lb-text-primary); text-decoration: none"
               >
-                {{ row.target_name }}
+                {{ auditTarget(row).name }}
               </router-link>
-              <span v-else>{{ row.target_name }}</span>
-              <span style="color: var(--lb-text-muted); font-size: 12px">
+              <span v-else>{{ auditTarget(row).name }}</span>
+              <span
+                v-if="row.target_name && row.target_id != null"
+                style="color: var(--lb-text-muted); font-size: 12px"
+              >
                 #{{ row.target_id }}</span
               >
             </span>
@@ -242,7 +245,7 @@ import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled, User, Document } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import api from '../../utils/api'
-import { formatAuditDetail } from '../../utils/auditDisplay'
+import { formatAuditDetail, auditTarget } from '../../utils/auditDisplay'
 
 const props = defineProps({
   userMode: { type: Boolean, default: false },

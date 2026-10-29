@@ -28,6 +28,7 @@ export function createLogViewerLoader({ request, publish, save }) {
   function params(target, extra) {
     return {
       ...extra,
+      include_private: !!target.includePrivate,
       ...(target.level ? { level: target.level } : {}),
       ...(target.category ? { category: target.category } : {}),
     }

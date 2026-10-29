@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from lockbot.backend.app.auth.dependencies import get_current_user
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.database import Base, get_db
-from lockbot.backend.app.resource_api.privacy import audit_private_read, can_read_private_tasks
+from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 logger = logging.getLogger(__name__)
@@ -160,6 +160,7 @@ def get_agent_summary(
 def get_agent_activity(
     bot_id: int,
     response: Response,
+    include_private: bool = False,
     status: str = Query("active", pattern="^(active|history|all)$"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -188,7 +189,7 @@ def get_agent_activity(
         .limit(limit)
         .all()
     )
-    private = can_read_private_tasks(db, user)
+    private = private_task_view(db, user, include_private)
     items = []
     for index, (binding, activity) in enumerate(rows):
         active = (
