@@ -521,6 +521,9 @@
           <el-tab-pane :label="$t('botDetail.logs')" name="logs">
             <LogViewer v-if="activityTab === 'logs'" :bot-id="bot.id" />
           </el-tab-pane>
+          <el-tab-pane v-if="canEdit" :label="$t('serviceTraffic.title')" name="traffic">
+            <ServiceTrafficPanel v-if="activityTab === 'traffic'" :bot-id="bot.id" />
+          </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
             <AgentActivity
               v-if="activityTab === 'agents'"
@@ -586,6 +589,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import AgentActivity from '../components/AgentActivity.vue'
+import ServiceTrafficPanel from '../components/ServiceTrafficPanel.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import BotAudit from '../components/BotAudit.vue'
 import StatusBadge from '../components/StatusBadge.vue'

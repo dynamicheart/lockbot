@@ -1629,6 +1629,8 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     def _dispatch():
         with bot_manager.admit(bot_id) as lease:
             text, code, meta = handle_webhook(lease.bot, raw_form=form, raw_args=args, raw_body=body)
+            if code == 200:
+                request.state.traffic_bot_id = bot_id
             if code == 200 and not form.get("echostr") and bot_manager.lease_is_current(lease):
                 with metadata_session() as worker_db:
                     row = worker_db.get(Bot, bot_id)
@@ -1892,6 +1894,8 @@ def get_locked_users(
     token = auth_header[7:]
     if not _verify_api_key(bot, token):
         raise HTTPException(status_code=401, detail="Invalid API key")
+    request.state.traffic_bot_id = bot_id
+    request.state.traffic_operator = True
 
     # Read state under an admission lease + the state lock, as one detached copy. ``for_read``
     # lets a failed (error) generation still be read; the lease means this read cannot observe a
@@ -1958,13 +1962,20 @@ def api_opkick(
         raise HTTPException(status_code=401, detail="Missing API key")
     if not _verify_api_key(bot, auth_header[7:]):
         raise HTTPException(status_code=401, detail="Invalid API key")
+    request.state.traffic_bot_id = bot_id
+    request.state.traffic_operator = True
 
     # Run the kick under an admission lease, held across the whole mutation (which persists
     # state and may notify), so it cannot land on a retiring/replaced generation and a drain
     # waits for it.
     try:
         with bot_manager.admit(bot_id) as lease:
-            result = lease.bot.do_opkick(body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason)
+            from lockbot.core.command_context import operation_attempt
+
+            with operation_attempt(bot_id, "operator", "opkick"):
+                result = lease.bot.do_opkick(
+                    body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason
+                )
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise api_errors.admission_http_error(exc, bot_id, legacy_not_running=True) from None
     except ValueError as e:

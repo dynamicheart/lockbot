@@ -1,7 +1,7 @@
 """Task disclosure is separate from bot management and resource-operation authority."""
 
-import math
 import re
+import sys
 
 from sqlalchemy import select
 
@@ -95,7 +95,8 @@ def public_event(entry):
     if isinstance(timestamp, str):
         result["timestamp"] = timestamp[:64]
     duration = entry.get("duration_ms")
-    if type(duration) in (int, float) and math.isfinite(duration) and duration >= 0:
+    # Comparing before any float conversion also rejects enormous legacy integers safely.
+    if type(duration) in (int, float) and 0 <= duration <= sys.float_info.max:
         result["duration_ms"] = duration
     actor = entry.get("actor")
     if isinstance(actor, dict):
