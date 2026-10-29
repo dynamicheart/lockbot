@@ -7,6 +7,7 @@ This diagnostic is not a production Feishu adapter or webhook implementation.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import tempfile
 import time
@@ -101,7 +102,7 @@ def gallery():
                 "CLUSTER_CONFIGS": {first_node: ["h20", "h20"], second_node: ["a100", "a100"]}
                 if cards
                 else [first_node, second_node],
-                "PLATFORM_URL": "http://10.162.36.62:8155",
+                "PLATFORM_URL": "https://lockbot.example.test",
                 "RESOURCE_AUTH_ENABLED": True,
                 "EARLY_NOTIFY": False,
             }
@@ -117,7 +118,7 @@ def gallery():
         "links",
         [
             "🔗【超链接与特殊字符】\n\n",
-            ("Agent 使用：", "http://10.162.36.62:8155/api/agent-skill/SKILL.md"),
+            ("Agent 使用：", "https://lockbot.example.test/api/agent-skill/SKILL.md"),
             ("GitHub：", "https://github.com/dynamicheart/lockbot"),
             "\n字面文本：<at user_id=all> 不应产生提及；A&B；**普通文本**。\n",
         ],
@@ -181,10 +182,7 @@ def gallery():
             text(f"{prefix[:-1]}-templates-{start // 6 + 1}", "\n\n".join(samples[start : start + 6]) + "\n")
     text(
         "agent-operation",
-        (
-            "🤖【Agent API操作】\n\n用户：alice\n命令：lock demo-node-1 20m\n"
-            "Agent：codex\n备注：模型性能测试，验证推理吞吐\n\n"
-        ),
+        ("🤖【Agent API操作】\n\n用户：alice\n命令：lock demo-node-1 20m\n任务分类：模型性能测试\n\n"),
     )
     text("english", t("success.resource_locked", lang="en") + "demo-node-1 alice 20 minutes\n\n")
     text("emoji", "✅ ❌ ℹ️ ⚠️ ❗️ 📖 🤖 🗓️ ⌛️ 📢 🔧 🏁\n\n普通空行之后仍保持正文。\n")
@@ -205,8 +203,12 @@ def api(token, path, data):
         allow_redirects=False,
     )
     body = response.json()
-    if body.get("code") != 0:
-        raise RuntimeError(f"Feishu rejected request, code={body.get('code')}")
+    if not isinstance(body, dict):
+        raise RuntimeError("Feishu rejected request, code=invalid_response")
+    if not 200 <= response.status_code < 300 or body.get("code") != 0:
+        code = body.get("code")
+        code = code if type(code) is int else "invalid_response"
+        raise RuntimeError(f"Feishu rejected request, code={code}")
     return body
 
 
@@ -236,11 +238,17 @@ def main():
         "sent": args.send,
         "cases": [],
         "single_user_mention_configured": bool(target.get("mention_id")),
+        "target_scope": hashlib.sha256(
+            json.dumps([target.get("chat_id"), target.get("mention_id")]).encode()
+        ).hexdigest(),
     }
+    expected_scope = report["target_scope"]
     if args.resume:
         report = json.loads(args.report.read_text())
         if not report.get("sent") or not args.send:
             parser.error("Only a delivery report can be resumed")
+        if report.get("target_scope") != expected_scope:
+            parser.error("Resume requires the original selected chat and mention target")
     report["single_user_mention_configured"] = bool(target.get("mention_id"))
     completed = {record["name"]: record for record in report["cases"] if record["status"] == "accepted"}
     for index, case in enumerate(cases, 1):
@@ -265,8 +273,11 @@ def main():
                         "uuid": str(uuid.uuid5(uuid.UUID(report["run_id"]), case["name"])),
                     },
                 )
-                record.update(status="accepted", message_id=reply["data"]["message_id"])
-            except (OSError, requests.RequestException, ValueError, RuntimeError) as exc:
+                message_id = reply.get("data", {}).get("message_id")
+                if not isinstance(message_id, str) or not message_id:
+                    raise ValueError("Invalid delivery acknowledgement")
+                record.update(status="accepted", message_id=message_id)
+            except (OSError, requests.RequestException, ValueError, RuntimeError, AttributeError) as exc:
                 # Do not retry an ambiguous send or leak tokens/full API bodies into output.
                 record.update(
                     status="failed_or_uncertain",
