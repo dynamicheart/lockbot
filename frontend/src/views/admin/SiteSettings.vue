@@ -99,9 +99,9 @@
               <el-button :loading="testingProxy" @click="testProxy">{{
                 $t('feishu.proxyTest')
               }}</el-button>
-              <span v-if="proxyResult" class="platform-hint">{{
-                $t('feishu.' + proxyResult)
-              }}</span>
+              <el-tooltip v-if="proxyResult" :content="$t('feishu.proxyHttpHelp')" effect="light">
+                <span class="platform-hint">{{ $t('feishu.' + proxyResult) }}</span>
+              </el-tooltip>
             </div>
           </div>
         </el-form-item>

@@ -311,3 +311,33 @@ def test_group_lookup_checks_bot_and_application_scope(setup, client, auth_heade
     before = len(called)
     assert client.get(f"/api/feishu/bots/{foreign.id}/group", headers=auth_header).status_code == 404
     assert len(called) == before
+
+
+def test_application_receiver_metadata_is_super_admin_only_and_local(
+    client, setup, auth_header, db_session, monkeypatch
+):
+    from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.models import FeishuApplication
+
+    identifier = setup[0]
+    app = db_session.get(FeishuApplication, identifier)
+    app.transport = "websocket"
+    db_session.commit()
+    calls = []
+
+    def snapshot(application_id):
+        calls.append(application_id)
+        return {"state": "running", "last_handshake_at": "2026-10-29T00:00:00+00:00"}
+
+    monkeypatch.setattr(connectors, "snapshot", snapshot)
+    response = client.get("/api/feishu/applications", headers=auth_header)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()[0]["receiver"] == snapshot(identifier)
+    assert "SECRET" not in response.text
+    calls.clear()
+    user = db_session.query(User).filter_by(username="testuser").one()
+    user.role = "admin"
+    db_session.commit()
+    assert client.get("/api/feishu/applications", headers=auth_header).status_code == 403
+    assert not calls

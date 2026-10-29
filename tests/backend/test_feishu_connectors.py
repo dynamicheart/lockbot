@@ -153,3 +153,77 @@ def test_pinned_sdk_event_model_roundtrips_through_private_pipe(monkeypatch):
     assert frame["event"]["header"]["app_id"] == "cli_test"
     assert frame["event"]["event"]["message"]["chat_id"] == "oc_group"
     assert "test-only-secret" not in channel.getvalue()
+
+
+def test_handshake_is_observed_but_process_failure_becomes_retrying_and_exit_stopped(monkeypatch):
+    import io
+    from datetime import datetime
+
+    app = SimpleNamespace(app_id="cli_status", app_secret="encrypted", transport="websocket")
+    observed = []
+    connector = connectors.Connector(42)
+    connector.thread = SimpleNamespace(is_alive=lambda: True)
+
+    class Output(io.BytesIO):
+        def readline(self, limit):
+            if self.tell():
+                observed.append(connector.snapshot())
+            return super().readline(limit)
+
+    process = SimpleNamespace(
+        stdin=io.BytesIO(),
+        stdout=Output(b'{"status":"connected"}\n'),
+        poll=lambda: 1,
+        wait=lambda timeout: 1,
+    )
+
+    @contextmanager
+    def factory():
+        yield SimpleNamespace(get=lambda *args: app)
+
+    connector.factory = factory
+    monkeypatch.setattr(connectors.encryption, "decrypt", lambda value: "secret")
+    monkeypatch.setattr(connectors.subprocess, "Popen", lambda *args, **kwargs: process)
+
+    def retry_wait(delay):
+        observed.append(connector.snapshot())
+        connector._stop.set()
+
+    monkeypatch.setattr(connector._stop, "wait", retry_wait)
+    connector._run()
+    assert [item["state"] for item in observed] == ["running", "retrying"]
+    assert datetime.fromisoformat(observed[0]["last_handshake_at"]).utcoffset().total_seconds() == 0
+    assert observed[1]["last_handshake_at"] == observed[0]["last_handshake_at"]
+    assert connector.snapshot()["state"] == "stopped"
+    assert connector._process is None
+    connector.thread = SimpleNamespace(is_alive=lambda: False)
+    connector._set_state("running")
+    assert connector.snapshot()["state"] == "stopped"
+
+
+def test_spawn_failure_has_no_handshake_and_manager_snapshot_never_fetches_network(monkeypatch):
+    connector = connectors.Connector(8)
+    connector.thread = SimpleNamespace(is_alive=lambda: True)
+
+    @contextmanager
+    def factory():
+        yield SimpleNamespace(
+            get=lambda *args: SimpleNamespace(app_id="cli_failed", app_secret="encrypted", transport="websocket")
+        )
+
+    connector.factory = factory
+    monkeypatch.setattr(connectors.encryption, "decrypt", lambda value: "secret")
+    monkeypatch.setattr(connectors.subprocess, "Popen", lambda *args, **kwargs: (_ for _ in ()).throw(OSError()))
+    observed = []
+
+    def retry(delay):
+        observed.append(connector.snapshot())
+        connector._stop.set()
+
+    monkeypatch.setattr(connector._stop, "wait", retry)
+    connector._run()
+    assert observed == [{"state": "retrying", "last_handshake_at": None}]
+    manager = connectors.ConnectorManager()
+    manager._connectors[8] = connector
+    assert manager.snapshot(8) == {"state": "stopped", "last_handshake_at": None}
+    assert manager.snapshot(99) == {"state": "stopped", "last_handshake_at": None}

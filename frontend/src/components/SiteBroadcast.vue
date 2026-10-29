@@ -20,22 +20,27 @@
         </el-button>
       </div>
     </el-form>
-    <el-dialog v-model="dialog" :title="$t('broadcast.preview')" width="min(680px, 95vw)">
+    <el-dialog
+      v-model="dialog"
+      :title="$t(job?.status === 'draft' ? 'broadcast.preview' : 'broadcast.details')"
+      width="min(640px, 95vw)"
+      class="broadcast-dialog"
+    >
       <template v-if="job">
         <div class="message-preview">{{ job.message }}</div>
-        <p>
-          {{ $t('broadcast.coverage', { n: job.total }) }} ·
-          {{ job.mention_all ? $t('broadcast.mentionAll') : $t('broadcast.noMention') }}
-        </p>
+        <div class="preview-summary">
+          <span>{{ $t('broadcast.coverage', { n: job.total }) }}</span>
+          <span>{{
+            job.mention_all ? $t('broadcast.mentionAll') : $t('broadcast.noMention')
+          }}</span>
+          <span v-if="job.status !== 'draft'">{{ progress(job) }}</span>
+        </div>
         <p v-if="!job.total" class="hint">{{ $t('broadcast.empty') }}</p>
-        <p v-if="job.status !== 'draft'" class="hint">
-          {{ $t('broadcast.states.' + job.status) }} · {{ progress(job) }}
-        </p>
         <el-table :data="job.targets" max-height="320">
           <el-table-column :label="$t('broadcast.bot')" min-width="230">
             <template #default="{ row }">
               <div class="target-info">
-                <strong>{{ row.bot_name || groupLabel(row) }}</strong>
+                <span class="target-name">{{ row.bot_name || groupLabel(row) }}</span>
                 <span v-if="knownGroupName(row)" class="target-group-name">{{
                   knownGroupName(row)
                 }}</span>
@@ -54,18 +59,18 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column :label="$t('broadcast.status')">
+          <el-table-column
+            v-if="job.status !== 'draft'"
+            :label="$t('broadcast.result')"
+            width="150"
+          >
             <template #default="{ row }">
-              <el-tag size="small" :type="statusType(row.status)">{{
+              <el-tag size="small" :type="statusType(row.status)" effect="plain">{{
                 $t('broadcast.states.' + row.status)
               }}</el-tag>
+              <p v-if="resultDetail(row)" class="result-detail">{{ resultDetail(row) }}</p>
             </template>
           </el-table-column>
-          <el-table-column :label="$t('broadcast.result')" min-width="150"
-            ><template #default="{ row }">{{
-              row.result_code ? $t('broadcast.results.' + row.result_code) : '—'
-            }}</template></el-table-column
-          >
         </el-table>
         <el-pagination
           v-if="job.total > 100"
@@ -80,7 +85,7 @@
         <el-button @click="dialog = false">{{ $t('common.close') }}</el-button>
         <el-button
           v-if="job?.status === 'draft'"
-          type="warning"
+          type="primary"
           :disabled="!job.total"
           :loading="busy"
           @click="send"
@@ -91,17 +96,29 @@
     </el-dialog>
     <div v-if="history.length" class="history">
       <h4>{{ $t('broadcast.history') }}</h4>
-      <el-table :data="history" style="cursor: pointer" @row-click="openJob">
-        <el-table-column prop="message" :label="$t('broadcast.message')" show-overflow-tooltip />
-        <el-table-column :label="$t('broadcast.status')" width="150">
+      <el-table :data="history" @row-click="openJob">
+        <el-table-column
+          prop="message"
+          :label="$t('broadcast.message')"
+          min-width="220"
+          show-overflow-tooltip
+        />
+        <el-table-column :label="$t('broadcast.status')" width="120">
           <template #default="{ row }"
             ><el-tag size="small" :type="statusType(row.status)">{{
               $t('broadcast.states.' + row.status)
             }}</el-tag></template
           >
         </el-table-column>
-        <el-table-column :label="$t('broadcast.progress')" min-width="180">
+        <el-table-column :label="$t('broadcast.progress')" width="260">
           <template #default="{ row }">{{ progress(row) }}</template>
+        </el-table-column>
+        <el-table-column width="64" align="right">
+          <template #default="{ row }"
+            ><el-button link type="primary" @click.stop="openJob(row)">{{
+              $t('broadcast.view')
+            }}</el-button></template
+          >
         </el-table-column>
       </el-table>
     </div>
@@ -117,6 +134,10 @@ const { t } = useI18n()
 const { copyText } = useHelpers()
 const knownGroupName = (row) => row.group_name || row.chat_name || row.cached_group_name || ''
 const groupLabel = (row) => knownGroupName(row) || row.group_id || '—'
+const resultDetail = (row) =>
+  row.result_code && row.status !== 'accepted' && !['pending', 'sending'].includes(row.status)
+    ? t('broadcast.results.' + row.result_code)
+    : ''
 
 const statusType = (status) =>
   ({
@@ -218,15 +239,29 @@ onUnmounted(() => {
   margin-bottom: 20px;
 }
 .broadcast-compose {
-  max-width: 800px;
+  width: 100%;
 }
 .target-info {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
-.target-info strong {
+.target-name {
   font-weight: 500;
+}
+.preview-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 14px 0;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.result-detail {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--el-text-color-secondary);
 }
 .target-group-name {
   color: var(--el-text-color-secondary);

@@ -1,5 +1,17 @@
 export default {
   feishu: {
+    receiverStatus: '接收状态',
+    refreshReceiver: '刷新状态',
+    noHandshake: '暂无',
+    receiverHelp:
+      '最近握手：{time}。此处显示接收进程状态；SDK 内部断线可能未上报，最近握手不保证当前可达。',
+    receiverStates: {
+      starting: '启动中',
+      running: '接收进程运行',
+      stopped: '未启动',
+      retrying: '重试中',
+    },
+    proxyHttpHelp: '仅验证 HTTP API；长连接状态及最近握手请查看飞书应用列表。',
     namesPending: '姓名获取中…',
     namesUnavailable: '部分姓名未获取',
 
@@ -31,7 +43,7 @@ export default {
     proxyCustom: '指定代理',
     proxyEffective: '当前生效',
     proxyTest: '测试已保存的 HTTP 连接',
-    proxyHttpOk: 'HTTP 可用；未验证长连接握手',
+    proxyHttpOk: 'HTTP 可用',
     proxyNoApplication: '请先配置飞书应用',
     proxyUnavailable: 'HTTP 暂不可用',
     proxyRestartRequired: '已保存；接收端需要重启',
@@ -282,6 +294,8 @@ export default {
     claimReady: '已轮到，可领取资源',
   },
   broadcast: {
+    details: '广播详情',
+    view: '查看',
     result: '发送结果',
     title: '群广播',
     message: '广播内容',
@@ -553,6 +567,11 @@ export default {
 
   // === Bot Detail ===
   botDetail: {
+    agentAccess: '访问统计',
+    agentOperations: '操作历史',
+    agentAuthorizations: '授权记录',
+    notesScopeHelp: '仅超级管理员可开启。临时展示本机器人详情中的 Agent 详细备注及原始日志；每次读取会记录审计，切换机器人后自动关闭。',
+
     authorizationAudit: '授权审计',
     config: '配置信息',
     status: '状态',

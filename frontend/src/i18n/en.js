@@ -1,5 +1,18 @@
 export default {
   feishu: {
+    receiverStatus: 'Receiver status',
+    refreshReceiver: 'Refresh status',
+    noHandshake: 'None recorded',
+    receiverHelp:
+      'Last handshake: {time}. This is receiver process status. The SDK may not report internal disconnects; a previous handshake does not guarantee current reachability.',
+    receiverStates: {
+      starting: 'Starting',
+      running: 'Receiver process running',
+      stopped: 'Not started',
+      retrying: 'Retrying',
+    },
+    proxyHttpHelp:
+      'Tests HTTP API access only. See the application list for receiver status and the last WebSocket handshake.',
     namesPending: 'Resolving names…',
     namesUnavailable: 'Some names unavailable',
 
@@ -36,7 +49,7 @@ export default {
     proxyCustom: 'Site proxy',
     proxyEffective: 'Effective',
     proxyTest: 'Test saved HTTP connection',
-    proxyHttpOk: 'HTTP available; WebSocket handshake not tested',
+    proxyHttpOk: 'HTTP available',
     proxyNoApplication: 'Configure a Feishu application first',
     proxyUnavailable: 'HTTP unavailable',
     proxyRestartRequired: 'Saved; receiver restart required',
@@ -293,6 +306,8 @@ export default {
     claimReady: 'Ready to claim',
   },
   broadcast: {
+    details: 'Broadcast details',
+    view: 'View',
     result: 'Result',
     title: 'Group broadcast',
     message: 'Message',
@@ -573,6 +588,11 @@ export default {
 
   // === Bot Detail ===
   botDetail: {
+    agentAccess: 'Access statistics',
+    agentOperations: 'Operation history',
+    agentAuthorizations: 'Authorization records',
+    notesScopeHelp: 'Super administrators only. Temporarily shows detailed Agent notes and original logs for this bot. Reads are audited; switching bots turns this off.',
+
     authorizationAudit: 'Authorization audit',
     config: 'Configuration',
     status: 'Status',

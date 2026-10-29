@@ -12,14 +12,29 @@
           row.transport === 'websocket' ? $t('feishu.websocket') : 'HTTP'
         }}</template>
       </el-table-column>
+      <el-table-column :label="$t('feishu.receiverStatus')" min-width="180">
+        <template #default="{ row }">
+          <el-tooltip
+            v-if="row.transport === 'websocket'"
+            :content="receiverHelp(row)"
+            effect="light"
+          >
+            <span>{{ $t(`feishu.receiverStates.${receiverState(row)}`) }}</span>
+          </el-tooltip>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
       <el-table-column width="150">
         <template #default="{ row }">
           <el-button
             v-if="row.transport === 'websocket'"
             link
             type="primary"
-            @click="connect(row.id)"
-            >{{ $t('feishu.connect') }}</el-button
+            :loading="!!operations[row.id]"
+            @click="receiverAction(row)"
+            >{{
+              $t(receiverState(row) === 'stopped' ? 'feishu.connect' : 'feishu.refreshReceiver')
+            }}</el-button
           >
         </template>
       </el-table-column>
@@ -140,6 +155,7 @@ const { t } = useI18n()
 const applications = ref([])
 const loading = ref(false)
 const saving = ref(false)
+const operations = reactive({})
 const dialog = ref(false)
 const formRef = ref()
 const form = reactive({
@@ -186,9 +202,30 @@ async function save() {
     saving.value = false
   }
 }
-async function connect(id) {
-  await api.post(`/feishu/applications/${id}/connect`)
-  ElMessage.success(t('feishu.connecting'))
+function receiverState(row) {
+  const state = row.receiver?.state
+  return ['starting', 'running', 'retrying'].includes(state) ? state : 'stopped'
+}
+function receiverHelp(row) {
+  const value = row.receiver?.last_handshake_at
+  const time =
+    value && Number.isFinite(Date.parse(value))
+      ? new Date(value).toLocaleString()
+      : t('feishu.noHandshake')
+  return t('feishu.receiverHelp', { time })
+}
+async function receiverAction(row) {
+  if (operations[row.id]) return
+  operations[row.id] = true
+  try {
+    if (receiverState(row) === 'stopped') {
+      await api.post(`/feishu/applications/${row.id}/connect`)
+      ElMessage.success(t('feishu.connecting'))
+    }
+    await load()
+  } finally {
+    delete operations[row.id]
+  }
 }
 onMounted(load)
 </script>

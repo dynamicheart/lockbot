@@ -63,6 +63,11 @@ it('uses only supplied cached names and preserves preview-confirm-send without l
   app.mount({ children: [] })
   const view = app._instance.setupState
   await flush()
+  expect(view.resultDetail({ status: 'accepted', result_code: 'platform_accepted' })).toBe('')
+  expect(view.resultDetail({ status: 'pending' })).toBe('')
+  expect(view.resultDetail({ status: 'failed', result_code: 'platform_rejected' })).toBe(
+    'broadcast.results.platform_rejected'
+  )
   expect(view.groupLabel({ group_name: 'known group', group_id: 'stable-id' })).toBe('known group')
   expect(view.groupLabel({ cached_group_name: 'cached group', group_id: 'stable-id' })).toBe(
     'cached group'

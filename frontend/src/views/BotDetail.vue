@@ -9,12 +9,6 @@
         <StatusBadge v-if="bot" :status="bot.status" />
       </div>
       <div class="detail-header-actions">
-        <el-switch
-          v-if="authStore.isSuperAdmin"
-          v-model="showPrivateTasks"
-          :active-text="$t('audit.privateView')"
-          :title="$t('audit.privateViewHelp')"
-        />
         <el-button
           v-if="canOperate && (bot?.status === 'stopped' || bot?.status === 'error')"
           type="success"
@@ -560,9 +554,22 @@
 
       <!-- Logs -->
       <el-card style="margin-bottom: 20px">
-        <template #header
-          ><span>{{ $t('botDetail.logsAndStats') }}</span></template
-        >
+        <template #header>
+          <div class="activity-heading">
+            <span>{{ $t('botDetail.logsAndStats') }}</span>
+            <el-tooltip
+              v-if="authStore.isSuperAdmin"
+              :content="$t('botDetail.notesScopeHelp')"
+              placement="top"
+            >
+              <el-switch
+                v-model="showPrivateTasks"
+                :active-text="$t('audit.privateView')"
+                size="small"
+              />
+            </el-tooltip>
+          </div>
+        </template>
         <el-tabs v-model="activityTab">
           <el-tab-pane :label="$t('botDetail.logs')" name="logs">
             <LogViewer
@@ -578,25 +585,31 @@
               :include-private="privateTaskView"
             />
           </el-tab-pane>
-          <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
+          <el-tab-pane v-if="canEdit" label="Agent" name="agents">
             <template v-if="activityTab === 'agents'">
+              <el-radio-group v-model="agentTab" size="small" class="agent-sections">
+                <el-radio-button value="access">{{ $t('botDetail.agentAccess') }}</el-radio-button>
+                <el-radio-button value="history">{{
+                  $t('botDetail.agentOperations')
+                }}</el-radio-button>
+                <el-radio-button value="audit">{{
+                  $t('botDetail.agentAuthorizations')
+                }}</el-radio-button>
+              </el-radio-group>
               <AgentActivity
+                v-if="agentTab === 'access'"
                 :bot-id="bot.id"
                 :include-private="privateTaskView"
+                :hide-heading="true"
                 @updated="loadAgentSummary"
               />
-              <section class="agent-history-section">
-                <h3>{{ $t('agentHistory.title') }}</h3>
-                <AgentHistory :bot-id="bot.id" :include-private="privateTaskView" />
-              </section>
+              <AgentHistory
+                v-else-if="agentTab === 'history'"
+                :bot-id="bot.id"
+                :include-private="privateTaskView"
+              />
+              <BotAudit v-else :bot-id="bot.id" :include-private="privateTaskView" />
             </template>
-          </el-tab-pane>
-          <el-tab-pane v-if="canEdit" :label="$t('botDetail.authorizationAudit')" name="audit">
-            <BotAudit
-              v-if="activityTab === 'audit'"
-              :bot-id="bot.id"
-              :include-private="privateTaskView"
-            />
           </el-tab-pane>
         </el-tabs>
       </el-card>
@@ -688,6 +701,7 @@ const routeGeneration = ref(0)
 const authStore = useAuthStore()
 
 const activityTab = ref('logs')
+const agentTab = ref('access')
 const agentSummary = ref(null)
 const agentMetrics = computed(() =>
   canEdit.value || authStore.isAdmin
@@ -1503,6 +1517,7 @@ watch(
     botLanguage.value = 'zh'
     loading.value = false
     activityTab.value = 'logs'
+    agentTab.value = 'access'
     stateAutoRefresh.value = false
     clearInterval(stateTimer)
     stateTimer = null
@@ -1527,15 +1542,15 @@ function formatDate(d) {
   color: var(--el-text-color-secondary);
   font-size: 12px;
 }
-.agent-history-section {
-  border-top: 1px solid var(--el-border-color-lighter);
-  padding-top: 20px;
-  margin-top: 20px;
+.activity-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 20px;
 }
-.agent-history-section h3 {
-  margin: 0 0 16px;
-  font-size: 14px;
-  font-weight: 600;
+.agent-sections {
+  margin-bottom: 18px;
 }
 
 .group-tag {

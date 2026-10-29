@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 from contextlib import suppress
+from datetime import datetime, timezone
 
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.database import SessionLocal
@@ -23,9 +24,24 @@ class Connector:
         self._stop = threading.Event()
         self._process = None
         self._lock = threading.Lock()
+        self._state = "stopped"
+        self._last_handshake_at = None
         self.thread = threading.Thread(target=self._run, name=f"feishu-app-{application_id}", daemon=True)
 
+    def snapshot(self):
+        """Local lifecycle observations only; no network calls or live-reachability claim."""
+        with self._lock:
+            state = self._state if self.thread.is_alive() else "stopped"
+            return {"state": state, "last_handshake_at": self._last_handshake_at}
+
+    def _set_state(self, state, *, handshake=False):
+        with self._lock:
+            self._state = state
+            if handshake:
+                self._last_handshake_at = datetime.now(timezone.utc).isoformat()
+
     def start(self):
+        self._set_state("starting")
         self.thread.start()
 
     def stop(self):
@@ -44,8 +60,17 @@ class Connector:
         self.thread.join(timeout=10)
 
     def _run(self):
+        try:
+            self._run_loop()
+        finally:
+            with self._lock:
+                self._state = "stopped"
+                self._process = None
+
+    def _run_loop(self):
         backoff = 2
         while not self._stop.is_set():
+            self._set_state("starting")
             process = None
             try:
                 with self.factory() as db:
@@ -75,6 +100,8 @@ class Connector:
                         raise ValueError("Invalid connector frame")
                     frame = json.loads(line)
                     if frame == {"status": "connected"}:
+                        self._set_state("running", handshake=True)
+                        backoff = 2
                         logger.info("Feishu application %s WebSocket handshake completed", self.application_id)
                         continue
                     data = frame["event"]
@@ -107,6 +134,7 @@ class Connector:
                     process.stdout.close()
                 with self._lock:
                     self._process = None
+                    self._state = "stopped" if self._stop.is_set() else "retrying"
             self._stop.wait(backoff)
             backoff = min(backoff * 2, 60)
 
@@ -115,6 +143,11 @@ class ConnectorManager:
     def __init__(self):
         self._connectors = {}
         self._lock = threading.RLock()
+
+    def snapshot(self, application_id):
+        with self._lock:
+            connector = self._connectors.get(application_id)
+            return connector.snapshot() if connector else {"state": "stopped", "last_handshake_at": None}
 
     def connect(self, application_id, factory=SessionLocal):
         if importlib.util.find_spec("lark_oapi") is None:

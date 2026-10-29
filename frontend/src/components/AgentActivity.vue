@@ -2,7 +2,7 @@
   <section class="agent-activity" :aria-label="t('agentActivity.title')">
     <div class="activity-toolbar">
       <div>
-        <h3>{{ t('agentActivity.title') }}</h3>
+        <h3 v-if="!hideHeading">{{ t('agentActivity.title') }}</h3>
         <p>{{ t('agentActivity.description') }}</p>
       </div>
       <el-button size="small" :loading="loading" @click="refresh">
@@ -118,6 +118,7 @@ import { useActorDisplay } from '../utils/useFeishuDisplayNames'
 import { formatActivityTime } from '../utils/activityDisplay'
 
 const props = defineProps({
+  hideHeading: { type: Boolean, default: false },
   botId: { type: Number, required: true },
   includePrivate: { type: Boolean, default: false },
 })

@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -67,9 +67,18 @@ class ApplicationCreate(BaseModel):
 
 
 @router.get("/applications")
-def applications(user: User = Depends(require_super_admin), db: Session = Depends(get_db)):
+def applications(response: Response, user: User = Depends(require_super_admin), db: Session = Depends(get_db)):
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    response.headers["Cache-Control"] = "no-store"
     return [
-        {"id": row.id, "name": row.name, "app_id": row.app_id, "transport": row.transport}
+        {
+            "id": row.id,
+            "name": row.name,
+            "app_id": row.app_id,
+            "transport": row.transport,
+            "receiver": connectors.snapshot(row.id) if row.transport == "websocket" else None,
+        }
         for row in db.query(FeishuApplication).order_by(FeishuApplication.id).all()
     ]
 
