@@ -11,8 +11,8 @@ def command(client, api, text, headers=None, **metadata):
     )
 
 
-def resources(client, api):
-    result = client.get(f"/api/bots/{api['bot_id']}/resources", headers=api["headers"])
+def resources(client, api, headers=None):
+    result = client.get(f"/api/bots/{api['bot_id']}/resources", headers=headers or api["headers"])
     assert result.status_code == 200, result.text
     return {item["id"]: item for item in result.json()["resources"]}
 
@@ -41,7 +41,7 @@ def test_booking_task_survives_later_claim_without_a_second_declaration_call(cli
         ).status_code
         == 200
     )
-    assert resources(client, api)["n1"]["booking_list"][0]["usage"]["purpose"] == "Next benchmark"
+    assert resources(client, api, api["other_headers"])["n1"]["booking_list"][0]["usage"]["purpose"] == "Next benchmark"
     assert command(client, api, "free n1").status_code == 200
     # Real scheduler notification rewrites the claim clock; it must retain the booked task.
     booking = api["bot"].state.bot_state["n1"]["booking_list"][0]
@@ -52,9 +52,9 @@ def test_booking_task_survives_later_claim_without_a_second_declaration_call(cli
         api["bot"]._check_and_notify()
     assert booking["start_time"] == original_start + 90
     assert booking["booked_start_time"] == original_start
-    assert resources(client, api)["n1"]["booking_list"][0]["usage"]["purpose"] == "Next benchmark"
+    assert resources(client, api, api["other_headers"])["n1"]["booking_list"][0]["usage"]["purpose"] == "Next benchmark"
     assert command(client, api, "lock n1", headers=api["other_headers"]).status_code == 200
-    usage = resources(client, api)["n1"]["holders"][0]["usage"]
+    usage = resources(client, api, api["other_headers"])["n1"]["holders"][0]["usage"]
     assert usage["purpose"] == "Next benchmark" and usage["agent_label"] == "queue-agent"
 
 

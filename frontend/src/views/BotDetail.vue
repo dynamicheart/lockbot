@@ -347,6 +347,20 @@
               }}</el-button>
             </div>
           </el-descriptions-item>
+          <el-descriptions-item :label="$t('utilization.configure')" :span="2">
+            <ResourceDatasourceEditor
+              v-if="canEdit"
+              :model-value="datasourceConfig"
+              :nodes="datasourceLayout.nodes"
+              :resources="datasourceLayout.resources"
+              :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
+              :save="saveDatasource"
+              :authorize="authorizeDatasource"
+            />
+            <span v-if="!canEdit">{{
+              datasourceConfig?.name || $t('utilization.notConfigured')
+            }}</span>
+          </el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -471,6 +485,15 @@
             </div>
           </div>
         </template>
+        <ResourceUtilization
+          :bot-id="bot.id"
+          :source="datasourceConfig"
+          :nodes="datasourceLayout.nodes"
+          :allowed="canEdit && bot.status === 'running' && !editingState && !viewJson"
+          :authorize="authorizeDatasource"
+          :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
+          @change="resourceMetrics = $event"
+        />
         <div v-if="editingState" class="json-editor">
           <pre
             class="json-editor-backdrop"
@@ -494,46 +517,15 @@
             :image-size="60"
           />
 
-          <!-- DEVICE bot: card list -->
-          <div v-else-if="botType === 'DEVICE'" class="cluster-cards">
-            <div v-for="node in parsedState" :key="node.nodeName" class="cluster-node-card">
-              <div class="cluster-node-header">
-                <span class="cluster-node-name">
-                  <el-icon :size="16"><Monitor /></el-icon>
-                  {{ node.nodeName }}
-                  <span v-if="botConfig.NODE_ALIASES[node.nodeName]" class="node-alias-tag">{{
-                    botConfig.NODE_ALIASES[node.nodeName]
-                  }}</span>
-                </span>
-                <span class="cluster-node-summary">{{
-                  $t('clusterState.summary', {
-                    total: node.devices.length,
-                    inUse: node.devices.filter(
-                      (d) => d.status === 'exclusive' || d.status === 'shared'
-                    ).length,
-                  })
-                }}</span>
-              </div>
-              <div class="cluster-device-list">
-                <div v-for="dev in node.devices" :key="dev.devId" class="cluster-device-item">
-                  <div class="cluster-device-left">
-                    <span
-                      class="status-dot"
-                      :class="'status-dot--' + (dev.status || 'idle')"
-                    ></span>
-                    <span class="cluster-device-model">{{ dev.devModel || dev.devId }}</span>
-                  </div>
-                  <ResourceParticipants
-                    :users="dev.currentUsers"
-                    :resource-id="node.nodeName"
-                    :usage="stateUsage"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <ResourceStatusList v-else :resources="nodeResources" :usage="stateUsage" />
+          <ResourceStatusList v-else :resources="nodeResources" :usage="stateUsage">
+            <template v-if="resourceMetrics.enabled" #metrics="{ row }">
+              <ResourceMetricsCell
+                v-bind="resourceMetrics"
+                :node-id="row.metric_node_id || row.id"
+                :resource-id="row.metric_resource_id || null"
+              />
+            </template>
+          </ResourceStatusList>
         </template>
       </el-card>
 
@@ -602,18 +594,22 @@
 
 <script setup>
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
+import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
+import ResourceUtilization from '../components/ResourceUtilization.vue'
+import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
+import { sourceResources } from '../utils/utilization/display'
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import AgentActivity from '../components/AgentActivity.vue'
-import ResourceParticipants from '../components/ResourceParticipants.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import BotAudit from '../components/BotAudit.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import LogViewer from '../components/LogViewer.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Download, User, Monitor, Refresh } from '@element-plus/icons-vue'
+import { Download, User, Refresh } from '@element-plus/icons-vue'
 import api from '../utils/api'
 import { validateBotState } from '../utils/stateValidation'
 import { useI18n } from 'vue-i18n'
@@ -649,6 +645,40 @@ const agentMetrics = computed(() =>
 )
 
 const bot = ref(null)
+const resourceMetrics = ref({ enabled: false })
+const datasourceConfig = computed(() => {
+  try {
+    return typeof bot.value?.utilization_config === 'string'
+      ? JSON.parse(bot.value.utilization_config)
+      : bot.value?.utilization_config || null
+  } catch {
+    return null
+  }
+})
+const datasourceLayout = computed(() => {
+  try {
+    const cluster =
+      typeof bot.value?.cluster_configs === 'string'
+        ? JSON.parse(bot.value.cluster_configs)
+        : bot.value?.cluster_configs
+    return sourceResources(cluster, bot.value?.bot_type)
+  } catch {
+    return { nodes: [], resources: [] }
+  }
+})
+async function authorizeDatasource(value) {
+  const response = await api.post(`/bots/${bot.value.id}/utilization-access`, value)
+  return response.data
+}
+async function saveDatasource(value) {
+  try {
+    bot.value = await botsStore.updateBot(bot.value.id, { utilization_config: value })
+    ElMessage.success(t('common.success'))
+  } catch (error) {
+    ElMessage.error(t('common.error'))
+    throw error
+  }
+}
 const loading = ref(false)
 const actionLoading = ref(false)
 const viewLinkLoading = ref(false)
@@ -928,10 +958,12 @@ const parsedState = computed(() => {
 })
 
 const nodeResources = computed(() =>
-  botType.value === 'QUEUE_DEVICE'
+  ['DEVICE', 'QUEUE_DEVICE'].includes(botType.value)
     ? (parsedState.value || []).flatMap((node) =>
         node.devices.map((dev) => ({
           id: `${node.nodeName}:dev${dev.devId}`,
+          metric_node_id: node.nodeName,
+          metric_resource_id: `${node.nodeName}:dev${dev.devId}`,
           display_name: `${node.nodeName} dev${dev.devId}`,
           alias: [botConfig.value.NODE_ALIASES[node.nodeName], dev.devModel]
             .filter(Boolean)

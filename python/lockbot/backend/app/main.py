@@ -238,6 +238,16 @@ def _migrate_bots_agent_notifications():
             conn.execute(text("ALTER TABLE bots ADD COLUMN resource_api_notify_enabled BOOLEAN NOT NULL DEFAULT 1"))
 
 
+def _migrate_bots_utilization_config():
+    """Add optional browser data-source configuration without changing existing bots."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    if "utilization_config" not in {c["name"] for c in sa_inspect(engine).get_columns("bots")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE bots ADD COLUMN utilization_config TEXT"))
+
+
 def _migrate_usage_agent_label():
     """Separate a per-resource Agent declaration from the shared authorization label."""
     from sqlalchemy import inspect as sa_inspect
@@ -249,6 +259,19 @@ def _migrate_usage_agent_label():
     if "agent_label" not in {c["name"] for c in inspector.get_columns("resource_usage_declarations")}:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE resource_usage_declarations ADD COLUMN agent_label VARCHAR(64)"))
+
+
+def _migrate_usage_task_category():
+    """Add a nullable public category; legacy free text remains private and untouched."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    inspector = sa_inspect(engine)
+    if "resource_usage_declarations" in inspector.get_table_names() and "task_category" not in {
+        col["name"] for col in inspector.get_columns("resource_usage_declarations")
+    }:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE resource_usage_declarations ADD COLUMN task_category VARCHAR(48)"))
 
 
 def _migrate_resource_bindings():
@@ -438,7 +461,9 @@ async def lifespan(app: FastAPI):
     _migrate_bots_uuid()
     _migrate_bots_resource_auth_enabled()
     _migrate_bots_agent_notifications()
+    _migrate_bots_utilization_config()
     _migrate_usage_agent_label()
+    _migrate_usage_task_category()
     _migrate_resource_bindings()
     _migrate_identity_boundaries()
     _migrate_binding_uniqueness()

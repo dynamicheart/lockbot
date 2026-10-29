@@ -19,7 +19,7 @@ import re
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.bots.manager import (
@@ -123,14 +123,14 @@ Both use the same `bot_id` and saved key. Each acquires a different resource:
 Successful `lock` / `slock` / `book` with either optional field automatically registers
 that resource's Agent name and purpose in the same API call. No second request is needed.
 A failed acquisition does not change the current task. Other commands (including `free`)
-use these fields only for their group notification. To change a task later without changing
+never publish these private fields in group notifications. To change a task later without changing
 the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
 
 ```json
 {"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
 ```
 
-Other authorized Agents see the purpose in the matching holder/booking `usage` object.
+Other users receive only preset public task categories; private notes and Agent names are owner/admin/OP scoped.
 Registrations are scoped to user authorization + resource, not individual Agent processes.
 On DEVICE, the current registration covers the node resource; different cards on the same
 node do **not** have independent task registrations. QUEUE_DEVICE saves tasks independently
@@ -195,6 +195,17 @@ class CommandRequest(BaseModel):
         max_length=512,
         description="Resource command text. See the operation command reference and named request examples.",
     )
+    task_category: str | None = Field(
+        default=None, max_length=48, description="Public preset task category; see /api/agent/context."
+    )
+
+    @field_validator("task_category")
+    @classmethod
+    def category(cls, value):
+        from lockbot.backend.app.resource_api.usage import validate_task_category
+
+        return validate_task_category(value)
+
     agent_label: str | None = Field(
         default=None,
         min_length=1,
@@ -209,8 +220,9 @@ class CommandRequest(BaseModel):
         max_length=512,
         pattern=r"^[^\r\n\x00-\x1f\x7f]+$",
         description=(
-            "Optional task note. Successful lock/slock/book also registers resource usage; "
-            "other commands only display it in group notifications."
+            "Private task note, visible only to the owner, administrators and authorized OP. "
+            "Successful lock/slock/book also registers resource usage; "
+            "other commands do not publish it in group notifications."
         ),
     )
 
@@ -221,6 +233,7 @@ class CommandActor(BaseModel):
 
 
 class CommandResponse(BaseModel):
+    skill_update: dict = Field(default_factory=dict)
     next_step: str | None = None
     bot_id: int
     bot_type: str
@@ -260,7 +273,13 @@ def execute_command_via_api(
     from lockbot.backend.app.resource_api.event_log import begin_event, describe_targets, observe_own_resources
 
     begin_event(
-        request, bot=bot_row, operation="command", command=text, agent_label=body.agent_label, purpose=body.purpose
+        request,
+        bot=bot_row,
+        operation="command",
+        command=text,
+        agent_label=body.agent_label,
+        purpose=body.purpose,
+        task_category=body.task_category,
     )
     request.state.resource_activity_kind = "read" if canonical_command(word) == "query" else "write"
 
@@ -352,7 +371,15 @@ def execute_command_via_api(
                 raise errors.may_have_executed(bot_id)
 
             try:
-                register_command_usage(db, bot, actor, before_usage, agent_label=body.agent_label, purpose=body.purpose)
+                register_command_usage(
+                    db,
+                    bot,
+                    actor,
+                    before_usage,
+                    agent_label=body.agent_label,
+                    purpose=body.purpose,
+                    task_category=body.task_category,
+                )
                 if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
                     prune_actor_usage(db, bot, actor)
             except Exception:
@@ -371,6 +398,7 @@ def execute_command_via_api(
                     command_word=word,
                     agent_label=body.agent_label,
                     purpose=body.purpose,
+                    task_category=body.task_category,
                 )
 
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
@@ -378,7 +406,10 @@ def execute_command_via_api(
 
     record_api_command(actor=actor, bot_id=bot_id, command=text)
 
+    from lockbot.backend.app.resource_api.skill import client_skill_notice
+
     return CommandResponse(
+        skill_update=client_skill_notice(request),
         next_step=(
             "book is only a booking, not ownership. Keep polling GET /resources; when claimable_by_you "
             "is true, send claim_command, then verify your holding before using the resource. "

@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 60s
+  scrape_timeout: 5s
+scrape_configs:
+  - job_name: lockbot-resource-exporter
+    honor_timestamps: false
+    static_configs:
+      - targets: ['127.0.0.1:9911']

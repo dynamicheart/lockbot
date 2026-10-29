@@ -318,6 +318,8 @@ def _read_backup_bots(zf) -> list[dict]:
             select_cols.extend(
                 key for key in ("resource_auth_enabled", "resource_api_notify_enabled") if key in columns
             )
+            if "utilization_config" in columns:
+                select_cols.append("utilization_config")
             # uuid may not exist in older backups
             if "uuid" in columns:
                 select_cols.insert(1, "uuid")
@@ -611,6 +613,17 @@ def restore_apply(
             agent_options[key] = bool(value)
         if invalid_options:
             continue
+
+        if "utilization_config" in bb:
+            from lockbot.backend.app.bots.datasource import UtilizationConfig, serialized_datasource
+
+            try:
+                raw_source = bb["utilization_config"]
+                source = UtilizationConfig.model_validate_json(raw_source) if raw_source else None
+                agent_options["utilization_config"] = serialized_datasource(source)
+            except (ValueError, TypeError):
+                errors.append(f"Bot '{name}': invalid archived utilization configuration; skipped")
+                continue
 
         # Find existing bot by uuid
         existing = db.query(Bot).filter(Bot.uuid == uuid, Bot.is_deleted.is_(False)).first()

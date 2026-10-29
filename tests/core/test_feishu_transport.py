@@ -175,9 +175,12 @@ def test_agent_notification_uses_single_configured_group_without_mentions(monkey
         command_word="lock",
         agent_label="codex",
         purpose="Model performance test",
+        task_category="performance_testing",
     )
     assert sent[0]["receive_id"] == "oc_demo"
-    assert "Model performance test" in sent[0]["content"]
+    assert "性能测试" in sent[0]["content"]
+    assert "Model performance test" not in sent[0]["content"]
+    assert "codex" not in sent[0]["content"]
     rows = json.loads(sent[0]["content"])["zh_cn"]["content"]
     assert all(node["tag"] != "at" for row in rows for node in row)
 

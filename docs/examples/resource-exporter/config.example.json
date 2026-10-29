@@ -1,0 +1,9 @@
+{
+  "node": "node-a",
+  "vendor": "xpu",
+  "command": ["/usr/local/bin/xpu-smi", "-q", "-x"],
+  "interval_seconds": 300,
+  "host_interval_seconds": 300,
+  "timeout_seconds": 10,
+  "filesystems": {"system": "/", "data": "/srv/data"}
+}
