@@ -1,6 +1,6 @@
 """Task disclosure is separate from bot management and resource-operation authority."""
 
-import copy
+import math
 import re
 
 from sqlalchemy import select
@@ -78,23 +78,30 @@ def public_event(entry):
     """
     from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
 
-    result = {
-        key: copy.deepcopy(entry[key])
-        for key in (
-            "schema_version",
-            "timestamp",
-            "bot_id",
-            "bot_type",
-            "operation",
-            "http_status",
-            "outcome",
-            "duration_ms",
-        )
-        if key in entry
-    }
+    result = {}
+    for key in ("schema_version", "bot_id", "http_status"):
+        value = entry.get(key)
+        if type(value) is int and value >= 0:
+            result[key] = value
+    for key, allowed in (
+        ("operation", {"command", "usage.update", "usage.delete"}),
+        ("outcome", {"dispatched", "applied", "rejected", "may_have_executed"}),
+        ("bot_type", {"NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"}),
+    ):
+        value = entry.get(key)
+        if isinstance(value, str) and value in allowed:
+            result[key] = value
+    timestamp = entry.get("timestamp")
+    if isinstance(timestamp, str):
+        result["timestamp"] = timestamp[:64]
+    duration = entry.get("duration_ms")
+    if type(duration) in (int, float) and math.isfinite(duration) and duration >= 0:
+        result["duration_ms"] = duration
     actor = entry.get("actor")
     if isinstance(actor, dict):
-        result["actor"] = {key: actor[key] for key in ("platform", "external_user_id") if key in actor}
+        result["actor"] = {
+            key: actor[key][:256] for key in ("platform", "external_user_id") if isinstance(actor.get(key), str)
+        }
     result["command"] = public_command(entry.get("command"))
     category = entry.get("task_category")
     if isinstance(category, str) and category in TASK_CATEGORIES:

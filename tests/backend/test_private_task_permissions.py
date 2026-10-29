@@ -198,3 +198,23 @@ def test_public_event_allowlist_excludes_future_fields_and_searchable_private_te
 
 def test_public_usage_event_keeps_legacy_resource_identifier():
     assert public_event({"requested_resources": ["n1:dev0"]})["requested_resources"] == [{"resource_id": "n1:dev0"}]
+
+
+def test_public_history_rejects_malformed_nested_scalars_and_unknown_operations():
+    raw = {
+        key: {"private": "hidden"}
+        for key in (
+            "schema_version",
+            "timestamp",
+            "bot_id",
+            "bot_type",
+            "operation",
+            "http_status",
+            "outcome",
+            "duration_ms",
+        )
+    }
+    raw["actor"] = {"platform": {"private": "hidden"}, "external_user_id": ["hidden"]}
+    assert public_event(raw) == {"actor": {}, "command": None, "requested_resources": []}
+    assert "operation" not in public_event({"operation": "unknown private operation"})
+    assert "outcome" not in public_event({"outcome": "private error details"})
