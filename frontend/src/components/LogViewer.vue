@@ -38,7 +38,11 @@
         <el-icon><Download /></el-icon> {{ $t('log.download') }}
       </el-button>
     </div>
-    <AgentHistory v-if="category === 'agent'" :bot-id="botId" />
+    <AgentHistory
+      v-if="category === 'agent'"
+      :bot-id="botId"
+      :include-private="props.includePrivate"
+    />
     <template v-else>
       <p v-if="logs.some((entry) => entry.details_restricted)" class="log-privacy-note">
         {{ $t('log.privateDetailsRestricted') }}
@@ -89,6 +93,7 @@ import { createLogViewerLoader } from '../utils/logViewerLoader'
 
 const props = defineProps({
   botId: { type: [Number, String], required: true },
+  includePrivate: { type: Boolean, default: false },
 })
 
 const botsStore = useBotsStore()
@@ -129,7 +134,12 @@ const loader = createLogViewerLoader({
     }
   },
 })
-const scope = () => ({ botId: props.botId, level: level.value, category: category.value })
+const scope = () => ({
+  botId: props.botId,
+  level: level.value,
+  category: category.value,
+  includePrivate: props.includePrivate,
+})
 const refreshLogs = () => loader.refresh()
 const loadMore = () => loader.loadMore()
 const downloadLogs = () => loader.download()
@@ -143,7 +153,11 @@ function formatTime(t) {
   return new Date(t).toLocaleString()
 }
 
-watch([() => props.botId, level, category], () => loader.setScope(scope()), { flush: 'sync' })
+watch(
+  [() => props.botId, () => props.includePrivate, level, category],
+  () => loader.setScope(scope()),
+  { flush: 'sync' }
+)
 watch(autoRefresh, (val) => {
   clearInterval(timer)
   if (val) timer = setInterval(() => loader.refresh(), 5000)

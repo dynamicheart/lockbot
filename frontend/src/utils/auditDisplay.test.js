@@ -73,3 +73,19 @@ it('renders Agent gate changes as localized configuration values', () => {
   )
   expect(result).toBe('允许 Agent 访问: 否 → 是')
 })
+
+it('shows retained bot IDs and global private-read targets without rewriting rows', async () => {
+  const { auditTarget } = await import('./auditDisplay')
+  const oldBot = Object.freeze({ target_type: 'bot', target_id: 25, target_name: null })
+  expect(auditTarget(oldBot)).toEqual({ type: 'bot', name: '#25' })
+  expect(
+    auditTarget({
+      action: 'task_private.read',
+      target_type: 'bot',
+      target_id: null,
+      detail: { surface: 'management.global_service_traffic' },
+    })
+  ).toEqual({ type: 'service', name: 'Lockbot' })
+  expect(auditTarget({ target_type: 'bot', target_id: null }).name).toBe('')
+  expect(oldBot.target_name).toBe(null)
+})

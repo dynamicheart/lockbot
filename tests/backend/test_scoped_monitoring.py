@@ -373,7 +373,7 @@ def test_private_history_projection_precedes_search_pagination_and_export(client
     owner = db_session.query(User).filter_by(username="testuser").one()
     owner.role = "super_admin"
     db_session.commit()
-    private = client.get(url, params={"query": "private-task"}, headers=auth_header)
+    private = client.get(url, params={"query": "private-task", "include_private": True}, headers=auth_header)
     assert len(private.json()["items"]) == 3 and "private-agent" in private.text
     audit = db_session.query(AuditLog).filter_by(action="task_private.read").one()
     assert json.loads(audit.detail) == {"surface": "management.agent_history"}
@@ -393,4 +393,6 @@ def test_bot_monitoring_hides_credential_identifiers_but_retains_caller_counts(c
     owner = db_session.query(User).filter_by(username="testuser").one()
     owner.role = "super_admin"
     db_session.commit()
-    assert "private-credential-identifier" in client.get(url, headers=auth_header).text
+    assert (
+        "private-credential-identifier" in client.get(url, params={"include_private": True}, headers=auth_header).text
+    )
