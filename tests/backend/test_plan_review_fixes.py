@@ -115,7 +115,7 @@ def test_r2_uuid_unique_index_rejects_duplicate(client, admin_header, db_session
         name="r2-dup",
         bot_type="NODE",
         platform="Infoflow",
-        webhook_url="x",
+        webhook_url=orig.webhook_url,
         aes_key="",
         token="",
         cluster_configs="[]",

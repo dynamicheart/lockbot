@@ -4,8 +4,8 @@ from collections import OrderedDict
 from dataclasses import replace
 from weakref import WeakSet
 
-from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+from lockbot.backend.app.platform_applications.service import CredentialUnavailable, credentials_for, runtime_guard
 from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
 from lockbot.core.platforms.feishu_events import FeishuIdentity, InvalidFeishuEvent, normalize_message
 
@@ -20,13 +20,16 @@ def application_identity(app):
         app.app_id,
         app.tenant_key,
         app.bot_open_id,
-        encryption.decrypt(app.verification_token),
-        encryption.decrypt(app.encrypt_key),
+        credentials_for(app)["verification_token"],
+        credentials_for(app)["encrypt_key"],
     )
 
 
 def application_client(app):
-    secret = encryption.decrypt(app.app_secret)
+    try:
+        secret = credentials_for(app)["app_secret"]
+    except CredentialUnavailable:
+        raise FeishuAPIError("Application credentials changed or are unavailable; refresh before retrying") from None
     key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
     with _clients_lock:
         if app.app_id in _credential_generations and _credential_generations[app.app_id] != key[1]:
@@ -34,13 +37,14 @@ def application_client(app):
         if key not in _clients:
             _clients[key] = FeishuClient(app.app_id, secret)
             _client_references.add(_clients[key])
+        _clients[key].credential_guard = runtime_guard(app)
         _clients.move_to_end(key)
         while len(_clients) > 32:
             _clients.popitem(last=False)
         return _clients[key]
 
 
-def invalidate_application_clients(app_id, *, secret=""):
+def invalidate_application_clients(app_id, *, secret="", credential_guard=None):
     """Invalidate only this app, including references retained by running resource bots."""
     with _clients_lock:
         _credential_generations[app_id] = hashlib.sha256(secret.encode()).hexdigest() if secret else None
@@ -49,7 +53,7 @@ def invalidate_application_clients(app_id, *, secret=""):
             _credential_generations.popitem(last=False)
         for client in list(_client_references):
             if client.app_id == app_id:
-                client.replace_application_secret(secret)
+                client.replace_application_secret(secret, credential_guard=credential_guard)
         for key in list(_clients):
             if key[0] == app_id:
                 _clients.pop(key)
@@ -78,7 +82,7 @@ def cached_bot_client(bot, db):
         return None
     try:
         app = _routed_application(bot, db)
-        secret = encryption.decrypt(app.app_secret)
+        secret = credentials_for(app)["app_secret"]
         key = (app.app_id, hashlib.sha256(secret.encode()).hexdigest())
     except (ValueError, InvalidToken):
         return None

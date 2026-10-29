@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from lockbot.backend.app.bots.encryption import encrypt
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu import service, unbound
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute, FeishuReceivedMessage
@@ -62,7 +63,11 @@ def hints(setup, db_session, monkeypatch):
         sent.append(payload)
         return [(200, "platform_accepted")]
 
-    monkeypatch.setattr(FeishuClient, "token", lambda self: "fixture-token")
+    def fixture_token(self):
+        self._token = "fixture-token"
+        return self._token
+
+    monkeypatch.setattr(FeishuClient, "token", fixture_token)
     monkeypatch.setattr(FeishuClient, "send", send)
     return SimpleNamespace(
         request_sessions=request_sessions,
@@ -161,7 +166,7 @@ def test_worker_rechecks_identity_route_and_age_before_network(client, hints, db
         route = db_session.query(FeishuGroupRoute).first()
         route.chat_id = "oc_group99"
     elif change == "secret":
-        app.app_secret = "rotated_ciphertext"
+        app.app_secret = encrypt("rotated_fixture")
     elif change == "bot_identity":
         app.bot_open_id = "ou_changed"
     elif change == "tenant":
@@ -223,7 +228,12 @@ def test_hint_uses_the_fixed_feishu_proxy_after_all_owned_transactions_close(cli
     monkeypatch.setattr(feishu_proxy, "_mode", "custom")
     monkeypatch.setattr(feishu_proxy, "_configured", "http://proxy.example:8188")
     monkeypatch.setattr(FeishuClient, "send", _ORIGINAL_SEND)
-    monkeypatch.setattr(FeishuClient, "token", lambda self: "fixture-token")
+
+    def fixture_token(self):
+        self._token = "fixture-token"
+        return self._token
+
+    monkeypatch.setattr(FeishuClient, "token", fixture_token)
 
     def network(url, **kwargs):
         assert all(not session.in_transaction() for session in hints.request_sessions + hints.worker_sessions)

@@ -127,6 +127,7 @@ class InfoflowAdapter(MessageAdapter):
         Returns:
             List of (status_code, response_text) tuples.
         """
+        self._check_credentials()
         return post_webhook(msg, config=self.config)
 
     def send_broadcast(self, content: str, group_id: str, mention_all: bool = False) -> tuple[str, str]:
@@ -144,6 +145,7 @@ class InfoflowAdapter(MessageAdapter):
 
     def send_notification(self, payload: dict) -> tuple[str, str]:
         """One attempt, including platform acceptance parsing; never retry a timeout."""
+        self._check_credentials()
         try:
             response = requests.post(
                 self._get_config("WEBHOOK_URL"), json=payload, timeout=(3, 5), allow_redirects=False
@@ -189,6 +191,11 @@ class InfoflowAdapter(MessageAdapter):
             elif kind == "LINK":
                 parts.append(item.get("href") or item.get("label") or "")
         return "".join(parts)
+
+    def _check_credentials(self):
+        guard = self._get_config("_MESSAGING_CREDENTIAL_GUARD")
+        if guard is not None:
+            guard()
 
     def _get_config(self, key, default=None):
         """Get config value from instance config or fresh defaults."""

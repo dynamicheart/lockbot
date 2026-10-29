@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta
 
 import pytest
+from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuQueryPanel
 from lockbot.backend.app.feishu.query_panel import MAX_EDITS, QueryPanel, invalidate_query_panel, query_delivery
@@ -311,8 +312,8 @@ def test_two_applications_same_chat_never_share_panel_references(panel_env, monk
             name="Second",
             tenant_key="tenant_two",
             bot_open_id="ou_two",
-            app_secret="unused",
-            verification_token="unused",
+            app_secret=encryption.encrypt("unused"),
+            verification_token=encryption.encrypt("unused"),
             transport="http",
         )
         db.add(app)
