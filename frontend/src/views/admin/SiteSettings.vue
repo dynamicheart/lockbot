@@ -517,6 +517,7 @@ onMounted(() => {
 <style scoped>
 .site-settings {
   max-width: 1120px;
+  margin-inline: auto;
 }
 .settings-section {
   margin-bottom: 20px;
