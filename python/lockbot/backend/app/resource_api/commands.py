@@ -130,7 +130,8 @@ the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
 {"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
 ```
 
-Other users receive only preset public task categories; private notes and Agent names are owner/admin/OP scoped.
+Other users receive only preset public task categories. Private notes and Agent names are scoped
+to the same verified actor and super administrators.
 Registrations are scoped to user authorization + resource, not individual Agent processes.
 On DEVICE, the current registration covers the node resource; different cards on the same
 node do **not** have independent task registrations. QUEUE_DEVICE saves tasks independently
@@ -220,7 +221,7 @@ class CommandRequest(BaseModel):
         max_length=512,
         pattern=r"^[^\r\n\x00-\x1f\x7f]+$",
         description=(
-            "Private task note, visible only to the owner, administrators and authorized OP. "
+            "Private task note, visible only to the same verified actor and super administrators. "
             "Successful lock/slock/book also registers resource usage; "
             "other commands do not publish it in group notifications."
         ),

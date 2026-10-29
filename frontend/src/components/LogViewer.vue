@@ -25,6 +25,9 @@
         <el-icon><Download /></el-icon> {{ $t('log.download') }}
       </el-button>
     </div>
+    <p v-if="logs.some((entry) => entry.details_restricted)" class="log-privacy-note">
+      {{ $t('log.privateDetailsRestricted') }}
+    </p>
     <div ref="logContainer" class="log-container">
       <div v-if="loading" style="text-align: center; padding: 20px">
         <el-icon class="is-loading"><Loading /></el-icon> {{ $t('common.loading') }}
@@ -229,6 +232,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.log-privacy-note {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+
 .log-header {
   display: flex;
   align-items: center;

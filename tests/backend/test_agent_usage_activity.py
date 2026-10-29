@@ -93,7 +93,8 @@ def test_stats_include_reads_writes_refusals_and_429_for_owner_and_admin(
     assert client.get(stats_path, headers=auth_header).status_code == 200
     result = client.get(stats_path, headers=admin_header)
     assert result.status_code == 200, result.text
-    item = next(x for x in result.json()["items"] if x["binding_id"] == issued["binding_id"])
+    item = next(x for x in result.json()["items"] if x["external_user_id"] == "alice")
+    assert item["binding_id"] is None and item["label"] is None
     assert item["external_user_id"] == "alice"
     assert item["read_requests"] == 2 and item["write_requests"] == 2
     assert item["refused_requests"] == 2 and item["limited_requests"] == 1

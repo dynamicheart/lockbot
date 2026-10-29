@@ -571,6 +571,8 @@ export default {
 
   // === Log Viewer ===
   log: {
+    privateDetailsRestricted:
+      'Only operation summaries are shown. Private tasks and raw logs require a super administrator.',
     all: 'All',
     commandLog: 'Command Log',
     systemLog: 'System Log',
