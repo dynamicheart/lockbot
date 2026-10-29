@@ -19,6 +19,8 @@ services:
         value: /data
       - key: PORT
         value: '8000'
+      - key: WEB_CONCURRENCY
+        value: '1'
       - key: JWT_SECRET
         generateValue: true
       # Generate with tools/gen_keys.py; generic random text is not a Fernet key.

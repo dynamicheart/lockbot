@@ -8,7 +8,7 @@ Provider documentation and pricing checked **2026-10-29**. The template has loca
 
 The [backend lifecycle](../../python/lockbot/backend/app/main.py) owns bot recovery, timers and the broadcast worker. [State ownership](../../python/lockbot/backend/app/state_ownership.py) takes exclusive locks because the allocator also keeps state in memory. SQLite, bot state and logs must persist together under `DATA_DIR=/data`; the [Dockerfile](../../docker/Dockerfile) serves the bundled frontend and API through one Uvicorn process on port 8000.
 
-Do not increase replicas or Uvicorn workers. An external SQL database alone would not make timers, bot state files and allocation coordination distributed. Do not enable scale-to-zero: expiring locks, reminders, queued broadcasts and Feishu event reception must run while no browser is open.
+Do not increase replicas or Uvicorn workers. The template explicitly sets `WEB_CONCURRENCY=1` to avoid a hosting default selecting multiple workers. An external SQL database alone would not make timers, bot state files and allocation coordination distributed. Do not enable scale-to-zero: expiring locks, reminders, queued broadcasts and Feishu event reception must run while no browser is open.
 
 ## Platform comparison
 
@@ -67,6 +67,8 @@ A cloud-hosted Lockbot does not automatically reach a company's private IM callb
 Metrics remain independent: `SMI → exporter → Prometheus → read-only gateway → browser / Agent`. Prometheus does not parse vendor XML. The hosted Lockbot neither needs MPI nor collects hardware metrics in its web process. Deploy collectors where machines are reachable; the [telemetry guide](../usage/telemetry-deployment.md) covers collection, gateway and signer deployment. The [browser guide](../usage/browser-utilization.md) covers templates and node/card mapping.
 
 The viewer's network must reach the metrics gateway. Public HTTPS pages cannot simply fetch private HTTP endpoints: TLS, mixed-content restrictions, CORS and routing still apply. Short-lived `metrics:read` grants authorize a query; they do not create a network route. Do not expose raw Prometheus or write/admin APIs to make the UI work. Keep source-specific grant-signing files outside bot data, securely provisioned to both the approved Lockbot issuer and the corresponding gateway.
+
+Use the provider's supported connection-draining and shutdown-grace settings where needed, and allow in-flight commands and background work to finish before shutdown. Render's stop-before-start disk handoff prevents simultaneous mounts; it does **not** prove that the application completed a clean shutdown or produced a consistent backup. Verify shutdown logs and recovery separately.
 
 Back up the database **and bot state from the same stopped allocator**, plus separately protected encryption/signing keys. Verify restoration into an isolated environment before replacing production. Render has daily disk snapshots retained seven days, but specifically warns that disk snapshots are not a substitute for database-native recovery. Fly likewise warns against relying solely on volume snapshots. A successfully restarted HTTP process is not evidence that locks, queues and credentials survived. [Render snapshot limits](https://render.com/docs/disks), [Fly volume backup guidance](https://fly.io/docs/volumes/overview/).
 
