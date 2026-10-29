@@ -29,7 +29,7 @@
       :row-class-name="({ row }) => (row.id === selectedId ? 'resource-row-selected' : '')"
       class="resource-status-list desktop-resource-list"
     >
-      <el-table-column :label="$t('resourceView.resource')" width="180">
+      <el-table-column :label="$t('resourceView.resource')" width="160">
         <template #default="{ row }">
           <div class="resource-identity" :data-resource-id="row.id">
             <div class="node-identity">
@@ -42,7 +42,11 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('resourceView.currentHolder')" min-width="230">
+      <el-table-column
+        :label="$t('resourceView.currentHolder')"
+        :width="$slots.metrics ? 240 : undefined"
+        min-width="230"
+      >
         <template #default="{ row }">
           <ResourceParticipants
             :users="users(row.holders)"
@@ -59,7 +63,11 @@
           </ResourceParticipants>
         </template>
       </el-table-column>
-      <el-table-column :label="$t('resourceView.queue')" min-width="320">
+      <el-table-column
+        :label="$t('resourceView.queue')"
+        :width="$slots.metrics ? 260 : undefined"
+        min-width="280"
+      >
         <template #default="{ row }">
           <template v-if="row.booking_list?.length">
             <ResourceParticipants
@@ -78,7 +86,7 @@
           <span v-else class="empty-value">—</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="320">
+      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="420">
         <template #default="{ row }"><slot name="metrics" :row="row" /></template>
       </el-table-column>
     </el-table>

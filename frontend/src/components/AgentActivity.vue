@@ -31,7 +31,7 @@
       <el-table
         :data="items"
         :empty-text="t('agentActivity.empty')"
-        row-key="binding_id"
+        row-key="row_key"
         class="activity-table"
       >
         <el-table-column :label="t('agentActivity.user')" min-width="230">

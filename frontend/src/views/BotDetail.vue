@@ -504,6 +504,7 @@
             <template v-if="resourceMetrics.enabled" #metrics="{ row }">
               <ResourceMetricsCell
                 v-bind="resourceMetrics"
+                :now="metricsClock"
                 :node-id="row.metric_node_id || row.id"
                 :resource-id="row.metric_resource_id || null"
               />
@@ -520,6 +521,9 @@
         <el-tabs v-model="activityTab">
           <el-tab-pane :label="$t('botDetail.logs')" name="logs">
             <LogViewer v-if="activityTab === 'logs'" :bot-id="bot.id" />
+          </el-tab-pane>
+          <el-tab-pane v-if="canEdit" :label="$t('serviceTraffic.title')" name="traffic">
+            <ServiceTrafficPanel v-if="activityTab === 'traffic'" :bot-id="bot.id" />
           </el-tab-pane>
           <el-tab-pane v-if="canEdit" :label="$t('agentActivity.title')" name="agents">
             <AgentActivity
@@ -580,12 +584,14 @@ import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { sourceResources } from '../utils/utilization/display'
+import { useDisplayClock } from '../utils/useDisplayClock'
 
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBotsStore } from '../stores/bots'
 import { useAuthStore } from '../stores/auth'
 import AgentActivity from '../components/AgentActivity.vue'
+import ServiceTrafficPanel from '../components/ServiceTrafficPanel.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import BotAudit from '../components/BotAudit.vue'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -628,6 +634,7 @@ const agentMetrics = computed(() =>
 
 const bot = ref(null)
 const resourceMetrics = ref({ enabled: false })
+const metricsClock = useDisplayClock()
 const datasourceConfig = computed(() => {
   try {
     return typeof bot.value?.utilization_config === 'string'
