@@ -26,7 +26,7 @@
             }}</span>
             <span
               v-if="Object.values(card.metrics).every((metric) => state(metric) !== 'ok')"
-              class="is-muted"
+              class="card-unavailable is-muted"
               >{{ metricText(card.metrics.compute, true) }}</span
             >
             <template v-else>
@@ -172,7 +172,7 @@ function loadClass(card) {
   align-items: baseline;
   gap: 5px;
 }
-.card-values > .is-muted {
+.card-unavailable {
   grid-column: 2 / -1;
   white-space: nowrap;
 }
