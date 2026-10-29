@@ -73,6 +73,28 @@ def test_legacy_notes_stay_private_and_categories_are_validated_before_execution
 
 
 @pytest.mark.parametrize("endpoint", ["commands", "usage-declarations/n1"])
+def test_validation_errors_do_not_echo_private_submissions(client, api, endpoint):
+    body = {
+        "task_category": "private-category-marker",
+        "purpose": "private-purpose-marker" * 300,
+        "agent_label": "private-agent-marker" * 30,
+    }
+    method = client.put
+    if endpoint == "commands":
+        method = client.post
+        body["command"] = "lock n1 1h"
+    response = method(f"/api/bots/{api['bot_id']}/{endpoint}", headers=api["headers"], json=body)
+    assert response.status_code == 422
+    assert "private-" not in response.text
+    assert response.headers["cache-control"] == "no-store"
+    errors = response.json()["detail"]
+    assert all("input" not in error for error in errors)
+    category = next(error for error in errors if error["loc"] == ["body", "task_category"])
+    assert category["ctx"]["allowed_categories"]["unit_testing"] == "单元测试"
+    assert not api["bot"].state.bot_state["n1"]["current_users"]
+
+
+@pytest.mark.parametrize("endpoint", ["commands", "usage-declarations/n1"])
 def test_category_error_lists_context_choices_without_dispatch(client, api, monkeypatch, endpoint):
     sent = []
     monkeypatch.setattr(api["bot"].adapter, "send", sent.append)
@@ -92,6 +114,12 @@ def test_category_error_lists_context_choices_without_dispatch(client, api, monk
     assert "private-note" not in str(error["ctx"])
     assert not api["bot"].state.bot_state["n1"]["current_users"]
     assert sent == []
+
+
+def test_non_agent_validation_retains_its_existing_contract(client):
+    response = client.post("/api/auth/login", json={})
+    assert response.status_code == 422
+    assert any("input" in error for error in response.json()["detail"])
 
 
 def test_group_notifications_never_publish_private_fields_even_on_release(client, api, monkeypatch):

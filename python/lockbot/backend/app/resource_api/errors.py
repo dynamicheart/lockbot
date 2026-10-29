@@ -20,6 +20,38 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 
 
+def install_agent_validation_errors(app):
+    """Keep actionable validation metadata without reflecting private request bodies."""
+    from fastapi.encoders import jsonable_encoder
+    from fastapi.exception_handlers import request_validation_exception_handler
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+
+    routes = {
+        "/api/bots/{bot_id}/commands",
+        "/api/bots/{bot_id}/usage-declarations/{resource_id}",
+    }
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        if getattr(request.scope.get("route"), "path", None) not in routes:
+            return await request_validation_exception_handler(request, exc)
+        details = []
+        for error in exc.errors():
+            item = {key: value for key, value in error.items() if key not in {"input", "url", "ctx"}}
+            if error.get("ctx"):
+                # Validator exception objects are not a public diagnostic payload.
+                context = {key: value for key, value in error["ctx"].items() if key != "error"}
+                if context:
+                    item["ctx"] = context
+            details.append(item)
+        return JSONResponse(
+            status_code=422,
+            content={"detail": jsonable_encoder(details)},
+            headers={"Cache-Control": "no-store"},
+        )
+
+
 def api_error(
     http_status: int,
     code: str,
