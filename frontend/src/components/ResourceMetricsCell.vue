@@ -40,7 +40,10 @@
             v-if="card.processes?.length || card.processesTruncated"
             trigger="click"
             popper-class="resource-process-popover"
-            placement="left"
+            placement="bottom-end"
+            :popper-options="{
+              modifiers: [{ name: 'preventOverflow', options: { altAxis: true, padding: 12 } }],
+            }"
             :width="560"
           >
             <template #reference>
@@ -233,6 +236,10 @@ function loadClass(card) {
   padding: 6px;
   border-bottom: 1px solid var(--el-border-color-lighter);
   overflow-wrap: anywhere;
+}
+.process-detail th,
+.process-detail td:nth-child(3) {
+  white-space: nowrap;
 }
 .process-detail p {
   color: var(--lb-text-secondary);
