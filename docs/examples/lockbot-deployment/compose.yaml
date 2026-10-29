@@ -1,0 +1,25 @@
+services:
+  lockbot:
+    image: ${LOCKBOT_IMAGE:?Set an explicitly released image tag or digest}
+    restart: unless-stopped
+    ports:
+      - "${LOCKBOT_BIND:-127.0.0.1}:${LOCKBOT_PORT:-8000}:8000"
+    environment:
+      DATA_DIR: /data
+      JWT_SECRET: ${JWT_SECRET:?Preserve the existing JWT secret on upgrades}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Preserve the existing encryption key on upgrades}
+      DEV_MODE: "false"
+      WEB_CONCURRENCY: "1"
+      LOCKBOT_FEISHU_PROXY_URL: ${LOCKBOT_FEISHU_PROXY_URL:-}
+    volumes:
+      - lockbot-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+volumes:
+  lockbot-data:
+    name: ${LOCKBOT_DATA_VOLUME:-lockbot-data}
