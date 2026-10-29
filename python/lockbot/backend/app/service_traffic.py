@@ -127,6 +127,7 @@ class TrafficStats:
         self.credentials = OrderedDict()
         self.unattributed_requests = 0
         self.operations = Counter()
+        self.operation_minutes = {}
 
     def _ensure_bot(self, bot_id):
         if bot_id not in self.bots:
@@ -150,16 +151,39 @@ class TrafficStats:
         ):
             return
         key = (source, command, outcome)
+        minute = int(self.clock() // 60)
         with self.lock:
-            self.operations[key] += 1
+            self._record_operation_locked(key, minute)
             if self.scoped:
                 child = self._ensure_bot(bot_id)
                 with child.lock:
-                    child.operations[key] += 1
+                    child._record_operation_locked(key, minute)
 
-    def _operation_payload(self):
+    def _record_operation_locked(self, key, minute):
+        self.operations[key] += 1
+        self.operation_minutes = {
+            stamp: bucket for stamp, bucket in self.operation_minutes.items() if minute - 59 <= stamp <= minute
+        }
+        self.operation_minutes.setdefault(minute, Counter())[(key[0], key[2])] += 1
+
+    def _operation_payload(self, now):
         return {
             "total": sum(self.operations.values()),
+            "observed_since": _iso(self.started_at),
+            "history": [
+                {
+                    "at": _iso(stamp * 60),
+                    "observed": stamp >= int(self.started_at // 60),
+                    "sources": {
+                        source: sum(
+                            self.operation_minutes.get(stamp, {}).get((source, outcome), 0)
+                            for outcome in ("dispatched", "rejected", "uncertain")
+                        )
+                        for source in ("chat", "agent", "operator")
+                    },
+                }
+                for stamp in range(int(now // 60) - 59, int(now // 60) + 1)
+            ],
             "rows": [
                 {"source": key[0], "command": key[1], "outcome": key[2], "count": count}
                 for key, count in sorted(self.operations.items())
@@ -229,7 +253,7 @@ class TrafficStats:
         with self.lock:
             recent = sum(value for key, value in self.seconds.items() if second - 59 <= key <= second)
             return {
-                "business_operations": self._operation_payload(),
+                "business_operations": self._operation_payload(now),
                 "bot_options": options,
                 "credentials": ranked[:50],
                 "unattributed_requests": self.unattributed_requests,
