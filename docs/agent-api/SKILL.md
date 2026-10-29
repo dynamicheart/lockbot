@@ -480,7 +480,7 @@ the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
 {"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
 ```
 
-Other users see only the preset `task_category` / `public_task`; private notes and Agent names remain owner/admin/OP scoped.
+Other users see only the preset `task_category` / `public_task`; private notes and Agent names remain same-verified-actor/super-administrator scoped.
 Registrations are scoped to user authorization + resource, not individual Agent processes.
 On DEVICE, the current registration covers the node resource; different cards on the same
 node do **not** have independent task registrations. Do not claim that distinction exists.
@@ -607,14 +607,14 @@ resource commands execute. Select `other` when no category fits; do not ask the 
 operation. Choose the category that best reflects the actual work, without inventing a task.
 
 `purpose` is an optional **private note** (up to 512 characters); `agent_label` is an optional
-private Agent name (up to 64 characters). Only the same verified user, bot administrators and
-authorized OP credentials may read these details. Other users' Agents, shared resource pages
+private Agent name (up to 64 characters). Only the same verified user and super administrators may read these details. Bot ownership,
+ordinary management access and a bot OP key do not grant private-task read permission. Other users' Agents, shared resource pages
 and group notifications receive the preset category, never these fields or authorization
 labels. Agents sharing the same user's key share this privacy scope; they are not separate
 private identities. A category still reveals the broad kind of work, so omit it if the user
 wants no public task information at all. Do not put secrets, credentials, personal data,
-private URLs, exact experiments or full prompts in notes: administrators and operational
-logs can retain them. Prefer a short useful note and keep sensitive details locally.
+private URLs, exact experiments or full prompts in notes: super administrators and host
+operators with filesystem access can retain them. Prefer a short useful note and keep sensitive details locally.
 
 Example on a server advertising this policy:
 

@@ -120,7 +120,8 @@ def test_active_authorizations_paginate_without_hiding_unseen_keys(api, client, 
     first = client.get(base, headers=api["auth_header"]).json()
     second = client.get(base, params={"page": 2}, headers=api["auth_header"]).json()
     assert first["total"] == 25 and len(first["items"]) == 20 and len(second["items"]) == 5
-    assert not {x["binding_id"] for x in first["items"]} & {x["binding_id"] for x in second["items"]}
+    assert not {x["external_user_id"] for x in first["items"]} & {x["external_user_id"] for x in second["items"]}
+    assert all(x["binding_id"] is None for x in first["items"] + second["items"])
     history = client.get(base, params={"status": "history"}, headers=api["auth_header"]).json()
     assert history["total"] == 2 and all(not x["active"] for x in history["items"])
     summary = client.get(f"/api/bots/{api['bot_id']}/agent-summary", headers=api["auth_header"]).json()
