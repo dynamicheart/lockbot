@@ -43,7 +43,7 @@ from lockbot.backend.app.bots.schemas import (
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.managed_paths import get_managed_paths, sanitize_managed_overrides
-from lockbot.backend.app.platform_applications.service import bot_credentials, credentials_for
+from lockbot.backend.app.platform_applications.service import bot_credentials, credentials_for, runtime_guard
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors as api_errors
 from lockbot.backend.app.resource_api.privacy import (
@@ -351,6 +351,8 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         if db is None:
             raise ValueError("Feishu configuration requires the application database")
         config.update(bot_application_config(bot, db))
+    elif db is not None and isinstance(bot, Bot) and (bot.platform or "infoflow").lower() == "infoflow":
+        config["_MESSAGING_CREDENTIAL_GUARD"] = runtime_guard(bot)
     config["DATA_DIR"] = str(paths.bots_root)
     config["STATE_FILENAME"] = str(paths.state_file(bot_id))
     config["_MANAGED_BOT_DIR"] = lambda: paths.core_directory(bot_id)
@@ -1717,7 +1719,13 @@ async def webhook(bot_id: int, request: Request, db: Session = Depends(get_db)):
     # stopped, or over-full bot falls back to the friendly "not running" reply.
     metadata_session = sessionmaker(bind=db.get_bind())
 
+    admission_guard = (
+        runtime_guard(row) if row is not None and (row.platform or "infoflow").lower() == "infoflow" else None
+    )
+
     def _dispatch():
+        if admission_guard is not None:
+            admission_guard()
         with bot_manager.admit(bot_id) as lease:
             text, code, meta = handle_webhook(lease.bot, raw_form=form, raw_args=args, raw_body=body)
             if code == 200:
@@ -1795,6 +1803,8 @@ async def _reply_bot_not_running(
         "AESKEY": bot_credentials(bot)["aes_key"],
         "TOKEN": bot_credentials(bot)["token"],
     }
+    if (bot.platform or "infoflow").lower() == "infoflow":
+        config_dict["_MESSAGING_CREDENTIAL_GUARD"] = runtime_guard(bot)
     config = Config(config_dict)
     adapter = create_adapter(bot.platform, config=config)
 

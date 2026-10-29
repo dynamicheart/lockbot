@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, SecretStr, StrictStr, ValidationError
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint, event, inspect, select
-from sqlalchemy.orm import Mapped, Session, mapped_column, object_session
+from sqlalchemy.orm import Mapped, Session, mapped_column, object_session, sessionmaker
 
 from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.bots.models import Bot
@@ -143,6 +143,40 @@ def credentials_for(source):
     if row.source_fingerprint != fingerprint(source, provider):
         raise CredentialUnavailable("Messaging credential layouts disagree; refresh or reconcile before use")
     return value
+
+
+def credential_expiry(source):
+    """UTC deadline for a currently validated managed source, if present."""
+    credentials_for(source)
+    provider, identity = source_identity(source)
+    db = object_session(source)
+    row = find_record(db, provider, identity) if db is not None else None
+    return row.expires_at if row else None
+
+
+def runtime_guard(source):
+    """Validate retained transport secrets in a short fresh read transaction before I/O."""
+    expected = credentials_for(source)
+    provider, identity = source_identity(source)
+    source_id, model = source.id, type(source)
+    factory = sessionmaker(bind=object_session(source).get_bind())
+
+    def check():
+        try:
+            with factory() as db:
+                current = db.get(model, source_id)
+                if current is None or source_identity(current) != (provider, identity):
+                    raise CredentialUnavailable("Messaging credential source changed")
+                if isinstance(current, Bot) and current.is_deleted:
+                    raise CredentialUnavailable("Messaging credential source is unavailable")
+                if credentials_for(current) != expected:
+                    raise CredentialUnavailable("Messaging credentials changed; restart the retained transport")
+        except CredentialUnavailable:
+            raise
+        except Exception:
+            raise CredentialUnavailable("Messaging credential validation is unavailable") from None
+
+    return check
 
 
 def bot_credentials(source):

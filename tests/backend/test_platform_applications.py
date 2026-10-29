@@ -349,3 +349,149 @@ def test_source_recreation_serializes_against_orphan_deletion(db_session, source
             deleting.commit()
         deleting.rollback()
     assert db_session.get(PlatformApplication, identifier) is not None
+
+
+@pytest.mark.parametrize("cached_token", [True, False])
+def test_retained_feishu_client_refuses_expired_registry(db_session, sources, monkeypatch, cached_token):
+    import time
+
+    from lockbot.backend.app.feishu.service import application_client
+    from lockbot.core.platforms.feishu import FeishuAPIError
+
+    app = db_session.get(FeishuApplication, sources[1])
+    client = application_client(app)
+    if cached_token:
+        client._token, client._expires = "FAKE_CACHED_TOKEN", time.monotonic() + 3600
+    row = db_session.query(PlatformApplication).filter_by(provider="feishu").one()
+    row.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+    db_session.commit()
+    calls = []
+    monkeypatch.setattr("lockbot.core.platforms.feishu.requests.post", lambda *a, **kw: calls.append(kw))
+    with pytest.raises(FeishuAPIError):
+        client.send({"receive_id": "oc_test"})
+    assert calls == []
+
+
+@pytest.mark.parametrize("method", ["send", "send_notification"])
+def test_retained_infoflow_adapter_refuses_expired_registry(db_session, sources, monkeypatch, method):
+    from lockbot.backend.app.bots.router import _build_config_dict
+    from lockbot.core.config import Config
+    from lockbot.core.platforms.infoflow import InfoflowAdapter
+
+    bot = db_session.get(Bot, sources[0])
+    adapter = InfoflowAdapter(config=Config(_build_config_dict(bot, db_session)))
+    payload = adapter.build_reply("fixture", [], group_id="123")
+    row = db_session.query(PlatformApplication).filter_by(provider="infoflow").one()
+    row.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+    db_session.commit()
+    calls = []
+    monkeypatch.setattr("lockbot.core.platforms.infoflow.requests.post", lambda *a, **kw: calls.append(kw))
+    with pytest.raises(CredentialUnavailable):
+        getattr(adapter, method)(payload)
+    assert calls == []
+
+
+@pytest.mark.parametrize("provider", ["infoflow", "feishu"])
+@pytest.mark.parametrize("failure", ["rotation", "database", "deleted", "schema"])
+def test_retained_guard_checks_current_source_before_io(db_session, sources, monkeypatch, provider, failure):
+    source = db_session.get(
+        Bot if provider == "infoflow" else FeishuApplication, sources[0 if provider == "infoflow" else 1]
+    )
+    guard = service.runtime_guard(source)
+    guard()
+    if failure == "rotation":
+        if provider == "infoflow":
+            source.token = encryption.encrypt("FAKE_ROTATED_TOKEN")
+        else:
+            source.app_secret = encryption.encrypt("FAKE_ROTATED_SECRET")
+        db_session.commit()
+    elif failure == "database":
+        monkeypatch.setattr(service, "credentials_for", lambda _: (_ for _ in ()).throw(RuntimeError("DB fixture")))
+    elif failure == "deleted":
+        db_session.delete(source)
+        db_session.commit()
+    else:
+        row = db_session.query(PlatformApplication).filter_by(provider=provider).one()
+        row.schema_version = 99
+        db_session.commit()
+    with pytest.raises(CredentialUnavailable):
+        guard()
+
+
+def test_websocket_future_expiry_stops_idle_process_and_prevents_reconnect(
+    db_session, sources, session_factory, monkeypatch
+):
+    import io
+
+    from lockbot.backend.app.feishu import connectors
+
+    row = db_session.query(PlatformApplication).filter_by(provider="feishu").one()
+    row.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5)
+    db_session.commit()
+    processes, timers = [], []
+
+    class Process:
+        def __init__(self, *args, **kwargs):
+            self.stdin, self.stdout = io.BytesIO(), io.BytesIO()
+            self.stopped = False
+            processes.append(self)
+
+        def terminate(self):
+            self.stopped = True
+
+        def poll(self):
+            return 0 if self.stopped else None
+
+        def wait(self, timeout):
+            return 0
+
+    class Timer:
+        def __init__(self, interval, callback):
+            assert 0 < interval <= 300
+            self.callback = callback
+            self.cancelled = False
+            timers.append(self)
+
+        def start(self):
+            # Deterministic local clock advance: no sleeps or real SDK/network.
+            row.expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=1)
+            db_session.commit()
+            self.callback()
+
+        def cancel(self):
+            self.cancelled = True
+
+    receiver = connectors.Connector(sources[1], factory=session_factory)
+    monkeypatch.setattr(connectors.subprocess, "Popen", Process)
+    monkeypatch.setattr(connectors.threading, "Timer", Timer)
+    monkeypatch.setattr(receiver._stop, "wait", lambda seconds: False)
+    receiver._run()
+    assert len(processes) == 1 and processes[0].stopped
+    assert len(timers) == 1 and timers[0].cancelled
+    assert receiver.snapshot()["state"] == "stopped"
+
+
+def test_infoflow_chunk_retry_rechecks_guard_before_every_http_attempt(monkeypatch):
+    from types import SimpleNamespace
+
+    from lockbot.core.config import Config
+    from lockbot.core.platforms.infoflow import InfoflowAdapter
+
+    checks, calls = [], []
+
+    def guard():
+        checks.append(True)
+        if len(calls) >= 1:
+            raise CredentialUnavailable("fixture expired after first HTTP attempt")
+
+    monkeypatch.setattr(
+        "lockbot.core.request.requests.post",
+        lambda *a, **kw: calls.append(kw) or SimpleNamespace(status_code=500, text="fixture"),
+    )
+    monkeypatch.setattr("lockbot.core.request.time.sleep", lambda _: None)
+    adapter = InfoflowAdapter(
+        config=Config({"WEBHOOK_URL": "https://example.invalid", "_MESSAGING_CREDENTIAL_GUARD": guard})
+    )
+    with pytest.raises(CredentialUnavailable):
+        adapter.send(adapter.build_reply("x" * 4500, [], group_id="123"))
+    assert len(calls) == 1

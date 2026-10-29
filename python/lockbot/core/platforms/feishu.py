@@ -57,6 +57,7 @@ class FeishuClient:
     def __init__(self, app_id, app_secret):
         self.app_id = app_id
         self._secret = app_secret
+        self.credential_guard = None
         self._token = ""
         self._expires = 0.0
         self._lock = threading.Lock()
@@ -86,6 +87,11 @@ class FeishuClient:
         self.reset_transport_cache()
 
     def token(self):
+        if self.credential_guard is not None:
+            try:
+                self.credential_guard()
+            except Exception:
+                raise FeishuAPIError("Application credentials changed or are unavailable") from None
         with self._lock:
             if self._token and time.monotonic() < self._expires:
                 return self._token

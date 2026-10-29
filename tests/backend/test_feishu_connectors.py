@@ -61,6 +61,7 @@ def test_sdk_pipe_acknowledges_only_after_event_acceptance(monkeypatch, request,
         yield DB()
 
     connector = connectors.Connector(1, factory=factory)
+    monkeypatch.setattr(connectors, "credential_expiry", lambda app: None)
     monkeypatch.setattr(connectors, "credentials_for", lambda app: {"app_secret": "secret"})
     monkeypatch.setattr(connectors.subprocess, "Popen", lambda *args, **kwargs: Process())
 
@@ -182,6 +183,7 @@ def test_handshake_is_observed_but_process_failure_becomes_retrying_and_exit_sto
         yield SimpleNamespace(get=lambda *args: app)
 
     connector.factory = factory
+    monkeypatch.setattr(connectors, "credential_expiry", lambda app: None)
     monkeypatch.setattr(connectors, "credentials_for", lambda app: {"app_secret": "secret"})
     monkeypatch.setattr(connectors.subprocess, "Popen", lambda *args, **kwargs: process)
 
@@ -212,6 +214,7 @@ def test_spawn_failure_has_no_handshake_and_manager_snapshot_never_fetches_netwo
         )
 
     connector.factory = factory
+    monkeypatch.setattr(connectors, "credential_expiry", lambda app: None)
     monkeypatch.setattr(connectors, "credentials_for", lambda app: {"app_secret": "secret"})
     monkeypatch.setattr(connectors.subprocess, "Popen", lambda *args, **kwargs: (_ for _ in ()).throw(OSError()))
     observed = []

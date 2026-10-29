@@ -5,7 +5,7 @@ from dataclasses import replace
 from weakref import WeakSet
 
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
-from lockbot.backend.app.platform_applications.service import CredentialUnavailable, credentials_for
+from lockbot.backend.app.platform_applications.service import CredentialUnavailable, credentials_for, runtime_guard
 from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
 from lockbot.core.platforms.feishu_events import FeishuIdentity, InvalidFeishuEvent, normalize_message
 
@@ -37,6 +37,7 @@ def application_client(app):
         if key not in _clients:
             _clients[key] = FeishuClient(app.app_id, secret)
             _client_references.add(_clients[key])
+        _clients[key].credential_guard = runtime_guard(app)
         _clients.move_to_end(key)
         while len(_clients) > 32:
             _clients.popitem(last=False)

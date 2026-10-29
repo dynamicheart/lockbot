@@ -6,12 +6,13 @@ import logging
 import subprocess
 import sys
 import threading
+import time
 from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.feishu.models import FeishuApplication
-from lockbot.backend.app.platform_applications.service import credentials_for
+from lockbot.backend.app.platform_applications.service import CredentialUnavailable, credential_expiry, credentials_for
 from lockbot.core.platforms.feishu_proxy import sdk_proxy_override
 
 logger = logging.getLogger(__name__)
@@ -72,12 +73,14 @@ class Connector:
         while not self._stop.is_set():
             self._set_state("starting")
             process = None
+            expiry_timer = None
             try:
                 with self.factory() as db:
                     app = db.get(FeishuApplication, self.application_id)
                     if app is None or app.transport != "websocket":
                         return
                     config = {"app_id": app.app_id, "app_secret": credentials_for(app)["app_secret"]}
+                    deadline = credential_expiry(app)
                     override = sdk_proxy_override()
                     if override is not None:
                         config["proxy_url"] = override
@@ -90,6 +93,18 @@ class Connector:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.DEVNULL,
                     )
+                if deadline is not None:
+                    remaining = deadline.replace(tzinfo=timezone.utc).timestamp() - time.time()
+                    if remaining <= 0:
+                        raise CredentialUnavailable("Messaging credentials have expired")
+
+                    def expire_receiver(process=process):
+                        with suppress(ProcessLookupError):
+                            process.terminate()
+
+                    expiry_timer = threading.Timer(remaining, expire_receiver)
+                    expiry_timer.daemon = True
+                    expiry_timer.start()
                 process.stdin.write((json.dumps(config) + "\n").encode())
                 process.stdin.flush()
                 while not self._stop.is_set():
@@ -119,9 +134,14 @@ class Connector:
                     process.stdin.write((json.dumps({"ack": ack}) + "\n").encode())
                     process.stdin.flush()
                     backoff = 2
+            except CredentialUnavailable:
+                logger.warning("Feishu application %s credentials unavailable; receiver stopped", self.application_id)
+                return
             except Exception:
                 logger.warning("Feishu application %s connector stopped; retrying", self.application_id)
             finally:
+                if expiry_timer is not None:
+                    expiry_timer.cancel()
                 if process:
                     if process.poll() is None:
                         process.terminate()

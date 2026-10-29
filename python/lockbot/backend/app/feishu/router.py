@@ -407,6 +407,11 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
             claim = db.get(FeishuReceivedMessage, key)
             bot_id = claim.bot_id
             bot = db.get(Bot, bot_id)
+            app = db.get(FeishuApplication, application_id)
+            if app is None:
+                state = "identity_changed"
+                return
+            credentials_for(app)
             if not bot or bot.is_deleted or bot.uuid != expected_uuid or bot.identity_revision != expected_revision:
                 state = "identity_changed"
                 return
