@@ -75,6 +75,7 @@ def observe_migration(db, manager, bot_id, body):
     blockers = []
     counts = None
     generation = None
+    identity_rule_counts = None
     try:
         with manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
             db.rollback()
@@ -82,6 +83,13 @@ def observe_migration(db, manager, bot_id, body):
             if bot is None or bot.is_deleted:
                 raise HTTPException(404, "Bot not found")
             generation = lease.generation
+            whitelist = lease.bot.config.get_val("DURATION_WHITELIST", []) or []
+            if not isinstance(whitelist, list):
+                blockers.append("source_identity_rules_unrecognized")
+            else:
+                identity_rule_counts = {"DURATION_WHITELIST": len(whitelist)}
+                if whitelist:
+                    blockers.append("source_identity_rules_require_mapping")
             if lease.health == "error":
                 blockers.append("source_generation_unhealthy")
             if lease.bot.config.get_val("_IDENTITY_REVISION", 0) != bot.identity_revision:
@@ -157,6 +165,7 @@ def observe_migration(db, manager, bot_id, body):
         "target": target,
         "stored_obligations": counts,
         "identity_mapping": {"implemented": False, "unresolved_principals": None},
+        "identity_bound_rule_counts": identity_rule_counts,
         "blockers": blockers + ["cutover_not_implemented"],
         "unverified": [
             "application_publication",

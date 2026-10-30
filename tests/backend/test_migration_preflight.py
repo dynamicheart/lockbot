@@ -61,7 +61,7 @@ def setup(client, admin_header, db_session):
     return bot_id, app.id, {"application_id": app.id, "chat_id": "oc_fixture"}
 
 
-def live(monkeypatch, state, revision=0, health=None):
+def live(monkeypatch, state, revision=0, health=None, whitelist=None):
     @contextmanager
     def admit(*args, **kwargs):
         yield SimpleNamespace(
@@ -70,7 +70,9 @@ def live(monkeypatch, state, revision=0, health=None):
             bot=SimpleNamespace(
                 _lock=threading.Lock(),
                 state=SimpleNamespace(bot_state=state),
-                config=SimpleNamespace(get_val=lambda key, default=None: revision),
+                config=SimpleNamespace(
+                    get_val=lambda key, default=None: revision if key == "_IDENTITY_REVISION" else whitelist
+                ),
             ),
         )
 
@@ -213,3 +215,16 @@ def test_missing_card_cannot_look_empty(client, admin_header, db_session, setup,
     live(monkeypatch, {"node1": [{"dev_id": 0, "status": "idle", "current_users": [], "booking_list": []}]})
     data = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=body).json()
     assert "source_inventory_mismatch" in data["blockers"]
+
+
+def test_identity_based_rules_block_even_an_empty_pool(client, admin_header, setup, monkeypatch):
+    bot_id, _, body = setup
+    live(
+        monkeypatch,
+        {"node1": {"status": "idle", "current_users": [], "booking_list": []}},
+        whitelist=["secret-source-principal"],
+    )
+    response = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=body)
+    assert "source_identity_rules_require_mapping" in response.json()["blockers"]
+    assert response.json()["identity_bound_rule_counts"] == {"DURATION_WHITELIST": 1}
+    assert "secret-source-principal" not in response.text
