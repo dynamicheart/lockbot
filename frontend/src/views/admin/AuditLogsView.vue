@@ -158,7 +158,7 @@
               </router-link>
               <span v-else>{{ auditTarget(row).name }}</span>
               <span
-                v-if="row.target_name && row.target_id != null"
+                v-if="row.target_name && row.target_id != null && row.target_name !== `#${row.target_id}`"
                 style="color: var(--lb-text-muted); font-size: 12px"
               >
                 #{{ row.target_id }}</span
