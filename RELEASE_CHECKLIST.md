@@ -7,6 +7,8 @@ Release goal: deploy the current Lockbot features, reviewed fixes and the explic
 - [ ] Freeze the reviewed candidate on protected `main`; document its exact commit and remaining gates in [#27](https://github.com/dynamicheart/lockbot/issues/27).
 - [ ] [#88](https://github.com/dynamicheart/lockbot/issues/88) uses the latest decision: clear this bot's live holders, queues/offers, Agent authorizations and current declarations; retain resources/configuration and immutable historical records. Target users enroll again. The old natural-drain/pairing draft is not a release requirement.
 
+**Deferred, non-blocking:** [#120 transport/allocator separation evaluation](https://github.com/dynamicheart/lockbot/issues/120) and [#121 official CLI/SDK onboarding](https://github.com/dynamicheart/lockbot/issues/121). These are future issues only, not implementation or release gates. Active-state carryover remains an explicit non-goal. Old drafts #100/#115/#116/#118 are excluded from the reset release path.
+
 ## 2. Accept the reset migration on fictional resources
 
 - [ ] Show exact target, authoritative clear counts and digest; require explicit super-administrator destructive confirmation. Changed counts/identity/target must fail closed.

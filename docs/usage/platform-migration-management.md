@@ -9,3 +9,5 @@ The operation displays its exact phase, target digest, reset-applied state and a
 Resource inventory/configuration and immutable historical audit records are preserved. Destination users enroll again; no active allocations or queues are carried across and no identity pairing is required. Single-writer fencing, identity/grant invalidation and durable recovery remain server responsibilities. Software upgrades themselves do not clear unrelated bots' state.
 
 The interface remains unavailable when the management capability is absent or execution is disabled. Source implementation/tests are not evidence of a real migration, provider acceptance or formal rollout. Follow the [release checklist](../../RELEASE_CHECKLIST.md).
+
+Old migration drafts #100/#115/#116/#118 are not the reset release path. Future transport/allocator separation (#120) and official CLI/SDK onboarding (#121) are deferred, non-blocking issues; they add no current implementation requirement.
