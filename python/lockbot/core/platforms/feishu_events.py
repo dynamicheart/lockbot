@@ -119,6 +119,84 @@ def verify_http(body: bytes, headers, identity: FeishuIdentity, *, now=None):
         raise InvalidFeishuEvent("Callback verification failed") from None
 
 
+def _post_command(content, mentions, identity):
+    """Read only flat post paragraphs, never recursively execute quoted/embedded text.
+
+    Received posts use title/content; a single localized post is also unambiguous.
+    The structured at node must agree with the verified event's mention identity.
+    A code block is executable only when it is the entire non-mention message.
+    """
+    if not isinstance(content, dict):
+        raise ValueError()
+    if "post" in content and set(content) != {"post"}:
+        return None
+    post = content.get("post", content)
+    if not isinstance(post, dict):
+        raise ValueError()
+    if "content" not in post:
+        variants = [value for key, value in post.items() if re.fullmatch(r"[a-z]{2}_[a-z]{2}", key)]
+        if len(variants) != 1 or len(post) != 1 or not isinstance(variants[0], dict):
+            return None
+        post = variants[0]
+    rows = post.get("content")
+    if not isinstance(rows, list) or len(rows) > 128:
+        raise ValueError()
+    own_references = {identity.bot_open_id}
+    verified_mentions = [m for m in mentions if m.get("id", {}).get("open_id") == identity.bot_open_id]
+    own_references.update(m.get("key") for m in verified_mentions if m.get("key"))
+    # The API may flatten Markdown quotes/lists into legacy text nodes. A differing
+    # content_v2 is richer context, not permission to execute the lossy legacy text.
+    addressed, invalid = False, bool(post.get("title")) or ("content_v2" in post and post["content_v2"] != rows)
+    text_lines, code_blocks = [], []
+    for row in rows:
+        if not isinstance(row, list) or len(row) > 128:
+            raise ValueError()
+        parts = []
+        for node in row:
+            if not isinstance(node, dict):
+                raise ValueError()
+            tag = node.get("tag")
+            styles = node.get("style", [])
+            if not isinstance(styles, list) or any(style not in ("bold", "italic", "underline") for style in styles):
+                invalid = True
+            if tag == "at":
+                if verified_mentions and node.get("user_id") in own_references:
+                    addressed = True
+                else:
+                    invalid = True
+            elif tag in ("text", "code_block"):
+                value = node.get("text")
+                if not isinstance(value, str) or len(value) > 8192:
+                    raise ValueError()
+                if tag == "code_block":
+                    code_blocks.append(value)
+                else:
+                    parts.append(value)
+            else:
+                invalid = True
+        text_lines.append("".join(parts))
+    if not addressed:
+        return None
+    ordinary = "\n".join(text_lines).strip()
+    if code_blocks:
+        invalid |= len(code_blocks) != 1 or bool(ordinary)
+        command = code_blocks[0].strip()
+    else:
+        # Legacy post text can be a flattened quote/list with its context removed.
+        # Ordinary message_type=text remains supported by its unchanged parser.
+        command, invalid = "", True
+    invalid |= (
+        not command
+        or len(command) > 8192
+        or len(command.splitlines()) > 1
+        or any(token in command for token in (";", "&&", "||", "`"))
+    )
+    # This marker contains no user text, including when the rejected block carried a bind code.
+    if invalid:
+        return {"command": "__unsupported_rich_text__", "command_format_error": True}
+    return {"command": command, "_code_block_command": True}
+
+
 def normalize_message(data, identity: FeishuIdentity):
     """Ignore DMs, non-user events and messages that do not mention this exact bot.
 
@@ -136,30 +214,48 @@ def normalize_message(data, identity: FeishuIdentity):
             return None
         if sender.get("tenant_key") != identity.tenant_key:
             raise InvalidFeishuEvent("Sender tenant mismatch")
-        if message.get("message_type") != "text":
+        message_type = message.get("message_type")
+        if message_type not in ("text", "post"):
             return None
         user_id, chat_id = sender["sender_id"]["open_id"], message["chat_id"]
         if not re.fullmatch(r"ou_[A-Za-z0-9_-]+", user_id) or user_id == identity.bot_open_id:
             return None
         if not re.fullmatch(r"oc_[A-Za-z0-9_-]+", chat_id):
             raise ValueError()
-        text = json.loads(message["content"])["text"]
-        if not isinstance(text, str) or len(text) > 8192:
-            raise ValueError()
-        addressed = False
-        for mention in message.get("mentions", []):
-            key = mention.get("key", "")
-            if mention.get("id", {}).get("open_id") == identity.bot_open_id and key and key in text:
-                text = text.replace(key, "")
-                addressed = True
-        if not addressed:
-            return None
+        if message_type == "post":
+            if len(message["content"]) > 64 * 1024:
+                raise ValueError()
+            parsed = _post_command(json.loads(message["content"]), message.get("mentions", []), identity)
+            if parsed is None:
+                # Feedback may rely on the verified event mention even when the
+                # post envelope cannot select one executable, directly addressed body.
+                # Never inspect nested text or echo the rejected content.
+                if not any(
+                    mention.get("id", {}).get("open_id") == identity.bot_open_id
+                    for mention in message.get("mentions", [])
+                ):
+                    return None
+                parsed = {"command": "__unsupported_rich_text__", "command_format_error": True}
+        else:
+            # Keep the existing plain-text mention and command behavior unchanged.
+            text = json.loads(message["content"])["text"]
+            if not isinstance(text, str) or len(text) > 8192:
+                raise ValueError()
+            addressed = False
+            for mention in message.get("mentions", []):
+                key = mention.get("key", "")
+                if mention.get("id", {}).get("open_id") == identity.bot_open_id and key and key in text:
+                    text = text.replace(key, "")
+                    addressed = True
+            if not addressed:
+                return None
+            parsed = {"command": text.strip()}
         message_id = message["message_id"]
         # Once durable claims expire, old signed/verified events must still be refused.
         if abs(time.time() - int(message["create_time"]) / 1000) > 600:
             raise ValueError()
         if not isinstance(message_id, str) or not message_id or len(message_id) > 128:
             raise ValueError()
-        return {"user_id": user_id, "group_id": chat_id, "command": text.strip(), "message_id": message_id}
+        return {"user_id": user_id, "group_id": chat_id, **parsed, "message_id": message_id}
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
         raise InvalidFeishuEvent("Invalid message event") from None

@@ -183,6 +183,8 @@ def test_agent_notification_uses_single_configured_group_without_mentions(monkey
     assert "codex" not in sent[0]["content"]
     rows = json.loads(sent[0]["content"])["zh_cn"]["content"]
     assert all(node["tag"] != "at" for row in rows for node in row)
+    assert len(rows) == 4  # Title, user, command, public category; no empty paragraphs.
+    assert all(any(node.get("text", "").strip() for node in row) for row in rows)
 
 
 def test_cached_display_labels_do_not_replace_identity_or_forward_contact_data():
@@ -362,3 +364,60 @@ def test_batch_name_failures_are_negative_cached_for_five_minutes(monkeypatch):
     now[0] += 301
     client.warm_user_names(["ou_one"])
     assert len(calls) == 2
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+@pytest.mark.parametrize("notice", ["notify.api_mutation", "notify.api_alias"])
+def test_api_notice_compacts_only_empty_paragraphs_and_keeps_batch_order(language, notice):
+    from lockbot.core.i18n import t
+
+    config = Config({"LANGUAGE": language})
+    adapter = FeishuAdapter(config)
+    first = t(notice, config=config, actor="Alice", command="lock node_a 5m").rstrip()
+    second = t(notice, config=config, actor="Bob", command="free node_b").rstrip()
+    payload = adapter.build_api_notification(first + "\n\n" + second + "\n\n", "oc_demo")
+    post = json.loads(payload["content"])["zh_cn"]
+    lines = ["".join(node["text"] for node in row) for row in post["content"]]
+    assert len(lines) == 6
+    assert lines[0].startswith("🤖") and lines[3].startswith("🤖")
+    assert "Alice" in lines[1] and "node_a" in lines[2]
+    assert "Bob" in lines[4] and "node_b" in lines[5]
+    assert all(line.strip() for line in lines)
+    assert post["title"] == "" and payload["msg_type"] == "post"
+    assert payload["receive_id"] == "oc_demo"
+
+
+def test_api_notice_preserves_native_link_fragments_without_parsing_prose():
+    adapter = FeishuAdapter()
+    payload = adapter.build_api_notification(
+        ["🤖Notice\n\nUser: Alice <at user_id=all>\n", ("Link: ", "https://example.invalid/guide"), "\n\n"],
+        "oc_demo",
+    )
+    rows = json.loads(payload["content"])["zh_cn"]["content"]
+    assert len(rows) == 3
+    assert rows[1] == [{"tag": "text", "text": "User: Alice <at user_id=all>"}]
+    assert rows[2][-1] == {"tag": "a", "text": "https://example.invalid/guide", "href": "https://example.invalid/guide"}
+    assert all(node["tag"] != "at" for row in rows for node in row)
+
+
+def test_resource_success_still_preserves_title_blank_line_and_native_mention():
+    adapter = FeishuAdapter()
+    reply = adapter.build_reply("✅【资源申请成功】\n\nnode_a Alice 5m\n\n", ["ou_alice"], "oc_demo")
+    rows = json.loads(reply["content"])["zh_cn"]["content"]
+    assert rows[1] == [{"tag": "text", "text": " "}]
+    assert rows[2] == [{"tag": "text", "text": "node_a Alice 5m"}]
+    assert rows[-1] == [{"tag": "at", "user_id": "ou_alice"}]
+
+
+def test_infoflow_api_notice_keeps_existing_whitespace(monkeypatch):
+    from lockbot.backend.app.resource_api.notifications import _send_text
+    from lockbot.core.platforms.infoflow import InfoflowAdapter
+
+    adapter = InfoflowAdapter(Config({"_AUTHORIZED_GROUP_IDS": ["1234"]}))
+    text = "🤖【Agent API操作】\n\n用户：Alice\n命令：lock node_a 5m\n\n"
+    expected = adapter.build_reply(text, [], group_id=["1234"])
+    sent = []
+    monkeypatch.setattr(adapter, "send_notification", lambda payload: sent.append(payload) or ("accepted", "ok"))
+    bot = type("Bot", (), {"config": adapter.config, "adapter": adapter})()
+    assert _send_text(bot, text) == "accepted"
+    assert sent == [expected]

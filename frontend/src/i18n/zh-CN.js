@@ -314,6 +314,7 @@ export default {
     operationHistoryUnavailable: '此时段尚无操作分钟记录',
     operationDetails: '查看累计操作明细',
     trend: '近 60 分钟流量与操作趋势',
+    minuteTotal: '总计',
     serverErrors: '服务错误',
     bySource: '按入口',
     byRoute: '按接口',

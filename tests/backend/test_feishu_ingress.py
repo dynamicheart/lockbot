@@ -393,3 +393,99 @@ def test_optional_reaction_reply_preserves_durable_claim_and_group_scope(
     assert not bots[1].state.bot_state["node_a"]["current_users"]
     db_session.expire_all()
     assert db_session.get(FeishuReceivedMessage, (application_id, "om_first")).state == "completed"
+
+
+@pytest.mark.parametrize("transport", ["http", "websocket"])
+def test_post_code_block_binding_is_redacted_and_deduplicated(client, setup, db_session, monkeypatch, transport):
+    application_id, bots, calls = setup
+    payload = message(command="")
+    payload["event"]["message"]["message_type"] = "post"
+    payload["event"]["message"]["content"] = json.dumps(
+        {
+            "title": "",
+            "content": [
+                [{"tag": "at", "user_id": "@_user_1"}],
+                [{"tag": "code_block", "language": "BASH", "text": "bind PRIVATE_CODE"}],
+            ],
+        }
+    )
+    if transport == "websocket":
+        from lockbot.backend.app.feishu.models import FeishuApplication
+
+        db_session.get(FeishuApplication, application_id).transport = "websocket"
+        db_session.commit()
+    bindings, logs, sent = [], [], []
+    bots[0].binding_hook = lambda **args: bindings.append(args) or "Binding confirmed"
+    monkeypatch.setattr("lockbot.backend.app.bots.router._write_log", lambda *args, **kwargs: logs.append(args))
+    monkeypatch.setattr(FeishuClient, "send", lambda self, reply: sent.append(reply) or [(200, "accepted")])
+
+    def submit():
+        if transport == "http":
+            return client.post(f"/api/feishu/events/{application_id}", json=payload).json()
+        from lockbot.backend.app.feishu.models import FeishuApplication
+        from lockbot.backend.app.feishu.service import accept_sdk_event
+
+        return accept_sdk_event(db_session, db_session.get(FeishuApplication, application_id), payload)
+
+    assert submit() == {"accepted": True}
+    assert submit() == {"accepted": True, "duplicate": True}
+    claim = db_session.get(FeishuReceivedMessage, (application_id, "om_first"))
+    assert "PRIVATE_CODE" not in str(claim.__dict__)
+    fn, args = calls.pop()
+    fn(*args)
+    assert len(bindings) == len(sent) == len(logs) == 1
+    assert bindings[0]["argument"] == "PRIVATE_CODE"
+    assert "PRIVATE_CODE" not in str(sent) + str(logs)
+    assert "bind [redacted]" in str(logs)
+
+
+@pytest.mark.parametrize("kind", ["two_blocks", "unknown_command", "two_locales", "mixed_wrapper"])
+@pytest.mark.parametrize("transport", ["http", "websocket"])
+def test_ambiguous_post_replies_without_executing_or_echoing_binding_code(
+    client, setup, db_session, monkeypatch, kind, transport
+):
+    application_id, bots, calls = setup
+    payload = message(command="")
+    payload["event"]["message"]["message_type"] = "post"
+    code = {"tag": "code_block", "language": "BASH", "text": "bind PRIVATE_CODE"}
+    payload["event"]["message"]["content"] = json.dumps(
+        {
+            "title": "",
+            "content": [[{"tag": "at", "user_id": "@_user_1"}], [code], [code]]
+            if kind == "two_blocks"
+            else [[{"tag": "at", "user_id": "@_user_1"}], [dict(code, text="example bind PRIVATE_CODE")]],
+        }
+    )
+    if kind in ("two_locales", "mixed_wrapper"):
+        direct = json.loads(payload["event"]["message"]["content"])
+        payload["event"]["message"]["content"] = json.dumps(
+            {"zh_cn": direct, "en_us": direct} if kind == "two_locales" else {"post": direct, "extra": "PRIVATE_CODE"}
+        )
+    sent, logs = [], []
+    monkeypatch.setattr(ingress, "execute_command", lambda *args: pytest.fail("Ambiguous post executed"))
+    monkeypatch.setattr("lockbot.backend.app.bots.router._write_log", lambda *args, **kwargs: logs.append(args))
+    monkeypatch.setattr(FeishuClient, "send", lambda self, reply: sent.append(reply) or [(200, "accepted")])
+    if transport == "websocket":
+        from lockbot.backend.app.feishu.models import FeishuApplication
+
+        db_session.get(FeishuApplication, application_id).transport = "websocket"
+        db_session.commit()
+
+    def submit():
+        if transport == "http":
+            return client.post(f"/api/feishu/events/{application_id}", json=payload).json()
+        from lockbot.backend.app.feishu.models import FeishuApplication
+        from lockbot.backend.app.feishu.service import accept_sdk_event
+
+        return accept_sdk_event(db_session, db_session.get(FeishuApplication, application_id), payload)
+
+    assert submit() == {"accepted": True}
+    assert submit() == {"accepted": True, "duplicate": True}
+    assert len(calls) == 1
+    fn, args = calls.pop()
+    fn(*args)
+    assert len(sent) == 1
+    assert "未执行" in bots[0].adapter.extract_reply_text(sent[0])
+    assert "PRIVATE_CODE" not in str(sent) + str(logs)
+    assert "unsupported rich-text command" in str(logs)
+    assert bots[0].state.bot_state["node_a"]["current_users"] == []

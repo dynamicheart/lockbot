@@ -328,6 +328,7 @@ export default {
     operationHistoryUnavailable: 'No operation minute observations for this period',
     operationDetails: 'Cumulative operation details',
     trend: 'Traffic and operations in the last 60 minutes',
+    minuteTotal: 'Total',
     serverErrors: 'Server errors',
     bySource: 'By source',
     byRoute: 'By endpoint',
