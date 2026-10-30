@@ -717,7 +717,9 @@ def create_app() -> FastAPI:
     app.include_router(broadcast_router)
     app.include_router(audit_router)
     app.include_router(platform_applications_router)
-    app.include_router(audit_delegation_router)
+    # Dedicated note-delegation contracts belong to administrator documentation.
+    # Keep the authenticated routes unchanged, but omit them from anonymous schemas.
+    app.include_router(audit_delegation_router, include_in_schema=False)
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router
 

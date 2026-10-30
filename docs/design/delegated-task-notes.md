@@ -72,7 +72,7 @@ The change adds `audit_credentials` and `audit_read_windows` through normal idem
 
 ## Discovery, versioning and a consumer example
 
-`/openapi.json` lists the Audit delegation tag and dedicated `TaskNoteAuditCredential` Bearer security scheme. The OP Skill points approved consumers to this separate workflow; it never derives audit authority from an OP key. Successful audit data and credential metadata include `api_version: "1"`. This is a separate additive contract; it does not reuse the resource Agent Skill version header as an audit-grant signal. Consumers should consult OpenAPI/release notes on this same approved origin after upgrading, reject an unsupported audit API version, and contact the issuer on 401/403 instead of silently changing credentials or broadening permissions.
+The dedicated routes, request models and credential scheme are intentionally omitted from anonymous `/openapi.json` and `/api/public-openapi.json`, and from ordinary Agent/OP Skill downloads. This administrator design document is the separate contract reference; no audit authority is derived from an OP key. Successful audit data and credential metadata include `api_version: "1"`. This is a separate additive contract; it does not reuse the resource Agent Skill version header as an audit-grant signal. Approved consumers should consult this administrator contract and release notes after upgrading, reject an unsupported audit API version, and contact the issuer on 401/403 instead of silently changing credentials or broadening permissions.
 
 For example, put `Authorization: Bearer <dedicated-audit-credential>` in a private header file (mode 0600), then run:
 

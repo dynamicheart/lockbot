@@ -349,10 +349,14 @@ def test_authenticated_cross_bot_denial_is_audited_without_notes(client, db_sess
     assert "CANARY" not in audit.detail and setup["grant"]["credential"] not in audit.detail
 
 
-def test_openapi_advertises_separate_bearer_family(client):
-    schema = client.get("/openapi.json").json()
-    security = schema["components"]["securitySchemes"]["TaskNoteAuditCredential"]
-    assert security["type"] == "http" and security["scheme"] == "bearer"
-    for suffix in ("agent-history", "task-notes"):
-        route = schema["paths"][f"/api/audit/bots/{{bot_id}}/{suffix}"]["get"]
-        assert {"TaskNoteAuditCredential": []} in route["security"]
+def test_anonymous_schemas_omit_dedicated_notes_contract(client):
+    for url in ("/openapi.json", "/api/public-openapi.json"):
+        encoded = json.dumps(client.get(url).json())
+        for private_contract in (
+            "/api/admin/audit-credentials",
+            "/api/audit/bots/",
+            "TaskNoteAuditCredential",
+            "GrantCreate",
+            "GrantRotate",
+        ):
+            assert private_contract not in encoded
