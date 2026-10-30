@@ -13,3 +13,12 @@ The provider's [own-membership API](https://open.feishu.cn/document/server-docs/
 Every response therefore retains `can_commit: false` and explicit blockers for publication/usable range, end-to-end receiver proof, metrics authority/clock verification when a data source is configured, and disabled migration execution. Bots without an optional data source do not acquire a metrics blocker. A publication review or signed-event challenge protocol, deployment clock evidence, independent fault/backup acceptance and authenticated execution routes are separate work. A successful probe must never be passed as the cutover coordinator's production validator by simply returning `True`.
 
 Active-state migration still requires verified source/destination principal links, exact lock deadlines and queue order/provenance preservation. No diagnostic or empty-state cutover completes that requirement.
+
+
+## Observed permission boundary
+
+A read-only test with the existing seven published baseline scopes verified own-bot identity and chat metadata, but the own-membership API returned HTTP 400 / provider code 99991672. This is a denied/unsupported diagnostic, not successful membership proof. It does not justify automatically adding member-read or enterprise-administration permissions, and it must not make an optional diagnostic a mandatory migration dependency.
+
+The alternative execution-proof path is an already signature-verified bot-added observation plus a fresh, post-creation one-use nonce received in an actual addressed group event for the exact application/tenant/chat. This uses the existing approved message-event scope. It proves the receive path and sender presence, not application publication or source/destination account ownership. Those need separately reviewed evidence. The diagnostic remains optional and execution remains disabled until that workflow and recovery gates pass.
+
+After a provider wait, the request also revalidates the administrator's current role, password-change requirement and token version. Session revocation during the network request cannot return the observations.

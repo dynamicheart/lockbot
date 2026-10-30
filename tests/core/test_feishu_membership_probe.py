@@ -52,3 +52,18 @@ def test_membership_probe_rejects_invalid_chat_before_network(monkeypatch):
     monkeypatch.setattr(FeishuClient, "token", lambda _: pytest.fail("network must not run"))
     with pytest.raises(ValueError):
         FeishuClient("cli_fixture", "FAKE_SECRET").bot_in_group("oc_fixture/../../users")
+
+
+def test_baseline_scope_denial_is_bounded_and_does_not_expand_authority(monkeypatch):
+    calls = []
+    monkeypatch.setattr(FeishuClient, "token", lambda _: "FAKE_TOKEN")
+
+    def denied(url, **options):
+        calls.append(options)
+        return SimpleNamespace(status_code=400, json=lambda: {"code": 99991672, "msg": "FAKE_PROVIDER_DETAIL"})
+
+    monkeypatch.setattr("lockbot.core.platforms.feishu.requests.get", denied)
+    with pytest.raises(FeishuAPIError) as error:
+        FeishuClient("cli_fixture", "FAKE_SECRET").bot_in_group("oc_fixture")
+    assert len(calls) == 1 and calls[0]["timeout"] == (3, 5)
+    assert "FAKE_PROVIDER_DETAIL" not in str(error.value)

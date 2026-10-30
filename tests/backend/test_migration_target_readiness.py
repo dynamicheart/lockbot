@@ -140,3 +140,18 @@ def test_absent_optional_metrics_adds_no_authority_blocker(client, admin_header,
     data = probe(client, admin_header, target).json()
     assert ("metrics_clock_authority_unverified" in data["blockers"]) is configured
     assert data["can_commit"] is False
+
+
+@pytest.mark.parametrize("change", ["token_version", "must_change_password"])
+def test_revoked_session_cannot_receive_provider_probe_result(client, admin_header, db_session, target, change):
+    def revoke(_):
+        actor = db_session.get(User, 1)
+        if change == "token_version":
+            actor.token_version = actor.effective_token_version + 1
+        else:
+            actor.must_change_password = True
+        db_session.commit()
+        return True
+
+    target[2].bot_in_group = revoke
+    assert probe(client, admin_header, target).status_code == 403

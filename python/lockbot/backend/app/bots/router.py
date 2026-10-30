@@ -2141,4 +2141,4 @@ def migration_target_readiness(
     from lockbot.backend.app.bot_migrations.readiness import target_readiness
 
     response.headers["Cache-Control"] = "no-store"
-    return target_readiness(db, bot_id, body, actor_id=user.id)
+    return target_readiness(db, bot_id, body, actor_id=user.id, token_version=user.effective_token_version)

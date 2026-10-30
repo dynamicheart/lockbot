@@ -17,7 +17,7 @@ def _identity(app):
     return (app.id, app.app_id, app.tenant_key, app.bot_open_id, app.transport, fingerprint(app, "feishu"))
 
 
-def target_readiness(db, bot_id, body, *, actor_id):
+def target_readiness(db, bot_id, body, *, actor_id, token_version):
     bot, app = db.get(Bot, bot_id), db.get(FeishuApplication, body.application_id)
     if bot is None or bot.is_deleted:
         raise HTTPException(404, "Bot not found")
@@ -55,7 +55,12 @@ def target_readiness(db, bot_id, body, *, actor_id):
             blockers.append("provider_check_unavailable")
     db.rollback()
     actor = db.get(User, actor_id)
-    if actor is None or actor.role != "super_admin":
+    if (
+        actor is None
+        or actor.role != "super_admin"
+        or actor.must_change_password
+        or actor.effective_token_version != token_version
+    ):
         raise HTTPException(403, "Current super-administrator authority required")
     current, current_bot = db.get(FeishuApplication, body.application_id), db.get(Bot, bot_id)
     if (
