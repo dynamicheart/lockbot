@@ -19,7 +19,7 @@ import re
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from lockbot.backend.app.bots.manager import (
@@ -36,6 +36,7 @@ from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, should_notify
 from lockbot.backend.app.resource_api.observability import record_api_command
+from lockbot.backend.app.resource_api.task_categories import TaskCategoryInput, TaskCategoryNotice
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import ResourceActor, require_resource_actor, reverify_actor
@@ -186,7 +187,7 @@ COMMAND_EXAMPLES = {
 }
 
 
-class CommandRequest(BaseModel):
+class CommandRequest(TaskCategoryInput):
     """``extra="forbid"`` so an attempt to smuggle an identity field is a 422."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -196,17 +197,6 @@ class CommandRequest(BaseModel):
         max_length=512,
         description="Resource command text. See the operation command reference and named request examples.",
     )
-    task_category: str | None = Field(
-        default=None, max_length=48, description="Public preset task category; see /api/agent/context."
-    )
-
-    @field_validator("task_category")
-    @classmethod
-    def category(cls, value):
-        from lockbot.backend.app.resource_api.usage import validate_task_category
-
-        return validate_task_category(value)
-
     agent_label: str | None = Field(
         default=None,
         min_length=1,
@@ -236,6 +226,7 @@ class CommandActor(BaseModel):
 class CommandResponse(BaseModel):
     skill_update: dict = Field(default_factory=dict)
     next_step: str | None = None
+    task_category_notice: TaskCategoryNotice | None = None
     bot_id: int
     bot_type: str
     platform: str
@@ -380,6 +371,7 @@ def execute_command_via_api(
                     agent_label=body.agent_label,
                     purpose=body.purpose,
                     task_category=body.task_category,
+                    task_category_provided="task_category" in body.model_fields_set,
                 )
                 if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
                     prune_actor_usage(db, bot, actor)
@@ -410,7 +402,11 @@ def execute_command_via_api(
 
     from lockbot.backend.app.resource_api.skill import client_skill_notice
 
+    notice = body.category_notice()
+    if notice is not None and notice.reason == "missing" and canonical_command(word) not in {"lock", "slock", "book"}:
+        notice = None
     return CommandResponse(
+        task_category_notice=notice,
         skill_update=client_skill_notice(request),
         next_step=(
             "book is only a booking, not ownership. Keep polling GET /resources; when claimable_by_you "
