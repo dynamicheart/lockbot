@@ -69,3 +69,9 @@ frame, then choose `start` at or after that frame's timestamp. Export through an
 candidate window: gaps, boundaries, expired cursors, or an inconsistent checkpoint
 must still keep the result unknown. Do not perform resource mutations solely to
 manufacture a baseline without authorization.
+
+## Isolated real-HTTP acceptance
+
+`tests/integration/v2_consumer_http_probe.py --output /private/path/proof.json` starts an actual loopback-only service on fresh temporary SQLite/state and runs the real HTTP consumer plus CLI. It exercises acquisition, renewal, booking, release and real-scheduler expiry; pages retain the captured checkpoint/as-of after a later append, valid grant intervals are independently checked, and a real process restart must produce unknown coverage. External connections are fenced in both processes, platform delivery is stubbed, no Feishu application/receiver exists, and fixture keys/data/processes are cleaned up. The test-only local binding seam supplies fictional platform identities; it does not certify actual IM signature/group enrollment. Run it in the repository development environment, not against a configured deployment.
+
+This protocol/service acceptance remains separate from a fully authorized sequence/report on an installed integration or formal service. It uses five fictional resource commands and does not prove hardware utilization, business work, enterprise permissions or real message delivery.
