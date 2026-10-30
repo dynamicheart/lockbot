@@ -1,24 +1,13 @@
 """No auto-resume: every incomplete cutover is fenced before normal autostart."""
 
-from sqlalchemy import or_
-
-from lockbot.backend.app.bot_migrations.models import JOURNAL_VERSION, BotMigration
+from lockbot.backend.app.bot_migrations.models import BotMigration
+from lockbot.backend.app.bot_migrations.preservation import needs_preservation
 
 
 def restore_fences(factory, manager):
     with factory() as db:
-        rows = (
-            db.query(BotMigration)
-            .filter(
-                or_(
-                    BotMigration.schema_version.is_(None),
-                    BotMigration.phase.is_(None),
-                    BotMigration.schema_version != JOURNAL_VERSION,
-                    BotMigration.phase.not_in(("planned", "completed", "aborted")),
-                )
-            )
-            .all()
-        )
+        rows = db.query(BotMigration).filter(needs_preservation(include_plans=False)).all()
+
         # Unknown future/corrupt phases also stay unavailable; never select an old channel.
         records = [(row.bot_id, row.id) for row in rows]
         if len({bot_id for bot_id, _ in records}) != len(records):

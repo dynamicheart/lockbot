@@ -234,12 +234,13 @@ def delete_application(
 
     def check_migration_unused():
         from lockbot.backend.app.bot_migrations.models import BotMigration
+        from lockbot.backend.app.bot_migrations.preservation import needs_preservation
 
         if (
             db.query(BotMigration)
             .filter(
                 BotMigration.target_application_id == application_id,
-                BotMigration.phase.not_in(("completed", "aborted")),
+                needs_preservation(),
             )
             .first()
         ):

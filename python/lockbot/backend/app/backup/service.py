@@ -135,6 +135,8 @@ def _update_backup_stats(db: Session, success: bool) -> None:
 
 def _assert_standard_backup_allowed(db_path):
     """Standard archives cannot carry the evidence required to resume a migration."""
+    from lockbot.backend.app.bot_migrations.preservation import preservation_sql
+
     with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(bot_migrations)")}
         if not columns:
@@ -142,8 +144,7 @@ def _assert_standard_backup_allowed(db_path):
         if not {"phase", "schema_version"}.issubset(columns):
             raise RuntimeError("Unsupported migration journal prevents a standard backup")
         incomplete = connection.execute(
-            "SELECT 1 FROM bot_migrations WHERE schema_version IS NOT 1 "
-            "OR phase IS NULL OR phase NOT IN ('completed', 'aborted') LIMIT 1"
+            "SELECT 1 FROM bot_migrations WHERE " + preservation_sql() + " LIMIT 1"
         ).fetchone()
         if incomplete:
             raise RuntimeError("Finish or recover platform migrations before creating a standard backup")
@@ -359,16 +360,19 @@ def _read_backup_bots(zf) -> list[dict]:
             for r in rows:
                 d = dict(r)
                 if migration_columns:
-                    # An archive from a newer journal format must not escape its durable fence.
-                    version_guard = "schema_version IS NOT 1 OR " if "schema_version" in migration_columns else "1 OR "
-                    d["_migration_incomplete"] = bool(
-                        conn.execute(
-                            "SELECT 1 FROM bot_migrations WHERE bot_id = ? AND ("
-                            + version_guard
-                            + "phase IS NULL OR phase NOT IN ('completed', 'aborted')) LIMIT 1",
-                            (d["id"],),
-                        ).fetchone()
-                    )
+                    from lockbot.backend.app.bot_migrations.preservation import preservation_sql
+
+                    if not {"bot_id", "phase", "schema_version"}.issubset(migration_columns):
+                        d["_migration_incomplete"] = True
+                    else:
+                        d["_migration_incomplete"] = bool(
+                            conn.execute(
+                                "SELECT 1 FROM bot_migrations WHERE bot_id = ? AND ("
+                                + preservation_sql()
+                                + ") LIMIT 1",
+                                (d["id"],),
+                            ).fetchone()
+                        )
                 if (d.get("platform") or "").lower() == "feishu":
                     from lockbot.backend.app.feishu.backup import read_application_metadata
 
