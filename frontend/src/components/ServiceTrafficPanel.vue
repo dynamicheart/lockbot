@@ -81,6 +81,8 @@
               placement="top"
               effect="light"
               popper-class="traffic-minute-tooltip"
+              virtual-triggering
+              :virtual-ref="minuteReference"
               transition=""
               :show-arrow="false"
               :hide-after="0"
@@ -90,12 +92,14 @@
                 type="button"
                 class="traffic-minute"
                 :class="{ 'is-active': activeMinute === point.at }"
+                :data-bar-height="(point.requests / chartMax) * 100"
+                :style="{ '--bar-height': `${(point.requests / chartMax) * 100}%` }"
                 :tabindex="minuteTabIndex(point.at, index)"
                 :aria-label="httpTooltip(point)"
                 @pointerenter="enterMinute(point.at, 'http', $event)"
                 @pointerdown="touchMinute(point.at, 'http', $event)"
                 @pointerleave="leaveMinute($event)"
-                @focus="selectMinute(point.at, 'http')"
+                @focus="selectMinute(point.at, 'http', $event.currentTarget)"
                 @blur="clearMinute"
                 @keydown="navigateMinute($event)"
               >
@@ -147,6 +151,8 @@
                 placement="top"
                 effect="light"
                 popper-class="traffic-minute-tooltip"
+                virtual-triggering
+                :virtual-ref="minuteReference"
                 transition=""
                 :show-arrow="false"
                 :hide-after="0"
@@ -159,12 +165,14 @@
                     'is-unobserved': !point.observed,
                     'is-active': activeMinute === point.at,
                   }"
+                  :data-bar-height="(point.total / operationTrend.max) * 100"
+                  :style="{ '--bar-height': `${(point.total / operationTrend.max) * 100}%` }"
                   :tabindex="minuteTabIndex(point.at, index)"
                   :aria-label="operationTooltip(point)"
                   @pointerenter="enterMinute(point.at, 'operation', $event)"
                   @pointerdown="touchMinute(point.at, 'operation', $event)"
                   @pointerleave="leaveMinute($event)"
-                  @focus="selectMinute(point.at, 'operation')"
+                  @focus="selectMinute(point.at, 'operation', $event.currentTarget)"
                   @blur="clearMinute"
                   @keydown="navigateMinute($event)"
                 >
@@ -304,13 +312,14 @@
 
 <script setup>
 import { platformLabel } from '../utils/platformDisplay'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Refresh, ChatDotRound, Cpu, Setting, QuestionFilled } from '@element-plus/icons-vue'
 const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { createServiceTrafficLoader } from '../utils/serviceTrafficLoader'
 import { buildOperationTrend, operationSources } from '../utils/operationTrend'
+import { trafficBarReference } from '../utils/trafficBarReference'
 const props = defineProps({
   botId: { type: [Number, String], default: null },
   includePrivate: { type: Boolean, default: false },
@@ -324,16 +333,19 @@ const failed = ref(false)
 const grouping = ref('sources')
 const activeMinute = ref(null)
 const activeChart = ref(null)
+const minuteReference = shallowRef(null)
 function clearMinute() {
   activeMinute.value = null
   activeChart.value = null
+  minuteReference.value = null
 }
-function selectMinute(at, chart) {
+function selectMinute(at, chart, target = null) {
   activeMinute.value = at
   activeChart.value = chart
+  minuteReference.value = target ? trafficBarReference(target) : null
 }
 function enterMinute(at, chart, event) {
-  if (event.pointerType !== 'touch') selectMinute(at, chart)
+  if (event.pointerType !== 'touch') selectMinute(at, chart, event.currentTarget)
 }
 function leaveMinute(event) {
   if (event.pointerType !== 'touch') clearMinute()
@@ -342,7 +354,7 @@ function touchMinute(at, chart, event) {
   if (event.pointerType !== 'touch') return
   event.preventDefault()
   if (activeMinute.value === at && activeChart.value === chart) clearMinute()
-  else selectMinute(at, chart)
+  else selectMinute(at, chart, event.currentTarget)
 }
 const minuteTabIndex = (at, index) =>
   activeMinute.value === at || (activeMinute.value === null && index === 0) ? 0 : -1
@@ -640,8 +652,17 @@ h2 {
   cursor: pointer;
   transition: background-color 150ms ease;
 }
-.traffic-minute.is-active {
-  background: var(--el-color-primary-light-8);
+/* Full-height button is a hit area, never a visible value bar. */
+.traffic-minute.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: max(2px, var(--bar-height, 0%));
+  box-sizing: border-box;
+  border: 1px solid var(--el-color-primary);
+  pointer-events: none;
 }
 .traffic-minute:focus-visible {
   outline: 1px solid var(--el-color-primary);
@@ -666,11 +687,13 @@ h2 {
 .traffic-minute .operation-segment {
   background: var(--source-color);
 }
-.traffic-minute.is-unobserved {
-  background: var(--el-fill-color-light);
-}
-.traffic-minute.is-active.is-unobserved {
-  background: var(--el-color-primary-light-8);
+.traffic-minute.is-unobserved::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  border-bottom: 2px dotted var(--el-border-color);
 }
 .traffic-minute .errors {
   background: var(--el-color-danger);
