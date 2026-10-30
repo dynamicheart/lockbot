@@ -1,4 +1,57 @@
 export default {
+  migrationManagement: {
+    title: 'Manage platform migration',
+    action: 'Review and manage migration',
+    intro: 'Empty resources only. Review each transition; resource commands are never replayed.',
+    disabled:
+      'Migration execution is disabled on this service. Read-only preflight remains available.',
+    unsupported: 'This source is not supported for migration.',
+    reviewTarget: 'I reviewed this target application and group.',
+    plan: 'Create migration plan',
+    operation: 'Operation',
+    phase: 'Phase',
+    target: 'Target',
+    digest: 'Target digest',
+    revision: 'Identity revision',
+    next: 'Next step',
+    metricsWait: 'Metrics not before',
+    refresh: 'Refresh operation',
+    evidence: 'Publication review reference',
+    evidenceHelp:
+      '32 hexadecimal characters identifying your publication review record. Do not paste credentials.',
+    reviewPublication: 'I reviewed the published application and the exact target digest above.',
+    challenge: 'Create verification challenge',
+    challengeHelp:
+      'Mention the reviewed target application in the target group with this command, then refresh. This page sends no group message.',
+    expires: 'Expires:',
+    resume: 'Advance reviewed operation',
+    abort: 'Abort before switch',
+    unavailable: 'Migration management is unavailable. Check the selected bot and service version.',
+    unconfirmed:
+      'The operation could not be confirmed. Refresh its status before any further change.',
+    phases: {
+      planned: 'Planned',
+      freezing: 'Freezing source',
+      checkpointed: 'Checkpoint saved',
+      switched: 'Identity switched',
+      activating: 'Activating target',
+      aborting: 'Aborting',
+      completed: 'Completed',
+      aborted: 'Aborted',
+    },
+    steps: {
+      source_challenge: 'Verify target before switching',
+      target_challenge: 'Verify target after switching',
+      wait_metrics: 'Wait for old metrics authorization to expire',
+      resume: 'Review and advance',
+      completed: 'Completed',
+      aborted: 'Aborted',
+    },
+    confirm: {
+      resume: 'Advance the reviewed operation from {phase}? The server rechecks all conditions.',
+      abort: 'Abort this operation from {phase}? An identity switch cannot be rolled back here.',
+    },
+  },
   auditCredentials: {
     selectBots: 'Select permitted bots',
     previous: 'Previous',
