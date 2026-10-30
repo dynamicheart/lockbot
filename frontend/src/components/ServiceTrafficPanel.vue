@@ -73,21 +73,20 @@
         <div class="traffic-chart" role="group" :aria-label="$t('serviceTraffic.trend')">
           <span class="axis-high">{{ chartMax }}</span>
           <div class="traffic-bars">
-            <el-tooltip
-              v-for="(point, index) in snapshot.history"
-              :key="point.at"
-              :visible="activeMinute === point.at && activeChart === 'http'"
-              :content="httpTooltip(point)"
-              placement="top"
-              effect="light"
-              popper-class="traffic-minute-tooltip"
-              virtual-triggering
-              :virtual-ref="minuteReference"
-              transition=""
-              :show-arrow="false"
-              :hide-after="0"
-              :persistent="false"
-            >
+            <template v-for="(point, index) in snapshot.history" :key="point.at">
+              <el-tooltip
+                :visible="activeMinute === point.at && activeChart === 'http'"
+                :content="httpTooltip(point)"
+                placement="top"
+                effect="light"
+                popper-class="traffic-minute-tooltip"
+                virtual-triggering
+                :virtual-ref="minuteReference"
+                transition=""
+                :show-arrow="false"
+                :hide-after="0"
+                :persistent="false"
+              />
               <button
                 type="button"
                 class="traffic-minute"
@@ -112,7 +111,7 @@
                   :style="{ height: `${(point.server_errors / chartMax) * 100}%` }"
                 ></span>
               </button>
-            </el-tooltip>
+            </template>
           </div>
         </div>
         <section class="operation-layer">
@@ -143,21 +142,20 @@
           >
             <span class="axis-high">{{ operationTrend.max }}</span>
             <div class="traffic-bars">
-              <el-tooltip
-                v-for="(point, index) in operationTrend.history"
-                :key="point.at"
-                :visible="activeMinute === point.at && activeChart === 'operation'"
-                :content="operationTooltip(point)"
-                placement="top"
-                effect="light"
-                popper-class="traffic-minute-tooltip"
-                virtual-triggering
-                :virtual-ref="minuteReference"
-                transition=""
-                :show-arrow="false"
-                :hide-after="0"
-                :persistent="false"
-              >
+              <template v-for="(point, index) in operationTrend.history" :key="point.at">
+                <el-tooltip
+                  :visible="activeMinute === point.at && activeChart === 'operation'"
+                  :content="operationTooltip(point)"
+                  placement="top"
+                  effect="light"
+                  popper-class="traffic-minute-tooltip"
+                  virtual-triggering
+                  :virtual-ref="minuteReference"
+                  transition=""
+                  :show-arrow="false"
+                  :hide-after="0"
+                  :persistent="false"
+                />
                 <button
                   type="button"
                   class="traffic-minute"
@@ -184,7 +182,7 @@
                     :style="{ height: `${segment.height}%`, bottom: `${segment.bottom}%` }"
                   ></span>
                 </button>
-              </el-tooltip>
+              </template>
             </div>
           </div>
           <p v-else class="trend-empty">

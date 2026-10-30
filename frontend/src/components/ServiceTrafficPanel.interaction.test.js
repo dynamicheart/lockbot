@@ -5,6 +5,9 @@ import Panel from './ServiceTrafficPanel.vue'
 import api from '../utils/api'
 import * as Vue from 'vue'
 import { readFileSync } from 'node:fs'
+import { renderToString } from '@vue/server-renderer'
+import { ElTooltip, ID_INJECTION_KEY } from 'element-plus'
+import { createSSRApp } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 
 // Vitest loads SFCs in SSR mode; compile the production DOM template as well so
@@ -270,4 +273,21 @@ it('anchors a small selected bar and keyboard zero to their values, preserving f
   expect(view.minuteReference).toBeNull()
   expect(descriptor.styles[0].content).toContain('height: max(2px, var(--bar-height, 0%))')
   expect(descriptor.styles[0].content).not.toContain('background: var(--el-color-primary-light-8)')
+})
+
+it('retains the real production chart buttons with Element Plus virtual tooltips', async () => {
+  const view = await mount()
+  const actual = createSSRApp({ setup: () => view, render: Panel.render })
+  actual.provide(ID_INJECTION_KEY, { prefix: 1, current: 0 })
+  actual.config.warnHandler = () => {}
+  actual.config.globalProperties.$t = (key) => key
+  actual.directive('loading', {})
+  actual.component('ElCard', Card)
+  actual.component('ElTable', defineComponent({ setup: () => () => h('div') }))
+  actual.component('ElTooltip', ElTooltip)
+  const html = await renderToString(actual)
+  expect(html.match(/class="traffic-minute/g) || []).toHaveLength(6)
+  expect(html).toContain('data-bar-height="14.285714285714285"')
+  expect(html).toContain('class="requests"')
+  expect(html).toContain('class="operation-segment source-chat"')
 })
