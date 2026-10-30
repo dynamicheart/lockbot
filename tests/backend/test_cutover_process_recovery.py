@@ -189,7 +189,7 @@ def _worker():
 
 def _launch(root, action, boundary="none"):
     env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(REPO / "python"), "PYTHONHASHSEED": "0"}
-    return subprocess.Popen(
+    process = subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), action, str(root), boundary],
         env=env,
         cwd=root,
@@ -197,6 +197,9 @@ def _launch(root, action, boundary="none"):
         stderr=subprocess.PIPE,
         text=True,
     )
+    with (root / "processes.jsonl").open("a") as receipt:
+        receipt.write(json.dumps({"action": action, "pid": process.pid}) + "\n")
+    return process
 
 
 def _finish(process):
