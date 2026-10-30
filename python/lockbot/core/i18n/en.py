@@ -38,6 +38,10 @@ MESSAGES = {
     "label.queue_list": "⌛️ Queue:\n",
     "label.queue_item": "  {index}. {user_id} {duration} est. wait {wait_time}\n",
     # ── Error messages ──
+    "feishu.command_format": (
+        "❌ Not executed: mention the bot and send one plain command or one single-line code block, "
+        "without a title, quote or multiple commands."
+    ),
     "error.invalid_command_format": "❌ Invalid command format: {command}",
     "error.invalid_node_key": "Invalid node '{node_key}'\n\nPlease choose from: {valid_keys}\n",
     "error.duration_must_be_positive": "Duration must be greater than 0\n",

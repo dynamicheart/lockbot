@@ -488,7 +488,14 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
                 factory, bot_id, application_id, message, expected_uuid, expected_revision, lease.bot
             ) as panel:
                 with capture_result() as command_result:
-                    reply = execute_command(message, lease.bot)
+                    if message.get("command_format_error"):
+                        from lockbot.core.i18n import t
+
+                        reply = lease.bot.adapter.build_reply(
+                            t("feishu.command_format", config=lease.bot.config) + "\n\n", [message["user_id"]]
+                        )
+                    else:
+                        reply = execute_command(message, lease.bot)
                 from lockbot.backend.app.bots.router import _write_log
 
                 try:
