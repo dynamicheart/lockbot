@@ -244,8 +244,9 @@ def test_default_off_unbound_target_uses_fresh_signed_delivery_without_membershi
 
 
 def test_default_off_target_records_removal_without_greeting_and_revokes_receipt(db_session, challenge, monkeypatch):
-    from backend.test_feishu_membership import event
     from lockbot.backend.app.feishu import membership
+
+    from backend.test_feishu_membership import event
 
     _, _, _, app_id, result, message, _ = challenge
     app = db_session.get(FeishuApplication, app_id)
