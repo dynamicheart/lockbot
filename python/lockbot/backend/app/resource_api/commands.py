@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Body, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -233,9 +233,25 @@ class CommandActor(BaseModel):
     external_user_id: str
 
 
+class TaskCategoryNotice(BaseModel):
+    code: Literal["optional_public_task_category"] = "optional_public_task_category"
+    context_url: str = "/api/agent/context"
+    allowed_categories: dict[str, str]
+    optional: bool = True
+    next_request_only: bool = True
+    do_not_replay_command: bool = True
+    message: str = (
+        "For future resource requests, choose a public task_category ID from allowed_categories, "
+        "or send task_category: null to leave the public category undisclosed. A category reveals the broad task type. "
+        "Do not infer or publish private notes. This notice is not an error or an execution result; "
+        "do not replay this command to add a category."
+    )
+
+
 class CommandResponse(BaseModel):
     skill_update: dict = Field(default_factory=dict)
     next_step: str | None = None
+    task_category_notice: TaskCategoryNotice | None = None
     bot_id: int
     bot_type: str
     platform: str
@@ -409,8 +425,14 @@ def execute_command_via_api(
     record_api_command(actor=actor, bot_id=bot_id, command=text)
 
     from lockbot.backend.app.resource_api.skill import client_skill_notice
+    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
 
     return CommandResponse(
+        task_category_notice=(
+            TaskCategoryNotice(allowed_categories=TASK_CATEGORIES)
+            if canonical_command(word) in {"lock", "slock", "book"} and "task_category" not in body.model_fields_set
+            else None
+        ),
         skill_update=client_skill_notice(request),
         next_step=(
             "book is only a booking, not ownership. Keep polling GET /resources; when claimable_by_you "

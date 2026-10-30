@@ -609,13 +609,24 @@ subject, suffix or free text to the category. Unknown categories are rejected wi
 resource commands execute. Select `other` when no category fits; do not ask the user on every
 operation. Choose the category that best reflects the actual work, without inventing a task.
 
+A resource-request response may include `task_category_notice` when the category field was
+omitted. This is optional guidance, not a failure or evidence that the command succeeded.
+For **future new requests**, use one exact allowed ID if broad public disclosure is acceptable;
+otherwise send `"task_category": null` to explicitly keep the category undisclosed. Explicit
+null is supported and suppresses this reminder. Do not infer a category from private notes,
+override a user's privacy choice, ask on every operation, or replay an already dispatched
+command just to add a category. Continue normal ownership/state verification; `next_step`
+and `skill_update` still apply. Keep the trusted handoff/payload policy in force: this notice
+does not permit adding fields outside that policy; omission remains valid. Older servers
+may omit the notice.
+
 `purpose` is an optional **private note** (up to 512 characters); `agent_label` is an optional
 private Agent name (up to 64 characters). Only the same verified user and super administrators may read these details. Bot ownership,
 ordinary management access and a bot OP key do not grant private-task read permission. Other users' Agents, shared resource pages
 and group notifications receive the preset category, never these fields or authorization
 labels. Agents sharing the same user's key share this privacy scope; they are not separate
 private identities. A category still reveals the broad kind of work, so omit it if the user
-wants no public task information at all. Do not put secrets, credentials, personal data,
+wants no public task information at all (or explicitly send `"task_category": null`). Do not put secrets, credentials, personal data,
 private URLs, exact experiments or full prompts in notes: super administrators and host
 operators with filesystem access can retain them. Prefer a short useful note and keep sensitive details locally.
 
