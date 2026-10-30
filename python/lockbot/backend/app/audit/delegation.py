@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from lockbot.backend.app import config
 from lockbot.backend.app.audit.models import AuditLog
+from lockbot.backend.app.audit.read_windows import AuditReadWindow  # noqa: F401 -- register additive model
 from lockbot.backend.app.auth.dependencies import require_super_admin
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot
@@ -85,6 +86,24 @@ def _deny(status, detail):
 
 
 def _audit(db, user, action, *, grant, bot_id=None, count=None, ip=None, result="success", reason=None, surface=None):
+    if action in {"task_notes.read", "task_notes.denied"}:
+        from lockbot.backend.app.audit.read_windows import record_read
+
+        record_read(
+            db,
+            user,
+            grant,
+            action=action,
+            bot=db.get(Bot, bot_id),
+            bot_id=bot_id,
+            surface=surface or "audit.task_notes",
+            reason=reason,
+            result=result,
+            count=count or 0,
+            ip=ip,
+            now=_now(),
+        )
+        return
     # This audit is a disclosure precondition: unlike ordinary best-effort logs it fails closed.
     detail = {"principal": grant.public_id, "scope": SCOPE}
     if reason is not None:
@@ -310,6 +329,7 @@ def _authorize(db, request, bot_id):
                 count=0,
                 result="failure",
                 reason=reason,
+                surface="agent_history" if request.url.path.endswith("/agent-history") else "current_task_notes",
                 ip=request.client.host if request.client else None,
             )
             db.commit()
