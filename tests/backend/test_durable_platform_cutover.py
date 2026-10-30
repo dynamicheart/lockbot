@@ -2,6 +2,7 @@
 
 import json
 import time
+import uuid
 
 import pytest
 from lockbot.backend.app.auth.models import User
@@ -35,10 +36,18 @@ def subject(admin_header, db_session, session_factory):
         cluster_configs='["node1"]',
         config_overrides="{}",
         api_key="FAKE_OP",
+        utilization_config=json.dumps(
+            {
+                "accessMode": "short_lived",
+                "endpoint": "https://metrics.example.invalid",
+                "profile": "lockbot-v1",
+                "nodeMapping": {"node1": "host-a"},
+            }
+        ),
         status="running",
     )
     app = FeishuApplication(
-        app_id="cli_fixture",
+        app_id="cli_fixture_" + uuid.uuid4().hex,
         name="Fixture App",
         tenant_key="fixture_tenant",
         bot_open_id="ou_fixture",
@@ -54,7 +63,12 @@ def subject(admin_header, db_session, session_factory):
     manager.activate_bot(bot.id)
     now = [time.time()]
     coordinator = CutoverCoordinator(
-        session_factory, manager, clock=lambda: now[0], target_validator=lambda *args: True, maximum_clock_offset=0
+        session_factory,
+        manager,
+        clock=lambda: now[0],
+        target_validator=lambda *args: True,
+        metrics_validator=lambda *args: True,
+        maximum_clock_offset=0,
     )
     yield coordinator, manager, bot.id, app.id, now
     manager.shutdown_all()
@@ -577,3 +591,14 @@ def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version):
         target.writestr("lockbot.db", path.read_bytes())
     with zipfile.ZipFile(archive) as target:
         assert _read_backup_bots(target)[0]["_migration_incomplete"] is (version != 1)
+
+
+def test_absent_optional_metrics_does_not_require_clock_proof_or_wait(subject, db_session):
+    service, manager, bot_id, app_id, _ = subject
+    db_session.get(Bot, bot_id).utilization_config = None
+    db_session.commit()
+    service.maximum_clock_offset = None
+    service.metrics_validator = None
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    assert service.resume(operation, actor_id=1)["phase"] == "completed"
+    assert not manager.migration_fenced(bot_id)
