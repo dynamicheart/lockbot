@@ -34,6 +34,10 @@ def record_read(db, user, grant, *, action, bot, bot_id, surface, reason, result
     if now.tzinfo is not None:
         now = now.astimezone(timezone.utc)
     now = now.replace(tzinfo=None)
+
+    def iso(value):
+        return value.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
     start = now.replace(minute=now.minute // 5 * 5, second=0, microsecond=0)
     boundary = {
         "principal": grant.public_id,
@@ -90,8 +94,29 @@ def record_read(db, user, grant, *, action, bot, bot_id, surface, reason, result
         raise RuntimeError("Disclosure audit summary is missing")
     if log is not None:
         evidence = json.loads(log.detail)
+        first = datetime.fromisoformat(evidence["first_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+        last = datetime.fromisoformat(evidence["last_at"].replace("Z", "+00:00")).replace(tzinfo=None)
         if (
-            window.boundary != encoded
+            (
+                log.operator_id,
+                log.operator_role,
+                log.action,
+                log.target_type,
+                log.target_id,
+                log.ip_address,
+                log.result,
+                log.created_at,
+            )
+            != (user.id, user.role, action, "bot", bot_id, ip, result, start)
+            or evidence.get("window_start") != iso(start)
+            or evidence.get("window_end") != iso(start + timedelta(minutes=5))
+            or evidence.get("window_seconds") != 300
+            or evidence["first_at"] != iso(first)
+            or evidence["last_at"] != iso(last)
+            or not (start <= first <= last < start + timedelta(minutes=5))
+            or window.first_at != min(first, now)
+            or window.last_at != max(last, now)
+            or window.boundary != encoded
             or evidence.get("aggregation_version") != 1
             or any(evidence.get(key) != value for key, value in boundary.items())
             or evidence.get("request_count") != window.request_count - 1
@@ -114,9 +139,6 @@ def record_read(db, user, grant, *, action, bot, bot_id, surface, reason, result
         db.add(log)
         db.flush()
         window.audit_id = log.id
-
-    def iso(value):
-        return value.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
     log.detail = json.dumps(
         {

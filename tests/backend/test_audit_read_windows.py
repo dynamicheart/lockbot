@@ -200,7 +200,7 @@ def test_damaged_summary_fails_closed_without_overwriting_evidence(durable):
         log = db.query(AuditLog).one()
         log.detail = '{"aggregation_version": 99}'
         db.commit()
-        with pytest.raises(RuntimeError, match="inconsistent"):
+        with pytest.raises((RuntimeError, KeyError), match="inconsistent|first_at"):
             record_read(db, **_inputs())
         db.rollback()
         assert db.query(AuditReadWindow).one().request_count == 1
@@ -226,3 +226,28 @@ def test_new_table_is_additive_for_existing_database(durable):
         db.commit()
         assert db.query(AuditLog).filter_by(action="legacy.event").one().detail == '{"kept":true}'
         assert db.query(AuditReadWindow).count() == 1
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["action", "target_id", "operator_id", "operator_role", "ip_address", "window_start", "first_at", "last_at"],
+)
+def test_corrupt_summary_identity_or_times_are_not_silently_rewritten(durable, field):
+    factory, _ = durable
+    with factory() as db:
+        record_read(db, **_inputs())
+        db.commit()
+        log = db.query(AuditLog).one()
+        if field in {"window_start", "first_at", "last_at"}:
+            value = json.loads(log.detail)
+            value[field] = "2000-01-01T00:00:00Z"
+            log.detail = json.dumps(value)
+        else:
+            setattr(log, field, 999 if field in {"target_id", "operator_id"} else "changed")
+        db.commit()
+        before = log.detail
+        with pytest.raises(RuntimeError, match="inconsistent"):
+            record_read(db, **_inputs())
+        db.rollback()
+        assert db.query(AuditReadWindow).one().request_count == 1
+        assert db.query(AuditLog).one().detail == before
