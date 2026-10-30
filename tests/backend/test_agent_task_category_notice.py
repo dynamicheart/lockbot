@@ -92,17 +92,13 @@ def test_booking_notice_preserves_claim_next_step(client, api):
 
 @pytest.mark.parametrize("command", ["query", "n1", "free n1", "unlock n1", "alias n1 public-label"])
 def test_non_acquisition_commands_do_not_repeat_category_notice(client, api, command):
-    response = client.post(
-        f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": command}
-    )
+    response = client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": command})
     assert response.status_code == 200, response.text
     assert "task_category_notice" not in response.json()
 
 
 def test_refused_command_is_not_a_category_notice(client, api):
-    response = client.post(
-        f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": "help"}
-    )
+    response = client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": "help"})
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "command_not_allowed"
     assert "task_category_notice" not in response.json()
