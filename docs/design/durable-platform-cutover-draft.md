@@ -49,3 +49,9 @@ Before this draft can become enabled product behavior, complete and independentl
 4. Additional failure/concurrency checks around SQL uncertain commit outcomes, fsync/rename failures, invalid outbox recovery, post-switch target application changes, backup recovery and abandoned plans. Do not interpret an exception as proof that a write did not commit.
 5. Real fictional-group migration acceptance, unchanged Infoflow formatting/regression and final-head CI. No real or formal bot has been migrated by this implementation.
 6. Verified cross-platform identity linking and active-state migration preserving absolute deadlines, queue order, proof ownership and historical attribution. Empty-state success does not complete this requirement.
+
+## Ordinary backup boundary
+
+Ordinary DB/state ZIP creation is serialized against migration planning, resume and abort. It refuses any nonterminal operation, unknown phase or unsupported journal schema before creating an archive. Finishing or explicitly aborting an operation permits normal archives again; no journal phase is fabricated and checkpoint evidence is never deleted by this guard. Selected-bot restore continues to reject incomplete/unknown archived migration records.
+
+Before migration, retain a consistent deployment backup while writers are quiesced, including the matching database, state and encryption configuration. For manual disaster recovery during migration, preserve the entire matching deployment volume, checkpoint files and lifecycle derivative evidence. Ordinary ZIP archives omit that evidence and are not a resumable mid-migration disaster-recovery format. The shared application guard excludes coordinator races; it does not turn normal concurrent allocator/DB writes into a general transactional snapshot. SIGKILL recovery on the same filesystem is distinct from power loss or a restored full-volume snapshot.
