@@ -20,7 +20,7 @@ Delivery is split into independent PRs:
 | --- | --- |
 | Bot ID/UUID, resource names and allocation authority | Preserve; do not create a second resource pool |
 | Inventory, aliases, duration/renewal/quota rules, language, metrics configuration | Preserve and include in plan digest |
-| Infoflow webhook/token/AES | Keep encrypted as the source revision's rollback configuration; never repurpose as Feishu fields or expose in preview |
+| Infoflow webhook/token/AES | Keep an encrypted source-configuration reference for controlled rollback; fence its authority in the typed application registry as well as legacy fields. Never repurpose it as Feishu fields or expose it in preview |
 | Feishu application | Reference the existing approved application; validate tenant/app/chat and bot membership; do not copy its secret into migration records |
 | Platform user identity | Treat Infoflow ID and Feishu tenant/application-scoped Open ID as different principals; never match by name |
 | Personal Agent keys | Invalidate source authority at cutover through identity revision; require destination group re-enrollment. No silent cross-platform transfer |
@@ -70,7 +70,7 @@ Execution requirements:
 1. Acquire the lifecycle transition owner before rereading configuration. Persist admission freeze; all mutation entry points, including Agent/OP, webhook/WS, scheduler and restart/autostart, must honor it. An in-process flag alone does not survive a crash.
 2. Retire source generation, reject new writes and drain admitted operations. A drain timeout is an uncertain result, not permission to replay commands or start the target. Keep the checkpoint compatible with scheduler/expiration behavior.
 3. Reread state and compare the plan. In empty-state mode any live lock/book/offer aborts before identity switch. In active mode every live principal and provenance reference must have a verified mapping.
-4. Write and fsync the checkpoint and operation evidence before switching. Transactionally update the platform/application/route, bump revision, fence old credentials/notifications and record switched phase. Enforce unique group binding in the DB as well as preflight.
+4. Drain and durably settle the source lifecycle outbox before changing revision: recovery currently rejects envelopes from another revision. Preserve old frames unchanged and create a destination-revision baseline/coverage boundary; never relabel old frames or discard pending evidence. Write and fsync the checkpoint and operation evidence before switching. Transactionally update the platform/application/route, bump revision, fence old credentials/notifications and record switched phase. Enforce unique group binding in the DB as well as preflight.
 5. Load the same bot's state, apply only validated identity mapping if requested, then start the Feishu generation. Keep it frozen until readiness and state digest checks pass. Record completion before opening mutation admission.
 6. Retrying the operation ID returns/reconciles its existing result. A different target or digest conflicts. Startup discovers incomplete operations and keeps them unavailable until reconciled; it must not autostart the obsolete channel.
 
