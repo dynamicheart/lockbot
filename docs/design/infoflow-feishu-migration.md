@@ -19,7 +19,7 @@ Delivery is split into independent PRs:
 | Item | Treatment |
 | --- | --- |
 | Bot ID/UUID, resource names and allocation authority | Preserve; do not create a second resource pool |
-| Inventory, aliases, duration/renewal/quota rules, language, metrics configuration | Preserve and include in plan digest |
+| Inventory, aliases, platform-neutral duration/renewal/quota rules, language, metrics configuration | Preserve and include in plan digest; identity-bearing exceptions require separate mapping |
 | Infoflow webhook/token/AES | Keep an encrypted source-configuration reference for controlled rollback; fence its authority in the typed application registry as well as legacy fields. Never repurpose it as Feishu fields or expose it in preview |
 | Feishu application | Reference the existing approved application; validate tenant/app/chat and bot membership; do not copy its secret into migration records |
 | Platform user identity | Treat Infoflow ID and Feishu tenant/application-scoped Open ID as different principals; never match by name |
@@ -79,6 +79,8 @@ A verified externally changed target route or source snapshot blocks recovery fo
 ## Active locks and identity linking
 
 Users prove control of both accounts using short-lived, single-use challenges through signature-verified source and destination messages. The challenge is scoped to instance, bot UUID, migration ID, source revision and target tenant/app/chat. The existing Agent key can identify the source principal but is not proof of the destination identity. Names, contact search results and an administrator's guess are not proof.
+
+`DURATION_WHITELIST` contains platform-native user IDs, so even an empty-state migration must explicitly map, remove or rebuild these entries. Scan all identity-bearing overrides rather than copying them as ordinary scheduling settings. Usage-declaration holding proofs include user/start/holding identity: revalidate or rebuild current proofs under the destination principal while retaining source attribution; do not transfer source-key authority.
 
 A separate, explicit administrator-assisted override, if needed, must show exact principals, require a reason and audit the decision; it is not an automatic fallback. Duplicate mappings, many-to-one ownership/quota conflicts, missing users or changed destinations block cutover.
 
