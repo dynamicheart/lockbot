@@ -122,3 +122,48 @@ def test_failed_handoff_transaction_does_not_publish_route_revision_or_receipt(d
     assert db_session.get(MigrationDeliveryHandoff, operation_id) is None
     assert db_session.query(FeishuGroupRoute).count() == 0
     assert manager.migration_fenced(bot_id)
+
+
+def test_restarted_coordinator_keeps_handoff_and_demands_fresh_target_receipt(db_session, session_factory, challenge):
+    from lockbot.backend.app.bot_migrations.coordinator import CutoverCoordinator
+    from lockbot.backend.app.bot_migrations.recovery import restore_fences
+    from lockbot.backend.app.bots.manager import BotManager
+
+    service, manager, bot_id, app_id, initial, message, clock = challenge
+    operation_id = db_session.get(MigrationTargetProof, initial["proof_id"]).operation_id
+    service.clock = lambda: clock[0]
+    validator = SignedDeliveryValidator(operation_id, actor_id=1, token_version=0)
+    service.target_validator, service.switch_handoff = validator, validator.handoff
+    assert accept_sdk_event(db_session, db_session.get(FeishuApplication, app_id), message)["accepted"]
+    assert service.resume(operation_id, actor_id=1, token_version=0)["phase"] == "checkpointed"
+    clock[0] += 316
+    fresh_proof(db_session, operation_id, app_id, message, clock)
+    with pytest.raises(MigrationBlocked, match="fresh_target_epoch"):
+        service.resume(operation_id, actor_id=1, token_version=0)
+    fresh_proof(db_session, operation_id, app_id, message, clock)
+    manager.shutdown_all()
+    clock[0] += 121
+    recovered = BotManager()
+    try:
+        restore_fences(session_factory, recovered)
+        restarted = CutoverCoordinator(
+            session_factory,
+            recovered,
+            clock=lambda: clock[0],
+            target_validator=validator,
+            switch_handoff=validator.handoff,
+            maximum_clock_offset=0,
+            metrics_validator=lambda *args: True,
+        )
+        with pytest.raises(MigrationBlocked, match="fresh_target_epoch"):
+            restarted.resume(operation_id, actor_id=1, token_version=0)
+        assert recovered.migration_fenced(bot_id) and not recovered.is_running(bot_id)
+        db_session.expire_all()
+        assert db_session.get(MigrationDeliveryHandoff, operation_id) is not None
+        assert db_session.get(Bot, bot_id).api_key is None
+        assert db_session.query(FeishuGroupRoute).count() == 1
+        fresh_proof(db_session, operation_id, app_id, message, clock)
+        assert restarted.resume(operation_id, actor_id=1, token_version=0)["phase"] == "completed"
+        assert not recovered.migration_fenced(bot_id)
+    finally:
+        recovered.shutdown_all()
