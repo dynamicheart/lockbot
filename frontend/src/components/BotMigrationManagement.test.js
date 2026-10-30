@@ -313,7 +313,7 @@ it('rejects mixed scopes, future revisions and replay support in status', () => 
     status({ bot_id: 5 }),
     status({ source_revision: 9, target_revision: 10 }),
     status({ commands_replayed: true }),
-    status({ active_state_migration_supported: true }),
+    status({ reset_applied: 'invalid' }),
   ])
     expect(() => migrationStatus(data, 4, 2)).toThrow()
 })
@@ -421,23 +421,27 @@ it('a changed source requires abort and a new review, never a force update', asy
   })
   await abort
   const fresh = state.load(true)
-  gets
-    .at(-1)
-    .resolve({
-      data: cap({
-        latest_operation: status({
-          phase: 'aborted',
-          next_action: 'aborted',
-          can_abort: false,
-          can_resume: false,
-        }),
-        reset_preview: { digest: 'b'.repeat(64), counts: { ...resetCounts, holders: 0 } },
+  gets.at(-1).resolve({
+    data: cap({
+      latest_operation: status({
+        phase: 'aborted',
+        next_action: 'aborted',
+        can_abort: false,
+        can_resume: false,
       }),
-    })
+      reset_preview: { digest: 'b'.repeat(64), counts: { ...resetCounts, holders: 0 } },
+    }),
+  })
   await flush()
   gets.at(-1).resolve({ data: [{ id: 7, name: 'Target app' }] })
   await fresh
   expect(state.operation).toBe(null)
   expect(state.clearConfirmed).toBe(false)
   expect(state.capability.reset_preview.counts.holders).toBe(0)
+})
+
+it('uses reset evidence rather than obsolete active-state carry metadata', () => {
+  const data = status()
+  delete data.active_state_migration_supported
+  expect(migrationStatus(data, 4, 2).reset_counts).toEqual(resetCounts)
 })

@@ -44,7 +44,6 @@ export function migrationStatus(data, botId, revision) {
     !phases.has(data.phase) ||
     !actions.has(data.next_action) ||
     data.commands_replayed !== false ||
-    data.active_state_migration_supported !== false ||
     !Number.isInteger(data.target_application_id) ||
     data.target_application_id <= 0 ||
     !/^oc_[A-Za-z0-9_-]{1,125}$/.test(data.target_chat_id || '') ||
