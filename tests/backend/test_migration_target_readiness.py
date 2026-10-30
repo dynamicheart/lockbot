@@ -131,3 +131,12 @@ def test_revoked_actor_cannot_receive_probe_result(client, admin_header, db_sess
 
     target[2].bot_in_group = change
     assert probe(client, admin_header, target).status_code == 403
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_absent_optional_metrics_adds_no_authority_blocker(client, admin_header, db_session, target, configured):
+    db_session.get(Bot, target[0]).utilization_config = '{"accessMode":"short_lived"}' if configured else None
+    db_session.commit()
+    data = probe(client, admin_header, target).json()
+    assert ("metrics_clock_authority_unverified" in data["blockers"]) is configured
+    assert data["can_commit"] is False

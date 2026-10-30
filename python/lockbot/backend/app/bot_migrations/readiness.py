@@ -30,9 +30,10 @@ def target_readiness(db, bot_id, body, *, actor_id):
     blockers = [
         "publication_and_usable_range_unverified",
         "receiver_end_to_end_unverified",
-        "metrics_clock_authority_unverified",
         "migration_execution_disabled",
     ]
+    if bot.utilization_config:
+        blockers.append("metrics_clock_authority_unverified")
     checks = {"provider_bot_identity": "unverified", "provider_bot_membership": "unverified"}
     receiver = connectors.snapshot(app.id) if app.transport == "websocket" else None
     if not app.tenant_key or not app.bot_open_id:
