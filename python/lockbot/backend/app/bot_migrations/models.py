@@ -48,3 +48,24 @@ class BotMigration(Base):
             postgresql_where=text("phase NOT IN ('completed', 'aborted')"),
         ),
     )
+
+
+class MigrationTargetProof(Base):
+    """Private nonce receipts; no nonce plaintext, message text or user task details."""
+
+    __tablename__ = "bot_migration_target_proofs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    operation_id: Mapped[str] = mapped_column(String(32), ForeignKey("bot_migrations.id"), nullable=False, index=True)
+    instance_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    nonce_digest: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    reviewer_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    reviewer_token_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    publication_evidence_ref: Mapped[str] = mapped_column(String(32), nullable=False)
+    publication_valid_until: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    event_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)

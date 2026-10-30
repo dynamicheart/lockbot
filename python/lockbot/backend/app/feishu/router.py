@@ -565,7 +565,7 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
             _capacity.release()
 
 
-def accept_event(db, app, data):
+def accept_event(db, app, data, *, proof_transport_verified=False):
     from lockbot.core.platforms.feishu_events import MEMBERSHIP_EVENTS
 
     if data.get("header", {}).get("event_type") in MEMBERSHIP_EVENTS:
@@ -575,6 +575,11 @@ def accept_event(db, app, data):
     message = normalize_message(data, application_identity(app))
     if message is None:
         return {"accepted": False}
+    from lockbot.backend.app.bot_migrations.target_proof import consume_verified_group_event
+
+    proof = consume_verified_group_event(db, app.id, data, message, verified_ingress=proof_transport_verified)
+    if proof is not None:
+        return proof
     message["_accepted_at"] = time.monotonic()
     route = db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=message["group_id"]).first()
     if route is None:
@@ -632,9 +637,10 @@ async def receive(application_id: int, request: Request, db: Session = Depends(g
         if len(body) > 256 * 1024:
             raise HTTPException(413, "Event too large")
     try:
-        data = verify_http(bytes(body), request.headers, application_identity(app))
+        identity = application_identity(app)
+        data = verify_http(bytes(body), request.headers, identity)
         if "challenge" in data:
             return data
-        return await asyncio.to_thread(accept_event, db, app, data)
+        return await asyncio.to_thread(accept_event, db, app, data, proof_transport_verified=bool(identity.encrypt_key))
     except InvalidFeishuEvent:
         raise HTTPException(401, "Invalid Feishu event") from None

@@ -145,4 +145,4 @@ def accept_sdk_event(db, app, data):
         db.query(FeishuApplication).filter_by(id=app.id, tenant_key="").update({"tenant_key": tenant})
         db.commit()
         db.refresh(app)
-    return accept_event(db, app, data)
+    return accept_event(db, app, data, proof_transport_verified=True)
