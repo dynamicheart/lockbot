@@ -6,6 +6,14 @@ import { formatAuditDetail } from './auditDisplay'
 
 const messages = { zh, en }
 const keys = [
+  'task_notes.read',
+  'task_notes.denied',
+  'audit_credential.create',
+  'audit_credential.rotate',
+  'audit_credential.revoke',
+  'platform_application.rename',
+  'platform_application.reveal',
+  'platform_application.delete',
   'resource_auth.bind',
   'resource_auth.unbind',
   'bot.resource_auth_enabled',
@@ -88,4 +96,15 @@ it('shows retained bot IDs and global private-read targets without rewriting row
   ).toEqual({ type: 'service', name: 'Lockbot' })
   expect(auditTarget({ target_type: 'bot', target_id: null }).name).toBe('')
   expect(oldBot.target_name).toBe(null)
+})
+
+it('translates delegated audit actions and targets when switching locale', () => {
+  const i18n = createI18n({ legacy: false, locale: 'zh', messages })
+  expect(i18n.global.tm('audit.actions')['task_notes.denied']).toBe('拒绝读取 Agent 详细任务备注')
+  expect(i18n.global.tm('audit.targetTypes').audit_credential).toBe('审计凭证')
+  i18n.global.locale.value = 'en'
+  expect(i18n.global.tm('audit.actions')['audit_credential.rotate']).toBe('Rotate audit credential')
+  expect(i18n.global.tm('audit.targetTypes').platform_app).toBe('Messaging application')
+  expect(zh.broadcast.states.completed).toBe('已完成')
+  expect(en.broadcast.states.completed).toBe('Completed')
 })
