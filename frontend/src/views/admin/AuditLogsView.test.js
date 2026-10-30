@@ -3,7 +3,13 @@ import { createRenderer, nextTick, ssrContextKey } from 'vue'
 import AuditLogsView from './AuditLogsView.vue'
 import api from '../../utils/api'
 vi.mock('../../utils/api', () => ({ default: { get: vi.fn() } }))
-vi.mock('../../stores/auth', () => ({ useAuthStore: () => ({ user: { id: 7 } }) }))
+vi.mock('../../stores/auth', async () => {
+  const { reactive } = await import('vue')
+  return {
+    useAuthStore: () =>
+      reactive({ user: { id: 7 }, token: 'existing-session', isSuperAdmin: false }),
+  }
+})
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({ tm: () => ({}), locale: { value: 'en' } }),
 }))
@@ -90,4 +96,36 @@ it('defaults off, resets the page on toggle, and ignores old read-inclusive resu
   await flush()
   app.unmount()
   app = null
+})
+
+it('resets the credential tab on session changes and loss of the super administrator role', async () => {
+  api.get.mockImplementation((path) =>
+    Promise.resolve({ data: path === '/admin/bots' ? [] : { items: [], total: 0 } })
+  )
+  app = renderer.createApp(AuditLogsView)
+  app.provide(ssrContextKey, { modules: new Set() })
+  app.config.warnHandler = () => {}
+  app.config.globalProperties.$t = (key) => key
+  app.directive('loading', {})
+  app.mount({ children: [] })
+  const view = app._instance.setupState
+  view.activeTab = 'credentials'
+  await flush()
+  expect(api.get.mock.calls.some(([path]) => path === '/admin/audit-credentials')).toBe(false)
+  view.authStore.isSuperAdmin = true
+  await flush()
+  view.activeTab = 'credentials'
+  await flush()
+  expect(view.activeTab).toBe('credentials')
+  view.authStore.token = 'replacement-session'
+  await flush()
+  expect(view.activeTab).toBe('logs')
+  view.activeTab = 'credentials'
+  view.authStore.isSuperAdmin = false
+  await flush()
+  expect(view.activeTab).toBe('logs')
+  const count = api.get.mock.calls.length
+  view.activeTab = 'credentials'
+  await flush()
+  expect(api.get.mock.calls).toHaveLength(count)
 })
