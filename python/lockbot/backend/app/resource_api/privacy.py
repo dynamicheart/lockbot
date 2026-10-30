@@ -39,7 +39,7 @@ def audit_private_read(db, user, *, bot_id, surface):
     from lockbot.backend.app.bots.models import Bot
 
     if not can_read_private_tasks(db, user):
-        raise HTTPException(403, "Private task access requires super administrator")
+        raise HTTPException(403, "Detailed Agent task note access requires super administrator")
     db.add(
         AuditLog(
             operator_id=user.id,
