@@ -1,0 +1,50 @@
+"""Migration journal references; no credentials, raw messages or identity proofs."""
+
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func, text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from lockbot.backend.app.database import Base
+
+JOURNAL_VERSION = 1
+
+TERMINAL = ("completed", "aborted")
+FROZEN = ("freezing", "checkpointed", "switched", "activating", "aborting")
+
+
+class BotMigration(Base):
+    __tablename__ = "bot_migrations"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=JOURNAL_VERSION, server_default="1", nullable=False)
+    bot_id: Mapped[int] = mapped_column(Integer, ForeignKey("bots.id"), nullable=False)
+    created_by: Mapped[int] = mapped_column(Integer, nullable=False)
+    last_actor_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    bot_uuid: Mapped[str] = mapped_column(String(36), nullable=False)
+    source_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_application_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_chat_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_group_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    phase: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    metrics_not_before: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    checkpoint_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_file_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_bot_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_state_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_bot_active_migration",
+            "bot_id",
+            unique=True,
+            sqlite_where=text("phase NOT IN ('completed', 'aborted')"),
+            postgresql_where=text("phase NOT IN ('completed', 'aborted')"),
+        ),
+    )

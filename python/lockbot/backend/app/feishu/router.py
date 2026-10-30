@@ -232,6 +232,20 @@ def delete_application(
     from lockbot.backend.app.feishu.connectors import connectors
     from lockbot.backend.app.feishu.service import invalidate_application_clients
 
+    def check_migration_unused():
+        from lockbot.backend.app.bot_migrations.models import BotMigration
+
+        if (
+            db.query(BotMigration)
+            .filter(
+                BotMigration.target_application_id == application_id,
+                BotMigration.phase.not_in(("completed", "aborted")),
+            )
+            .first()
+        ):
+            raise HTTPException(409, "Application is reserved by an active migration")
+
+    check_migration_unused()
     app = db.get(FeishuApplication, application_id)
     if app is None:
         raise HTTPException(404, "Application not found")
@@ -248,6 +262,7 @@ def delete_application(
         user = db.get(User, actor_id)
         if user is None or user.role != "super_admin" or user.effective_token_version != actor_version:
             raise HTTPException(403, "Super administrator required")
+        check_migration_unused()
         app = db.get(FeishuApplication, application_id)
         if app is None or app.app_id != expected_app_id:
             raise HTTPException(409, "Application changed; refresh before deleting")

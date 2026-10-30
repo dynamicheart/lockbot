@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Import models to register them with Base.metadata
 import lockbot.backend.app.audit.models  # noqa: F401
 import lockbot.backend.app.auth.models  # noqa: F401
+import lockbot.backend.app.bot_migrations.models  # noqa: F401
 import lockbot.backend.app.bots.models  # noqa: F401
 import lockbot.backend.app.broadcast.models  # noqa: F401
 import lockbot.backend.app.feishu.models  # noqa: F401
@@ -489,6 +490,9 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         restore_proxy(db)
 
+    from lockbot.backend.app.bot_migrations.recovery import restore_fences
+
+    restore_fences(SessionLocal, bot_manager)
     bot_manager.start_scheduler()
     _reset_running_bots()
 

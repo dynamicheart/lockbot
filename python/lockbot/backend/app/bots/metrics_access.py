@@ -11,6 +11,16 @@ from lockbot.backend.app.bots.metrics_signers import select_metrics_signer
 
 
 def issue_metrics_access(db, bot, source=None, *, expires_at=None):
+    from lockbot.backend.app.bot_migrations.gates import identity_still_current, migration_fenced
+    from lockbot.backend.app.resource_auth.authority import authority_guard
+
+    with authority_guard(bot.id):
+        if migration_fenced(bot.id) or not identity_still_current(db, bot):
+            return None
+        return _issue_metrics_access(db, bot, source, expires_at=expires_at)
+
+
+def _issue_metrics_access(db, bot, source=None, *, expires_at=None):
     source = source or public_datasource(bot)
     if not source or source.get("accessMode", "independent") != "short_lived":
         return None

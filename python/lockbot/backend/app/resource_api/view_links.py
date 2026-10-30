@@ -72,6 +72,16 @@ def compact_view_path(db, window):
 
 
 def view_link(db: Session, bot, base_url: str) -> dict:
+    from lockbot.backend.app.bot_migrations.gates import identity_still_current, migration_fenced
+    from lockbot.backend.app.resource_auth.authority import authority_guard
+
+    with authority_guard(bot.id):
+        if migration_fenced(bot.id) or not identity_still_current(db, bot):
+            return {}
+        return _view_link(db, bot, base_url)
+
+
+def _view_link(db: Session, bot, base_url: str) -> dict:
     """Authorized group, Agent or bot-detail reads may obtain a link; state polling never renews it."""
     parsed = urlsplit(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:

@@ -283,6 +283,10 @@ def _handle_chat_binding(
         if bot is not None and expected_revision is not None and bot.identity_revision != expected_revision:
             return t("binding.unavailable", lang=lang)
 
+        from lockbot.backend.app.bot_migrations.gates import migration_fenced
+
+        if action == "bind" and migration_fenced(bot_id):
+            return t("binding.unavailable", lang=lang)
         if action == "bind":
             reply, reserved_token = _chat_bind(db, platform, external_user_id, bot, lang, argument)
         elif action == "bindings":

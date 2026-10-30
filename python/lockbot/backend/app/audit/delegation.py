@@ -145,11 +145,15 @@ def _bot_identity(bot):
 
 
 def _bot_scope(db, bot_ids):
+    from lockbot.backend.app.bot_migrations.gates import migration_fenced
+
     values = []
     for bot_id in bot_ids:
         bot = db.get(Bot, bot_id)
         if bot is None or bot.is_deleted:
             _deny(422, "Every permitted bot must exist and be active in the service")
+        if migration_fenced(bot_id):
+            _deny(409, "Bot migration must finish before issuing detailed-note authority")
         values.append(_bot_identity(bot))
     return values
 

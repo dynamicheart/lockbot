@@ -329,6 +329,17 @@ def _read_backup_bots(zf) -> list[dict]:
             result = []
             for r in rows:
                 d = dict(r)
+                migration_table = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bot_migrations'"
+                ).fetchone()
+                if migration_table:
+                    d["_migration_incomplete"] = bool(
+                        conn.execute(
+                            "SELECT 1 FROM bot_migrations WHERE bot_id = ? "
+                            "AND phase NOT IN ('completed', 'aborted') LIMIT 1",
+                            (d["id"],),
+                        ).fetchone()
+                    )
                 if (d.get("platform") or "").lower() == "feishu":
                     from lockbot.backend.app.feishu.backup import read_application_metadata
 
@@ -467,6 +478,9 @@ def restore_preview(
             except Exception as e:
                 state_warnings = [f"State parse error: {e}"]
 
+        if bb.get("_migration_incomplete"):
+            state_warnings.append("Incomplete platform migration: recover the original deployment before importing")
+
         result_bots.append(
             {
                 "uuid": uuid,
@@ -586,6 +600,9 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
     for bb in backup_bots:
         uuid = bb.get("uuid")
         if not uuid or uuid not in selected_set:
+            continue
+        if bb.get("_migration_incomplete"):
+            errors.append("Archived bot has an incomplete platform migration; recover its original deployment first")
             continue
 
         name = bb.get("name", "")

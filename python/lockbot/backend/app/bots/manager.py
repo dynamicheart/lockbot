@@ -154,6 +154,8 @@ class BotManager:
         self._retire_hooks: list = []
         self._max_inflight = max_inflight
         self._drain_timeout = drain_timeout
+        self._migration_fences: dict[int, str] = {}
+        self._migration_owners: dict[tuple[int, int], str] = {}
 
     def register_retire_hook(self, hook) -> None:
         """Register a ``hook(bot_id, generation)`` invoked at final generation retirement."""
@@ -172,6 +174,51 @@ class BotManager:
 
     # ------------------------------------------------------- transition owner
 
+    def migration_fenced(self, bot_id: int) -> bool:
+        with self._lock:
+            return bot_id in self._migration_fences
+
+    def migration_operation_id(self, bot_id: int) -> str | None:
+        with self._lock:
+            return self._migration_fences.get(bot_id)
+
+    def install_migration_fence(self, bot_id: int, operation_id: str):
+        with self._lock:
+            previous = self._migration_fences.get(bot_id)
+            if previous is not None and previous != operation_id:
+                raise InstanceRetiring("Another migration owns this bot")
+            self._migration_fences[bot_id] = operation_id
+
+    def clear_migration_fence(self, bot_id: int, operation_id: str):
+        with self._lock:
+            if self._migration_fences.get(bot_id) != operation_id:
+                raise InstanceRetiring("Migration fence does not match")
+            del self._migration_fences[bot_id]
+
+    def restore_migration_fences(self, records):
+        """Startup only: rebuild durable admission fences before any bot autostarts."""
+        with self._lock:
+            if self._bots or self._failed or self._transitions:
+                raise RuntimeError("Cannot replace migration fences while bots are live")
+            self._migration_fences = dict(records)
+            self._migration_owners.clear()
+
+    @contextmanager
+    def migration_operation(self, bot_id: int, operation_id: str):
+        """Internal lifecycle capability; never bypasses resource-write admission."""
+        key = threading.get_ident(), bot_id
+        with self._lock:
+            if self._migration_fences.get(bot_id) != operation_id:
+                raise InstanceRetiring("Migration operation does not own this fence")
+            if key in self._migration_owners:
+                raise InstanceRetiring("Nested migration capability is not supported")
+            self._migration_owners[key] = operation_id
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._migration_owners.pop(key, None)
+
     @contextmanager
     def transition(self, bot_id: int):
         """Acquire the per-bot lifecycle transition owner, or refuse up front.
@@ -189,6 +236,9 @@ class BotManager:
         me = threading.get_ident()
         with self._lock:
             owner = self._transitions.get(bot_id)
+            fence = self._migration_fences.get(bot_id)
+            if fence and self._migration_owners.get((me, bot_id)) != fence:
+                raise InstanceRetiring(f"Bot {bot_id} is frozen for migration")
             if owner is not None and owner[0] != me:
                 raise InstanceRetiring(f"Bot {bot_id} has a lifecycle transition in progress")
             if owner is None:
@@ -256,6 +306,8 @@ class BotManager:
         polling cannot create unbounded contention on the single state lock.
         """
         with self._lock:
+            if not for_read and bot_id in self._migration_fences:
+                raise InstanceRetiring(f"Bot {bot_id} is frozen for migration")
             if bot_id in self._retiring:
                 raise InstanceRetiring(f"Bot {bot_id} is retiring")
             instance = self._bots.get(bot_id)
@@ -692,7 +744,11 @@ class BotManager:
             live_ids = list(self._bots.keys()) + [bid for bid in self._failed if bid not in self._bots]
         for bot_id in live_ids:
             with contextlib.suppress(Exception):
-                self.stop_bot(bot_id, drain_timeout=1.0)
+                with self._lock:
+                    operation = self._migration_fences.get(bot_id)
+                scope = self.migration_operation(bot_id, operation) if operation else contextlib.nullcontext()
+                with scope:
+                    self.stop_bot(bot_id, drain_timeout=1.0)
         with self._lock:
             self._bots.clear()
             self._failed.clear()
