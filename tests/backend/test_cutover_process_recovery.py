@@ -154,13 +154,13 @@ def _worker():
         fault=stop_at,
     )
     if action == "seed":
-        coordinator.plan(1, 1, "oc_target", actor_id=1, operation_id=OPERATION)
+        coordinator.plan(1, 1, "oc_target", actor_id=1, token_version=0, operation_id=OPERATION)
         stop_at("planned")
-        coordinator.resume(OPERATION, actor_id=1)
+        coordinator.resume(OPERATION, actor_id=1, token_version=0)
     elif action == "resume":
-        result = coordinator.resume(OPERATION, actor_id=1)
+        result = coordinator.resume(OPERATION, actor_id=1, token_version=0)
         assert result["phase"] == "completed"
-        assert coordinator.resume(OPERATION, actor_id=1) == result
+        assert coordinator.resume(OPERATION, actor_id=1, token_version=0) == result
     with factory() as db:
         bot, operation = db.get(Bot, 1), db.get(BotMigration, OPERATION)
         try:

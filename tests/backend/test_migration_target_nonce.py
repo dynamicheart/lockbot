@@ -40,7 +40,7 @@ def challenge(subject, db_session, monkeypatch, request):
         )
     )
     db_session.commit()
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     row = db_session.get(BotMigration, operation)
     clock = [time.time()]
     monkeypatch.setattr(target_proof, "_now", lambda: datetime.utcfromtimestamp(clock[0]))

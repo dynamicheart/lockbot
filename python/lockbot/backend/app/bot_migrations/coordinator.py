@@ -179,13 +179,13 @@ class CutoverCoordinator:
             raise MigrationBlocked("source_already_has_feishu_route")
         return bot
 
-    def plan(self, bot_id, application_id, chat_id, *, actor_id, operation_id=None):
+    def plan(self, bot_id, application_id, chat_id, *, actor_id, token_version, operation_id=None):
         body = MigrationPreflight(application_id=application_id, chat_id=chat_id)
         operation_id = operation_id or uuid.uuid4().hex
         if len(operation_id) != 32 or any(char not in "0123456789abcdef" for char in operation_id):
             raise MigrationBlocked("invalid_operation_id")
         with connectors.application_guard(), self.factory() as db:
-            self._actor(db, actor_id)
+            self._actor(db, actor_id, token_version)
             existing = db.get(BotMigration, operation_id)
             if existing:
                 if existing.schema_version != JOURNAL_VERSION:
@@ -199,7 +199,7 @@ class CutoverCoordinator:
                 return self._result(existing)
             with self.manager.transition(bot_id):
                 db.rollback()
-                self._actor(db, actor_id)
+                self._actor(db, actor_id, token_version)
                 bot, app = db.get(Bot, bot_id), db.get(FeishuApplication, body.application_id)
                 if bot is None or bot.is_deleted or not bot.uuid or str(bot.platform).lower() != "infoflow":
                     raise MigrationBlocked("source_identity_unsupported")
@@ -234,6 +234,7 @@ class CutoverCoordinator:
                     expires_at=now + timedelta(minutes=10),
                 )
                 self._target(db, operation)
+                self._actor(db, actor_id, token_version)
                 db.add(operation)
                 try:
                     db.commit()
@@ -371,7 +372,7 @@ class CutoverCoordinator:
             db.commit()
         self.fault("identity_switched")
 
-    def _activate(self, db, operation, bot, actor_id):
+    def _activate(self, db, operation, bot, actor_id, token_version):
         from lockbot.backend.app.bots.router import _build_config_dict
         from lockbot.core.io import _save_bot_state_atomically
 
@@ -399,19 +400,21 @@ class CutoverCoordinator:
                 raise MigrationBlocked("target_baseline_unsettled")
             raw, _ = read_state(get_managed_paths().state_file(bot.id))
             operation.target_state_digest = hashlib.sha256(raw).hexdigest()
+        self._actor(db, actor_id, token_version)
         operation.phase = "activating"
         bot.status, bot.pid = "running", self.manager.get_pid(bot.id)
         db.commit()
         self.fault("target_staged")
+        self._actor(db, actor_id, token_version)
         self.manager.activate_bot(bot.id)
         self.fault("target_activated")
-        self._actor(db, actor_id)
+        self._actor(db, actor_id, token_version)
         operation.phase, operation.completed_at, operation.last_error = "completed", self._now(), None
         db.commit()
         self.fault("completion_committed")
         self.manager.clear_migration_fence(bot.id, operation.id)
 
-    def _restore_source(self, db, operation, bot, actor_id):
+    def _restore_source(self, db, operation, bot, actor_id, token_version):
         from lockbot.backend.app.bots.router import _build_config_dict
 
         if db.query(FeishuGroupRoute).filter_by(bot_id=bot.id).first() is not None:
@@ -428,17 +431,18 @@ class CutoverCoordinator:
             if instance.bot.state.bot_state != body["bot_state"]:
                 self.manager.stop_bot(bot.id)
                 raise MigrationBlocked("source_rollback_state_changed")
+        self._actor(db, actor_id, token_version)
         self.manager.activate_bot(bot.id)
-        self._actor(db, actor_id)
+        self._actor(db, actor_id, token_version)
         bot.status, bot.pid = "running", self.manager.get_pid(bot.id)
         operation.phase, operation.completed_at, operation.last_error = "aborted", self._now(), None
         db.commit()
         self.manager.clear_migration_fence(bot.id, operation.id)
 
-    def abort(self, operation_id, *, actor_id):
+    def abort(self, operation_id, *, actor_id, token_version):
         """Only a source that never switched can be reopened; never restore an old snapshot."""
         with connectors.application_guard(), self.factory() as db:
-            self._actor(db, actor_id)
+            self._actor(db, actor_id, token_version)
             operation = db.get(BotMigration, operation_id)
             if operation is None:
                 raise MigrationBlocked("operation_not_found")
@@ -453,6 +457,7 @@ class CutoverCoordinator:
                 return self._result(operation)
             if operation.phase == "planned":
                 with self.manager.transition(operation.bot_id):
+                    self._actor(db, actor_id, token_version)
                     operation.phase, operation.completed_at = "aborted", self._now()
                     operation.last_actor_id = actor_id
                     db.commit()
@@ -465,15 +470,15 @@ class CutoverCoordinator:
                 bot = self._source(db, operation)
                 operation.phase, operation.last_actor_id = "aborting", actor_id
                 db.commit()
-                self._restore_source(db, operation, bot, actor_id)
+                self._restore_source(db, operation, bot, actor_id, token_version)
                 return self._result(operation)
 
-    def resume(self, operation_id, *, actor_id):
+    def resume(self, operation_id, *, actor_id, token_version):
         # Import lazily: the regular audit API never depends on the migration executor.
         from lockbot.backend.app.audit.delegation import _guard as audit_guard
 
         with connectors.application_guard(), self.factory() as db:
-            self._actor(db, actor_id)
+            self._actor(db, actor_id, token_version)
             operation = db.get(BotMigration, operation_id)
             if operation is None:
                 raise MigrationBlocked("operation_not_found")
@@ -521,7 +526,7 @@ class CutoverCoordinator:
                             if lease.bot.config.get_val("DURATION_WHITELIST", []):
                                 raise MigrationBlocked("source_identity_rules_require_mapping")
                         with audit_guard, authority_guard(bot.id):
-                            self._actor(db, actor_id)
+                            self._actor(db, actor_id, token_version)
                             operation.last_actor_id = actor_id
                             operation.phase = "freezing"
                             db.commit()
@@ -534,22 +539,22 @@ class CutoverCoordinator:
                     ):
                         bot = self._source(db, operation, switched=operation.phase in ("switched", "activating"))
                         if operation.phase == "aborting":
-                            self._restore_source(db, operation, bot, actor_id)
+                            self._restore_source(db, operation, bot, actor_id, token_version)
                         if operation.phase == "freezing":
                             self._checkpoint(db, operation, bot)
                         if operation.phase == "checkpointed":
                             if operation.metrics_not_before is None or self._now() < operation.metrics_not_before:
                                 return self._result(operation)
                             self._target(db, operation, live=True)
-                            self._actor(db, actor_id)
+                            self._actor(db, actor_id, token_version)
                             operation.last_actor_id = actor_id
                             self._switch(db, operation, bot)
                         if operation.phase in ("switched", "activating"):
                             self._target(db, operation, live=True)
                             bot = self._source(db, operation, switched=True)
-                            self._actor(db, actor_id)
+                            self._actor(db, actor_id, token_version)
                             operation.last_actor_id = actor_id
-                            self._activate(db, operation, bot, actor_id)
+                            self._activate(db, operation, bot, actor_id, token_version)
                         return self._result(operation)
             except Exception as exc:
                 db.rollback()
@@ -562,10 +567,17 @@ class CutoverCoordinator:
                 raise
 
     @staticmethod
-    def _actor(db, actor_id):
+    def _actor(db, actor_id, token_version):
+        if type(actor_id) is not int or type(token_version) is not int or token_version < 0:
+            raise MigrationBlocked("current_super_administrator_required")
+        actor = db.execute(
+            select(User).where(User.id == actor_id).execution_options(populate_existing=True)
+        ).scalar_one_or_none()
         if (
-            type(actor_id) is not int
-            or db.execute(select(User.role).where(User.id == actor_id)).scalar_one_or_none() != "super_admin"
+            actor is None
+            or actor.role != "super_admin"
+            or actor.must_change_password
+            or actor.effective_token_version != token_version
         ):
             raise MigrationBlocked("current_super_administrator_required")
 

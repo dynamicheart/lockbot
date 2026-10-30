@@ -78,16 +78,16 @@ def test_empty_cutover_keeps_same_identity_inventory_and_uses_nonblocking_grant_
     service, manager, bot_id, app_id, now = subject
     original = db_session.get(Bot, bot_id)
     identity, inventory = original.uuid, original.cluster_configs
-    planned = service.plan(bot_id, app_id, "oc_target", actor_id=1)
+    planned = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)
     assert planned["phase"] == "planned" and not manager.migration_fenced(bot_id)
-    result = service.resume(planned["operation_id"], actor_id=1)
+    result = service.resume(planned["operation_id"], actor_id=1, token_version=0)
     assert result["phase"] == "checkpointed" and manager.migration_fenced(bot_id)
     assert not manager.is_running(bot_id)
     with pytest.raises(InstanceRetiring), manager.transition(bot_id):
         pass
-    assert service.resume(planned["operation_id"], actor_id=1)["phase"] == "checkpointed"
+    assert service.resume(planned["operation_id"], actor_id=1, token_version=0)["phase"] == "checkpointed"
     now[0] += 316
-    result = service.resume(planned["operation_id"], actor_id=1)
+    result = service.resume(planned["operation_id"], actor_id=1, token_version=0)
     assert result["phase"] == "completed" and not manager.migration_fenced(bot_id)
     db_session.expire_all()
     current = db_session.get(Bot, bot_id)
@@ -100,7 +100,7 @@ def test_empty_cutover_keeps_same_identity_inventory_and_uses_nonblocking_grant_
     )
     assert current.api_key is None
     assert db_session.query(FeishuGroupRoute).one().bot_id == bot_id
-    assert service.resume(planned["operation_id"], actor_id=1) == result
+    assert service.resume(planned["operation_id"], actor_id=1, token_version=0) == result
     state = json.loads(get_managed_paths().state_file(bot_id).read_text())
     assert state["lifecycle_outbox"]["identity_revision"] == 1
     assert state["bot_state"]["node1"]["current_users"] == []
@@ -120,7 +120,7 @@ def test_empty_cutover_keeps_same_identity_inventory_and_uses_nonblocking_grant_
 )
 def test_crash_recovery_never_autostarts_source_or_replays_commands(subject, session_factory, db_session, boundary):
     service, manager, bot_id, app_id, now = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     fired = []
 
     def crash(phase):
@@ -130,10 +130,10 @@ def test_crash_recovery_never_autostarts_source_or_replays_commands(subject, ses
 
     service.fault = crash
     if boundary in {"identity_switched", "target_staged", "target_activated", "completion_committed"}:
-        assert service.resume(operation, actor_id=1)["phase"] == "checkpointed"
+        assert service.resume(operation, actor_id=1, token_version=0)["phase"] == "checkpointed"
         now[0] += 316
     with pytest.raises(RuntimeError, match="simulated"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     manager.shutdown_all()
     recovered = BotManager()
     try:
@@ -147,9 +147,9 @@ def test_crash_recovery_never_autostarts_source_or_replays_commands(subject, ses
         service.manager = recovered
         service.fault = lambda phase: None
         if row.phase in {"freezing", "checkpointed"}:
-            service.resume(operation, actor_id=1)
+            service.resume(operation, actor_id=1, token_version=0)
             now[0] += 316
-        assert service.resume(operation, actor_id=1)["phase"] == "completed"
+        assert service.resume(operation, actor_id=1, token_version=0)["phase"] == "completed"
         assert db_session.query(FeishuGroupRoute).count() == 1
     finally:
         recovered.shutdown_all()
@@ -157,15 +157,15 @@ def test_crash_recovery_never_autostarts_source_or_replays_commands(subject, ses
 
 def test_no_target_validator_or_clock_evidence_does_not_freeze_source(subject):
     service, manager, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     service.target_validator = None
     with pytest.raises(MigrationBlocked, match="target_live_validation_unavailable"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     assert manager.is_running(bot_id) and not manager.migration_fenced(bot_id)
     service.target_validator = lambda *args: True
     service.maximum_clock_offset = None
     with pytest.raises(MigrationBlocked, match="clock_bound_unverified"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     assert manager.is_running(bot_id) and not manager.migration_fenced(bot_id)
 
 
@@ -176,7 +176,7 @@ def test_live_holders_are_never_deleted_to_make_cutover_pass(subject):
     state["current_users"] = [{"user_id": "fixture", "start_time": time.time(), "duration": 600}]
     state["status"] = "exclusive"
     with pytest.raises(MigrationBlocked, match="source_has_outstanding_allocations"):
-        service.plan(bot_id, app_id, "oc_target", actor_id=1)
+        service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)
     assert state["current_users"][0]["user_id"] == "fixture"
     assert not manager.migration_fenced(bot_id)
 
@@ -210,8 +210,8 @@ def test_frozen_bot_cannot_issue_metrics_links_bindings_or_audit_grants(
     monkeypatch.setattr(manager_module, "bot_manager", manager)
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
     pending = binding_service.create_binding()
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-    assert service.resume(operation, actor_id=1)["phase"] == "checkpointed"
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    assert service.resume(operation, actor_id=1, token_version=0)["phase"] == "checkpointed"
     row = db_session.get(Bot, bot_id)
     assert issue_metrics_access(db_session, row, {"accessMode": "short_lived"}) is None
     assert view_link(db_session, row, "https://example.invalid") == {}
@@ -234,45 +234,45 @@ def test_frozen_bot_cannot_issue_metrics_links_bindings_or_audit_grants(
 def test_operation_target_is_idempotent_and_other_destinations_conflict(subject):
     service, _, bot_id, app_id, _ = subject
     operation = "a" * 32
-    first = service.plan(bot_id, app_id, "oc_target", actor_id=1, operation_id=operation)
-    assert service.plan(bot_id, app_id, "oc_target", actor_id=1, operation_id=operation) == first
+    first = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0, operation_id=operation)
+    assert service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0, operation_id=operation) == first
     with pytest.raises(MigrationBlocked, match="operation_target_conflict"):
-        service.plan(bot_id, app_id, "oc_other", actor_id=1, operation_id=operation)
+        service.plan(bot_id, app_id, "oc_other", actor_id=1, token_version=0, operation_id=operation)
 
 
 def test_source_reconfiguration_invalidates_plan_before_freeze(subject, db_session):
     service, manager, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     row = db_session.get(Bot, bot_id)
     row.config_overrides = '{"FORBID_RELOCK":true}'
     db_session.commit()
     with pytest.raises(MigrationBlocked, match="source_configuration_changed"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     assert manager.is_running(bot_id) and not manager.migration_fenced(bot_id)
 
 
 def test_newly_claimed_target_is_not_overwritten(subject, db_session):
     service, manager, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     db_session.add(FeishuGroupRoute(application_id=app_id, chat_id="oc_target", bot_id=bot_id))
     db_session.commit()
     with pytest.raises(MigrationBlocked, match="source_already_has_feishu_route|target_group_already_bound"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     assert not manager.migration_fenced(bot_id)
     assert db_session.query(FeishuGroupRoute).count() == 1
 
 
 def test_source_file_edit_after_checkpoint_never_switches_identity(subject, db_session):
     service, manager, bot_id, app_id, now = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-    service.resume(operation, actor_id=1)
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    service.resume(operation, actor_id=1, token_version=0)
     path = get_managed_paths().state_file(bot_id)
     data = json.loads(path.read_text())
     data["operator_edit"] = True
     path.write_text(json.dumps(data))
     now[0] += 316
     with pytest.raises(MigrationBlocked, match="source_state_changed_after_checkpoint"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     db_session.expire_all()
     assert db_session.get(Bot, bot_id).platform == "Infoflow"
     assert manager.migration_fenced(bot_id)
@@ -281,11 +281,11 @@ def test_source_file_edit_after_checkpoint_never_switches_identity(subject, db_s
 
 def test_current_super_administrator_role_is_required_on_each_resume(subject, db_session):
     service, manager, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     db_session.get(User, 1).role = "admin"
     db_session.commit()
     with pytest.raises(MigrationBlocked, match="current_super_administrator_required"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     assert not manager.migration_fenced(bot_id)
 
 
@@ -295,7 +295,7 @@ def test_previously_admitted_mutation_is_drained_and_blocks_an_empty_cutover(sub
     from lockbot.core.io import save_bot_state_to_file
 
     service, manager, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     admitted, release, completed = threading.Event(), threading.Event(), threading.Event()
     errors = []
 
@@ -322,7 +322,7 @@ def test_previously_admitted_mutation_is_drained_and_blocks_an_empty_cutover(sub
     service.fault = lambda phase: release.set() if phase == "freeze_committed" else None
     try:
         with pytest.raises(MigrationBlocked, match="source_has_outstanding_allocations"):
-            service.resume(operation, actor_id=1)
+            service.resume(operation, actor_id=1, token_version=0)
     finally:
         release.set()
         thread.join(5)
@@ -339,7 +339,7 @@ def test_abort_before_switch_preserves_current_source_deadlines_and_keys(subject
     from lockbot.core.io import save_bot_state_to_file
 
     service, manager, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     instance = manager.get_instance(bot_id)
     with instance.bot._lock:
         entry = instance.bot.state.bot_state["node1"]
@@ -357,33 +357,33 @@ def test_abort_before_switch_preserves_current_source_deadlines_and_keys(subject
         save_bot_state_to_file(instance.bot.state.bot_state, instance.config)
     # A plan can become stale because an admitted caller acquires resources before confirmation.
     with pytest.raises(MigrationBlocked, match="source_has_outstanding_allocations"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     # Force the active pre-switch recovery phase, as if confirmation had frozen before the late write drained.
     row = db_session.get(BotMigration, operation)
     row.phase = "freezing"
     db_session.commit()
     manager.install_migration_fence(bot_id, operation)
-    result = service.abort(operation, actor_id=1)
+    result = service.abort(operation, actor_id=1, token_version=0)
     assert result["phase"] == "aborted" and not manager.migration_fenced(bot_id)
     db_session.expire_all()
     row = db_session.get(Bot, bot_id)
     assert (row.platform, row.identity_revision, row.api_key) == ("Infoflow", 0, "FAKE_OP")
     assert manager.get_instance(bot_id).bot.state.bot_state["node1"]["current_users"] == [original_holder]
-    assert service.abort(operation, actor_id=1) == result
+    assert service.abort(operation, actor_id=1, token_version=0) == result
 
 
 def test_abort_after_identity_switch_cannot_restore_the_old_source_snapshot(subject):
     service, manager, bot_id, app_id, now = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-    service.resume(operation, actor_id=1)
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    service.resume(operation, actor_id=1, token_version=0)
     now[0] += 316
     service.fault = lambda phase: (
         (_ for _ in ()).throw(RuntimeError("fixture crash")) if phase == "identity_switched" else None
     )
     with pytest.raises(RuntimeError, match="fixture crash"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     with pytest.raises(MigrationBlocked, match="reverse_migration_requires_separate_confirmation"):
-        service.abort(operation, actor_id=1)
+        service.abort(operation, actor_id=1, token_version=0)
     assert manager.migration_fenced(bot_id)
 
 
@@ -396,10 +396,10 @@ def test_late_source_orm_object_cannot_mint_or_downgrade_target_links(subject, d
     try:
         stale = stale_session.get(Bot, bot_id)
         assert stale.identity_revision == 0
-        operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-        service.resume(operation, actor_id=1)
+        operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+        service.resume(operation, actor_id=1, token_version=0)
         now[0] += 316
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
         db_session.expire_all()
         current = db_session.get(Bot, bot_id)
         new_link = view_link(db_session, current, "https://example.invalid")
@@ -416,10 +416,10 @@ def test_late_source_orm_object_cannot_mint_or_downgrade_target_links(subject, d
 def test_repeated_plan_request_returns_frozen_operation_without_reserving_again(subject):
     service, _, bot_id, app_id, _ = subject
     operation = "b" * 32
-    service.plan(bot_id, app_id, "oc_target", actor_id=1, operation_id=operation)
-    current = service.resume(operation, actor_id=1)
+    service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0, operation_id=operation)
+    current = service.resume(operation, actor_id=1, token_version=0)
     assert current["phase"] == "checkpointed"
-    assert service.plan(bot_id, app_id, "oc_target", actor_id=1, operation_id=operation) == current
+    assert service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0, operation_id=operation) == current
 
 
 def test_source_personal_and_detailed_audit_credentials_cannot_cross_revision(
@@ -451,10 +451,10 @@ def test_source_personal_and_detailed_audit_credentials_cannot_cross_revision(
     )
     assert grant.status_code == 201
     audit_key = grant.json()["credential"]
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-    service.resume(operation, actor_id=1)
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    service.resume(operation, actor_id=1, token_version=0)
     now[0] += 316
-    service.resume(operation, actor_id=1)
+    service.resume(operation, actor_id=1, token_version=0)
     db_session.expire_all()
     assert db_session.get(ResourceBinding, row.id).revoked_at is not None
     assert auth_service.authenticate(db_session, bot_id=bot_id, bot_uuid=row.bound_bot_uuid, token=key) is None
@@ -467,8 +467,8 @@ def test_frozen_source_rejects_management_mutation_routes(subject, client, admin
 
     service, manager, bot_id, app_id, _ = subject
     monkeypatch.setattr(bot_router, "bot_manager", manager)
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-    service.resume(operation, actor_id=1)
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    service.resume(operation, actor_id=1, token_version=0)
     for action in ("start", "stop", "restart", "api-key"):
         response = client.post(f"/api/bots/{bot_id}/{action}", headers=admin_header)
         assert response.status_code == 503, (action, response.text)
@@ -484,12 +484,12 @@ def test_application_cannot_be_deleted_during_a_plan_but_terminal_journal_does_n
     subject, client, admin_header, db_session
 ):
     service, _, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     path = f"/api/feishu/applications/{app_id}"
     response = client.delete(path, headers=admin_header)
     assert response.status_code == 409 and "migration" in response.text
     assert db_session.get(FeishuApplication, app_id) is not None
-    service.abort(operation, actor_id=1)
+    service.abort(operation, actor_id=1, token_version=0)
     response = client.delete(path, headers=admin_header)
     assert response.status_code == 204, response.text
     db_session.expire_all()
@@ -519,7 +519,7 @@ def test_selected_restore_never_copies_an_incomplete_migration_as_an_unfrozen_bo
 @pytest.mark.parametrize("phase", ["planned", "completed"])
 def test_unknown_journal_version_stays_fenced_and_cannot_resume_or_abort(subject, session_factory, db_session, phase):
     service, manager, bot_id, app_id, _ = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
     row = db_session.get(BotMigration, operation)
     row.schema_version, row.phase = 99, phase
     db_session.commit()
@@ -530,17 +530,17 @@ def test_unknown_journal_version_stays_fenced_and_cannot_resume_or_abort(subject
         assert recovered.migration_fenced(bot_id)
         for action in (service.resume, service.abort):
             with pytest.raises(MigrationBlocked, match="journal_version_unsupported"):
-                action(operation, actor_id=1)
+                action(operation, actor_id=1, token_version=0)
         with pytest.raises(MigrationBlocked, match="journal_version_unsupported"):
-            service.plan(bot_id, app_id, "oc_target", actor_id=1, operation_id=operation)
+            service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0, operation_id=operation)
     finally:
         recovered.shutdown_all()
 
 
 def test_post_switch_configuration_change_cannot_activate_target(subject, db_session):
     service, manager, bot_id, app_id, now = subject
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-    service.resume(operation, actor_id=1)
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    service.resume(operation, actor_id=1, token_version=0)
     now[0] += 316
 
     def crash(boundary):
@@ -549,13 +549,13 @@ def test_post_switch_configuration_change_cannot_activate_target(subject, db_ses
 
     service.fault = crash
     with pytest.raises(RuntimeError, match="injected"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     db_session.expire_all()
     db_session.get(Bot, bot_id).config_overrides = '{"DISABLE_RENEWAL":true}'
     db_session.commit()
     service.fault = lambda boundary: None
     with pytest.raises(MigrationBlocked, match="target_configuration_changed"):
-        service.resume(operation, actor_id=1)
+        service.resume(operation, actor_id=1, token_version=0)
     assert manager.migration_fenced(bot_id)
     assert not manager.is_running(bot_id)
     db_session.expire_all()
@@ -602,8 +602,8 @@ def test_absent_optional_metrics_does_not_require_clock_proof_or_wait(subject, d
     db_session.commit()
     service.maximum_clock_offset = None
     service.metrics_validator = None
-    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
-    assert service.resume(operation, actor_id=1)["phase"] == "completed"
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    assert service.resume(operation, actor_id=1, token_version=0)["phase"] == "completed"
     assert not manager.migration_fenced(bot_id)
 
 
@@ -641,3 +641,57 @@ def test_malformed_restored_sqlite_null_journal_fields_stay_fenced(tmp_path, ver
     finally:
         manager.shutdown_all()
         engine.dispose()
+
+
+@pytest.mark.parametrize("stage", ["before_freeze", "before_switch"])
+@pytest.mark.parametrize("change", ["session_version", "password_change"])
+def test_original_session_authority_is_rechecked_after_provider_wait(subject, db_session, stage, change):
+    service, manager, bot_id, app_id, now = subject
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    if stage == "before_switch":
+        assert service.resume(operation, actor_id=1, token_version=0)["phase"] == "checkpointed"
+        now[0] += 316
+
+    def revoke(*_):
+        actor = db_session.get(User, 1)
+        if change == "session_version":
+            actor.token_version = actor.effective_token_version + 1
+        else:
+            actor.must_change_password = True
+        db_session.commit()
+        return True
+
+    service.target_validator = revoke
+    with pytest.raises(MigrationBlocked, match="current_super_administrator_required"):
+        service.resume(operation, actor_id=1, token_version=0)
+    db_session.expire_all()
+    assert db_session.get(BotMigration, operation).phase == ("planned" if stage == "before_freeze" else "checkpointed")
+    assert db_session.get(Bot, bot_id).platform == "Infoflow"
+    assert db_session.query(FeishuGroupRoute).count() == 0
+    assert manager.migration_fenced(bot_id) is (stage == "before_switch")
+
+
+@pytest.mark.parametrize("action", ["activate_target", "abort_source"])
+def test_session_revocation_during_staging_never_opens_admission(subject, db_session, monkeypatch, action):
+    service, manager, bot_id, app_id, now = subject
+    operation = service.plan(bot_id, app_id, "oc_target", actor_id=1, token_version=0)["operation_id"]
+    service.resume(operation, actor_id=1, token_version=0)
+    now[0] += 316
+    original = manager.start_bot
+
+    def revoke_after_staging(*args, **kwargs):
+        result = original(*args, **kwargs)
+        actor = db_session.get(User, 1)
+        actor.token_version = 1
+        db_session.commit()
+        return result
+
+    monkeypatch.setattr(manager, "start_bot", revoke_after_staging)
+    with pytest.raises(MigrationBlocked, match="current_super_administrator_required"):
+        if action == "activate_target":
+            service.resume(operation, actor_id=1, token_version=0)
+        else:
+            service.abort(operation, actor_id=1, token_version=0)
+    assert manager.migration_fenced(bot_id)
+    with pytest.raises(InstanceRetiring), manager.admit(bot_id):
+        pass
