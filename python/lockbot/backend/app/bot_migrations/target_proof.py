@@ -15,7 +15,13 @@ from sqlalchemy import update
 
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bot_migrations.coordinator import MigrationBlocked, source_digest, target_digest
-from lockbot.backend.app.bot_migrations.models import JOURNAL_VERSION, BotMigration, MigrationTargetProof
+from lockbot.backend.app.bot_migrations.models import (
+    JOURNAL_VERSION,
+    BotMigration,
+    MigrationDeliveryHandoff,
+    MigrationProofEpoch,
+    MigrationTargetProof,
+)
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.connectors import connectors
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
@@ -46,11 +52,11 @@ def _reviewer(db, actor_id, token_version):
         raise MigrationBlocked("current_review_authority_required")
 
 
-def _scope(db, operation, now):
+def _scope(db, operation, now, *, target_epoch=False):
     if (
         operation is None
         or operation.schema_version != JOURNAL_VERSION
-        or operation.phase not in {"planned", "checkpointed"}
+        or operation.phase not in ({"switched", "activating"} if target_epoch else {"planned", "checkpointed"})
         or (operation.phase == "planned" and operation.expires_at <= now)
     ):
         raise MigrationBlocked("migration_proof_scope_unavailable")
@@ -59,16 +65,29 @@ def _scope(db, operation, now):
         bot is None
         or bot.is_deleted
         or bot.uuid != operation.bot_uuid
-        or bot.identity_revision != operation.source_revision
-        or str(bot.platform).lower() != "infoflow"
-        or source_digest(bot) != operation.source_digest
+        or bot.identity_revision != operation.source_revision + int(target_epoch)
+        or str(bot.platform).lower() != ("feishu" if target_epoch else "infoflow")
+        or source_digest(bot) != (operation.target_bot_digest if target_epoch else operation.source_digest)
         or app is None
         or not app.tenant_key
         or not app.bot_open_id
         or target_digest(app, operation.target_chat_id) != operation.target_digest
     ):
         raise MigrationBlocked("migration_proof_scope_changed")
-    if db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=operation.target_chat_id).first():
+    route = db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=operation.target_chat_id).first()
+    if target_epoch:
+        handoff = db.get(MigrationDeliveryHandoff, operation.id)
+        if (
+            route is None
+            or route.bot_id != bot.id
+            or bot.group_id != operation.target_chat_id
+            or handoff is None
+            or handoff.source_digest != operation.source_digest
+            or handoff.target_digest != operation.target_digest
+            or handoff.target_revision != bot.identity_revision
+        ):
+            raise MigrationBlocked("target_identity_handoff_unverified")
+    elif route is not None:
         raise MigrationBlocked("target_group_already_bound")
     # A fresh signed own-AT nonce proves delivery even when optional greetings
     # and membership notices are disabled. An observed removal still fails closed.
@@ -100,7 +119,8 @@ def create_target_challenge(
         _reviewer(db, actor_id, token_version)
         now = _now()
         operation = db.get(BotMigration, operation_id)
-        _scope(db, operation, now)
+        target_epoch = operation is not None and operation.phase in {"switched", "activating"}
+        _scope(db, operation, now, target_epoch=target_epoch)
         if (
             reviewed_target_digest != operation.target_digest
             or not isinstance(publication_evidence_ref, str)
@@ -131,6 +151,14 @@ def create_target_challenge(
             status="pending",
         )
         db.add(row)
+        db.flush()
+        db.add(
+            MigrationProofEpoch(
+                proof_id=row.id,
+                stage="target" if target_epoch else "source",
+                identity_revision=operation.source_revision + int(target_epoch),
+            )
+        )
         db.commit()
         return {
             "proof_id": row.id,
@@ -142,7 +170,16 @@ def create_target_challenge(
 
 def _receipt_scope(db, row, now):
     operation = db.get(BotMigration, row.operation_id)
-    app = _scope(db, operation, now)
+    epoch = db.get(MigrationProofEpoch, row.id)
+    target_epoch = epoch is not None and epoch.stage == "target"
+    if operation is None:
+        raise MigrationBlocked("migration_proof_scope_unavailable")
+    if epoch is not None and (
+        epoch.stage not in {"source", "target"}
+        or epoch.identity_revision != operation.source_revision + int(target_epoch)
+    ):
+        raise MigrationBlocked("migration_proof_epoch_changed")
+    app = _scope(db, operation, now, target_epoch=target_epoch)
     _reviewer(db, row.reviewer_id, row.reviewer_token_version)
     instance = db.get(SiteSetting, "resource_api_instance_id")
     if (

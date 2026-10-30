@@ -114,3 +114,26 @@ class MigrationPrincipalPair(Base):
             postgresql_where=text("status = 'reviewed'"),
         ),
     )
+
+
+class MigrationProofEpoch(Base):
+    """Additive proof epoch marker; legacy receipts remain source-epoch only."""
+
+    __tablename__ = "bot_migration_proof_epochs"
+    proof_id: Mapped[str] = mapped_column(String(32), ForeignKey("bot_migration_target_proofs.id"), primary_key=True)
+    stage: Mapped[str] = mapped_column(String(16), nullable=False)
+    identity_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class MigrationDeliveryHandoff(Base):
+    """Atomic identity-switch receipt, never reusable as fresh target delivery proof."""
+
+    __tablename__ = "bot_migration_delivery_handoffs"
+    operation_id: Mapped[str] = mapped_column(String(32), ForeignKey("bot_migrations.id"), primary_key=True)
+    source_proof_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("bot_migration_target_proofs.id"), nullable=False
+    )
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

@@ -131,10 +131,12 @@ class CutoverCoordinator:
         metrics_validator=None,
         maximum_clock_offset=None,
         fault=None,
+        switch_handoff=None,
     ):
         self.factory, self.manager, self.clock = factory, manager, clock
         self.target_validator, self.maximum_clock_offset = target_validator, maximum_clock_offset
         self.metrics_validator = metrics_validator
+        self.switch_handoff = switch_handoff
         self.fault = fault or (lambda phase: None)
 
     def _now(self):
@@ -356,6 +358,8 @@ class CutoverCoordinator:
         if hashlib.sha256(current).hexdigest() != operation.source_file_digest:
             raise MigrationBlocked("source_state_changed_after_checkpoint")
         with audit_guard, authority_guard(bot.id):
+            if self.switch_handoff is not None:
+                self.switch_handoff(db, operation, bot)
             bot.platform, bot.group_id = "Feishu", operation.target_chat_id
             bot.identity_revision += 1
             bot.binding_accept_after = self._now()
