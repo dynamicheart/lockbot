@@ -305,6 +305,7 @@ def analyze(export):
     pages = export.get("pages")
     require(isinstance(pages, list) and 1 <= len(pages) <= 100, "No bounded lifecycle pages")
     unique, events, reasons, duplicate_frames = {}, {}, set(), 0
+    page_scope(pages[0], selected)  # Validate the first element before any dictionary access.
     checkpoint, as_of = pages[0].get("checkpoint"), pages[0].get("as_of")
     require(
         checkpoint is None or isinstance(checkpoint, dict) and isinstance(checkpoint.get("contract"), dict),

@@ -440,3 +440,32 @@ def test_malformed_checkpoint_contract_fails_closed():
     exported["pages"][0]["checkpoint"]["contract"] = []
     with pytest.raises(report.InvalidExport):
         report.analyze(exported)
+
+
+@pytest.mark.parametrize("first_page", [None, [], True, {}])
+def test_malformed_first_page_is_checked_before_dictionary_access(tmp_path, first_page):
+    exported = fixture()
+    exported["pages"] = [first_page]
+    with pytest.raises(report.InvalidExport):
+        report.analyze(exported)
+    path = tmp_path / "untrusted.json"
+    path.write_text(json.dumps(exported))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(SCRIPT),
+            "--input",
+            str(path),
+            "--bot-id",
+            "7",
+            "--since",
+            "1970-01-01T00:16:40Z",
+            "--until",
+            "1970-01-01T00:17:40Z",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 2 and "Traceback" not in result.stderr and not result.stdout
