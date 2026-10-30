@@ -57,6 +57,9 @@ def get_current_user(
     if user.effective_token_version != token_version:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please login again")
 
+    # Preserve the JWT's authority epoch; long-running workflows must not adopt
+    # a refreshed ORM object's newer token version after a blocking step.
+    request.state.auth_token_version = token_version
     request.state.traffic_management = {
         "id": "user:" + str(user.id),
         "kind": "management",
