@@ -36,7 +36,7 @@ def test_other_user_cannot_read_private_notes_from_any_agent_read(client, api, m
 def test_legacy_notes_stay_private_and_categories_are_validated_before_execution(client, api, monkeypatch):
     monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
     path = f"/api/bots/{api['bot_id']}"
-    for value in ("operator_testing secret-project", "secret-project", "", ["operator_testing"]):
+    for value in (["operator_testing"], "x" * 49, "bad\ncategory"):
         result = client.post(
             path + "/commands",
             headers=api["headers"],
@@ -67,9 +67,12 @@ def test_legacy_notes_stay_private_and_categories_are_validated_before_execution
             "task_category": "invented-category",
         },
     )
-    assert result.status_code == 422
+    assert result.status_code == 200
+    assert result.json()["task_category_notice"]["reason"] == "unsupported_category"
     own = client.get(path + "/resources", headers=api["headers"])
-    assert "legacy-private-note" in own.text and "replacement-secret" not in own.text
+    assert "replacement-secret" in own.text
+    other = client.get(path + "/resources", headers=api["other_headers"])
+    assert "replacement-secret" not in other.text and "invented-category" not in other.text
 
 
 @pytest.mark.parametrize("endpoint", ["commands", "usage-declarations/n1"])
@@ -89,31 +92,7 @@ def test_validation_errors_do_not_echo_private_submissions(client, api, endpoint
     assert response.headers["cache-control"] == "no-store"
     errors = response.json()["detail"]
     assert all("input" not in error for error in errors)
-    category = next(error for error in errors if error["loc"] == ["body", "task_category"])
-    assert category["ctx"]["allowed_categories"]["unit_testing"] == "单元测试"
     assert not api["bot"].state.bot_state["n1"]["current_users"]
-
-
-@pytest.mark.parametrize("endpoint", ["commands", "usage-declarations/n1"])
-def test_category_error_lists_context_choices_without_dispatch(client, api, monkeypatch, endpoint):
-    sent = []
-    monkeypatch.setattr(api["bot"].adapter, "send", sent.append)
-    context = client.get("/api/agent/context", headers=api["headers"]).json()
-    body = {"task_category": "invented-category", "purpose": "private-note"}
-    method = client.put
-    if endpoint == "commands":
-        method = client.post
-        body["command"] = "lock n1 1h"
-    response = method(f"/api/bots/{api['bot_id']}/{endpoint}", headers=api["headers"], json=body)
-    assert response.status_code == 422
-    error = next(item for item in response.json()["detail"] if item["loc"] == ["body", "task_category"])
-    assert error["type"] == "invalid_task_category"
-    assert error["ctx"]["allowed_categories"] == context["usage_privacy"]["public_task_categories"]
-    assert error["ctx"]["allowed_categories"]["operator_testing"] == "算子测试"
-    assert error["ctx"]["context_url"] == "/api/agent/context"
-    assert "private-note" not in str(error["ctx"])
-    assert not api["bot"].state.bot_state["n1"]["current_users"]
-    assert sent == []
 
 
 def test_non_agent_validation_retains_its_existing_contract(client):

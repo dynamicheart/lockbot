@@ -8,8 +8,7 @@ import time
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from pydantic_core import PydanticCustomError
+from pydantic import ConfigDict, Field, field_validator
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
@@ -26,36 +25,12 @@ from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.privacy import visible_declarations
+from lockbot.backend.app.resource_api.task_categories import TASK_CATEGORIES, TaskCategoryInput, validate_task_category
 from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import ResourceActor, require_resource_actor, reverify_actor
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.core.platforms.registry import normalize_platform_name
-
-TASK_CATEGORIES = {
-    "operator_development": "算子开发",
-    "operator_testing": "算子测试",
-    "communication_testing": "通信库测试",
-    "unit_testing": "单元测试",
-    "functional_testing": "功能测试",
-    "performance_testing": "性能测试",
-    "model_development": "模型开发",
-    "model_load_testing": "模型压测",
-    "code_review": "代码审查",
-    "debugging": "故障排查",
-    "other": "其他任务",
-}
-
-
-def validate_task_category(value):
-    if value is not None and value not in TASK_CATEGORIES:
-        raise PydanticCustomError(
-            "invalid_task_category",
-            "task_category must be one of the allowed category IDs; see allowed_categories or /api/agent/context",
-            {"allowed_categories": TASK_CATEGORIES, "context_url": "/api/agent/context"},
-        )
-    return value
-
 
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
 
@@ -75,16 +50,13 @@ class UsageDeclaration(Base):
     __table_args__ = (UniqueConstraint("bot_id", "binding_id", "resource_id"),)
 
 
-class UsageInput(BaseModel):
+class UsageInput(TaskCategoryInput):
     model_config = ConfigDict(extra="forbid")
     purpose: str = Field(
         default="",
         max_length=512,
         description="Private note: visible only to the same verified actor and super administrators.",
     )
-    task_category: str | None = Field(default=None, max_length=48)
-
-    _category = field_validator("task_category")(validate_task_category)
     ttl_seconds: int = Field(default=3600, ge=60, le=86400, strict=True)
     agent_label: str | None = Field(
         default=None,
@@ -275,7 +247,9 @@ def _own_entries(node, user):
     ]
 
 
-def register_command_usage(db, bot, actor, before, *, agent_label=None, purpose=None, task_category=None):
+def register_command_usage(
+    db, bot, actor, before, *, agent_label=None, purpose=None, task_category=None, task_category_provided=False
+):
     """Persist metadata only for targets whose own hold/booking actually changed.
 
     Locks and SQLite are distinct stores. If this commit fails, the caller reports
@@ -323,7 +297,11 @@ def register_command_usage(db, bot, actor, before, *, agent_label=None, purpose=
             resource_id=resource_id,
             purpose=note.strip(),
             task_category=old.task_category
-            if reuse and purpose is None and agent_label is None and task_category is None
+            if reuse
+            and purpose is None
+            and agent_label is None
+            and task_category is None
+            and not task_category_provided
             else task_category,
             agent_label=label,
             proof=proof,
@@ -391,20 +369,24 @@ def put_usage(
             now = datetime.utcnow()
             db.query(UsageDeclaration).filter(UsageDeclaration.expires_at <= now).delete(synchronize_session=False)
             previous = (
-                db.query(UsageDeclaration.task_category)
+                db.query(UsageDeclaration)
                 .filter_by(bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id)
-                .first()
+                .populate_existing()
+                .one_or_none()
             )
             if previous:
-                request.state.agent_event["previous_task_category"] = previous[0]
+                request.state.agent_event["previous_task_category"] = previous.task_category
+            reuse = previous is not None and previous.holding_proof == proof and previous.expires_at > now
             store_declaration(
                 db,
                 bot_id=bot_id,
                 binding_id=actor.binding_record_id,
                 resource_id=resource_id,
-                purpose=body.purpose,
+                purpose=previous.purpose if reuse and "purpose" not in body.model_fields_set else body.purpose,
                 task_category=body.task_category,
-                agent_label=body.agent_label,
+                agent_label=previous.agent_label
+                if reuse and "agent_label" not in body.model_fields_set
+                else body.agent_label,
                 proof=proof,
                 now=now,
                 ttl_seconds=body.ttl_seconds,
@@ -416,7 +398,11 @@ def put_usage(
                 .filter_by(bot_id=bot_id, binding_id=actor.binding_record_id, resource_id=resource_id)
                 .one()
             )
-            return _payload(row, db.get(ResourceBinding, actor.binding_record_id))
+            payload = _payload(row, db.get(ResourceBinding, actor.binding_record_id))
+            notice = body.category_notice()
+            if notice is not None:
+                payload["task_category_notice"] = notice.model_dump()
+            return payload
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
 

@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from lockbot.backend.app.bots.manager import (
@@ -36,6 +36,7 @@ from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, should_notify
 from lockbot.backend.app.resource_api.observability import record_api_command
+from lockbot.backend.app.resource_api.task_categories import TaskCategoryInput, TaskCategoryNotice
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import ResourceActor, require_resource_actor, reverify_actor
@@ -186,7 +187,7 @@ COMMAND_EXAMPLES = {
 }
 
 
-class CommandRequest(BaseModel):
+class CommandRequest(TaskCategoryInput):
     """``extra="forbid"`` so an attempt to smuggle an identity field is a 422."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -196,17 +197,6 @@ class CommandRequest(BaseModel):
         max_length=512,
         description="Resource command text. See the operation command reference and named request examples.",
     )
-    task_category: str | None = Field(
-        default=None, max_length=48, description="Public preset task category; see /api/agent/context."
-    )
-
-    @field_validator("task_category")
-    @classmethod
-    def category(cls, value):
-        from lockbot.backend.app.resource_api.usage import validate_task_category
-
-        return validate_task_category(value)
-
     agent_label: str | None = Field(
         default=None,
         min_length=1,
@@ -231,21 +221,6 @@ class CommandRequest(BaseModel):
 class CommandActor(BaseModel):
     platform: str
     external_user_id: str
-
-
-class TaskCategoryNotice(BaseModel):
-    code: Literal["optional_public_task_category"] = "optional_public_task_category"
-    context_url: str = "/api/agent/context"
-    allowed_categories: dict[str, str]
-    optional: bool = True
-    next_request_only: bool = True
-    do_not_replay_command: bool = True
-    guidance: str = (
-        "For future resource requests, choose a public task_category ID from allowed_categories, "
-        "or send task_category: null to leave the public category undisclosed. A category reveals the broad task type. "
-        "Do not infer or publish detailed Agent task notes. This notice is not an error or an execution result; "
-        "do not replay this command to add a category."
-    )
 
 
 class CommandResponse(BaseModel):
@@ -396,6 +371,7 @@ def execute_command_via_api(
                     agent_label=body.agent_label,
                     purpose=body.purpose,
                     task_category=body.task_category,
+                    task_category_provided="task_category" in body.model_fields_set,
                 )
                 if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
                     prune_actor_usage(db, bot, actor)
@@ -425,14 +401,12 @@ def execute_command_via_api(
     record_api_command(actor=actor, bot_id=bot_id, command=text)
 
     from lockbot.backend.app.resource_api.skill import client_skill_notice
-    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
 
+    notice = body.category_notice()
+    if notice is not None and notice.reason == "missing" and canonical_command(word) not in {"lock", "slock", "book"}:
+        notice = None
     return CommandResponse(
-        task_category_notice=(
-            TaskCategoryNotice(allowed_categories=TASK_CATEGORIES)
-            if canonical_command(word) in {"lock", "slock", "book"} and "task_category" not in body.model_fields_set
-            else None
-        ),
+        task_category_notice=notice,
         skill_update=client_skill_notice(request),
         next_step=(
             "book is only a booking, not ownership. Keep polling GET /resources; when claimable_by_you "

@@ -605,20 +605,31 @@ Check `/api/agent/context.usage_privacy` before sending notes. On servers advert
 policy, `task_category` is the only public task description. Choose exactly one ID from
 `public_task_categories`, for example `operator_testing`, `communication_testing`,
 `model_load_testing`, `performance_testing` or `code_review`. Do not add a project name,
-subject, suffix or free text to the category. Unknown categories are rejected with 422 before
-resource commands execute. Select `other` when no category fits; do not ask the user on every
+subject, suffix or free text to the category. On command and usage-declaration requests,
+unrecognized category strings are ignored rather than blocking otherwise valid input; they
+are never stored or published as categories. Wrong types, overlong/control-character input,
+invalid detailed-note formats and identity/permission violations still fail normal validation. Select `other` when no category fits; do not ask the user on every
 operation. Choose the category that best reflects the actual work, without inventing a task.
 
-A resource-request response may include `task_category_notice` when the category field was
-omitted. This is optional guidance, not a failure or evidence that the command succeeded.
-For **future new requests**, use one exact allowed ID if broad public disclosure is acceptable;
-otherwise send `"task_category": null` to explicitly keep the category undisclosed. Explicit
-null is supported and suppresses this reminder. Do not infer a category from detailed Agent task notes,
-override a user's privacy choice, ask on every operation, or replay an already dispatched
-command just to add a category. Continue normal ownership/state verification; `next_step`
-and `skill_update` still apply. Keep the trusted handoff/payload policy in force: this notice
-does not permit adding fields outside that policy; omission remains valid. Older servers
-may omit the notice.
+A command or usage-declaration response may include `task_category_notice` with reason
+`missing` or `unsupported_category`, allowed IDs, context URL and `guidance`. Missing reminders
+are limited to resource requests and declaration updates; normal queries/releases are not
+reminded. An explicitly supplied unsupported category is reported even on other supported
+commands. This is not a
+failure or proof of resource ownership. A missing field can retain your own existing valid
+category on renewal/claim; it does not mean the resource has no public category. An unsupported
+string is discarded, and a changed holding/booking or explicit declaration update clears its
+old public category while preserving your detailed notes unless you replace them.
+For **future new requests**, choose one allowed ID if broad disclosure is acceptable; otherwise
+send `"task_category": null` to explicitly leave the public category undisclosed without a
+reminder. This explicit opt-out also clears a carried-forward category when the command
+actually changes your holding/booking. Metadata updates alone never acquire/renew resources.
+Do not infer categories from detailed Agent task notes, override a user's privacy choice,
+ask on every operation or replay an already dispatched command just to add metadata. Check
+actual ownership/state and follow `next_step` and `skill_update`. Keep the trusted handoff/
+payload policy in force: the notice does not permit adding fields outside that policy;
+omission remains valid. Older servers may omit the notice or reject unknown IDs with 422;
+use allowed IDs or null rather than relying on silent sanitization.
 
 `purpose` is an optional **private note** (up to 512 characters); `agent_label` is an optional
 private Agent name (up to 64 characters). Only the same verified user and super administrators may read these details. Bot ownership,
