@@ -11,6 +11,8 @@ def restore_fences(factory, manager):
             db.query(BotMigration)
             .filter(
                 or_(
+                    BotMigration.schema_version.is_(None),
+                    BotMigration.phase.is_(None),
                     BotMigration.schema_version != JOURNAL_VERSION,
                     BotMigration.phase.not_in(("planned", "completed", "aborted")),
                 )

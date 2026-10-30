@@ -602,3 +602,39 @@ def test_absent_optional_metrics_does_not_require_clock_proof_or_wait(subject, d
     operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
     assert service.resume(operation, actor_id=1)["phase"] == "completed"
     assert not manager.migration_fenced(bot_id)
+
+
+@pytest.mark.parametrize(
+    "version,phase,fenced",
+    [
+        (None, "completed", True),
+        (1, None, True),
+        (None, None, True),
+        (1, "planned", False),
+        (1, "completed", False),
+        (1, "future_phase", True),
+    ],
+)
+def test_malformed_restored_sqlite_null_journal_fields_stay_fenced(tmp_path, version, phase, fenced):
+    from lockbot.backend.app.database import Base
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_engine("sqlite:///" + str(tmp_path / "malformed.sqlite"))
+    Base.metadata.create_all(engine)
+    # Simulate a malformed/older restored database, not rows permitted by today's NOT NULL schema.
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE bot_migrations RENAME TO strict_original")
+        connection.exec_driver_sql("CREATE TABLE bot_migrations AS SELECT * FROM strict_original WHERE 0")
+        connection.exec_driver_sql(
+            "INSERT INTO bot_migrations (id, bot_id, schema_version, phase) VALUES (?, ?, ?, ?)",
+            ("f" * 32, 42, version, phase),
+        )
+    manager = BotManager()
+    try:
+        restore_fences(sessionmaker(bind=engine), manager)
+        assert manager.migration_fenced(42) is fenced
+        assert not manager.is_running(42)
+    finally:
+        manager.shutdown_all()
+        engine.dispose()
