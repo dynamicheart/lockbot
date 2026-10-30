@@ -78,7 +78,7 @@ def test_ambiguous_or_quoted_post_becomes_safe_format_feedback(rows, fields):
     assert "ONE_TIME_TEST_PROOF" not in str(result)
 
 
-@pytest.mark.parametrize("change", ["no_mention", "another_bot", "only_literal_at", "quoted_at", "two_locales"])
+@pytest.mark.parametrize("change", ["no_mention", "another_bot"])
 def test_post_does_not_infer_addressing_from_text_or_nested_content(change):
     value = post_event([[AT], [CODE]])
     message = value["event"]["message"]
@@ -86,12 +86,6 @@ def test_post_does_not_infer_addressing_from_text_or_nested_content(change):
         message["mentions"] = []
     elif change == "another_bot":
         message["mentions"][0]["id"]["open_id"] = "ou_other"
-    elif change == "only_literal_at":
-        message["content"] = json.dumps({"content": [[{"tag": "text", "text": "@_user_1 " + CODE["text"]}]]})
-    elif change == "quoted_at":
-        message["content"] = json.dumps({"content": [[{"tag": "quote", "content": [[AT, CODE]]}]]})
-    else:
-        message["content"] = json.dumps({"zh_cn": {"content": [[AT, CODE]]}, "en_us": {"content": [[AT, CODE]]}})
     assert normalize_message(value, identity()) is None
 
 
@@ -104,3 +98,40 @@ def test_post_identity_and_freshness_checks_still_apply():
     value["header"]["tenant_key"] = "other"
     with pytest.raises(InvalidFeishuEvent):
         normalize_message(value, identity())
+
+
+@pytest.mark.parametrize("shape", ["two_locales", "mixed_wrapper", "unknown_envelope", "quoted_at", "literal_at"])
+def test_verified_bot_mention_gets_safe_feedback_for_unselectable_post(shape):
+    value = post_event([[AT], [CODE]])
+    direct = {"content": [[AT], [CODE]]}
+    content = {
+        "two_locales": {"zh_cn": direct, "en_us": direct},
+        "mixed_wrapper": {"post": direct, "extra": CODE["text"]},
+        "unknown_envelope": {"unsupported": CODE["text"]},
+        "quoted_at": {"content": [[{"tag": "quote", "content": [[AT, CODE]]}]]},
+        "literal_at": {"content": [[{"tag": "text", "text": "@_user_1 " + CODE["text"]}]]},
+    }[shape]
+    value["event"]["message"]["content"] = json.dumps(content)
+    result = normalize_message(value, identity())
+    assert result["command_format_error"] is True
+    assert result["command"] == "__unsupported_rich_text__"
+    assert "ONE_TIME_TEST_PROOF" not in str(result)
+    for invalid_mention in ([], [{"key": "@_user_1", "id": {"open_id": "ou_other"}}]):
+        value["event"]["message"]["mentions"] = invalid_mention
+        assert normalize_message(value, identity()) is None
+
+
+@pytest.mark.parametrize("change", ["stale", "wrong_tenant", "dm"])
+def test_unselectable_post_feedback_keeps_event_security_boundaries(change):
+    value = post_event([[AT], [CODE]])
+    value["event"]["message"]["content"] = json.dumps({"zh_cn": {}, "en_us": {}})
+    if change == "dm":
+        value["event"]["message"]["chat_type"] = "p2p"
+        assert normalize_message(value, identity()) is None
+    else:
+        if change == "stale":
+            value["event"]["message"]["create_time"] = "1"
+        else:
+            value["header"]["tenant_key"] = "other"
+        with pytest.raises(InvalidFeishuEvent):
+            normalize_message(value, identity())
