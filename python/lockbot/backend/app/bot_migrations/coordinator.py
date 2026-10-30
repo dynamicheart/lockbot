@@ -291,7 +291,9 @@ class CutoverCoordinator:
         self.fault("checkpoint_published")
         operation.checkpoint_digest = hashlib.sha256(checkpoint_data).hexdigest()
         operation.source_file_digest = hashlib.sha256(data).hexdigest()
-        operation.metrics_not_before = self._now() + timedelta(seconds=315 + self.maximum_clock_offset)
+        operation.metrics_not_before = self._now() + timedelta(
+            seconds=(315 + self.maximum_clock_offset) if bot.utilization_config else 0
+        )
         operation.phase = "checkpointed"
         bot.status, bot.pid = "stopped", None
         db.commit()
@@ -496,15 +498,15 @@ class CutoverCoordinator:
                     if operation.phase == "planned":
                         if operation.expires_at <= self._now():
                             raise MigrationBlocked("plan_expired")
-                        if (
-                            self.maximum_clock_offset is None
-                            or type(self.maximum_clock_offset) not in (int, float)
-                            or not math.isfinite(self.maximum_clock_offset)
-                            or not 0 <= self.maximum_clock_offset <= 300
-                        ):
-                            raise MigrationBlocked("clock_bound_unverified")
                         bot = self._source(db, operation)
                         if bot.utilization_config:
+                            if (
+                                self.maximum_clock_offset is None
+                                or type(self.maximum_clock_offset) not in (int, float)
+                                or not math.isfinite(self.maximum_clock_offset)
+                                or not 0 <= self.maximum_clock_offset <= 300
+                            ):
+                                raise MigrationBlocked("clock_bound_unverified")
                             try:
                                 source = json.loads(bot.utilization_config)
                             except (ValueError, TypeError):
