@@ -99,8 +99,24 @@ def accept_membership(db, app, data, *, allow_unknown_tenant=False):
             bot is None or bot.is_deleted or bot.platform.lower() != "feishu" or bot.group_id != route.chat_id
         ):
             return {"accepted": False}
-        if (bot is not None and not (notices_enabled(bot) or bot_option_enabled(bot, "FEISHU_QUERY_PANEL"))) or (
-            bot is None and not greeting_enabled(db, app.id)
+        from lockbot.backend.app.bot_migrations.models import JOURNAL_VERSION, TERMINAL, BotMigration
+
+        # Migration observes only its explicitly reviewed target, without enabling
+        # onboarding messages globally or granting a route/resource authority.
+        migration_target = (
+            db.query(BotMigration.id)
+            .filter(
+                BotMigration.schema_version == JOURNAL_VERSION,
+                BotMigration.target_application_id == app.id,
+                BotMigration.target_chat_id == event["group_id"],
+                BotMigration.phase.not_in(TERMINAL),
+            )
+            .first()
+            is not None
+        )
+        if not migration_target and (
+            (bot is not None and not (notices_enabled(bot) or bot_option_enabled(bot, "FEISHU_QUERY_PANEL")))
+            or (bot is None and not greeting_enabled(db, app.id))
         ):
             return {"accepted": False}
         claim_key = (app.id, event["event_id"])
@@ -125,6 +141,10 @@ def accept_membership(db, app, data, *, allow_unknown_tenant=False):
             state.bot_uuid,
             state.identity_revision,
         ) == (app.app_id, identity.tenant_key, bot.uuid if bot else None, bot.identity_revision if bot else None)
+        # Target observations survive the atomic route/revision handoff: changing
+        # the resource epoch must not let a delayed event erase a newer removal.
+        if migration_target and state is not None:
+            same_scope = (state.app_id, state.tenant_key) == (app.app_id, identity.tenant_key)
         stale = same_scope and event_order <= (state.event_time_ms, state.status == "removed", state.event_id)
         if not stale:
             if state is None:
@@ -155,7 +175,7 @@ def accept_membership(db, app, data, *, allow_unknown_tenant=False):
         except IntegrityError:
             db.rollback()
             return {"accepted": True, "duplicate": True}
-        if not stale and bot is None and event["status"] == "present":
+        if not stale and bot is None and event["status"] == "present" and greeting_enabled(db, app.id):
             queue_hint(
                 db,
                 app,

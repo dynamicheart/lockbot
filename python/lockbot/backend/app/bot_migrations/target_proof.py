@@ -70,11 +70,11 @@ def _scope(db, operation, now):
         raise MigrationBlocked("migration_proof_scope_changed")
     if db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=operation.target_chat_id).first():
         raise MigrationBlocked("target_group_already_bound")
+    # A fresh signed own-AT nonce proves delivery even when optional greetings
+    # and membership notices are disabled. An observed removal still fails closed.
     member = db.get(FeishuGroupMembership, (app.id, operation.target_chat_id))
-    if (
-        member is None
-        or member.status != "present"
-        or (member.app_id, member.tenant_key) != (app.app_id, app.tenant_key)
+    if member is not None and (
+        member.status != "present" or (member.app_id, member.tenant_key) != (app.app_id, app.tenant_key)
     ):
         raise MigrationBlocked("verified_bot_added_observation_required")
     return app

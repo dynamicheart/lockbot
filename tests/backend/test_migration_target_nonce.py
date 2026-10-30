@@ -229,3 +229,42 @@ def test_similarly_named_ordinary_resource_command_is_not_reserved(db_session, c
         target_proof.consume_verified_group_event(db_session, app_id, message, normalized, verified_ingress=True)
         is None
     )
+
+
+def test_default_off_unbound_target_uses_fresh_signed_delivery_without_membership(db_session, challenge, monkeypatch):
+    _, _, _, app_id, result, message, _ = challenge
+    db_session.query(FeishuGroupMembership).delete()
+    db_session.commit()
+    monkeypatch.setattr("lockbot.backend.app.feishu.unbound.queue_hint", lambda *a, **k: pytest.fail("no greeting"))
+    assert accept_event(db_session, db_session.get(FeishuApplication, app_id), message)["accepted"]
+    assert target_proof.inspect_target_receipt(db_session, result["proof_id"], actor_id=1, token_version=0)[
+        "delivery_verified"
+    ]
+    assert db_session.query(FeishuGroupRoute).count() == 0
+
+
+def test_default_off_target_records_removal_without_greeting_and_revokes_receipt(db_session, challenge, monkeypatch):
+    from backend.test_feishu_membership import event
+    from lockbot.backend.app.feishu import membership
+
+    _, _, _, app_id, result, message, _ = challenge
+    app = db_session.get(FeishuApplication, app_id)
+    db_session.query(FeishuGroupMembership).delete()
+    db_session.commit()
+    assert accept_event(db_session, app, message)["accepted"]
+    monkeypatch.setattr("lockbot.backend.app.feishu.unbound.queue_hint", lambda *a, **k: pytest.fail("no greeting"))
+    removed = event(kind="deleted", event_id="migration-removal")
+    removed["header"].update(app_id=app.app_id, tenant_key=app.tenant_key)
+    removed["event"]["chat_id"] = "oc_target"
+    removed["event"]["operator_tenant_key"] = app.tenant_key
+    assert membership.accept_membership(db_session, app, removed) == {"accepted": True}
+    assert db_session.get(FeishuGroupMembership, (app_id, "oc_target")).status == "removed"
+    with pytest.raises(MigrationBlocked, match="verified_bot_added"):
+        target_proof.inspect_target_receipt(db_session, result["proof_id"], actor_id=1, token_version=0)
+    # Unrelated groups remain entirely ignored with the ordinary default-off policy.
+    other = copy.deepcopy(removed)
+    other["header"]["event_id"] = "unrelated"
+    other["event"]["chat_id"] = "oc_unrelated"
+    assert membership.accept_membership(db_session, app, other) == {"accepted": False}
+    assert db_session.get(FeishuGroupMembership, (app_id, "oc_unrelated")) is None
+    assert db_session.query(FeishuGroupRoute).count() == 0
