@@ -26,7 +26,7 @@ from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRout
 from lockbot.backend.app.feishu.service import application_identity
 from lockbot.backend.app.platform_applications.service import credentials_for, runtime_guard
 from lockbot.backend.app.rate_limit import limiter
-from lockbot.core.handler import execute_command, redact_command_text
+from lockbot.core.handler import BINDING_COMMANDS, execute_command, redact_command_text
 from lockbot.core.platforms.feishu import FeishuAPIError, FeishuClient
 from lockbot.core.platforms.feishu_events import InvalidFeishuEvent, normalize_message, verify_http
 
@@ -488,13 +488,28 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
                 factory, bot_id, application_id, message, expected_uuid, expected_revision, lease.bot
             ) as panel:
                 with capture_result() as command_result:
-                    reply = execute_command(message, lease.bot)
+                    command = message["command"]
+                    command_word = command.split(None, 1)[0].lower() if command else ""
+                    format_error = message.get("command_format_error") or (
+                        message.get("_code_block_command")
+                        and command_word not in {*lease.bot.supported_commands(), *BINDING_COMMANDS}
+                        and command not in lease.bot.config.get_val("CLUSTER_CONFIGS", {})
+                    )
+                    if format_error:
+                        from lockbot.core.i18n import t
+
+                        reply = lease.bot.adapter.build_reply(
+                            t("feishu.command_format", config=lease.bot.config) + "\n\n", [message["user_id"]]
+                        )
+                    else:
+                        reply = execute_command(message, lease.bot)
                 from lockbot.backend.app.bots.router import _write_log
 
                 try:
                     _write_log(
                         bot_id,
-                        f"[{message['user_id']}] {redact_command_text(message['command'])}",
+                        f"[{message['user_id']}] "
+                        + ("[unsupported rich-text command]" if format_error else redact_command_text(command)),
                         category="command",
                         source="chat",
                     )
