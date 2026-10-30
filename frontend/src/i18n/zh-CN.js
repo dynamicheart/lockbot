@@ -5,7 +5,7 @@ export default {
     title: '迁移到飞书',
     readOnly: '只读预检',
     help: '检查现有分配与目标群条件，不会停止机器人、释放资源或修改平台。',
-    chatHelp: '将目标应用机器人加入群后，@机器人获取该群的 Chat ID。',
+    chatHelp: "将目标应用机器人加入群后，{'@'}机器人获取该群的 Chat ID。",
     selectApplication: '选择已配置的飞书应用',
     check: '检查迁移条件',
     noApplications: '请先在站点设置中配置飞书应用。',

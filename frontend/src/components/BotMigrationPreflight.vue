@@ -3,6 +3,7 @@
     :model-value="true"
     :title="$t('migration.title')"
     width="640px"
+    top="24px"
     class="migration-dialog"
     @close="$emit('close')"
   >
@@ -234,6 +235,21 @@ onBeforeUnmount(() => scope.dispose())
 </script>
 
 <style scoped>
+:global(.migration-dialog.el-dialog) {
+  display: flex;
+  flex-direction: column;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 48px);
+  margin-bottom: 24px;
+}
+:global(.migration-dialog .el-dialog__body) {
+  min-height: 0;
+  overflow-y: auto;
+}
+:global(.migration-dialog .el-dialog__header),
+:global(.migration-dialog .el-dialog__footer) {
+  flex-shrink: 0;
+}
 .migration-heading {
   display: flex;
   align-items: center;

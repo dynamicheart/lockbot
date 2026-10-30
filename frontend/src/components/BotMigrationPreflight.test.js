@@ -2,6 +2,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRenderer, createSSRApp, defineComponent, h, nextTick, ssrContextKey } from 'vue'
 import { renderToString } from 'vue/server-renderer'
+import { createI18n } from 'vue-i18n'
+import en from '../i18n/en'
+import zhCN from '../i18n/zh-CN'
 import BotMigrationPreflightResult from './BotMigrationPreflightResult.vue'
 import BotMigrationPreflight from './BotMigrationPreflight.vue'
 import api from '../utils/api'
@@ -255,4 +258,26 @@ it('renders only a real preflight action and close control, with no migration su
   expect(html).not.toContain('common.confirm')
   expect(html).not.toContain('type="submit"')
   expect(posts).toHaveLength(0)
+})
+
+it('compiles the actual migration translations without linked-message errors', () => {
+  const errors = []
+  for (const [locale, messages] of Object.entries({ en, 'zh-CN': zhCN })) {
+    const translator = createI18n({ legacy: false, locale, messages: { [locale]: messages } })
+    const visit = (value, path) => {
+      for (const [key, entry] of Object.entries(value)) {
+        if (typeof entry === 'string')
+          expect(() => translator.global.t(`${path}.${key}`)).not.toThrow()
+        else visit(entry, `${path}.${key}`)
+      }
+    }
+    const log = vi.spyOn(console, 'error').mockImplementation((...args) => errors.push(args))
+    try {
+      visit(messages.migration, 'migration')
+      if (locale === 'zh-CN') expect(translator.global.t('migration.chatHelp')).toContain('@机器人')
+      expect(errors).toEqual([])
+    } finally {
+      log.mockRestore()
+    }
+  }
 })
