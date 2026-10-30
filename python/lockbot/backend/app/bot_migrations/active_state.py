@@ -5,6 +5,7 @@ A plan is a comparison artifact, never permission to execute a migration.
 """
 
 import copy
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -55,6 +56,7 @@ class ReviewedLink:
 class ActiveStatePlan:
     scope: MappingScope
     source_state_digest: str
+    source_inventory_digest: str
     source_rules_digest: str
     target_state_digest: str
     target_rules_digest: str
@@ -128,6 +130,16 @@ def _links(links, scope, reviewed_by, now):
         destinations.add(link.target_open_id)
         deadline = min(deadline, link.expires_at)
     return result, deadline
+
+
+def inventory_digest(bot):
+    try:
+        cluster = json.loads(bot.cluster_configs)
+    except (TypeError, ValueError):
+        raise MigrationBlocked("source_inventory_changed") from None
+    if bot.bot_type not in {"NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"}:
+        raise MigrationBlocked("source_inventory_changed")
+    return digest({"bot_type": bot.bot_type, "cluster": cluster})
 
 
 def build_active_state_plan(state, bot, rules, links, scope, *, reviewed_by, now):
@@ -243,6 +255,7 @@ def build_active_state_plan(state, bot, rules, links, scope, *, reviewed_by, now
     return ActiveStatePlan(
         scope,
         digest(state),
+        inventory_digest(bot),
         digest(rules),
         digest(result),
         digest(mapped_rules),
@@ -267,6 +280,9 @@ def validate_active_state_plan(plan, state, bot, rules, scope, *, reviewed_by, n
         or bot.identity_revision != scope.source_revision
         or bot.user_id != scope.owner_id
         or str(bot.platform).lower() != "infoflow"
+        or inventory_digest(bot) != plan.source_inventory_digest
+        or not _inventory_matches(state, bot)
+        or not _inventory_matches(plan.mapped_state, bot)
         or digest(state) != plan.source_state_digest
         or digest(rules) != plan.source_rules_digest
         or digest(plan.mapped_state) != plan.target_state_digest

@@ -258,3 +258,25 @@ def test_proof_reference_cannot_be_reused_for_another_principal():
     principals[1] = replace(principals[1], target_group_sender_proof=principals[0].target_group_sender_proof)
     with pytest.raises(MigrationBlocked, match="proof_reused"):
         build(principals=principals)
+
+
+@pytest.mark.parametrize("change", ["inventory", "bot_type"])
+def test_reviewed_resource_identity_cannot_change_without_new_plan(change):
+    source, resource_bot = state(), bot()
+    plan = build(source, resource_bot=resource_bot)
+    if change == "inventory":
+        resource_bot.cluster_configs = '["node1"]'
+    else:
+        resource_bot.bot_type = "NODE"
+    with pytest.raises(MigrationBlocked, match="changed"):
+        validate_active_state_plan(plan, source, resource_bot, {}, SCOPE, reviewed_by=9, now=1100)
+
+
+def test_inventory_digest_uses_canonical_json_not_formatting():
+    source, resource_bot = state(), bot()
+    plan = build(source, resource_bot=resource_bot)
+    resource_bot.cluster_configs = '[ "node1",  "node2" ]'
+    assert (
+        validate_active_state_plan(plan, source, resource_bot, {}, SCOPE, reviewed_by=9, now=1100)["can_commit"]
+        is False
+    )
