@@ -43,3 +43,11 @@ def test_resource_snapshot_stopped_bot_is_not_http_cacheable(client, operator, k
     response = client.get(f"/api/bots/{operator['bot_id']}" + suffix, headers=headers)
     assert response.status_code == 503
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_resource_snapshot_rate_limit_remains_retryable_but_not_cacheable(client, operator, monkeypatch):
+    monkeypatch.setattr("lockbot.backend.app.resource_api.resources.credential_budget.check", lambda *args: (False, 7))
+    response = client.get(f"/api/bots/{operator['bot_id']}/resources", headers=operator["headers"])
+    assert response.status_code == 429
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["retry-after"] == "7"
