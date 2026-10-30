@@ -394,3 +394,17 @@ def test_export_projection_cannot_upgrade_unknown_coverage(claim):
     exported["pages"][0]["coverage"]["complete_history"] = claim
     assert report.analyze(exported)["subject_grant_seconds"] is None
     assert report.analyze(report.public_export(exported))["subject_grant_seconds"] is None
+
+
+def test_changed_process_session_is_unknown_even_if_boundary_flag_is_missing():
+    exported = fixture()
+    exported["pages"][0]["items"][0]["session"] = "f" * 32
+    assert report.analyze(exported)["subject_grant_seconds"] is None
+
+
+def test_event_kind_cannot_relabel_booking_as_acquisition():
+    exported = fixture()
+    event = exported["pages"][0]["items"][0]["events"][0]
+    event["booking_ref"] = event.pop("lease_ref")
+    with pytest.raises(report.InvalidExport):
+        report.analyze(exported)

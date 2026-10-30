@@ -281,8 +281,11 @@ def validate_frame(frame, selected):
             and event.get("outcome") == "committed"
             and _state.number(event.get("occurred_at"))
             and event["occurred_at"] <= frame["timestamp"]
-            and event.get("recorded_at") == frame["timestamp"]
+            and _state.number(event.get("recorded_at"))
+            and event["recorded_at"] == frame["timestamp"]
         )
+        lease_event = event["kind"] in {"acquired", "renewed", "released", "expired", "claimed", "mode_changed"}
+        require("lease_ref" in event if lease_event else "booking_ref" in event)
         require(all(hex_id(event[key], 64) for key in ("lease_ref", "booking_ref") if key in event))
         require("late" not in event or type(event["late"]) is bool)
         ref = event.get("lease_ref") or event.get("booking_ref")
@@ -377,6 +380,8 @@ def analyze(export):
                 reasons.add("regressed_lease_version")
             versions[ref] = max(version, versions.get(ref, 0))
         if previous:
+            if previous["session"] != frame["session"]:
+                reasons.add("session_boundary")
             old = previous["contract"]
             require(
                 meta["commit_sequence"] > old["commit_sequence"] and frame["timestamp"] >= previous["timestamp"],
