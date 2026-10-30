@@ -1,4 +1,71 @@
 export default {
+  migrationManagement: {
+    title: 'Reset live state and migrate',
+    action: 'Review platform migration',
+    intro:
+      'Migration clears this bot’s live state and source authorizations. Destination users enroll again.',
+    disabled:
+      'Migration execution is disabled on this service. Read-only preflight remains available.',
+    unsupported: 'This source is not supported for migration.',
+    reviewTarget: 'I reviewed this target application and group.',
+    clearConfirm:
+      'I understand that all listed live allocations, queues, authorizations and declarations will be cleared.',
+    plan: 'Create reviewed plan',
+    operation: 'Operation',
+    phase: 'Phase',
+    target: 'Target',
+    digest: 'Target digest',
+    revision: 'Identity revision',
+    next: 'Next step',
+    metricsWait: 'Metrics not before',
+    refresh: 'Refresh operation',
+    refreshCounts: 'Refresh reset counts',
+    countsTitle: 'Live state to clear — this bot only',
+    preserve: 'Resources, configuration and immutable historical audit records are preserved.',
+    clearAndMigrate: 'Clear live state and migrate',
+    resume: 'Continue migration',
+    abort: 'Abort remaining migration',
+    newReview: 'Review a new plan',
+    resetStatus: 'Live reset',
+    resetApplied: 'Applied; historical evidence retained',
+    resetPending: 'Not applied',
+    unavailable: 'Migration management is unavailable. Check the selected bot and service version.',
+    unconfirmed: 'The result is unconfirmed. Refresh operation status before another change.',
+    stateChanged:
+      'Live state changed. Refresh the operation, abort the stale plan and review fresh reset counts.',
+    counts: {
+      holders: 'Current holders',
+      reservations: 'Bookings / queue entries',
+      offers: 'Claim offers',
+      agent_bindings: 'Agent authorizations',
+      declarations: 'Current declarations',
+      op_keys: 'OP keys',
+      identity_whitelist_users: 'Source user allowlist entries',
+    },
+    phases: {
+      planned: 'Planned',
+      freezing: 'Freezing source',
+      checkpointed: 'Checkpoint saved',
+      switched: 'Identity switched',
+      activating: 'Activating target',
+      aborting: 'Aborting',
+      completed: 'Completed',
+      aborted: 'Aborted',
+    },
+    steps: {
+      wait_metrics: 'Wait for old metrics grants to expire',
+      resume: 'Review and continue',
+      completed: 'Completed',
+      aborted: 'Aborted',
+    },
+    confirm: {
+      reset:
+        'Clear all listed live state and source authorizations, then migrate to {target}? Users must enroll again. Historical records are preserved.',
+      resume: 'Continue the reviewed operation from {phase}?',
+      abort:
+        'Abort the remaining operation from {phase}? Already cleared live state will not be restored.',
+    },
+  },
   auditCredentials: {
     selectBots: 'Select permitted bots',
     previous: 'Previous',

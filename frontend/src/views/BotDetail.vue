@@ -381,9 +381,20 @@
               }}</el-button>
             </div>
           </el-descriptions-item>
-          <el-descriptions-item v-if="migrationAvailable" :label="$t('migration.label')" :span="2">
-            <el-button text type="primary" @click="showMigration = true">{{
-              $t('migration.action')
+          <el-descriptions-item
+            v-if="migrationManagementAvailable"
+            :label="$t('migration.label')"
+            :span="2"
+          >
+            <el-button
+              v-if="migrationAvailable"
+              text
+              type="primary"
+              @click="showMigration = true"
+              >{{ $t('migration.action') }}</el-button
+            >
+            <el-button text type="primary" @click="showMigrationManagement = true">{{
+              $t('migrationManagement.action')
             }}</el-button>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('utilization.configure')" :span="2">
@@ -639,6 +650,17 @@
       @close="showMigration = false"
     />
 
+    <BotMigrationManagement
+      v-if="migrationManagementAvailable && showMigrationManagement"
+      :key="routeGeneration"
+      :bot-id="bot.id"
+      :bot-uuid="bot.uuid"
+      :authorized="authStore.isSuperAdmin"
+      :identity-revision="bot.identity_revision || 0"
+      :auth-scope="JSON.stringify([authStore.user?.id, authStore.user?.role])"
+      @close="showMigrationManagement = false"
+    />
+
     <!-- Transfer Owner Dialog -->
     <el-dialog
       v-model="showTransferOwner"
@@ -683,6 +705,7 @@
 import { platformLabel } from '../utils/platformDisplay'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import BotMigrationPreflight from '../components/BotMigrationPreflight.vue'
+import BotMigrationManagement from '../components/BotMigrationManagement.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
@@ -838,6 +861,11 @@ const actionLoading = ref(false)
 const viewLinkLoading = ref(false)
 const showTransferOwner = ref(false)
 const showMigration = ref(false)
+const showMigrationManagement = ref(false)
+const migrationManagementAvailable = computed(
+  () =>
+    authStore.isSuperAdmin && ['infoflow', 'feishu'].includes(bot.value?.platform?.toLowerCase())
+)
 const migrationAvailable = computed(
   () => authStore.isSuperAdmin && bot.value?.platform?.toLowerCase() === 'infoflow'
 )
@@ -1543,7 +1571,11 @@ watch(
     stateText.value = ''
     showAesKey.value = showToken.value = showWebhook.value = showOpApiKey.value = false
     stateSaving.value = actionLoading.value = transferLoading.value = viewLinkLoading.value = false
-    showTransferOwner.value = showMigration.value = callbackCopied.value = false
+    showTransferOwner.value =
+      showMigration.value =
+      showMigrationManagement.value =
+      callbackCopied.value =
+        false
     transferUsername.value = ''
     botLanguage.value = 'zh'
     loading.value = false

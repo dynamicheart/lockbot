@@ -1,5 +1,7 @@
 # Infoflow → Feishu resource-bot migration
 
+> **Historical proposal — superseded 2026-10-31:** the user now explicitly requests clearing this bot's live runtime state during migration, preserving resources/configuration and immutable historical records, with destination users enrolling again. Natural draining, active-state carryover and identity pairing in this earlier proposal are not current delivery requirements. See [issue #88](https://github.com/dynamicheart/lockbot/issues/88) and the [release checklist](../../RELEASE_CHECKLIST.md). The earlier protocol below is retained as design history, not authorization or acceptance of the revised reset flow.
+
 Status: implementation plan, 2026-10-30. Tracked in [#88](https://github.com/dynamicheart/lockbot/issues/88). No production migration has run. This supersedes the previous copy-only decision for this direction; copying configuration remains a separate operation.
 
 ## Product behavior
