@@ -581,6 +581,11 @@ def accept_event(db, app, data, *, proof_transport_verified=False):
     proof = consume_verified_group_event(db, app.id, data, message, verified_ingress=proof_transport_verified)
     if proof is not None:
         return proof
+    from lockbot.backend.app.bot_migrations.principal_pairing import consume_verified_pair_event
+
+    pairing = consume_verified_pair_event(db, app.id, data, message, verified_ingress=proof_transport_verified)
+    if pairing is not None:
+        return pairing
     message["_accepted_at"] = time.monotonic()
     route = db.query(FeishuGroupRoute).filter_by(application_id=app.id, chat_id=message["group_id"]).first()
     if route is None:
