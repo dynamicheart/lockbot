@@ -272,6 +272,10 @@ it('anchors a small selected bar and keyboard zero to their values, preserving f
   nodes[4].props.onKeydown({ key: 'Escape', preventDefault: () => {} })
   expect(view.minuteReference).toBeNull()
   expect(descriptor.styles[0].content).toContain('height: max(2px, var(--bar-height, 0%))')
+  expect(descriptor.styles[0].content).toContain('.traffic-minute:focus-visible::after')
+  expect(descriptor.styles[0].content).toContain(
+    '.traffic-minute:focus-visible {\n  outline: none;'
+  )
   expect(descriptor.styles[0].content).not.toContain('background: var(--el-color-primary-light-8)')
 })
 

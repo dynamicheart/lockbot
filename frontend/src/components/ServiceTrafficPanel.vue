@@ -651,7 +651,8 @@ h2 {
   transition: background-color 150ms ease;
 }
 /* Full-height button is a hit area, never a visible value bar. */
-.traffic-minute.is-active::after {
+.traffic-minute.is-active::after,
+.traffic-minute:focus-visible::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -663,7 +664,10 @@ h2 {
   pointer-events: none;
 }
 .traffic-minute:focus-visible {
-  outline: 1px solid var(--el-color-primary);
+  outline: none;
+}
+.traffic-minute:focus-visible::after {
+  outline: 2px solid var(--el-color-primary);
   outline-offset: 1px;
 }
 .traffic-minute.is-active span {
