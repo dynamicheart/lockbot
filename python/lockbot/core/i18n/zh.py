@@ -35,6 +35,7 @@ MESSAGES = {
     "label.queue_list": "⌛️ 排队:\n",
     "label.queue_item": "  {index}. {user_id} {duration} 预计等待 {wait_time}\n",
     # ── Error messages ──
+    "feishu.command_format": "❌ 未执行：请 @机器人，发送一条命令或单个单行代码块，不要附带标题、引用或多条命令。",
     "error.invalid_command_format": "❌【命令格式有误】{command}",
     "error.invalid_node_key": "【节点{node_key}有误】\n\n节点应在{valid_keys}里面选择\n",
     "error.duration_must_be_positive": "【申请资源时间应大于0】\n",
