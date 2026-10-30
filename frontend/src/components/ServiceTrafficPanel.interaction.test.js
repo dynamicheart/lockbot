@@ -5,6 +5,9 @@ import Panel from './ServiceTrafficPanel.vue'
 import api from '../utils/api'
 import * as Vue from 'vue'
 import { readFileSync } from 'node:fs'
+import { renderToString } from '@vue/server-renderer'
+import { ElTooltip, ID_INJECTION_KEY } from 'element-plus'
+import { createSSRApp } from 'vue'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 
 // Vitest loads SFCs in SSR mode; compile the production DOM template as well so
@@ -167,10 +170,10 @@ it('renders exact sparse/error/source counts for one minute and aligns both char
 
 it('distinguishes observed zero from missing operation evidence, including chart edges', async () => {
   await mount()
-  buttons()[3].props.onFocus()
+  buttons()[3].props.onFocus({ currentTarget: buttons()[3] })
   await nextTick()
   expect(outputs()[0]).toContain('serviceTraffic.minuteTotal: 0')
-  buttons()[5].props.onFocus()
+  buttons()[5].props.onFocus({ currentTarget: buttons()[5] })
   await nextTick()
   expect(outputs()[0]).toContain('serviceTraffic.operationHistoryUnavailable')
   expect(outputs()[0]).not.toContain('serviceTraffic.minuteTotal')
@@ -183,7 +186,7 @@ it('supports keyboard movement/Escape and touch selection/dismissal without requ
   const view = await mount()
   const nodes = buttons().slice(0, 3)
   nodes.forEach((node) => {
-    node.focus = () => node.props.onFocus()
+    node.focus = () => node.props.onFocus({ currentTarget: node })
   })
   const currentTarget = { closest: () => ({ querySelectorAll: () => nodes }) }
   // Use the actual host node identity for index lookup.
@@ -236,4 +239,59 @@ it('clears on refresh, response replacement, grouping/filter/bot changes and unm
   app = null
   expect(view.activeMinute).toBeNull()
   expect(listeners.has('pointerdown')).toBe(false)
+})
+
+it('anchors a small selected bar and keyboard zero to their values, preserving full hit targets', async () => {
+  const view = await mount()
+  const nodes = buttons()
+  for (const node of nodes) {
+    node.dataset = { barHeight: String(node.props['data-bar-height']) }
+    node.getBoundingClientRect = () => ({
+      left: 40,
+      right: 50,
+      bottom: 200,
+      width: 10,
+      height: 140,
+    })
+  }
+  expect(nodes[2].props['data-bar-height']).toBeCloseTo(100 / 7)
+  expect(parseFloat(nodes[2].props.style['--bar-height'])).toBeCloseTo(100 / 7)
+  nodes[2].props.onPointerenter({ pointerType: 'mouse', currentTarget: nodes[2] })
+  await nextTick()
+  expect(view.minuteReference.getBoundingClientRect()).toMatchObject({ top: 180, height: 20 })
+  expect(outputs()[0]).toContain('serviceTraffic.requests: 1')
+  // Keyboard focus uses the same baseline anchor for observed zero.
+  nodes[3].props.onFocus({ currentTarget: nodes[3] })
+  await nextTick()
+  expect(view.minuteReference.getBoundingClientRect()).toMatchObject({ top: 198, height: 2 })
+  expect(outputs()[0]).toContain('serviceTraffic.minuteTotal: 0')
+  nodes[4].props.onFocus({ currentTarget: nodes[4] })
+  await nextTick()
+  expect(view.minuteReference.getBoundingClientRect()).toMatchObject({ top: 60, height: 140 })
+  expect(outputs()[0]).toContain('serviceTraffic.minuteTotal: 6')
+  nodes[4].props.onKeydown({ key: 'Escape', preventDefault: () => {} })
+  expect(view.minuteReference).toBeNull()
+  expect(descriptor.styles[0].content).toContain('height: max(2px, var(--bar-height, 0%))')
+  expect(descriptor.styles[0].content).toContain('.traffic-minute:focus-visible::after')
+  expect(descriptor.styles[0].content).toContain(
+    '.traffic-minute:focus-visible {\n  outline: none;'
+  )
+  expect(descriptor.styles[0].content).not.toContain('background: var(--el-color-primary-light-8)')
+})
+
+it('retains the real production chart buttons with Element Plus virtual tooltips', async () => {
+  const view = await mount()
+  const actual = createSSRApp({ setup: () => view, render: Panel.render })
+  actual.provide(ID_INJECTION_KEY, { prefix: 1, current: 0 })
+  actual.config.warnHandler = () => {}
+  actual.config.globalProperties.$t = (key) => key
+  actual.directive('loading', {})
+  actual.component('ElCard', Card)
+  actual.component('ElTable', defineComponent({ setup: () => () => h('div') }))
+  actual.component('ElTooltip', ElTooltip)
+  const html = await renderToString(actual)
+  expect(html.match(/class="traffic-minute/g) || []).toHaveLength(6)
+  expect(html).toContain('data-bar-height="14.285714285714285"')
+  expect(html).toContain('class="requests"')
+  expect(html).toContain('class="operation-segment source-chat"')
 })
