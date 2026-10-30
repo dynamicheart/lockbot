@@ -56,6 +56,19 @@ Missing/legacy evidence, restart boundaries, unsettled checkpoints and truncatio
 
 Synthetic tests cover acquisition/renewal/release, filtered and unfiltered production-feed projections, frozen pagination, missing evidence, late renewal, conflicting identity, credential-file safety and fixed transport errors. They do not establish actual workload usage, a full live sequence on a deployed service, or authorize publishing a report to a group. See the [V2 contract](../design/verified-allocation-history.md) and open [usage analysis](https://github.com/dynamicheart/lockbot/issues/21) / [lifecycle acceptance](https://github.com/dynamicheart/lockbot/issues/54) work.
 
+### Choosing a verifiable acceptance window
+
+A `session_start` baseline is non-atomic. If it is the last frame at or before
+`start`, complete-window coverage remains unknown even when every later operation
+is atomic: those later operations cannot retroactively certify the earlier silent
+interval. Do not replace this baseline or force `complete_window=true`.
+
+For a future authorized acceptance run, first observe an actual committed atomic
+frame, then choose `start` at or after that frame's timestamp. Export through an
+`end` covered by the frozen checkpoint and exhaust all pages. This only creates a
+candidate window: gaps, boundaries, expired cursors, or an inconsistent checkpoint
+must still keep the result unknown. Do not perform resource mutations solely to
+manufacture a baseline without authorization.
 
 ## Isolated real-HTTP acceptance
 
