@@ -562,8 +562,11 @@ def test_post_switch_configuration_change_cannot_activate_target(subject, db_ses
     assert db_session.get(BotMigration, operation).phase == "switched"
 
 
-@pytest.mark.parametrize("version", [1, 99, None])
-def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version):
+@pytest.mark.parametrize(
+    "version,phase,incomplete",
+    [(1, "completed", False), (99, "completed", True), (None, "completed", True), (1, None, True)],
+)
+def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version, phase, incomplete):
     import io
     import sqlite3
     import zipfile
@@ -583,14 +586,14 @@ def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version):
             + (", schema_version INTEGER)" if version is not None else ")")
         )
         if version is None:
-            connection.execute("INSERT INTO bot_migrations VALUES (1, 'completed')")
+            connection.execute("INSERT INTO bot_migrations VALUES (1, ?)", (phase,))
         else:
-            connection.execute("INSERT INTO bot_migrations VALUES (1, 'completed', ?)", (version,))
+            connection.execute("INSERT INTO bot_migrations VALUES (1, ?, ?)", (phase, version))
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as target:
         target.writestr("lockbot.db", path.read_bytes())
     with zipfile.ZipFile(archive) as target:
-        assert _read_backup_bots(target)[0]["_migration_incomplete"] is (version != 1)
+        assert _read_backup_bots(target)[0]["_migration_incomplete"] is incomplete
 
 
 def test_absent_optional_metrics_does_not_require_clock_proof_or_wait(subject, db_session):
@@ -602,3 +605,39 @@ def test_absent_optional_metrics_does_not_require_clock_proof_or_wait(subject, d
     operation = service.plan(bot_id, app_id, "oc_target", actor_id=1)["operation_id"]
     assert service.resume(operation, actor_id=1)["phase"] == "completed"
     assert not manager.migration_fenced(bot_id)
+
+
+@pytest.mark.parametrize(
+    "version,phase,fenced",
+    [
+        (None, "completed", True),
+        (1, None, True),
+        (None, None, True),
+        (1, "planned", False),
+        (1, "completed", False),
+        (1, "future_phase", True),
+    ],
+)
+def test_malformed_restored_sqlite_null_journal_fields_stay_fenced(tmp_path, version, phase, fenced):
+    from lockbot.backend.app.database import Base
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    engine = create_engine("sqlite:///" + str(tmp_path / "malformed.sqlite"))
+    Base.metadata.create_all(engine)
+    # Simulate a malformed/older restored database, not rows permitted by today's NOT NULL schema.
+    with engine.begin() as connection:
+        connection.exec_driver_sql("ALTER TABLE bot_migrations RENAME TO strict_original")
+        connection.exec_driver_sql("CREATE TABLE bot_migrations AS SELECT * FROM strict_original WHERE 0")
+        connection.exec_driver_sql(
+            "INSERT INTO bot_migrations (id, bot_id, schema_version, phase) VALUES (?, ?, ?, ?)",
+            ("f" * 32, 42, version, phase),
+        )
+    manager = BotManager()
+    try:
+        restore_fences(sessionmaker(bind=engine), manager)
+        assert manager.migration_fenced(42) is fenced
+        assert not manager.is_running(42)
+    finally:
+        manager.shutdown_all()
+        engine.dispose()
