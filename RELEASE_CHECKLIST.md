@@ -1,6 +1,6 @@
 # 3.2.0 release checklist
 
-Preparation only: `main` declares 3.2.0; formal production is still 3.1.0. Merged code, accepted integration behavior, publication and formal deployment are separate states. Track delivery in [#27](https://github.com/dynamicheart/lockbot/issues/27).
+Completed formal upgrade: v3.2.0 (`b43e2dc`) is published and deployed. Merged code, accepted integration behavior, publication and formal deployment are separate states. Track delivery in [#27](https://github.com/dynamicheart/lockbot/issues/27).
 
 ## 1. Freeze the release scope
 
@@ -18,12 +18,18 @@ Preparation only: `main` declares 3.2.0; formal production is still 3.1.0. Merge
 - Complete review, required six CI checks and package/frontend builds on the final head. Keep API version 1 and default-off optional features.
 - Retain scope/privacy, original-key compatibility and no-command-replay regression checks; do not add unrelated acceptance experiments.
 
-## 4. Publish and verify artifacts
+## 4. Publication and artifact verification — completed
 
 - Under the existing release authorization, tag/publish 3.2.0 and verify image/bundle workflows, downloaded artifacts and checksums. Record exact commit and artifact identities.
 - Preparation documentation is not evidence that publication or deployment happened.
 
-## 5. Upgrade and verify the formal service
+## 5. Formal upgrade and bounded verification — completed
 
 - Preserve its port, volume, original keys/configuration, bot identities, bindings and active locks/queues; use the established upgrade procedure.
 - Verify actual health/version, credential registry, public/detailed-note boundaries and metrics after upgrade. Record preservation/results in #27/#57/#80 and the roadmap; keep broader #21/#54 analysis and unverified #63 greeting scope explicit.
+
+### Accepted deployment record
+
+Artifact `13000176833`, SHA-256 `eb39fdf1b0efebb0818e5477fd45a184fdc2552102f998a0487b18eeb8429436`; 39 bots / 26 running / 15 Agent bindings preserved with original keys, configuration, active locks/queues and applications/routes. Actual owner/OP reads excluded detailed notes; ordinary opt-in could not disclose them. Four authorized category labels were consistent. Metrics returned 16 hosts / 64 cards / 640 series, including 16 cache and 16 available-memory gauges. Registry quick check passed for 1 Feishu / 38 Infoflow schema-1 records; anonymous resources were 401/no-store. One application receiver process completed its WebSocket handshake.
+
+No new formal group commands or delegated-read burst were exercised in this upgrade; browser inspection reached only login. These bounded checks do not establish authenticated formal UI acceptance, complete lifecycle coverage or closure of every issue. Migration remains deferred.
