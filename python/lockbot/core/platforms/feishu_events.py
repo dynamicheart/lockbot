@@ -227,7 +227,15 @@ def normalize_message(data, identity: FeishuIdentity):
                 raise ValueError()
             parsed = _post_command(json.loads(message["content"]), message.get("mentions", []), identity)
             if parsed is None:
-                return None
+                # Feedback may rely on the verified event mention even when the
+                # post envelope cannot select one executable, directly addressed body.
+                # Never inspect nested text or echo the rejected content.
+                if not any(
+                    mention.get("id", {}).get("open_id") == identity.bot_open_id
+                    for mention in message.get("mentions", [])
+                ):
+                    return None
+                parsed = {"command": "__unsupported_rich_text__", "command_format_error": True}
         else:
             # Keep the existing plain-text mention and command behavior unchanged.
             text = json.loads(message["content"])["text"]
