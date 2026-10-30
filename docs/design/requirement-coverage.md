@@ -85,7 +85,6 @@ The chart minute-tooltip scope (#91 / PR #97) and compact Feishu Agent-notice pa
 
 [PR #113](https://github.com/dynamicheart/lockbot/pull/113), merged `8b8d87f`, adds isolated actual HTTP acceptance using fresh temporary SQLite/state, the real allocator/history endpoints and the consumer/CLI. Five frozen pages preserve as-of/checkpoint after a later append; acquisition, renewal, booking, release and real-scheduler expiry produce independently checked committed grant intervals. A controlled process restart preserves bot identity but yields unknown coverage/null totals. Author 121 focused checks, an independent HTTP rerun and six final-head CI checks passed (overlapping, not summed). External connections are fenced, platform delivery is stubbed, and fictional keys/data/processes are removed. The local binding seam does not verify real IM identity; no installed-service sequence, provider messages, measured utilization or productive work is claimed. #21/#54 remain open.
 
-
 ## Acceptance boundaries
 
 - Closed #33 covers source trust/protocol and documented client connectivity. The separate bastion/VPN/IT rollout is user-deferred; it must not be reopened as an implied telemetry dependency.
