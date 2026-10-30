@@ -137,3 +137,11 @@ class MigrationDeliveryHandoff(Base):
     target_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     target_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class MigrationManagementPolicy(Base):
+    """Frozen execution bound, separate from renewable operator policy evidence."""
+
+    __tablename__ = "bot_migration_management_policies"
+    operation_id: Mapped[str] = mapped_column(String(32), ForeignKey("bot_migrations.id"), primary_key=True)
+    maximum_clock_skew_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)

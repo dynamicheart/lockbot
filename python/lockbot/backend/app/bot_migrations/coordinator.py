@@ -443,7 +443,7 @@ class CutoverCoordinator:
         db.commit()
         self.manager.clear_migration_fence(bot.id, operation.id)
 
-    def abort(self, operation_id, *, actor_id, token_version):
+    def abort(self, operation_id, *, actor_id, token_version, expected_phase=None):
         """Only a source that never switched can be reopened; never restore an old snapshot."""
         with connectors.application_guard(), self.factory() as db:
             self._actor(db, actor_id, token_version)
@@ -452,6 +452,8 @@ class CutoverCoordinator:
                 raise MigrationBlocked("operation_not_found")
             if operation.schema_version != JOURNAL_VERSION:
                 raise MigrationBlocked("journal_version_unsupported")
+            if expected_phase is not None and operation.phase != expected_phase:
+                raise MigrationBlocked("migration_phase_changed")
             if operation.phase in ("switched", "activating", "completed"):
                 raise MigrationBlocked("reverse_migration_requires_separate_confirmation")
             if operation.phase == "aborted":
@@ -477,7 +479,7 @@ class CutoverCoordinator:
                 self._restore_source(db, operation, bot, actor_id, token_version)
                 return self._result(operation)
 
-    def resume(self, operation_id, *, actor_id, token_version):
+    def resume(self, operation_id, *, actor_id, token_version, expected_phase=None):
         # Import lazily: the regular audit API never depends on the migration executor.
         from lockbot.backend.app.audit.delegation import _guard as audit_guard
 
@@ -488,6 +490,8 @@ class CutoverCoordinator:
                 raise MigrationBlocked("operation_not_found")
             if operation.schema_version != JOURNAL_VERSION:
                 raise MigrationBlocked("journal_version_unsupported")
+            if expected_phase is not None and operation.phase != expected_phase:
+                raise MigrationBlocked("migration_phase_changed")
             if operation.phase in ("completed", "aborted"):
                 if self.manager.migration_operation_id(operation.bot_id) == operation.id:
                     self._source(db, operation, switched=operation.phase == "completed")
