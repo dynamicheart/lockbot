@@ -55,7 +55,7 @@ def operator_history(
     query: str = Query("", max_length=128),
     db: Session = Depends(get_db),
 ):
-    """Public Agent API operation history, never private tasks or a full usage ledger."""
+    """Public Agent API operation history, never detailed Agent task notes or a full usage ledger."""
     from lockbot.backend.app.resource_api.event_log import READ_BUDGET, read_history
 
     response.headers["Cache-Control"] = "no-store"
@@ -188,7 +188,7 @@ def operator_resources(
     usage_limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
-    """Fresh OP snapshot: operational state and public task categories, never private notes.
+    """Fresh OP snapshot: operational state and public task categories, never detailed Agent task notes.
 
     Resource state is complete; task declarations are paginated independently. Follow
     usage_page.next_offset until null. A null embedded usage on a partial page does not
