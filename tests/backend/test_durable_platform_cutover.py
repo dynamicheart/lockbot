@@ -546,3 +546,34 @@ def test_post_switch_configuration_change_cannot_activate_target(subject, db_ses
     assert not manager.is_running(bot_id)
     db_session.expire_all()
     assert db_session.get(BotMigration, operation).phase == "switched"
+
+
+@pytest.mark.parametrize("version", [1, 99, None])
+def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version):
+    import io
+    import sqlite3
+    import zipfile
+
+    from lockbot.backend.app.backup.service import _read_backup_bots
+
+    path = tmp_path / "archive.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE bots (id INTEGER, name TEXT, bot_type TEXT, platform TEXT, "
+            "group_id TEXT, webhook_url TEXT, aes_key TEXT, token TEXT, "
+            "cluster_configs TEXT, config_overrides TEXT, is_deleted INTEGER)"
+        )
+        connection.execute("INSERT INTO bots VALUES (1, 'Fixture', 'NODE', 'Infoflow', '1', '', '', '', '[]', '{}', 0)")
+        connection.execute(
+            "CREATE TABLE bot_migrations (bot_id INTEGER, phase TEXT"
+            + (", schema_version INTEGER)" if version is not None else ")")
+        )
+        if version is None:
+            connection.execute("INSERT INTO bot_migrations VALUES (1, 'completed')")
+        else:
+            connection.execute("INSERT INTO bot_migrations VALUES (1, 'completed', ?)", (version,))
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w") as target:
+        target.writestr("lockbot.db", path.read_bytes())
+    with zipfile.ZipFile(archive) as target:
+        assert _read_backup_bots(target)[0]["_migration_incomplete"] is (version != 1)

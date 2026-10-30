@@ -326,17 +326,18 @@ def _read_backup_bots(zf) -> list[dict]:
 
             query = f"SELECT {', '.join(select_cols)} FROM bots WHERE is_deleted = 0 OR is_deleted IS NULL"
             rows = conn.execute(query).fetchall()
+            migration_columns = {row["name"] for row in conn.execute("PRAGMA table_info(bot_migrations)")}
             result = []
             for r in rows:
                 d = dict(r)
-                migration_table = conn.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bot_migrations'"
-                ).fetchone()
-                if migration_table:
+                if migration_columns:
+                    # An archive from a newer journal format must not escape its durable fence.
+                    version_guard = "schema_version IS NOT 1 OR " if "schema_version" in migration_columns else "1 OR "
                     d["_migration_incomplete"] = bool(
                         conn.execute(
-                            "SELECT 1 FROM bot_migrations WHERE bot_id = ? "
-                            "AND phase NOT IN ('completed', 'aborted') LIMIT 1",
+                            "SELECT 1 FROM bot_migrations WHERE bot_id = ? AND ("
+                            + version_guard
+                            + "phase NOT IN ('completed', 'aborted')) LIMIT 1",
                             (d["id"],),
                         ).fetchone()
                     )
