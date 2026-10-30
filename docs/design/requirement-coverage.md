@@ -83,6 +83,9 @@ The chart minute-tooltip scope (#91 / PR #97) and compact Feishu Agent-notice pa
 
 [PR #108](https://github.com/dynamicheart/lockbot/pull/108) merged as `319e1ee` after current-head CI and independent review. The [standard-library V2 consumer](../usage/lease-history-v2-report.md) pins trusted origin/bot/window/filter/as-of/checkpoint, reads OP keys only from private files, and reports subject-grant seconds only from valid final anchor/coverage/checkpoint evidence; partial or boundary evidence has null totals. Author 120 combined checks and independent 53 focused checks passed (overlapping, not added). This is delivered repository tooling, not a live full-sequence report, deployed-workload measurement or formal release; #21/#54 remain open.
 
+[PR #113](https://github.com/dynamicheart/lockbot/pull/113), merged `8b8d87f`, adds isolated actual HTTP acceptance using fresh temporary SQLite/state, the real allocator/history endpoints and the consumer/CLI. Five frozen pages preserve as-of/checkpoint after a later append; acquisition, renewal, booking, release and real-scheduler expiry produce independently checked committed grant intervals. A controlled process restart preserves bot identity but yields unknown coverage/null totals. Author 121 focused checks, an independent HTTP rerun and six final-head CI checks passed (overlapping, not summed). External connections are fenced, platform delivery is stubbed, and fictional keys/data/processes are removed. The local binding seam does not verify real IM identity; no installed-service sequence, provider messages, measured utilization or productive work is claimed. #21/#54 remain open.
+
+
 ## Acceptance boundaries
 
 - Closed #33 covers source trust/protocol and documented client connectivity. The separate bastion/VPN/IT rollout is user-deferred; it must not be reopened as an implied telemetry dependency.
