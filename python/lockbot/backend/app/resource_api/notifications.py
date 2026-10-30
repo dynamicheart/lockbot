@@ -73,7 +73,12 @@ def notification_target(row, lease, manager, factory):
 def _send_text(bot, text):
     try:
         groups = bot.config.get_val("_AUTHORIZED_GROUP_IDS", []) if bot.config else []
-        message = bot.adapter.build_reply(text.rstrip() + "\n\n", [], group_id=groups or None)
+        compact_notice = getattr(bot.adapter, "build_api_notification", None)
+        if callable(compact_notice):
+            message = compact_notice(text, group_id=groups or None)
+        else:
+            # Keep the established Infoflow notification whitespace unchanged.
+            message = bot.adapter.build_reply(text.rstrip() + "\n\n", [], group_id=groups or None)
         # Bound the native encoded payload too: Unicode JSON escaping and per-line
         # platform fragments can be larger than the plain-text batching budget.
         if len(json.dumps(message, ensure_ascii=True).encode()) > 16384:
