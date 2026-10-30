@@ -96,3 +96,31 @@ it('treats private consent as part of the scope and fences late credential snaps
   await publicRead
   expect(f.state.snapshot.credentials).toEqual([{ user: 'alice' }])
 })
+
+it('fences audit read-toggle responses and retains explicit action parameters', async () => {
+  const f = fixture()
+  const detailed = f.loader.setScope({ page: 3, limit: 50, include_read_events: true })
+  const defaultPage = f.loader.setScope({ page: 1, limit: 50, include_read_events: false })
+  expect(f.pending[0].signal.aborted).toBe(true)
+  expect(f.state.snapshot).toBe(null)
+  f.pending[0].resolve({ items: [{ action: 'task_notes.read' }], total: 200 })
+  await detailed
+  expect(f.state.snapshot).toBe(null)
+  f.pending[1].resolve({ items: [{ action: 'bot.start' }], total: 1 })
+  await defaultPage
+  expect(f.state.snapshot.total).toBe(1)
+  const explicit = f.loader.setScope({
+    page: 1,
+    limit: 50,
+    include_read_events: false,
+    action: 'task_notes.denied',
+  })
+  expect(f.pending[2].scope).toMatchObject({
+    include_read_events: false,
+    action: 'task_notes.denied',
+    page: 1,
+  })
+  f.pending[2].resolve({ items: [{ action: 'task_notes.denied' }], total: 1 })
+  await explicit
+  expect(f.state.snapshot.items[0].action).toBe('task_notes.denied')
+})
