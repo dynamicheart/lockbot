@@ -961,6 +961,7 @@ export default {
 
   // === Audit Logs ===
   audit: {
+    includeReadEvents: 'Include read audits',
     title: 'Audit Logs',
     operator: 'Operator',
     role: 'Role',

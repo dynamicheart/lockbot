@@ -251,3 +251,25 @@ def test_corrupt_summary_identity_or_times_are_not_silently_rewritten(durable, f
         db.rollback()
         assert db.query(AuditReadWindow).one().request_count == 1
         assert db.query(AuditLog).one().detail == before
+
+
+def test_aggregated_read_remains_hidden_by_default_and_explicitly_inspectable(
+    client, auth_header, db_session, setup, monkeypatch
+):
+    instant = delegation._now()
+    monkeypatch.setattr(delegation, "_now", lambda: instant)
+    for _ in range(3):
+        assert client.get(history_url(setup), headers=setup["headers"]).status_code == 200
+    base = {"target_type": "bot", "target_id": setup["bot"]}
+    default = client.get("/api/audit/logs", headers=auth_header, params=base).json()
+    assert all(row["action"] != "task_notes.read" for row in default["items"])
+    for explicit in ({"include_read_events": True}, {"action": "task_notes.read"}):
+        response = client.get("/api/audit/logs", headers=auth_header, params={**base, **explicit})
+        assert response.status_code == 200
+        rows = [row for row in response.json()["items"] if row["action"] == "task_notes.read"]
+        assert len(rows) == 1
+        assert rows[0]["detail"]["request_count"] == 3
+        assert rows[0]["detail"]["returned_count"] == 9
+        assert "NOTE_CANARY" not in response.text
+        assert setup["grant"]["credential"] not in response.text
+    assert db_session.query(AuditReadWindow).count() == 1

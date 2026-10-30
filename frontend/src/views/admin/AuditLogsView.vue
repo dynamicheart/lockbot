@@ -95,6 +95,9 @@
           />
         </el-col>
       </el-row>
+      <el-checkbox v-model="filters.includeReadEvents" @change="onFilterChange">
+        {{ $t('audit.includeReadEvents') }}
+      </el-checkbox>
     </el-card>
 
     <!-- Table -->
@@ -240,12 +243,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled, User, Document } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
 import api from '../../utils/api'
 import { formatAuditDetail, auditTarget } from '../../utils/auditDisplay'
+import { createServiceTrafficLoader } from '../../utils/serviceTrafficLoader'
 
 const props = defineProps({
   userMode: { type: Boolean, default: false },
@@ -268,6 +272,7 @@ const filters = ref({
   action: '',
   result: '',
   operator: '',
+  includeReadEvents: false,
 })
 const dateRange = ref(null)
 
@@ -287,26 +292,32 @@ function onFilterChange() {
   fetchLogs()
 }
 
-async function fetchLogs() {
-  loading.value = true
-  try {
-    const params = {
-      page: page.value,
-      limit: pageSize.value,
+// Reuse scope cancellation/generation fencing: old filter results cannot replace the current page.
+const logLoader = createServiceTrafficLoader({
+  request: async (params, signal) => (await api.get('/audit/logs', { params, signal })).data,
+  publish: (state) => {
+    if ('snapshot' in state) {
+      logs.value = state.snapshot?.items || []
+      total.value = state.snapshot?.total || 0
     }
-    if (filters.value.action) params.action = filters.value.action
-    if (filters.value.result) params.result = filters.value.result
-    if (!props.userMode && filters.value.operator) params.operator_username = filters.value.operator
-    if (props.userMode && authStore.user?.id) params.operator_id = authStore.user.id
-    if (dateRange.value?.[0]) params.start_date = dateRange.value[0].toISOString()
-    if (dateRange.value?.[1]) params.end_date = dateRange.value[1].toISOString()
+    if ('loading' in state) loading.value = state.loading
+  },
+})
+onBeforeUnmount(() => logLoader.dispose())
 
-    const res = await api.get('/audit/logs', { params })
-    logs.value = res.data.items
-    total.value = res.data.total
-  } finally {
-    loading.value = false
+function fetchLogs() {
+  const params = {
+    page: page.value,
+    limit: pageSize.value,
+    include_read_events: filters.value.includeReadEvents,
   }
+  if (filters.value.action) params.action = filters.value.action
+  if (filters.value.result) params.result = filters.value.result
+  if (!props.userMode && filters.value.operator) params.operator_username = filters.value.operator
+  if (props.userMode && authStore.user?.id) params.operator_id = authStore.user.id
+  if (dateRange.value?.[0]) params.start_date = dateRange.value[0].toISOString()
+  if (dateRange.value?.[1]) params.end_date = dateRange.value[1].toISOString()
+  return logLoader.setScope(params)
 }
 
 // Fetch recent failed login attempts for the security banner (userMode only)
