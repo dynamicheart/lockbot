@@ -108,3 +108,6 @@ allocation time, physical occupancy and measured hardware utilization separate.
 The existing schema-1 local report accepts the original endpoint. Consumers of the
 V2 filtered projection must use its V2 anchor/coverage contract instead of passing
 filtered digests to the schema-1 report.
+
+
+The additive [standard-library V2 consumer](../usage/lease-history-v2-report.md) keeps the original schema-1 tool unchanged. It collects bounded frozen OP pages and reports subject-grant seconds only when the V2 anchor/coverage/checkpoint contract and local scoped evidence agree. Synthetic and production-feed fixture tests are not full deployed-sequence acceptance; incomplete intervals remain unknown, and group publication requires separate authorization.
