@@ -1,0 +1,25 @@
+# Principal pairing and declaration re-enrollment (disabled draft)
+
+This is a private service for migration #88, not an enabled management or Agent API. No endpoint creates, confirms or reviews pairings, and no coordinator applies them. It depends on the reviewed active-state comparison planner and signed group-ingress boundary; execution, freeze receipts and user-facing confirmation remain separate acceptance gates.
+
+## Exact account proof sequence
+
+1. The source caller authenticates with a current Infoflow personal key for the original bot. The server obtains the exact native source principal from its confirmed binding. OP keys and platform-management JWTs cannot substitute for that key. The caller must name the exact intended destination Open ID **before** a nonce exists. That Open ID must come from a verified destination identity observation or user-controlled native identity, not a name/contact/alias guess. Obtaining and displaying this observation safely remains part of the disabled UI workflow.
+2. The server stores a two-minute nonce digest scoped to instance, migration operation, source identity/configuration/binding incarnation and target tenant/application/group. It stores no plaintext key or nonce. The initial target ID cannot be replaced by the first person to post the nonce.
+3. The exact intended target actor sends the nonce with a real @mention in the destination group. Existing verified SDK or encrypted signed HTTP ingress and fresh event timestamps are required. Another sender cannot consume the nonce, even when they see and repost it first. No group route, resource command, reply, personal key or allocation is created by this event.
+4. The source caller authenticates **again** with the same still-current source binding and explicitly confirms the exact target ID. Seeing a target reply alone cannot skip this step.
+5. A current super administrator explicitly reviews the exact source and target principals. Case changes, display names and guessed aliases do not match. Partial unique indexes prohibit both a source principal mapping to multiple targets and multiple source principals merging into one target within an operation. Conflicting reviews fail; they do not overwrite existing links.
+
+Every stage and every private planner load checks the source key binding's bot ID/UUID/revision, digest, principal, enabled state, revocation and expiry against current storage. Source/target/instance changes and elapsed proof windows fail closed. Current reviewer role, password-change requirement and session version are also rechecked. A different administrator cannot silently relabel another person's review as their own. Explicit invalidation retains proof evidence but retires its authority; a fresh pairing is needed for replacement.
+
+The loaded `ReviewedLink` records carry distinct source-authentication and target-event proof references, scoped native IDs and the original proof expiry. They can feed the private active-state planner. They never transfer source credentials or issue destination credentials. A durable frozen-link acceptance receipt is still required before a future cutover can rely on links after source keys are intentionally revoked at revision advancement.
+
+## Declaration ownership
+
+Current detailed declarations remain owned by their original source binding and keep their original expiry. The comparison service does not copy `purpose`, Agent labels, public task categories, cleanup tokens or old binding authority into another principal's scope. Source historical audit attribution remains unchanged. Existing source TTL/revocation cleanup remains in effect.
+
+The private super-administrator-only re-enrollment comparison returns only opaque declaration revision references, resource IDs, original expiries and a re-enrollment requirement. It checks both the current source holding proof and the same target incarnation after principal mapping. Expired declarations and changed/freed/reacquired holdings are excluded; no row is deleted or rewritten by planning. Its output always says `automatic_copy: false` and `can_commit: false`.
+
+After an accepted migration, destination users must explicitly enroll a new key and re-declare their task information. Their own Agent may retain its existing task note for this purpose. The server does not publish or transfer it automatically. Automatic server-side note preservation would require separately reviewed user opt-in, an encrypted bounded snapshot, durable frozen-link authority and destination-key/holding revalidation; that feature is not implemented here. Do not describe the pointer comparison as completed declaration transfer.
+
+Tests use synthetic local credentials and fictional principals. They exercise wrong-first-sender rejection, source key reauthentication, exact administrator review, one-to-one constraints, source/session revocation at each stage and unchanged private declarations/deadlines. Real-account acceptance, UI/retention policy and active cutover integration remain outstanding. No enterprise permissions are expanded.

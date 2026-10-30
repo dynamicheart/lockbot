@@ -69,3 +69,48 @@ class MigrationTargetProof(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     consumed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     event_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class MigrationPrincipalPair(Base):
+    """Private account-link proofs; a link never grants destination resource authority."""
+
+    __tablename__ = "bot_migration_principal_pairs"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    operation_id: Mapped[str] = mapped_column(String(32), ForeignKey("bot_migrations.id"), nullable=False, index=True)
+    instance_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_binding_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_binding_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    expected_target_open_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    nonce_digest: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    source_proof_ref: Mapped[str] = mapped_column(String(32), nullable=False)
+    target_proof_ref: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_event_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    source_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reviewer_token_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "uq_migration_reviewed_source",
+            "operation_id",
+            "source_user_id",
+            unique=True,
+            sqlite_where=text("status = 'reviewed'"),
+            postgresql_where=text("status = 'reviewed'"),
+        ),
+        Index(
+            "uq_migration_reviewed_target",
+            "operation_id",
+            "expected_target_open_id",
+            unique=True,
+            sqlite_where=text("status = 'reviewed'"),
+            postgresql_where=text("status = 'reviewed'"),
+        ),
+    )
