@@ -18,8 +18,9 @@ from backend.test_audit_note_delegation import history_url, setup  # noqa: F401
 
 
 def test_repeated_reads_and_same_denials_have_durable_totals(client, db_session, setup, monkeypatch):
-    monkeypatch.setattr(delegation, "_now", lambda: datetime(2026, 10, 30, 0, 1))
-    # The fixture credential was issued using the real current clock; keep it valid.
+    instant = delegation._now()
+    monkeypatch.setattr(delegation, "_now", lambda: instant)
+    # Freeze within the actual fixture credential lifetime, independent of CI clock.
     for _ in range(3):
         assert client.get(history_url(setup), headers=setup["headers"]).status_code == 200
     for _ in range(2):
