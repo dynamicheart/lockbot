@@ -70,24 +70,45 @@
             >{{ $t('serviceTraffic.serverErrors') }}</span
           >
         </div>
-        <div class="traffic-chart" role="img" :aria-label="$t('serviceTraffic.trend')">
+        <div class="traffic-chart" role="group" :aria-label="$t('serviceTraffic.trend')">
           <span class="axis-high">{{ chartMax }}</span>
           <div class="traffic-bars">
-            <div
-              v-for="point in snapshot.history"
+            <el-tooltip
+              v-for="(point, index) in snapshot.history"
               :key="point.at"
-              class="traffic-minute"
-              :title="`${localTime(point.at)} · ${point.requests} / ${point.server_errors}`"
+              :visible="activeMinute === point.at && activeChart === 'http'"
+              :content="httpTooltip(point)"
+              placement="top"
+              effect="light"
+              popper-class="traffic-minute-tooltip"
+              transition=""
+              :show-arrow="false"
+              :hide-after="0"
+              :persistent="false"
             >
-              <span
-                class="requests"
-                :style="{ height: `${(point.requests / chartMax) * 100}%` }"
-              ></span>
-              <span
-                class="errors"
-                :style="{ height: `${(point.server_errors / chartMax) * 100}%` }"
-              ></span>
-            </div>
+              <button
+                type="button"
+                class="traffic-minute"
+                :class="{ 'is-active': activeMinute === point.at }"
+                :tabindex="minuteTabIndex(point.at, index)"
+                :aria-label="httpTooltip(point)"
+                @pointerenter="enterMinute(point.at, 'http', $event)"
+                @pointerdown="touchMinute(point.at, 'http', $event)"
+                @pointerleave="leaveMinute($event)"
+                @focus="selectMinute(point.at, 'http')"
+                @blur="clearMinute"
+                @keydown="navigateMinute($event)"
+              >
+                <span
+                  class="requests"
+                  :style="{ height: `${(point.requests / chartMax) * 100}%` }"
+                ></span>
+                <span
+                  class="errors"
+                  :style="{ height: `${(point.server_errors / chartMax) * 100}%` }"
+                ></span>
+              </button>
+            </el-tooltip>
           </div>
         </div>
         <section class="operation-layer">
@@ -113,26 +134,49 @@
           <div
             v-if="operationTrend.hasActivity"
             class="traffic-chart operation-chart"
-            role="img"
+            role="group"
             :aria-label="$t('serviceTraffic.operationLayer')"
           >
             <span class="axis-high">{{ operationTrend.max }}</span>
             <div class="traffic-bars">
-              <div
-                v-for="point in operationTrend.history"
+              <el-tooltip
+                v-for="(point, index) in operationTrend.history"
                 :key="point.at"
-                class="traffic-minute"
-                :class="{ 'is-unobserved': !point.observed }"
-                :title="operationTooltip(point)"
+                :visible="activeMinute === point.at && activeChart === 'operation'"
+                :content="operationTooltip(point)"
+                placement="top"
+                effect="light"
+                popper-class="traffic-minute-tooltip"
+                transition=""
+                :show-arrow="false"
+                :hide-after="0"
+                :persistent="false"
               >
-                <span
-                  v-for="segment in point.segments"
-                  :key="segment.source"
-                  class="operation-segment"
-                  :class="`source-${segment.source}`"
-                  :style="{ height: `${segment.height}%`, bottom: `${segment.bottom}%` }"
-                ></span>
-              </div>
+                <button
+                  type="button"
+                  class="traffic-minute"
+                  :class="{
+                    'is-unobserved': !point.observed,
+                    'is-active': activeMinute === point.at,
+                  }"
+                  :tabindex="minuteTabIndex(point.at, index)"
+                  :aria-label="operationTooltip(point)"
+                  @pointerenter="enterMinute(point.at, 'operation', $event)"
+                  @pointerdown="touchMinute(point.at, 'operation', $event)"
+                  @pointerleave="leaveMinute($event)"
+                  @focus="selectMinute(point.at, 'operation')"
+                  @blur="clearMinute"
+                  @keydown="navigateMinute($event)"
+                >
+                  <span
+                    v-for="segment in point.segments"
+                    :key="segment.source"
+                    class="operation-segment"
+                    :class="`source-${segment.source}`"
+                    :style="{ height: `${segment.height}%`, bottom: `${segment.bottom}%` }"
+                  ></span>
+                </button>
+              </el-tooltip>
             </div>
           </div>
           <p v-else class="trend-empty">
@@ -278,6 +322,54 @@ const snapshot = ref(null)
 const loading = ref(false)
 const failed = ref(false)
 const grouping = ref('sources')
+const activeMinute = ref(null)
+const activeChart = ref(null)
+function clearMinute() {
+  activeMinute.value = null
+  activeChart.value = null
+}
+function selectMinute(at, chart) {
+  activeMinute.value = at
+  activeChart.value = chart
+}
+function enterMinute(at, chart, event) {
+  if (event.pointerType !== 'touch') selectMinute(at, chart)
+}
+function leaveMinute(event) {
+  if (event.pointerType !== 'touch') clearMinute()
+}
+function touchMinute(at, chart, event) {
+  if (event.pointerType !== 'touch') return
+  event.preventDefault()
+  if (activeMinute.value === at && activeChart.value === chart) clearMinute()
+  else selectMinute(at, chart)
+}
+const minuteTabIndex = (at, index) =>
+  activeMinute.value === at || (activeMinute.value === null && index === 0) ? 0 : -1
+function navigateMinute(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    clearMinute()
+    return
+  }
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  const buttons = [
+    ...event.currentTarget.closest('.traffic-bars').querySelectorAll('button.traffic-minute'),
+  ]
+  const index = buttons.indexOf(event.currentTarget)
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? buttons.length - 1
+        : Math.max(0, Math.min(buttons.length - 1, index + (event.key === 'ArrowLeft' ? -1 : 1)))
+  event.preventDefault()
+  buttons[next]?.focus()
+}
+function dismissMinute(event) {
+  if (!event.target?.closest?.('.traffic-minute, .traffic-minute-tooltip')) clearMinute()
+}
+
 const rows = computed(() => snapshot.value?.[grouping.value] || [])
 const businessRows = computed(() => {
   const grouped = new Map()
@@ -296,8 +388,25 @@ const businessRows = computed(() => {
   return [...grouped.values()]
 })
 const operationTrend = computed(() => buildOperationTrend(snapshot.value))
+const httpTooltip = (point) =>
+  [
+    localTime(point.at),
+    `${t('serviceTraffic.requests')}: ${number(point.requests)}`,
+    `${t('serviceTraffic.serverErrors')}: ${number(point.server_errors)}`,
+  ].join('\n')
 const operationTooltip = (point) =>
-  `${localTime(point.at)} · ${point.observed ? operationSources.map((source) => `${t('serviceTraffic.businessSources.' + source)} ${point.sources[source]}`).join(' / ') : t('serviceTraffic.operationHistoryUnavailable')}`
+  [
+    localTime(point.at),
+    ...(point.observed
+      ? [
+          ...operationSources.map(
+            (source) =>
+              `${t('serviceTraffic.businessSources.' + source)}: ${number(point.sources[source])}`
+          ),
+          `${t('serviceTraffic.minuteTotal')}: ${number(point.total)}`,
+        ]
+      : [t('serviceTraffic.operationHistoryUnavailable')]),
+  ].join('\n')
 const chartMax = computed(() =>
   Math.max(1, ...(snapshot.value?.history || []).map((point) => point.requests))
 )
@@ -319,6 +428,7 @@ const loader = createServiceTrafficLoader({
   },
   publish: (update) => {
     if ('snapshot' in update) {
+      clearMinute()
       snapshot.value = update.snapshot
       if (update.snapshot?.bot_options) botOptions.value = update.snapshot.bot_options
     }
@@ -326,27 +436,36 @@ const loader = createServiceTrafficLoader({
     if ('loading' in update) loading.value = update.loading
   },
 })
-const refresh = () => loader.refresh()
+const refresh = () => {
+  clearMinute()
+  return loader.refresh()
+}
+watch(grouping, clearMinute)
 watch(
   [() => props.botId, selectedBot],
   ([botId], [previousBotId]) => {
+    clearMinute()
     if (botId !== previousBotId) selectedBot.value = null
     loader.setScope(scope())
   },
   { flush: 'sync' }
 )
 const visible = () => {
+  clearMinute()
   if (!document.hidden) refresh()
 }
 onMounted(() => {
   loader.setScope(scope())
   poll = setInterval(refresh, 15000)
   document.addEventListener('visibilitychange', visible)
+  document.addEventListener('pointerdown', dismissMinute)
 })
 onBeforeUnmount(() => {
+  clearMinute()
   loader.dispose()
   clearInterval(poll)
   document.removeEventListener('visibilitychange', visible)
+  document.removeEventListener('pointerdown', dismissMinute)
 })
 const number = (value) =>
   new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(value || 0)
@@ -514,18 +633,44 @@ h2 {
   height: 100%;
   flex: 1;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+.traffic-minute.is-active {
+  background: var(--el-color-primary-light-8);
+}
+.traffic-minute:focus-visible {
+  outline: 1px solid var(--el-color-primary);
+  outline-offset: 1px;
+}
+.traffic-minute.is-active span {
+  opacity: 0.78;
+}
+:global(.traffic-minute-tooltip) {
+  white-space: pre-line;
+  max-width: min(260px, calc(100vw - 24px));
+  pointer-events: none;
 }
 .traffic-minute span {
   position: absolute;
   bottom: 0;
   width: 100%;
   background: var(--el-color-primary);
+  pointer-events: none;
+  transition: opacity 150ms ease;
 }
 .traffic-minute .operation-segment {
   background: var(--source-color);
 }
 .traffic-minute.is-unobserved {
   background: var(--el-fill-color-light);
+}
+.traffic-minute.is-active.is-unobserved {
+  background: var(--el-color-primary-light-8);
 }
 .traffic-minute .errors {
   background: var(--el-color-danger);
@@ -595,6 +740,12 @@ h2 {
   .panel-heading {
     align-items: flex-start;
     flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .traffic-minute,
+  .traffic-minute span {
+    transition: none;
   }
 }
 </style>

@@ -479,6 +479,19 @@ class FeishuAdapter(MessageAdapter):
             "uuid": str(uuid.uuid4()),
         }
 
+    def build_api_notification(self, content, group_id=None):
+        """Compact API-only notices without changing ordinary resource-message spacing."""
+        reply = self.build_reply(content, [], group_id=group_id)
+        post = json.loads(reply["content"])
+        rows = post["zh_cn"]["content"]
+        # Each rich-text row is already a paragraph. Legacy notification blank lines
+        # otherwise become visible space-only paragraphs, including trailing padding.
+        post["zh_cn"]["content"] = [
+            row for row in rows if any(node.get("tag") != "text" or node.get("text", "").strip() for node in row)
+        ] or [[{"tag": "text", "text": " "}]]
+        reply["content"] = json.dumps(post, ensure_ascii=False)
+        return reply
+
     def apply_reply_target(self, msg, conversation_id):
         if isinstance(conversation_id, (list, tuple)):
             if len(conversation_id) != 1:
