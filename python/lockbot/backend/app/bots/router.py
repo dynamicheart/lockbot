@@ -2125,3 +2125,20 @@ def migration_preflight(
 
     response.headers["Cache-Control"] = "no-store"
     return observe_migration(db, bot_manager, bot_id, body)
+
+
+@router.post("/{bot_id}/migration-target-readiness")
+@limiter.limit("6/minute")
+def migration_target_readiness(
+    bot_id: int,
+    body: MigrationPreflight,
+    request: Request,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Read provider identity/membership only; never confirm or execute cutover."""
+    from lockbot.backend.app.bot_migrations.readiness import target_readiness
+
+    response.headers["Cache-Control"] = "no-store"
+    return target_readiness(db, bot_id, body, actor_id=user.id)

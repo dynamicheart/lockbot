@@ -245,6 +245,26 @@ class FeishuClient:
         except (requests.RequestException, ValueError, TypeError, AttributeError):
             raise FeishuAPIError("Feishu bot identity request failed") from None
 
+    def bot_in_group(self, chat_id):
+        """Uncached provider check of this token's bot; never enumerate group members."""
+        if not _CHAT_ID.fullmatch(chat_id):
+            raise ValueError("Invalid Feishu group ID")
+        try:
+            response = self._authorized_request(
+                requests.get,
+                API_ROOT + "/im/v1/chats/" + chat_id + "/members/is_in_chat",
+                timeout=(3, 5),
+                allow_redirects=False,
+                **self._http_options,
+            )
+            data = response.json()
+            present = data.get("data", {}).get("is_in_chat")
+            if response.status_code != 200 or data.get("code") != 0 or type(present) is not bool:
+                raise FeishuAPIError("Feishu bot group membership could not be verified")
+            return present
+        except (requests.RequestException, ValueError, TypeError, AttributeError):
+            raise FeishuAPIError("Feishu bot group membership request failed") from None
+
     def group_name(self, chat_id, refresh=False):
         """Read only a selected group's display name; never enumerate groups or members."""
         if not _CHAT_ID.fullmatch(chat_id):
