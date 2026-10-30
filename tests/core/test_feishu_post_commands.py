@@ -35,6 +35,7 @@ def test_single_code_block_preserves_exact_binding_command(shape):
         "group_id": "oc_demo",
         "command": "bind ONE_TIME_TEST_PROOF",
         "message_id": "om_1",
+        "_code_block_command": True,
     }
 
 

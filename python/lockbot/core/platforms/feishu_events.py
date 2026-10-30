@@ -194,7 +194,7 @@ def _post_command(content, mentions, identity):
     # This marker contains no user text, including when the rejected block carried a bind code.
     if invalid:
         return {"command": "__unsupported_rich_text__", "command_format_error": True}
-    return {"command": command}
+    return {"command": command, "_code_block_command": True}
 
 
 def normalize_message(data, identity: FeishuIdentity):

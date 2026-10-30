@@ -439,22 +439,29 @@ def test_post_code_block_binding_is_redacted_and_deduplicated(client, setup, db_
     assert "bind [redacted]" in str(logs)
 
 
-def test_ambiguous_post_replies_without_executing_or_echoing_binding_code(client, setup, monkeypatch):
+@pytest.mark.parametrize("kind", ["two_blocks", "unknown_command"])
+def test_ambiguous_post_replies_without_executing_or_echoing_binding_code(client, setup, monkeypatch, kind):
     application_id, bots, calls = setup
     payload = message(command="")
     payload["event"]["message"]["message_type"] = "post"
     code = {"tag": "code_block", "language": "BASH", "text": "bind PRIVATE_CODE"}
     payload["event"]["message"]["content"] = json.dumps(
-        {"title": "", "content": [[{"tag": "at", "user_id": "@_user_1"}], [code], [code]]}
+        {
+            "title": "",
+            "content": [[{"tag": "at", "user_id": "@_user_1"}], [code], [code]]
+            if kind == "two_blocks"
+            else [[{"tag": "at", "user_id": "@_user_1"}], [dict(code, text="example bind PRIVATE_CODE")]],
+        }
     )
-    sent = []
+    sent, logs = [], []
     monkeypatch.setattr(ingress, "execute_command", lambda *args: pytest.fail("Ambiguous post executed"))
-    monkeypatch.setattr("lockbot.backend.app.bots.router._write_log", lambda *args, **kwargs: None)
+    monkeypatch.setattr("lockbot.backend.app.bots.router._write_log", lambda *args, **kwargs: logs.append(args))
     monkeypatch.setattr(FeishuClient, "send", lambda self, reply: sent.append(reply) or [(200, "accepted")])
     assert client.post(f"/api/feishu/events/{application_id}", json=payload).json() == {"accepted": True}
     fn, args = calls.pop()
     fn(*args)
     assert len(sent) == 1
     assert "未执行" in bots[0].adapter.extract_reply_text(sent[0])
-    assert "PRIVATE_CODE" not in str(sent)
+    assert "PRIVATE_CODE" not in str(sent) + str(logs)
+    assert "unsupported rich-text command" in str(logs)
     assert bots[0].state.bot_state["node_a"]["current_users"] == []
