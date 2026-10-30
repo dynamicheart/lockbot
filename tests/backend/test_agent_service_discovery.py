@@ -218,3 +218,10 @@ def test_instance_identity_is_created_once_across_sessions_and_simultaneous_init
             assert db.query(SiteSetting).count() == 1
     finally:
         engine.dispose()
+
+
+def test_personal_context_does_not_advertise_detailed_note_delegation(client, api):
+    response = client.get("/api/agent/context", headers=api["headers"])
+    assert response.status_code == 200
+    for marker in ("audit-credentials", "/api/audit/bots", "TaskNoteAuditCredential", "lba1", "task_notes:read"):
+        assert marker not in response.text
