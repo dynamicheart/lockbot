@@ -53,6 +53,7 @@ def positive(value):
 
 
 def scope(origin, bot_id, start, end, resource="", page_size=25):
+    require(isinstance(origin, str), "Use an explicit trusted HTTP(S) origin")
     try:
         parsed = urllib.parse.urlsplit(origin)
         _ = parsed.port
@@ -305,7 +306,10 @@ def analyze(export):
     require(isinstance(pages, list) and 1 <= len(pages) <= 100, "No bounded lifecycle pages")
     unique, events, reasons, duplicate_frames = {}, {}, set(), 0
     checkpoint, as_of = pages[0].get("checkpoint"), pages[0].get("as_of")
-    require(checkpoint is None or isinstance(checkpoint, dict), "Invalid frozen checkpoint")
+    require(
+        checkpoint is None or isinstance(checkpoint, dict) and isinstance(checkpoint.get("contract"), dict),
+        "Invalid frozen checkpoint",
+    )
     seen_cursors = set()
     for index, page in enumerate(pages):
         page_scope(page, selected)
@@ -581,6 +585,7 @@ def main(argv=None):
                 body = source_file.read(MAX_BYTES + 1)
             require(len(body) <= MAX_BYTES, "Local export exceeded the byte budget")
             export = json.loads(body)
+            require(isinstance(export, dict) and isinstance(export.get("scope"), dict), "Invalid export envelope")
             require(
                 export.get("scope", {}).get("bot_id") == args.bot_id
                 and export["scope"].get("start") == start

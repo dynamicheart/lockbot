@@ -408,3 +408,35 @@ def test_event_kind_cannot_relabel_booking_as_acquisition():
     event["booking_ref"] = event.pop("lease_ref")
     with pytest.raises(report.InvalidExport):
         report.analyze(exported)
+
+
+@pytest.mark.parametrize("body", [[], {"scope": None}, {"scope": {"origin": False}}])
+def test_malformed_envelopes_have_fixed_cli_errors_without_tracebacks(tmp_path, body):
+    path = tmp_path / "untrusted.json"
+    path.write_text(json.dumps(body))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            str(SCRIPT),
+            "--input",
+            str(path),
+            "--bot-id",
+            "7",
+            "--since",
+            "1970-01-01T00:16:40Z",
+            "--until",
+            "1970-01-01T00:17:40Z",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 2 and "Traceback" not in result.stderr and not result.stdout
+
+
+def test_malformed_checkpoint_contract_fails_closed():
+    exported = fixture()
+    exported["pages"][0]["checkpoint"]["contract"] = []
+    with pytest.raises(report.InvalidExport):
+        report.analyze(exported)
