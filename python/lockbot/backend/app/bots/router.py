@@ -28,6 +28,7 @@ from lockbot.backend.app.bots.manager import (
     MayHaveExecuted,
     bot_manager,
 )
+from lockbot.backend.app.bots.migration_preflight import MigrationPreflight
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.schemas import (
     BotCreate,
@@ -2109,3 +2110,18 @@ def api_opkick(
         source=SOURCE_SERVICE_KEY,
     )
     return result
+
+
+@router.post("/{bot_id}/migration-preflight")
+def migration_preflight(
+    bot_id: int,
+    body: MigrationPreflight,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Observe migration blockers only; never reserve or switch either channel."""
+    from lockbot.backend.app.bots.migration_preflight import observe_migration
+
+    response.headers["Cache-Control"] = "no-store"
+    return observe_migration(db, bot_manager, bot_id, body)
