@@ -365,7 +365,7 @@ def _read_backup_bots(zf) -> list[dict]:
                         conn.execute(
                             "SELECT 1 FROM bot_migrations WHERE bot_id = ? AND ("
                             + version_guard
-                            + "phase NOT IN ('completed', 'aborted')) LIMIT 1",
+                            + "phase IS NULL OR phase NOT IN ('completed', 'aborted')) LIMIT 1",
                             (d["id"],),
                         ).fetchone()
                     )

@@ -39,6 +39,7 @@ def deployment(tmp_path, monkeypatch):
         ("activating", 1),
         ("aborting", 1),
         ("unknown_future_phase", 1),
+        (None, 1),
         ("completed", 99),
         ("aborted", None),
     ],
