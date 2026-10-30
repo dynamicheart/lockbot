@@ -55,3 +55,10 @@ Complete totals require exhausted frozen pagination, the final server-verified w
 Missing/legacy evidence, restart boundaries, unsettled checkpoints and truncation produce `coverage_complete: false`, explicit reasons and `subject_grant_seconds: null`; unknown is not zero. Exit status is 0 for verified coverage, 2 for incomplete evidence or invalid configuration/input. Full history is never certified because retention is finite.
 
 Synthetic tests cover acquisition/renewal/release, filtered and unfiltered production-feed projections, frozen pagination, missing evidence, late renewal, conflicting identity, credential-file safety and fixed transport errors. They do not establish actual workload usage, a full live sequence on a deployed service, or authorize publishing a report to a group. See the [V2 contract](../design/verified-allocation-history.md) and open [usage analysis](https://github.com/dynamicheart/lockbot/issues/21) / [lifecycle acceptance](https://github.com/dynamicheart/lockbot/issues/54) work.
+
+
+## Isolated real-HTTP acceptance
+
+`tests/integration/v2_consumer_http_probe.py --output /private/path/proof.json` starts an actual loopback-only service on fresh temporary SQLite/state and runs the real HTTP consumer plus CLI. It exercises acquisition, renewal, booking, release and real-scheduler expiry; pages retain the captured checkpoint/as-of after a later append, valid grant intervals are independently checked, and a real process restart must produce unknown coverage. External connections are fenced in both processes, platform delivery is stubbed, no Feishu application/receiver exists, and fixture keys/data/processes are cleaned up. The test-only local binding seam supplies fictional platform identities; it does not certify actual IM signature/group enrollment. Run it in the repository development environment, not against a configured deployment.
+
+This protocol/service acceptance remains separate from a fully authorized sequence/report on an installed integration or formal service. It uses five fictional resource commands and does not prove hardware utilization, business work, enterprise permissions or real message delivery.
