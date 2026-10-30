@@ -1,5 +1,8 @@
 # Discussion requirement coverage
 
+**Release preparation update (2026-10-31):** use the [3.2.0 release checklist](../../RELEASE_CHECKLIST.md). Formal production remains 3.1.0; this update does not claim a tag, publication or formal upgrade. The installed integration sequence exercised six fictional commands and exported eight committed events over nine frozen public OP pages; consumer/CLI agreed, but boundary coverage is unknown and grant totals remain null ([#54 evidence](https://github.com/dynamicheart/lockbot/issues/54#issuecomment-6527870715)). Actual bound-group removal/re-addition passed, preserved route/resources and ended with optional switches off; the unbound-group greeting remains unverified ([#63 evidence](https://github.com/dynamicheart/lockbot/issues/63#issuecomment-6529107006)). These later observations supersede earlier pending-attempt descriptions below. Platform migration #88 is explicitly deferred to the next release; unmerged migration branches are excluded. #120/#121 are deferred future ideas, not current release gates.
+
+
 ## Current evidence — 2026-10-30
 
 **[v3.1.0](https://github.com/dynamicheart/lockbot/releases/tag/v3.1.0), release commit `8eba15c`, is published and formally deployed.** The coordinator recorded preservation of 38 bots / 25 running / 14 bindings, original keys/configuration and active locks/queues. Dedicated detailed-note delegation passed real scoped reads, credential-family/cross-bot denial, rotation and revocation; temporary acceptance credentials were revoked. Ordinary-owner/OP projections exclude detailed notes. Metrics returned 16 hosts / 64 cards with cache and available-memory gauges for all hosts; the wide v3.1 browser layout was accepted.
