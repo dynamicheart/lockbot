@@ -401,3 +401,106 @@ def test_legacy_agent_traffic_is_excluded_before_audit_pagination(client, super_
             assert len(result["items"]) == 1
         else:
             assert not {"resource_auth.bind", "resource_auth.unbind"} & {row["action"] for row in result["items"]}
+
+
+READ_ACTIONS = ("task_notes.read", "task_notes.denied", "task_private.read")
+
+
+def _seed_read_audits(db_session):
+    from datetime import datetime, timedelta
+
+    from lockbot.backend.app.auth.models import User
+
+    users = {user.username: user for user in db_session.query(User).all()}
+    now = datetime(2030, 1, 1)
+    for index, action in enumerate((*READ_ACTIONS, "bot.start", "bot.stop")):
+        for user in users.values():
+            db_session.add(
+                AuditLog(
+                    operator_id=user.id,
+                    operator_username=user.username,
+                    operator_role=user.role,
+                    action=action,
+                    target_type="bot",
+                    target_id=999,
+                    result="failure" if action.endswith("denied") else "success",
+                    created_at=now + timedelta(seconds=index),
+                )
+            )
+    db_session.commit()
+    return users
+
+
+@pytest.mark.parametrize("include", [None, False, True])
+def test_read_audit_visibility_before_total_and_pagination(
+    client, auth_header, admin_header, super_admin_header, db_session, include
+):
+    users = _seed_read_audits(db_session)
+    for header, visible in [
+        (auth_header, {"testuser"}),
+        (admin_header, {"testuser", "adminuser"}),
+        (super_admin_header, set(users)),
+    ]:
+        params = {"target_type": "bot", "target_id": 999, "limit": 2}
+        if include is not None:
+            params["include_read_events"] = include
+        expected_count = len(visible) * (5 if include else 2)
+        seen = []
+        for page in range(1, (expected_count + 1) // 2 + 1):
+            response = client.get("/api/audit/logs", params={**params, "page": page}, headers=header)
+            assert response.status_code == 200
+            data = response.json()
+            assert data["total"] == expected_count
+            assert 0 < len(data["items"]) <= 2
+            assert {row["operator_username"] for row in data["items"]} <= visible
+            seen.extend(data["items"])
+        assert len(seen) == expected_count
+        assert len({row["id"] for row in seen}) == expected_count
+        if not include:
+            assert not set(READ_ACTIONS) & {row["action"] for row in seen}
+    # Presentation filters never remove records.
+    assert db_session.query(AuditLog).filter(AuditLog.action.in_(READ_ACTIONS)).count() == 3 * len(users)
+
+
+@pytest.mark.parametrize("action", READ_ACTIONS)
+@pytest.mark.parametrize("include", [None, False, True])
+def test_explicit_read_action_preserves_role_scope(
+    client, auth_header, admin_header, super_admin_header, db_session, action, include
+):
+    users = _seed_read_audits(db_session)
+    for header, visible in [
+        (auth_header, {"testuser"}),
+        (admin_header, {"testuser", "adminuser"}),
+        (super_admin_header, set(users)),
+    ]:
+        params = {"action": action, "target_id": 999}
+        if include is not None:
+            params["include_read_events"] = include
+        response = client.get("/api/audit/logs", params=params, headers=header)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == len(visible)
+        assert {row["operator_username"] for row in data["items"]} == visible
+        assert {row["action"] for row in data["items"]} == {action}
+    # Even an explicit operator request cannot cross the regular user's visibility boundary.
+    response = client.get(
+        "/api/audit/logs",
+        params={**params, "operator_id": users["superadmin"].id},
+        headers=auth_header,
+    )
+    assert response.json() == {"total": 0, "items": []}
+
+
+@pytest.mark.parametrize("include", [False, True])
+def test_other_action_filter_stays_exact_with_read_toggle(
+    client, auth_header, admin_header, super_admin_header, db_session, include
+):
+    users = _seed_read_audits(db_session)
+    response = client.get(
+        "/api/audit/logs",
+        params={"action": "bot.start", "include_read_events": include, "limit": 1},
+        headers=super_admin_header,
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == len(users)
+    assert [row["action"] for row in response.json()["items"]] == ["bot.start"]

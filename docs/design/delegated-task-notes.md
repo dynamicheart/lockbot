@@ -88,3 +88,20 @@ flowchart LR
     Evidence --> Notes[Bounded Agent names and detailed notes]
     OP[Ordinary OP / personal / metrics key] -->|Rejected on audit routes| Check
 ```
+
+## Viewing read audits
+
+The default administrative audit list hides `task_notes.read`, `task_notes.denied`
+and `task_private.read` so frequent audit consumers do not obscure configuration
+and security changes. Records are still retained. Select **Include read audits**
+(or **包含读取审计**) to include them. Selecting one of these exact actions also
+shows that action without enabling the checkbox.
+
+`GET /api/audit/logs` accepts the optional `include_read_events` boolean, default
+`false`. This is a presentation default change for older clients that omit the
+parameter; clients needing the former read-inclusive listing must send `true`.
+The filter runs before totals and pagination. Existing role visibility, details
+and authentication remain unchanged: this flag never grants note-reading or
+additional audit access. The bot detail authorization audit uses a separate
+authorization-event table and is unaffected. Filtering is separate from durable
+read-event aggregation and does not reduce the volume stored.

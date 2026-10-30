@@ -932,6 +932,7 @@ export default {
 
   // === Audit Logs ===
   audit: {
+    includeReadEvents: '包含读取审计',
     title: '审计日志',
     operator: '操作人',
     role: '角色',

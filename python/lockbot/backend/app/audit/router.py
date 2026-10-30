@@ -27,6 +27,9 @@ from lockbot.backend.app.database import get_db
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
+# Persisted reads remain available through explicit filters without flooding the default view.
+READ_AUDIT_ACTIONS = ("task_notes.read", "task_notes.denied", "task_private.read")
+
 
 class AuditLogOut(BaseModel):
     id: int
@@ -86,6 +89,9 @@ def _to_out(log: AuditLog) -> AuditLogOut:
 def list_audit_logs(
     # Filters
     action: str | None = Query(None, description="Filter by action, e.g. 'bot.start'"),
+    include_read_events: bool = Query(
+        False, description="Include task-note read/denied audits; selecting a specific read action also includes it"
+    ),
     operator_id: int | None = Query(None),
     operator_username: str | None = Query(None, description="Filter by operator username (partial match)"),
     target_type: str | None = Query(None),
@@ -106,6 +112,9 @@ def list_audit_logs(
     q = db.query(AuditLog).filter(
         AuditLog.action.notin_(("resource_api.command", "resource_auth.bind", "resource_auth.unbind"))
     )
+
+    if not include_read_events and action not in READ_AUDIT_ACTIONS:
+        q = q.filter(AuditLog.action.notin_(READ_AUDIT_ACTIONS))
 
     # --- Visibility scope ---
     if operator.role == "user":
@@ -151,6 +160,6 @@ def list_audit_logs(
         q = q.filter(AuditLog.created_at <= end_date)
 
     total = q.count()
-    items = q.order_by(AuditLog.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    items = q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).offset((page - 1) * limit).limit(limit).all()
 
     return AuditLogsPage(total=total, items=[_to_out(i) for i in items])
