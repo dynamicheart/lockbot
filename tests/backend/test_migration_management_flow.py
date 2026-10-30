@@ -13,6 +13,7 @@ from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRout
 from lockbot.backend.app.feishu.service import accept_sdk_event
 
 from backend.test_durable_platform_cutover import subject  # noqa: F401
+from backend.test_migration_metrics_policy import policy  # noqa: F401
 
 
 @pytest.fixture
@@ -208,3 +209,31 @@ def test_client_cannot_supply_clock_or_skip_publication_review(client, admin_hea
     )
     assert response.status_code == 422
     assert not db_session.query(FeishuGroupRoute).count()
+
+
+def test_short_lived_metrics_wait_is_nonblocking_and_does_not_extend_nonce(
+    client, admin_header, db_session, api, policy, monkeypatch
+):
+    reviewed_bot, _, _ = policy
+    db_session.get(Bot, api[0]).utilization_config = reviewed_bot.utilization_config
+    db_session.commit()
+    clock = [time.time()]
+    monkeypatch.setattr(time, "time", lambda: clock[0])
+    state = plan(client, admin_header, api)
+    proof = issue(client, admin_header, state)
+    signed_reply(db_session, api[1], proof["command"], "source-before-drain")
+    path = f"/api/bot-migrations/{state['operation_id']}"
+    response = client.post(path + "/resume", headers=admin_header, json={"expected_phase": "planned"})
+    assert response.status_code == 200, response.text
+    waiting = response.json()
+    assert waiting["phase"] == "checkpointed" and waiting["next_action"] == "wait_metrics"
+    assert not waiting["can_resume"]
+    assert not db_session.query(FeishuGroupRoute).count()
+    clock[0] += 318
+    response = client.get(path, headers=admin_header)
+    assert response.status_code == 200 and response.json()["next_action"] == "source_challenge"
+    fresh = issue(client, admin_header, response.json())
+    assert fresh["proof_id"] != proof["proof_id"]
+    signed_reply(db_session, api[1], fresh["command"], "source-after-drain")
+    response = client.post(path + "/resume", headers=admin_header, json={"expected_phase": "checkpointed"})
+    assert response.status_code == 200 and response.json()["next_action"] == "target_challenge"
