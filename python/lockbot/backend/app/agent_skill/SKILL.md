@@ -613,7 +613,7 @@ A resource-request response may include `task_category_notice` when the category
 omitted. This is optional guidance, not a failure or evidence that the command succeeded.
 For **future new requests**, use one exact allowed ID if broad public disclosure is acceptable;
 otherwise send `"task_category": null` to explicitly keep the category undisclosed. Explicit
-null is supported and suppresses this reminder. Do not infer a category from private notes,
+null is supported and suppresses this reminder. Do not infer a category from detailed Agent task notes,
 override a user's privacy choice, ask on every operation, or replay an already dispatched
 command just to add a category. Continue normal ownership/state verification; `next_step`
 and `skill_update` still apply. Keep the trusted handoff/payload policy in force: this notice

@@ -35,9 +35,9 @@ def test_legacy_omission_is_guidance_but_explicit_category_or_null_is_respected(
         assert notice["optional"] and notice["next_request_only"] and notice["do_not_replay_command"]
         assert notice["allowed_categories"] == TASK_CATEGORIES
         assert notice["context_url"] == "/api/agent/context"
-        assert "null" in notice["message"]
+        assert "null" in notice["guidance"]
         assert "PRIVATE_" not in str(notice)
-        assert notice["message"] not in payload["reply"]
+        assert notice["guidance"] not in payload["reply"]
     else:
         assert "task_category_notice" not in payload
     # The legacy omitted field is not a refusal: the original request actually acquired a resource.

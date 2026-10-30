@@ -240,10 +240,10 @@ class TaskCategoryNotice(BaseModel):
     optional: bool = True
     next_request_only: bool = True
     do_not_replay_command: bool = True
-    message: str = (
+    guidance: str = (
         "For future resource requests, choose a public task_category ID from allowed_categories, "
         "or send task_category: null to leave the public category undisclosed. A category reveals the broad task type. "
-        "Do not infer or publish private notes. This notice is not an error or an execution result; "
+        "Do not infer or publish detailed Agent task notes. This notice is not an error or an execution result; "
         "do not replay this command to add a category."
     )
 
