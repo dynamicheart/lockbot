@@ -8,19 +8,13 @@ import { validateBotState } from '../utils/stateValidation'
 const model = vi.hoisted(() => ({
   route: null,
   store: null,
+  auth: null,
   requests: [],
   router: { replace: vi.fn(), push: vi.fn() },
 }))
 vi.mock('vue-router', () => ({ useRoute: () => model.route, useRouter: () => model.router }))
 vi.mock('../stores/bots', () => ({ useBotsStore: () => model.store }))
-vi.mock('../stores/auth', () => ({
-  useAuthStore: () => ({
-    isAdmin: true,
-    isSuperAdmin: true,
-    canEditBot: (bot) => !!bot,
-    canOperateBot: (bot) => !!bot,
-  }),
-}))
+vi.mock('../stores/auth', () => ({ useAuthStore: () => model.auth }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key, locale: { value: 'en' } }) }))
 vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
@@ -122,6 +116,12 @@ function mount() {
 beforeEach(() => {
   vi.clearAllMocks()
   model.route = reactive({ params: { id: '1' } })
+  model.auth = reactive({
+    isAdmin: true,
+    isSuperAdmin: true,
+    canEditBot: (bot) => !!bot,
+    canOperateBot: (bot) => !!bot,
+  })
   model.requests = []
   model.store = {
     getBot: vi.fn((id, options) => deferred('bot', id, options)),
@@ -423,4 +423,23 @@ it('clears detailed-note consent when leaving Agent history or navigating bots',
   expect(view.privateTaskView).toBe(false)
   expect(model.store.getBotState.mock.calls.at(-1)[1].include_private).toBe(false)
   expect(view.stateUsage).toEqual([])
+})
+
+it('limits migration preflight to super administrators and Infoflow and closes it on bot navigation', async () => {
+  const view = mount()
+  await ready()
+  expect(view.migrationAvailable).toBe(true)
+  model.auth.isSuperAdmin = false
+  await flush()
+  expect(view.migrationAvailable).toBe(false)
+  model.auth.isSuperAdmin = true
+  view.bot.platform = 'Feishu'
+  await flush()
+  expect(view.migrationAvailable).toBe(false)
+  view.bot.platform = 'Infoflow'
+  view.showMigration = true
+  model.route.params.id = '2'
+  await flush()
+  expect(view.showMigration).toBe(false)
+  expect(view.migrationAvailable).toBe(false)
 })
