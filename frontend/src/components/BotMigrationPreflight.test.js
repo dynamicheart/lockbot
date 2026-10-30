@@ -130,6 +130,21 @@ it('renders actual read-only counts and blockers without a cutover control or re
   expect(JSON.stringify(state.result)).not.toContain('MUST_NOT_RETAIN')
 })
 
+it('discards a completed observation immediately when the destination changes', async () => {
+  mount()
+  await selectTarget()
+  const checking = state.check()
+  posts[0].resolve({ data: response() })
+  await checking
+  await flush()
+  expect(state.result.stored_obligations.resources).toBe(4)
+  state.chatId = 'oc_another_group'
+  await flush()
+  expect(state.result).toBeNull()
+  expect(posts).toHaveLength(1)
+  expect(state.canCheck).toBe(true)
+})
+
 it('blocks calls without current authorization or a selected application and valid group', async () => {
   mount({ authorized: false })
   await state.check()
