@@ -133,11 +133,39 @@ def _update_backup_stats(db: Session, success: bool) -> None:
     db.commit()
 
 
+def _assert_standard_backup_allowed(db_path):
+    """Standard archives cannot carry the evidence required to resume a migration."""
+    with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(bot_migrations)")}
+        if not columns:
+            return
+        if not {"phase", "schema_version"}.issubset(columns):
+            raise RuntimeError("Unsupported migration journal prevents a standard backup")
+        incomplete = connection.execute(
+            "SELECT 1 FROM bot_migrations WHERE schema_version IS NOT 1 "
+            "OR phase IS NULL OR phase NOT IN ('completed', 'aborted') LIMIT 1"
+        ).fetchone()
+        if incomplete:
+            raise RuntimeError("Finish or recover platform migrations before creating a standard backup")
+
+
 def create_backup_archive(password: str | None = None) -> Path:
-    """Create a zip archive of DB + bot state files. Returns path to temp zip."""
+    """Create an ordinary archive only outside durable platform migrations.
+
+    The application guard serializes this DB/state copy against coordinator plan,
+    resume and abort. It does not claim a general transactional allocator snapshot.
+    """
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    with connectors.application_guard():
+        return _create_backup_archive(password)
+
+
+def _create_backup_archive(password: str | None = None) -> Path:
     db_path = sqlite_database_file(DATABASE_URL)
     if db_path is None or not db_path.is_file():
         raise RuntimeError("Backup requires an existing file-backed SQLite database")
+    _assert_standard_backup_allowed(db_path)
     tmp_dir = tempfile.mkdtemp(prefix="lockbot_backup_")
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     zip_path = Path(tmp_dir) / f"lockbot_backup_{ts}.zip"
@@ -337,7 +365,7 @@ def _read_backup_bots(zf) -> list[dict]:
                         conn.execute(
                             "SELECT 1 FROM bot_migrations WHERE bot_id = ? AND ("
                             + version_guard
-                            + "phase NOT IN ('completed', 'aborted')) LIMIT 1",
+                            + "phase IS NULL OR phase NOT IN ('completed', 'aborted')) LIMIT 1",
                             (d["id"],),
                         ).fetchone()
                     )

@@ -562,8 +562,11 @@ def test_post_switch_configuration_change_cannot_activate_target(subject, db_ses
     assert db_session.get(BotMigration, operation).phase == "switched"
 
 
-@pytest.mark.parametrize("version", [1, 99, None])
-def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version):
+@pytest.mark.parametrize(
+    "version,phase,incomplete",
+    [(1, "completed", False), (99, "completed", True), (None, "completed", True), (1, None, True)],
+)
+def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version, phase, incomplete):
     import io
     import sqlite3
     import zipfile
@@ -583,14 +586,14 @@ def test_archive_unknown_journal_schema_cannot_escape_fence(tmp_path, version):
             + (", schema_version INTEGER)" if version is not None else ")")
         )
         if version is None:
-            connection.execute("INSERT INTO bot_migrations VALUES (1, 'completed')")
+            connection.execute("INSERT INTO bot_migrations VALUES (1, ?)", (phase,))
         else:
-            connection.execute("INSERT INTO bot_migrations VALUES (1, 'completed', ?)", (version,))
+            connection.execute("INSERT INTO bot_migrations VALUES (1, ?, ?)", (phase, version))
     archive = io.BytesIO()
     with zipfile.ZipFile(archive, "w") as target:
         target.writestr("lockbot.db", path.read_bytes())
     with zipfile.ZipFile(archive) as target:
-        assert _read_backup_bots(target)[0]["_migration_incomplete"] is (version != 1)
+        assert _read_backup_bots(target)[0]["_migration_incomplete"] is incomplete
 
 
 def test_absent_optional_metrics_does_not_require_clock_proof_or_wait(subject, db_session):
