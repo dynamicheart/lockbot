@@ -2,6 +2,8 @@
 
 This is the first read-only delivery for [Infoflow → Feishu migration #88](https://github.com/dynamicheart/lockbot/issues/88). It **cannot migrate a bot** yet. Copying a configuration and creating another independent bot is not a substitute for handing over the same allocation authority.
 
+The administrator preview is also available in an Infoflow bot's detail page under **Configuration → Platform migration → Migrate to Feishu: preflight**. Select a configured application and enter the destination Chat ID, then check the conditions. This panel displays the response counts, blockers and explicitly unverified conditions; it has no cutover, resource release or credential-rotation control. Closing the panel, changing the target or navigating bots discards the observation. Ordinary administrators and users do not see this entry.
+
 A current super administrator may call `POST /api/bots/{bot_id}/migration-preflight` using their existing management session. The body contains `application_id` (the existing Lockbot Feishu application record ID) and a destination `chat_id`. Agent keys, OP keys and ordinary administrators cannot call it. Do not place management tokens in URLs or share them with resource Agents.
 
 ```json
