@@ -98,3 +98,20 @@ def test_restore_does_not_implicitly_enable_new_membership_policy(db_session):
     db_session.commit()
     application = db_session.query(FeishuApplication).one()
     assert greeting_enabled(db_session, application.id) is False
+
+
+def test_restore_cannot_take_another_bots_group(db_session):
+    original = make_bot(db_session)
+    restore_route(db_session, original, archived())
+    db_session.commit()
+    original_id = original.id
+    application = db_session.query(FeishuApplication).one()
+    original_secret = application.app_secret
+    contender = make_bot(db_session)
+    with pytest.raises(ValueError, match="already assigned"):
+        restore_route(db_session, contender, archived())
+    db_session.rollback()
+    routes = db_session.query(FeishuGroupRoute).all()
+    assert len(routes) == 1 and routes[0].bot_id == original_id
+    assert db_session.query(Bot).count() == 1
+    assert db_session.query(FeishuApplication).one().app_secret == original_secret
