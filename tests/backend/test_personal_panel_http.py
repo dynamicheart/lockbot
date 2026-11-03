@@ -115,7 +115,7 @@ def test_dashboard_is_opt_in_and_precedes_spa(tmp_path, monkeypatch):
     monkeypatch.setenv("FRONTEND_DIST", str(frontend))
     monkeypatch.delenv("LOCKBOT_PERSONAL_PANEL_CONFIG", raising=False)
     with TestClient(create_app(), base_url=ORIGIN) as client:
-        assert not any(route.path == "/me" for route in client.app.routes)
+        assert not any(getattr(route, "path", None) == "/me" for route in client.app.routes)
     config = tmp_path / "panel.json"
     config.write_text(
         json.dumps({"origin": ORIGIN, "state_file": str(tmp_path / "sessions.db"), "provider": {"issuer": "example"}})
