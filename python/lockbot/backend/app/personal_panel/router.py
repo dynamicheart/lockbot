@@ -1,6 +1,8 @@
 """Browser access to a personal read-only dashboard on a trusted Lockbot origin."""
 
 import json
+import math
+import time
 from collections import deque
 from pathlib import Path
 from threading import Lock
@@ -14,11 +16,51 @@ from .sessions import PanelSessions
 
 COOKIE = "__Host-lockbot_me"
 PUBLIC_FIELDS = ("issuer", "platform", "realm", "subject", "scope")
+PRINCIPAL_FIELDS = ("issuer", "platform", "realm", "subject")
 ASSETS = Path(__file__).parent / "assets"
 
 
 def public_identity(grant):
     return {field: grant[field] for field in PUBLIC_FIELDS}
+
+
+def same_person_groups(identities, resolver, directory):
+    """Advisory directory equality for already-authorized, distinct IM principals.
+
+    Keep directory subjects ephemeral and private. Ambiguous collections, stale
+    assertions and resolver failures leave that principal's person unknown.
+    """
+    if resolver is None or len(identities) < 2:
+        return []
+    results = []
+    for identity in identities:
+        try:
+            # A plugin cannot accidentally mutate browser identities or grants.
+            result = resolver.resolve({field: identity[field] for field in PRINCIPAL_FIELDS})
+            results.append(dict(result) if isinstance(result, dict) else None)
+        except Exception:
+            results.append(None)
+    matched = {}
+    now = time.time()
+    for index, result in enumerate(results):
+        if not isinstance(result, dict) or set(result) != {"directory", "subject", "expires_at"}:
+            continue
+        expiry = result["expires_at"]
+        if (
+            result["directory"] != directory
+            or not isinstance(result["subject"], str)
+            or not result["subject"].strip()
+            or isinstance(expiry, bool)
+            or not isinstance(expiry, (int, float))
+        ):
+            continue
+        try:
+            if not math.isfinite(expiry) or expiry <= now:
+                continue
+        except OverflowError:
+            continue
+        matched.setdefault(result["subject"], []).append(index)
+    return [indices for indices in matched.values() if len(indices) >= 2]
 
 
 async def fields(request, allowed):
@@ -38,7 +80,7 @@ async def fields(request, allowed):
     return obj
 
 
-def create_panel(origin, path, provider, reporters=()):
+def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None, identity_directory=None):
     upstream = urlsplit(origin)
     if (
         upstream.scheme != "https"
@@ -50,6 +92,8 @@ def create_panel(origin, path, provider, reporters=()):
         or upstream.fragment
     ):
         raise ValueError("Configure the approved HTTPS Lockbot origin without a path")
+    if identity_resolver is not None and (not isinstance(identity_directory, str) or not identity_directory.strip()):
+        raise ValueError("Identity resolver requires a pinned directory")
     sessions = PanelSessions(path)
     app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
     recent = deque()
@@ -146,8 +190,9 @@ def create_panel(origin, path, provider, reporters=()):
     @app.get("/session")
     def session(request: Request):
         identities = {}
-        for grant in live(request):
-            principal = tuple(grant[field] for field in ("issuer", "platform", "realm", "subject"))
+        grants = live(request)
+        for grant in grants:
+            principal = tuple(grant[field] for field in PRINCIPAL_FIELDS)
             if principal not in identities:
                 identity = public_identity(grant)
                 identity["scopes"] = []
@@ -155,7 +200,15 @@ def create_panel(origin, path, provider, reporters=()):
             scopes = identities[principal]["scopes"]
             if grant["scope"] not in scopes:
                 scopes.append(grant["scope"])
-        return {"authenticated": bool(identities), "identities": list(identities.values())}
+        identities = list(identities.values())
+        groups = same_person_groups(identities, identity_resolver, identity_directory)
+        if identity_resolver is not None and len(identities) >= 2:
+            # Directory calls may be slow; they must not retain revoked access.
+            if any(not valid(grant) for grant in grants):
+                raise HTTPException(403, "Binding changed")
+            if not sessions.grants(request.cookies.get(COOKIE)):
+                raise HTTPException(401)
+        return {"authenticated": bool(identities), "identities": identities, "same_person_groups": groups}
 
     @app.post("/logout")
     async def logout(request: Request):
