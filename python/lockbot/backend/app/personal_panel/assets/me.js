@@ -92,6 +92,13 @@
       const identities = element('details');
       identities.append(element('summary', '查看当前浏览器身份'));
       session.identities.forEach(identity => identities.append(identityCard(identity)));
+      for (const indices of session.same_person_groups || []) {
+        const accounts = indices.map(i => session.identities[i])
+          .filter(Boolean).map(identity => `${identity.platform} · ${identity.subject}`);
+        if (accounts.length >= 2) {
+          identities.append(element('p', `组织目录确认属于同一人：${accounts.join('、')}。各群授权分别生效。`, 'group-meta'));
+        }
+      }
       app.append(identities);
       app.append(action('刷新资源', resources));
       const data = await api('resources');
