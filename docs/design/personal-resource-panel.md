@@ -39,6 +39,10 @@ The Agent reads `GET /api/personal-panel/capabilities` from the trusted origin. 
 
 The generated ticket expires in two minutes. It is placed in the URL fragment, removed from browser history by the landing page, previewed without consumption, and exchanged only on explicit confirmation. Consumption is atomic and rotates the browser session identifier. The browser receives a Secure, HttpOnly, SameSite=Strict host-only cookie. It can return by bookmark without contacting the Agent. Logout revokes the server-side session. A cleared browser cookie requires a fresh handoff.
 
+## Optional identity provider
+
+The default provider uses native confirmed bindings. An operator may instead select a reviewed local module with `"provider":{"file":"/opt/plugins/provider.py","config":{}}`. Its `create_provider(config)` factory must implement `authenticate(credential)`, `validate(grant)` and `report(grant)`. The provider must establish identity from its authoritative issuer, bind each grant to that issuer and scope, and revalidate revocation on protected reads. A matching display name does not establish identity. Upstream credentials belong in an operator-controlled secret store and are never returned to the browser. The module executes with the service's privileges and must be explicitly installed and reviewed.
+
 ## Optional reporters
 
 Administrators may install a trusted local Python module exporting `create_reporter(config)` and add an entry of the form `{"file":"/opt/plugins/example.py","config":{}}` under `reporters`. Modules run with the service's privileges. Only reviewed, administrator-controlled local files belong here.

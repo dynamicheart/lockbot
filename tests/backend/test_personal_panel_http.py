@@ -179,3 +179,44 @@ def test_explicit_private_http_cookie_and_logout(tmp_path, origin):
 def test_http_requires_explicit_private_ip(tmp_path, origin, allow):
     with pytest.raises(ValueError):
         create_panel(origin, tmp_path / "rejected.db", Directory(), allow_private_http=allow)
+
+
+def test_explicit_local_identity_provider_uses_same_browser_api(tmp_path, monkeypatch):
+    import json
+
+    from lockbot.backend.app.personal_panel.setup import mount_if_configured
+
+    plugin = tmp_path / "provider.py"
+    plugin.write_text("""
+class Provider:
+    def authenticate(self, key):
+        if key != 'synthetic-secret':
+            return None
+        return dict(issuer='fixture', platform='test-im', realm='fixture',
+                    subject='fixture-person', scope='fixture-group', ref='fixture-binding')
+    def validate(self, grant):
+        return grant == self.authenticate('synthetic-secret')
+    def report(self, grant):
+        return []
+def create_provider(config):
+    return Provider()
+""")
+    config = tmp_path / "provider.json"
+    config.write_text(
+        json.dumps(
+            {
+                "origin": ORIGIN,
+                "state_file": str(tmp_path / "plugin.db"),
+                "provider": {"file": str(plugin), "config": {}},
+            }
+        )
+    )
+    monkeypatch.setenv("LOCKBOT_PERSONAL_PANEL_CONFIG", str(config))
+    parent = FastAPI()
+    mount_if_configured(parent)
+    with TestClient(parent, base_url=ORIGIN) as client:
+        response = client.post("/api/personal-panel/links", headers={"Authorization": "Bearer synthetic-secret"})
+        assert response.status_code == 200
+        url = response.json()["login_url"]
+        assert "synthetic-secret" not in url and urlsplit(url).fragment.startswith("/me?ticket=")
+        assert client.post("/api/personal-panel/links", headers={"Authorization": "Bearer other"}).status_code == 401

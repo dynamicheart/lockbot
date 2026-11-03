@@ -35,7 +35,12 @@ def mount_if_configured(app):
     from .router import create_panel
 
     config = json.loads(Path(config_file).read_text())
-    provider = NativeProvider(config["provider"])
+    item = config["provider"]
+    provider = (
+        _load_plugin(item, "lockbot_identity_provider", "create_provider") if "file" in item else NativeProvider(item)
+    )
+    if not all(callable(getattr(provider, method, None)) for method in ("authenticate", "validate", "report")):
+        raise ValueError("Invalid identity provider")
     reporters = []
     for index, item in enumerate(config.get("reporters", [])):
         reporters.append(_load_plugin(item, f"lockbot_reporter_{index}", "create_reporter"))
