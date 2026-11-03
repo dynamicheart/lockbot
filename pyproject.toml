@@ -62,7 +62,7 @@ Issues = "https://github.com/dynamicheart/lockbot/issues"
 where = ["python"]
 
 [tool.setuptools.package-data]
-lockbot = ["core/i18n/*.py", "backend/app/agent_skill/*.md", "backend/app/op_skill/*.md"]
+lockbot = ["core/i18n/*.py", "backend/app/agent_skill/*.md", "backend/app/op_skill/*.md", "backend/app/personal_panel/assets/*"]
 
 [tool.ruff]
 target-version = "py310"

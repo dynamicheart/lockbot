@@ -1,0 +1,212 @@
+"""Browser access to a personal read-only dashboard on a trusted Lockbot origin."""
+
+import json
+from collections import deque
+from pathlib import Path
+from threading import Lock
+from time import monotonic
+from urllib.parse import urlsplit
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+
+from .sessions import PanelSessions
+
+COOKIE = "__Host-lockbot_me"
+PUBLIC_FIELDS = ("issuer", "platform", "realm", "subject", "scope")
+ASSETS = Path(__file__).parent / "assets"
+
+
+def public_identity(grant):
+    return {field: grant[field] for field in PUBLIC_FIELDS}
+
+
+async def fields(request, allowed):
+    if request.headers.get("content-type", "").split(";")[0] != "application/json":
+        raise HTTPException(415)
+    data = bytearray()
+    async for chunk in request.stream():
+        if len(data) + len(chunk) > 4096:
+            raise HTTPException(413)
+        data.extend(chunk)
+    try:
+        obj = json.loads(data)
+    except (UnicodeError, ValueError):
+        raise HTTPException(400, "Invalid JSON") from None
+    if not isinstance(obj, dict) or set(obj) != set(allowed) or not all(isinstance(v, str) for v in obj.values()):
+        raise HTTPException(400, "Invalid fields")
+    return obj
+
+
+def create_panel(origin, path, provider, reporters=()):
+    upstream = urlsplit(origin)
+    if (
+        upstream.scheme != "https"
+        or not upstream.hostname
+        or upstream.username
+        or upstream.password
+        or upstream.path
+        or upstream.query
+        or upstream.fragment
+    ):
+        raise ValueError("Configure the approved HTTPS Lockbot origin without a path")
+    sessions = PanelSessions(path)
+    app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+    recent = deque()
+    rate_lock = Lock()
+
+    @app.middleware("http")
+    async def protect(request, next_handler):
+        if request.headers.get("host") != upstream.netloc or request.url.query:
+            return JSONResponse({"detail": "Unexpected host or query"}, status_code=403)
+        browser_post = request.method == "POST" and request.url.path != "/me/links"
+        if browser_post and request.headers.get("origin") != origin:
+            return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
+        response = await next_handler(request)
+        response.headers.update(
+            {
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": (
+                    "default-src 'self'; object-src 'none'; base-uri 'none'; "
+                    "frame-ancestors 'none'; form-action 'none'"
+                ),
+            }
+        )
+        return response
+
+    def valid(grant):
+        # A source failure must not grant access or disclose the upstream exception.
+        try:
+            return bool(provider.validate(grant))
+        except Exception:
+            raise HTTPException(503, "Identity provider unavailable") from None
+
+    def live(request):
+        return [g for g in sessions.grants(request.cookies.get(COOKIE)) if valid(g)]
+
+    @app.get("/capabilities")
+    def capabilities():
+        return {"protocol": "lockbot.personal-panel.v1", "home": origin + "/me/", "issue_path": "/me/links"}
+
+    @app.post("/links")
+    def issue(request: Request):
+        auth = request.headers.get("authorization", "")
+        if request.headers.get("origin") or not auth.startswith("Bearer ") or not 0 < len(auth[7:]) <= 8192:
+            raise HTTPException(401, "A bound agent credential is required")
+        with rate_lock:
+            now = monotonic()
+            while recent and recent[0] < now - 60:
+                recent.popleft()
+            if len(recent) >= 120:
+                raise HTTPException(429, headers={"Retry-After": "60"})
+            recent.append(now)
+        try:
+            grant = provider.authenticate(auth[7:])
+        except Exception:
+            raise HTTPException(401, "Binding unavailable") from None
+        if not grant or not valid(grant):
+            raise HTTPException(401, "Binding unavailable")
+        token = sessions.issue(grant)
+        return dict(home=origin + "/me/", login_url=origin + "/me/#ticket=" + token, expires_in=120)
+
+    def inspect_ticket(token):
+        try:
+            grant = sessions.peek(token)
+        except ValueError:
+            raise HTTPException(410, "Login link expired or used") from None
+        if not valid(grant):
+            raise HTTPException(403, "Binding expired or revoked")
+        return grant
+
+    @app.post("/preview")
+    async def preview(request: Request):
+        data = await fields(request, ["ticket"])
+        return {"identity": public_identity(inspect_ticket(data["ticket"]))}
+
+    @app.post("/login")
+    async def login(request: Request):
+        data = await fields(request, ["ticket", "mode"])
+        inspect_ticket(data["ticket"])
+        if data["mode"] not in ("append", "replace"):
+            raise HTTPException(400)
+        if data["mode"] == "append" and not live(request):
+            raise HTTPException(401)
+        try:
+            cookie = sessions.consume(data["ticket"], request.cookies.get(COOKIE), mode=data["mode"])
+        except ValueError:
+            raise HTTPException(410, "Login link or session invalid") from None
+        response = JSONResponse({"authenticated": True})
+        response.set_cookie(COOKIE, cookie, max_age=30 * 86400, httponly=True, secure=True, samesite="strict", path="/")
+        return response
+
+    @app.get("/session")
+    def session(request: Request):
+        identities = {}
+        for grant in live(request):
+            principal = tuple(grant[field] for field in ("issuer", "platform", "realm", "subject"))
+            if principal not in identities:
+                identity = public_identity(grant)
+                identity["scopes"] = []
+                identities[principal] = identity
+            scopes = identities[principal]["scopes"]
+            if grant["scope"] not in scopes:
+                scopes.append(grant["scope"])
+        return {"authenticated": bool(identities), "identities": list(identities.values())}
+
+    @app.post("/logout")
+    async def logout(request: Request):
+        await fields(request, [])
+        sessions.logout(request.cookies.get(COOKIE))
+        response = JSONResponse({"authenticated": False})
+        response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="strict")
+        return response
+
+    @app.get("/resources")
+    def resources(request: Request):
+        grants = live(request)
+        if not grants:
+            raise HTTPException(401)
+        groups = []
+        seen = set()
+        for grant in grants:
+            for source in (provider, *reporters):
+                try:
+                    data = source.report(grant)
+                except Exception:
+                    data = [{"label": getattr(source, "label", "资源服务"), "status": "unknown", "allocations": []}]
+                if not valid(grant):
+                    raise HTTPException(403, "Binding changed")
+                for group in data:
+                    who = public_identity(grant)
+                    key = (
+                        id(source),
+                        grant["issuer"],
+                        grant["platform"],
+                        grant["realm"],
+                        grant["subject"],
+                        group.get("group_id", group["label"]),
+                        grant["scope"] if source is provider else "",
+                    )
+                    if key not in seen:
+                        groups.append(dict(group, identity=who))
+                        seen.add(key)
+        # Sign-out from another tab takes effect even if a provider call was in flight.
+        if not sessions.grants(request.cookies.get(COOKIE)):
+            raise HTTPException(401)
+        return {"groups": groups}
+
+    @app.get("/")
+    def home():
+        return FileResponse(ASSETS / "me.html")
+
+    @app.get("/me.js")
+    def script():
+        return FileResponse(ASSETS / "me.js", media_type="application/javascript")
+
+    @app.get("/style.css")
+    def style():
+        return FileResponse(ASSETS / "style.css", media_type="text/css")
+
+    return app
