@@ -126,3 +126,28 @@ def test_dashboard_is_opt_in_and_precedes_spa(tmp_path, monkeypatch):
         assert client.get("/me/session").json()["authenticated"] is False
         assert "Fallback" not in client.get("/me/").text
         assert client.post("/me/links", headers={"Authorization": "Bearer not-a-binding"}).status_code == 401
+
+
+def test_cross_origin_cannot_read_cookie_scoped_data(env):
+    _, agent, browser = env
+    response = post(browser, "login", {"ticket": issue(agent, "a-secret"), "mode": "replace"})
+    assert response.status_code == 200
+    for endpoint in ("/me/session", "/me/resources"):
+        assert browser.get(endpoint, headers={"Origin": "https://sibling.example.test"}).status_code == 403
+
+
+def test_first_binding_revoked_while_second_group_loads(env):
+    directory, agent, browser = env
+    for key, mode in [("a-secret", "replace"), ("b-secret", "append")]:
+        assert post(browser, "login", {"ticket": issue(agent, key), "mode": mode}).status_code == 200
+    original = directory.report
+
+    def revoke_other(grant):
+        if grant["ref"] == "b":
+            directory.bindings.pop("a-secret")
+        return original(grant)
+
+    directory.report = revoke_other
+    result = browser.get("/me/resources")
+    assert result.status_code == 403
+    assert "a-node" not in result.text

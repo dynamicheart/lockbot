@@ -59,6 +59,9 @@ def create_panel(origin, path, provider, reporters=()):
     async def protect(request, next_handler):
         if request.headers.get("host") != upstream.netloc or request.url.query:
             return JSONResponse({"detail": "Unexpected host or query"}, status_code=403)
+        origin_header = request.headers.get("origin")
+        if origin_header is not None and origin_header != origin:
+            return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
         browser_post = request.method == "POST" and request.url.path != "/me/links"
         if browser_post and request.headers.get("origin") != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
@@ -69,8 +72,7 @@ def create_panel(origin, path, provider, reporters=()):
                 "Referrer-Policy": "no-referrer",
                 "X-Content-Type-Options": "nosniff",
                 "Content-Security-Policy": (
-                    "default-src 'self'; object-src 'none'; base-uri 'none'; "
-                    "frame-ancestors 'none'; form-action 'none'"
+                    "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
                 ),
             }
         )
@@ -192,6 +194,9 @@ def create_panel(origin, path, provider, reporters=()):
                     if key not in seen:
                         groups.append(dict(group, identity=who))
                         seen.add(key)
+        # Loading a later group can take time. Recheck earlier grants before releasing the combined response.
+        if any(not valid(grant) for grant in grants):
+            raise HTTPException(403, "Binding changed")
         # Sign-out from another tab takes effect even if a provider call was in flight.
         if not sessions.grants(request.cookies.get(COOKIE)):
             raise HTTPException(401)
