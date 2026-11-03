@@ -1,6 +1,6 @@
 # Personal resource dashboard
 
-A user can bookmark `/me/` on their organization's Lockbot HTTPS origin. A headless Agent can authorize the first browser visit with the user's existing IM binding. Browser sessions last up to 30 days, including across restarts, subject to the continued validity of each binding. The dashboard only displays personal allocations and reservations.
+A user can bookmark `/#/me` on their organization's Lockbot HTTPS origin. A headless Agent can authorize the first browser visit with the user's existing IM binding. Browser sessions last up to 30 days, including across restarts, subject to the continued validity of each binding. The dashboard only displays personal allocations and reservations.
 
 ## Identity and access
 
@@ -12,7 +12,9 @@ An authenticated user can confirm another valid handoff and explicitly choose a 
 
 ## Enable
 
-Configure a dedicated HTTPS origin that the Agent already trusts for Lockbot credentials. Terminate TLS on a trusted ingress, preserve the Host header, and restrict the backend's unencrypted listener to that ingress. Set `LOCKBOT_PERSONAL_PANEL_CONFIG` to a server-controlled JSON file, then start Lockbot normally. Keep the session database in a private, persistent directory. Example:
+Use the existing Lockbot service origin that the Agent already trusts for credentials. The personal dashboard is a public Vue Router page at `/#/me` in that same process, with the management UI at `/` and the existing APIs at `/api`. It uses the shared Lockbot theme and has its own confirmed-IM session. A management account is not required to view personal allocations.
+
+For HTTPS, terminate TLS on a trusted ingress, preserve the Host header, and restrict the backend's unencrypted listener to that ingress. Set `LOCKBOT_PERSONAL_PANEL_CONFIG` to a server-controlled JSON file, then start Lockbot normally. Keep the session database in a private, persistent directory. Example:
 
 ```json
 {
@@ -25,9 +27,15 @@ Configure a dedicated HTTPS origin that the Agent already trusts for Lockbot cre
 
 The original application mounts the optional dashboard before its SPA fallback. Without configuration the original route setup is preserved. To disable, unset the environment variable and restart the service. To invalidate all browser sessions permanently, retire the dedicated session database while the service is stopped. This database stores digests of random browser tokens and references to confirmed bindings. IM authentication and the original group credentials stay under the existing Lockbot authority.
 
+For a private intranet HTTP deployment, set `allow_private_http: true` and configure a literal RFC 1918, loopback or ULA IP origin using `http://`. This explicit mode uses a host-only HttpOnly SameSite=Strict cookie scoped to `/api/personal-panel`, without Secure or the `__Host-` prefix. Public HTTP IPs and HTTP hostnames are rejected. The Agent must already trust that exact HTTP origin and observe `transport: private-http` in capabilities. Origin checks, binding validation, ticket expiry, session rotation and logout remain enforced.
+
+## Discovery in IM
+
+When the panel and a bot's Agent access are enabled, explicit `help` replies include the fixed personal-resource link and first-visit instructions. With the existing Agent promotion setting enabled, successful `lock` replies also include a short “My resources” link alongside the existing Skill promotion. The existing promotion toggle controls both success-reply links. Group replies never mint or include a personal handoff ticket. The browser's fixed entrance reuses its session, and a new device obtains its first handoff privately from the user's bound Agent.
+
 ## Handoff
 
-The Agent reads `GET /me/capabilities` from the trusted origin. A return visit only needs the fixed home. For first login, device recovery, or adding another binding, the Agent calls `POST /me/links` with its existing Bearer binding credential at the same trusted origin. The recipient must already have a verified private delivery channel. The handoff URL is itself a short-lived bearer secret; avoid group chats, unfurlers, ticket logs and external redirects.
+The Agent reads `GET /api/personal-panel/capabilities` from the trusted origin. A return visit only needs the fixed home. For first login, device recovery, or adding another binding, the Agent calls `POST /api/personal-panel/links` with its existing Bearer binding credential at the same trusted origin. The recipient must already have a verified private delivery channel. The handoff URL is itself a short-lived bearer secret; avoid group chats, unfurlers, ticket logs and external redirects.
 
 The generated ticket expires in two minutes. It is placed in the URL fragment, removed from browser history by the landing page, previewed without consumption, and exchanged only on explicit confirmation. Consumption is atomic and rotates the browser session identifier. The browser receives a Secure, HttpOnly, SameSite=Strict host-only cookie. It can return by bookmark without contacting the Agent. Logout revokes the server-side session. A cleared browser cookie requires a fresh handoff.
 

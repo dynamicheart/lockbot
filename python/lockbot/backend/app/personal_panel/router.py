@@ -1,23 +1,22 @@
 """Browser access to a personal read-only dashboard on a trusted Lockbot origin."""
 
+import ipaddress
 import json
 import math
 import time
 from collections import deque
-from pathlib import Path
 from threading import Lock
 from time import monotonic
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 from .sessions import PanelSessions
 
 COOKIE = "__Host-lockbot_me"
 PUBLIC_FIELDS = ("issuer", "platform", "realm", "subject", "scope")
 PRINCIPAL_FIELDS = ("issuer", "platform", "realm", "subject")
-ASSETS = Path(__file__).parent / "assets"
 
 
 def public_identity(grant):
@@ -80,10 +79,20 @@ async def fields(request, allowed):
     return obj
 
 
-def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None, identity_directory=None):
+def panel_origin(origin, allow_private_http=False):
     upstream = urlsplit(origin)
+    private_http = False
+    if allow_private_http is True and upstream.scheme == "http":
+        try:
+            address = ipaddress.ip_address(upstream.hostname)
+            private_http = any(
+                address in ipaddress.ip_network(network)
+                for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "fc00::/7", "::1/128")
+            )
+        except ValueError:
+            pass
     if (
-        upstream.scheme != "https"
+        (upstream.scheme != "https" and not private_http)
         or not upstream.hostname
         or upstream.username
         or upstream.password
@@ -91,7 +100,16 @@ def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None
         or upstream.query
         or upstream.fragment
     ):
-        raise ValueError("Configure the approved HTTPS Lockbot origin without a path")
+        raise ValueError("Configure an approved HTTPS origin or explicitly allow a private HTTP IP")
+    return upstream
+
+
+def create_panel(
+    origin, path, provider, reporters=(), *, identity_resolver=None, identity_directory=None, allow_private_http=False
+):
+    upstream = panel_origin(origin, allow_private_http)
+    secure = upstream.scheme == "https"
+    cookie_name = COOKIE if secure else "lockbot_me_http"
     if identity_resolver is not None and (not isinstance(identity_directory, str) or not identity_directory.strip()):
         raise ValueError("Identity resolver requires a pinned directory")
     sessions = PanelSessions(path)
@@ -106,7 +124,7 @@ def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None
         origin_header = request.headers.get("origin")
         if origin_header is not None and origin_header != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
-        browser_post = request.method == "POST" and request.url.path != "/me/links"
+        browser_post = request.method == "POST" and not request.url.path.endswith("/links")
         if browser_post and request.headers.get("origin") != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
         response = await next_handler(request)
@@ -130,11 +148,16 @@ def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None
             raise HTTPException(503, "Identity provider unavailable") from None
 
     def live(request):
-        return [g for g in sessions.grants(request.cookies.get(COOKIE)) if valid(g)]
+        return [g for g in sessions.grants(request.cookies.get(cookie_name)) if valid(g)]
 
     @app.get("/capabilities")
-    def capabilities():
-        return {"protocol": "lockbot.personal-panel.v1", "home": origin + "/me/", "issue_path": "/me/links"}
+    def capabilities(request: Request):
+        return {
+            "protocol": "lockbot.personal-panel.v1",
+            "home": origin + "/#/me",
+            "issue_path": request.url.path.rsplit("/", 1)[0] + "/links",
+            "transport": "https" if secure else "private-http",
+        }
 
     @app.post("/links")
     def issue(request: Request):
@@ -155,7 +178,7 @@ def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None
         if not grant or not valid(grant):
             raise HTTPException(401, "Binding unavailable")
         token = sessions.issue(grant)
-        return dict(home=origin + "/me/", login_url=origin + "/me/#ticket=" + token, expires_in=120)
+        return dict(home=origin + "/#/me", login_url=origin + "/#/me?ticket=" + token, expires_in=120)
 
     def inspect_ticket(token):
         try:
@@ -180,11 +203,19 @@ def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None
         if data["mode"] == "append" and not live(request):
             raise HTTPException(401)
         try:
-            cookie = sessions.consume(data["ticket"], request.cookies.get(COOKIE), mode=data["mode"])
+            cookie = sessions.consume(data["ticket"], request.cookies.get(cookie_name), mode=data["mode"])
         except ValueError:
             raise HTTPException(410, "Login link or session invalid") from None
         response = JSONResponse({"authenticated": True})
-        response.set_cookie(COOKIE, cookie, max_age=30 * 86400, httponly=True, secure=True, samesite="strict", path="/")
+        response.set_cookie(
+            cookie_name,
+            cookie,
+            max_age=30 * 86400,
+            httponly=True,
+            secure=secure,
+            samesite="strict",
+            path="/" if secure else request.url.path.rsplit("/", 1)[0],
+        )
         return response
 
     @app.get("/session")
@@ -206,16 +237,22 @@ def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None
             # Directory calls may be slow; they must not retain revoked access.
             if any(not valid(grant) for grant in grants):
                 raise HTTPException(403, "Binding changed")
-            if not sessions.grants(request.cookies.get(COOKIE)):
+            if not sessions.grants(request.cookies.get(cookie_name)):
                 raise HTTPException(401)
         return {"authenticated": bool(identities), "identities": identities, "same_person_groups": groups}
 
     @app.post("/logout")
     async def logout(request: Request):
         await fields(request, [])
-        sessions.logout(request.cookies.get(COOKIE))
+        sessions.logout(request.cookies.get(cookie_name))
         response = JSONResponse({"authenticated": False})
-        response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="strict")
+        response.delete_cookie(
+            cookie_name,
+            path="/" if secure else request.url.path.rsplit("/", 1)[0],
+            secure=secure,
+            httponly=True,
+            samesite="strict",
+        )
         return response
 
     @app.get("/resources")
@@ -251,20 +288,8 @@ def create_panel(origin, path, provider, reporters=(), *, identity_resolver=None
         if any(not valid(grant) for grant in grants):
             raise HTTPException(403, "Binding changed")
         # Sign-out from another tab takes effect even if a provider call was in flight.
-        if not sessions.grants(request.cookies.get(COOKIE)):
+        if not sessions.grants(request.cookies.get(cookie_name)):
             raise HTTPException(401)
         return {"groups": groups}
-
-    @app.get("/")
-    def home():
-        return FileResponse(ASSETS / "me.html")
-
-    @app.get("/me.js")
-    def script():
-        return FileResponse(ASSETS / "me.js", media_type="application/javascript")
-
-    @app.get("/style.css")
-    def style():
-        return FileResponse(ASSETS / "style.css", media_type="text/css")
 
     return app

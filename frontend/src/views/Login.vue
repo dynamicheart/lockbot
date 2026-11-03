@@ -92,6 +92,9 @@
         </el-form-item>
       </el-form>
 
+      <p v-if="personalPanelUrl" class="register-hint">
+        <a :href="personalPanelUrl" class="link">{{ $t('nav.myResources') }}</a>
+      </p>
       <!-- Hint -->
       <p v-if="isDemoMode" class="register-hint">
         {{ $t('auth.noAccount') }}
@@ -161,6 +164,7 @@ const savedAccounts = computed(() =>
   authStore.getSavedAccounts().filter((a) => isDemoMode || !a.token?.startsWith('demo:'))
 )
 const adminContact = ref('')
+const personalPanelUrl = ref('')
 const demoUrl = import.meta.env.VITE_DEMO_URL || 'https://dynamicheart.github.io/lockbot/'
 
 async function fetchSettings() {
@@ -169,6 +173,9 @@ async function fetchSettings() {
     const list = await res.json()
     const contact = list.find((s) => s.key === 'admin_contact')
     if (contact?.value) adminContact.value = contact.value
+    personalPanelUrl.value = list.some((s) => s.key === 'personal_panel_url' && s.value === '/#/me')
+      ? '/#/me'
+      : ''
   } catch {
     /* ignore */
   }

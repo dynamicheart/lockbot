@@ -49,7 +49,7 @@ def issue(agent, key):
     assert response.status_code == 200, response.text
     assert not agent.cookies and key not in response.text
     url = response.json()["login_url"]
-    return parse_qs(urlsplit(url).fragment)["ticket"][0]
+    return parse_qs(urlsplit(url).fragment.split("?", 1)[1])["ticket"][0]
 
 
 def post(browser, path, data):
@@ -115,17 +115,20 @@ def test_dashboard_is_opt_in_and_precedes_spa(tmp_path, monkeypatch):
     monkeypatch.setenv("FRONTEND_DIST", str(frontend))
     monkeypatch.delenv("LOCKBOT_PERSONAL_PANEL_CONFIG", raising=False)
     with TestClient(create_app(), base_url=ORIGIN) as client:
-        assert not any(getattr(route, "path", None) == "/me" for route in client.app.routes)
+        assert not any(getattr(route, "path", None) == "/api/personal-panel" for route in client.app.routes)
     config = tmp_path / "panel.json"
     config.write_text(
         json.dumps({"origin": ORIGIN, "state_file": str(tmp_path / "sessions.db"), "provider": {"issuer": "example"}})
     )
     monkeypatch.setenv("LOCKBOT_PERSONAL_PANEL_CONFIG", str(config))
     with TestClient(create_app(), base_url=ORIGIN) as client:
-        assert client.get("/me/capabilities").json()["home"] == ORIGIN + "/me/"
-        assert client.get("/me/session").json()["authenticated"] is False
+        assert client.get("/api/personal-panel/capabilities").json()["home"] == ORIGIN + "/#/me"
+        assert client.get("/api/personal-panel/session").json()["authenticated"] is False
         assert "Fallback" not in client.get("/me/").text
-        assert client.post("/me/links", headers={"Authorization": "Bearer not-a-binding"}).status_code == 401
+        assert (
+            client.post("/api/personal-panel/links", headers={"Authorization": "Bearer not-a-binding"}).status_code
+            == 401
+        )
 
 
 def test_cross_origin_cannot_read_cookie_scoped_data(env):
@@ -151,3 +154,28 @@ def test_first_binding_revoked_while_second_group_loads(env):
     result = browser.get("/me/resources")
     assert result.status_code == 403
     assert "a-node" not in result.text
+
+
+@pytest.mark.parametrize("origin", ["http://10.1.2.3:8000", "http://127.0.0.1:8000", "http://[fd00::1]:8000"])
+def test_explicit_private_http_cookie_and_logout(tmp_path, origin):
+    parent = FastAPI()
+    parent.mount("/me", create_panel(origin, tmp_path / "http.db", Directory(), allow_private_http=True))
+    agent, browser = TestClient(parent, base_url=origin), TestClient(parent, base_url=origin)
+    assert agent.get("/me/capabilities").json()["transport"] == "private-http"
+    ticket = issue(agent, "a-secret")
+    login = browser.post("/me/login", json={"ticket": ticket, "mode": "replace"}, headers={"Origin": origin})
+    assert login.status_code == 200
+    cookie = login.headers["set-cookie"]
+    assert "lockbot_me_http=" in cookie and "HttpOnly" in cookie and "SameSite=strict" in cookie
+    assert "Secure" not in cookie and "Path=/me" in cookie and "Domain=" not in cookie
+    assert browser.get("/me/resources").status_code == 200
+    assert browser.post("/me/logout", json={}, headers={"Origin": origin}).status_code == 200
+    assert browser.get("/me/resources").status_code == 401
+
+
+@pytest.mark.parametrize(
+    "origin,allow", [("http://10.1.2.3", False), ("http://example.test", True), ("http://8.8.8.8", True)]
+)
+def test_http_requires_explicit_private_ip(tmp_path, origin, allow):
+    with pytest.raises(ValueError):
+        create_panel(origin, tmp_path / "rejected.db", Directory(), allow_private_http=allow)

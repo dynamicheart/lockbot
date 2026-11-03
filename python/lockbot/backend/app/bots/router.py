@@ -311,6 +311,12 @@ def _agent_skill_url(bot_id, expected_uuid):
         return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill/SKILL.md"
 
 
+def _personal_panel_url(bot_id, expected_uuid):
+    from lockbot.backend.app.personal_panel.setup import panel_home
+
+    return panel_home() if _agent_skill_url(bot_id, expected_uuid) else ""
+
+
 def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
     """
     Build the full config dict from a DB Bot record.
@@ -342,6 +348,9 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         g.strip() for g in (getattr(bot, "group_id", None) or "").split(",") if g.strip()
     ]
     config["_AGENT_SKILL_URL"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): _agent_skill_url(bot_id, uuid)
+    config["_PERSONAL_PANEL_URL"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): _personal_panel_url(
+        bot_id, uuid
+    )
     from lockbot.backend.app.resource_api.view_links import group_view_link
 
     config["_BOT_VIEW_LINK"] = lambda bot_id=bot.id, uuid=getattr(bot, "uuid", ""): group_view_link(bot_id, uuid)

@@ -77,7 +77,7 @@ def build(tmp_path, resolver=None):
 def login(agent, browser, key, mode="replace"):
     link = agent.post("/me/links", headers={"Authorization": "Bearer " + key})
     assert link.status_code == 200
-    ticket = parse_qs(urlsplit(link.json()["login_url"]).fragment)["ticket"][0]
+    ticket = parse_qs(urlsplit(link.json()["login_url"]).fragment.split("?", 1)[1])["ticket"][0]
     response = browser.post("/me/login", headers={"Origin": ORIGIN}, json={"ticket": ticket, "mode": mode})
     assert response.status_code == 200
 
@@ -241,7 +241,7 @@ def create_resolver(config):
     parent = FastAPI()
     mount_if_configured(parent)
     with TestClient(parent, base_url=ORIGIN) as client:
-        assert client.get("/me/session").json()["same_person_groups"] == []
+        assert client.get("/api/personal-panel/session").json()["same_person_groups"] == []
     for directory in (None, "", " ", 17):
         config["identity_resolver"]["config"]["directory"] = directory
         path.write_text(json.dumps(config))

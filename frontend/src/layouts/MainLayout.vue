@@ -218,6 +218,9 @@
               </svg>
             </a>
           </el-tooltip>
+          <a v-if="personalPanelEnabled" href="/#/me" class="github-link">{{
+            $t('nav.myResources')
+          }}</a>
           <!-- Desktop: Theme toggle -->
           <el-tooltip :content="themeLabel" class="desktop-only">
             <el-button text circle @click="cycleTheme">
@@ -362,7 +365,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Plus, Operation, Link } from '@element-plus/icons-vue'
@@ -372,6 +375,19 @@ import { setLocale, getLocale } from '../i18n'
 import DemoChat from '../components/DemoChat.vue'
 import { LS_KEYS } from '../utils/demoMode'
 import { isDemoMode } from '../utils/demoMode'
+
+const personalPanelEnabled = ref(false)
+onMounted(async () => {
+  try {
+    const response = await fetch('/api/settings')
+    const settings = await response.json()
+    personalPanelEnabled.value = settings.some(
+      (s) => s.key === 'personal_panel_url' && s.value === '/#/me'
+    )
+  } catch {
+    /* Optional feature. */
+  }
+})
 
 const THEME_KEY = 'lockbot_theme'
 const authStore = useAuthStore()

@@ -1,6 +1,12 @@
 """English (en) message translations for lockbot."""
 
 MESSAGES = {
+    "help.personal_panel_short": "My resources ",
+    "help.personal_panel": "My resources · allocations and reservations ",
+    "help.personal_panel_hint": (
+        "First visit or a new device: ask your own Agent in a private chat to open your resource panel. "
+        "Confirm sign-in, then bookmark this address."
+    ),
     "notify.api_overflow": (
         "{count} additional operation notices exceeded the queue limit; "
         "ask an administrator to inspect operation history."

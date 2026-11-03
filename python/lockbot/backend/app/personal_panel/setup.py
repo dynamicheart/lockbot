@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 
+from fastapi.responses import FileResponse
+
 
 def _load_plugin(item, name, factory):
     path = Path(item["file"]).resolve(strict=True)
@@ -16,7 +18,16 @@ def _load_plugin(item, name, factory):
     return getattr(module, factory)(item["config"])
 
 
+_home = ""
+
+
+def panel_home():
+    return _home if os.environ.get("LOCKBOT_PERSONAL_PANEL_CONFIG") else ""
+
+
 def mount_if_configured(app):
+    global _home
+    _home = ""
     config_file = os.environ.get("LOCKBOT_PERSONAL_PANEL_CONFIG")
     if not config_file:
         return
@@ -38,7 +49,7 @@ def mount_if_configured(app):
         if not callable(getattr(resolver, "resolve", None)):
             raise ValueError("Invalid identity resolver")
     app.mount(
-        "/me",
+        "/api/personal-panel",
         create_panel(
             config["origin"],
             config["state_file"],
@@ -46,5 +57,16 @@ def mount_if_configured(app):
             reporters,
             identity_resolver=resolver,
             identity_directory=directory,
+            allow_private_http=config.get("allow_private_http", False),
         ),
     )
+
+    _home = config["origin"] + "/#/me"
+
+    @app.get("/me/", include_in_schema=False)
+    def legacy_home():
+        return FileResponse(Path(__file__).parent / "assets/me.html")
+
+    @app.get("/me/me.js", include_in_schema=False)
+    def legacy_script():
+        return FileResponse(Path(__file__).parent / "assets/me.js", media_type="application/javascript")

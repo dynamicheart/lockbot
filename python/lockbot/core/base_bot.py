@@ -329,7 +329,11 @@ class BaseLockBot:
                     prefix = self._get_site_value(f"agent_promotion_text_{lang}")
                     if not prefix.strip():
                         prefix = t("help.agent_lock_hint", config=self.config, url="")
-                    return [content + "\n\n", (prefix, skill_url), "\n"]
+                    parts = [content + "\n\n", (prefix, skill_url)]
+                    panel_url = self._personal_panel_url()
+                    if panel_url:
+                        parts.append((t("help.personal_panel_short", config=self.config), panel_url))
+                    return parts + ["\n"]
             return content + "\n\n"
         return message + sep + usage
 
@@ -440,6 +444,16 @@ class BaseLockBot:
         if extra_info is None:
             platform_url = self._get_site_value("platform_url") or self.config.get_val("PLATFORM_URL")
             github_url = self._get_site_value("github_url") or self.config.get_val("GITHUB_URL")
+            panel_url = self._personal_panel_url()
+            if panel_url:
+                help_links.extend(
+                    [
+                        "\n",
+                        (t("help.personal_panel", config=self.config), panel_url),
+                        "\n",
+                        t("help.personal_panel_hint", config=self.config),
+                    ]
+                )
             if platform_url or github_url or skill_url:
                 help_links.append("\n")
             if platform_url:
@@ -457,6 +471,13 @@ class BaseLockBot:
         else:
             reply_info += "\n"
         return self.adapter.build_reply(reply_info, [user_id])
+
+    def _personal_panel_url(self):
+        getter = self.config.get_val("_PERSONAL_PANEL_URL")
+        try:
+            return getter() if callable(getter) else ""
+        except Exception:
+            return ""
 
     def _agent_skill_url(self):
         getter = self.config.get_val("_AGENT_SKILL_URL")

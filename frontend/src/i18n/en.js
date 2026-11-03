@@ -555,6 +555,7 @@ export default {
 
   // === Sidebar / Nav ===
   nav: {
+    myResources: 'My resources',
     dashboard: 'Dashboard',
     myBots: 'My Bots',
     createBot: 'Create Bot',
