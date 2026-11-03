@@ -8,6 +8,8 @@
     const app = document.getElementById('app');
     let session = {authenticated: false, identities: []};
     let busy = false;
+    let current = 'mine';
+    let groups = [];
 
     function element(tag, text, className) {
       const node = document.createElement(tag);
@@ -69,9 +71,12 @@
 
     function header() {
       app.replaceChildren();
+      document.getElementById('navigation').replaceChildren();
       const row = element('div', undefined, 'page-heading');
-      row.append(element('h1', '我的资源'));
-      if (session.authenticated) row.append(action('退出此浏览器', async () => {
+      row.append(element('h1', {mine: '我的占用', groups: '资源群', connections: '我的连接'}[current]));
+      const actions = element('div', undefined, 'actions');
+      row.append(actions);
+      if (session.authenticated) actions.append(action('退出此浏览器', async () => {
         await api('logout', {});
         ticket = null;
         session = {authenticated: false, identities: []};
@@ -82,60 +87,137 @@
 
     function renderSignedOut() {
       header();
+      document.getElementById('navigation').replaceChildren();
       app.append(element('p', '首次使用或换设备时，在你自己的 Agent 私聊中说“打开我的资源台”，再用本浏览器确认登录。'));
       app.append(element('p', '登录后收藏此固定地址，下次直接打开即可。无需提供群 Key 或网页验证码。', 'scope'));
     }
 
-    async function resources() {
-      header();
-      app.append(element('p', '固定入口：/me/ · 此页面只读，展示当前浏览器已确认的身份授权资源。', 'scope'));
-      const identities = element('details');
-      identities.append(element('summary', '查看当前浏览器身份'));
-      session.identities.forEach(identity => identities.append(identityCard(identity)));
-      for (const indices of session.same_person_groups || []) {
-        const accounts = indices.map(i => session.identities[i])
-          .filter(Boolean).map(identity => `${identity.platform} · ${identity.subject}`);
-        if (accounts.length >= 2) {
-          identities.append(element('p', `组织目录确认属于同一人：${accounts.join('、')}。各群授权分别生效。`, 'group-meta'));
+    function fresh(group) {
+      return ['ok', 'fresh', 'active', 'ready', 'available', 'healthy'].includes(group.status);
+    }
+
+    function queued(allocation) {
+      return ['reservation', 'queue', 'queued'].includes(allocation.kind);
+    }
+
+    function entries(group) {
+      return Array.isArray(group.allocations) ? group.allocations : [];
+    }
+
+    function date(value) {
+      if (value === null || value === undefined) return '未提供';
+      const time = new Date(typeof value === 'number' ? value * 1000 : value);
+      return Number.isNaN(time.getTime()) ? '未知' : time.toLocaleString('zh-CN');
+    }
+
+    function stat(label, value, unit) {
+      const box = element('div', undefined, 'stat');
+      const number = element('div', value, 'stat-value');
+      number.append(element('span', unit));
+      box.append(element('div', label, 'stat-label'), number);
+      return box;
+    }
+
+    function table(parent, rows, booking) {
+      const panel = element('section', undefined, 'panel');
+      panel.append(element('h2', `${booking ? '预约与队列' : '持有资源'} · ${rows.length}`, 'panel-title'));
+      if (!rows.length) {
+        panel.append(element('p', '已确认的群中暂无记录。', 'empty'));
+      } else {
+        const scroll = element('div', undefined, 'table-scroll');
+        const grid = element('table');
+        const head = element('thead');
+        const heading = element('tr');
+        ['资源群', '节点 / 卡号', '状态', '本人身份', '到期时间', '源数据时间'].forEach(label => heading.append(element('th', label)));
+        head.append(heading);
+        const body = element('tbody');
+        for (const {group, allocation} of rows) {
+          const row = element('tr');
+          const values = [group.label, `${allocation.node ?? '未知节点'}${allocation.device == null ? '' : ' / 卡 ' + allocation.device}`,
+            fresh(group) ? (booking ? '预约中' : '持有中') : '待确认', group.identity?.subject,
+            date(allocation.expires_at), date(group.source_at)];
+          values.forEach(value => row.append(element('td', value ?? '—')));
+          body.append(row);
         }
+        grid.append(head, body);
+        scroll.append(grid);
+        panel.append(scroll);
       }
-      app.append(identities);
-      app.append(action('刷新资源', resources));
+      parent.append(panel);
+    }
+
+    function renderMine() {
+      const known = groups.filter(fresh);
+      const stats = element('div', undefined, 'stats');
+      const machines = known.reduce((count, group) => count + new Set(entries(group).filter(a => !queued(a) && a.node != null).map(a => a.node)).size, 0);
+      const cards = known.reduce((count, group) => count + new Set(entries(group).filter(a => !queued(a) && a.device != null && a.node != null).map(a => JSON.stringify([a.node, a.device]))).size, 0);
+      const bookings = known.reduce((count, group) => count + entries(group).filter(queued).length, 0);
+      stats.append(stat('持有机器', machines, '台'), stat('持有卡', cards, '张'), stat('预约', bookings, '项'));
+      app.append(stats, element('p', `已更新 ${known.length} / ${groups.length} 个群 · 仅统计已确认占用，机器按群计数`, 'scope'));
+      if (known.length !== groups.length) app.append(element('p', `${groups.length - known.length} 个群的数据待确认，统计可能不完整。`, 'notice warning'));
+      const rows = groups.flatMap(group => entries(group).map(allocation => ({group, allocation})));
+      table(app, rows.filter(row => !queued(row.allocation)), false);
+      table(app, rows.filter(row => queued(row.allocation)), true);
+    }
+
+    function renderGroups() {
+      const grid = element('div', undefined, 'group-grid');
+      for (const group of groups) {
+        const card = element('section', undefined, 'group-card');
+        const heading = element('div', undefined, 'page-heading');
+        heading.append(element('h2', group.label || '未命名群'), element('span', fresh(group) ? '已更新' : '待确认', `badge${fresh(group) ? '' : ' warn'}`));
+        card.append(heading, element('p', `${group.identity?.platform || ''} · ${group.identity?.subject || ''}`, 'group-meta'));
+        const metrics = element('div', undefined, 'group-metrics');
+        for (const [label, value] of [['持有记录', entries(group).filter(a => !queued(a)).length], ['预约记录', entries(group).filter(queued).length]]) {
+          const item = element('div');
+          item.append(element('strong', fresh(group) ? value : '—'), element('span', label));
+          metrics.append(item);
+        }
+        card.append(metrics, element('p', `源数据时间 ${date(group.source_at)}`, 'group-meta'));
+        if (!fresh(group)) card.append(element('p', '数据待恢复后确认。', 'notice warning'));
+        grid.append(card);
+      }
+      app.append(grid);
+    }
+
+    function renderConnections() {
+      app.append(element('p', '连接由你的 IM 绑定授权。添加群时，在自己的 Agent 私聊中说“打开我的资源台”，在本浏览器确认新增授权。', 'scope'));
+      for (const identity of session.identities) {
+        const card = element('section', undefined, 'group-card');
+        card.append(element('h2', `${identity.platform} · ${identity.subject}`));
+        const labels = groups.filter(group => ['issuer', 'platform', 'realm', 'subject'].every(key => group.identity?.[key] === identity[key])).map(group => group.label);
+        card.append(element('p', `已授权资源群：${labels.join('、') || '尚未读取'}`, 'group-meta'));
+        const details = element('details');
+        details.append(element('summary', '身份详情'), identityCard(identity));
+        card.append(details);
+        app.append(card);
+      }
+      for (const indices of session.same_person_groups || []) {
+        const accounts = indices.map(i => session.identities[i]).filter(Boolean).map(identity => `${identity.platform} · ${identity.subject}`);
+        if (accounts.length >= 2) app.append(element('p', `组织目录确认属于同一人：${accounts.join('、')}。各群授权分别生效。`, 'group-meta'));
+      }
+    }
+
+    function render() {
+      header();
+      const navigation = document.getElementById('navigation');
+      navigation.replaceChildren();
+      for (const [id, label] of [['mine', '我的占用'], ['groups', '资源群'], ['connections', '我的连接']]) {
+        const button = action(label, async () => { current = id; render(); });
+        button.className = current === id ? 'active' : '';
+        button.setAttribute('aria-current', current === id ? 'page' : 'false');
+        navigation.append(button);
+      }
+      app.querySelector('.page-heading .actions').prepend(action('刷新资源', resources));
+      if (!groups.length) app.append(element('p', '当前没有已授权的群资源。', 'empty'));
+      ({mine: renderMine, groups: renderGroups, connections: renderConnections})[current]();
+    }
+
+    async function resources() {
       const data = await api('resources');
       if (!Array.isArray(data.groups)) throw new Error('资源响应无效，请稍后重试。');
-      if (!data.groups.length) {
-        app.append(element('p', '当前没有已授权的群资源。', 'empty'));
-        return;
-      }
-      for (const group of data.groups) {
-        const panel = element('section', undefined, 'panel');
-        panel.append(element('h2', group.label || '未命名群', 'panel-title'));
-        const status = typeof group.status === 'string' ? group.status : 'unknown';
-        panel.append(element('p', `${group.identity?.platform || ''} ${group.identity?.subject || ''} · ${status === 'ok' ? '已更新' : '待确认'}`, 'group-meta'));
-        const allocations = Array.isArray(group.allocations) ? group.allocations : [];
-        const current = ['ok', 'fresh', 'active', 'ready', 'available', 'healthy'].includes(status);
-        if (!current) panel.append(element('p', '此群数据可能过期或不可达；下方仅为服务返回的记录，空白不能视为没有占用。', 'notice warning'));
-        if (!allocations.length) {
-          panel.append(element('p', current ? '暂无资源记录。' : '当前没有可展示的资源记录，实际状态待恢复后确认。', 'empty'));
-        } else {
-          const scroll = element('div', undefined, 'table-scroll');
-          const table = element('table');
-          const head = element('thead');
-          const row = element('tr');
-          ['类型', '节点', '设备', '到期时间'].forEach(label => row.append(element('th', label)));
-          head.append(row);
-          const body = element('tbody');
-          allocations.forEach(allocation => {
-            const tr = element('tr');
-            ['kind', 'node', 'device', 'expires_at'].forEach(key => tr.append(element('td', allocation[key] ?? '—')));
-            body.append(tr);
-          });
-          table.append(head, body);
-          scroll.append(table);
-          panel.append(scroll);
-        }
-        app.append(panel);
-      }
+      groups = data.groups;
+      render();
     }
 
     async function confirmTicket() {
