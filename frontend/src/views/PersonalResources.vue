@@ -53,6 +53,11 @@
       </section>
       <section v-else-if="!session.authenticated" class="panel">
         <p>
+          <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
+            >Agent 使用说明（SKILL.md）</a
+          >
+        </p>
+        <p>
           首次使用或换设备时，在你已完成 IM 绑定的 Agent 中说“打开我的资源台”。本机 CLI 和服务器上的
           Agent 均可使用，取得链接后在此浏览器打开并确认登录。
         </p>
@@ -155,6 +160,16 @@
           <p class="scope">
             在持有目标群绑定的 Agent 中说“打开我的资源台”，打开链接后确认添加到当前浏览器。
           </p>
+          <div class="connection-skill-links">
+            <a
+              v-for="link in skillLinks"
+              :key="link.url"
+              :href="link.url"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Agent 使用说明（SKILL.md） · {{ link.service }}</a
+            >
+          </div>
         </details>
         <section
           v-for="(identity, index) in session.identities"
@@ -165,6 +180,14 @@
             <h2>{{ identity.subject }}</h2>
             <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
           </div>
+          <a
+            v-if="skillLink(identity.issuer)"
+            class="connection-skill"
+            :href="skillLink(identity.issuer).url"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Agent 使用说明（SKILL.md）</a
+          >
           <div class="connection-groups">
             <span class="group-meta">已授权资源群</span>
             <el-tag
@@ -283,6 +306,23 @@ function entries(group) {
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
 }
+function skillLink(issuer) {
+  try {
+    const url = new URL(issuer)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
+    return { service: url.host, url: url.origin + '/api/agent-skill/SKILL.md' }
+  } catch {
+    return null
+  }
+}
+const skillLinks = computed(() => [
+  ...new Map(
+    session.value.identities
+      .map((identity) => skillLink(identity.issuer))
+      .filter(Boolean)
+      .map((link) => [link.url, link])
+  ).values(),
+])
 function platformName(value) {
   return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'
 }

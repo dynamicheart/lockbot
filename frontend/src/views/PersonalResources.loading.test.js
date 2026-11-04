@@ -82,3 +82,18 @@ it('ends resource loading and shows an error when a reporter request fails', asy
   expect(state.resourceLoading).toBe(false)
   expect(state.resourcesReady).toBe(false)
 })
+it('links to the proven service skill and rejects unsafe or credential-bearing URLs', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response({ authenticated: false, identities: [] }))
+  )
+  const state = mount()
+  await flush()
+  expect(state.skillLink('https://service.example.invalid/path')).toEqual({
+    service: 'service.example.invalid',
+    url: 'https://service.example.invalid/api/agent-skill/SKILL.md',
+  })
+  for (const issuer of ['javascript:alert(1)', 'https://user:secret@example.invalid', 'invalid']) {
+    expect(state.skillLink(issuer)).toBeNull()
+  }
+})

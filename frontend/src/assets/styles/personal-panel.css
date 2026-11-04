@@ -512,3 +512,24 @@
     grid-template-columns: 80px minmax(0, 1fr);
   }
 }
+
+.personal-panel :deep(.connection-skill),
+.personal-panel :deep(.connection-skill-links a) {
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: none;
+}
+.personal-panel :deep(.connection-skill) {
+  display: inline-block;
+  margin-top: 10px;
+}
+.personal-panel :deep(.connection-skill-links) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 12px 0;
+}
+.personal-panel :deep(.connection-skill:hover),
+.personal-panel :deep(.connection-skill-links a:hover) {
+  text-decoration: underline;
+}
