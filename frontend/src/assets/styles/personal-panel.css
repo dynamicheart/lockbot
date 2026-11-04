@@ -533,3 +533,21 @@
 .personal-panel :deep(.connection-skill-links a:hover) {
   text-decoration: underline;
 }
+
+.personal-panel :deep(.account-menu) {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.personal-panel :deep(.account-menu .el-button) {
+  gap: 6px;
+}
+@media (max-width: 540px) {
+  .personal-panel :deep(.account-label) {
+    display: none;
+  }
+  .personal-panel :deep(.nav) {
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}

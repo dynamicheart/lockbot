@@ -92,9 +92,6 @@
         </el-form-item>
       </el-form>
 
-      <a v-if="personalPanelUrl" :href="personalPanelUrl" class="personal-resource-entry">
-        <el-icon><Monitor /></el-icon>{{ $t('nav.myResources') }}<el-icon><ArrowRight /></el-icon>
-      </a>
       <!-- Hint -->
       <p v-if="isDemoMode" class="register-hint">
         {{ $t('auth.noAccount') }}
@@ -104,6 +101,10 @@
         {{ $t('auth.registerDisabled') }}
         <span v-if="adminContact" class="admin-contact"> {{ adminContact }}</span>
       </p>
+      <a v-if="personalPanelUrl" :href="personalPanelUrl" class="personal-resource-entry">
+        <el-icon><Monitor /></el-icon><span>{{ $t('nav.myResources') }}</span>
+        <el-icon><ArrowRight /></el-icon>
+      </a>
       <p v-if="!isDemoMode" class="register-hint">
         <a :href="demoUrl" target="_blank" class="link">{{ $t('auth.tryDemo') }}</a>
       </p>
@@ -335,17 +336,20 @@ async function handleLogin() {
 .personal-resource-entry {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
+  padding-inline: 14px;
   min-height: 40px;
   margin-top: 16px;
-  border: 1px solid var(--el-color-primary-light-7);
+  border: 1px solid var(--el-border-color);
   border-radius: 6px;
-  background: var(--el-color-primary-light-9);
+  background: var(--el-bg-color);
   color: var(--el-color-primary);
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
+}
+.personal-resource-entry span {
+  flex: 1;
 }
 .personal-resource-entry:hover {
   border-color: var(--el-color-primary);

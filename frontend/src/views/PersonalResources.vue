@@ -14,6 +14,17 @@
             {{ item.label }}
           </button>
         </nav>
+        <el-dropdown v-if="session.authenticated" class="account-menu" trigger="click">
+          <el-button text :disabled="busy" aria-label="账号菜单">
+            <el-icon><User /></el-icon><span class="account-label">账号</span>
+            <el-icon><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="run(logout)">退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </header>
     <main class="main" aria-live="polite">
@@ -21,7 +32,6 @@
         <h1>{{ ticket ? '确认登录身份' : title }}</h1>
         <div v-if="session.authenticated" class="actions">
           <el-button :loading="busy" @click="run(refresh)">刷新资源</el-button>
-          <el-button :disabled="busy" @click="run(logout)">退出此浏览器</el-button>
         </div>
       </div>
       <el-alert v-if="error" :title="error" type="warning" :closable="false" show-icon />
@@ -237,6 +247,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { ArrowDown, User } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 
 const tabs = [
