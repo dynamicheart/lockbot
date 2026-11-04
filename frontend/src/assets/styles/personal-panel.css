@@ -440,3 +440,75 @@
 .personal-panel :deep(.el-alert) {
   margin: 14px 0;
 }
+
+.personal-panel :deep(.bar-inner),
+.personal-panel :deep(.main) {
+  max-width: none;
+  padding-inline: clamp(16px, 2.5vw, 40px);
+}
+.personal-panel :deep(.main) {
+  padding-block: 24px;
+}
+.personal-panel :deep(h1) {
+  font-size: 24px;
+  letter-spacing: normal;
+}
+.personal-panel :deep(.connection-heading) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.personal-panel :deep(.connection-heading h2) {
+  font-size: 18px;
+}
+.personal-panel :deep(.connection-groups) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+}
+.personal-panel :deep(.connection-help summary),
+.personal-panel :deep(.connection-details summary) {
+  color: var(--muted);
+  font-size: 13px;
+}
+.personal-panel :deep(.connection-details) {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.personal-panel :deep(.connection-details dl) {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 10px 16px;
+  margin: 16px 0 0;
+  font-size: 13px;
+}
+.personal-panel :deep(.connection-details dt) {
+  color: var(--muted);
+}
+.personal-panel :deep(.connection-details dd) {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.personal-panel :deep(.connection-diagnostics) {
+  margin-top: 16px;
+}
+.personal-panel :deep(.resource-loading) {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.personal-panel :deep(.session-loading .scope) {
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .personal-panel :deep(.page-heading) {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .personal-panel :deep(.connection-details dl) {
+    grid-template-columns: 80px minmax(0, 1fr);
+  }
+}

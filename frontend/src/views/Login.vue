@@ -92,9 +92,9 @@
         </el-form-item>
       </el-form>
 
-      <p v-if="personalPanelUrl" class="register-hint">
-        <a :href="personalPanelUrl" class="link">{{ $t('nav.myResources') }}</a>
-      </p>
+      <a v-if="personalPanelUrl" :href="personalPanelUrl" class="personal-resource-entry">
+        <el-icon><Monitor /></el-icon>{{ $t('nav.myResources') }}<el-icon><ArrowRight /></el-icon>
+      </a>
       <!-- Hint -->
       <p v-if="isDemoMode" class="register-hint">
         {{ $t('auth.noAccount') }}
@@ -138,7 +138,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { User, Lock, ArrowRight } from '@element-plus/icons-vue'
+import { User, Lock, ArrowRight, Monitor } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { isDemoMode } from '../utils/demoMode'
@@ -331,5 +331,27 @@ async function handleLogin() {
 .saved-account-arrow {
   color: var(--lb-text-muted);
   font-size: 14px;
+}
+.personal-resource-entry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  margin-top: 16px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 6px;
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.personal-resource-entry:hover {
+  border-color: var(--el-color-primary);
+}
+.personal-resource-entry:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 </style>

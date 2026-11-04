@@ -25,7 +25,10 @@
         </div>
       </div>
       <el-alert v-if="error" :title="error" type="warning" :closable="false" show-icon />
-      <p v-if="!initialized">正在读取会话…</p>
+      <section v-if="!initialized" class="panel session-loading" role="status">
+        <el-skeleton :rows="2" animated />
+        <p class="scope">正在验证登录状态…</p>
+      </section>
       <section v-else-if="ticket" class="panel">
         <p v-if="session.authenticated">
           当前浏览器已登录 {{ session.identities.map(identityLabel).join('、') }}。
@@ -59,6 +62,9 @@
         </p>
       </section>
       <template v-else-if="tab === 'mine'">
+        <p v-if="resourceLoading" class="resource-loading" role="status">
+          正在更新资源，各群数据以实际返回为准…
+        </p>
         <div class="stats">
           <div v-for="item in statistics" :key="item.label" class="stat">
             <div class="stat-label">{{ item.label }}</div>
@@ -144,20 +150,51 @@
         </p>
       </div>
       <template v-else>
-        <p class="scope">
-          连接来自已确认的 IM 绑定。添加其他群时，在持有该群绑定的 Agent
-          中说“打开我的资源台”，再在当前浏览器确认新增授权。
-        </p>
-        <section v-for="(identity, index) in session.identities" :key="index" class="group-card">
-          <h2>{{ identityLabel(identity) }}</h2>
-          <p class="group-meta">
-            已授权资源群 {{ identityGroups(identity).join('、') || '尚未读取' }}
+        <details class="connection-help">
+          <summary>如何添加资源群</summary>
+          <p class="scope">
+            在持有目标群绑定的 Agent 中说“打开我的资源台”，打开链接后确认添加到当前浏览器。
           </p>
-          <details>
-            <summary>身份详情</summary>
-            <p v-for="[label, key] in identityFields" :key="key" class="group-meta">
-              {{ label }} {{ key === 'scopes' ? identity.scopes?.join('、') : identity[key] }}
-            </p>
+        </details>
+        <section
+          v-for="(identity, index) in session.identities"
+          :key="index"
+          class="group-card connection-card"
+        >
+          <div class="connection-heading">
+            <h2>{{ identity.subject }}</h2>
+            <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
+          </div>
+          <div class="connection-groups">
+            <span class="group-meta">已授权资源群</span>
+            <el-tag
+              v-for="name in identityGroups(identity)"
+              :key="name"
+              type="info"
+              effect="plain"
+              >{{ name }}</el-tag
+            >
+            <span v-if="!identityGroups(identity).length" class="group-meta">{{
+              resourceLoading ? '正在读取…' : '暂无资源群信息'
+            }}</span>
+          </div>
+          <details class="connection-details">
+            <summary>连接详情</summary>
+            <dl>
+              <dt>服务地址</dt>
+              <dd>{{ identity.issuer }}</dd>
+              <dt>账号</dt>
+              <dd>{{ identity.subject }}</dd>
+            </dl>
+            <details class="connection-diagnostics">
+              <summary>诊断信息</summary>
+              <dl>
+                <dt>身份命名空间</dt>
+                <dd>{{ identity.realm }}</dd>
+                <dt>授权范围</dt>
+                <dd>{{ identity.scopes?.join('、') }}</dd>
+              </dl>
+            </details>
           </details>
         </section>
         <p
@@ -184,13 +221,6 @@ const tabs = [
   { id: 'groups', label: '资源群' },
   { id: 'connections', label: '我的连接' },
 ]
-const identityFields = [
-  ['身份服务', 'issuer'],
-  ['平台', 'platform'],
-  ['命名空间', 'realm'],
-  ['账号标识', 'subject'],
-  ['授权范围', 'scopes'],
-]
 const tab = ref('mine')
 const title = computed(() => tabs.find((item) => item.id === tab.value).label)
 const session = ref({ authenticated: false, identities: [] })
@@ -201,6 +231,7 @@ const error = ref('')
 const busy = ref(false)
 const initialized = ref(false)
 const resourcesReady = ref(false)
+const resourceLoading = ref(false)
 const knownGroups = computed(() => groups.value.filter(fresh))
 const pendingGroups = computed(() => groups.value.length - knownGroups.value.length)
 const allocationSections = computed(() => {
@@ -252,8 +283,11 @@ function entries(group) {
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
 }
+function platformName(value) {
+  return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'
+}
 function identityLabel(identity) {
-  return `${identity?.platform || ''} · ${identity?.subject || ''}`
+  return `${platformName(identity?.platform)} · ${identity?.subject || ''}`
 }
 function identityGroups(identity) {
   return groups.value
@@ -310,11 +344,18 @@ async function refresh() {
   groups.value = []
   resourcesReady.value = false
   session.value = await api('session')
+  // The session is ready independently of slow resource reporters.
+  initialized.value = true
   if (session.value.authenticated) {
-    const data = await api('resources')
-    if (!Array.isArray(data.groups)) throw new Error('资源响应无效，请稍后刷新。')
-    groups.value = data.groups
-    resourcesReady.value = true
+    resourceLoading.value = true
+    try {
+      const data = await api('resources')
+      if (!Array.isArray(data.groups)) throw new Error('资源响应无效，请稍后刷新。')
+      groups.value = data.groups
+      resourcesReady.value = true
+    } finally {
+      resourceLoading.value = false
+    }
   }
 }
 async function login(mode) {

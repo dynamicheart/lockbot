@@ -13,6 +13,14 @@
         <el-icon class="help-icon"><QuestionFilled /></el-icon>
       </el-tooltip>
     </div>
+    <el-alert
+      v-if="!applicationsLoading && !applications.length && !error"
+      class="migration-prerequisite"
+      :title="$t('migration.noApplications')"
+      type="info"
+      :closable="false"
+      show-icon
+    />
     <el-form label-position="top" @submit.prevent="check">
       <el-form-item :label="$t('feishu.application')">
         <el-select
@@ -38,17 +46,14 @@
         </template>
         <el-input v-model="chatId" placeholder="oc_…" :disabled="denied || !authorized" />
       </el-form-item>
-      <el-button type="primary" :disabled="!canCheck" :loading="checking" @click="check">
-        {{ $t('migration.check') }}
-      </el-button>
     </el-form>
     <p v-if="error" class="migration-error" role="alert">{{ $t(error) }}</p>
-    <p v-else-if="!applicationsLoading && !applications.length" class="migration-note">
-      {{ $t('migration.noApplications') }}
-    </p>
     <BotMigrationPreflightResult v-if="result" :result="result" />
     <template #footer>
       <el-button @click="$emit('close')">{{ $t('common.close') }}</el-button>
+      <el-button type="primary" :disabled="!canCheck" :loading="checking" @click="check">
+        {{ $t('migration.check') }}
+      </el-button>
     </template>
   </el-dialog>
 </template>
@@ -264,6 +269,9 @@ onBeforeUnmount(() => scope.dispose())
 }
 .el-select {
   width: 100%;
+}
+.migration-prerequisite {
+  margin-bottom: 20px;
 }
 .migration-error {
   color: var(--el-color-danger);

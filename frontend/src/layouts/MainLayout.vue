@@ -218,9 +218,9 @@
               </svg>
             </a>
           </el-tooltip>
-          <a v-if="personalPanelEnabled" href="/#/me" class="github-link">{{
-            $t('nav.myResources')
-          }}</a>
+          <a v-if="personalPanelEnabled" href="/#/me" class="personal-resource-entry">
+            <el-icon><Monitor /></el-icon>{{ $t('nav.myResources') }}
+          </a>
           <!-- Desktop: Theme toggle -->
           <el-tooltip :content="themeLabel" class="desktop-only">
             <el-button text circle @click="cycleTheme">
@@ -747,5 +747,26 @@ function handleRemoveAccount(username) {
 }
 .mobile-drawer :deep(.el-menu) {
   border-right: none;
+}
+.personal-resource-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 6px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.personal-resource-entry:hover {
+  border-color: var(--el-color-primary);
+}
+.personal-resource-entry:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 </style>
