@@ -214,8 +214,11 @@ def test_locked_user_cannot_book_again(bot):
     assert "🗓️【排队成功】" in reply2["message"]["body"][0]["content"], "Other users should be able to book"
 
 
-def test_current_usage_display(bot):
-    """Test current usage display."""
+def test_current_usage_display(bot, monkeypatch):
+    """Test current usage display at a stable lease duration boundary."""
+    # Lease start times use integer seconds. Advancing across a second while
+    # formatting a one-hour lease can legitimately select the minutes format.
+    monkeypatch.setattr(time, "time", lambda: 1_700_000_000.0)
     bot.state.bot_state = {"test": {"status": "idle", "current_users": [], "booking_list": []}}
 
     output = bot._current_usage()
