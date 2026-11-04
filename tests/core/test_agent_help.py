@@ -58,7 +58,7 @@ def test_personal_panel_promotion_only_on_explicit_help(tmp_path):
         }
     )
     reply = bot.adapter.extract_reply_text(bot.print_help("alice"))
-    assert "我的资源" in reply and "自己的 Agent 私聊" in reply
+    assert "我的资源" in reply and "已完成 IM 绑定的 Agent" in reply
     assert "https://example.test/#/me" in reply
     assert "https://example.test/#/me" not in bot.adapter.extract_reply_text(bot.print_help("alice", "invalid"))
     bot.config.set_val("_PERSONAL_PANEL_URL", lambda: "")

@@ -49,8 +49,14 @@
         </template>
       </section>
       <section v-else-if="!session.authenticated" class="panel">
-        <p>首次使用或换设备时，在你自己的 Agent 私聊中说“打开我的资源台”，再用本浏览器确认登录。</p>
-        <p class="scope">登录后收藏此固定地址，下次直接打开即可。无需提供群 Key 或网页验证码。</p>
+        <p>
+          首次使用或换设备时，在你已完成 IM 绑定的 Agent 中说“打开我的资源台”。本机 CLI 和服务器上的
+          Agent 均可使用，取得链接后在此浏览器打开并确认登录。
+        </p>
+        <p class="scope">
+          登录后，当前浏览器会保留登录状态。收藏本页，下次直接打开；会话失效时再通过已绑定的 Agent
+          登录。
+        </p>
       </section>
       <template v-else-if="tab === 'mine'">
         <div class="stats">
@@ -139,8 +145,8 @@
       </div>
       <template v-else>
         <p class="scope">
-          连接由你的 IM 绑定授权。添加群时，在自己的 Agent
-          私聊中说“打开我的资源台”，在本浏览器确认新增授权。
+          连接来自已确认的 IM 绑定。添加其他群时，在持有该群绑定的 Agent
+          中说“打开我的资源台”，再在当前浏览器确认新增授权。
         </p>
         <section v-for="(identity, index) in session.identities" :key="index" class="group-card">
           <h2>{{ identityLabel(identity) }}</h2>
@@ -283,7 +289,7 @@ async function api(path, body) {
   if (!response.ok)
     throw new Error(
       response.status === 410
-        ? '登录链接已过期或已使用，请在自己的 Agent 私聊中重新获取。'
+        ? '登录链接已过期或已使用，请回到已绑定的 Agent 重新获取。'
         : '无法更新资源或登录状态，请稍后刷新；绑定也可能已失效。'
     )
   return response.json()
