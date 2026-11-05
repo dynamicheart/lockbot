@@ -101,6 +101,10 @@
         {{ $t('auth.registerDisabled') }}
         <span v-if="adminContact" class="admin-contact"> {{ adminContact }}</span>
       </p>
+      <a v-if="personalPanelUrl" :href="personalPanelUrl" class="personal-resource-entry">
+        <el-icon><Monitor /></el-icon><span>{{ $t('nav.myResources') }}</span>
+        <el-icon><ArrowRight /></el-icon>
+      </a>
       <p v-if="!isDemoMode" class="register-hint">
         <a :href="demoUrl" target="_blank" class="link">{{ $t('auth.tryDemo') }}</a>
       </p>
@@ -135,7 +139,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { User, Lock, ArrowRight } from '@element-plus/icons-vue'
+import { User, Lock, ArrowRight, Monitor } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { isDemoMode } from '../utils/demoMode'
@@ -161,6 +165,7 @@ const savedAccounts = computed(() =>
   authStore.getSavedAccounts().filter((a) => isDemoMode || !a.token?.startsWith('demo:'))
 )
 const adminContact = ref('')
+const personalPanelUrl = ref('')
 const demoUrl = import.meta.env.VITE_DEMO_URL || 'https://dynamicheart.github.io/lockbot/'
 
 async function fetchSettings() {
@@ -169,6 +174,9 @@ async function fetchSettings() {
     const list = await res.json()
     const contact = list.find((s) => s.key === 'admin_contact')
     if (contact?.value) adminContact.value = contact.value
+    personalPanelUrl.value = list.some((s) => s.key === 'personal_panel_url' && s.value === '/#/me')
+      ? '/#/me'
+      : ''
   } catch {
     /* ignore */
   }
@@ -324,5 +332,30 @@ async function handleLogin() {
 .saved-account-arrow {
   color: var(--lb-text-muted);
   font-size: 14px;
+}
+.personal-resource-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 14px;
+  min-height: 40px;
+  margin-top: 16px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 6px;
+  background: var(--el-bg-color);
+  color: var(--el-color-primary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+.personal-resource-entry span {
+  flex: 1;
+}
+.personal-resource-entry:hover {
+  border-color: var(--el-color-primary);
+}
+.personal-resource-entry:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 </style>

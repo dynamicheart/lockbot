@@ -1,6 +1,12 @@
 """Chinese (zh) message translations for lockbot."""
 
 MESSAGES = {
+    "help.personal_panel_short": "我的资源 ",
+    "help.personal_panel": "我的资源 · 查看本人占用与预约 ",
+    "help.personal_panel_hint": (
+        "首次使用或换设备：在你已完成 IM 绑定的 Agent 中说“打开我的资源台”（本机 CLI 或服务器均可），"
+        "用浏览器确认登录后收藏此地址。"
+    ),
     "notify.api_overflow": "另有 {count} 条操作通知因积压未包含，请管理员查看操作记录。",
     "alert.early_no_renewal": "当前禁止续期，请按时完成任务并释放资源；后续需求请重新排队。\n\n",
     "help.rule1_no_renewal": "    规则1: 默认时长{default_duration}，禁止续期；领取时长不得超过原预约时长\n",

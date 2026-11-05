@@ -218,6 +218,9 @@
               </svg>
             </a>
           </el-tooltip>
+          <a v-if="personalPanelEnabled" href="/#/me" class="personal-resource-entry">
+            <el-icon><Monitor /></el-icon>{{ $t('nav.myResources') }}
+          </a>
           <!-- Desktop: Theme toggle -->
           <el-tooltip :content="themeLabel" class="desktop-only">
             <el-button text circle @click="cycleTheme">
@@ -362,7 +365,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Close, Plus, Operation, Link } from '@element-plus/icons-vue'
@@ -372,6 +375,19 @@ import { setLocale, getLocale } from '../i18n'
 import DemoChat from '../components/DemoChat.vue'
 import { LS_KEYS } from '../utils/demoMode'
 import { isDemoMode } from '../utils/demoMode'
+
+const personalPanelEnabled = ref(false)
+onMounted(async () => {
+  try {
+    const response = await fetch('/api/settings')
+    const settings = await response.json()
+    personalPanelEnabled.value = settings.some(
+      (s) => s.key === 'personal_panel_url' && s.value === '/#/me'
+    )
+  } catch {
+    /* Optional feature. */
+  }
+})
 
 const THEME_KEY = 'lockbot_theme'
 const authStore = useAuthStore()
@@ -731,5 +747,26 @@ function handleRemoveAccount(username) {
 }
 .mobile-drawer :deep(.el-menu) {
   border-right: none;
+}
+.personal-resource-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--el-color-primary-light-7);
+  border-radius: 6px;
+  color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.personal-resource-entry:hover {
+  border-color: var(--el-color-primary);
+}
+.personal-resource-entry:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
 }
 </style>

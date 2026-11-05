@@ -46,3 +46,20 @@ def test_agent_section_and_footer_link_order(tmp_path):
     assert text.index("8. Agent:") < text.index("ID: 4") < text.index("GitHub:") < text.index("Agent 使用：")
     assert "n1\n\n8. Agent" not in text
     assert "Agent 自动申请资源：" not in text
+
+
+def test_personal_panel_promotion_only_on_explicit_help(tmp_path):
+    bot = NodeBot(
+        config_dict={
+            "BOT_ID": "panel-help",
+            "DATA_DIR": str(tmp_path),
+            "CLUSTER_CONFIGS": ["n1"],
+            "_PERSONAL_PANEL_URL": lambda: "https://example.test/#/me",
+        }
+    )
+    reply = bot.adapter.extract_reply_text(bot.print_help("alice"))
+    assert "我的资源" in reply and "已完成 IM 绑定的 Agent" in reply
+    assert "https://example.test/#/me" in reply
+    assert "https://example.test/#/me" not in bot.adapter.extract_reply_text(bot.print_help("alice", "invalid"))
+    bot.config.set_val("_PERSONAL_PANEL_URL", lambda: "")
+    assert "https://example.test/#/me" not in bot.adapter.extract_reply_text(bot.print_help("alice"))

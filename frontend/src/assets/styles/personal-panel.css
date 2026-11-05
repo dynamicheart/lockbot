@@ -1,0 +1,553 @@
+.personal-panel {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+  color: var(--lb-text-primary, #303133);
+  background: var(--lb-bg-card, #fff);
+  --muted: var(--lb-text-regular, #606266);
+  --line: var(--lb-border-color, #e4e7ed);
+  --accent: var(--lb-color-primary, #409eff);
+}
+.personal-panel :deep(*) {
+  box-sizing: border-box;
+}
+.personal-panel {
+  margin: 0;
+}
+.personal-panel :deep(button),
+.personal-panel :deep(input),
+.personal-panel :deep(select) {
+  font: inherit;
+}
+.personal-panel :deep(button),
+.personal-panel :deep(summary) {
+  cursor: pointer;
+}
+.personal-panel :deep(button:focus-visible),
+.personal-panel :deep(summary:focus-visible),
+.personal-panel :deep(input:focus-visible),
+.personal-panel :deep(select:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.personal-panel :deep(.bar) {
+  border-bottom: 1px solid var(--line);
+}
+.personal-panel :deep(.bar-inner),
+.personal-panel :deep(.main) {
+  max-width: 1180px;
+  margin: auto;
+  padding-inline: clamp(16px, 4vw, 52px);
+}
+.personal-panel :deep(.bar-inner),
+.personal-panel :deep(.nav),
+.personal-panel :deep(.page-heading),
+.personal-panel :deep(.actions),
+.personal-panel :deep(.panel-title),
+.personal-panel :deep(.manage-actions) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.personal-panel :deep(.bar-inner) {
+  min-height: 54px;
+  gap: clamp(12px, 3vw, 38px);
+}
+.personal-panel :deep(.wordmark) {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.personal-panel :deep(.nav) {
+  gap: clamp(10px, 2vw, 26px);
+}
+.personal-panel :deep(.nav button),
+.personal-panel :deep(.text-button) {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  padding: 10px 0;
+}
+.personal-panel :deep(.nav button) {
+  border-bottom: 2px solid transparent;
+}
+.personal-panel :deep(.nav .active) {
+  color: var(--accent);
+  border-bottom-color: currentColor;
+  font-weight: 650;
+}
+.personal-panel :deep(.text-button) {
+  margin-left: auto;
+}
+.personal-panel :deep(.main) {
+  padding-block: clamp(22px, 4vw, 48px);
+}
+.personal-panel :deep(.page-heading) {
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+.personal-panel :deep(h1),
+.personal-panel :deep(h2),
+.personal-panel :deep(h3),
+.personal-panel :deep(p) {
+  margin: 0;
+}
+.personal-panel :deep(h1) {
+  font-size: clamp(24px, 3vw, 32px);
+  letter-spacing: -0.04em;
+}
+.personal-panel :deep(p),
+.personal-panel :deep(td) {
+  line-height: 1.6;
+}
+.personal-panel :deep(.btn) {
+  background: var(--lb-bg-card, #fff);
+  color: inherit;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 13px;
+  font-size: 13px;
+}
+.personal-panel :deep(.btn:hover) {
+  background: var(--lb-bg-hover, #f0f6ff);
+}
+.personal-panel :deep(.btn.primary) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+.personal-panel :deep(.btn.danger),
+.personal-panel :deep(.form-error) {
+  color: #a03335;
+}
+.personal-panel :deep(.btn:disabled) {
+  opacity: 0.55;
+}
+.personal-panel :deep(.btn.small) {
+  padding: 5px 11px;
+}
+.personal-panel :deep(.stats) {
+  display: flex;
+  gap: clamp(25px, 7vw, 88px);
+}
+.personal-panel :deep(.stat-label),
+.personal-panel :deep(.scope),
+.personal-panel :deep(.group-meta),
+.personal-panel :deep(.rules),
+.personal-panel :deep(.connection-mobile p),
+.personal-panel :deep(small),
+.personal-panel :deep(.empty p),
+.personal-panel :deep(.pair-card p),
+.personal-panel :deep(dialog p) {
+  color: var(--muted);
+  font-size: 13px;
+}
+.personal-panel :deep(.stat-value) {
+  font-variant-numeric: tabular-nums;
+  font-size: 36px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+.personal-panel :deep(.stat-value span) {
+  font-size: 14px;
+  font-weight: 400;
+  margin-left: 5px;
+}
+.personal-panel :deep(.scope) {
+  margin: 13px 0 28px;
+}
+.personal-panel :deep(.notice) {
+  margin: 14px 0;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+.personal-panel :deep(.warning),
+.personal-panel :deep(.badge.warn) {
+  background: #fff6df;
+  color: #785314;
+}
+.personal-panel :deep(.panel),
+.personal-panel :deep(.group-card) {
+  border-top: 1px solid var(--line);
+  padding-block: 18px;
+}
+.personal-panel :deep(.panel-head) {
+  margin-bottom: 12px;
+}
+.personal-panel :deep(.panel-title),
+.personal-panel :deep(.group-card h2) {
+  font-size: 16px;
+  font-weight: 650;
+}
+.personal-panel :deep(.count) {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--muted);
+}
+.personal-panel :deep(.empty) {
+  padding: 12px 0 16px;
+}
+.personal-panel :deep(.empty h2) {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 14px;
+}
+.personal-panel :deep(.empty p),
+.personal-panel :deep(.empty button) {
+  margin-top: 10px;
+}
+.personal-panel :deep(.table-scroll) {
+  overflow-x: auto;
+}
+.personal-panel :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.personal-panel :deep(th),
+.personal-panel :deep(td) {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.personal-panel :deep(th) {
+  color: var(--muted);
+  background: var(--lb-bg-page, #f5f7fa);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.personal-panel :deep(td) {
+  overflow-wrap: anywhere;
+}
+.personal-panel :deep(td small) {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+.personal-panel :deep(.badge) {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: var(--lb-color-success, #67c23a);
+  background: var(--lb-bg-hover, #f0f6ff);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.personal-panel :deep(.badge.neutral) {
+  background: #f1f3f2;
+  color: var(--muted);
+}
+.personal-panel :deep(.badge.error) {
+  background: #fff0ef;
+  color: #a03335;
+}
+.personal-panel :deep(.stale) {
+  color: var(--muted);
+}
+.personal-panel :deep(.group-grid) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 8px 32px;
+}
+.personal-panel :deep(.group-card .page-heading) {
+  margin: 0 0 6px;
+}
+.personal-panel :deep(.group-meta),
+.personal-panel :deep(.rules dd) {
+  overflow-wrap: anywhere;
+}
+.personal-panel :deep(.group-metrics) {
+  display: flex;
+  gap: 24px;
+  margin: 16px 0;
+}
+.personal-panel :deep(.group-metrics strong) {
+  display: block;
+  font-size: 22px;
+}
+.personal-panel :deep(.group-metrics span) {
+  color: var(--muted);
+  font-size: 12px;
+}
+.personal-panel :deep(.rules) {
+  margin-top: 5px;
+}
+.personal-panel :deep(.rules dl) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 4px 10px;
+}
+.personal-panel :deep(.rules dd) {
+  margin: 0;
+}
+.personal-panel :deep(.pair-wrap) {
+  min-height: 90vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.personal-panel :deep(.pair-card) {
+  width: min(100%, 360px);
+}
+.personal-panel :deep(.pair-card p),
+.personal-panel :deep(dialog p) {
+  margin: 8px 0 20px;
+}
+.personal-panel :deep(.pair-card .btn) {
+  width: 100%;
+}
+.personal-panel :deep(.field) {
+  margin: 16px 0;
+}
+.personal-panel :deep(label) {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 5px;
+}
+.personal-panel :deep(input),
+.personal-panel :deep(select) {
+  width: 100%;
+  border: 1px solid #aebbb4;
+  border-radius: 5px;
+  padding: 9px;
+  background: var(--lb-bg-card, #fff);
+  color: inherit;
+}
+.personal-panel :deep(.field small) {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+}
+.personal-panel :deep(.form-error) {
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.personal-panel :deep(dialog) {
+  width: min(440px, calc(100% - 32px));
+  max-height: 85vh;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 24px;
+  color: inherit;
+}
+.personal-panel :deep(dialog h2) {
+  font-size: 19px;
+  padding-right: 20px;
+}
+.personal-panel :deep(dialog::backdrop) {
+  background: #20362d55;
+}
+.personal-panel :deep(.dialog-close) {
+  float: right;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+}
+.personal-panel :deep(.actions),
+.personal-panel :deep(.manage-actions) {
+  flex-wrap: wrap;
+}
+.personal-panel :deep(#toast) {
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: white;
+  background: #26382f;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.personal-panel :deep(#toast.visible) {
+  display: block;
+}
+.personal-panel :deep(.loading),
+.personal-panel :deep(.error-page) {
+  margin: 12vh auto;
+  max-width: 600px;
+  padding: 24px;
+}
+.personal-panel :deep(.connection-mobile) {
+  display: none;
+}
+@media (max-width: 700px) {
+  .personal-panel :deep(.bar-inner) {
+    gap: 14px;
+  }
+  .personal-panel :deep(.nav button),
+  .personal-panel :deep(.text-button) {
+    min-height: 44px;
+  }
+  .personal-panel :deep(.connections-table) {
+    display: none;
+  }
+  .personal-panel :deep(.connection-mobile) {
+    display: block;
+    border-top: 1px solid var(--line);
+    padding: 14px 0;
+  }
+  .personal-panel :deep(.connection-mobile h3) {
+    display: inline-block;
+    margin-right: 8px;
+    font-size: 15px;
+  }
+  .personal-panel :deep(.connection-mobile p) {
+    margin: 4px 0;
+    overflow-wrap: anywhere;
+  }
+  .personal-panel :deep(.connection-mobile button) {
+    margin-top: 6px;
+  }
+  .personal-panel :deep(.table-scroll table) {
+    min-width: 660px;
+  }
+}
+.personal-panel :deep(.bar-inner > .scope) {
+  margin: 0;
+}
+.personal-panel :deep(.field input) {
+  width: auto;
+}
+.personal-panel {
+  background: var(--lb-bg-page, #f5f7fa);
+  min-height: 100vh;
+}
+.personal-panel :deep(.bar) {
+  background: var(--lb-bg-header, #fff);
+  box-shadow: var(--lb-shadow-header, 0 1px 4px #0001);
+}
+.personal-panel :deep(.wordmark) {
+  color: var(--lb-color-primary, #409eff);
+  text-decoration: none;
+}
+.personal-panel :deep(.panel),
+.personal-panel :deep(.group-card) {
+  background: var(--lb-bg-card, #fff);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 16px 0;
+}
+.personal-panel :deep(.stats) {
+  background: var(--lb-bg-card, #fff);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.personal-panel :deep(.allocation-table) {
+  min-width: 880px;
+}
+.personal-panel :deep(.el-alert) {
+  margin: 14px 0;
+}
+
+.personal-panel :deep(.bar-inner),
+.personal-panel :deep(.main) {
+  max-width: none;
+  padding-inline: clamp(16px, 2.5vw, 40px);
+}
+.personal-panel :deep(.main) {
+  padding-block: 24px;
+}
+.personal-panel :deep(h1) {
+  font-size: 24px;
+  letter-spacing: normal;
+}
+.personal-panel :deep(.connection-heading) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.personal-panel :deep(.connection-heading h2) {
+  font-size: 18px;
+}
+.personal-panel :deep(.connection-groups) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+}
+.personal-panel :deep(.connection-help summary),
+.personal-panel :deep(.connection-details summary) {
+  color: var(--muted);
+  font-size: 13px;
+}
+.personal-panel :deep(.connection-details) {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.personal-panel :deep(.connection-details dl) {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 10px 16px;
+  margin: 16px 0 0;
+  font-size: 13px;
+}
+.personal-panel :deep(.connection-details dt) {
+  color: var(--muted);
+}
+.personal-panel :deep(.connection-details dd) {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.personal-panel :deep(.connection-diagnostics) {
+  margin-top: 16px;
+}
+.personal-panel :deep(.resource-loading) {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.personal-panel :deep(.session-loading .scope) {
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .personal-panel :deep(.page-heading) {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .personal-panel :deep(.connection-details dl) {
+    grid-template-columns: 80px minmax(0, 1fr);
+  }
+}
+
+.personal-panel :deep(.connection-skill),
+.personal-panel :deep(.connection-skill-links a) {
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: none;
+}
+.personal-panel :deep(.connection-skill) {
+  display: inline-block;
+  margin-top: 10px;
+}
+.personal-panel :deep(.connection-skill-links) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 12px 0;
+}
+.personal-panel :deep(.connection-skill:hover),
+.personal-panel :deep(.connection-skill-links a:hover) {
+  text-decoration: underline;
+}
+
+.personal-panel :deep(.account-menu) {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.personal-panel :deep(.account-menu .el-button) {
+  gap: 6px;
+}
+@media (max-width: 540px) {
+  .personal-panel :deep(.account-label) {
+    display: none;
+  }
+  .personal-panel :deep(.nav) {
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+}

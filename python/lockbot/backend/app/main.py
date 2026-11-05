@@ -850,6 +850,10 @@ def create_app() -> FastAPI:
 <script>SwaggerUIBundle({url:"/api/public-openapi.json",dom_id:"#swagger-ui",defaultModelsExpandDepth:-1})</script>
 </body></html>""")
 
+    from lockbot.backend.app.personal_panel.setup import mount_if_configured
+
+    mount_if_configured(app)
+
     # Serve frontend static files (built by vite)
     # In Docker: /app/frontend/dist — locally: project_root/frontend/dist
     _frontend_dist = os.environ.get("FRONTEND_DIST", "")

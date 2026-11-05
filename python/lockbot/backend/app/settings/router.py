@@ -72,7 +72,12 @@ def get_all_settings(db: Session) -> dict[str, str | None]:
 @router.get("/api/settings", response_model=list[SettingOut])
 def public_settings(db: Session = Depends(get_db)):
     """Return public-facing settings (no auth required)."""
-    return [SettingOut(key=k, value=_get_setting(db, k)) for k in sorted(PUBLIC_KEYS)]
+    from lockbot.backend.app.personal_panel.setup import panel_home
+
+    settings = [SettingOut(key=k, value=_get_setting(db, k)) for k in sorted(PUBLIC_KEYS)]
+    if panel_home():
+        settings.append(SettingOut(key="personal_panel_url", value="/#/me"))
+    return settings
 
 
 class PlatformStats(BaseModel):

@@ -543,6 +543,7 @@ export default {
 
   // === Sidebar / Nav ===
   nav: {
+    myResources: '我的资源',
     dashboard: '仪表盘',
     myBots: '我的机器人',
     createBot: '创建机器人',

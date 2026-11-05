@@ -5,6 +5,7 @@ from lockbot.core.base_bot import BaseLockBot
 from lockbot.core.device_bot import DeviceBot
 from lockbot.core.node_bot import NodeBot
 from lockbot.core.queue_bot import QueueBot
+from lockbot.core.queue_device_bot import QueueDeviceBot
 
 
 @pytest.fixture
@@ -201,3 +202,26 @@ def test_unrelated_settings_and_toggle_preserve_saved_localized_prefixes(client,
         for key, value in prefixes.items():
             assert rows[key] == value
             assert BaseLockBot._get_site_value(key) == value
+
+
+@pytest.mark.parametrize("bot_type", [NodeBot, DeviceBot, QueueBot, QueueDeviceBot])
+@pytest.mark.parametrize("platform", ["Infoflow", "Feishu"])
+def test_success_promotes_fixed_personal_home_with_existing_toggle(bot_type, platform, tmp_path, monkeypatch):
+    home = "https://example.test/#/me"
+    bot = bot_type(
+        config_dict={
+            "DATA_DIR": str(tmp_path),
+            "CLUSTER_CONFIGS": ["n1"],
+            "_AGENT_SKILL_URL": lambda: "https://example.test/api/agent-skill/SKILL.md",
+            "_PERSONAL_PANEL_URL": lambda: home,
+            "PLATFORM": platform,
+        }
+    )
+    monkeypatch.setattr(bot, "_get_site_value", lambda key: "true" if key == "agent_promotion_enabled" else "")
+    monkeypatch.setattr(bot, "_current_usage", lambda key: "n1 alice")
+    reply = bot.adapter.build_reply(bot._msg_with_usage("success.resource_locked"), ["alice"])
+    assert home in bot.adapter.extract_reply_text(reply)
+    assert "我的资源" in bot.adapter.extract_reply_text(reply)
+    assert "#ticket=" not in bot.adapter.extract_reply_text(reply)
+    monkeypatch.setattr(bot, "_get_site_value", lambda key: "false")
+    assert home not in bot._msg_with_usage("success.resource_locked")
