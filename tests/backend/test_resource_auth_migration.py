@@ -49,6 +49,16 @@ class TestFreshInstall:
 
 
 class TestUpgrade:
+    def test_recovery_column_preserves_legacy_rows_and_is_idempotent(self, file_engine):
+        with file_engine.begin() as conn:
+            conn.execute(text("CREATE TABLE bots (id INTEGER PRIMARY KEY)"))
+            conn.execute(text("CREATE TABLE resource_bindings (id INTEGER PRIMARY KEY, credential_digest TEXT)"))
+            conn.execute(text("INSERT INTO resource_bindings VALUES (7, 'existing-digest')"))
+        app_main._migrate_identity_boundaries()
+        app_main._migrate_identity_boundaries()
+        with file_engine.connect() as conn:
+            assert conn.execute(text("SELECT * FROM resource_bindings")).one() == (7, "existing-digest", 0, None)
+
     def test_binding_table_is_created_on_a_database_without_it(self, file_engine):
         for name, table in Base.metadata.tables.items():
             if name != "resource_bindings":

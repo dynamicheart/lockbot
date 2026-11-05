@@ -93,7 +93,7 @@ class TestIssuance:
     def test_creation_writes_no_database_row(self, issued, db_session):
         assert db_session.query(ResourceBinding).count() == 0
 
-    def test_creation_records_only_digests_in_the_pending_store(self, issued):
+    def test_creation_keeps_plaintext_out_of_the_pending_store(self, issued):
         record = pending_store.get(issued["binding_id"])
         assert record is not None
         assert record.code_digest == credentials.digest_bind_code(issued["bind_code"])
@@ -324,7 +324,7 @@ def active(issued, bot_id, chat_hook, db_session):
 
 
 class TestCredentialPredicate:
-    def test_only_a_digest_is_persisted(self, active, db_session):
+    def test_plaintext_is_not_persisted(self, active, db_session):
         row = active["row"]
         assert row.credential_digest != active["credential"]
         assert active["credential"] not in row.credential_digest

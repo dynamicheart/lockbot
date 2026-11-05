@@ -6,8 +6,8 @@ unconfirmed binding lives only in the in-process pending store
 (:mod:`lockbot.backend.app.resource_auth.pending`) and is never written to the database,
 so an unauthenticated caller cannot create rows.
 
-Only the digest of the credential is stored. The plaintext credential is returned exactly
-once, in the binding-creation response, and is not recoverable afterwards.
+Authentication uses a credential digest. New bindings also hold an encrypted recovery
+copy for the same verified user's Agents; legacy rows remain valid without that copy.
 """
 
 from __future__ import annotations
@@ -56,6 +56,7 @@ class ResourceBinding(Base):
 
     #: Hex sha256 of the credential. The plaintext is never stored.
     credential_digest: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    credential_encrypted: Mapped[str | None] = mapped_column(String, nullable=True)
 
     #: Agent-supplied free-text label, shown by the chat `bindings` command.
     label: Mapped[str | None] = mapped_column(String(64), nullable=True)
