@@ -43,7 +43,9 @@ class BindingCreate(BaseModel):
 
 class BindingCreated(BaseModel):
     binding_id: str
-    credential: str = Field(description="Shown exactly once. Inert until confirmed in chat.")
+    credential: str = Field(
+        description="Inert until confirmed in chat. Afterwards recoverable by the same IM identity."
+    )
     bind_code: str = Field(description="Give this to a human to send as `bind <code>` in the bot's group.")
     bind_expires_at: datetime
 

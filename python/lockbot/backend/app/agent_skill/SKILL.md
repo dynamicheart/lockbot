@@ -73,6 +73,48 @@ configuration and use this namespaced skill for requests to this implementation.
 
 ## Keep credentials and resource assignments scoped
 
+### Discover your existing bindings before enrolling again
+
+After verifying the saved key with `/api/agent/context`, check the manifest for
+`own_binding_directory` and follow `bindings_url` (also exposed as `links.bindings`
+in context). `GET /api/agent/bindings` with that key lists current, unexpired bindings
+for its exact verified platform/user **on this service instance only**. It returns
+bot IDs/UUIDs/names, non-secret binding IDs, whether each is the current binding,
+expiry and whether Agent access is enabled. Deleted/replaced bots and revoked or
+expired bindings are excluded. A stopped bot can still have a valid binding.
+Feishu recovery also requires the same verified application and tenant namespace;
+missing namespace evidence stays bot-scoped. Equal ID strings from different
+applications do not establish the same user.
+
+When `own_binding_recovery` is advertised, POST `binding_recovery_url` (also
+`links.binding_recovery`) using the current key and no request body. This returns
+all of this principal's live per-bot credentials with their bot UUIDs. Reconcile and
+save them automatically in the client's existing private credential store; no new
+binding or routine user confirmation is needed. Never print the recovered keys or
+put them in task notes. Match approved origin, instance ID, bot UUID and verified
+identity, then check each recovered key's context before resource operations.
+
+Every group retains its own key. Recovery gives the user's Agents account-wide
+credential discovery on this instance; resource routes still require the matching
+bot's key. Never replace all group records with the key used to start recovery.
+
+Legacy bindings remain valid. The first recovery request made with a legacy key
+adds an encrypted recovery copy of that same key, without rotation. During upgrade,
+call recovery once for each distinct saved key on this approved instance, then
+reconcile the combined results. Preserve an existing valid local key when a recovery
+entry has `credential: null` / `credential_recoverable: false`: this means a historical
+copy is missing or unreadable, not that the user must rebind. Use another already
+authorized Agent/store holding that key to backfill it. Only genuinely lost keys
+require the supported revoke/re-enroll flow. Never invent a key or silently rebind.
+
+Older services may not advertise this capability: use known saved connections and
+their context endpoints instead of probing bot IDs. Another service or protocol
+requires its own verified connection, even when the displayed username matches.
+If advertised recovery returns 404/405, keep the existing connections, report the
+version mismatch and continue the saved-key flow; do not loop or rebind.
+Keep browser login identity, each report's source, and each credential's scope distinct;
+an aggregated report is not proof that one key authorizes every displayed group.
+
 Manage several Lockbot connections with this skill. Keep a private connection record for
 **approved origin + instance_id + bot UUID + verified user**, with a friendly name and a
 reference to its securely stored key. Learn the bot UUID/user from `/api/agent/context`;
@@ -85,8 +127,9 @@ separate scopes. Select the intended connection first, load only its key, and ve
 context before use. If several connections could match the task, ask which bot/group the
 user means; do not cycle through keys or try remembered keys against other servers.
 
-A key authorizes **one user on one bot**, not one resource or one Agent. The user's Agents
-share that key but track their own tasks separately:
+Resource operations use **one user on one bot** per key. On recovery-capable services,
+that key also authenticates the user for finding their other per-bot keys. The user's
+Agents share each group key but track their own tasks separately:
 
 - Associate each task allocation with **origin + instance_id + bot UUID + resource ID**,
   its Agent name/purpose, and the last verified holding/booking (`start_time` and
@@ -297,8 +340,9 @@ its bot ID once as a legacy fallback. Never scan IDs or fall back to another pla
 
 ## Authentication
 
-- Credential form: `Bearer lbr_...`. It is scoped to a single `bot_id` and acts as the IM user
-  who enrolled it. You cannot choose or spoof the identity — it is fixed at enrollment.
+- Credential form: `Bearer lbr_...`. Resource operations are scoped to a single `bot_id`;
+  same-user binding discovery/recovery is instance-wide. It acts as the IM user who
+  enrolled it. You cannot choose or spoof the identity — it is fixed at enrollment.
 - **Enrollment is chat-only.** A human runs `bind <code>` in the bot's IM group to confirm a
   pending credential. `bind` / `unbind` / `bindings` are refused over HTTP by design.
   On Feishu, mention the enterprise bot in the explicitly configured resource group;
@@ -619,7 +663,7 @@ cannot automatically claim a booking or continuously verify ownership.
 
 ## Typical flow
 
-1. Identify the approved origin/instance using the steps above, then reuse only its securely stored key if already authorized. Otherwise `POST /api/resource-auth/bindings` with optional `{"label":"task runner"}` returns a credential, binding ID and one-use code. Store the credential privately; it is inactive until confirmation. Ask the human to send `@bot bind <code>` within 10 minutes, then check `GET /api/resource-auth/bindings/{binding_id}` for `confirmed`. No bot ID is needed for this request: the verified group confirmation chooses it. After confirmation, GET `/api/agent/context` with the issued key to learn the bot and operation URLs. Never simulate the human confirmation. If already bound, reuse the existing saved key; a duplicate request does not replace it. If the key is lost, ask the user to unbind and enroll again.
+1. Identify the approved origin/instance using the steps above, then reuse only its securely stored key if already authorized. Otherwise `POST /api/resource-auth/bindings` with optional `{"label":"task runner"}` returns a credential, binding ID and one-use code. Store the credential privately; it is inactive until confirmation. Ask the human to send `@bot bind <code>` within 10 minutes, then check `GET /api/resource-auth/bindings/{binding_id}` for `confirmed`. No bot ID is needed for this request: the verified group confirmation chooses it. After confirmation, GET `/api/agent/context` with the issued key to learn the bot and operation URLs. Never simulate the human confirmation. If already bound, reuse the existing saved key; a duplicate request does not replace it. If the local key is missing, first try same-user recovery with another saved key on this instance. Only a key missing from every authorized store and recovery copy needs revoke/re-enrollment.
 2. `GET /resources` → see what is free and your queue position.
 3. `POST /commands {"command":"lock node1 2h","agent_label":"dev-agent","purpose":"Develop feature X"}` → then `GET /resources` to confirm.
 4. While working, periodically read `/resources` and check that your verified actor still holds each resource you are using, with a valid lease. Also check before important resource operations and after an interruption. A human may manually release the resource or another authorized actor may preempt it; your original successful lock is not a continuing guarantee.

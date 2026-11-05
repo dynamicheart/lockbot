@@ -1,5 +1,6 @@
 """Identify this implementation/deployment and resolve a personal key's bot scope."""
 
+from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -14,9 +15,10 @@ from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.rules import BotRules, current_bot_rules
 from lockbot.backend.app.resource_api.traffic import credential_budget
-from lockbot.backend.app.resource_auth import service
+from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.dependencies import _bearer_token
 from lockbot.backend.app.resource_auth.http_errors import ResourceAuthenticationError
+from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
 
 SERVICE_ID = "lockbot.resource-api"
@@ -48,8 +50,17 @@ def server_metadata(request: Request, db: Session) -> dict:
         "server_version": request.app.version,
         "api_version": API_VERSION,
         "credential_scheme": "lbr_bot_scoped",
-        "capabilities": ["credential_context", "namespaced_skill", "skill_version_headers", "resource_view_link"],
+        "capabilities": [
+            "credential_context",
+            "own_binding_directory",
+            "own_binding_recovery",
+            "namespaced_skill",
+            "skill_version_headers",
+            "resource_view_link",
+        ],
         "context_url": "/api/agent/context",
+        "bindings_url": "/api/agent/bindings",
+        "binding_recovery_url": "/api/agent/bindings/recover",
         "enrollment_url": "/api/resource-auth/bindings",
         "openapi_url": "/api/public-openapi.json",
     }
@@ -63,6 +74,8 @@ class ServerIdentity(BaseModel):
     credential_scheme: Literal["lbr_bot_scoped"]
     capabilities: list[str]
     context_url: str
+    bindings_url: str
+    binding_recovery_url: str
     enrollment_url: str
     openapi_url: str
 
@@ -72,6 +85,33 @@ class BoundBot(BaseModel):
     uuid: str
     name: str
     type: str
+
+
+class OwnBinding(BaseModel):
+    binding_id: str
+    bot: BoundBot
+    current: bool
+    agent_access_enabled: bool
+    expires_at: datetime | None
+    credential_recoverable: bool
+
+
+class BindingDirectoryResponse(BaseModel):
+    server: ServerIdentity
+    actor: dict[str, str]
+    bindings: list[OwnBinding]
+    discovery_only: Literal[True] = True
+    credential_retrieval_supported: Literal[True] = True
+
+
+class RecoveredBinding(OwnBinding):
+    credential: str | None
+
+
+class BindingRecoveryResponse(BaseModel):
+    server: ServerIdentity
+    actor: dict[str, str]
+    bindings: list[RecoveredBinding]
 
 
 class AgentContextResponse(BaseModel):
@@ -170,6 +210,8 @@ def _context_payload(request, response, db, row):
             "legacy_purpose_visibility": "private",
         },
         "links": {
+            "bindings": "/api/agent/bindings",
+            "binding_recovery": "/api/agent/bindings/recover",
             "resources": f"/api/bots/{bot.id}/resources",
             "commands": f"/api/bots/{bot.id}/commands",
             "usage_declarations": f"/api/bots/{bot.id}/usage-declarations",
@@ -179,3 +221,169 @@ def _context_payload(request, response, db, row):
         "skill_update": client_skill_notice(request),
         **view,
     }
+
+
+@router.get("/bindings", response_model=BindingDirectoryResponse)
+@limiter.limit("60/minute")
+def own_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
+    """List live bindings for this verified principal on this instance, without keys.
+
+    Use the recovery endpoint to obtain the matching per-bot credentials. Resource
+    operations continue to require each bot's own credential.
+    """
+    return _own_bindings(request, response, db, recover=False)
+
+
+@router.post("/bindings/recover", response_model=BindingRecoveryResponse)
+@limiter.limit("60/minute")
+def recover_own_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Recover this principal's live per-bot keys and backfill the supplied legacy key.
+
+    No user/bot selector is accepted. The identity comes from the presented key.
+    Missing historical copies remain null; recovery never rotates or rebinds a key.
+    """
+    return _own_bindings(request, response, db, recover=True)
+
+
+def _binding_namespace(db, bot_id, platform):
+    # Feishu Open IDs are application scoped. Missing routing evidence must not
+    # merge two users merely because their platform ID strings are equal.
+    if platform == "infoflow":
+        return ("infoflow",)
+    if platform == "feishu":
+        from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+
+        route = (
+            db.query(FeishuApplication)
+            .join(FeishuGroupRoute, FeishuGroupRoute.application_id == FeishuApplication.id)
+            .filter(FeishuGroupRoute.bot_id == bot_id)
+            .one_or_none()
+        )
+        if route is not None and route.app_id and route.tenant_key:
+            return ("feishu", route.app_id, route.tenant_key)
+    return ("bot", bot_id)
+
+
+def _own_bindings(request, response, db, *, recover):
+    token = _bearer_token(request)
+    row = service.authenticate_for_any_bot(db, token=token)
+    if row is None:
+        raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+    request.state.traffic_bot_id = row.bound_bot_id
+    request.state.traffic_credential = {
+        "id": row.public_id,
+        "kind": "agent",
+        "user": row.external_user_id,
+        "platform": row.platform,
+    }
+    allowed, retry = credential_budget.check(row.id, "read")
+    if not allowed:
+        raise errors.rate_limited(retry)
+    from lockbot.backend.app.resource_auth.authority import authority_guard
+
+    bot_id, platform, subject = row.bound_bot_id, row.platform, row.external_user_id
+    with authority_guard(bot_id, platform=platform, external_user_id=subject):
+        db.rollback()
+        row = service.authenticate_for_any_bot(db, token=token)
+        if row is None or (row.bound_bot_id, row.platform, row.external_user_id) != (bot_id, platform, subject):
+            raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+        if recover and credentials.recover_credential(row) is None:
+            row.credential_encrypted = credentials.seal_credential(row.public_id, token)
+            db.flush()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        candidates = (
+            db.query(ResourceBinding, Bot)
+            .join(Bot, Bot.id == ResourceBinding.bound_bot_id)
+            .filter(
+                ResourceBinding.platform == platform,
+                ResourceBinding.external_user_id == subject,
+                ResourceBinding.revoked_at.is_(None),
+                Bot.is_deleted.is_(False),
+                ResourceBinding.bound_bot_uuid == Bot.uuid,
+                ResourceBinding.bound_identity_revision == Bot.identity_revision,
+            )
+            .order_by(Bot.id, ResourceBinding.id)
+            .all()
+        )
+        namespace = _binding_namespace(db, bot_id, platform)
+        source_id = row.id
+        selected = {}
+        bindings = []
+        for binding, bot in candidates:
+            if _binding_namespace(db, bot.id, platform) != namespace:
+                continue
+            if binding.credential_expires_at is not None and binding.credential_expires_at <= now:
+                continue
+            key = credentials.recover_credential(binding)
+            selected[binding.id] = (
+                binding.bound_bot_id,
+                binding.bound_bot_uuid,
+                binding.bound_identity_revision,
+                binding.platform,
+                binding.external_user_id,
+                binding.public_id,
+                binding.credential_digest,
+            )
+            item = dict(
+                binding_id=binding.public_id,
+                bot=BoundBot(id=bot.id, uuid=bot.uuid, name=bot.name, type=bot.bot_type),
+                current=binding.id == row.id,
+                agent_access_enabled=bot.resource_auth_enabled,
+                expires_at=binding.credential_expires_at.replace(tzinfo=timezone.utc)
+                if binding.credential_expires_at
+                else None,
+                credential_recoverable=key is not None,
+            )
+            bindings.append(RecoveredBinding(**item, credential=key) if recover else OwnBinding(**item))
+        # Finish an idempotent legacy-copy write, then establish a fresh read
+        # transaction. Do not release decrypted keys from a stale ORM snapshot
+        # when another writer revoked a binding or changed its IM route meanwhile.
+        if recover:
+            db.commit()
+        db.rollback()
+        db.expire_all()
+        current = service.authenticate_for_any_bot(db, token=token)
+        if current is None or current.id != source_id or _binding_namespace(db, bot_id, platform) != namespace:
+            raise ResourceAuthenticationError("Binding changed", "credential_invalid")
+        fresh = {
+            binding.id: (binding, bot)
+            for binding, bot in db.query(ResourceBinding, Bot)
+            .join(Bot, Bot.id == ResourceBinding.bound_bot_id)
+            .filter(ResourceBinding.id.in_(selected))
+            .all()
+        }
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for identifier, expected in selected.items():
+            pair = fresh.get(identifier)
+            if pair is None:
+                raise ResourceAuthenticationError("Binding changed", "credential_invalid")
+            binding, bot = pair
+            actual = (
+                binding.bound_bot_id,
+                binding.bound_bot_uuid,
+                binding.bound_identity_revision,
+                binding.platform,
+                binding.external_user_id,
+                binding.public_id,
+                binding.credential_digest,
+            )
+            if (
+                actual != expected
+                or binding.revoked_at is not None
+                or bot.is_deleted
+                or binding.bound_bot_uuid != bot.uuid
+                or binding.bound_identity_revision != bot.identity_revision
+                or (binding.credential_expires_at is not None and binding.credential_expires_at <= now)
+                or _binding_namespace(db, bot.id, platform) != namespace
+            ):
+                raise ResourceAuthenticationError("Binding changed", "credential_invalid")
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Vary"] = "Authorization"
+        payload = dict(
+            server=ServerIdentity(**server_metadata(request, db)),
+            actor={"platform": platform, "external_user_id": subject},
+            bindings=bindings,
+        )
+        if recover:
+            return BindingRecoveryResponse(**payload)
+        return BindingDirectoryResponse(**payload)

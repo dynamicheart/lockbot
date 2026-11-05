@@ -93,8 +93,8 @@ def create_binding(*, source: str = "", label: str | None = None) -> dict:
     """Issue both keys in one call and record only an in-memory pending entry.
 
     Returns a dict with ``binding_id``, ``credential`` (inert until chat confirmation),
-    ``bind_code`` and ``bind_expires_at``. The credential plaintext is returned here and
-    nowhere else, ever.
+    ``bind_code`` and ``bind_expires_at``. Confirmed keys can subsequently be recovered
+    by an Agent authenticated as the same verified principal on this instance.
     """
     # Regenerate on the astronomically rare id/code collision rather than overwrite a live
     # pending entry. A handful of attempts is far more than the birthday maths ever needs.
@@ -107,6 +107,7 @@ def create_binding(*, source: str = "", label: str | None = None) -> dict:
                 binding_id=binding_id,
                 code_digest=credentials.digest_bind_code(bind_code),
                 credential_digest=credentials.digest_credential(credential),
+                credential_encrypted=credentials.seal_credential(binding_id, credential),
                 source=source,
                 label=(label or None),
                 window_seconds=RESOURCE_AUTH_BIND_WINDOW_SECONDS,
@@ -389,6 +390,7 @@ def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str
             bound_bot_uuid=bot.uuid or "",
             bound_identity_revision=bot.identity_revision,
             credential_digest=record.credential_digest,
+            credential_encrypted=record.credential_encrypted,
             label=record.label,
             issued_at=_naive_utc(now),
             credential_expires_at=_credential_expiry(now),

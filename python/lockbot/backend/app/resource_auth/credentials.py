@@ -7,11 +7,13 @@ Two secrets are issued by one binding-creation call:
 - the **bind code**, which the human pastes into the bot's IM group as ``bind <code>``. It
   is public by nature, short enough to type, and single-use.
 
-Only digests are ever persisted or held in the pending store.
+Authentication uses digests; optional recovery copies are encrypted with the service's
+persistent encryption key and pinned to the binding identifier.
 """
 
 import hashlib
 import hmac
+import json
 import secrets
 
 #: Distinguishes a personal resource credential from the legacy per-bot service key
@@ -24,7 +26,7 @@ _BIND_CODE_LENGTH = 8
 
 
 def generate_credential() -> str:
-    """Return a fresh opaque credential. Shown to the agent exactly once."""
+    """Return a fresh opaque per-bot credential."""
     return CREDENTIAL_PREFIX + secrets.token_urlsafe(32)
 
 
@@ -63,6 +65,27 @@ def digest_bind_code(code: str) -> str:
 def generate_public_id() -> str:
     """Return an unguessable public identifier for a binding."""
     return secrets.token_urlsafe(16)
+
+
+def seal_credential(binding_id: str, credential: str) -> str:
+    from lockbot.backend.app.bots.encryption import encrypt
+
+    return encrypt(json.dumps({"binding_id": binding_id, "credential": credential}))
+
+
+def recover_credential(binding) -> str | None:
+    from lockbot.backend.app.bots.encryption import decrypt
+
+    if not binding.credential_encrypted:
+        return None
+    try:
+        data = json.loads(decrypt(binding.credential_encrypted))
+        token = data["credential"]
+        if data["binding_id"] != binding.public_id or not credential_matches(binding.credential_digest, token):
+            return None
+        return token
+    except Exception:
+        return None
 
 
 def short_id(public_id: str) -> str:

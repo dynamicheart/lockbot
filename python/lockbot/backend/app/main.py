@@ -335,7 +335,10 @@ def _migrate_identity_boundaries():
             "binding_accept_after": "DATETIME",
             "observed_group_ids": "TEXT",
         },
-        "resource_bindings": {"bound_identity_revision": "INTEGER NOT NULL DEFAULT 0"},
+        "resource_bindings": {
+            "bound_identity_revision": "INTEGER NOT NULL DEFAULT 0",
+            "credential_encrypted": "TEXT",
+        },
     }
     for table, fields in additions.items():
         columns = {c["name"] for c in sa_inspect(engine).get_columns(table)}

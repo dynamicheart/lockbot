@@ -51,8 +51,8 @@ class PendingCollision(Exception):
 class PendingBinding:
     """An issued-but-unconfirmed binding.
 
-    Carries no plaintext secret: both the bind code and the credential are present only as
-    digests, so dumping this store leaks neither.
+    Carries no plaintext secret: the bind code is digested and the credential has
+    a digest plus an encrypted recovery copy.
     """
 
     binding_id: str
@@ -64,6 +64,7 @@ class PendingBinding:
     source: str = ""
     #: Agent-declared label, carried through to the durable row for the chat listing.
     label: str | None = None
+    credential_encrypted: str | None = None
 
     def is_expired(self, now: datetime | None = None) -> bool:
         return (now or _utcnow()) >= self.bind_expires_at
@@ -79,6 +80,7 @@ class PendingBindingStore(ABC):
         binding_id: str,
         code_digest: str,
         credential_digest: str,
+        credential_encrypted: str | None = None,
         source: str = "",
         label: str | None = None,
         window_seconds: int,
@@ -173,6 +175,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
         binding_id: str,
         code_digest: str,
         credential_digest: str,
+        credential_encrypted: str | None = None,
         source: str = "",
         label: str | None = None,
         window_seconds: int,
@@ -189,6 +192,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
             created_at=now,
             source=source,
             label=label,
+            credential_encrypted=credential_encrypted,
         )
         with self._lock:
             self._prune_locked(now)
