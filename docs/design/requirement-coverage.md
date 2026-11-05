@@ -1,5 +1,7 @@
 # Discussion requirement coverage
 
+**Current status (2026-11-05):** [ROADMAP](../../ROADMAP.md) is the current outstanding-work list. The accepted formal baseline is v3.2.0; personal dashboard, monitoring alignment and per-group credential recovery are later source changes, with their rollout boundaries recorded there. The dated preparation and v3.1.0 statements below are historical evidence, not the current deployment status.
+
 **Release preparation update (2026-10-31):** use the [3.2.0 release checklist](../../RELEASE_CHECKLIST.md). Formal production remains 3.1.0; this update does not claim a tag, publication or formal upgrade. The installed integration sequence exercised six fictional commands and exported eight committed events over nine frozen public OP pages; consumer/CLI agreed, but boundary coverage is unknown and grant totals remain null ([#54 evidence](https://github.com/dynamicheart/lockbot/issues/54#issuecomment-6527870715)). Actual bound-group removal/re-addition passed, preserved route/resources and ended with optional switches off; the unbound-group greeting remains unverified ([#63 evidence](https://github.com/dynamicheart/lockbot/issues/63#issuecomment-6529107006)). These later observations supersede earlier pending-attempt descriptions below. Platform migration #88 is explicitly deferred to the next release; unmerged migration branches are excluded. #120/#121 are deferred future ideas, not current release gates.
 
 
