@@ -20,10 +20,12 @@ For HTTPS, terminate TLS on a trusted ingress, preserve the Host header, and res
 {
   "origin": "https://lockbot.example.org",
   "state_file": "/data/personal-panel/sessions.sqlite3",
-  "provider": {"issuer": "production-lockbot"},
+  "provider": {"issuer": "https://lockbot.example.org"},
   "reporters": []
 }
 ```
+
+Use the approved canonical service origin as the native provider issuer, as in the example, so connection cards can link to that service’s Agent Skill. Existing issuer identifiers remain valid; a non-URL identifier does not produce a Skill link.
 
 The original application mounts the optional dashboard before its SPA fallback. Without configuration the original route setup is preserved. To disable, unset the environment variable and restart the service. To invalidate all browser sessions permanently, retire the dedicated session database while the service is stopped. This database stores digests of random browser tokens and references to confirmed bindings. IM authentication and the original group credentials stay under the existing Lockbot authority.
 
