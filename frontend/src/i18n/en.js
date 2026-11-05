@@ -335,7 +335,13 @@ export default {
 
     allBots: 'All bots with verified traffic',
     byCredential: 'By credential',
-    credential: 'User',
+    credential: 'User / caller type',
+    credentialKinds: {
+      agent: 'Agent API',
+      operator: 'OP API',
+      management: 'Dashboard account',
+      unknown: 'Unknown type',
+    },
     operator: 'OP API',
     unattributed: 'Unattributed requests:',
     scopeHelp:

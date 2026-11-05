@@ -320,7 +320,13 @@ export default {
 
     allBots: '全部有已验证请求的机器人',
     byCredential: '按凭证',
-    credential: '用户',
+    credential: '用户 / 调用类型',
+    credentialKinds: {
+      agent: 'Agent API',
+      operator: 'OP API',
+      management: '后台账号',
+      unknown: '未知类型',
+    },
     operator: 'OP API',
     unattributed: '未归因请求：',
     scopeHelp:

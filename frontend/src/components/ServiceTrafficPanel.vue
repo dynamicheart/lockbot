@@ -252,8 +252,9 @@
                   <span v-if="!props.botId">· #{{ row.bot_id }}</span>
                 </div>
                 <small :title="`${$t('serviceTraffic.since')} ${localTime(row.since)}`"
-                  >{{ platformLabel(row.platform, $t)
-                  }}<span v-if="row.id"> · {{ row.id }}</span></small
+                  >{{ $t('serviceTraffic.credentialKinds.' + (row.kind || 'unknown'))
+                  }}<span v-if="row.platform"> · {{ platformLabel(row.platform, $t) }} </span
+                  ><span v-if="row.id"> · {{ row.id }}</span></small
                 >
               </template>
               <template v-else>{{
@@ -681,6 +682,7 @@ h2 {
 .traffic-minute span {
   position: absolute;
   bottom: 0;
+  left: 0;
   width: 100%;
   background: var(--el-color-primary);
   pointer-events: none;
