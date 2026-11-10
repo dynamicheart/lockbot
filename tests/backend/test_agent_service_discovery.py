@@ -12,7 +12,7 @@ import pytest
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 from lockbot.backend.app.resource_api.resources import snapshot_cache
-from lockbot.backend.app.resource_api.skill import skill_artifacts
+from lockbot.backend.app.resource_api.skill import _skill_artifacts
 from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
@@ -24,10 +24,10 @@ from backend.test_resource_api_resources import api  # noqa: F401
 
 @pytest.fixture(autouse=True)
 def fresh_skill_cache():
-    skill_artifacts.cache_clear()
+    _skill_artifacts.cache_clear()
     snapshot_cache.clear()
     yield
-    skill_artifacts.cache_clear()
+    _skill_artifacts.cache_clear()
     snapshot_cache.clear()
 
 
@@ -173,7 +173,7 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     markdown.parent.mkdir()
     markdown.write_text("---\nname: lockbot-resource-agent\n---\nUpdated instructions\n")
     monkeypatch.setattr("lockbot.backend.app.resource_api.skill.files", lambda package: tmp_path)
-    skill_artifacts.cache_clear()
+    _skill_artifacts.cache_clear()
     context = client.get("/api/agent/context", headers=api["headers"])
     after = client.get("/api/agent-skill").json()
     assert after["instance_id"] == before["instance_id"]

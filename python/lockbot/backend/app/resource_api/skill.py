@@ -2,9 +2,12 @@
 
 import hashlib
 import io
+import os
+import re
 import zipfile
 from functools import lru_cache
 from importlib.resources import files
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
@@ -15,13 +18,33 @@ from lockbot.backend.app.rate_limit import limiter
 router = APIRouter(prefix="/api/agent-skill", tags=["Public API"])
 
 
-@lru_cache(maxsize=2)
+def _deployment_origin():
+    value = os.environ.get("PLATFORM_URL", "").strip()
+    if not re.fullmatch(r"https?://[A-Za-z0-9.:[\]-]+/?", value):
+        return ""
+    try:
+        url = urlsplit(value)
+        if not url.hostname or (url.port is not None and url.port == 0):
+            return ""
+    except ValueError:
+        return ""
+    return f"{url.scheme}://{url.netloc}"
+
+
 def skill_artifacts(kind="agent"):
+    return _skill_artifacts(kind, _deployment_origin() if kind == "agent" else "")
+
+
+@lru_cache(maxsize=4)
+def _skill_artifacts(kind, origin):
     folder, name, prefix = {
         "agent": ("agent_skill", "lockbot-agent-api", "/api/agent-skill"),
         "operator": ("op_skill", "lockbot-operator-api", "/api/op-skill"),
     }[kind]
     markdown = files("lockbot.backend.app").joinpath(f"{folder}/SKILL.md").read_bytes()
+    if origin:
+        source = f"Deployment Skill URL: `{origin}{prefix}/SKILL.md`."
+        markdown = markdown.replace(b"<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->", source.encode("ascii"), 1)
     version = hashlib.sha256(markdown).hexdigest()[:16]
     bundle = _zip_skill(markdown, name)
     skill_id = {"agent": "lockbot-resource-agent", "operator": "lockbot-operator-agent"}[kind]
@@ -54,8 +77,6 @@ def client_skill_notice(request):
     An absent/invalid report is unknown, not proof of an outdated installation.
     This is advisory and cannot verify a client's download or loaded instructions.
     """
-    import re
-
     current = skill_artifacts()[2]["version"]
     reported = request.headers.get("X-Lockbot-Client-Skill-Version", "")
     if not re.fullmatch(r"[a-f0-9]{16}", reported):

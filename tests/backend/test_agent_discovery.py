@@ -42,6 +42,25 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session):
     assert all(p in paths for p in ["/api/agent-skill", meta["skill_url"], meta["download_url"]])
 
 
+def test_deployment_skill_url_matches_all_distribution_paths(client, monkeypatch):
+    monkeypatch.delenv("PLATFORM_URL", raising=False)
+    generic = client.get("/api/agent-skill").json()
+    monkeypatch.setenv("PLATFORM_URL", "http://192.0.2.10:8155/")
+    headers = {"X-Forwarded-Host": "untrusted.example"}
+    manifest = client.get("/api/agent-skill", headers=headers).json()
+    markdown = client.get(manifest["skill_url"], headers=headers)
+    assert b"Deployment Skill URL: `http://192.0.2.10:8155/api/agent-skill/SKILL.md`" in markdown.content
+    assert b"untrusted.example" not in markdown.content
+    assert manifest["version"] != generic["version"]
+    assert markdown.headers["x-lockbot-skill-version"] == manifest["version"]
+    assert hashlib.sha256(markdown.content).hexdigest() == manifest["skill_sha256"]
+    for artifact in (manifest, manifest["installation"]):
+        bundle = client.get(artifact["download_url"]).content
+        assert hashlib.sha256(bundle).hexdigest() == artifact["sha256"]
+        with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+            assert archive.read(archive.namelist()[0]) == markdown.content
+
+
 def command(client, case, text, headers=None):
     response = client.post(
         f"/api/bots/{case['bot_id']}/commands", headers=headers or case["headers"], json={"command": text}

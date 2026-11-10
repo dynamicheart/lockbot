@@ -14,6 +14,8 @@ you act as **one verified IM identity on exactly one bot**, using a personal cre
 
 ## When a user shares this skill URL
 
+<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->
+
 Use the full Skill URL from the user's message as the service locator, even if the
 message also contains this Markdown or a short instruction before the URL. Keep the URL
 when reading or copying the document. Its scheme, host and port are the approved origin.
@@ -21,9 +23,11 @@ Fetch `/api/agent-skill` on that origin without credentials and verify the manif
 choosing a bundle or using a saved key. Do not ask for an origin already present in the
 message. If the URL is unreachable, report the access failure and retain that address.
 
-If the user pasted only the Markdown, look for an existing approved connection that
-unambiguously matches the request. If none matches, ask once for the original full Skill
-URL. Example hosts in this document are placeholders. Saving Markdown locally by itself
+If the user pasted only the Markdown and it includes a Deployment Skill URL, use that URL
+as the source hint. Fetch its public manifest without credentials. Ask the user to approve
+that address before sending credentials or saving it as a trusted connection, unless
+already approved. If the Markdown has no source hint, use an existing approved connection
+that unambiguously matches the request, or ask once for the original full Skill URL. Example hosts in this document are placeholders. Saving Markdown locally by itself
 does not establish a service connection or enroll the user in a resource group.
 
 On first contact, recommend installing the verified skill for ongoing use and tell the
