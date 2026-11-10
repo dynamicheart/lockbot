@@ -14,13 +14,22 @@ you act as **one verified IM identity on exactly one bot**, using a personal cre
 
 ## When a user shares this skill URL
 
-On first contact, read the shared URL and proactively recommend installing this skill locally
-for ongoing use. Tell the user which service will be remembered: the **origin of the URL they
-shared** (scheme + host + port, without `/api/agent-skill/SKILL.md`). For example, a shared
-`https://service-a.example.invalid/api/agent-skill/SKILL.md` identifies service origin
-`https://service-a.example.invalid`. Do not hard-code a developer's host or copy another
-installation's URL. A brief suggestion is enough: “建议将此 Skill 安装到本地，并记住本次服务地址，
-以后可直接申请资源；首次绑定后还会记录对应机器人。” Do not repeat it on every command.
+Use the full Skill URL from the user's message as the service locator, even if the
+message also contains this Markdown or a short instruction before the URL. Keep the URL
+when reading or copying the document. Its scheme, host and port are the approved origin.
+Fetch `/api/agent-skill` on that origin without credentials and verify the manifest before
+choosing a bundle or using a saved key. Do not ask for an origin already present in the
+message. If the URL is unreachable, report the access failure and retain that address.
+
+If the user pasted only the Markdown, look for an existing approved connection that
+unambiguously matches the request. If none matches, ask once for the original full Skill
+URL. Example hosts in this document are placeholders. Saving Markdown locally by itself
+does not establish a service connection or enroll the user in a resource group.
+
+On first contact, recommend installing the verified skill for ongoing use and tell the
+user which service origin will be saved. For a one-off request, proceed without a
+persistent installation. When an eligible saved key already matches the requested bot,
+reuse it. If enrollment is needed, have the user confirm the binding in the target group.
 
 When the user asks to install or authorizes persistent setup, use the client's supported
 installer and the manifest's `installation` bundle, named **lockbot-resource-agent**. Save
