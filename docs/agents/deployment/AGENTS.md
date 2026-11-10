@@ -24,6 +24,13 @@ docker run --rm --entrypoint python "$LOCKBOT_IMAGE" tools/gen_keys.py \
 
 Use a new, approved output path. Copy those two values privately into the settings file; do not run this command over an upgrade's original keys. This command starts a disposable key-generation process, so it is not part of the read-only preflight validation performed below.
 
+Set `PLATFORM_URL` to the actual address Agents use to reach this deployment, such as
+`http://192.0.2.10:8155` with the example IP replaced by the server's IP. Use the public
+origin of the reverse proxy when applicable. Include the scheme and published port.
+Compose passes this value to the service. A direct `docker run` can pass it through
+`--env-file` or `-e PLATFORM_URL=...`. The Agent Skill embeds the full download URL from
+this deployment value so it survives copying the Markdown.
+
 The environment file accepts plain `KEY=VALUE` lines, not executable shell. Generate secrets using a trusted local runtime, then validate:
 
 ```sh
