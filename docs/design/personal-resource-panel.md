@@ -41,6 +41,8 @@ The Agent reads `GET /api/personal-panel/capabilities` from the trusted origin. 
 
 The generated ticket expires in two minutes. It is placed in the URL fragment, removed from browser history by the landing page, previewed without consumption, and exchanged only on explicit confirmation. Consumption is atomic and rotates the browser session identifier. The browser receives a Secure, HttpOnly, SameSite=Strict host-only cookie. It can return by bookmark without contacting the Agent. Logout revokes the server-side session. A cleared browser cookie requires a fresh handoff.
 
+To add another resource group, obtain a separate handoff from that group's bound Agent. Open it in the existing browser session and explicitly choose the combined view. The connection list gains that group's credential entry only after confirmation. Read-only reporter groups can appear in the resource list without adding a credential entry.
+
 ## Connection metadata and Agent instructions
 
 The native provider advertises additive `connection_management` version 1 capabilities. `GET /api/personal-panel/connections` revalidates only this browser's independently confirmed grants and returns current bot, actor, expiry and recovery-copy health, plus deployment-pinned secret-free installation instructions. It has no bot or identity selector, does not discover other bindings, and does not return raw binding references, digests or Keys. Refresh revalidates existing authority without extending either lifetime. Logout and binding changes are checked again before releasing the combined response.
@@ -79,4 +81,6 @@ The panel accepts a fresh result with directory, subject and expires_at from the
 
 ## Optional metrics adapters
 
-Metrics are separate from allocation reporters. The [vendor-neutral metrics datasource protocol v1](metrics-datasource-protocol.md) defines the proposed normalized snapshot and adapter boundary for Prometheus, HTTP JSON and other monitored sources. Reporters continue to return verified personal allocations; metrics never grant resource access or drive lock mutations. The existing Prometheus integration is available on resource views; personal-panel metric attachment and additional adapters remain follow-up implementation, not capabilities enabled by this document.
+The native dashboard can show Prometheus utilization for confirmed holdings. Set `"enable_utilization": true` in the native provider configuration and configure the bot's `lockbot-v1` datasource with `accessMode: short_lived`. The browser must be able to reach the gateway, and the gateway must support resource-scoped grants and allow the dashboard origin. The dashboard rechecks the current holding when issuing each grant. Whole-node holdings can include host and device metrics. A partial-node grant covers only the held devices.
+
+Reporters return verified personal allocations and cannot attach native metrics authority. The vendor-neutral protocol describes future adapters for other sources. See [browser utilization setup](../usage/browser-utilization.md) and the [metrics datasource protocol](metrics-datasource-protocol.md).
