@@ -2,6 +2,7 @@
 
 import json
 import time
+from collections import Counter
 from datetime import timezone
 
 import jwt
@@ -10,7 +11,34 @@ from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.metrics_signers import select_metrics_signer
 
 
-def issue_metrics_access(db, bot, source=None, *, expires_at=None):
+def _resource_scope(bot, cluster, source, holdings):
+    """Translate Lockbot holding IDs to unambiguous collector labels."""
+    mapping = source["nodeMapping"]
+    node_counts = Counter(mapping.values())
+    device_bot = bot.bot_type in {"DEVICE", "QUEUE_DEVICE"}
+    scope = {}
+    for node, devices in holdings.items():
+        label = mapping.get(node)
+        if label is None or node_counts[label] != 1:
+            continue
+        if not device_bot:
+            if devices is None:
+                scope[label] = None
+            continue
+        if not devices:
+            continue
+        configured = cluster.get(node) if isinstance(cluster, dict) else None
+        if not isinstance(configured, list):
+            continue
+        by_index = {str(index): source["deviceMapping"].get(f"{node}:dev{index}") for index in range(len(configured))}
+        counts = Counter(by_index.values())
+        allowed = sorted(mapped for device in devices if (mapped := by_index.get(device)) and counts[mapped] == 1)
+        if allowed:
+            scope[label] = allowed
+    return scope
+
+
+def issue_metrics_access(db, bot, source=None, *, expires_at=None, holdings=None):
     source = source or public_datasource(bot)
     if not source or source.get("accessMode", "independent") != "short_lived":
         return None
@@ -40,10 +68,26 @@ def issue_metrics_access(db, bot, source=None, *, expires_at=None):
         mapping = source.get("nodeMapping", {})
         if set(mapping) - configured:
             return None
-        nodes = sorted(set(mapping.values()))
-        if not nodes or len(nodes) > 512:
+        if holdings is None:
+            labels = sorted(set(mapping.values()))
+            scope = {"nodes": labels}
+            descriptor = {}
+        else:
+            if source.get("profile") != "lockbot-v1":
+                return None
+            labels = _resource_scope(bot, cluster, source, holdings)
+            if sum(len(devices) for devices in labels.values() if devices is not None) > 512:
+                return None
+            # Older gateways require "nodes" and ignore unknown JWT claims.
+            # Omit it entirely so the restricted grant can never widen there.
+            scope = {"scope_version": 2, "resources": labels}
+            descriptor = {
+                "scope_version": 2,
+                "node_ids": sorted(node for node, label in mapping.items() if label in labels),
+            }
+        if not labels or len(labels) > 512:
             return None
-    except (TypeError, ValueError, AttributeError):
+    except (TypeError, ValueError, AttributeError, KeyError):
         return None
     token = jwt.encode(
         {
@@ -52,9 +96,11 @@ def issue_metrics_access(db, bot, source=None, *, expires_at=None):
             "aud": signer.audience,
             "iat": issued,
             "exp": expiry,
-            "nodes": nodes,
+            **scope,
         },
         signer.secret,
         algorithm="HS256",
     )
-    return {"token": token, "expires_at": expiry, "scope": "metrics:read"}
+    if len(token) > 16384:
+        return None
+    return {"token": token, "expires_at": expiry, "scope": "metrics:read", **descriptor}

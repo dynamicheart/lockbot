@@ -68,3 +68,16 @@ it('strips a dedicated rotation fragment and rejects any mixed ticket purposes',
     expect(replaceState).toHaveBeenCalledOnce()
   }
 })
+
+it('routes one proof during in-app navigation and discards mixed or repeated proofs', async () => {
+  vi.resetModules()
+  const { capturePersonalPanelTickets, pendingPanelTicket, pendingCredentialViewTicket } =
+    await import('./personalPanelTicket')
+  expect(capturePersonalPanelTickets({ credential_view: ['one', 'two'] })).toBe(true)
+  expect(capturePersonalPanelTickets({ ticket: 'login', credential_view: null })).toBe(true)
+  expect(pendingPanelTicket.value).toBe('')
+  expect(pendingCredentialViewTicket.value).toBe('')
+  expect(capturePersonalPanelTickets({ credential_view: 'view' })).toBe(true)
+  expect(pendingCredentialViewTicket.value).toBe('view')
+  expect(capturePersonalPanelTickets({ node: 'row' })).toBe(false)
+})

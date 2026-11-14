@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.manager import bot_manager
+from lockbot.backend.app.bots.metrics_access import issue_metrics_access
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.snapshot import build_resources
@@ -85,6 +87,11 @@ def _allocations(resources, subject):
                                 "node": node["id"],
                                 "device": identity[1],
                                 "expires_at": entry.get("expires_at"),
+                                **(
+                                    {"position": entry["position"]}
+                                    if kind == "reservation" and "position" in entry
+                                    else {}
+                                ),
                             }
                         )
     return allocations, complete
@@ -311,6 +318,61 @@ class NativeProvider:
                     db, row=row, instance_id=self._instance_id(db), canonical_name=canonical_name, deadline=deadline
                 )
 
+    def utilization(self, grant, *, session_expiry=None, authorize=False):
+        """Describe or authorize telemetry for the exact native bot binding."""
+        if self.config.get("enable_utilization") is not True:
+            return None
+        allocations = []
+        if authorize:
+            (group,) = self.report(grant)
+            if group["status"] != "ok":
+                return None
+            allocations = [row for row in group["allocations"] if row["kind"] == "hold"]
+        with self.session_factory() as db:
+            row = self._validated(db, grant)
+            bot = db.get(Bot, row.bound_bot_id)
+            source = public_datasource(bot)
+            if not source or source["accessMode"] != "short_lived" or source["profile"] != "lockbot-v1":
+                return None
+            if not authorize:
+                return {"configuration": source}
+            # An allocation without a confirmed deadline cannot authorize telemetry.
+            # Keep its node out of the grant even when other holdings are valid.
+            deadlines = {}
+            holdings = {}
+            device_bot = bot.bot_type in {"DEVICE", "QUEUE_DEVICE"}
+            now = datetime.now(timezone.utc)
+            for holding in allocations:
+                node = holding["node"]
+                device = holding.get("device")
+                expires_at = holding.get("expires_at")
+                if node not in source["nodeMapping"] or not isinstance(expires_at, str):
+                    continue
+                if device_bot != (device is not None):
+                    continue
+                try:
+                    deadline = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if deadline.tzinfo is None or deadline <= now:
+                    continue
+                unit = (node, device)
+                deadlines[unit] = min(deadlines.get(unit, deadline), deadline)
+                if device_bot:
+                    holdings.setdefault(node, set()).add(device)
+                else:
+                    holdings[node] = None
+            if not deadlines or session_expiry is None:
+                return None
+            expiry = min(session_expiry, *deadlines.values())
+            if row.credential_expires_at is not None:
+                credential_expiry = row.credential_expires_at
+                if credential_expiry.tzinfo is None:
+                    credential_expiry = credential_expiry.replace(tzinfo=timezone.utc)
+                expiry = min(expiry, credential_expiry)
+            access = issue_metrics_access(db, bot, source, expires_at=expiry, holdings=holdings)
+            return {"configuration": source, "access": access} if access else None
+
     def report(self, grant):
         with self.session_factory() as db:
             row = self._validated(db, grant)
@@ -351,6 +413,18 @@ class NativeProvider:
                             "group_id": group_id,
                             "status": "ok" if known else "unknown",
                             "allocations": allocations,
+                            **(
+                                {
+                                    "capacity": {
+                                        "nodes": len(resources),
+                                        "cards": sum(len(node.get("devices", [])) for node in resources)
+                                        if all("devices" in node for node in resources)
+                                        else None,
+                                    }
+                                }
+                                if known
+                                else {}
+                            ),
                             "source_at": captured.isoformat(),
                             **({"reason": "stale_or_incomplete_report"} if not known else {}),
                         }

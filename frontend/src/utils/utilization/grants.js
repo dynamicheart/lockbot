@@ -120,10 +120,18 @@ export function createGrantedMetricsCollector({
     }
     const attempt = async (grant) => {
       guard()
+      const permitted = grant.scope_version === 2 ? new Set(grant.node_ids || []) : null
+      const requested = permitted ? nodes.filter((node) => permitted.has(node)) : nodes
+      if (!requested.length) throw new ProviderError('grant')
       const linked = linkSignals(signal)
       try {
         const result = await abortable(
-          query(config, nodes, { signal: linked.signal, bearer: grant.token, deadlineAt, wallNow }),
+          query(config, requested, {
+            signal: linked.signal,
+            bearer: grant.token,
+            deadlineAt,
+            wallNow,
+          }),
           signal
         )
         guard()

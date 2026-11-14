@@ -4,10 +4,10 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps({ value: { type: Number, required: true } })
-const display = ref(0)
+const display = ref(props.value)
 let frame
 
 function update(value) {
@@ -25,7 +25,6 @@ function update(value) {
   }
   frame = requestAnimationFrame(draw)
 }
-onMounted(() => update(props.value))
 watch(() => props.value, update)
 onUnmounted(() => cancelAnimationFrame(frame))
 </script>

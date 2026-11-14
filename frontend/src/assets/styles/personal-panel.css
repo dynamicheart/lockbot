@@ -13,7 +13,7 @@
   margin: 0;
 }
 .personal-panel :deep(button),
-.personal-panel :deep(input),
+.personal-panel :deep(input:not(.el-input__inner, .el-select__input, [type='checkbox'])),
 .personal-panel :deep(select) {
   font: inherit;
 }
@@ -51,14 +51,10 @@
   min-height: 54px;
   gap: clamp(12px, 3vw, 38px);
 }
-.personal-panel :deep(.wordmark) {
-  font-weight: 700;
-  white-space: nowrap;
-}
 .personal-panel :deep(.nav) {
   gap: clamp(10px, 2vw, 26px);
 }
-.personal-panel :deep(.nav button),
+.personal-panel :deep(.nav a),
 .personal-panel :deep(.text-button) {
   border: 0;
   background: transparent;
@@ -66,8 +62,11 @@
   font-size: 13px;
   padding: 10px 0;
 }
-.personal-panel :deep(.nav button) {
+.personal-panel :deep(.nav a) {
+  display: inline-flex;
+  align-items: center;
   border-bottom: 2px solid transparent;
+  text-decoration: none;
 }
 .personal-panel :deep(.nav .active) {
   color: var(--accent);
@@ -256,7 +255,8 @@
 }
 .personal-panel :deep(.group-metrics) {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 10px 24px;
   margin: 16px 0;
 }
 .personal-panel :deep(.group-metrics strong) {
@@ -302,7 +302,7 @@
   font-size: 13px;
   margin-bottom: 5px;
 }
-.personal-panel :deep(input),
+.personal-panel :deep(input:not(.el-input__inner, .el-select__input, [type='checkbox'])),
 .personal-panel :deep(select) {
   width: 100%;
   border: 1px solid #aebbb4;
@@ -373,7 +373,7 @@
   .personal-panel :deep(.bar-inner) {
     gap: 14px;
   }
-  .personal-panel :deep(.nav button),
+  .personal-panel :deep(.nav a),
   .personal-panel :deep(.text-button) {
     min-height: 44px;
   }
@@ -415,10 +415,6 @@
   background: var(--lb-bg-header, #fff);
   box-shadow: var(--lb-shadow-header, 0 1px 4px #0001);
 }
-.personal-panel :deep(.wordmark) {
-  color: var(--lb-color-primary, #409eff);
-  text-decoration: none;
-}
 .personal-panel :deep(.panel),
 .personal-panel :deep(.group-card) {
   background: var(--lb-bg-card, #fff);
@@ -434,8 +430,151 @@
   padding: 20px;
 }
 
-.personal-panel :deep(.allocation-table) {
-  min-width: 880px;
+.personal-panel :deep(.panel > .allocation-table) {
+  margin-top: 10px;
+}
+.personal-panel :deep(.allocation-table td) {
+  vertical-align: top;
+}
+.personal-panel :deep(.allocation-metrics) {
+  min-width: 210px;
+  width: 36%;
+}
+.personal-panel :deep(.allocation-device-metrics .resource-metrics) {
+  max-width: 350px;
+}
+.personal-panel :deep(th.allocation-group),
+.personal-panel :deep(th.allocation-name) {
+  width: 16%;
+}
+.personal-panel :deep(th.allocation-task) {
+  width: 19%;
+}
+.personal-panel :deep(.allocation-label) {
+  display: none;
+}
+.personal-panel :deep(.allocation-disclosure) {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font-weight: 600;
+}
+.personal-panel :deep(.allocation-disclosure:hover) {
+  color: var(--accent);
+}
+.personal-panel :deep(.allocation-disclosure[aria-expanded='true'] .el-icon) {
+  transform: rotate(90deg);
+}
+.personal-panel :deep(.allocation-count) {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--lb-bg-page, #f5f7fa);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.personal-panel :deep(.allocation-table .allocation-detail td),
+.personal-panel :deep(.allocation-table .allocation-node-open td) {
+  background: var(--lb-bg-page, #f5f7fa);
+}
+.personal-panel :deep(.allocation-card-summary) {
+  margin: 2px 0 0 21px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.personal-panel :deep(.allocation-card-summary strong) {
+  font-variant-numeric: tabular-nums;
+}
+.personal-panel :deep(.allocation-table .allocation-detail .allocation-name) {
+  padding-inline-start: 32px;
+}
+@media (min-width: 761px) {
+  .personal-panel :deep(.allocation-overview th.allocation-group),
+  .personal-panel :deep(.allocation-overview th.allocation-name) {
+    width: clamp(130px, 15vw, 230px);
+  }
+  .personal-panel :deep(.allocation-overview .allocation-time) {
+    width: clamp(130px, 12vw, 180px);
+  }
+}
+.personal-panel :deep(.allocation-time) {
+  width: 165px;
+}
+.personal-panel :deep(.allocation-inline-metrics > .resource-metrics) {
+  max-width: 760px;
+  padding: 4px 12px;
+}
+@media (max-width: 760px) {
+  .personal-panel :deep(.allocation-table),
+  .personal-panel :deep(.allocation-table tbody) {
+    display: block;
+  }
+  .personal-panel :deep(.allocation-table thead) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+  }
+  .personal-panel :deep(.allocation-table tr) {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-block: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .personal-panel :deep(.allocation-table td) {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .personal-panel :deep(.allocation-table td:empty) {
+    display: none;
+  }
+  .personal-panel :deep(.allocation-table .allocation-detail) {
+    margin-inline-start: 14px;
+    padding-inline-start: 10px;
+    border-inline-start: 2px solid var(--line);
+  }
+  .personal-panel :deep(.allocation-table .allocation-node-open),
+  .personal-panel :deep(.allocation-table .allocation-detail) {
+    background: var(--lb-bg-page, #f5f7fa);
+  }
+  .personal-panel :deep(.allocation-table .allocation-node-open td),
+  .personal-panel :deep(.allocation-table .allocation-detail td) {
+    background: transparent;
+  }
+  .personal-panel :deep(.allocation-table .allocation-detail .allocation-name) {
+    padding-inline-start: 0;
+  }
+  .personal-panel :deep(.allocation-group),
+  .personal-panel :deep(.allocation-label) {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .personal-panel :deep(.allocation-label) {
+    display: inline-block;
+    margin-inline-end: 8px;
+  }
+  .personal-panel :deep(.allocation-name) {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .personal-panel :deep(.allocation-metrics) {
+    min-width: 0;
+    width: 100%;
+  }
+  .personal-panel :deep(.allocation-metrics .allocation-label) {
+    margin-block: 4px;
+  }
 }
 .personal-panel :deep(.el-alert) {
   margin: 14px 0;
@@ -534,20 +673,199 @@
   text-decoration: underline;
 }
 
-.personal-panel :deep(.account-menu) {
+.personal-panel :deep(.workbench-actions) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
   flex-shrink: 0;
 }
-.personal-panel :deep(.account-menu .el-button) {
-  gap: 6px;
+.personal-panel :deep(.workbench-exit) {
+  margin-left: 0;
+  padding-inline: 4px;
 }
 @media (max-width: 540px) {
-  .personal-panel :deep(.account-label) {
-    display: none;
+  .personal-panel :deep(.bar-inner) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 8px;
+    padding-top: 4px;
+  }
+  .personal-panel :deep(.workbench-actions) {
+    grid-column: 2;
+    grid-row: 1;
   }
   .personal-panel :deep(.nav) {
+    grid-column: 1 / -1;
     min-width: 0;
-    overflow-x: auto;
-    white-space: nowrap;
+    flex-wrap: wrap;
+    column-gap: 20px;
+    row-gap: 0;
   }
+}
+
+.personal-panel :deep(.workbench-stats) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.personal-panel :deep(.workbench-stat) {
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--lb-bg-card, #fff);
+  color: inherit;
+  text-decoration: none;
+}
+.personal-panel :deep(a.workbench-stat:hover) {
+  border-color: var(--accent);
+  background: var(--lb-bg-hover, #f0f6ff);
+}
+.personal-panel :deep(.nav a:focus-visible),
+.personal-panel :deep(a.workbench-stat:focus-visible),
+.personal-panel :deep(a.workbench-resource:focus-visible),
+.personal-panel :deep(.workbench-breadcrumb a:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.personal-panel :deep(.workbench-stat-heading),
+.personal-panel :deep(.workbench-row-status) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.personal-panel :deep(.workbench-stat-heading),
+.personal-panel :deep(.refresh-status) {
+  color: var(--muted);
+  font-size: 13px;
+}
+.personal-panel :deep(.refresh-coverage) {
+  color: var(--el-color-warning-dark-2, var(--muted));
+  text-underline-offset: 3px;
+}
+.personal-panel :deep(.refresh-coverage:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.personal-panel :deep(.workbench-stat-icon),
+.personal-panel :deep(.resource-coverage a),
+.personal-panel :deep(.workbench-empty a) {
+  color: var(--el-color-primary-dark-2, var(--accent));
+}
+.personal-panel :deep(.workbench-stat-next) {
+  margin-inline-start: auto;
+}
+.personal-panel :deep(.workbench-stat .stat-value) {
+  display: block;
+  font-size: clamp(23px, 3vw, 35px);
+}
+.personal-panel :deep(.detail-count) {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.personal-panel :deep(.workbench-empty) {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+}
+.personal-panel :deep(.workbench-focus) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+  margin-block: 16px;
+}
+.personal-panel :deep(.workbench-focus .panel) {
+  margin: 0;
+  padding: 15px 18px 8px;
+  min-width: 0;
+}
+.personal-panel :deep(.workbench-panel-heading) {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.personal-panel :deep(.workbench-panel-heading a) {
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: none;
+}
+.personal-panel :deep(.workbench-panel-heading a:hover) {
+  text-decoration: underline;
+}
+.personal-panel :deep(.workbench-panel-heading a:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.personal-panel :deep(.workbench-focus .panel > .scope) {
+  margin: 0 0 12px;
+}
+.personal-panel :deep(.workbench-resource) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  align-items: center;
+  text-align: start;
+  text-decoration: none;
+  gap: 12px;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-top: 1px solid var(--line);
+  padding: 10px 4px;
+}
+.personal-panel :deep(.workbench-resource:hover) {
+  background: var(--lb-bg-hover, #f0f6ff);
+}
+.personal-panel :deep(.workbench-resource > :first-child) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.personal-panel :deep(.workbench-resource small) {
+  display: block;
+  margin-top: 3px;
+}
+.personal-panel :deep(.workbench-row-status) {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.personal-panel :deep(.workbench-countdown) {
+  color: var(--el-color-warning-dark-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 640px) {
+  .personal-panel :deep(.workbench-focus) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .personal-panel :deep(.workbench-stats) {
+    gap: 8px;
+  }
+  .personal-panel :deep(.workbench-stat) {
+    padding: 12px 9px;
+  }
+  .personal-panel :deep(.workbench-stat-heading) {
+    gap: 4px;
+    font-size: 12px;
+  }
+  .personal-panel :deep(.workbench-stat-icon) {
+    display: none;
+  }
+}
+
+.personal-panel :deep(.group-metrics strong small) {
+  font-size: 15px;
+  font-weight: 500;
+}
+.personal-panel :deep(.connection-source) {
+  margin: 14px 0;
+}
+.personal-panel :deep(.connection-source .connection-groups) {
+  margin: 6px 0 0;
 }

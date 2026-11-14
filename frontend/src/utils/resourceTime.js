@@ -2,12 +2,15 @@
 const formatters = new Map()
 const naiveServerTime = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/
 
-export function formatResourceTime(value, locale = 'zh', preferredTimeZone) {
-  if (value == null || value === '') return '—'
+export function parseResourceTime(value) {
   // Backend naive datetimes represent UTC, as in the existing shared date helpers.
   const input =
     typeof value === 'string' && naiveServerTime.test(value) ? value.replace(' ', 'T') + 'Z' : value
-  const date = value instanceof Date ? value : new Date(input)
+  return value == null || value === '' ? new Date(NaN) : new Date(input)
+}
+
+export function formatResourceTime(value, locale = 'zh', preferredTimeZone) {
+  const date = parseResourceTime(value)
   if (!Number.isFinite(date.getTime())) return '—'
   // Language does not identify a timezone. An explicit preference takes priority;
   // otherwise resolve the viewer's current browser zone, not the API server's zone.
