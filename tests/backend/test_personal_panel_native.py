@@ -241,3 +241,38 @@ def test_retained_failed_generation_is_unknown_even_with_a_snapshot(panel, api):
     assert api["manager"].is_failed(api["bot_id"])
     group = provider.report(grant)[0]
     assert group["status"] == "unknown" and group["source_at"]
+
+
+def test_only_original_binding_reads_task_on_current_hold(panel, api, client, db_session):
+    provider, grant = panel
+    url = f"/api/bots/{api['bot_id']}/commands"
+    assert client.post(url, headers=api["headers"], json={"command": "lock n1 1h"}).status_code == 200
+    row = _binding(db_session, grant)
+    _, snapshot = api["bot"].state_snapshot()
+    from lockbot.backend.app.resource_api.usage import holding_proof, store_declaration
+
+    now = datetime.now(timezone.utc)
+    store_declaration(
+        db_session,
+        bot_id=api["bot_id"],
+        binding_id=row.id,
+        resource_id="n1",
+        purpose="Synthetic detailed note",
+        agent_label="fixture-agent",
+        proof=holding_proof(snapshot, "n1", "alice", now=now.timestamp()),
+        now=now.replace(tzinfo=None),
+        ttl_seconds=3600,
+        task_category="unit_testing",
+    )
+    db_session.commit()
+    own = provider.report(grant)[0]["allocations"]
+    assert own[0]["own_task"] == {
+        "category": native.TASK_CATEGORIES["unit_testing"],
+        "note": "Synthetic detailed note",
+        "agent_label": "fixture-agent",
+    }
+    other = provider.authenticate(api["other_headers"]["Authorization"].split()[1])
+    assert "Synthetic detailed note" not in json.dumps(provider.report(other))
+    assert client.post(url, headers=api["headers"], json={"command": "free n1"}).status_code == 200
+    assert client.post(url, headers=api["headers"], json={"command": "lock n1 1h"}).status_code == 200
+    assert provider.report(grant)[0]["allocations"][0]["own_task"] is None
