@@ -13,7 +13,7 @@ MESSAGES = {
     "error.relock_forbidden": "【禁止续期】当前占用者不能续期或预约同一资源。",
     "error.claim_duration_limit": "【禁止延长预约】领取时长不能超过原预约时长，请按原预约领取。",
     "error.resource_count_limit": "【资源数量限制】每人最多同时占用或预约 {limit} 个资源。",
-    "view.link": "网页查看：",
+    "view.link": "查看资源与排队",
     "help.agent_commands": "{number}. Agent:\n    bind <绑定码>(由 Agent 提供) / bindings / unbind\n",
     "notify.api_task_category": "\n用途：{category}",
     "notify.api_purpose": "\n备注：{purpose}",

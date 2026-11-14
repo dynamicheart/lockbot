@@ -83,6 +83,11 @@ public memory; use the client's private credential store.
 
 For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
 alone: it contains `SKILL.md`, `scripts/lockbot_resource.py` and `installation.json`.
+One installation can serve multiple independently approved connections when its verified
+`package_version` matches a service's declared package revision. Keep each connection's
+origin, instance, bot, actor and key reference separate. Different rendered deployment
+URLs alone do not require replacing the package; old servers remain conservative.
+
 A ZIP URL does not automatically install in every client. Use its installer or verify the
 manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
 supported; the helper is the recommended fixed path, not a new server requirement.

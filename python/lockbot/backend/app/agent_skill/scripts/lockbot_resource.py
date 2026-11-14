@@ -111,6 +111,60 @@ def private_json(path):
         raise ClientError("invalid_private_json") from exc
 
 
+def deployment_fragments(base):
+    """Exact builder-owned locator substitutions, never arbitrary Markdown stripping."""
+    return {
+        "<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->": f"Deployment Skill URL: `{base}/api/agent-skill/SKILL.md`.",
+        "<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->": "\n".join(
+            [
+                "Deployment API addresses (use the verified context links for the bot scope):",
+                f"- Manifest: `GET {base}/api/agent-skill`",
+                f"- Context: `GET {base}/api/agent/context`",
+                f"- Complete installation ZIP: `{base}/api/agent-skill/lockbot-resource-agent.zip`",
+                f"- Resources: `GET {base}/api/bots/{{bot_id}}/resources`",
+                f"- Commands: `POST {base}/api/bots/{{bot_id}}/commands`",
+                "  `bot_id` comes from this key's context; do not ask the user to guess it.",
+            ]
+        ),
+    }
+
+
+def canonical_package_version(markdown, script, deployment_origin):
+    if not isinstance(deployment_origin, str):
+        raise ClientError("invalid_bundle_deployment_origin")
+    if deployment_origin:
+        # The published Markdown preserves the configured authority spelling.
+        # Validate it without normalizing the bytes used by the renderer.
+        origin(deployment_origin)
+        if not re.fullmatch(r"https?://[A-Za-z0-9.:[\]-]+", deployment_origin):
+            raise ClientError("invalid_bundle_deployment_origin")
+        for marker, rendered in deployment_fragments(deployment_origin).items():
+            if markdown.count(rendered.encode()) != 1 or marker.encode() in markdown:
+                raise ClientError("unknown_bundle_locator")
+            markdown = markdown.replace(rendered.encode(), marker.encode(), 1)
+    if any(markdown.count(marker.encode()) != 1 for marker in deployment_fragments("")):
+        raise ClientError("unknown_bundle_locator")
+    return hashlib.sha256(markdown + b"\0" + script).hexdigest()[:16]
+
+
+def installed_package_version(root):
+    installed_version(root)  # retain full rendered file/bundle integrity checks
+    try:
+        stamp = json.loads((root / "installation.json").read_bytes())
+        if "package_version" not in stamp:  # old complete bundles stay conservative
+            return None
+        if stamp.get("package_format") != "canonical-origin-v1":
+            raise ClientError("unsupported_bundle_package_format")
+        package = canonical_package_version(
+            (root / "SKILL.md").read_bytes(), (root / SCRIPT_PATH).read_bytes(), stamp.get("deployment_origin")
+        )
+        if package != stamp["package_version"]:
+            raise ClientError("installed_package_modified")
+        return package
+    except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
+        raise ClientError("installed_bundle_incomplete_or_modified") from exc
+
+
 def installed_version(root):
     try:
         stamp = json.loads((root / "installation.json").read_bytes())
@@ -148,6 +202,8 @@ class Client:
         self.secrets = []
         self.key = None
         self.version = None
+        self.package_version = None
+        self.portable_package = False
         self.needs_update = False
         self.manifest = None
 
@@ -169,6 +225,8 @@ class Client:
             if self.version:
                 headers["X-Lockbot-Client-Skill-Version"] = self.version
                 headers["X-Lockbot-Client-API-Version"] = API_VERSION
+                if self.package_version:
+                    headers["X-Lockbot-Client-Package-Version"] = self.package_version
             data = None
             if body is not None:
                 data = urllib.parse.urlencode(body).encode() if form else json.dumps(body).encode()
@@ -184,7 +242,11 @@ class Client:
                     ) == "incompatible":
                         raise ClientError("api_version_changed")
                     revision = response.headers.get("X-Lockbot-Skill-Version")
-                    if revision and self.version and revision != self.version:
+                    if (
+                        revision
+                        and self.version
+                        and self._version_differs(revision, response.headers.get("X-Lockbot-Package-Version"))
+                    ):
                         self.needs_update = True
                     chunks, size = [], 0
                     reader = getattr(response, "read1", response.read)
@@ -208,7 +270,13 @@ class Client:
                         if not isinstance(value, dict):
                             raise ValueError
                         current = (value.get("skill_update") or {}).get("current_version")
-                        if self.version and current and current != self.version:
+                        if (
+                            self.version
+                            and current
+                            and self._version_differs(
+                                current, (value.get("skill_update") or {}).get("current_package_version")
+                            )
+                        ):
                             self.needs_update = True
                         return value
                     except (ValueError, UnicodeError, RecursionError) as exc:
@@ -258,6 +326,11 @@ class Client:
         self.manifest = result
         return result
 
+    def _version_differs(self, rendered, package=None):
+        if self.portable_package and package is not None:
+            return package != self.package_version
+        return rendered != self.version
+
     def _read_context(self, *, initializing=False):
         if self.manifest is None:
             self.discover()  # no credentials have been read or sent yet
@@ -265,7 +338,13 @@ class Client:
             raise ClientError("connection_identity_not_pinned")
         if self.version is None:
             self.version = installed_version(self.root)
-        self.needs_update |= self.version != self.manifest.get("version")
+            self.package_version = installed_package_version(self.root)
+        self.portable_package = bool(
+            self.package_version
+            and self.manifest.get("package_format") == "canonical-origin-v1"
+            and re.fullmatch(r"[a-f0-9]{16}", str(self.manifest.get("package_version", "")))
+        )
+        self.needs_update |= self._version_differs(self.manifest.get("version"), self.manifest.get("package_version"))
         if self.key is None:
             try:
                 self.key = private_bytes(self._file("key_file")).decode().strip()
@@ -304,7 +383,9 @@ class Client:
             or (not initializing and uuid != self.config["bot_uuid"])
         ):
             raise ClientError("context_identity_mismatch")
-        self.needs_update |= result.get("skill", {}).get("version") != self.version
+        self.needs_update |= self._version_differs(
+            result.get("skill", {}).get("version"), result.get("skill", {}).get("package_version")
+        )
         return result
 
     def context(self):
@@ -617,6 +698,14 @@ class Client:
                         raise ClientError("bundle_file_digest_mismatch")
         except (ValueError, OSError, KeyError, zipfile.BadZipFile, RecursionError) as exc:
             raise ClientError("invalid_installation_bundle") from exc
+        if "package_version" in meta and (
+            meta.get("package_format") != "canonical-origin-v1"
+            or stamp.get("package_format") != meta["package_format"]
+            or stamp.get("package_version") != meta["package_version"]
+            or canonical_package_version(contents["SKILL.md"], contents[SCRIPT_PATH], stamp.get("deployment_origin"))
+            != meta["package_version"]
+        ):
+            raise ClientError("bundle_package_mismatch")
         target.mkdir(parents=True, mode=0o700)
         for name, content in contents.items():
             path = target / name

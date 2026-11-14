@@ -1,6 +1,6 @@
 # 个人资源台的连接状态与 Agent 接入说明
 
-在“我的连接”中，可以查看当前浏览器已经逐个确认的原生连接：资源群／机器人、本人平台身份、实际服务、Key 到期时间及恢复副本状态。相同姓名、相同用户 ID 字符串或外部报表不能代替另一个群的授权；尚未向当前浏览器授权的群不会自动出现。
+在“我的凭证”中，可以查看当前浏览器已确认的 Lockbot 绑定，包括资源群、平台身份、服务地址、Key 到期时间和恢复副本状态。每个资源群分别授权，完成后才会出现在此页。
 
 点击“刷新 Key 状态”只重新验证现有绑定，不更换 Key、不延长到期时间，也不恢复已失效的权限。当前绑定过期、被撤销或迁移后，连接资料会被拒绝返回；仍有效的其他连接继续独立使用。恢复副本有三种情况：
 
@@ -33,3 +33,10 @@
 封装、事务或比较交换失败不会自动更换旧 Key。若提交后网络中断、页面超时或关闭，重置结果可能已经生效：不要再次提交或自动轮换，应由本人通过 IM 重新确认当前绑定，再按恢复指引处理；不能拿失效原 Key 为自己续权。
 
 这些资料仅由原生身份提供方对本服务的确认绑定生成。外部资源报表的已授权群继续显示在资源查询和连接来源中，并标明“此来源仅支持资源查询，凭证请由原 Agent 管理”；本阶段不解密或转发外部来源的 Key。自定义身份提供方不会因为返回相同格式、名字或 URL 而获得原生连接／Key 权限，未提供能力时会显示管理暂不可用。旧面板 API 没有相应能力时，继续使用其原有只读界面。
+
+## Task details on held resources
+
+The personal dashboard shows the recorded task category on an active holding.
+Select the category to open the detailed note and Agent label when available.
+These fields are available for the binding that registered the task on that
+holding. External report sources may omit task details.

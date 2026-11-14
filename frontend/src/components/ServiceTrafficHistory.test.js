@@ -81,6 +81,7 @@ function mount() {
     'el-card',
     'el-tooltip',
     'el-empty',
+    'el-icon',
   ])
     app.component(name, shell)
   app.component(
@@ -175,7 +176,9 @@ it('shows the custom input browser timezone and clears the previous range', asyn
     .find((node) => node.props?.['data-custom'])
     .props.onClick()
   await flush()
-  expect(text(root)).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  const inputZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+  expect(all(root).some((node) => node.props?.['aria-label'] === inputZone)).toBe(true)
+  expect(text(root)).not.toContain(inputZone)
   expect(text(root)).toContain('trafficHistory.invalidRange')
   expect(text(root)).not.toContain('trafficHistory.metrics.requests')
   expect(api.get).toHaveBeenCalledTimes(1)
@@ -191,11 +194,29 @@ it('uses the browser timezone for history axes independently of UI language', as
     api.get.mockResolvedValueOnce({ data: payload(1) })
     const { root } = mount()
     await flush()
-    expect(text(root)).toContain('2026-11-13 17:00:00 UTC-08:00')
+    for (const tick of all(root).filter((node) => node.tag === 'time')) {
+      expect(tick.text).toContain('17:00')
+      expect(tick.props.title).toBe('2026-11-13 17:00:00 UTC-08:00')
+    }
+    expect(all(root).filter((node) => node.tag === 'time')).toHaveLength(2)
     mocks.locale.value = 'en'
     await flush()
-    expect(text(root)).toContain('2026-11-13 17:00:00 UTC-08:00')
+    for (const tick of all(root).filter((node) => node.tag === 'time')) {
+      expect(tick.text).toContain('17:00')
+      expect(tick.props.title).toBe('2026-11-13 17:00:00 UTC-08:00')
+    }
+    expect(all(root).filter((node) => node.tag === 'time')).toHaveLength(2)
   } finally {
     zone.mockRestore()
   }
+})
+
+it('keeps partial coverage in the point hint without a chart-top marker', async () => {
+  api.get.mockResolvedValueOnce({ data: payload(1, 'partial') })
+  const { root } = mount()
+  await flush()
+  const bars = all(root).filter((node) => node.props?.class === 'history-bar')
+  expect(bars).toHaveLength(2)
+  for (const bar of bars) expect(bar.props['aria-label']).toContain('trafficHistory.partial')
+  expect(text(root)).not.toContain('trafficHistory.coverage')
 })
