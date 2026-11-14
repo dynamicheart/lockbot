@@ -6,8 +6,8 @@ Scope decisions, all fixed by the plan and the user:
   same class of action as ``kickout`` and ``kicklock``. Queue support survives without it:
   ``QueueBot.lock`` accepts an idle node when the caller is first in the booking list, so
   ``book`` then ``lock`` is a complete non-preemptive path.
-- ``alias`` is included so an agent can declare what it is running, which is the whole
-  point of letting it set one.
+- ``alias`` edits a shared node label when enabled. Personal task details belong in
+  usage declarations, not in that public label.
 - ``bind`` / ``unbind`` / ``bindings`` are refused unconditionally. Enrollment and
   revocation are chat-only, because chat is the only place a trustworthy identity exists.
 """
@@ -102,7 +102,11 @@ The examples below use placeholder resources; replace them with those returned b
   card’s exact `claim_command`, e.g. `lock node1 dev0`. The `book` response includes `next_step`.
   Poll with backoff; no busy loops.
 - `alias node1 <note>` changes the shared resource alias only when enabled (at most 15
-  characters). It is not an Agent task note; use usage declarations for task purposes.
+  characters); `alias node1` clears it. Read the node's `resources[].alias` afterward.
+  For DEVICE/QUEUE_DEVICE, this is the parent node's label, not a per-card note.
+  It is not an Agent task note; use usage declarations for task purposes. Readback
+  observes current configuration separately from cached lock state; it does not prove
+  persistence or that your command caused the value. HTTP 200 alone is not success.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
   Agent keys**. Native chat/OP permissions do not imply permission through this API.
 - HTTP 200 only means the command was dispatched. Inspect `reply` and read `/resources`

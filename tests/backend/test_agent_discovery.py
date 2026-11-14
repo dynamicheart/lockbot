@@ -30,7 +30,11 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session):
     assert len(bundle.content) == meta["size_bytes"]
     assert meta["version"] in bundle.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
-        assert archive.namelist() == ["lockbot-agent-api/SKILL.md"]
+        assert set(archive.namelist()) == {
+            "lockbot-agent-api/SKILL.md",
+            "lockbot-agent-api/scripts/lockbot_resource.py",
+            "lockbot-agent-api/installation.json",
+        }
         assert archive.read(archive.namelist()[0]) == markdown.content
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).parents[2] / ".." / "docs/agent-api/SKILL.md"
@@ -50,6 +54,8 @@ def test_deployment_skill_url_matches_all_distribution_paths(client, monkeypatch
     manifest = client.get("/api/agent-skill", headers=headers).json()
     markdown = client.get(manifest["skill_url"], headers=headers)
     assert b"Deployment Skill URL: `http://192.0.2.10:8155/api/agent-skill/SKILL.md`" in markdown.content
+    assert b"GET http://192.0.2.10:8155/api/agent/context" in markdown.content
+    assert b"http://192.0.2.10:8155/api/agent-skill/lockbot-resource-agent.zip" in markdown.content
     assert b"untrusted.example" not in markdown.content
     assert manifest["version"] != generic["version"]
     assert markdown.headers["x-lockbot-skill-version"] == manifest["version"]

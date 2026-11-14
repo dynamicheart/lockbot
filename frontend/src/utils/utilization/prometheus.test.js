@@ -184,3 +184,83 @@ describe('browser Prometheus provider', () => {
     ).rejects.toMatchObject({ code: 'size' })
   })
 })
+
+it.each(['custom', 'lockbot-v1'])(
+  'honors HTTP-date Retry-After for profile %s',
+  async (profile) => {
+    await expect(
+      collectPrometheus({ ...config(), profile }, ['node-a'], {
+        now: () => at,
+        fetchImpl: async () =>
+          new Response('', {
+            status: 429,
+            headers: { 'retry-after': new Date(at + 90000).toUTCString() },
+          }),
+      })
+    ).rejects.toMatchObject({ code: 'limited', retryAfter: 90 })
+  }
+)
+
+it.each([
+  ['custom', 'headers'],
+  ['custom', 'body'],
+  ['lockbot-v1', 'headers'],
+  ['lockbot-v1', 'body'],
+])('stops profile %s at sleeping %s without continuing its query batch', async (profile, stage) => {
+  let wall = at
+  const waiting = [],
+    controllers = []
+  const fetchImpl = vi.fn(() =>
+    stage === 'headers'
+      ? new Promise((resolve) => waiting.push(resolve))
+      : Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controllers.push(controller)
+              },
+            })
+          )
+        )
+  )
+  const pending = collectPrometheus({ ...config(), profile }, ['node-a'], {
+    fetchImpl,
+    now: () => at,
+    deadlineAt: at + 15000,
+    wallNow: () => wall,
+  })
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'timeout' })
+  await Promise.resolve()
+  await Promise.resolve()
+  wall += 600000
+  if (stage === 'headers') for (const resolve of waiting) resolve(response([]))
+  else
+    for (const controller of controllers) {
+      controller.enqueue(
+        new TextEncoder().encode(
+          JSON.stringify({ status: 'success', data: { resultType: 'vector', result: [] } })
+        )
+      )
+      controller.close()
+    }
+  await rejected
+  expect(fetchImpl).toHaveBeenCalledTimes(profile === 'custom' ? 2 : 1)
+})
+
+it('keeps Retry-After when datasource headers arrive after the absolute deadline', async () => {
+  let wall = at
+  const waiting = []
+  const fetchImpl = vi.fn(() => new Promise((resolve) => waiting.push(resolve)))
+  const pending = collectPrometheus(config(), ['node-a'], {
+    fetchImpl,
+    now: () => at,
+    deadlineAt: at + 15000,
+    wallNow: () => wall,
+  })
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'timeout', retryAfter: 90 })
+  wall += 600000
+  for (const resolve of waiting)
+    resolve(new Response('', { status: 429, headers: { 'retry-after': '90' } }))
+  await rejected
+  expect(fetchImpl).toHaveBeenCalledTimes(2)
+})
