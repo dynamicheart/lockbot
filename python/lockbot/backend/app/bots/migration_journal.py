@@ -1,12 +1,16 @@
 """Persist an in-progress platform migration independently of the bot's runtime status."""
 
+import hmac
+import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
+from lockbot.backend.app.bots.migration_preflight import _review_digest
 from lockbot.backend.app.database import Base
+from lockbot.backend.app.resource_api.lease_contract import MAX_STATE_FILE_BYTES
 
 
 class BotMigration(Base):
@@ -23,6 +27,8 @@ class BotMigration(Base):
     frozen_at: Mapped[datetime] = mapped_column(DateTime)
     phase: Mapped[str] = mapped_column(String(24), default="frozen")
     drained_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    destination_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    destination_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 def migration_fence(db, bot_id):
@@ -45,3 +51,36 @@ def record_migration_freeze(db, bot, target, review_digest, *, requested_by=None
     )
     db.add(row)
     return row
+
+
+def _destination_scope(row, payload):
+    return {
+        "operation": row.operation_id,
+        "bot": row.bot_uuid,
+        "source_revision": row.source_revision,
+        "application": row.target_application_id,
+        "chat": row.target_chat_id,
+        "review": row.review_digest,
+        "payload": payload,
+    }
+
+
+def stage_destination_checkpoint(row, state):
+    """Store only the clean destination runtime in the same transaction as the phase."""
+    payload = json.dumps(state, allow_nan=False, separators=(",", ":"))
+    if len(payload.encode()) > MAX_STATE_FILE_BYTES:
+        raise ValueError("Destination state exceeds the persisted state limit")
+    row.destination_payload = payload
+    row.destination_digest = _review_digest(_destination_scope(row, payload))
+
+
+def read_destination_checkpoint(row):
+    """Validate the persisted checkpoint before a later operation can publish it."""
+    payload = row.destination_payload
+    if row.phase != "drained" or not payload or not row.destination_digest:
+        raise ValueError("Destination checkpoint is unavailable")
+    if len(payload.encode()) > MAX_STATE_FILE_BYTES or not hmac.compare_digest(
+        row.destination_digest, _review_digest(_destination_scope(row, payload))
+    ):
+        raise ValueError("Destination checkpoint does not match the migration")
+    return json.loads(payload)

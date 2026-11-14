@@ -459,7 +459,7 @@ def test_persisted_migration_fences_manual_routes_and_startup(
 def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeypatch, retirement, expected):
     from lockbot.backend.app.bots.manager import MayHaveExecuted
     from lockbot.backend.app.bots.migration_cutover import continue_source_drain, freeze_migration
-    from lockbot.backend.app.bots.migration_journal import migration_fence
+    from lockbot.backend.app.bots.migration_journal import migration_fence, read_destination_checkpoint
     from lockbot.backend.app.bots.migration_preflight import (
         MigrationPreflight,
         MigrationReview,
@@ -473,7 +473,12 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
     lease = SimpleNamespace(
         generation=1,
         health=None,
-        bot=SimpleNamespace(_lock=threading.Lock(), config=config, state=SimpleNamespace(bot_state=state)),
+        bot=SimpleNamespace(
+            _lock=threading.Lock(),
+            config=config,
+            state=SimpleNamespace(bot_state=state),
+            state_snapshot=lambda: (datetime.now(timezone.utc), copy.deepcopy(state)),
+        ),
     )
 
     @contextmanager
@@ -518,3 +523,16 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
     assert continue_source_drain(db_session, manager, bot_id, operation_id, actor).phase == expected
     assert len(calls) == (2 if retirement == "timeout" else 1)
     assert not db_session.query(FeishuGroupRoute).count()
+    db_session.expunge_all()
+    persisted = migration_fence(db_session, bot_id)
+    if expected == "drained":
+        assert read_destination_checkpoint(persisted) == {
+            "node1": {"status": "idle", "current_users": [], "booking_list": []}
+        }
+        persisted.destination_payload = "{}"
+        with pytest.raises(ValueError, match="does not match"):
+            read_destination_checkpoint(persisted)
+    else:
+        assert persisted.destination_payload is None
+        with pytest.raises(ValueError, match="unavailable"):
+            read_destination_checkpoint(persisted)

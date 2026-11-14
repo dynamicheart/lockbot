@@ -1,5 +1,6 @@
 """Retire and recheck a reviewed source before destructive migration work."""
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
@@ -7,9 +8,14 @@ from sqlalchemy import select
 
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.manager import BotNotRunning, MayHaveExecuted
-from lockbot.backend.app.bots.migration_journal import migration_fence, record_migration_freeze
+from lockbot.backend.app.bots.migration_journal import (
+    migration_fence,
+    record_migration_freeze,
+    stage_destination_checkpoint,
+)
 from lockbot.backend.app.bots.migration_preflight import (
     MigrationPreflight,
+    _empty_destination_state,
     observe_migration,
     verify_migration_review_receipt,
 )
@@ -64,7 +70,16 @@ def continue_source_drain(db, manager, bot_id, operation_id, actor):
                 target = MigrationPreflight(application_id=row.target_application_id, chat_id=row.target_chat_id)
                 observed = observe_migration(db, manager, bot_id, target, retired=retired)
                 row = migration_fence(db, bot_id)
-                row.phase = "drained" if observed["review_digest"] == row.review_digest else "source_changed"
+                row.phase = "source_changed"
+                if observed["review_digest"] == row.review_digest:
+                    _, state = retired.bot.state_snapshot()
+                    destination = _empty_destination_state(state, bot.bot_type, json.loads(bot.cluster_configs))
+                    try:
+                        stage_destination_checkpoint(row, destination)
+                    except ValueError:
+                        row.phase = "recovery_required"
+                    else:
+                        row.phase = "drained"
                 row.drained_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit()
         return row
