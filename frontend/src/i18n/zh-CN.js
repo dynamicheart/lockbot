@@ -263,6 +263,7 @@ export default {
     notConfigured: '未配置',
     remove: '移除',
     setupGuide: '接入文档',
+    agentSetupGuide: '交给 Agent 配置',
     adminHint:
       '为当前机器人统一配置。请准备数据源地址、指标名、标签及节点／设备映射；在当前浏览器验证并保存。不要保存共享数据源密钥。',
     testSave: '验证并保存',
