@@ -44,6 +44,7 @@ Open `http://localhost:8000`. Data persists under `/data`; select the intended h
 - [Agent-assisted deployment and upgrades](docs/agents/deployment/AGENTS.md), including environment validation and a Compose template
 - [Infoflow and Feishu setup](docs/agents/platforms/AGENTS.md) and [illustrated Feishu guide](docs/usage/feishu-setup.md)
 - [Agent API and Skill](docs/agent-api/SKILL.md)
+- [Vendor-neutral metrics plugin protocol v1](docs/design/metrics-datasource-protocol.md) (design contract; Prometheus and HTTP JSON examples)
 - [Independent telemetry deployment](docs/usage/telemetry-deployment.md) and [browser utilization](docs/usage/browser-utilization.md)
 
 In Feishu, one enterprise application can serve multiple resource groups, with a separate resource bot per group. Direct messages are unsupported. Platform credentials and users remain separate from Infoflow; copying configuration does not share live locks or authorizations.
