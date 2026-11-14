@@ -62,7 +62,7 @@ PROMPTS = {
 def prepare(root, skill, scenario, artifact_directory=None):
     base.prepare(root, skill, "existing-key" if scenario != "no-key" else "bootstrap")
     case = json.loads((root / "case.json").read_text())
-    case.update(fixture_version=5 if scenario == "telemetry" else 4, scenario=scenario, phase=1)
+    case.update(fixture_version=7 if scenario == "telemetry" else 6, scenario=scenario, phase=1)
     base.save_json(root / "case.json", case)
     (root / "prompt.txt").write_text(PROMPTS[scenario])
     base.save_json(root / "browser.json", {"authenticated": False, "bookmarks": [], "delivered": False})
@@ -314,6 +314,8 @@ class Fixture(base.Fixture):
                     ):
                         raise artifacts.ArtifactBlocked("artifact_digest_or_destination_mismatch")
                     target = self.path(args["destination"])
+                    if target.parent not in {self.workspace / catalog for catalog in SKILL_CATALOGS}:
+                        raise artifacts.ArtifactBlocked("destination_outside_skill_catalog")
                     target.mkdir(mode=0o700, parents=True, exist_ok=False)
                     for relative, content in self.artifact["contents"].items():
                         path = target / relative
@@ -339,6 +341,8 @@ class Fixture(base.Fixture):
                     }
             except (artifacts.ArtifactBlocked, OSError, KeyError, ValueError) as error:
                 result = {"blocked": True, "error": str(error)}
+                if str(error) == "destination_outside_skill_catalog":
+                    result["supported_skill_catalogs"] = list(SKILL_CATALOGS)
             with (self.root / "trace.jsonl").open("a") as stream:
                 stream.write(json.dumps({"tool": name, "args": args, "result": result}) + "\n")
             return result
@@ -346,6 +350,7 @@ class Fixture(base.Fixture):
             return super().call(name, args)
         if name == "discover_local_state":
             result = {
+                "supported_skill_catalogs": list(SKILL_CATALOGS),
                 "installed_skills": [
                     {
                         "path": str(path.relative_to(self.workspace)),
@@ -394,6 +399,11 @@ def tools():
     for tool in common:
         if tool["name"] == "http_request":
             tool["inputSchema"]["properties"]["body"] = {"type": "string", "description": "Optional HTTP form body"}
+        if tool["name"] == "install_skill":
+            tool["inputSchema"]["properties"]["destination"] = {
+                "type": "string",
+                "description": "One Skill folder directly inside a supported catalog returned by discover_local_state.",
+            }
     return common + [
         {
             "name": name,
