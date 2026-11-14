@@ -363,6 +363,21 @@ to compensate.
 The `lockbot-v1` profile uses Prometheus `/api/v1/query`, `node` / `device` labels and the
 `lockbot_accelerator_*`, `lockbot_host_*` metric families. Read the protocol guide referenced
 by context for the fixed supported names; restrict queries to this bot's configured nodes.
+
+Prefer the bundled helper for metrics. For a direct HTTP fallback, send a form-encoded
+POST to the approved endpoint's `/api/v1/query`, with the selector in the `query` field.
+Use explicit allowlisted metric names and the exact mapped node labels. For example,
+with a mapped node named `host-a`, this selector reads utilization, sample time and
+collector status in one request:
+
+```promql
+{__name__=~"^(?:lockbot_accelerator_utilization_percent|lockbot_sample_timestamp_seconds|lockbot_collector_success)$",node=~"^(?:host-a)$"}
+```
+
+Keep both regular expressions anchored and escape any regex metacharacters in the node
+labels. Replace `host-a` with the configured mapping for the requested resource. Keep
+the `collector="accelerator"` samples when checking card telemetry freshness.
+
 The source sampler defaults to once every five minutes; frequent queries do not make the
 underlying sample newer. Read `lockbot_sample_timestamp_seconds{collector="accelerator"}`
 and the corresponding host collector gauge, plus `lockbot_collector_success`. A scrape or
