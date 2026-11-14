@@ -1,11 +1,13 @@
 """Browser access to a personal read-only dashboard on a trusted Lockbot origin."""
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import math
 import time
 from collections import deque
+from datetime import datetime, timezone
 from threading import Event, Lock
 from time import monotonic
 from urllib.parse import urlsplit
@@ -526,7 +528,12 @@ def create_panel(
                 raise HTTPException(403, "Binding changed")
             if not sessions.grants(request.cookies.get(cookie_name)):
                 raise HTTPException(401)
-        return {"authenticated": bool(identities), "identities": identities, "same_person_groups": groups}
+        return {
+            "authenticated": bool(identities),
+            "identities": identities,
+            "same_person_groups": groups,
+            **({"workbench_plugins": {"resource_reporters": len(reporters)}} if identities else {}),
+        }
 
     @app.post("/logout")
     async def logout(request: Request):
@@ -613,6 +620,30 @@ def create_panel(
             "refresh_semantics": "revalidate_only",
         }
 
+    @app.get("/utilization/{connection}")
+    def utilization(connection: str, request: Request):
+        if not native_connections or provider.config.get("enable_utilization") is not True:
+            raise HTTPException(404)
+        cookie = request.cookies.get(cookie_name)
+        original, expiry = sessions.grant_window(cookie)
+        if not original:
+            raise HTTPException(401)
+        grant = next((item for item in original if connection_id(item) == connection), None)
+        if grant is None:
+            raise HTTPException(404)
+        try:
+            result = provider.utilization(
+                grant, session_expiry=datetime.fromtimestamp(expiry, timezone.utc), authorize=True
+            )
+        except ProviderError:
+            raise HTTPException(404) from None
+        if not result or sessions.grant_window(cookie) != (original, expiry) or not valid(grant):
+            raise HTTPException(404)
+        return result
+
+    def report_selector(*parts):
+        return hashlib.sha256(json.dumps(parts, separators=(",", ":"), sort_keys=True).encode()).hexdigest()[:32]
+
     def read_groups(grant, source):
         try:
             data = source.report(grant)
@@ -621,16 +652,24 @@ def create_panel(
         if not valid(grant):
             raise HTTPException(403, "Binding changed")
         for group in data:
-            if (not native_connections or source is not provider) and isinstance(group.get("allocations"), list):
-                group = {
-                    **group,
-                    "allocations": [
-                        {field: value for field, value in row.items() if field != "own_task"}
-                        if isinstance(row, dict)
-                        else row
-                        for row in group["allocations"]
-                    ],
-                }
+            group = {field: value for field, value in group.items() if field != "utilization"}
+            if native_connections and source is provider:
+                if group.get("status") == "ok" and any(
+                    row.get("kind") == "hold" for row in group.get("allocations", [])
+                ):
+                    try:
+                        metrics = provider.utilization(grant)
+                    except ProviderError:
+                        raise HTTPException(403, "Binding changed") from None
+                    if metrics:
+                        group["utilization"] = {"connection": connection_id(grant), **metrics}
+            elif isinstance(group.get("allocations"), list):
+                group["allocations"] = [
+                    {field: value for field, value in row.items() if field != "own_task"}
+                    if isinstance(row, dict)
+                    else row
+                    for row in group["allocations"]
+                ]
             key = (
                 id(source),
                 grant["issuer"],
@@ -640,10 +679,29 @@ def create_panel(
                 group.get("group_id", group["label"]),
                 grant["scope"] if source is provider else "",
             )
+            group_selector = report_selector(
+                next(index for index, reporter in enumerate((provider, *reporters)) if reporter is source),
+                key[1:],
+            )
+            allocations = group.get("allocations")
+            if isinstance(allocations, list):
+                group["allocations"] = [
+                    {
+                        **row,
+                        "detail_id": report_selector(
+                            group_selector, row.get("kind"), row.get("node"), row.get("device")
+                        ),
+                        "node_detail_id": report_selector(group_selector, "node", row.get("node")),
+                    }
+                    if isinstance(row, dict)
+                    else row
+                    for row in allocations
+                ]
             yield (
                 key,
                 dict(
                     group,
+                    detail_id=group_selector,
                     identity=public_identity(grant),
                     source={
                         "kind": "identity_provider" if source is provider else "reporter",

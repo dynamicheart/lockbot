@@ -3,16 +3,25 @@
 # ruff: noqa: F811
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
+import jwt
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.personal_panel import native
+from lockbot.backend.app.personal_panel.router import create_panel
 from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
+from lockbot.metrics.gateway import make_server
 
+from backend.test_metrics_access import signing_key, source
 from backend.test_resource_api_resources import api  # noqa: F401
 
 
@@ -145,12 +154,18 @@ def test_live_nonempty_snapshot_returns_only_own_holdings_and_reservations(panel
     result = provider.report(grant)
     assert len(result) == 1 and result[0]["status"] == "ok"
     assert result[0]["group_id"] and result[0]["source_at"]
+    assert result[0]["capacity"] == {
+        "nodes": len(state),
+        "cards": sum(map(len, state.values())) if device else None,
+    }
     holds = [allocation for allocation in result[0]["allocations"] if allocation["kind"] == "hold"]
     assert len(holds) == 1 and holds[0]["node"] == "n1"
     assert holds[0]["device"] == ("0" if device else None)
     assert datetime.fromisoformat(holds[0]["expires_at"]) > datetime.now(timezone.utc)
     bookings = [allocation for allocation in result[0]["allocations"] if allocation["kind"] == "reservation"]
     assert len(bookings) == int(queue)
+    if queue:
+        assert bookings[0]["position"] == 0
     assert api["bot"].state_snapshot()[1] == before
     assert "bob" not in json.dumps(result)
 
@@ -162,6 +177,178 @@ def test_unavailable_group_remains_unknown_with_stable_group_id(panel, api):
     after = provider.report(grant)[0]
     assert after["status"] == "unknown" and after["allocations"] == []
     assert after["group_id"] == before["group_id"]
+
+
+def test_panel_metrics_are_issued_only_for_current_native_holdings(
+    panel, api, client, db_session, tmp_path, monkeypatch
+):
+    provider, grant = panel
+    key_file = signing_key(tmp_path, monkeypatch)
+    origin = provider.config["issuer"]
+    provider.config["enable_utilization"] = True
+    config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-b"}}
+    bot_url = f"/api/bots/{api['bot_id']}"
+    assert client.put(bot_url, headers=api["auth_header"], json={"utilization_config": config}).status_code == 200
+    parent = FastAPI()
+    parent.mount("/me", create_panel(origin, tmp_path / "panel.db", provider))
+    agent = TestClient(parent, base_url=origin)
+    browser = TestClient(parent, base_url=origin)
+    link = agent.post("/me/links", headers=api["headers"])
+    ticket = link.json()["login_url"].split("?ticket=", 1)[1]
+    assert (
+        browser.post("/me/login", headers={"Origin": origin}, json={"ticket": ticket, "mode": "replace"}).status_code
+        == 200
+    )
+    path = "/me/utilization/"
+    assert agent.get(path + "unknown").status_code == 401
+    assert browser.get(path + "unknown").status_code == 404
+    assert "utilization" not in browser.get("/me/resources").json()["groups"][0]
+    assert client.post(bot_url + "/commands", headers=api["headers"], json={"command": "lock n1 2m"}).status_code == 200
+    group = browser.get("/me/resources").json()["groups"][0]
+    details = group["utilization"]
+    assert set(details) == {"connection", "configuration"}
+    response = browser.get(path + details["connection"])
+    assert response.status_code == 200, response.text
+    assert "no-store" in response.headers["Cache-Control"]
+    access = response.json()["access"]
+    claims = jwt.decode(access["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
+    assert claims["resources"] == {"host-a": None}
+    assert claims["scope_version"] == access["scope_version"] == 2
+    assert "nodes" not in claims
+    assert access["node_ids"] == ["n1"]
+    assert claims["exp"] <= datetime.fromisoformat(group["allocations"][0]["expires_at"]).timestamp()
+    verify_metrics_gateway(tmp_path, key_file, claims, access["token"], origin)
+
+    assert client.post(bot_url + "/commands", headers=api["headers"], json={"command": "free n1"}).status_code == 200
+    assert browser.get(path + details["connection"]).status_code == 404
+    row = _binding(db_session, grant)
+    row.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db_session.commit()
+    assert browser.get(path + details["connection"]).status_code == 404
+
+
+@pytest.mark.parametrize("invalid_deadline", [None, "invalid", "2999-01-01T00:00:00", "2000-01-01T00:00:00Z"])
+def test_panel_metrics_exclude_holdings_without_a_live_deadline(
+    panel, api, client, tmp_path, monkeypatch, invalid_deadline
+):
+    provider, grant = panel
+    signing_key(tmp_path, monkeypatch)
+    provider.config["enable_utilization"] = True
+    config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-b"}}
+    assert (
+        client.put(
+            f"/api/bots/{api['bot_id']}", headers=api["auth_header"], json={"utilization_config": config}
+        ).status_code
+        == 200
+    )
+    browser_expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+    live = {"kind": "hold", "node": "n1", "expires_at": browser_expiry.isoformat()}
+    unverified = {"kind": "hold", "node": "n2", "expires_at": invalid_deadline}
+    group = {"status": "ok", "allocations": [live, unverified]}
+    monkeypatch.setattr(provider, "report", lambda _grant: [group])
+
+    result = provider.utilization(grant, session_expiry=browser_expiry, authorize=True)
+    claims = jwt.decode(result["access"]["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
+    assert claims["resources"] == {"host-a": None}
+    group["allocations"] = [unverified]
+    assert provider.utilization(grant, session_expiry=browser_expiry, authorize=True) is None
+
+
+@pytest.mark.parametrize("api", ["DEVICE", "QUEUE_DEVICE"], indirect=True)
+def test_personal_card_grants_use_only_exact_unambiguous_held_device_labels(panel, api, client, tmp_path, monkeypatch):
+    provider, grant = panel
+    signing_key(tmp_path, monkeypatch)
+    provider.config["enable_utilization"] = True
+    config = {**source(), "deviceMapping": {"n1:dev0": "GPU-a", "n1:dev1": "GPU-b"}}
+    url = f"/api/bots/{api['bot_id']}"
+
+    def configure(configuration):
+        return client.put(url, headers=api["auth_header"], json={"utilization_config": configuration})
+
+    assert configure(config).status_code == 200
+    for index, headers in enumerate((api["headers"], api["other_headers"])):
+        lock = client.post(url + "/commands", headers=headers, json={"command": f"lock n1 dev{index} 2m"})
+        assert lock.status_code == 200
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+    result = provider.utilization(grant, session_expiry=expiry, authorize=True)
+    claims = jwt.decode(result["access"]["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
+    assert claims["resources"] == {"host-a": ["GPU-a"]}
+    assert result["access"]["node_ids"] == ["n1"]
+    for mapping in ({}, {"n1:dev0": "alias", "n1:dev1": "alias"}):
+        assert configure({**config, "deviceMapping": mapping}).status_code == 200
+        assert provider.utilization(grant, session_expiry=expiry, authorize=True) is None
+
+
+def test_personal_node_grants_reject_colliding_collector_node_aliases(panel, api, client, tmp_path, monkeypatch):
+    provider, grant = panel
+    signing_key(tmp_path, monkeypatch)
+    provider.config["enable_utilization"] = True
+    url = f"/api/bots/{api['bot_id']}"
+    config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-a"}}
+    assert client.put(url, headers=api["auth_header"], json={"utilization_config": config}).status_code == 200
+    lock = client.post(url + "/commands", headers=api["headers"], json={"command": "lock n1 2m"})
+    assert lock.status_code == 200
+    assert provider.report(grant)[0]["allocations"][0]["node"] == "n1"
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+    assert provider.utilization(grant, session_expiry=expiry, authorize=True) is None
+
+
+def verify_metrics_gateway(tmp_path, key_file, claims, token, origin):
+    metric = "lockbot_accelerator_process_info"
+    allowed_sample = {"__name__": metric, "node": "host-a", "device": "0", "container_name": "fixture-container"}
+    response = {
+        "status": "success",
+        "data": {"resultType": "vector", "result": [{"metric": allowed_sample, "value": [claims["iat"], "1"]}]},
+    }
+    upstream_requests = []
+
+    class PrometheusFixture(BaseHTTPRequestHandler):
+        def do_POST(self):
+            upstream_requests.append(self.rfile.read(int(self.headers["Content-Length"])))
+            payload = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *_args):
+            pass
+
+    upstream = ThreadingHTTPServer(("127.0.0.1", 0), PrometheusFixture)
+    policy = {
+        "audience": claims["aud"],
+        "upstream": f"http://127.0.0.1:{upstream.server_port}",
+        "origins": [origin],
+        "issuers": {claims["iss"]: {"key_file": str(key_file), "bots": {claims["sub"]: ["host-a", "host-b"]}}},
+    }
+    policy_file = tmp_path / "gateway.json"
+    policy_file.write_text(json.dumps(policy))
+    gateway = make_server(str(policy_file), "127.0.0.1", 0)
+    servers = [(server, threading.Thread(target=server.serve_forever)) for server in (upstream, gateway)]
+    for _, thread in servers:
+        thread.start()
+    try:
+        with httpx.Client(
+            base_url=f"http://127.0.0.1:{gateway.server_port}", headers={"Origin": origin}, trust_env=False, timeout=5
+        ) as browser:
+            path = "/api/v1/query"
+            options = browser.options(path)
+            assert options.status_code == 204
+            assert options.headers["Access-Control-Allow-Origin"] == origin
+            data = {"query": f'{metric}{{node=~"^(?:host-a)$"}}'}
+            assert browser.post(path, data=data).status_code == 401
+            auth = {"Authorization": f"Bearer {token}"}
+            allowed = browser.post(path, headers=auth, data=data)
+            assert allowed.status_code == 200
+            assert allowed.json()["data"]["result"][0]["metric"] == allowed_sample
+            outside = browser.post(path, headers=auth, data={"query": f'{metric}{{node=~"^(?:host-b)$"}}'})
+            assert outside.status_code == 403
+        assert len(upstream_requests) == 1
+    finally:
+        for server, thread in reversed(servers):
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
 def test_revocation_during_snapshot_is_rechecked(panel, api, session_factory, monkeypatch):

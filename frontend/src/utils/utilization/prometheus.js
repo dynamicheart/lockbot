@@ -425,9 +425,12 @@ async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now
             command: safe(labels.command),
           })
         else card.processesTruncated = true
+        card.processSample = metric(value, node, 'accelerator')
       }
-      if (name === 'lockbot_accelerator_process_info_truncated' && finite(value) === 1)
+      if (name === 'lockbot_accelerator_process_info_truncated' && finite(value) === 1) {
         card.processesTruncated = true
+        card.processSample = metric(value, node, 'accelerator')
+      }
     }
     if (name.startsWith('lockbot_host_')) {
       if (!hosts.has(node))

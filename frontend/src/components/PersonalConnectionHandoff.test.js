@@ -119,6 +119,31 @@ it('copies a deployment-pinned secret-free Skill instruction only on an explicit
       referrerPolicy: 'no-referrer',
     })
 })
+
+it('counts confirmed credentials and unique groups and copies all connections without keys', async () => {
+  const first = row()
+  const second = row('Group two')
+  second.id = 'b'.repeat(32)
+  second.bot = { ...second.bot, id: 8, uuid: 'fixture-second-bot-uuid' }
+  const third = { ...row(), id: 'c'.repeat(32) }
+  third.actor = { ...third.actor, external_user_id: 'bob' }
+  third.identity.subject = 'bob'
+  third.instructions = third.instructions.replace('/ alice /', '/ bob /')
+  fetchMock.mockImplementation(async (url) =>
+    response(url.endsWith('/capabilities') ? capabilities() : list([first, second, third, first]))
+  )
+  mount()
+  await flush()
+  expect(state.items).toHaveLength(3)
+  expect(state.boundGroupCount).toBe(2)
+  expect(await rendered()).toContain('已识别 Key')
+  await state.copyAllInstructions()
+  expect(clipboard).toHaveBeenCalledTimes(1)
+  const message = clipboard.mock.calls[0][0]
+  expect(message).toContain(ORIGIN + '/#/me')
+  for (const item of [first, second, third]) expect(message).toContain(item.instructions)
+  expect(message).not.toContain(SECRET)
+})
 it('copies only a purpose-specific request to the original Agent when native view authority is advertised', async () => {
   const caps = capabilities()
   caps.connection_management.credential_view = {
@@ -232,7 +257,7 @@ it('does not infer native credential authority when an identity provider lacks t
   expect(state.supported).toBe(false)
   expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(state.items).toEqual([])
-  expect(await rendered()).toContain('此来源仅支持资源查询，凭证请由原 Agent 管理。')
+  expect(await rendered()).toContain('要查看或更换 Key，请使用原来绑定资源群的 Agent。')
 })
 it.each([
   'https://different.example.test/api/agent-skill/lockbot-resource-agent.zip',
