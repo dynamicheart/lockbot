@@ -47,13 +47,19 @@ def extension(client, api, db_session, session_factory):
         reporter,
     )
     mount_agent_reports(client.app, origin, provider, [item])
+    # Production config installs this route before the SPA. This fixture adds
+    # its adapter after creating the app, which may already have built assets.
+    routes = client.app.router.routes
+    route = routes.pop()
+    static = next((index for index, item in enumerate(routes) if item.name == "static"), len(routes))
+    routes.insert(static, route)
     try:
         yield reporter
     finally:
         client.app.state.agent_personal_reports.close()
         del client.app.state.agent_personal_reports
         del client.app.state.agent_personal_report_origin
-        client.app.router.routes.pop()
+        routes.remove(route)
 
 
 def test_only_current_binding_discovers_and_reads_closed_projection(client, api, extension):
