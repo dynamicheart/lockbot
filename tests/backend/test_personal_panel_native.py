@@ -154,6 +154,10 @@ def test_live_nonempty_snapshot_returns_only_own_holdings_and_reservations(panel
     result = provider.report(grant)
     assert len(result) == 1 and result[0]["status"] == "ok"
     assert result[0]["group_id"] and result[0]["source_at"]
+    assert result[0]["capacity"] == {
+        "nodes": len(state),
+        "cards": sum(map(len, state.values())) if device else None,
+    }
     holds = [allocation for allocation in result[0]["allocations"] if allocation["kind"] == "hold"]
     assert len(holds) == 1 and holds[0]["node"] == "n1"
     assert holds[0]["device"] == ("0" if device else None)
@@ -228,9 +232,12 @@ def test_panel_metrics_exclude_holdings_without_a_live_deadline(
     signing_key(tmp_path, monkeypatch)
     provider.config["enable_utilization"] = True
     config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-b"}}
-    assert client.put(
-        f"/api/bots/{api['bot_id']}", headers=api["auth_header"], json={"utilization_config": config}
-    ).status_code == 200
+    assert (
+        client.put(
+            f"/api/bots/{api['bot_id']}", headers=api["auth_header"], json={"utilization_config": config}
+        ).status_code
+        == 200
+    )
     browser_expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
     live = {"kind": "hold", "node": "n1", "expires_at": browser_expiry.isoformat()}
     unverified = {"kind": "hold", "node": "n2", "expires_at": invalid_deadline}

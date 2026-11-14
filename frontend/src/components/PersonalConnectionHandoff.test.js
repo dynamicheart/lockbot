@@ -232,7 +232,7 @@ it('does not infer native credential authority when an identity provider lacks t
   expect(state.supported).toBe(false)
   expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(state.items).toEqual([])
-  expect(await rendered()).toContain('此来源仅支持资源查询，凭证请由原 Agent 管理。')
+  expect(await rendered()).toContain('要查看或更换 Key，请使用原来绑定资源群的 Agent。')
 })
 it.each([
   'https://different.example.test/api/agent-skill/lockbot-resource-agent.zip',

@@ -1,5 +1,5 @@
 <template>
-  <section v-if="authenticated || supported || loading || error" class="panel native-connections">
+  <section v-if="supported || loading || error || authenticated" class="panel native-connections">
     <template v-if="supported || loading || error">
       <div class="connection-heading">
         <h2>Agent 授权</h2>
@@ -90,10 +90,9 @@
       </details>
       <p v-if="feedback" role="status" class="scope">{{ feedback }}</p>
     </template>
-    <template v-else>
-      <h2>连接凭证管理暂不可用</h2>
-      <p class="scope">此来源仅支持资源查询，凭证请由原 Agent 管理。</p>
-    </template>
+    <p v-else class="connection-owner">
+      此页面可以查看资源。要查看或更换 Key，请使用原来绑定资源群的 Agent。
+    </p>
   </section>
 </template>
 

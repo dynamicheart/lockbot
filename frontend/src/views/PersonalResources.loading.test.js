@@ -308,7 +308,13 @@ it('keeps unavailable group counts unknown rather than showing zero or em dashes
   const group = { ...confirmed, status: 'unknown' }
   const state = await readyGroups([group])
   expect(state.statistics.map((item) => item.value)).toEqual([null, null, null])
-  expect(state.groupCounts(group).map((item) => item.value)).toEqual([null, null])
+  expect(state.groupCounts(group)).toEqual([])
+  expect(state.groupCounts({ ...confirmed, capacity: { nodes: 4, cards: 8 } })).toEqual([
+    { value: 1, total: 4, label: '机器（我的 / 全群）' },
+    { value: 1, total: 8, label: '卡（我的 / 全群）' },
+    { value: 0, label: '我的预约' },
+  ])
+  expect(state.groupCounts(confirmed).map((item) => item.total ?? null)).toEqual([null, null, null])
   expect(state.pendingGroups).toBe(1)
   expect(state.knownGroups).toHaveLength(0)
 })
@@ -483,9 +489,9 @@ it('opens only the selected resource or group and closes on a change of identity
   const [holdings, reservations] = state.allocationSections
   const item = holdings.items.find(({ first }) => first.allocation.node === 'node-b')
   await state.openWorkbenchResource(item)
-  expect(router.currentRoute.value.path).toBe('/me/holdings/holding-b')
+  expect(router.currentRoute.value.fullPath).toBe('/me/holdings?node=holding-b')
   expect(state.detailSections).toHaveLength(1)
-  expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
+  expect(state.expandedNodes.has(item.key)).toBe(true)
   await router.push('/me')
   await router.push('/me/holdings/holding-b')
   expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
@@ -510,7 +516,7 @@ it('opens only the selected resource or group and closes on a change of identity
 })
 
 it('restores a card-level node view from its direct URL as reports arrive', async () => {
-  initialPath = '/me/holdings/node-a-details'
+  initialPath = '/me/holdings?node=node-a-details'
   const state = await readyGroups([
     {
       ...confirmed,
@@ -524,9 +530,11 @@ it('restores a card-level node view from its direct URL as reports arrive', asyn
       })),
     },
   ])
-  expect(router.currentRoute.value.path).toBe(initialPath)
+  expect(router.currentRoute.value.fullPath).toBe(initialPath)
   expect(state.detailSections[0].rows).toHaveLength(2)
-  expect(state.expandedNodes.has(state.detailSections[0].items[0].key)).toBe(true)
+  await vi.waitFor(() =>
+    expect(state.expandedNodes.has(state.detailSections[0].items[0].key)).toBe(true)
+  )
 })
 
 it('keeps a node on the overview when another card on that node has already expired', async () => {
@@ -547,5 +555,8 @@ it('keeps a node on the overview when another card on that node has already expi
   expect(state.expiringItems).toHaveLength(1)
   expect(state.expiringItems[0].endingCards).toBe(2)
   expect(state.expiringItems[0].first.allocation.device).toBe(1)
-  expect(state.holdingPath(state.expiringItems[0])).toBe('/me/holdings/node-a-details')
+  expect(state.holdingPath(state.expiringItems[0])).toEqual({
+    path: '/me/holdings',
+    query: { node: 'node-a-details' },
+  })
 })

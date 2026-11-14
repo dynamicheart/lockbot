@@ -357,9 +357,7 @@ class NativeProvider:
                 if credential_expiry.tzinfo is None:
                     credential_expiry = credential_expiry.replace(tzinfo=timezone.utc)
                 expiry = min(expiry, credential_expiry)
-            access = issue_metrics_access(
-                db, bot, source, expires_at=expiry, resource_nodes=deadlines
-            )
+            access = issue_metrics_access(db, bot, source, expires_at=expiry, resource_nodes=deadlines)
             return {"configuration": source, "access": access} if access else None
 
     def report(self, grant):
@@ -402,6 +400,18 @@ class NativeProvider:
                             "group_id": group_id,
                             "status": "ok" if known else "unknown",
                             "allocations": allocations,
+                            **(
+                                {
+                                    "capacity": {
+                                        "nodes": len(resources),
+                                        "cards": sum(len(node.get("devices", [])) for node in resources)
+                                        if all("devices" in node for node in resources)
+                                        else None,
+                                    }
+                                }
+                                if known
+                                else {}
+                            ),
                             "source_at": captured.isoformat(),
                             **({"reason": "stale_or_incomplete_report"} if not known else {}),
                         }
