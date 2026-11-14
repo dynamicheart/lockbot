@@ -30,6 +30,10 @@ from lockbot.backend.app.bots.manager import (
 )
 from lockbot.backend.app.bots.migration_preflight import MigrationPreflight
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.bots.node_access import (
+    VERSION as NODE_ACCESS_VERSION,
+)
+from lockbot.backend.app.bots.node_access import node_ids, read_access_mapping, saved_node_access, serialize_node_access
 from lockbot.backend.app.bots.schemas import (
     BotCreate,
     BotDetail,
@@ -728,6 +732,11 @@ def update_bot(
                 cc_for_storage = _device_array_to_dict(cc_for_storage)
             new_json = json.dumps(cc_for_storage, ensure_ascii=False)
             if new_json != (bot.cluster_configs or ""):
+                if bot.node_access_config:
+                    new_nodes = set(node_ids(cc_for_storage))
+                    bot.node_access_config = serialize_node_access(
+                        {node: access for node, access in saved_node_access(bot).items() if node in new_nodes}
+                    )
                 old_configs = json.loads(bot.cluster_configs) if bot.cluster_configs else None
                 if isinstance(cc_for_storage, dict):
                     # DEVICE bot: {node: [devices...]} → summary with device counts
@@ -1961,6 +1970,113 @@ def _require_bot_owner(bot_id: int, user: User, db: Session, action: str) -> Bot
     if user.role != "super_admin" and bot.user_id != user.id:
         raise HTTPException(status_code=403, detail=f"Only the bot owner can {action}")
     return bot
+
+
+def _node_access_document(bot: Bot) -> dict:
+    return {
+        "version": NODE_ACCESS_VERSION,
+        "node_ids": node_ids(json.loads(bot.cluster_configs)),
+        "nodes": saved_node_access(bot),
+    }
+
+
+def _node_access_preview(document: dict, nodes: dict) -> dict:
+    invalid = sorted(nodes.keys() - set(document["node_ids"]))
+    if invalid:
+        raise HTTPException(422, f"Unknown node IDs: {', '.join(repr(node) for node in invalid[:10])}")
+    current = document["nodes"]
+    return {
+        "version": NODE_ACCESS_VERSION,
+        "nodes": nodes,
+        "added": [node for node in nodes if node not in current],
+        "changed": [node for node, access in nodes.items() if node in current and current[node] != access],
+        "unchanged": [node for node, access in nodes.items() if current.get(node) == access],
+    }
+
+
+@router.get("/{bot_id}/node-access")
+def get_node_access(
+    bot_id: int,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bot = _require_bot_owner(bot_id, user, db, "view node access settings")
+    response.headers["Cache-Control"] = "no-store"
+    return _node_access_document(bot)
+
+
+@router.post("/{bot_id}/node-access/preview")
+def preview_node_access(
+    bot_id: int,
+    response: Response,
+    user: User = Depends(get_current_user),
+    nodes: dict = Depends(read_access_mapping),
+    db: Session = Depends(get_db),
+):
+    bot = _require_bot_owner(bot_id, user, db, "view node access settings")
+    response.headers["Cache-Control"] = "no-store"
+    return _node_access_preview(_node_access_document(bot), nodes)
+
+
+@router.put("/{bot_id}/node-access")
+def save_node_access(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    nodes: dict = Depends(read_access_mapping),
+    db: Session = Depends(get_db),
+):
+    _require_bot_owner(bot_id, user, db, "change node access settings")
+    with _owned_bot(bot_id, user, db) as bot, authority_guard(bot_id):
+        document = _node_access_document(bot)
+        preview = _node_access_preview(document, nodes)
+        if preview["added"] or preview["changed"]:
+            document["nodes"].update(nodes)
+            bot.node_access_config = serialize_node_access(document["nodes"])
+            write_audit_log(
+                db,
+                user,
+                "bot.update",
+                target_type="bot",
+                target_id=bot.id,
+                target_name=bot.name,
+                detail={
+                    "node_access": {"added": len(preview["added"]), "changed": len(preview["changed"])},
+                },
+                ip=request.client.host if request.client else None,
+            )
+            db.commit()
+        response.headers["Cache-Control"] = "no-store"
+        return document
+
+
+@router.delete("/{bot_id}/node-access/{node_id:path}", status_code=204)
+def remove_node_access(
+    bot_id: int,
+    node_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_bot_owner(bot_id, user, db, "change node access settings")
+    with _owned_bot(bot_id, user, db) as bot, authority_guard(bot_id):
+        nodes = saved_node_access(bot)
+        if nodes.pop(node_id, None) is not None:
+            bot.node_access_config = serialize_node_access(nodes)
+            write_audit_log(
+                db,
+                user,
+                "bot.update",
+                target_type="bot",
+                target_id=bot.id,
+                target_name=bot.name,
+                detail={"node_access": {"removed": 1}},
+                ip=request.client.host if request.client else None,
+            )
+            db.commit()
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
 @router.put("/{bot_id}/resource-auth")
