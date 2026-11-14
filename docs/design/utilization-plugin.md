@@ -36,6 +36,10 @@ flowchart LR
 
 Grafana 自身包含后端及代理型插件，这不意味着本方案也使用代理。这里只借鉴配置、查询、测试和展示的分离。
 
+## 多数据源接入协议
+
+新增数据源按 [指标数据源插件协议 v1](metrics-datasource-protocol.md) 定义能力、统一快照、授权与错误语义。Prometheus 只是现有适配器；普通 HTTP JSON 和其他监控 API 不必实现 Prometheus HTTP API。新协议目前是设计规范，不等于已提供任意插件热安装或 JSON 适配器。
+
 ## Prometheus 协议与页面格式
 
 复用稳定的 Prometheus HTTP API；不要求另造一个指标服务 HTTP 协议。当前值使用 `/api/v1/query`；未来历史曲线可用 `/api/v1/query_range`。采集器可使用 Prometheus/OpenMetrics 暴露格式；这些采集协议与浏览器查询 API 是不同层。

@@ -128,3 +128,7 @@ Validation queries only the configured node scope from the current browser. Ever
 Both the authorized resource page and the administrator's bot detail show the same metrics and resource ordering. Remaining lease time appears beneath each holder. A shared status line shows automatic updates, the earliest observed sample time and affected nodes when samples are missing, failed, invalid or stale. Ask the bot administrator to investigate; Lockbot continues managing queues independently. Frontend polling pauses when the page is hidden and backs off on errors; it reads cached samples rather than initiating hardware collection. Optional host metrics include available memory and buffers/cache; see the exporter guide for exact definitions and OOM limitations.
 
 Multiple isolated sources must not share an HMAC signing secret. Configure the deployment-only signer registry before enabling automatic grants for another trust domain; unknown candidate endpoints fail closed. The registry never enters public bot configuration, Agent discovery or application backups. Per-source signing does not provide client network access or a transport override. See the [deployment runbook](telemetry-deployment.md#source-specific-signing-keys).
+
+## 交给 Agent 配置
+
+提供已批准机器范围、Lockbot 服务地址和目标 bot/资源，让 Agent 使用 [数据源接入 Skill](../../skills/lockbot-datasource-setup/SKILL.md) 核验环境、生成可复制字段和映射、执行已授权接入并报告验证范围。当前支持的真实适配器与未实现的新协议须分开判断。凭证不包含在可分享配置内；授权机制见 [数据源授权说明](datasource-authorization.md)。

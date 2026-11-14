@@ -23,6 +23,15 @@
             clearable
           />
         </el-form-item>
+        <el-form-item :label="$t('resourceView.linkLifetime')">
+          <template #label>
+            {{ $t('resourceView.linkLifetime') }}
+            <el-tooltip :content="$t('resourceView.platformLifetimeHint')" placement="top">
+              <el-icon class="proxy-help"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
+          <ResourceViewLifetimeSelect v-model="resourceViewLinkDays" />
+        </el-form-item>
         <el-form-item :label="$t('settings.githubUrl')">
           <el-input
             v-model="form.github_url"
@@ -278,19 +287,21 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { Check, QuestionFilled } from '@element-plus/icons-vue'
 import api from '../../utils/api'
 import SiteBroadcast from '../../components/SiteBroadcast.vue'
 import FeishuApplications from '../../components/FeishuApplications.vue'
+import ResourceViewLifetimeSelect from '../../components/ResourceViewLifetimeSelect.vue'
 
 const { t } = useI18n()
 const loading = ref(false)
 const saving = ref(false)
 const form = ref({
   platform_url: '',
+  resource_view_link_days: '1',
   github_url: '',
   admin_contact: '',
   news_content: '',
@@ -301,6 +312,13 @@ const form = ref({
   feishu_proxy_url: '',
   agent_promotion_text_zh: '',
   agent_promotion_text_en: '',
+})
+
+const resourceViewLinkDays = computed({
+  get: () => Number(form.value.resource_view_link_days),
+  set: (days) => {
+    form.value.resource_view_link_days = String(days)
+  },
 })
 
 // Backup state

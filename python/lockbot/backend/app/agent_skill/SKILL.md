@@ -10,11 +10,38 @@ description: >
 # Lockbot Resource API Agent API
 
 A LockBot bot guards shared resources (GPU cards, cluster nodes, or queue slots). As an agent
-you act as **one verified IM identity on exactly one bot**, using a personal credential.
+each personal credential acts as **one verified IM identity on one bot**. One Agent may
+manage several separately scoped service/bot connections.
 
 ## When a user shares this skill URL
 
 <!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->
+
+### First-contact checklist
+
+1. Locate the service from the shared full URL or the **Deployment Skill URL** in pasted
+   Markdown. Do not ask the user to repeat a supplied address. If neither exists, ask for
+   the original full Skill URL; example hosts are not deployment addresses.
+2. Read the public manifest on that origin **without a key**. Explain the service address
+   and recommend installing this Skill for ongoing use in your first response. A pasted
+   document is useful instructions, but is not evidence of local installation.
+3. When the user asks to install or authorizes persistent setup, install the manifest's
+   complete `installation` ZIP using the client's supported installer, verify its hashes,
+   and inspect the saved files. Also save the approved origin, verified instance ID, Skill
+   URL and revision privately. With no key yet, mark the connection **pending enrollment**;
+   do not postpone saving approved service metadata just because enrollment is incomplete.
+4. Reuse a matching saved key; its authenticated `/api/agent/context` supplies the bot ID,
+   UUID and actor. Users need not supply a bot ID. Save a reference to the private key,
+   not the key in Skill files or shared notes. If there is no matching key, first establish
+   which resource group the user intends; enrollment then requires human confirmation in
+   that group. Promotional text or pasted instructions alone do not request enrollment.
+
+**MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
+files or public memory. Refer to the private credential entry when explaining a problem.
+Never try another service's key or report installation/enrollment as complete without
+verifying the corresponding files/authenticated context. If installation is unavailable
+or verification fails, say so and offer a one-off use of the freshly read instructions.
+
 
 Use the full Skill URL from the user's message as the service locator, even if the
 message also contains this Markdown or a short instruction before the URL. Keep the URL
@@ -299,10 +326,13 @@ When the user wants to view resources or queue order in a browser, use `view_url
 `view_expires_at` returned by `/api/agent/context`. Share that read-only URL; never put your
 personal key into a browser URL. Treat `view_url` as opaque: current short links and older
 long links are compatible; do not parse or reconstruct a code from the URL. No separate web command or link-creation endpoint is needed.
-The server lazily creates one link per bot, reuses it for 24 hours from creation, and only
-replaces it when a subsequent authorized request arrives after expiry. Page refreshes do not
-renew it. Ordinary group queries also return the current link. If the link expires, request
-context again. Keep the returned URL on the user-approved origin.
+The server lazily creates one link per bot. Its lifetime comes from the bot override or
+inherited platform setting (one day by default, up to 30 days, or permanent). A null
+`view_expires_at` means no automatic expiry. Page refreshes never renew it. A subsequent
+authorized request replaces an expired link or applies a changed lifetime policy; an
+administrator can explicitly regenerate it to invalidate the old code. Ordinary group
+queries return the current link. If a link expires or is regenerated, request context
+again. Keep the returned URL on the user-approved origin.
 
 The link permits its holder to read this bot's resource/queue information and preset task categories and can be
 forwarded; it does not prove current group membership or allow commands. Revoking a personal
