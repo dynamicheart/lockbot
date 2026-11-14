@@ -509,7 +509,12 @@ a server version change within API 1 does not itself require a new key or new bi
 Never renew/revoke credentials merely to update a skill.
 For authenticated API calls, send `X-Lockbot-Client-Skill-Version: <loaded skill version>`.
 Use the revision of the instructions actually loaded for this task, not a newer manifest
-which you have not read. Context, resource and command responses include `skill_update` in
+which you have not read. The downloaded Markdown and the installed package can have
+different revisions. If you verified and read the full newer Markdown into this task,
+send that revision on the next authenticated read, even while installation awaits approval.
+A helper running from the old package still reports its own installed revision. Do not
+override the helper's headers or claim that briefly loading Markdown updated the installed
+package. Context, resource and command responses include `skill_update` in
 the JSON body: `unknown` means no usable client version was reported; `update_available`
 means it differs; `current` means the reported revision matches. These are equality checks,
 not proof of successful local installation. Follow same-origin `manifest_url` / `skill_url`

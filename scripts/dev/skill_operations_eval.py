@@ -155,8 +155,11 @@ class Fixture(base.Fixture):
             "manifest_url": "/api/agent-skill",
             "skill_url": base.SKILL_PATH,
             "instructions": (
-                "Load the latest Skill before the next mutation. "
-                "Update an installed copy only within authorized setup. Do not rebind or retry the last command."
+                "Before the next resource mutation, check the manifest on this same approved origin, "
+                "verify and load the latest Skill. If you load the full updated instructions for this task, "
+                "report that revision on the next authenticated read in X-Lockbot-Client-Skill-Version. "
+                "Update an installed copy only within the user's authorized setup. "
+                "Do not rebind or retry the last command."
             )
             if reported != self.manifest()["version"]
             else None,
