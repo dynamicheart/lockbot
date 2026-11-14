@@ -16,7 +16,7 @@ MESSAGES = {
     "error.relock_forbidden": "Renewal disabled: current holders cannot renew or book the same resource.",
     "error.claim_duration_limit": "Claim duration cannot exceed the original booking duration.",
     "error.resource_count_limit": "Resource limit: at most {limit} held or booked resources per user.",
-    "view.link": "Resource page: ",
+    "view.link": "View resources and queue",
     "help.agent_commands": "{number}. Agent:\n    bind <code> (provided by your Agent) / bindings / unbind\n",
     "notify.api_task_category": "\nTask: {category}",
     "notify.api_purpose": "\nNote: {purpose}",
