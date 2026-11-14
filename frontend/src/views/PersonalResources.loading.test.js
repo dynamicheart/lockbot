@@ -194,6 +194,48 @@ it('shows remaining lease time across UTC offsets and keeps queued records witho
   expect(state.allocationSections.map((section) => section.timeLabel)).toEqual(['剩余时间', ''])
 })
 
+it('filters holdings and bookings across groups without changing summary counts', async () => {
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      group_id: 'a',
+      label: 'Group A',
+      allocations: [
+        { kind: 'hold', node: 'node-10', device: '0', expires_at: 100 },
+        {
+          kind: 'hold',
+          node: 'node-2',
+          device: '1',
+          expires_at: 200,
+          own_task: { category: '模型测试' },
+        },
+        { kind: 'hold', node: 'node-3' },
+      ],
+    },
+    {
+      ...confirmed,
+      group_id: 'b',
+      label: 'Group B',
+      allocations: [{ kind: 'reservation', node: 'node-2', device: '1' }],
+    },
+  ])
+  const heldNodes = () => state.allocationSections[0].rows.map(({ allocation }) => allocation.node)
+  expect(heldNodes()).toEqual(['node-10', 'node-2', 'node-3'])
+  state.allocationSort = 'latest'
+  expect(heldNodes()).toEqual(['node-2', 'node-10', 'node-3'])
+  state.allocationSort = 'resource'
+  expect(heldNodes()).toEqual(['node-2', 'node-3', 'node-10'])
+  state.allocationQuery = 'NODE-2 dev1'
+  expect(heldNodes()).toEqual(['node-2'])
+  expect(state.allocationSections[1].rows).toHaveLength(1)
+  state.allocationQuery = '模型测试'
+  expect(heldNodes()).toEqual(['node-2'])
+  expect(state.allocationSections[1].rows).toHaveLength(0)
+  state.allocationGroup = state.allocationGroups[1].value
+  expect(heldNodes()).toEqual([])
+  expect(state.statistics.map(({ value }) => value)).toEqual([3, 2, 1])
+})
+
 it('uses loading placeholders initially and shows a confirmed zero after an empty response', async () => {
   let finish
   vi.stubGlobal(

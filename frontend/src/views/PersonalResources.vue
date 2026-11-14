@@ -139,6 +139,32 @@
           :closable="false"
           show-icon
         />
+        <div
+          v-if="allocationRows.length || allocationQuery || allocationGroup"
+          class="allocation-controls"
+        >
+          <el-input
+            v-model="allocationQuery"
+            clearable
+            aria-label="搜索资源"
+            placeholder="搜索节点、卡号或用途"
+          />
+          <el-select v-model="allocationGroup" aria-label="筛选资源群">
+            <el-option label="全部资源群" value="" />
+            <el-option
+              v-for="group in allocationGroups"
+              :key="group.value"
+              :label="group.label"
+              :value="group.value"
+            />
+          </el-select>
+          <el-select v-model="allocationSort" aria-label="排序方式">
+            <el-option label="即将到期优先" value="soonest" />
+            <el-option label="剩余时间最长优先" value="latest" />
+            <el-option label="按资源群" value="group" />
+            <el-option label="按节点 / 卡号" value="resource" />
+          </el-select>
+        </div>
         <section v-for="section in allocationSections" :key="section.label" class="panel">
           <h2 class="panel-title">{{ section.label }} · {{ section.rows.length }}</h2>
           <table v-if="section.rows.length" class="allocation-table" role="table">
@@ -157,7 +183,7 @@
               </tr>
             </thead>
             <tbody role="rowgroup">
-              <tr v-for="(row, index) in section.rows" :key="index" role="row">
+              <tr v-for="row in section.rows" :key="row.key" role="row">
                 <td role="cell" class="allocation-group">{{ row.group.label }}</td>
                 <td role="cell" class="allocation-name">
                   {{ row.allocation.node ?? '未知节点'
@@ -231,11 +257,13 @@
           </table>
           <p v-else class="empty">
             {{
-              resourceLoading
-                ? '正在读取…'
-                : resourcesReady
-                  ? '已确认的群中暂无记录。'
-                  : '资源信息待更新。'
+              section.total
+                ? '没有符合筛选条件的记录。'
+                : resourceLoading
+                  ? '正在读取…'
+                  : resourcesReady
+                    ? '已确认的群中暂无记录。'
+                    : '资源信息待更新。'
             }}
           </p>
         </section>
@@ -420,20 +448,85 @@ async function authorizeUtilization(connection, source, { signal }) {
   return result.access
 }
 const pendingGroups = computed(() => groups.value.length - knownGroups.value.length)
+const allocationQuery = ref('')
+const allocationGroup = ref('')
+const allocationSort = ref('soonest')
+const allocationOrder = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+function allocationGroupKey(group) {
+  return JSON.stringify([group.identity, group.source, group.group_id ?? group.label])
+}
+const allocationRows = computed(() =>
+  knownGroups.value.flatMap((group) => {
+    const groupKey = allocationGroupKey(group)
+    return entries(group).map((allocation, index) => ({
+      group,
+      groupKey,
+      allocation,
+      key: JSON.stringify([groupKey, allocation.kind, allocation.node, allocation.device, index]),
+    }))
+  })
+)
+const allocationGroups = computed(() =>
+  [
+    ...new Map(
+      allocationRows.value.map(({ groupKey, group }) => [
+        groupKey,
+        { value: groupKey, label: group.label },
+      ])
+    ).values(),
+  ].sort((a, b) => allocationOrder.compare(a.label, b.label))
+)
+watch(allocationGroups, (options) => {
+  if (allocationGroup.value && !options.some((item) => item.value === allocationGroup.value)) {
+    allocationGroup.value = ''
+  }
+})
+function matchesAllocation({ group, groupKey, allocation }, query) {
+  if (allocationGroup.value && groupKey !== allocationGroup.value) return false
+  const device = allocation.device
+  const searchable = [
+    group.label,
+    allocation.node,
+    allocation.own_task?.category,
+    device == null ? '' : `dev${device} 卡 ${device}`,
+  ]
+    .join(' ')
+    .toLocaleLowerCase()
+  return query.every((term) => searchable.includes(term))
+}
+function sortAllocations(rows, holdings) {
+  const compareResource = (a, b) =>
+    allocationOrder.compare(a.allocation.node ?? '', b.allocation.node ?? '') ||
+    allocationOrder.compare(a.allocation.device ?? '', b.allocation.device ?? '')
+  const compareGroup = (a, b) => allocationOrder.compare(a.group.label, b.group.label)
+  if (allocationSort.value === 'group')
+    return rows.sort((a, b) => compareGroup(a, b) || compareResource(a, b))
+  if (allocationSort.value === 'resource')
+    return rows.sort((a, b) => compareResource(a, b) || compareGroup(a, b))
+  if (!holdings) return rows
+  return rows.sort((a, b) => {
+    const left = expiration(a.allocation.expires_at)
+    const right = expiration(b.allocation.expires_at)
+    if (left === right) return compareGroup(a, b) || compareResource(a, b)
+    if (!Number.isFinite(left)) return 1
+    if (!Number.isFinite(right)) return -1
+    return allocationSort.value === 'latest' ? right - left : left - right
+  })
+}
 const allocationSections = computed(() => {
-  const rows = groups.value.flatMap((group) =>
-    fresh(group) ? entries(group).map((allocation) => ({ group, allocation })) : []
-  )
-  const holds = rows.filter((row) => !queued(row.allocation))
-  const reservations = rows.filter((row) => queued(row.allocation))
-  holds.sort(
-    (left, right) =>
-      expiration(left.allocation.expires_at) - expiration(right.allocation.expires_at)
-  )
+  const query = allocationQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  const holds = allocationRows.value.filter((row) => !queued(row.allocation))
+  const reservations = allocationRows.value.filter((row) => queued(row.allocation))
+  const matching = (rows, holdings) =>
+    sortAllocations(
+      rows.filter((row) => matchesAllocation(row, query)),
+      holdings
+    )
   return [
     {
       label: '持有资源',
-      rows: holds,
+      rows: matching(holds, true),
+      total: holds.length,
       holdings: true,
       timeLabel: '剩余时间',
       tasks: Boolean(slots.task || ownTasksAvailable.value),
@@ -441,7 +534,8 @@ const allocationSections = computed(() => {
     },
     {
       label: '预约与队列',
-      rows: reservations,
+      rows: matching(reservations, false),
+      total: reservations.length,
       timeLabel: reservations.some(({ allocation }) =>
         Number.isFinite(expiration(allocation.expires_at))
       )
@@ -796,6 +890,20 @@ onMounted(async () => {
   border: 0;
   padding: 0;
   color: var(--accent);
+}
+.allocation-controls {
+  display: grid;
+  grid-template-columns: minmax(200px, 300px) minmax(125px, 210px) 180px;
+  gap: 8px;
+  margin: 16px 0;
+}
+@media (max-width: 700px) {
+  .allocation-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .allocation-controls > :first-child {
+    grid-column: 1 / -1;
+  }
 }
 .task-detail {
   overflow-wrap: anywhere;
