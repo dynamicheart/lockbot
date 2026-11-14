@@ -34,7 +34,7 @@
         </div>
       </div>
     </header>
-    <main class="main">
+    <main class="main" :class="{ 'credentials-page': tab === 'connections' && !ticket }">
       <nav
         v-if="detailPage && session.authenticated && !ticket"
         class="workbench-breadcrumb"
@@ -661,59 +661,66 @@
           :authenticated="session.authenticated"
           :scope-key="identityScope(session.identities)"
         />
-        <section
-          v-for="(identity, index) in session.identities"
-          :key="index"
-          class="group-card connection-card"
-        >
-          <div class="connection-heading">
-            <h2>{{ identity.subject }}</h2>
-            <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
-          </div>
-          <div
-            v-for="source in identitySources(identity)"
-            :key="source.kind + source.label"
-            class="connection-source"
-          >
-            <p>
-              {{
-                source.kind === 'identity_provider'
-                  ? '已连接的资源群'
-                  : source.kind === 'reporter'
-                    ? source.label
-                    : '资源群'
-              }}
-            </p>
-            <div class="connection-groups">
-              <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
-                name
-              }}</el-tag>
+        <section class="credential-access" aria-labelledby="browser-access-heading">
+          <div class="connection-heading credential-access-heading">
+            <div>
+              <h2 id="browser-access-heading">浏览器授权</h2>
+              <p class="scope">通过已绑定的 Agent 添加资源群。</p>
             </div>
+            <details class="connection-help">
+              <summary>接入帮助</summary>
+              <p class="scope">在原 Agent 中说“打开我的资源台”，打开链接后确认添加。</p>
+              <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
+                >Agent 使用说明</a
+              >
+            </details>
           </div>
-          <p v-if="!identitySources(identity).length" class="group-meta">
-            {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
-          </p>
-          <details class="connection-details">
-            <summary>连接详情</summary>
-            <dl>
-              <dt>身份服务</dt>
-              <dd>{{ identity.issuer }}</dd>
-              <dt>身份命名空间</dt>
-              <dd>{{ identity.realm }}</dd>
-              <dt>授权范围</dt>
-              <dd>{{ identity.scopes?.join('、') }}</dd>
-            </dl>
-          </details>
-        </section>
-        <details class="connection-help">
-          <summary>如何添加资源群</summary>
-          <p class="scope">
-            在已绑定目标群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
-            <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
-              >Agent 使用说明</a
+          <article
+            v-for="(identity, index) in session.identities"
+            :key="index"
+            class="group-card connection-card"
+          >
+            <div class="connection-heading">
+              <h2>{{ identity.subject }}</h2>
+              <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
+            </div>
+            <div
+              v-for="source in identitySources(identity)"
+              :key="source.kind + source.label"
+              class="connection-source"
             >
-          </p>
-        </details>
+              <p>
+                {{
+                  source.kind === 'identity_provider'
+                    ? '已连接的资源群'
+                    : source.kind === 'reporter'
+                      ? source.label
+                      : '资源群'
+                }}
+              </p>
+              <span v-if="source.kind === 'reporter'" class="scope">仅查看资源</span>
+              <div class="connection-groups">
+                <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
+                  name
+                }}</el-tag>
+              </div>
+            </div>
+            <p v-if="!identitySources(identity).length" class="group-meta">
+              {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
+            </p>
+            <details class="connection-details">
+              <summary>连接详情</summary>
+              <dl>
+                <dt>身份服务</dt>
+                <dd>{{ identity.issuer }}</dd>
+                <dt>身份命名空间</dt>
+                <dd>{{ identity.realm }}</dd>
+                <dt>授权范围</dt>
+                <dd>{{ identity.scopes?.join('、') }}</dd>
+              </dl>
+            </details>
+          </article>
+        </section>
         <p
           v-for="(indices, index) in session.same_person_groups || []"
           :key="index"

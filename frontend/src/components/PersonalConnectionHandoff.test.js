@@ -83,7 +83,14 @@ function mount(props = {}) {
 function rendered() {
   // Node-mode SFC imports use ssrRender. Render the already-loaded setup state
   // explicitly so markup assertions exercise the real template, not a stub.
-  return renderToString(createSSRApp({ ...Handoff, setup: () => state }, { authenticated: true }))
+  const view = createSSRApp({ ...Handoff, setup: () => state }, { authenticated: true })
+  view.component('ElDialog', {
+    inheritAttrs: false,
+    props: ['modelValue'],
+    setup: (props, { slots }) => () => (props.modelValue ? slots.default?.() : null),
+  })
+  view.component('ElButton', { setup: (_, { slots }) => () => slots.default?.() })
+  return renderToString(view)
 }
 beforeEach(() => {
   vi.stubGlobal('location', { origin: ORIGIN })
@@ -136,7 +143,7 @@ it('counts confirmed credentials and unique groups and copies all connections wi
   await flush()
   expect(state.items).toHaveLength(3)
   expect(state.boundGroupCount).toBe(2)
-  expect(await rendered()).toContain('已识别 Key')
+  expect(await rendered()).toContain('3 个凭证 · 2 个绑定群')
   await state.copyAllInstructions()
   expect(clipboard).toHaveBeenCalledTimes(1)
   const message = clipboard.mock.calls[0][0]
@@ -235,6 +242,8 @@ it('shows named and legacy activity for the credential without adding it to copi
       { label: null, ip: null, lastSeen: timestamp },
     ],
   })
+  expect(await rendered()).not.toContain('近 60 分钟 · 1 个活跃')
+  state.openDetails(state.items[0])
   const markup = await rendered()
   expect(markup).toContain('近 60 分钟 · 1 个活跃')
   expect(markup).toContain('编译 &lt;agent&gt;')
@@ -291,7 +300,7 @@ it('does not infer native credential authority when an identity provider lacks t
   expect(state.supported).toBe(false)
   expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(state.items).toEqual([])
-  expect(await rendered()).toContain('要查看或更换 Key，请使用原来绑定资源群的 Agent。')
+  expect(await rendered()).not.toContain('Agent 凭证')
 })
 it.each([
   'https://different.example.test/api/agent-skill/lockbot-resource-agent.zip',
