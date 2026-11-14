@@ -1,5 +1,6 @@
 """Tests for Infoflow adapter build_reply with mixed content."""
 
+from lockbot.core.message_adapter import ReplyLink
 from lockbot.core.platforms.infoflow import InfoflowAdapter
 
 
@@ -29,6 +30,20 @@ class TestInfoflowBuildReply:
         assert body[1]["content"] == "label: "
         assert body[2]["href"] == "https://example.com"
         assert body[3]["content"] == "\n"
+
+    def test_resource_page_keeps_the_native_link_and_mention(self):
+        adapter = InfoflowAdapter()
+        url = "https://example.com/#/r/1/abcdefghijklmnopqrstuv"
+        msg = adapter.build_reply(["Resources\n\n", ReplyLink("查看资源与排队", url), "\n"], ["alice"])
+        assert msg["message"]["body"] == [
+            {"type": "TEXT", "content": "Resources\n\n"},
+            {"type": "TEXT", "content": "查看资源与排队: "},
+            {"type": "LINK", "href": url},
+            {"type": "TEXT", "content": "\n"},
+            {"type": "TEXT", "content": "\n"},
+            {"type": "AT", "atuserids": ["alice"]},
+        ]
+
 
     def test_multiple_links_interleaved(self):
         adapter = InfoflowAdapter()
