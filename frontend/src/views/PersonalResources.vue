@@ -415,6 +415,7 @@
                                   utilizationSnapshots[row.group.utilization?.connection]?.enabled
                                 "
                                 v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                                :now="clock"
                                 :node-id="row.allocation.node"
                                 :resource-id="
                                   row.allocation.device == null
@@ -462,6 +463,7 @@
                                 utilizationSnapshots[row.group.utilization?.connection]?.enabled
                               "
                               v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                              :now="clock"
                               :node-id="row.allocation.node"
                               :resource-id="
                                 row.allocation.device == null
