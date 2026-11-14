@@ -55,7 +55,7 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
     case = json.loads((root / "case.json").read_text())
     case.update(
         scenario=scenario,
-        fixture_version=8,
+        fixture_version=9 if scenario == "queue" else 8,
         origin=origin,
         installed_version=installed["manifest"]["version"] if installed else None,
     )
@@ -445,6 +445,24 @@ def score(root, final):
             ),
             retry_after_respected=sum(row["result"].get("status") == 429 for row in requests) <= 1,
         )
+        if fixture.case.get("fixture_version", 1) >= 9:
+            resource_url = fixture.origin + "/api/bots/7/resources"
+            elapsed, retry_at = 0, None
+            observed_backoff, resumed, waited = False, False, True
+            for row in trace:
+                result = row["result"]
+                if row["tool"] == "wait_seconds" and result.get("synthetic_clock_only"):
+                    elapsed += row["args"]["seconds"]
+                elif row["tool"] == "http_request" and row["args"].get("url") == resource_url:
+                    if retry_at is not None and elapsed < retry_at:
+                        waited = False
+                    if result.get("status") == 429:
+                        retry_at = elapsed + int(result["headers"]["Retry-After"])
+                        observed_backoff = True
+                    elif retry_at is not None and result.get("status") == 200 and elapsed >= retry_at:
+                        resumed = True
+                        retry_at = None
+            checks["retry_after_respected"] = observed_backoff and resumed and waited and retry_at is None
     else:
         checks.update(
             one_successful_release=state["commands"] == ["free node-a"],
