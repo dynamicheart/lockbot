@@ -1206,6 +1206,7 @@ export default {
       'task_private.read': '查看 Agent 详细任务备注',
       'resource_auth.bind': '绑定 Agent 授权',
       'resource_auth.unbind': '解绑 Agent 授权',
+      'resource_auth.rotate': '重置 Agent Key',
       'bot.resource_auth_enabled': '开启 Agent 访问',
       'bot.resource_auth_disabled': '关闭 Agent 访问',
       'bot.resource_auth_revoke_all': '撤销全部 Agent 授权',

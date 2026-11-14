@@ -1242,6 +1242,7 @@ export default {
       'task_private.read': 'Read Agent task notes',
       'resource_auth.bind': 'Bind Agent authorization',
       'resource_auth.unbind': 'Unbind Agent authorization',
+      'resource_auth.rotate': 'Reset Agent Key',
       'bot.resource_auth_enabled': 'Enable Agent access',
       'bot.resource_auth_disabled': 'Disable Agent access',
       'bot.resource_auth_revoke_all': 'Revoke all Agent authorizations',
