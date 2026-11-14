@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lockbot 数据源接入"
+  short_description: "检查机器和资源映射，辅助接入利用率数据源并生成可复制配置"
+  default_prompt: "使用 $lockbot-datasource-setup 为我的 Lockbot 资源接入指标数据源，并输出可复制配置和验证结果。"

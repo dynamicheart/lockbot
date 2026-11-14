@@ -139,13 +139,37 @@ credential discovery on this instance; resource routes still require the matchin
 bot's key. Never replace all group records with the key used to start recovery.
 
 Legacy bindings remain valid. The first recovery request made with a legacy key
-adds an encrypted recovery copy of that same key, without rotation. During upgrade,
-call recovery once for each distinct saved key on this approved instance, then
-reconcile the combined results. Preserve an existing valid local key when a recovery
-entry has `credential: null` / `credential_recoverable: false`: this means a historical
-copy is missing or unreadable, not that the user must rebind. Use another already
-authorized Agent/store holding that key to backfill it. Only genuinely lost keys
-require the supported revoke/re-enroll flow. Never invent a key or silently rebind.
+adds an encrypted recovery copy of that same key, without rotation. When the manifest
+advertises `credential_recovery_health`, context reports only the current key's state:
+`recoverable` (verified copy), `legacy_missing` (no encrypted copy), or `unreadable`
+(copy cannot be verified, including an unavailable service encryption key). This is
+recovery health, not credential validity; context never exposes another bot's state.
+
+For each distinct saved key on the approved instance with a missing/unreadable copy:
+POST recovery once using that exact key and no body; find the `current: true` entry;
+privately compare its returned key with the original; then GET context again and
+verify the same instance/bot/user and `recoverable` state. Keep the exact key value
+and existing private-store reference. Reconcile each bot separately. If the field is
+absent on an older service, keep the existing capability/context flow.
+
+Preserve an existing valid local key when a recovery entry has `credential: null` /
+`credential_recoverable: false`: the historical copy is missing or unreadable, not
+an instruction to rebind. Use another already authorized Agent/store holding that
+bot's key to backfill it. Missing bot B material does not invalidate bot A or let A's
+key operate on B. HTTP 503 `detail.code: credential_recovery_unavailable` means the
+service could not create a copy; retain the valid key/configuration and report the
+failure without retry loops, rotation or reset. A digest cannot reconstruct a key.
+
+Only genuinely lost credentials or suspected disclosure/compromised authorization
+justify considering revoke/re-enroll. First obtain explicit user confirmation of the
+service, bot and revocation scope, explaining that every Agent sharing the affected
+key loses access and needs private reconfiguration. The verified human can inspect
+chat `bindings`, use `unbind <short-id>` for their own binding, and confirm a new
+`bind <code>`; an authorized owner's revoke-all affects every personal binding on
+that bot. Do not claim a failed/denied revoke succeeded or enroll around it. Revoking
+a key does not release/migrate/recreate locks or queues; discuss and authorize any
+resource changes separately. Never reset during a routine release, Skill update,
+new Agent installation or migration, and never invent a key or silently rebind.
 
 Older services may not advertise this capability: use known saved connections and
 their context endpoints instead of probing bot IDs. Another service or protocol
