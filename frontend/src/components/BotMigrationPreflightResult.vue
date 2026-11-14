@@ -1,6 +1,8 @@
 <template>
   <section class="migration-result" aria-live="polite">
-    <p class="migration-unavailable">{{ $t('migration.cannotMigrate') }}</p>
+    <p v-if="!result.beginAvailable" class="migration-unavailable">
+      {{ $t('migration.cannotMigrate') }}
+    </p>
     <p v-if="result.resetPolicy" class="migration-note">{{ $t('migration.resetPolicy') }}</p>
     <dl v-if="result.stored_obligations" class="migration-counts">
       <div v-for="field in countFields" :key="field">
@@ -12,8 +14,8 @@
     <p v-if="result.resetPolicy && result.durationWhitelistCount" class="migration-note">
       {{ $t('migration.durationWhitelistReset', { count: result.durationWhitelistCount }) }}
     </p>
-    <h4>{{ $t('migration.blockersTitle') }}</h4>
-    <ul>
+    <h4 v-if="result.blockers.length">{{ $t('migration.blockersTitle') }}</h4>
+    <ul v-if="result.blockers.length">
       <li v-for="(item, index) in result.blockers" :key="index">
         {{ $t(item === 'unknown' ? 'migration.unknownBlocker' : `migration.blockers.${item}`) }}
       </li>

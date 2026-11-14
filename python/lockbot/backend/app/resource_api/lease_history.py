@@ -181,7 +181,7 @@ def transitions(before, after, now):
 class LeaseJournal:
     """Synchronous bounded local append only. Failure never re-executes a resource command."""
 
-    def __init__(self, bot_id, bot):
+    def __init__(self, bot_id, bot, *, recover_only=False):
         self.bot_id, self.bot = bot_id, bot
         self.session, self.sequence = uuid.uuid4().hex, 0
         self.lock = threading.Lock()
@@ -191,6 +191,8 @@ class LeaseJournal:
         from lockbot.backend.app.resource_api.lease_contract import DurableOutbox
 
         self.outbox = DurableOutbox(self)
+        if recover_only:
+            return
         # Merely starting an upgraded bot must not rewrite a legacy state file. Its
         # observation is explicitly non-atomic until the next real allocator save.
         if get_managed_paths().state_file(bot_id).exists() and not self.outbox.recovered:

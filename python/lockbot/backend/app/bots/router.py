@@ -11,6 +11,7 @@ import secrets
 import traceback
 import uuid as _uuid_mod
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
@@ -28,6 +29,7 @@ from lockbot.backend.app.bots.manager import (
     MayHaveExecuted,
     bot_manager,
 )
+from lockbot.backend.app.bots.migration_journal import migration_fence
 from lockbot.backend.app.bots.migration_preflight import MigrationPreflight, MigrationReview
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
@@ -63,6 +65,7 @@ from lockbot.backend.app.state_migration import assert_bot_state_ready
 from lockbot.core.config import Config
 from lockbot.core.handler import redact_command_text
 from lockbot.core.i18n import t
+from lockbot.core.io import normalize_cluster_configs
 from lockbot.core.msg_utils import check_signature
 from lockbot.core.platforms.registry import create_adapter
 
@@ -192,6 +195,8 @@ def _owned_bot(bot_id: int, user: User, db: Session):
                 raise HTTPException(status_code=404, detail="Bot not found")
             if user.role != "super_admin" and bot.user_id != user.id:
                 raise HTTPException(status_code=403, detail="Cannot act on another user's bot")
+            if migration_fence(db, bot_id) is not None:
+                raise HTTPException(status_code=409, detail="Bot is fenced for platform migration")
             yield bot
     except InstanceRetiring:
         raise api_errors.instance_retiring(bot_id) from None
@@ -237,15 +242,6 @@ def _commit_initial_status_then_activate(db: Session, bot_id: int) -> None:
     except Exception:
         _reset_row_to_stopped(db, bot_id)
         raise
-
-
-def _normalize_cluster_configs(cc):
-    """Normalize device model strings to lowercase."""
-    if isinstance(cc, dict):
-        return {k: [m.lower() for m in v] if isinstance(v, list) else v for k, v in cc.items()}
-    if isinstance(cc, list):
-        return [k.lower() for k in cc]
-    return cc
 
 
 def _get_node_keys(cc) -> set:
@@ -336,7 +332,7 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         "WEBHOOK_URL": bot_credentials(bot)["webhook_url"],
         "AESKEY": bot_credentials(bot)["aes_key"],
         "TOKEN": bot_credentials(bot)["token"],
-        "CLUSTER_CONFIGS": _normalize_cluster_configs(json.loads(bot.cluster_configs)),
+        "CLUSTER_CONFIGS": normalize_cluster_configs(json.loads(bot.cluster_configs)),
     }
     # Resolve owner username for help text display
     if db:
@@ -605,7 +601,8 @@ def get_bot(
     view = view_link(db, bot, str(request.base_url)) if bot.resource_auth_enabled else {}
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
-    return {**_mask_bot(bot, db), **view}
+    migration_in_progress = user.role == "super_admin" and migration_fence(db, bot_id) is not None
+    return {**_mask_bot(bot, db), **view, "migration_in_progress": migration_in_progress}
 
 
 @router.post("/{bot_id}/view-link/regenerate")
@@ -1533,7 +1530,7 @@ def update_bot_state(
         Deep-copies the raw payload because alignment mutates nested structures in place, so the
         raw request stays intact for this single derivation under the owner (or lease).
         """
-        cluster_configs = _normalize_cluster_configs(json.loads(bot.cluster_configs))
+        cluster_configs = normalize_cluster_configs(json.loads(bot.cluster_configs))
         config_obj = Config(_build_config_dict(bot, db))
         aligned, warns = _validate_and_align_state(copy.deepcopy(raw_state), bot.bot_type, cluster_configs, config_obj)
         target = os.path.join(_get_bot_data_dir(bot), "bot_state.json")
@@ -2270,6 +2267,11 @@ def migration_preflight(
     response.headers["Cache-Control"] = "no-store"
     observation = observe_migration(db, bot_manager, bot_id, body)
     observation["review_receipt"] = migration_review_receipt(user, observation)
+    observation["begin_available"] = (
+        os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") == "1" and observation["review_receipt"] is not None
+    )
+    if observation["begin_available"]:
+        observation["blockers"].remove("cutover_not_implemented")
     return observation
 
 
@@ -2294,3 +2296,164 @@ def check_migration_review(
         )
     response.headers["Cache-Control"] = "no-store"
     return {"review_matches": True, "can_commit": False}
+
+
+def _migration_status(db, bot_id, operation_id=None):
+    from lockbot.backend.app.bots.migration_journal import BotMigration
+
+    row = db.get(BotMigration, bot_id, populate_existing=True)
+    if row is None or (operation_id is not None and row.operation_id != operation_id):
+        raise HTTPException(404, "Migration operation not found")
+    return row
+
+
+def _migration_payload(row):
+    return {
+        "operation_id": row.operation_id,
+        "phase": row.phase,
+        "continue_available": os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") == "1",
+    }
+
+
+def _verify_feishu_migration_destination(application, chat_id, _drained_at):
+    from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.service import application_client
+    from lockbot.core.platforms.feishu import FeishuAPIError
+
+    if application.transport != "websocket" or connectors.snapshot(application.id)["state"] != "running":
+        raise HTTPException(409, "Connect the destination Feishu WebSocket receiver before switching")
+    try:
+        client = application_client(application)
+        ready = (
+            client.bot_identity() == application.bot_open_id
+            and client.group_name(chat_id, refresh=True)["status"] == "ok"
+        )
+    except FeishuAPIError:
+        ready = False
+    if not ready:
+        raise HTTPException(409, "The Feishu bot and selected group could not be verified")
+
+
+def _verify_before_migration_freeze(bot, application, chat_id):
+    from lockbot.backend.app.bots.datasource import public_datasource
+
+    source = public_datasource(bot)
+    if source and source.get("accessMode") == "short_lived":
+        raise HTTPException(409, "The metrics gateway expiry policy must be verified before switching")
+    _verify_feishu_migration_destination(application, chat_id, None)
+
+
+class MigrationConfirmation(MigrationReview):
+    confirm_clear_live_state: Literal[True]
+
+
+@router.post("/{bot_id}/migration", status_code=202)
+def begin_bot_migration(
+    bot_id: int,
+    body: MigrationConfirmation,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.migration_cutover import freeze_migration
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    if os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") != "1":
+        raise HTTPException(409, "Platform migration is disabled on this deployment")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        with connectors.application_guard():
+            return _migration_payload(
+                freeze_migration(
+                    db, bot_manager, bot_id, body, user, verify_before_freeze=_verify_before_migration_freeze
+                )
+            )
+    except InstanceRetiring:
+        raise api_errors.instance_retiring(bot_id) from None
+
+
+@router.get("/{bot_id}/migration")
+def bot_migration_status(
+    bot_id: int,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return _migration_payload(_migration_status(db, bot_id))
+
+
+@router.post("/{bot_id}/migration/{operation_id}/continue", status_code=202)
+def advance_bot_migration(
+    bot_id: int,
+    operation_id: str,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.datasource import public_datasource
+    from lockbot.backend.app.bots.migration_cutover import (
+        activate_switched_migration,
+        continue_source_drain,
+        switch_drained_migration,
+    )
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    if os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") != "1":
+        raise HTTPException(409, "Platform migration is disabled on this deployment")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        with connectors.application_guard(), bot_manager.transition(bot_id):
+            db.rollback()
+            row = _migration_status(db, bot_id, operation_id)
+            if row.phase in {"frozen", "recovery_required"}:
+                return _migration_payload(
+                    continue_source_drain(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict)
+                )
+            if row.phase == "drained":
+                source = public_datasource(db.get(Bot, bot_id))
+                if source and source.get("accessMode") == "short_lived":
+                    raise HTTPException(409, "The metrics gateway expiry policy must be verified before switching")
+                return _migration_payload(
+                    switch_drained_migration(
+                        db,
+                        bot_manager,
+                        bot_id,
+                        operation_id,
+                        user,
+                        verify_destination=_verify_feishu_migration_destination,
+                    )
+                )
+            if row.phase in {"switched", "installed"}:
+                return _migration_payload(
+                    activate_switched_migration(
+                        db,
+                        bot_manager,
+                        bot_id,
+                        operation_id,
+                        user,
+                        build_config=_build_config_dict,
+                    )
+                )
+            return _migration_payload(row)
+    except InstanceRetiring:
+        raise api_errors.instance_retiring(bot_id) from None
+
+
+@router.post("/{bot_id}/migration/{operation_id}/cancel")
+def cancel_bot_migration(
+    bot_id: int,
+    operation_id: str,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.migration_cutover import cancel_source_migration
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return _migration_payload(
+            cancel_source_migration(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict)
+        )
+    except InstanceRetiring:
+        raise api_errors.instance_retiring(bot_id) from None

@@ -7,21 +7,21 @@
     class="migration-dialog"
     @close="$emit('close')"
   >
-    <div class="migration-heading">
+    <div v-if="!operation" class="migration-heading">
       <span>{{ $t('migration.readOnly') }}</span>
       <el-tooltip :content="$t('migration.help')" placement="top">
         <el-icon class="help-icon"><QuestionFilled /></el-icon>
       </el-tooltip>
     </div>
     <el-alert
-      v-if="!applicationsLoading && !applications.length && !error"
+      v-if="!operation && !applicationsLoading && !applications.length && !error"
       class="migration-prerequisite"
       :title="$t('migration.noApplications')"
       type="info"
       :closable="false"
       show-icon
     />
-    <el-form label-position="top" @submit.prevent="check">
+    <el-form v-if="!operation" :disabled="changing" label-position="top" @submit.prevent="check">
       <el-form-item :label="$t('feishu.application')">
         <el-select
           v-model="applicationId"
@@ -48,11 +48,38 @@
       </el-form-item>
     </el-form>
     <p v-if="error" class="migration-error" role="alert">{{ $t(error) }}</p>
-    <BotMigrationPreflightResult v-if="result" :result="result" />
+    <BotMigrationPreflightResult v-if="result && !operation" :result="result" />
+    <p v-if="operation" aria-live="polite">{{ $t('migration.phases.' + operation.phase) }}</p>
+    <el-checkbox v-if="receipt && !operation" v-model="confirmed" :disabled="changing">
+      {{ $t('migration.confirmReset') }}
+    </el-checkbox>
     <template #footer>
       <el-button @click="$emit('close')">{{ $t('common.close') }}</el-button>
-      <el-button type="primary" :disabled="!canCheck" :loading="checking" @click="check">
+      <el-button
+        v-if="!operation"
+        type="primary"
+        :disabled="!canCheck"
+        :loading="checking"
+        @click="check"
+      >
         {{ $t('migration.check') }}
+      </el-button>
+      <el-button
+        v-if="receipt && !operation"
+        type="danger"
+        :disabled="!confirmed || denied || changing"
+        :loading="changing"
+        @click="beginMigration"
+        >{{ $t('migration.begin') }}</el-button
+      >
+      <el-button v-if="operation" :disabled="changing" @click="loadStatus()">{{
+        $t('common.refresh')
+      }}</el-button>
+      <el-button v-if="canCancel" :disabled="changing" @click="cancelMigration">
+        {{ $t('migration.cancel') }}
+      </el-button>
+      <el-button v-if="canContinue" type="primary" :loading="changing" @click="continueMigration">
+        {{ $t('migration.advance') }}
       </el-button>
     </template>
   </el-dialog>
@@ -80,6 +107,38 @@ const checking = ref(false)
 const denied = ref(false)
 const result = ref(null)
 const error = ref('')
+const operation = ref(null)
+const receipt = ref(null)
+const confirmed = ref(false)
+const changing = ref(false)
+const phases = [
+  'frozen',
+  'drained',
+  'source_changed',
+  'recovery_required',
+  'switched',
+  'installed',
+  'completed',
+  'cancelling',
+  'cancelled',
+]
+const canContinue = computed(
+  () =>
+    props.authorized &&
+    !denied.value &&
+    operation.value?.continue_available &&
+    ['frozen', 'recovery_required', 'drained', 'switched', 'installed'].includes(
+      operation.value.phase
+    )
+)
+const canCancel = computed(
+  () =>
+    props.authorized &&
+    !denied.value &&
+    ['frozen', 'drained', 'source_changed', 'recovery_required', 'cancelling'].includes(
+      operation.value?.phase
+    )
+)
 const countFields = [
   'resources',
   'holders',
@@ -126,6 +185,8 @@ const canCheck = computed(
     props.authorized &&
     !denied.value &&
     !checking.value &&
+    !changing.value &&
+    !operation.value &&
     applications.value.some((item) => item.id === applicationId.value) &&
     /^oc_[A-Za-z0-9_-]+$/.test(chatId.value.trim()) &&
     chatId.value.trim().length <= 128
@@ -135,11 +196,18 @@ function failure(err) {
   const status = err.response?.status
   if (status === 401 || status === 403) {
     denied.value = true
+    receipt.value = null
+    confirmed.value = false
     applications.value = []
     applicationId.value = null
     error.value = status === 401 ? 'auth.sessionExpired' : 'common.permissionDenied'
   } else {
-    error.value = status === 404 ? 'migration.notAvailable' : 'common.requestFailed'
+    error.value =
+      status === 404
+        ? 'migration.notAvailable'
+        : status === 409
+          ? 'migration.reviewConflict'
+          : 'common.requestFailed'
   }
 }
 async function loadApplications() {
@@ -166,12 +234,87 @@ async function loadApplications() {
     request.finish()
   }
 }
+function applyOperation(data) {
+  if (!/^[a-f0-9]{32}$/.test(data?.operation_id || '') || !phases.includes(data.phase)) {
+    error.value = 'migration.invalidResponse'
+    return
+  }
+  operation.value = {
+    operation_id: data.operation_id,
+    phase: data.phase,
+    continue_available: data.continue_available === true,
+  }
+}
+
+async function loadStatus({ initial = false } = {}) {
+  if (changing.value) return
+  const request = scope.begin('migration-status')
+  if (!request) return
+  try {
+    const { data } = await api.get(`/bots/${request.id}/migration`, {
+      signal: request.signal,
+      _silent: true,
+    })
+    if (request.isCurrent() && !(initial && data?.phase === 'cancelled')) applyOperation(data)
+  } catch (err) {
+    if (request.isCurrent() && err.response?.status !== 404 && !initial) failure(err)
+  } finally {
+    request.finish()
+  }
+}
+
+async function changeMigration(suffix, body) {
+  if (changing.value || denied.value || !props.authorized) return
+  const request = scope.begin('migration-change')
+  if (!request) return
+  scope.cancel('migration-status')
+  changing.value = true
+  error.value = ''
+  try {
+    const { data } = await api.post(`/bots/${request.id}/migration${suffix}`, body, {
+      signal: request.signal,
+      _silent: true,
+    })
+    if (request.isCurrent()) applyOperation(data)
+  } catch (err) {
+    if (request.isCurrent()) failure(err)
+  } finally {
+    if (request.isCurrent()) {
+      confirmed.value = false
+      receipt.value = null
+      changing.value = false
+      if (!operation.value) void loadStatus()
+    }
+    request.finish()
+  }
+}
+
+function beginMigration() {
+  if (!confirmed.value || !receipt.value || operation.value) return
+  return changeMigration('', {
+    application_id: applicationId.value,
+    chat_id: chatId.value.trim(),
+    review_receipt: receipt.value,
+    confirm_clear_live_state: true,
+  })
+}
+
+function continueMigration() {
+  if (canContinue.value) return changeMigration(`/${operation.value.operation_id}/continue`)
+}
+
+function cancelMigration() {
+  if (canCancel.value) return changeMigration(`/${operation.value.operation_id}/cancel`)
+}
+
 async function check() {
   if (!canCheck.value) return
   const request = scope.begin('preflight')
   if (!request) return
   const target = { application_id: applicationId.value, chat_id: chatId.value.trim() }
   result.value = null
+  receipt.value = null
+  confirmed.value = false
   error.value = ''
   checking.value = true
   try {
@@ -194,8 +337,16 @@ async function check() {
       error.value = 'migration.invalidResponse'
       return
     }
-    // Only retain the fields this read-only panel renders, never a raw response dump.
+    if (
+      data.begin_available === true &&
+      data.blockers.length === 0 &&
+      typeof data.review_receipt?.token === 'string' &&
+      data.review_receipt.token.length <= 2048
+    ) {
+      receipt.value = data.review_receipt.token
+    }
     result.value = {
+      beginAvailable: Boolean(receipt.value),
       resetPolicy: data.reset_policy === 'clear_live_state_and_reenroll',
       durationWhitelistCount:
         Number.isSafeInteger(data.identity_bound_rule_counts?.DURATION_WHITELIST) &&
@@ -229,6 +380,8 @@ watch(
   [applicationId, chatId],
   () => {
     scope.cancel('preflight')
+    receipt.value = null
+    confirmed.value = false
     result.value = null
     checking.value = false
     error.value = ''
@@ -246,7 +399,12 @@ watch(
     error.value = ''
     denied.value = false
     applicationsLoading.value = checking.value = false
-    if (props.authorized) loadApplications()
+    operation.value = null
+    changing.value = false
+    if (props.authorized) {
+      void loadStatus({ initial: true })
+      loadApplications()
+    }
   },
   { immediate: true, flush: 'sync' }
 )

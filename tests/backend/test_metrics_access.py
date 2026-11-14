@@ -118,3 +118,17 @@ def test_agent_grant_does_not_outlive_its_expiring_personal_credential(client, a
     assert response.status_code == 200
     grant = response.json()["utilization"]["access"]
     assert grant["expires_at"] <= int(deadline.replace(tzinfo=timezone.utc).timestamp())
+
+
+def test_fenced_bot_stops_issuing_metrics_grants(api, db_session, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from lockbot.backend.app.bots.migration_journal import record_migration_freeze
+
+    signing_key(tmp_path, monkeypatch)
+    bot = db_session.get(Bot, api["bot_id"])
+    assert issue_metrics_access(db_session, bot, source())
+    target = SimpleNamespace(application_id=1, chat_id="oc_fixture")
+    record_migration_freeze(db_session, bot, target, "a" * 64)
+    db_session.commit()
+    assert issue_metrics_access(db_session, bot, source()) is None

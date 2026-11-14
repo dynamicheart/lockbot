@@ -172,6 +172,49 @@ class TestDraining:
         stop_thread.join(TIMEOUT)
         assert stop_result.get("ok") is True
 
+    def test_retirement_returns_state_after_inflight_work_and_keeps_transition_owned(self, running, monkeypatch):
+        admission_closed = threading.Event()
+        checkpoint_ready = threading.Event()
+        checkpoint_done = threading.Event()
+        results = {}
+        original_remove = running._scheduler.remove
+        generation = running.generation(BOT_ID)
+
+        def remove(bot_id):
+            admission_closed.set()
+            return original_remove(bot_id)
+
+        monkeypatch.setattr(running._scheduler, "remove", remove)
+
+        def retire_and_checkpoint():
+            with running.transition(BOT_ID):
+                retired = running.retire_bot(BOT_ID, drain_timeout=TIMEOUT)
+                results["generation"] = retired.generation
+                _, results["state"] = retired.bot.state_snapshot()
+                checkpoint_ready.set()
+                checkpoint_done.wait(TIMEOUT)
+
+        worker = threading.Thread(target=retire_and_checkpoint, daemon=True)
+        try:
+            with running.admit(BOT_ID) as lease:
+                worker.start()
+                assert admission_closed.wait(TIMEOUT)
+                for kwargs in ({}, {"for_read": True}, {"enforce_cap": False}):
+                    with pytest.raises(InstanceRetiring), running.admit(BOT_ID, **kwargs):
+                        pass
+                assert not checkpoint_ready.is_set()
+                lease.bot.lock("last-admitted-user", "lock n1 1h")
+            assert checkpoint_ready.wait(TIMEOUT)
+            assert results["generation"] == generation
+            assert results["state"]["n1"]["current_users"][0]["user_id"] == "last-admitted-user"
+            assert running.get_instance(BOT_ID) is None
+            with pytest.raises(InstanceRetiring), running.transition(BOT_ID):
+                pass
+        finally:
+            checkpoint_done.set()
+            worker.join(TIMEOUT)
+        assert not worker.is_alive()
+
     def test_stop_waits_for_admitted_work_before_dropping_the_instance(self, running):
         inside = threading.Event()
         release = threading.Event()

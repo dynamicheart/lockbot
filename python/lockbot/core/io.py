@@ -112,18 +112,18 @@ def log_to_file(user_id, command, node_key, dev_ids="", duration="", config=None
 # ── Device state ───────────────────────────────────────────────
 
 
-def create_or_load_device_state(config=None):
-    """Create or load device cluster state, applying max-duration limits.
+def normalize_cluster_configs(cc):
+    """Normalize device model strings to lowercase."""
+    if isinstance(cc, dict):
+        return {k: [m.lower() for m in v] if isinstance(v, list) else v for k, v in cc.items()}
+    if isinstance(cc, list):
+        return [k.lower() for k in cc]
+    return cc
 
-    Returns (state_dict, clamped_user_ids) where clamped_user_ids is a set of
-    user IDs whose lock durations were shortened by max_duration enforcement.
-    """
-    state_filename = os.path.join(_bot_dir(config), "bot_state.json")
-    cluster_configs = _cfg_get(config, "CLUSTER_CONFIGS")
-    max_duration = _cfg_get(config, "MAX_LOCK_DURATION", -1)
-    duration_whitelist = _cfg_get(config, "DURATION_WHITELIST", [])
 
-    default_state = {
+def empty_device_state(cluster_configs):
+    """Create idle runtime entries from the configured device inventory."""
+    return {
         node_key: [
             {
                 "dev_id": dev_id,
@@ -135,6 +135,20 @@ def create_or_load_device_state(config=None):
         ]
         for node_key, devices in cluster_configs.items()
     }
+
+
+def create_or_load_device_state(config=None):
+    """Create or load device cluster state, applying max-duration limits.
+
+    Returns (state_dict, clamped_user_ids) where clamped_user_ids is a set of
+    user IDs whose lock durations were shortened by max_duration enforcement.
+    """
+    state_filename = os.path.join(_bot_dir(config), "bot_state.json")
+    cluster_configs = _cfg_get(config, "CLUSTER_CONFIGS")
+    max_duration = _cfg_get(config, "MAX_LOCK_DURATION", -1)
+    duration_whitelist = _cfg_get(config, "DURATION_WHITELIST", [])
+
+    default_state = empty_device_state(cluster_configs)
 
     _migrate_old_state_file(state_filename, config)
 
@@ -176,6 +190,18 @@ def create_or_load_device_state(config=None):
 # ── Node state ─────────────────────────────────────────────────
 
 
+def empty_node_state(cluster_configs):
+    """Create idle runtime entries from the configured node inventory."""
+    return {
+        shortname: {
+            "status": STATUS_IDLE,
+            "current_users": [],
+            "booking_list": [],
+        }
+        for shortname in cluster_configs
+    }
+
+
 def create_or_load_node_state(config=None):
     """Create or load node state, applying max-duration limits.
 
@@ -187,14 +213,7 @@ def create_or_load_node_state(config=None):
     max_duration = _cfg_get(config, "MAX_LOCK_DURATION", -1)
     duration_whitelist = _cfg_get(config, "DURATION_WHITELIST", [])
 
-    default_state = {
-        shortname: {
-            "status": STATUS_IDLE,
-            "current_users": [],
-            "booking_list": [],
-        }
-        for shortname in cluster_configs
-    }
+    default_state = empty_node_state(cluster_configs)
 
     _migrate_old_state_file(state_filename, config)
 

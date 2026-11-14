@@ -852,7 +852,9 @@ const viewLinkLoading = ref(false)
 const showTransferOwner = ref(false)
 const showMigration = ref(false)
 const migrationAvailable = computed(
-  () => authStore.isSuperAdmin && bot.value?.platform?.toLowerCase() === 'infoflow'
+  () =>
+    authStore.isSuperAdmin &&
+    (bot.value?.platform?.toLowerCase() === 'infoflow' || bot.value?.migration_in_progress === true)
 )
 const transferUsername = ref('')
 const transferLoading = ref(false)

@@ -6,6 +6,7 @@ This module deliberately cannot create a migration, reserve a route or change st
 import hashlib
 import hmac
 import json
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -20,6 +21,7 @@ from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMemb
 from lockbot.backend.app.platform_applications.service import fingerprint
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
+from lockbot.core.io import empty_device_state, empty_node_state, normalize_cluster_configs
 from lockbot.core.platforms.registry import normalize_platform_name
 
 
@@ -58,26 +60,37 @@ def _counts(state, bot_type):
     return result
 
 
-def _inventory_matches(state, bot):
-    """A missing node/card cannot be mistaken for an empty allocation pool."""
-    try:
-        cluster = json.loads(bot.cluster_configs)
-        if bot.bot_type in {"DEVICE", "QUEUE_DEVICE"}:
-            return (
-                isinstance(cluster, dict)
-                and bool(cluster)
-                and set(cluster) == set(state)
-                and all(
-                    isinstance(state[node], list)
-                    and len(state[node]) == len(models)
-                    and {card.get("dev_id") for card in state[node]} == set(range(len(models)))
-                    for node, models in cluster.items()
-                )
+def _empty_destination_state(state, bot_type, cluster):
+    """Prepare a clean runtime image only if the source matches the configured inventory."""
+    if bot_type in {"DEVICE", "QUEUE_DEVICE"}:
+        if (
+            not isinstance(cluster, dict)
+            or not cluster
+            or not all(
+                isinstance(models, list) and models and all(isinstance(model, str) and model for model in models)
+                for models in cluster.values()
             )
-        keys = set(cluster) if isinstance(cluster, (list, dict)) else None
-        return bool(keys) and keys == set(state)
-    except (TypeError, ValueError, AttributeError):
-        return False
+        ):
+            raise ValueError("Unrecognized device inventory")
+        destination = empty_device_state(normalize_cluster_configs(cluster))
+        if set(destination) != set(state) or any(
+            len(cards) != len(state[node])
+            or {card["dev_id"] for card in cards} != {card.get("dev_id") for card in state[node]}
+            for node, cards in destination.items()
+        ):
+            raise ValueError("Source and destination devices differ")
+        if bot_type == "QUEUE_DEVICE":
+            for cards in destination.values():
+                for card in cards:
+                    card["booking_list"] = []
+    elif bot_type in {"NODE", "QUEUE"} and isinstance(cluster, (list, dict)) and cluster:
+        names = list(normalize_cluster_configs(cluster))
+        destination = empty_node_state(names)
+        if len(destination) != len(names) or set(destination) != set(state):
+            raise ValueError("Source and destination nodes differ")
+    else:
+        raise ValueError("Unrecognized node inventory")
+    return destination
 
 
 def _review_digest(value):
@@ -174,7 +187,20 @@ def _reset_authorizations(db, bot, now):
     return counts, revisions
 
 
-def observe_migration(db, manager, bot_id, body):
+def destination_identity_digest(app, membership):
+    return _review_digest(
+        {
+            "app_id": app.app_id,
+            "tenant_key": app.tenant_key,
+            "bot_open_id": app.bot_open_id,
+            "transport": app.transport,
+            "credentials": fingerprint(app, "feishu"),
+            "membership_event": [membership.event_id, membership.event_time_ms, membership.status],
+        }
+    )
+
+
+def observe_migration(db, manager, bot_id, body, *, retired=None, checkpoint=None):
     bot = db.get(Bot, bot_id)
     if bot is None or bot.is_deleted:
         raise HTTPException(404, "Bot not found")
@@ -186,7 +212,8 @@ def observe_migration(db, manager, bot_id, body):
     target_review = None
     identity_rule_counts = None
     try:
-        with manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
+        admission = manager.admit(bot_id, for_read=True) if retired is None else nullcontext(retired)
+        with admission as lease, lease.bot._lock:
             db.rollback()
             bot = db.get(Bot, bot_id)
             if bot is None or bot.is_deleted:
@@ -206,12 +233,15 @@ def observe_migration(db, manager, bot_id, body):
                 counts = _counts(state, bot.bot_type)
                 authorization_counts, revisions = _reset_authorizations(db, bot, observed_at.replace(tzinfo=None))
                 counts.update(authorization_counts)
-                if not _inventory_matches(state, bot):
+                try:
+                    destination = _empty_destination_state(state, bot.bot_type, json.loads(bot.cluster_configs))
+                except (AttributeError, TypeError, ValueError):
                     blockers.append("source_inventory_mismatch")
                 else:
                     source_review = _review_digest(
                         {
                             "state": state,
+                            "destination_state": destination,
                             "authorization_revisions": revisions,
                             "duration_whitelist": whitelist,
                             "op_key": bot.api_key,
@@ -240,25 +270,20 @@ def observe_migration(db, manager, bot_id, body):
             blockers.append("target_application_identity_unknown")
         membership = db.get(FeishuGroupMembership, (app.id, body.chat_id))
         target["membership_observation"] = membership.status if membership else "unknown"
-        target_review = {
-            "app_id": app.app_id,
-            "tenant_key": app.tenant_key,
-            "bot_open_id": app.bot_open_id,
-            "transport": app.transport,
-            "credentials": fingerprint(app, "feishu"),
-            "membership_event": (
-                [membership.event_id, membership.event_time_ms, membership.status] if membership is not None else None
-            ),
-        }
         if membership is None or membership.status != "present":
             blockers.append("target_membership_unverified")
         elif (membership.app_id, membership.tenant_key) != (app.app_id, app.tenant_key):
             blockers.append("target_membership_identity_changed")
+        else:
+            target_review = destination_identity_digest(app, membership)
     route = db.query(FeishuGroupRoute).filter_by(application_id=body.application_id, chat_id=body.chat_id).first()
     if route is not None:
         blockers.append("target_group_already_bound")
     if db.query(FeishuGroupRoute).filter_by(bot_id=bot_id).first() is not None:
         blockers.append("source_already_has_feishu_route")
+    if checkpoint is not None:
+        checkpoint["target_identity_digest"] = target_review
+        checkpoint["source_authority_digest"] = _review_digest(revisions) if source_review else None
     # Selected configuration feeds an observation digest; no raw configuration or task data is returned.
     reviewed = {
         "uuid": bot.uuid,
