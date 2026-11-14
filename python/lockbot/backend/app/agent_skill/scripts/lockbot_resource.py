@@ -192,6 +192,8 @@ class Client:
                         if self.clock() >= self.deadline:
                             raise ClientError("request_budget_exhausted")
                         chunk = reader(min(65536, MAX_BYTES + 1 - size))
+                        if self.clock() >= self.deadline:
+                            raise ClientError("request_budget_exhausted")
                         if not chunk:
                             break
                         size += len(chunk)
@@ -275,6 +277,16 @@ class Client:
         result = self._request(same_origin_url(self.base, self.manifest["context_url"]), token=self.key)
         server = result.get("server", {})
         uuid = result.get("bot", {}).get("uuid")
+        actor = result.get("actor")
+        if (
+            not isinstance(actor, dict)
+            or not all(
+                isinstance(actor.get(field), str) and 0 < len(actor[field]) <= 512
+                for field in ("platform", "external_user_id")
+            )
+            or (not initializing and actor != self.config.get("actor"))
+        ):
+            raise ClientError("context_actor_mismatch_reinitialize_connection_without_rotating_key")
         if (
             server.get("service_id") != SERVICE
             or server.get("api_version") != API_VERSION
@@ -301,6 +313,7 @@ class Client:
         }
         context = self._read_context(initializing=True)
         self.config["bot_uuid"] = context["bot"]["uuid"]
+        self.config["actor"] = dict(context["actor"])
         if metrics_origin is not None:
             self.config["approved_metrics_origin"] = origin(metrics_origin)
         path = Path(destination)

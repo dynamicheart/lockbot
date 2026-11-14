@@ -48,4 +48,6 @@ def test_helper_real_api_init_acquire_renew_release(client, api, tmp_path):
         for operation, duration in [("book", "2m"), ("release", None)]:
             session = helper.Client(connection, root=root, opener=Bridge())
             assert session.command(operation, ["n1"], cards, duration)["verified"]
-    assert json.loads(connection.read_text())["bot_uuid"] == scope["bot"]["uuid"]
+    saved = json.loads(connection.read_text())
+    assert saved["bot_uuid"] == scope["bot"]["uuid"]
+    assert saved["actor"] == scope["actor"]

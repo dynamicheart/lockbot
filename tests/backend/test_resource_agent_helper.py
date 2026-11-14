@@ -46,6 +46,7 @@ def case(tmp_path):
             "context_url": "/api/agent/context",
         },
         bot_uuid="bot-a",
+        actor={"platform": "infoflow", "external_user_id": "alice"},
         holding=None,
         booking=[],
         context_count=0,
@@ -88,7 +89,7 @@ def case(tmp_path):
                 body = {
                     "server": {"service_id": helper.SERVICE, "instance_id": "instance-a", "api_version": "1"},
                     "bot": {"id": 7, "uuid": state.bot_uuid, "type": "NODE"},
-                    "actor": {"external_user_id": "alice"},
+                    "actor": state.actor,
                     "agent_access_enabled": True,
                     "bot_rules": {"forbid_relock": state.forbidden},
                     "usage_privacy": {"public_task_categories": {"unit_testing": "Unit testing"}},
@@ -183,6 +184,7 @@ def case(tmp_path):
         "approved_origin": base,
         "instance_id": "instance-a",
         "bot_uuid": "bot-a",
+        "actor": {"platform": "infoflow", "external_user_id": "alice"},
         "key_file": "resource.key",
         "approved_metrics_origin": base,
     }
@@ -521,3 +523,39 @@ def test_packaged_cli_runs_without_site_packages_and_redacts_credentials(case):
     payload = json.loads(result.stdout)
     assert payload["result"]["bot"]["uuid"] == "bot-a"
     assert KEY not in result.stdout + result.stderr and "metrics-grant-1" not in result.stdout
+
+
+@pytest.mark.parametrize("field,value", [("external_user_id", "bob"), ("platform", "feishu")])
+def test_same_bot_different_actor_cannot_reuse_connection(case, field, value):
+    case.state.actor[field] = value
+    with pytest.raises(helper.ClientError, match="context_actor_mismatch"):
+        case.client.command("lock", ["node-a"], [], "2m")
+    assert not commands(case)
+    assert case.path.read_text() == json.dumps(case.connection)
+
+
+def test_missing_actor_pin_requires_explicit_connection_init_not_key_rotation(case):
+    case.client.config.pop("actor")
+    with pytest.raises(helper.ClientError, match="context_actor_mismatch"):
+        case.client.context()
+    assert not commands(case)
+    assert (case.tmp / "resource.key").read_text() == KEY
+
+
+def test_response_completion_after_deadline_is_not_accepted():
+    now = [0.0]
+
+    class SlowEOF(io.BytesIO):
+        headers = {}
+
+        def read1(self, size=-1):
+            now[0] = 61.0
+            return super().read1(size)
+
+    class Transport:
+        def open(self, request, timeout):
+            return SlowEOF(b"{}")
+
+    client = helper.Client(approved_origin="https://service.example.invalid", opener=Transport(), clock=lambda: now[0])
+    with pytest.raises(helper.ClientError, match="request_budget_exhausted"):
+        client.discover()
