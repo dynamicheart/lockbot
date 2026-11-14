@@ -184,3 +184,19 @@ describe('browser Prometheus provider', () => {
     ).rejects.toMatchObject({ code: 'size' })
   })
 })
+
+it.each(['custom', 'lockbot-v1'])(
+  'honors HTTP-date Retry-After for profile %s',
+  async (profile) => {
+    await expect(
+      collectPrometheus({ ...config(), profile }, ['node-a'], {
+        now: () => at,
+        fetchImpl: async () =>
+          new Response('', {
+            status: 429,
+            headers: { 'retry-after': new Date(at + 90000).toUTCString() },
+          }),
+      })
+    ).rejects.toMatchObject({ code: 'limited', retryAfter: 90 })
+  }
+)

@@ -3,6 +3,7 @@ export function createMetricsPoller({
   collect,
   publish,
   now = () => performance.now(),
+  wallNow = Date.now,
   timer = setTimeout,
   clearTimer = clearTimeout,
 }) {
@@ -14,18 +15,31 @@ export function createMetricsPoller({
   let timeout
   let due = 0
   let failures = 0
+  let startedAtWall = 0
   let interval = 30000
+  let previousWall = wallNow(),
+    previousMono = now()
+  const reconcileSleep = () => {
+    const mono = now(),
+      wall = wallNow()
+    const suspended = Math.max(0, wall - previousWall - (mono - previousMono))
+    due = Math.max(0, due - suspended)
+    previousWall = wall
+    previousMono = mono
+  }
   const schedule = () => {
     clearTimer(wake)
     if (active) wake = timer(() => refresh(), Math.max(0, due - now()))
   }
   async function refresh() {
+    reconcileSleep()
     if (!active || busy) return false
     if (now() < due) {
       schedule()
       return false
     }
     busy = true
+    startedAtWall = wallNow()
     due = now() + interval
     const run = generation
     const currentController = new AbortController()
@@ -65,15 +79,30 @@ export function createMetricsPoller({
   return {
     refresh,
     deferUntil(stamp) {
+      reconcileSleep()
       due = Math.max(due, stamp)
     },
     start(seconds = 30) {
+      reconcileSleep()
       interval = Math.max(30000, seconds * 1000)
-      if (active) return
+      // A visible tab may sleep without a visibility event. Do not resume a collection
+      // whose total deadline elapsed while its timer/monotonic clock was suspended.
+      if (busy && wallNow() - startedAtWall >= 15000) {
+        generation++
+        controller?.abort()
+        clearTimer(timeout)
+        busy = false
+        publish({ loading: false })
+      }
+      if (active) {
+        schedule()
+        return
+      }
       active = true
       schedule()
     },
     stop() {
+      reconcileSleep()
       active = false
       generation++
       controller?.abort()

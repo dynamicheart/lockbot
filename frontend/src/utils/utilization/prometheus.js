@@ -28,6 +28,12 @@ export class ProviderError extends Error {
     this.retryAfter = retryAfter
   }
 }
+export function retryAfterSeconds(value, now = Date.now()) {
+  const seconds = Number(value)
+  return Number.isFinite(seconds) && seconds > 0
+    ? seconds
+    : Math.max(0, (Date.parse(value) - now) / 1000) || 0
+}
 export function validateConfig(input) {
   const config = { ...DEFAULT_CONFIG, ...input }
   if (!['independent', 'short_lived'].includes(config.accessMode))
@@ -205,10 +211,7 @@ export async function collectPrometheus(
         throw new ProviderError('network')
       }
       if (!response.ok) {
-        const seconds = Number(response.headers.get('retry-after'))
-        const date = Date.parse(response.headers.get('retry-after'))
-        const retry =
-          Number.isFinite(seconds) && seconds > 0 ? seconds : Math.max(0, (date - now()) / 1000)
+        const retry = retryAfterSeconds(response.headers.get('retry-after'), now())
         throw new ProviderError(
           response.status === 401 || response.status === 403
             ? 'auth'
@@ -306,7 +309,7 @@ async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now
         : response.status === 429
           ? 'limited'
           : 'upstream',
-      Number(response.headers.get('retry-after')) || 0
+      retryAfterSeconds(response.headers.get('retry-after'), now())
     )
   const body = await readJson(response, 4 * MAX_BYTES)
   if (
