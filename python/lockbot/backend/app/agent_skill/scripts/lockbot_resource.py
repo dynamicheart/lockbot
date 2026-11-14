@@ -541,7 +541,7 @@ class Client:
             len(value) > 15 or not (value == "" or value.isprintable() and value == value.strip())
         ):
             raise ClientError("invalid_public_alias")
-        if value and re.search(r"\b(?:lbr_|lbk_|lba1\.)", value):
+        if value and re.search(r"\b(?:lbr_|lbk_|lb[a-z][0-9]+\.)", value):
             raise ClientError("secret_in_alias_refused")
         context = self.context()
         if not context.get("agent_access_enabled"):

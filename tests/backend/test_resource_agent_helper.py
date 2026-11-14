@@ -635,7 +635,7 @@ def test_shared_alias_read_survives_disabled_edits_and_older_servers_refuse_unkn
     assert not commands(case)
 
 
-@pytest.mark.parametrize("value", ["bad\nline", "x" * 16, " l", "lbr_xxxx"])
+@pytest.mark.parametrize("value", ["bad\nline", "x" * 16, " l", "lbr_xxxx", "lba1.example"])
 def test_shared_alias_refuses_invalid_or_credential_like_labels(case, value):
     with pytest.raises(helper.ClientError):
         case.client.alias("node-a", value)
