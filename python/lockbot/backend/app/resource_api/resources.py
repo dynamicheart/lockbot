@@ -23,7 +23,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.bots.manager import (
@@ -34,6 +34,7 @@ from lockbot.backend.app.bots.manager import (
     bot_manager,
 )
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.bots.node_access import attach_node_access, saved_node_access
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
@@ -179,6 +180,7 @@ bot_manager.register_retire_hook(lambda bot_id, generation: snapshot_cache.inval
 def get_resources(
     bot_id: int,
     request: Request,
+    response: Response,
     actor: ResourceActor = Depends(require_resource_actor),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -209,13 +211,18 @@ def get_resources(
             # restore/delete/revoke may have committed between authentication and here.
             if not reverify_actor(db, request, actor):
                 raise errors.credential_invalid()
+            # Node addresses require a current hold, so never authorize from cached state.
             generation = lease.generation
             # Single-flight: concurrent misses collapse onto one locked deep copy.
             captured_at, raw_state, from_cache = snapshot_cache.get_or_compute(
                 bot_id, generation, now, lease.bot.state_snapshot
             )
             rows = active_declarations(db, bot_row, datetime.utcnow())
-            if rows and from_cache:
+            # Authoritative health from the admitted generation. Addresses require a
+            # running allocator and a fresh hold, including for chat releases.
+            health = lease.health or bot_row.status
+            access = saved_node_access(bot_row) if health == "running" else {}
+            if from_cache and (rows or access):
                 # A declaration may refer to a newer hold/booking than the cached state,
                 # or a release/reacquire may invalidate it. Join against a fresh instant.
                 captured_at, raw_state = lease.bot.state_snapshot()
@@ -231,9 +238,6 @@ def get_resources(
             supported = sorted(set(lease.bot.supported_commands()) & AGENT_ALLOWED_COMMANDS)
             early_notify = bool(config.get_val("EARLY_NOTIFY"))
             time_alert = int(config.get_val("TIME_ALERT") or 0)
-            # Authoritative health from the admitted generation: a retained failed generation
-            # reports error even if its fatal DB status write failed. Otherwise use the DB row.
-            health = lease.health or bot_row.status
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
 
@@ -246,6 +250,8 @@ def get_resources(
         caller_id=actor.external_user_id,
     )
     attach_node_aliases(resources, aliases)
+    attach_node_access(resources, access, actor.external_user_id, datetime.now(timezone.utc))
+    response.headers["Cache-Control"] = "no-store"
     from lockbot.backend.app.resource_api.usage import visible_declarations
 
     attach_declarations(resources, visible_declarations(declarations, caller_id=actor.external_user_id))
