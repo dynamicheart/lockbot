@@ -399,6 +399,7 @@ export default {
     updated: '更新于',
     expires: '链接有效至',
     queue: '预约队列',
+    noBookings: '暂无预约',
     unavailable: '暂时无法更新，请稍后刷新。',
     stopped: '机器人未运行，暂无实时状态。',
     empty: '暂无资源。',
