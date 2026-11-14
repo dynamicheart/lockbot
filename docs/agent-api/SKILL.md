@@ -77,6 +77,51 @@ explain that a future task must load it again. Never claim an update succeeded w
 checking the client's saved skill. Never store a key in `SKILL.md`, a downloaded ZIP or
 public memory; use the client's private credential store.
 
+## Install the complete ZIP and use the fixed client
+
+<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
+
+For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
+alone: it contains `SKILL.md`, `scripts/lockbot_resource.py` and `installation.json`.
+A ZIP URL does not automatically install in every client. Use its installer or verify the
+manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
+supported; the helper is the recommended fixed path, not a new server requirement.
+
+**MUST when the helper is available:** first confirm a Python 3.10+ interpreter and a
+complete installed bundle, then use it for supported calls. `python3` below is an example;
+`python` or Windows `py -3` may be candidates, but verify their actual version. If no suitable
+runtime/installer/network is available, do not install dependencies without authorization or
+claim the helper ran. Use an existing authorized HTTP tool with the same identity, rules and
+readback checks, and report the helper limitation. Keep each connection's approved
+service/instance/bot and private key-file reference; never put raw keys in argv or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
+and explicit durations; verify the readback, and never blindly replay an uncertain write.
+This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
+follow the expiry/stop rules below.
+
+Start with an already-approved service URL and an existing private personal-key file. The
+`init` command discovers the bot UUID through context; the user need not know a bot ID:
+
+```sh
+python3 scripts/lockbot_resource.py init --origin <approved-origin> --key-file /private/resource.key --destination /private/connection.json
+python3 scripts/lockbot_resource.py --connection /private/connection.json context
+python3 scripts/lockbot_resource.py --connection /private/connection.json resources
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --duration 30m --metadata-file /private/task.json
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --duration 30m
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a
+```
+
+For card bots add explicit `--device 0` (repeat for more cards). Private `task.json` accepts
+only `task_category`, `agent_label`, `purpose`; choose the category from current context.
+`init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
+Keep connection/key files outside the installation. Credentials/grants are redacted in output.
+
+For metrics, separately approve the source origin via `init --metrics-origin <origin>`;
+then use `--connection <file> metrics --node <mapped-node>`. Only the existing
+`prometheus` / `lockbot-v1` profile is supported; unsupported profiles fail explicitly.
+Queries are best effort, never imply resource ownership, and use metrics-specific credentials;
+short grants refresh through context with one auth retry. Never send personal/OP keys to a
+source. See [helper installation, private configuration and limits](https://github.com/dynamicheart/lockbot/blob/main/docs/usage/resource-agent-helper.md).
+
 ## Identify the service before using a saved credential
 
 This skill is for **Lockbot Resource API**, identified by

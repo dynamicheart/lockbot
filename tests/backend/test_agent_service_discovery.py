@@ -48,7 +48,11 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
         bundle = client.get(descriptor["download_url"])
         assert hashlib.sha256(bundle.content).hexdigest() == descriptor["sha256"]
         with zipfile.ZipFile(io.BytesIO(bundle.content)) as zipped:
-            assert zipped.namelist() == [root + "/SKILL.md"]
+            assert set(zipped.namelist()) == {
+                root + "/SKILL.md",
+                root + "/scripts/lockbot_resource.py",
+                root + "/installation.json",
+            }
             markdown = zipped.read(zipped.namelist()[0])
             assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
             assert b"name: lockbot-resource-agent" in markdown
@@ -172,6 +176,11 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     markdown = tmp_path / "agent_skill/SKILL.md"
     markdown.parent.mkdir()
     markdown.write_text("---\nname: lockbot-resource-agent\n---\nUpdated instructions\n")
+    from importlib.resources import files
+
+    script = markdown.parent / "scripts/lockbot_resource.py"
+    script.parent.mkdir()
+    script.write_bytes(files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes())
     monkeypatch.setattr("lockbot.backend.app.resource_api.skill.files", lambda package: tmp_path)
     _skill_artifacts.cache_clear()
     context = client.get("/api/agent/context", headers=api["headers"])
