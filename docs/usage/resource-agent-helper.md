@@ -101,3 +101,31 @@ The returned vector is marked `best_effort` and `verification: query_response_on
 The helper uses Python's standard library only: no shell subprocess, MPI, extra package, GUI dependency or automatic job process. One invocation has a 60-second check budget, up to 12 HTTP attempts, a 10-second network timeout per request, a 16-KiB request body limit and a 1-MiB response limit. Reads may retry a single explicit `429 Retry-After` of at most 30 seconds within the remaining budget; missing/unreasonable hints fail for later reconciliation. Slow network reads remain bounded by the per-request timeout and remaining-budget checks. Writes never retry automatically.
 
 Tests use real bounded fake HTTP servers for redirects, identity/version checks, metadata validation, uncertainty, readback and grant refresh. Separate real API/core fixtures exercise initialization, acquisition, renewal and release across NODE, DEVICE, QUEUE and QUEUE_DEVICE. Distribution regressions check rendered addresses, hashes, revision headers, old URLs and actual wheel inclusion. These are not claims of deployment or a live hardware-source query: authenticated real-service/data-source acceptance is a separate gate.
+
+## One installed package, independently approved services
+
+New manifests and complete bundles add `package_format=canonical-origin-v1` and
+`package_version`. This revision hashes the canonical Skill instructions and actual
+helper, with only the two exact builder-generated deployment locator blocks restored
+to their template markers. The installed rendered files, ZIP hashes and original
+`version` checks remain intact. A pasted deployment Markdown still contains its real
+service address.
+
+An identical package from another approved deployment can serve separately stored
+connections without repeatedly replacing the installation. The helper compares package
+revisions only when both the verified local stamp and remote manifest declare this
+format. A changed instruction/helper still blocks the next mutation until an authorized
+update; an old stamp/server or unrecognized locator stays on conservative rendered
+revision comparison. It never substitutes the server revision for the installed one.
+
+Existing `X-Lockbot-Skill-Version`, `X-Lockbot-Skill-Update` and JSON `skill_update.status`
+continue to compare deployment-rendered bytes. New `X-Lockbot-Package-Version`,
+`X-Lockbot-Package-Update` and `skill_update.package_status` describe portable instruction
+compatibility; clients report `X-Lockbot-Client-Package-Version` as well as their unchanged
+rendered revision. These are advisory compatibility signals, not proof of installation
+or authorization. API-version compatibility is still checked separately.
+
+Equal package revisions never make service identities or credentials interchangeable.
+Each connection still requires its own approved origin, verified instance, bot, actor and
+private key reference. Old APIs, download names and keys remain unchanged. This does not
+add dynamic reporter commands, cross-origin key discovery or automatic client updates.
