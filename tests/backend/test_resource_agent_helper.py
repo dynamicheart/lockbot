@@ -57,6 +57,7 @@ def case(tmp_path):
         retry=False,
         forbidden=False,
         version_header=None,
+        package_header=None,
         profile="lockbot-v1",
         redirect=False,
     )
@@ -94,7 +95,7 @@ def case(tmp_path):
                     "bot_rules": {"forbid_relock": state.forbidden},
                     "usage_privacy": {"public_task_categories": {"unit_testing": "Unit testing"}},
                     "links": {"resources": "/api/bots/7/resources", "commands": "/api/bots/7/commands"},
-                    "skill": {"version": meta["version"]},
+                    "skill": meta,
                     "utilization": {
                         "configuration": {
                             "type": "prometheus",
@@ -171,6 +172,8 @@ def case(tmp_path):
             self.send_header("Content-Type", "application/json")
             if state.version_header:
                 self.send_header("X-Lockbot-Skill-Version", state.version_header)
+            if state.package_header:
+                self.send_header("X-Lockbot-Package-Version", state.package_header)
             for name, value in extra.items():
                 self.send_header(name, value)
             self.end_headers()
@@ -234,6 +237,7 @@ def test_context_bot_mismatch_refuses_mutation(case):
 
 def test_version_update_blocks_writes_but_keeps_reads(case):
     case.state.manifest["version"] = "a" * 16
+    case.state.manifest["package_version"] = "b" * 16
     case.client.resources(case.client.context())
     assert case.client.needs_update
     with pytest.raises(helper.ClientError, match="update_bundle_before_mutation"):

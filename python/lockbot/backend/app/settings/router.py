@@ -12,10 +12,16 @@ from pydantic import BaseModel
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.auth.dependencies import get_current_user, require_super_admin
+from lockbot.backend.app.auth.dependencies import (
+    DEFAULT_LOGIN_SESSION_DAYS,
+    LOGIN_SESSION_DAYS,
+    get_current_user,
+    require_super_admin,
+)
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
+from lockbot.backend.app.resource_api.view_links import DEFAULT_LINK_DAYS, MAX_LINK_DAYS
 from lockbot.backend.app.settings.models import SiteSetting
 
 router = APIRouter(tags=["settings"])
@@ -36,7 +42,8 @@ _ENV_FALLBACKS = {
     "platform_feishu_enabled": "true",
     "agent_promotion_text_zh": "",
     "agent_promotion_text_en": "",
-    "resource_view_link_days": "1",
+    "resource_view_link_days": str(DEFAULT_LINK_DAYS),
+    "login_session_days": DEFAULT_LOGIN_SESSION_DAYS,
     "feishu_proxy_mode": "deployment",
     "feishu_proxy_url": "",
 }
@@ -137,9 +144,17 @@ def batch_update_settings(
         if key not in allowed:
             raise HTTPException(status_code=422, detail=f"Unknown setting key: {key}")
         if key == "resource_view_link_days" and (
-            not isinstance(value, str) or not value.isascii() or not value.isdecimal() or not 0 <= int(value) <= 30
+            not isinstance(value, str)
+            or not value.isascii()
+            or not value.isdecimal()
+            or not 0 <= int(value) <= MAX_LINK_DAYS
         ):
-            raise HTTPException(status_code=422, detail="resource_view_link_days must be 0 (permanent) or 1 to 30 days")
+            raise HTTPException(
+                status_code=422,
+                detail=f"resource_view_link_days must be 0 (permanent) or 1 to {MAX_LINK_DAYS} days",
+            )
+        if key == "login_session_days" and value not in LOGIN_SESSION_DAYS:
+            raise HTTPException(status_code=422, detail="login_session_days must be 90, 180 or 0 (permanent)")
         if key in {"agent_promotion_enabled", "platform_infoflow_enabled", "platform_feishu_enabled"} and value not in (
             "true",
             "false",
@@ -177,7 +192,7 @@ def batch_update_settings(
         if row is None:
             row = SiteSetting(key=key, value=value, updated_at=datetime.utcnow())
             db.add(row)
-        else:
+        elif key != "login_session_days" or row.value != value:
             row.value = value
             row.updated_at = datetime.utcnow()
         updated.append(key)
