@@ -387,6 +387,16 @@ export default {
     },
   },
   resourceView: {
+    linkLifetime: 'Resource link lifetime',
+    inheritLifetime: 'Inherit platform',
+    permanent: 'Never expires',
+    lifetimeDays: '{count} days',
+    platformLifetimeHint:
+      'Bots may override this default. Fetching a link after a change invalidates its old link. Personal keys and short-lived metrics grants are unaffected.',
+    botLifetimeHint:
+      'A bot override takes priority. Fetching a link after a change invalidates its old link. Personal keys and short-lived metrics grants are unaffected.',
+    regenerate: 'Regenerate link',
+    regenerateConfirm: 'Regenerating immediately invalidates the old link. Continue?',
     quickOverview: 'Quick view',
     busyAndQueued: 'Occupied / queued',
     queueBadge: 'Queue {count}',
