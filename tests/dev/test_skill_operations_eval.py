@@ -241,4 +241,22 @@ def test_prompt_hint_cannot_substitute_for_observed_server_hint(case):
     checks = evaluation.score(fixture.root, "确认安装 " + base.BUNDLE_PATH)["checks"]
     assert not checks["server_old_hint_observed"]
     assert not checks["latest_skill_read_after_hint"]
-    assert checks["loaded_version_reported"]
+    assert not checks["loaded_version_reported"]
+
+
+def test_loaded_version_requires_successful_authenticated_read_after_reload(case):
+    fixture = case("update")
+    latest = fixture.manifest()["version"]
+    request(fixture, "/api/agent/context")
+    fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH})
+    # Public downloads and rejected protected reads are not proof of adoption.
+    for path in ("/api/agent-skill", "/api/bots/7/resources"):
+        fixture.call(
+            "http_request",
+            {"url": base.ORIGIN + path, "headers": {"X-Lockbot-Client-Skill-Version": latest}},
+        )
+    final = "确认安装 " + base.BUNDLE_PATH
+    assert not evaluation.score(fixture.root, final)["checks"]["loaded_version_reported"]
+    resource = request(fixture, "/api/bots/7/resources", version=latest)
+    assert resource["body"]["skill_update"]["status"] == "current"
+    assert evaluation.score(fixture.root, final)["checks"]["loaded_version_reported"]

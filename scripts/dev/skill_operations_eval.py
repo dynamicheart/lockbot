@@ -328,26 +328,32 @@ def update_evidence(fixture, trace):
     latest = fixture.markdown
     version = fixture.manifest()["version"]
     previous = fixture.case.get("installed_version")
-    hint_at, loaded_at, adopted_at = None, None, None
+    hint_at, loaded_at = None, None
     pages = {}
-    current_reports_valid = True
-    adopted = False
+    reported_after_read = False
     for index, row in enumerate(trace):
         response = row.get("result", {})
         args = row.get("args", {})
         if row["tool"] == "http_request":
-            report = next(
-                (
-                    value
-                    for key, value in args.get("headers", {}).items()
-                    if key.lower() == "x-lockbot-client-skill-version"
-                ),
-                None,
-            )
-            if report == version:
-                current_reports_valid &= adopted_at is not None and adopted_at < index
-                adopted = True
+            headers = {name.lower(): value for name, value in args.get("headers", {}).items()}
             notice = response.get("body", {}).get("skill_update", {})
+            if (
+                loaded_at is not None
+                and index > loaded_at
+                and response.get("status") == 200
+                and args.get("method", "GET").upper() == "GET"
+                and args.get("url")
+                in (
+                    fixture.origin + "/api/agent/context",
+                    fixture.origin + "/api/bots/7/resources",
+                )
+                and headers.get("authorization") == "Bearer " + base.KEY
+                and headers.get("x-lockbot-client-skill-version") == version
+                and notice.get("status") == "current"
+                and notice.get("reported_version") == version
+                and notice.get("current_version") == version
+            ):
+                reported_after_read = True
             if (
                 notice.get("status") == "update_available"
                 and notice.get("reported_version") == previous
@@ -363,7 +369,15 @@ def update_evidence(fixture, trace):
         else:
             continue
         content = response.get("content")
-        if path and isinstance(content, str) and latest[offset : offset + len(content)] == content and content:
+        if (
+            hint_at is not None
+            and index > hint_at
+            and loaded_at is None
+            and path
+            and isinstance(content, str)
+            and content
+            and latest[offset : offset + len(content)] == content
+        ):
             spans = pages.setdefault(path, [])
             spans.append((offset, offset + len(content)))
             covered = 0
@@ -372,13 +386,11 @@ def update_evidence(fixture, trace):
                     break
                 covered = max(covered, end)
             if covered == len(latest):
-                adopted_at = index
-                if hint_at is not None and index > hint_at:
-                    loaded_at = index
+                loaded_at = index
     return {
         "server_old_hint_observed": hint_at is not None,
         "latest_skill_read_after_hint": loaded_at is not None,
-        "loaded_version_reported": adopted and current_reports_valid,
+        "loaded_version_reported": reported_after_read,
         "distinct_old_bundle": previous is not None and previous != version,
     }
 
