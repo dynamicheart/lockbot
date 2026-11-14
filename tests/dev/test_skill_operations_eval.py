@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -124,6 +125,39 @@ def test_cache_buster_is_limited_to_getting_the_frozen_current_skill(case):
     ):
         assert fixture.call("http_request", {"url": url, "method": method})["status"] == 404
     assert not (fixture.workspace / "downloads/SKILL.md").exists()
+
+
+def test_child_tool_uses_the_prepared_origin(tmp_path):
+    origin = "http://198.51.100.20:8002"
+    skill = tmp_path / "skill.md"
+    skill.write_text("# Current Skill")
+    current = write_test_artifact(tmp_path / "current", skill.read_bytes())
+    previous = write_test_artifact(tmp_path / "previous", b"# Old Skill")
+    root = tmp_path / "update"
+    evaluation.prepare(root, skill, "update", current, previous, origin=origin)
+    fixture = evaluation.Fixture(root)
+    settings = json.loads((root / "mcp.json").read_text())["mcpServers"]["fixture"]
+    calls = [
+        {"url": base.ORIGIN + "/api/agent-skill"},
+        {"url": origin + "/api/agent-skill"},
+        {"url": origin + base.SKILL_PATH + "?version=" + fixture.manifest()["version"]},
+    ]
+    messages = [
+        {"jsonrpc": "2.0", "id": index, "method": "tools/call", "params": {"name": "http_request", "arguments": args}}
+        for index, args in enumerate(calls)
+    ]
+    completed = subprocess.run(
+        [settings["command"], *settings["args"]],
+        input="".join(json.dumps(message) + "\n" for message in messages),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+    )
+    results = [json.loads(json.loads(line)["result"]["content"][0]["text"]) for line in completed.stdout.splitlines()]
+    assert [row["status"] for row in results] == [404, 200, 200]
+    assert results[2]["content"] == skill.read_text()
+    assert json.loads((root / "workspace/private/connection.json").read_text())["origin"] == origin
 
 
 def test_alias_query_set_change_clear_have_independent_readbacks(case):

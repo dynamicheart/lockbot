@@ -123,6 +123,9 @@ They do not execute real resource commands or provide a client scheduler.
   latest after actually reading it is valid; reading just the manifest is insufficient.
   The frozen Markdown is available at the advertised path with or without the
   documented `?version=<current revision>` cache buster.
+  Pass `--origin` when the frozen package advertises a different deployment origin.
+  The fixture persists that address for its separate tool process; all requests
+  still use the synthetic service.
   The response-triggered-update case still requires old hint before the new read.
   Preserve key/connection bytes, authenticate/read back released state, ask for full
   ZIP installation confirmation, and do not replay or silently install.
