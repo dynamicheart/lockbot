@@ -124,6 +124,7 @@ class Fixture:
         self.root = root.resolve()
         self.workspace = self.root / "workspace"
         self.case = json.loads((root / "case.json").read_text())
+        self.origin = self.case.get("origin", ORIGIN)
         self.markdown = (root / "subject.md").read_text()
         self.archive = bundle(self.markdown)
 
@@ -171,7 +172,7 @@ class Fixture:
         url = urlsplit(args["url"])
         if args.get("method", "GET").upper() != "GET":
             return {"status": 405, "error": "This test does not authorize resource changes or enrollment"}
-        if f"{url.scheme}://{url.netloc}" != ORIGIN or url.query or url.fragment:
+        if f"{url.scheme}://{url.netloc}" != self.origin or url.query or url.fragment:
             return {"status": 404, "error": "No such fixture route"}
         if url.path == SKILL_PATH:
             document = self.workspace / "downloads/SKILL.md"
@@ -239,7 +240,7 @@ class Fixture:
             elif name == "install_skill":
                 if self.case["scenario"] == "unavailable-installer":
                     raise ValueError("This client cannot install persistent skills")
-                if args["url"] != ORIGIN + BUNDLE_PATH:
+                if args["url"] != self.origin + BUNDLE_PATH:
                     raise ValueError("Unknown download URL")
                 archive = self.archive + (b"corrupted" if self.case["scenario"] == "bad-bundle" else b"")
                 if args["sha256"] != digest(archive):

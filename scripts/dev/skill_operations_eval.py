@@ -29,7 +29,16 @@ PROMPTS = {
 }
 
 
-def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_directory=None):
+def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_directory=None, *, origin=None):
+    origin = base.ORIGIN if origin is None else origin
+    parsed_origin = urlsplit(origin)
+    if (
+        parsed_origin.scheme not in ("http", "https")
+        or not parsed_origin.hostname
+        or parsed_origin.username is not None
+        or origin != f"{parsed_origin.scheme}://{parsed_origin.netloc}"
+    ):
+        raise ValueError("Use a bare HTTP(S) origin for the synthetic service")
     current = artifacts.load(artifact_directory) if artifact_directory else None
     installed = artifacts.load(installed_artifact_directory) if installed_artifact_directory else current
     if scenario == "update" and (
@@ -45,7 +54,10 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
     base.prepare(root, skill, "existing-key")
     case = json.loads((root / "case.json").read_text())
     case.update(
-        scenario=scenario, fixture_version=7, installed_version=installed["manifest"]["version"] if installed else None
+        scenario=scenario,
+        fixture_version=8,
+        origin=origin,
+        installed_version=installed["manifest"]["version"] if installed else None,
     )
     base.save_json(
         root / "runtime.json",
@@ -64,7 +76,7 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
     base.save_json(
         root / "workspace/private/connection.json",
         {
-            "origin": base.ORIGIN,
+            "origin": origin,
             "instance_id": current_instance,
             "bot_uuid": base.BOT_UUID,
             "credential_ref": "private/current.key",
@@ -153,15 +165,11 @@ class Fixture(base.Fixture):
     def http(self, args):
         url = urlsplit(args["url"])
         method = args.get("method", "GET").upper()
-        if f"{url.scheme}://{url.netloc}" != base.ORIGIN or url.fragment:
+        if f"{url.scheme}://{url.netloc}" != self.origin or url.fragment:
             return {"status": 404}
         if url.query:
-            if (
-                method == "GET"
-                and url.path == base.SKILL_PATH
-                and url.query == f"version={self.manifest()['version']}"
-            ):
-                return super().http({**args, "url": base.ORIGIN + base.SKILL_PATH})
+            if method == "GET" and url.path == base.SKILL_PATH and url.query == f"version={self.manifest()['version']}":
+                return super().http({**args, "url": self.origin + base.SKILL_PATH})
             return {"status": 404}
         headers = {name.lower(): value for name, value in args.get("headers", {}).items()}
         if url.path in ("/api/bots/7/resources", "/api/bots/7/commands"):
@@ -395,7 +403,7 @@ def score(root, final):
         == fixture.case["connection_sha256"],
         "no_key_in_reply": base.KEY not in final,
         "context_verified": any(
-            row["args"]["url"] == base.ORIGIN + "/api/agent/context" and row["result"].get("status") == 200
+            row["args"]["url"] == fixture.origin + "/api/agent/context" and row["result"].get("status") == 200
             for row in requests
         ),
     }
@@ -456,10 +464,11 @@ def main():
     parser.add_argument("--scenario", choices=PROMPTS)
     parser.add_argument("--artifacts", type=Path)
     parser.add_argument("--installed-artifacts", type=Path, help="A distinct verified older bundle for update tests")
+    parser.add_argument("--origin", help="Origin to simulate when using frozen deployment artifacts")
     parser.add_argument("--final-file", type=Path)
     args = parser.parse_args()
     if args.action == "prepare":
-        prepare(args.root, args.skill, args.scenario, args.artifacts, args.installed_artifacts)
+        prepare(args.root, args.skill, args.scenario, args.artifacts, args.installed_artifacts, origin=args.origin)
     elif args.action == "score":
         print(json.dumps(score(args.root, args.final_file.read_text()), ensure_ascii=False))
     else:
