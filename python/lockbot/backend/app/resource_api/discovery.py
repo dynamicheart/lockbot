@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -52,6 +52,7 @@ def server_metadata(request: Request, db: Session) -> dict:
         "credential_scheme": "lbr_bot_scoped",
         "capabilities": [
             "credential_context",
+            "credential_recovery_health",
             "own_binding_directory",
             "own_binding_recovery",
             "namespaced_skill",
@@ -121,6 +122,7 @@ class AgentContextResponse(BaseModel):
     bot_rules: BotRules | None = None
     agent_access_enabled: bool
     credential_scope: Literal["one_user_one_bot"]
+    credential_recovery_health: credentials.RecoveryHealth
     utilization: dict[str, Any] | None = None
     usage_privacy: dict[str, Any]
     skill_update: dict[str, Any]
@@ -182,6 +184,7 @@ def _context_payload(request, response, db, row):
         "bot_rules": current_bot_rules(bot, row.external_user_id),
         "agent_access_enabled": bot.resource_auth_enabled,
         "credential_scope": "one_user_one_bot",
+        "credential_recovery_health": credentials.recovery_health(row),
         "utilization": {
             "best_effort": True,
             "configuration": public_datasource(bot),
@@ -264,6 +267,44 @@ def _binding_namespace(db, bot_id, platform):
     return ("bot", bot_id)
 
 
+def _backfill_presented_key(db, row, token):
+    if credentials.recover_credential(row) is not None:
+        return
+    previous = row.credential_encrypted
+    try:
+        sealed = credentials.seal_credential(row.public_id, token)
+    except Exception:
+        # Authentication remains digest-based. Never rotate or erase the caller's
+        # valid key to compensate for an unavailable encryption service/key.
+        raise HTTPException(status_code=503, detail={"code": "credential_recovery_unavailable"}) from None
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    # A competing request may have backfilled, revoked, or replaced this binding
+    # while encryption ran. Change only the recovery column of the exact live
+    # snapshot; the final fresh authentication below still fences the response.
+    db.query(ResourceBinding).filter(
+        ResourceBinding.id == row.id,
+        ResourceBinding.public_id == row.public_id,
+        ResourceBinding.credential_digest == row.credential_digest,
+        ResourceBinding.credential_encrypted == previous,
+        ResourceBinding.bound_bot_id == row.bound_bot_id,
+        ResourceBinding.bound_bot_uuid == row.bound_bot_uuid,
+        ResourceBinding.bound_identity_revision == row.bound_identity_revision,
+        ResourceBinding.platform == row.platform,
+        ResourceBinding.external_user_id == row.external_user_id,
+        ResourceBinding.revoked_at.is_(None),
+        (ResourceBinding.credential_expires_at.is_(None) | (ResourceBinding.credential_expires_at > now)),
+        db.query(Bot.id)
+        .filter(
+            Bot.id == ResourceBinding.bound_bot_id,
+            Bot.uuid == ResourceBinding.bound_bot_uuid,
+            Bot.identity_revision == ResourceBinding.bound_identity_revision,
+            Bot.is_deleted.is_(False),
+        )
+        .exists(),
+    ).update({ResourceBinding.credential_encrypted: sealed}, synchronize_session=False)
+    db.expire_all()
+
+
 def _own_bindings(request, response, db, *, recover):
     token = _bearer_token(request)
     row = service.authenticate_for_any_bot(db, token=token)
@@ -287,9 +328,8 @@ def _own_bindings(request, response, db, *, recover):
         row = service.authenticate_for_any_bot(db, token=token)
         if row is None or (row.bound_bot_id, row.platform, row.external_user_id) != (bot_id, platform, subject):
             raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
-        if recover and credentials.recover_credential(row) is None:
-            row.credential_encrypted = credentials.seal_credential(row.public_id, token)
-            db.flush()
+        if recover:
+            _backfill_presented_key(db, row, token)
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         candidates = (
             db.query(ResourceBinding, Bot)
@@ -343,7 +383,12 @@ def _own_bindings(request, response, db, *, recover):
         db.rollback()
         db.expire_all()
         current = service.authenticate_for_any_bot(db, token=token)
-        if current is None or current.id != source_id or _binding_namespace(db, bot_id, platform) != namespace:
+        if (
+            current is None
+            or current.id != source_id
+            or (current.bound_bot_id, current.platform, current.external_user_id) != (bot_id, platform, subject)
+            or _binding_namespace(db, bot_id, platform) != namespace
+        ):
             raise ResourceAuthenticationError("Binding changed", "credential_invalid")
         fresh = {
             binding.id: (binding, bot)
