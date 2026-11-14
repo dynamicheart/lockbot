@@ -148,16 +148,16 @@
         </section>
         <template v-else>
           <ResourceUtilization
-            v-for="{ connection, configuration, nodes } in detailUtilizationGroups"
+            v-for="{ connection, configuration, nodes, holdingsKey } in detailUtilizationGroups"
             :key="connection"
             :bot-id="connection"
-            :scope-key="connection"
+            :scope-key="holdingsKey"
             :source="configuration"
             :nodes="nodes"
             :authorize="(source, options) => authorizeUtilization(connection, source, options)"
             :allowed="!ticket"
             hide-toolbar
-            @change="updateUtilizationSnapshot(connection, $event)"
+            @change="updateUtilizationSnapshot(connection, holdingsKey, $event)"
           />
           <div
             v-if="
@@ -808,40 +808,48 @@ const utilizationSnapshots = ref({})
 const utilizationGroups = computed(() =>
   knownGroups.value
     .filter((group) => group.utilization?.configuration && group.utilization.connection)
-    .map((group) => ({
-      ...group.utilization,
-      nodes: [
-        ...new Set(
-          entries(group)
-            .filter((entry) => !queued(entry))
-            .map((entry) => entry.node)
+    .map((group) => {
+      const holdings = entries(group).filter(
+        (entry) => !queued(entry) && group.utilization.configuration.nodeMapping[entry.node]
+      )
+      return {
+        ...group.utilization,
+        nodes: [...new Set(holdings.map(({ node }) => node))].sort(),
+        holdingsKey: JSON.stringify(
+          holdings
+            .map(({ node, device, expires_at }) => JSON.stringify([node, device, expires_at]))
+            .sort()
         ),
-      ]
-        .filter((node) => group.utilization.configuration.nodeMapping[node])
-        .sort(),
-    }))
+      }
+    })
     .filter(({ nodes }) => nodes.length)
 )
 watch(
   utilizationGroups,
   (active) => {
-    const recognized = new Set(active.map(({ connection }) => connection))
+    const recognized = new Map(
+      active.map(({ connection, holdingsKey }) => [connection, holdingsKey])
+    )
     for (const id of Object.keys(utilizationSnapshots.value)) {
-      if (!recognized.has(id)) delete utilizationSnapshots.value[id]
+      if (!recognized.has(id) || recognized.get(id) !== utilizationSnapshots.value[id].holdingsKey)
+        delete utilizationSnapshots.value[id]
     }
   },
   { flush: 'sync' }
 )
-function updateUtilizationSnapshot(connection, snapshot) {
-  if (utilizationGroups.value.some((item) => item.connection === connection)) {
-    utilizationSnapshots.value[connection] = snapshot
+function updateUtilizationSnapshot(connection, holdingsKey, snapshot) {
+  const group = utilizationGroups.value.find((item) => item.connection === connection)
+  if (group?.holdingsKey === holdingsKey) {
+    utilizationSnapshots.value[connection] = { ...snapshot, holdingsKey }
   }
 }
 async function authorizeUtilization(connection, source, { signal }) {
   const result = await api('utilization/' + encodeURIComponent(connection), undefined, signal)
   if (
     !utilizationGroups.value.some((item) => item.connection === connection) ||
-    datasourceIdentity(result.configuration) !== datasourceIdentity(source)
+    datasourceIdentity(result.configuration) !== datasourceIdentity(source) ||
+    result.access?.scope_version !== 2 ||
+    !Array.isArray(result.access.node_ids)
   )
     throw new ProviderError('grant')
   return result.access

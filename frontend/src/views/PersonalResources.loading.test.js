@@ -156,6 +156,46 @@ it('summarizes live card samples for a whole node and only held cards for a card
   expect(state.cardUtilization[key('partial')]).toBeUndefined()
   state.toggleNode(key('whole'))
   expect(state.cardUtilization[key('whole')]).toBeUndefined()
+  const snapshot = state.utilizationSnapshots['metric-source']
+  const { holdingsKey } = state.utilizationGroups[0]
+  state.updateUtilizationSnapshot('metric-source', holdingsKey, snapshot)
+  expect(state.utilizationSnapshots['metric-source']).toBeDefined()
+  state.groups[0].allocations.pop()
+  expect(state.utilizationGroups[0].nodes).toEqual(['partial', 'whole'])
+  expect(state.utilizationSnapshots['metric-source']).toBeUndefined()
+  state.updateUtilizationSnapshot('metric-source', holdingsKey, snapshot)
+  expect(state.utilizationSnapshots['metric-source']).toBeUndefined()
+})
+
+it('rejects an older backend grant even when its datasource matches', async () => {
+  const state = await readyGroups([confirmed])
+  const configuration = {
+    endpoint: 'https://metrics.example.invalid',
+    accessMode: 'short_lived',
+    profile: 'lockbot-v1',
+    nodeMapping: { n1: 'collector-node' },
+  }
+  state.groups = [
+    {
+      ...confirmed,
+      allocations: [{ kind: 'hold', node: 'n1' }],
+      utilization: { connection: 'source', configuration },
+    },
+  ]
+  const access = { scope: 'metrics:read', token: 'synthetic-metrics-access' }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response({ configuration, access }))
+  )
+  await expect(state.authorizeUtilization('source', configuration, {})).rejects.toMatchObject({
+    code: 'grant',
+  })
+  const restricted = { ...access, scope_version: 2, node_ids: ['n1'] }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response({ configuration, access: restricted }))
+  )
+  await expect(state.authorizeUtilization('source', configuration, {})).resolves.toEqual(restricted)
 })
 
 it('separates login and report sources and excludes another identity', async () => {
@@ -243,7 +283,7 @@ it('polls mapped holdings and drops the snapshot when the holding or scope disap
     ],
   }
   const state = await readyGroups([group])
-  expect(state.utilizationGroups).toEqual([{ ...utilization, nodes: ['node-a'] }])
+  expect(state.utilizationGroups).toMatchObject([{ ...utilization, nodes: ['node-a'] }])
   state.utilizationSnapshots['binding-a'] = { enabled: true, snapshot: {} }
   state.groups = [{ ...group, status: 'unknown' }]
   expect(state.utilizationGroups).toEqual([])

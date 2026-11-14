@@ -212,7 +212,10 @@ def test_panel_metrics_are_issued_only_for_current_native_holdings(
     assert "no-store" in response.headers["Cache-Control"]
     access = response.json()["access"]
     claims = jwt.decode(access["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
-    assert claims["nodes"] == ["host-a"]
+    assert claims["resources"] == {"host-a": None}
+    assert claims["scope_version"] == access["scope_version"] == 2
+    assert "nodes" not in claims
+    assert access["node_ids"] == ["n1"]
     assert claims["exp"] <= datetime.fromisoformat(group["allocations"][0]["expires_at"]).timestamp()
     verify_metrics_gateway(tmp_path, key_file, claims, access["token"], origin)
 
@@ -246,9 +249,48 @@ def test_panel_metrics_exclude_holdings_without_a_live_deadline(
 
     result = provider.utilization(grant, session_expiry=browser_expiry, authorize=True)
     claims = jwt.decode(result["access"]["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
-    assert claims["nodes"] == ["host-a"]
+    assert claims["resources"] == {"host-a": None}
     group["allocations"] = [unverified]
     assert provider.utilization(grant, session_expiry=browser_expiry, authorize=True) is None
+
+
+@pytest.mark.parametrize("api", ["DEVICE", "QUEUE_DEVICE"], indirect=True)
+def test_personal_card_grants_use_only_exact_unambiguous_held_device_labels(panel, api, client, tmp_path, monkeypatch):
+    provider, grant = panel
+    signing_key(tmp_path, monkeypatch)
+    provider.config["enable_utilization"] = True
+    config = {**source(), "deviceMapping": {"n1:dev0": "GPU-a", "n1:dev1": "GPU-b"}}
+    url = f"/api/bots/{api['bot_id']}"
+
+    def configure(configuration):
+        return client.put(url, headers=api["auth_header"], json={"utilization_config": configuration})
+
+    assert configure(config).status_code == 200
+    for index, headers in enumerate((api["headers"], api["other_headers"])):
+        lock = client.post(url + "/commands", headers=headers, json={"command": f"lock n1 dev{index} 2m"})
+        assert lock.status_code == 200
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+    result = provider.utilization(grant, session_expiry=expiry, authorize=True)
+    claims = jwt.decode(result["access"]["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
+    assert claims["resources"] == {"host-a": ["GPU-a"]}
+    assert result["access"]["node_ids"] == ["n1"]
+    for mapping in ({}, {"n1:dev0": "alias", "n1:dev1": "alias"}):
+        assert configure({**config, "deviceMapping": mapping}).status_code == 200
+        assert provider.utilization(grant, session_expiry=expiry, authorize=True) is None
+
+
+def test_personal_node_grants_reject_colliding_collector_node_aliases(panel, api, client, tmp_path, monkeypatch):
+    provider, grant = panel
+    signing_key(tmp_path, monkeypatch)
+    provider.config["enable_utilization"] = True
+    url = f"/api/bots/{api['bot_id']}"
+    config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-a"}}
+    assert client.put(url, headers=api["auth_header"], json={"utilization_config": config}).status_code == 200
+    lock = client.post(url + "/commands", headers=api["headers"], json={"command": "lock n1 2m"})
+    assert lock.status_code == 200
+    assert provider.report(grant)[0]["allocations"][0]["node"] == "n1"
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+    assert provider.utilization(grant, session_expiry=expiry, authorize=True) is None
 
 
 def verify_metrics_gateway(tmp_path, key_file, claims, token, origin):

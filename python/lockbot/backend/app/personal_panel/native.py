@@ -319,28 +319,33 @@ class NativeProvider:
         """Describe or authorize telemetry for the exact native bot binding."""
         if self.config.get("enable_utilization") is not True:
             return None
-        holdings = []
+        allocations = []
         if authorize:
             (group,) = self.report(grant)
             if group["status"] != "ok":
                 return None
-            holdings = [row for row in group["allocations"] if row["kind"] == "hold"]
+            allocations = [row for row in group["allocations"] if row["kind"] == "hold"]
         with self.session_factory() as db:
             row = self._validated(db, grant)
             bot = db.get(Bot, row.bound_bot_id)
             source = public_datasource(bot)
-            if not source or source["accessMode"] != "short_lived":
+            if not source or source["accessMode"] != "short_lived" or source["profile"] != "lockbot-v1":
                 return None
             if not authorize:
                 return {"configuration": source}
             # An allocation without a confirmed deadline cannot authorize telemetry.
             # Keep its node out of the grant even when other holdings are valid.
             deadlines = {}
+            holdings = {}
+            device_bot = bot.bot_type in {"DEVICE", "QUEUE_DEVICE"}
             now = datetime.now(timezone.utc)
-            for holding in holdings:
+            for holding in allocations:
                 node = holding["node"]
+                device = holding.get("device")
                 expires_at = holding.get("expires_at")
                 if node not in source["nodeMapping"] or not isinstance(expires_at, str):
+                    continue
+                if device_bot != (device is not None):
                     continue
                 try:
                     deadline = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
@@ -348,7 +353,12 @@ class NativeProvider:
                     continue
                 if deadline.tzinfo is None or deadline <= now:
                     continue
-                deadlines[node] = min(deadlines.get(node, deadline), deadline)
+                unit = (node, device)
+                deadlines[unit] = min(deadlines.get(unit, deadline), deadline)
+                if device_bot:
+                    holdings.setdefault(node, set()).add(device)
+                else:
+                    holdings[node] = None
             if not deadlines or session_expiry is None:
                 return None
             expiry = min(session_expiry, *deadlines.values())
@@ -357,7 +367,7 @@ class NativeProvider:
                 if credential_expiry.tzinfo is None:
                     credential_expiry = credential_expiry.replace(tzinfo=timezone.utc)
                 expiry = min(expiry, credential_expiry)
-            access = issue_metrics_access(db, bot, source, expires_at=expiry, resource_nodes=deadlines)
+            access = issue_metrics_access(db, bot, source, expires_at=expiry, holdings=holdings)
             return {"configuration": source, "access": access} if access else None
 
     def report(self, grant):

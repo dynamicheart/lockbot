@@ -232,6 +232,71 @@ def test_short_grants_share_bot_budget_and_reload_key_before_cache(tmp_path):
     assert error.value.status == 401
 
 
+def test_card_grants_filter_upstream_and_keep_cache_separate_from_other_cards_and_whole_nodes(tmp_path):
+    from jwt.exceptions import MissingRequiredClaimError
+
+    gateway, key, legacy, jwt = grant_fixture(tmp_path)
+    process = "lockbot_accelerator_process_info"
+    cpu = "lockbot_host_cpu_utilization_percent"
+    stamp = "lockbot_sample_timestamp_seconds"
+    query = '{__name__=~"^(?:' + "|".join((process, cpu, stamp)) + ')$",node=~"^(?:node-a)$"}'
+
+    def series(name, **labels):
+        return {"metric": {"__name__": name, "node": "node-a", **labels}, "value": [legacy["iat"], "1"]}
+
+    samples = [
+        series(process, device="GPU-a", command="job-a"),
+        series(process, device="GPU-b", command="job-b"),
+        series(process, command="unmapped"),
+        series(cpu),
+        series(stamp, collector="host"),
+        series(stamp, collector="accelerator"),
+    ]
+    upstream = {"status": "success", "data": {"resultType": "vector", "result": samples}}
+    gateway.opener.open = Mock(side_effect=lambda *_args, **_kwargs: BytesIO(json.dumps(upstream).encode()))
+
+    def credentials(devices):
+        claims = {name: value for name, value in legacy.items() if name != "nodes"}
+        token = jwt.encode({**claims, "scope_version": 2, "resources": {"node-a": devices}}, key, algorithm="HS256")
+        # This decoder requirement is present in deployed node-only gateways.
+        with pytest.raises(MissingRequiredClaimError, match="nodes"):
+            jwt.decode(token, key, algorithms=["HS256"], audience=legacy["aud"], options={"require": ["nodes"]})
+        return "Bearer " + token
+
+    whole = gateway.query(credentials(None), body(query))
+    assert json.loads(whole)["data"]["result"] == [samples[i] for i in (0, 1, 3, 4, 5)]
+    for sample_index, device in enumerate(("GPU-a", "GPU-b")):
+        auth = credentials([device])
+        restricted = gateway.query(auth, body(query))
+        assert json.loads(restricted)["data"]["result"] == [samples[sample_index], samples[5]]
+        assert gateway.query(auth, body(query)) == restricted
+    legacy_auth = "Bearer " + jwt.encode(legacy, key, algorithm="HS256")
+    assert json.loads(gateway.query(legacy_auth, body(query)))["data"]["result"] == samples
+    assert gateway.opener.open.call_count == 4
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        {"scope_version": 2, "nodes": ["node-a"], "resources": {"node-a": None}},
+        {"scope_version": True, "resources": {"node-a": None}},
+        {"scope_version": 3, "resources": {"node-a": None}},
+        {"resources": {"node-a": None}},
+        {"scope_version": 2, "resources": {"node-a": []}},
+        {"scope_version": 2, "resources": {"node-a": ["0", "0"]}},
+        {"scope_version": 2, "resources": {"node-a": [1]}},
+        {"scope_version": 2, "resources": {"other-node": None}},
+    ],
+)
+def test_invalid_card_grant_never_becomes_node_authority(tmp_path, scope):
+    gateway, key, claims, jwt = grant_fixture(tmp_path)
+    claims.pop("nodes")
+    token = jwt.encode({**claims, **scope}, key, algorithm="HS256")
+    with pytest.raises(Rejected) as error:
+        gateway.reader("Bearer " + token)
+    assert error.value.status in {401, 403}
+
+
 @pytest.mark.parametrize(
     "changes",
     [
