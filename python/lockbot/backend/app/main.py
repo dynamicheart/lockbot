@@ -525,6 +525,9 @@ async def lifespan(app: FastAPI):
         backup_scheduler.stop()
         bot_manager.shutdown_all()
         await asyncio.to_thread(app.state.service_history.stop)
+        reports = getattr(app.state, "agent_personal_reports", None)
+        if reports is not None:
+            reports.close()
 
 
 def _reset_running_bots():

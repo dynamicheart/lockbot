@@ -53,6 +53,23 @@ def mount_if_configured(app):
         resolver = _load_plugin(item, "lockbot_identity_resolver", "create_resolver")
         if not callable(getattr(resolver, "resolve", None)):
             raise ValueError("Invalid identity resolver")
+    extensions = config.get("agent_report_extensions")
+    if extensions is not None:
+        from .agent_reports import Extension, mount_agent_reports
+
+        if type(provider) is not NativeProvider or provider.config["issuer"] != config["origin"]:
+            raise ValueError("Agent report extensions require the same-origin native identity provider")
+        if not isinstance(extensions, list) or not 1 <= len(extensions) <= 8:
+            raise ValueError("Configure one to eight Agent report extensions")
+        mount_agent_reports(
+            app,
+            config["origin"],
+            provider,
+            [
+                Extension.configured(item, _load_plugin(item, f"lockbot_agent_report_{index}", "create_reporter"))
+                for index, item in enumerate(extensions)
+            ],
+        )
     metadata_adapter, metadata_pins = None, None
     metadata = config.get("connection_metadata")
     if metadata is not None:

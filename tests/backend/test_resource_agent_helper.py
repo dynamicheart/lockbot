@@ -59,6 +59,8 @@ def case(tmp_path):
         version_header=None,
         package_header=None,
         profile="lockbot-v1",
+        report_directory=None,
+        report_revision="1",
         redirect=False,
     )
     captured = datetime(2030, 1, 1, tzinfo=timezone.utc)
@@ -106,6 +108,16 @@ def case(tmp_path):
                         },
                         "access": {"scope": "metrics:read", "token": "metrics-grant-" + str(state.context_count)},
                     },
+                }
+                if state.report_directory is not None:
+                    body["personal_report_extensions"] = state.report_directory
+            elif self.path == "/api/personal-panel/agent/extensions/team-report":
+                body = {
+                    "protocol": "lockbot.personal-report.v1",
+                    "id": "team-report",
+                    "revision": state.report_revision,
+                    "status": "ok",
+                    "groups": [],
                 }
             elif self.path == "/api/bots/7/resources":
                 if state.resources_fail and any(path.endswith("commands") for path, *_ in state.requests):
@@ -569,3 +581,26 @@ def test_additive_actor_metadata_does_not_invalidate_scoped_connection(case):
     case.state.actor["display_name"] = "Alice updated"
     assert case.client.context()["actor"]["external_user_id"] == "alice"
     assert case.client.command("lock", ["node-a"], [], "2m")["verified"]
+
+
+def test_optional_report_reads_only_the_discovered_same_origin_path(case):
+    path = "/api/personal-panel/agent/extensions/team-report"
+    item = {"id": "team-report", "revision": "1", "read_path": path, "mode": "read_only"}
+    case.state.report_directory = {
+        "protocol": "lockbot.personal-report.v1",
+        "credential_mode": "same_origin_native",
+        "items": [item],
+    }
+    assert case.client.personal_report("team-report")["status"] == "ok"
+    assert case.state.requests[-1][:2] == (path, "GET")
+    assert case.state.requests[-1][2]["Authorization"] == "Bearer " + KEY
+    case.state.report_revision = "2"
+    with pytest.raises(helper.ClientError, match="report_extension_changed"):
+        case.client.personal_report("team-report")
+    item["read_path"] = "https://foreign.invalid" + path
+    with pytest.raises(helper.ClientError, match="report_extension_not_authorized"):
+        case.client.personal_report("team-report")
+    assert case.state.requests[-1][0] == "/api/agent/context"
+    case.state.report_directory = None
+    with pytest.raises(helper.ClientError, match="personal_reports_unavailable"):
+        case.client.personal_report("team-report")

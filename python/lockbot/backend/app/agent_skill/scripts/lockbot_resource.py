@@ -420,6 +420,34 @@ class Client:
     def resources(self, context):
         return self._request(same_origin_url(self.base, context["links"]["resources"]), token=self.key)
 
+    def personal_report(self, extension):
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", extension):
+            raise ClientError("invalid_report_extension")
+        context = self.context()
+        directory = context.get("personal_report_extensions")
+        if (
+            not context.get("agent_access_enabled")
+            or not isinstance(directory, dict)
+            or directory.get("protocol") != "lockbot.personal-report.v1"
+            or directory.get("credential_mode") != "same_origin_native"
+            or not isinstance(directory.get("items"), list)
+        ):
+            raise ClientError("personal_reports_unavailable")
+        path = "/api/personal-panel/agent/extensions/" + extension
+        matches = [item for item in directory["items"] if isinstance(item, dict) and item.get("id") == extension]
+        if len(matches) != 1 or matches[0].get("mode") != "read_only" or matches[0].get("read_path") != path:
+            raise ClientError("report_extension_not_authorized")
+        result = self._request(self.base + path, token=self.key)
+        if (
+            result.get("protocol") != directory["protocol"]
+            or result.get("id") != extension
+            or result.get("revision") != matches[0].get("revision")
+            or result.get("status") not in {"ok", "unknown"}
+            or not isinstance(result.get("groups"), list)
+        ):
+            raise ClientError("report_extension_changed_refresh_context")
+        return result
+
     def command(self, operation, nodes, devices, duration, metadata=None):
         context = self.context()
         if self.needs_update:
@@ -746,6 +774,8 @@ def main(argv=None):
             command.add_argument("--metrics-origin", help="Separately approved metrics origin, optional")
     sub.add_parser("context")
     sub.add_parser("resources")
+    report = sub.add_parser("personal-report")
+    report.add_argument("--extension", required=True)
     command = sub.add_parser("command")
     command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "renew", "release"])
     command.add_argument("--node", action="append", required=True)
@@ -770,6 +800,8 @@ def main(argv=None):
             result = client.context()
         elif args.action == "resources":
             result = client.resources(client.context())
+        elif args.action == "personal-report":
+            result = client.personal_report(args.extension)
         elif args.action == "command":
             metadata = private_json(args.metadata_file) if args.metadata_file else {}
             result = client.command(args.operation, args.node, args.device, args.duration, metadata)
