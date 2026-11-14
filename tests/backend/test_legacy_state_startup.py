@@ -184,8 +184,15 @@ def test_startup_migrates_before_scheduler_and_bot_recovery(db_session, session_
     monkeypatch.setattr(backup_scheduler, "stop", lambda: None)
     monkeypatch.setattr(bot_manager, "shutdown_all", lambda: None)
 
+    from unittest.mock import Mock
+
+    app = FastAPI()
+    app.state.service_history = Mock()
+
     async def start():
-        async with main.lifespan(FastAPI()):
+        async with main.lifespan(app):
             assert events == ["ownership", "scheduler", "recover"]
+            app.state.service_history.start.assert_called_once_with()
 
     asyncio.run(start())
+    app.state.service_history.stop.assert_called_once_with()
