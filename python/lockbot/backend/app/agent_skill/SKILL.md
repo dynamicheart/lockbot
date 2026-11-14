@@ -353,8 +353,10 @@ it is a short-lived data-source credential, not a Lockbot management JWT. Use it
 `utilization.configuration.endpoint`; keep it in memory and refresh context within the
 normal API budget before it expires (prefer renewal when under 30 seconds remain). A 30-day
 or permanent resource-view link does not make this metrics token permanent: each grant is
-still at most 300 seconds. After a source 401/403, refresh context and retry at most once;
-never bypass 429 or Retry-After by minting another token. Do not persist it as the bot's
+still at most 300 seconds. After a source 401/403 that rejects the credential, refresh
+context once and resend the same query once with the new grant. Stop if that retry fails.
+A `query_not_allowed` response rejects the selector, so a new grant will not help.
+Never bypass 429 or Retry-After by minting another token. Do not persist it as the bot's
 personal key. If automatic source access is unavailable, report missing metrics and ask
 the administrator to check the source; do not rebind, switch bots or send a Lockbot key
 to compensate.
@@ -374,14 +376,20 @@ collector status in one request:
 {__name__=~"^(?:lockbot_accelerator_utilization_percent|lockbot_sample_timestamp_seconds|lockbot_collector_success)$",node=~"^(?:host-a)$"}
 ```
 
-Keep both regular expressions anchored and escape any regex metacharacters in the node
-labels. Replace `host-a` with the configured mapping for the requested resource. Keep
-the `collector="accelerator"` samples when checking card telemetry freshness.
+For the Lockbot gateway, copy this selector as a single line. Replace `host-a` with
+the configured mapping, escaping regex metacharacters and encoding the quoted matcher
+values as JSON strings. Keep both `=~` operators (including the equals signs), both
+`^(?:...)$` anchors even for one node, and the two matchers in the order shown.
+Filter the returned `data.result` rows by `metric.node` and, for card utilization, by
+the mapped `metric.device`. For the timestamp and collector success rows, select
+`metric.collector == "accelerator"` in the response. The batch selector uses only
+`__name__` and `node`; apply the collector and device filters to the response.
 
 The source sampler defaults to once every five minutes; frequent queries do not make the
-underlying sample newer. Read `lockbot_sample_timestamp_seconds{collector="accelerator"}`
-and the corresponding host collector gauge, plus `lockbot_collector_success`. A scrape or
-query evaluation timestamp is not the device's actual observation time. Query on demand,
+underlying sample newer. Check `lockbot_collector_success` for the relevant collector.
+Use the numeric value of `lockbot_sample_timestamp_seconds` as the sample time. In
+the result pair `[timestamp, value]`, the first element is the query evaluation time.
+Query on demand,
 reuse a recent sample, respect source rate limits and do not start a busy-poll loop.
 
 An administrator's browser connection test proves only that browser's access at that time.
