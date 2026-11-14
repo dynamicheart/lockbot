@@ -1,4 +1,5 @@
 [Unit]
+RequiresMountsFor=/opt/lockbot-telemetry
 Description=Scoped read-only resource metric gateway
 After=network.target lockbot-prometheus.service
 
