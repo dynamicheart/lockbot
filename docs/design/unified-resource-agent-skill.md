@@ -82,7 +82,9 @@ A private registry is only another verified distribution channel for the same
 package. Registry login and upstream/private-service login are separate authorities.
 
 Today deployment-rendered Skill Markdown embeds an origin, so its revision can
-differ across deployments. The pending helper also validates the local bundle.
+differ across deployments. The helper prepared in [PR #161](https://github.com/dynamicheart/lockbot/pull/161)
+also validates the local bundle; its delivery does not resolve the cross-service
+revision boundary described here.
 Before claiming install-once interoperability, separate portable package integrity
 and helper compatibility from each service's rendered Skill/API revision and saved
 origin. Preserve existing Markdown/ZIP URLs and update notices. A new service must
