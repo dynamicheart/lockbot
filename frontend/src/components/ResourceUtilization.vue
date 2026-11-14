@@ -2,7 +2,7 @@
   <section v-if="source" class="utilization-toolbar">
     <span>{{ $t('utilization.autoUpdate') }}</span>
     <span v-if="health.sampledAt"
-      >{{ $t('utilization.sampled') }} {{ new Date(health.sampledAt).toLocaleString() }}</span
+      >{{ $t('utilization.sampled') }} {{ formatResourceTime(health.sampledAt, locale) }}</span
     >
     <span v-if="state.error" class="source-error"
       >{{ $t('utilization.errors.' + state.error) }} · {{ $t('utilization.contactAdmin') }}</span
@@ -82,6 +82,7 @@ import {
 } from '../utils/utilization/prometheus'
 import { useI18n } from 'vue-i18n'
 import { sourceHealth } from '../utils/utilization/display'
+import { formatResourceTime } from '../utils/resourceTime'
 import { createMetricsPoller } from '../utils/utilization/poller'
 const props = defineProps({
   botId: { type: [String, Number], required: true },
@@ -93,7 +94,7 @@ const props = defineProps({
   authorize: { type: Function, default: null },
 })
 const emit = defineEmits(['change'])
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const hostFor = (node) => resolveHost(state.snapshot, config.value, node)
 function hostValue(metric, percent = false) {
   const status = metricStatus(metric, Date.now(), config.value?.staleSeconds || 660)

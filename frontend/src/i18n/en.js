@@ -425,6 +425,7 @@ export default {
     updated: 'Updated',
     expires: 'Link expires',
     queue: 'Queue',
+    noBookings: 'No bookings',
     unavailable: 'Unable to refresh. Please try again later.',
     stopped: 'The bot is not running. Live state is unavailable.',
     empty: 'No resources.',

@@ -78,18 +78,29 @@
       </section>
       <template v-else-if="tab === 'mine'">
         <p v-if="resourceLoading" class="resource-loading" role="status">
-          正在更新资源，各群数据以实际返回为准…
+          {{ resourcesReady ? '正在更新，当前显示上次结果…' : '正在读取资源…' }}
         </p>
         <div class="stats">
           <div v-for="item in statistics" :key="item.label" class="stat">
             <div class="stat-label">{{ item.label }}</div>
-            <div class="stat-value">
+            <el-skeleton
+              v-if="initialResourceLoading"
+              animated
+              class="stat-placeholder"
+              aria-hidden="true"
+            >
+              <template #template
+                ><el-skeleton-item variant="text" class="stat-skeleton"
+              /></template>
+            </el-skeleton>
+            <div v-else-if="item.value === null" class="stat-value stat-pending">待确认</div>
+            <div v-else class="stat-value">
               {{ item.value }}<span>{{ item.unit }}</span>
             </div>
           </div>
         </div>
-        <p class="scope">
-          已更新 {{ knownGroups.length }} / {{ groups.length }} 个群 ·
+        <p v-if="resourcesReady || groups.length" class="scope">
+          已确认 {{ knownGroups.length }} / {{ groups.length }} 个群 ·
           仅统计已确认占用，机器按群计数
         </p>
         <el-alert
@@ -144,6 +155,10 @@
         </section>
       </template>
       <div v-else-if="tab === 'groups'" class="group-grid">
+        <section v-if="initialResourceLoading" class="group-card" role="status">
+          <el-skeleton :rows="2" animated />
+          <p class="group-meta">正在读取资源群…</p>
+        </section>
         <section v-for="(group, index) in groups" :key="index" class="group-card">
           <div class="page-heading">
             <h2>{{ group.label }}</h2>
@@ -152,15 +167,16 @@
             }}</el-tag>
           </div>
           <p class="group-meta">{{ identityLabel(group.identity) }}</p>
-          <div class="group-metrics">
+          <div v-if="fresh(group)" class="group-metrics">
             <div v-for="item in groupCounts(group)" :key="item.label">
               <strong>{{ item.value }}</strong
               ><span>{{ item.label }}</span>
             </div>
           </div>
+          <p v-else class="group-meta group-pending">暂未获取已确认的占用信息</p>
           <p class="group-meta">源数据时间 {{ date(group.source_at) }}</p>
         </section>
-        <p v-if="!groups.length" class="empty">
+        <p v-if="!groups.length && !initialResourceLoading" class="empty">
           {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
         </p>
       </div>
@@ -266,6 +282,9 @@ const busy = ref(false)
 const initialized = ref(false)
 const resourcesReady = ref(false)
 const resourceLoading = ref(false)
+const initialResourceLoading = computed(
+  () => resourceLoading.value && !resourcesReady.value && !groups.value.length
+)
 const knownGroups = computed(() => groups.value.filter(fresh))
 const pendingGroups = computed(() => groups.value.length - knownGroups.value.length)
 const allocationSections = computed(() => {
@@ -306,7 +325,12 @@ const statistics = computed(() => {
     ['持有机器', machines, '台'],
     ['持有卡', cards, '张'],
     ['预约', bookings, '项'],
-  ].map(([label, value, unit]) => ({ label, value: resourcesReady.value ? value : '—', unit }))
+  ].map(([label, value, unit]) => ({
+    label,
+    value:
+      resourcesReady.value && (!groups.value.length || knownGroups.value.length) ? value : null,
+    unit,
+  }))
 })
 function fresh(group) {
   return ['ok', 'fresh', 'active', 'ready', 'available', 'healthy'].includes(group.status)
@@ -361,7 +385,7 @@ function groupCounts(group) {
   return [
     ['持有记录', entries(group).filter((a) => !queued(a)).length],
     ['预约记录', entries(group).filter(queued).length],
-  ].map(([label, value]) => ({ label, value: fresh(group) ? value : '—' }))
+  ].map(([label, value]) => ({ label, value: fresh(group) ? value : null }))
 }
 function date(value) {
   if (value == null) return '未提供'
@@ -399,24 +423,64 @@ async function run(action) {
     busy.value = false
   }
 }
+let refreshEpoch = 0
+function identityScope(identities) {
+  return JSON.stringify(
+    (identities || [])
+      .map((identity) =>
+        ['issuer', 'platform', 'realm', 'subject', 'scope'].map((field) => identity[field])
+      )
+      .map((values) => JSON.stringify(values))
+      .sort()
+  )
+}
 async function refresh() {
-  groups.value = []
-  resourcesReady.value = false
-  session.value = await api('session')
-  // The session is ready independently of slow resource reporters.
-  initialized.value = true
-  if (session.value.authenticated) {
-    resourceLoading.value = true
+  const epoch = ++refreshEpoch
+  resourceLoading.value = true
+  try {
+    let current
+    try {
+      current = await api('session')
+    } catch (failure) {
+      if (epoch === refreshEpoch) {
+        groups.value = []
+        resourcesReady.value = false
+      }
+      throw failure
+    }
+    if (epoch !== refreshEpoch) return
+    if (
+      !current.authenticated ||
+      identityScope(current.identities) !== identityScope(session.value.identities)
+    ) {
+      groups.value = []
+      resourcesReady.value = false
+    }
+    session.value = current
+    // The session is ready independently of slow resource reporters.
+    initialized.value = true
+    if (!current.authenticated) return
     try {
       const data = await api('resources')
+      if (epoch !== refreshEpoch) return
       if (!Array.isArray(data.groups)) throw new Error('资源响应无效，请稍后刷新。')
       groups.value = data.groups
       resourcesReady.value = true
-    } finally {
-      resourceLoading.value = false
+    } catch (failure) {
+      if (epoch === refreshEpoch) {
+        groups.value = groups.value.map((group) => ({ ...group, status: 'unknown' }))
+        resourcesReady.value = false
+      }
+      throw failure
     }
+  } catch (failure) {
+    if (epoch === refreshEpoch && !initialized.value) groups.value = []
+    throw failure
+  } finally {
+    if (epoch === refreshEpoch) resourceLoading.value = false
   }
 }
+
 async function login(mode) {
   await api('login', { ticket: ticket.value.token, mode })
   ticket.value = null
@@ -426,9 +490,13 @@ async function login(mode) {
     throw new Error('登录后未检测到会话，请检查浏览器 Cookie 设置。')
 }
 async function logout() {
+  ++refreshEpoch
+  resourceLoading.value = false
   await api('logout', {})
   session.value = { authenticated: false, identities: [] }
   groups.value = []
+  resourcesReady.value = false
+  resourceLoading.value = false
   ticket.value = null
 }
 watch([pendingPanelTicket, busy, initialized], ([incoming, running, ready]) => {
@@ -449,3 +517,24 @@ onMounted(async () => {
 </script>
 
 <style scoped src="../assets/styles/personal-panel.css"></style>
+
+<style scoped>
+.stat-placeholder {
+  width: 88px;
+  margin-top: 8px;
+}
+.stat-skeleton {
+  width: 88px;
+  height: 32px;
+}
+.stat-value.stat-pending {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--lb-text-secondary);
+}
+.group-pending {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+</style>

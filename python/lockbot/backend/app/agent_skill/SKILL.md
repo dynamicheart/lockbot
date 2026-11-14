@@ -10,11 +10,38 @@ description: >
 # Lockbot Resource API Agent API
 
 A LockBot bot guards shared resources (GPU cards, cluster nodes, or queue slots). As an agent
-you act as **one verified IM identity on exactly one bot**, using a personal credential.
+each personal credential acts as **one verified IM identity on one bot**. One Agent may
+manage several separately scoped service/bot connections.
 
 ## When a user shares this skill URL
 
 <!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->
+
+### First-contact checklist
+
+1. Locate the service from the shared full URL or the **Deployment Skill URL** in pasted
+   Markdown. Do not ask the user to repeat a supplied address. If neither exists, ask for
+   the original full Skill URL; example hosts are not deployment addresses.
+2. Read the public manifest on that origin **without a key**. Explain the service address
+   and recommend installing this Skill for ongoing use in your first response. A pasted
+   document is useful instructions, but is not evidence of local installation.
+3. When the user asks to install or authorizes persistent setup, install the manifest's
+   complete `installation` ZIP using the client's supported installer, verify its hashes,
+   and inspect the saved files. Also save the approved origin, verified instance ID, Skill
+   URL and revision privately. With no key yet, mark the connection **pending enrollment**;
+   do not postpone saving approved service metadata just because enrollment is incomplete.
+4. Reuse a matching saved key; its authenticated `/api/agent/context` supplies the bot ID,
+   UUID and actor. Users need not supply a bot ID. Save a reference to the private key,
+   not the key in Skill files or shared notes. If there is no matching key, first establish
+   which resource group the user intends; enrollment then requires human confirmation in
+   that group. Promotional text or pasted instructions alone do not request enrollment.
+
+**MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
+files or public memory. Refer to the private credential entry when explaining a problem.
+Never try another service's key or report installation/enrollment as complete without
+verifying the corresponding files/authenticated context. If installation is unavailable
+or verification fails, say so and offer a one-off use of the freshly read instructions.
+
 
 Use the full Skill URL from the user's message as the service locator, even if the
 message also contains this Markdown or a short instruction before the URL. Keep the URL
@@ -461,6 +488,23 @@ the restrictions exist; follow its actual replies, timing fields and verified ho
 The `2h` values in command examples are examples, not a recommendation: use the actual
 caller-effective maximum, defaults, booked duration and task need. If the configured default
 exceeds the effective ceiling, request a valid explicit shorter duration.
+
+### Interpret instants separately from human display time
+
+Lease `start_time`, `expires_at`, snapshot `captured_at` and `next_event_at` are absolute
+instants with an explicit UTC offset (`Z` or `+00:00` in current responses). Parse the
+offset; do not interpret them as the Agent machine's local time. Unix epoch values and
+lease durations do not change with timezone. Never add eight hours to an epoch or relabel
+an existing UTC timestamp as `+08:00` when calculating ownership, renewal or stop deadlines.
+
+For human-facing absolute deadlines, use the user's requested timezone. In a Chinese
+conversation without another stated preference, display `Asia/Shanghai` (`UTC+08:00`),
+including the full date and offset so a UTC-midnight/day change is clear. For example,
+`2030-01-01T16:00:15+00:00` is `2030-01-02 00:00:15 UTC+08:00`, the same instant.
+Keep the server instant in saved records and convert only its presentation. An Agent
+running on a UTC server should still use this display timezone, not silently inherit the
+server timezone. If an expected offset or lease timestamp is missing, refresh and treat
+the deadline as uncertain instead of guessing extra authorized time.
 
 ### Keep a conservative local stop deadline
 

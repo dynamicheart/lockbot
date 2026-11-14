@@ -44,6 +44,7 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 - [Agent 辅助部署与升级](docs/agents/deployment/AGENTS.md)：环境检查和 Compose 模板
 - [如流与飞书配置](docs/agents/platforms/AGENTS.md)、[飞书图文指南](docs/usage/feishu-setup.md)
 - [Agent API 与 Skill](docs/agent-api/SKILL.md)
+- [指标数据源插件协议 v1](docs/design/metrics-datasource-protocol.md)（设计规范，含 Prometheus / HTTP JSON 示例）
 - [独立利用率服务部署](docs/usage/telemetry-deployment.md)、[网页利用率](docs/usage/browser-utilization.md)
 
 飞书采用一个企业应用服务多个资源群，每群对应独立的资源机器人，不支持单聊操作。如流与飞书的凭证和用户独立，复制配置不会共享实时锁或授权。
