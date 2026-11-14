@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
+from lockbot.backend.app.bots.migration_metrics import DEFAULT_WAIT_SECONDS, metrics_wait_seconds
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.config import JWT_ALGORITHM, JWT_SECRET
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
@@ -260,6 +261,9 @@ def observe_migration(db, manager, bot_id, body, *, retired=None, checkpoint=Non
         blockers.append("source_type_unsupported")
     if not bot.uuid:
         blockers.append("source_identity_missing")
+    metrics_wait = metrics_wait_seconds(bot)
+    if metrics_wait is None:
+        blockers.append("source_metrics_expiry_unverified")
     app = db.get(FeishuApplication, body.application_id)
     target = {"application_id": body.application_id, "chat_id": body.chat_id}
     if app is None:
@@ -339,7 +343,7 @@ def observe_migration(db, manager, bot_id, body, *, retired=None, checkpoint=Non
             "op": "Explicitly revoke and reissue; identity_revision alone does not revoke existing OP keys.",
             "metrics": {
                 "stop_new_issuance_before_wait": True,
-                "minimum_wait_seconds": 315,
+                "minimum_wait_seconds": metrics_wait or DEFAULT_WAIT_SECONDS,
                 "gateway_profile": "lockbot_gateway",
                 "third_party_gateway_requires_separate_verification": True,
                 "additional_clock_skew_must_be_verified": True,

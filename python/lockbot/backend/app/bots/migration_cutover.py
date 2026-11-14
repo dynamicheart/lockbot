@@ -4,7 +4,7 @@ import json
 import os
 import stat
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi import HTTPException
@@ -14,7 +14,6 @@ from sqlalchemy.exc import IntegrityError
 from lockbot.backend.app.audit.service import write_audit_log
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption
-from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.manager import BotNotRunning, MayHaveExecuted
 from lockbot.backend.app.bots.migration_journal import (
     BotMigration,
@@ -22,6 +21,11 @@ from lockbot.backend.app.bots.migration_journal import (
     read_destination_checkpoint,
     record_migration_freeze,
     stage_destination_checkpoint,
+)
+from lockbot.backend.app.bots.migration_metrics import (
+    metrics_grants_deadline,
+    metrics_grants_expired,
+    metrics_wait_seconds,
 )
 from lockbot.backend.app.bots.migration_preflight import (
     MigrationPreflight,
@@ -58,11 +62,16 @@ def freeze_migration(db, manager, bot_id, review, actor, *, verify_before_freeze
         if not verify_migration_review_receipt(review.review_receipt, current_actor, observed):
             raise HTTPException(409, "The migration review changed or expired. Open a new preflight.")
         bot = db.get(Bot, bot_id)
+        wait = metrics_wait_seconds(bot)
+        if wait is None:
+            raise HTTPException(409, "The metrics gateway expiry policy must be verified before switching")
         if verify_before_freeze is not None:
             verify_before_freeze(bot, db.get(FeishuApplication, target.application_id), target.chat_id)
-        row = record_migration_freeze(db, bot, target, observed["review_digest"], requested_by=current_actor.id)
-        operation_id = row.operation_id
-        db.commit()
+        with authority_guard(bot_id):
+            row = record_migration_freeze(db, bot, target, observed["review_digest"], requested_by=current_actor.id)
+            row.metrics_wait_seconds = wait
+            operation_id = row.operation_id
+            db.commit()
         return continue_source_drain(db, manager, bot_id, operation_id, current_actor)
 
 
@@ -153,10 +162,7 @@ def _recover_retired_source(bot, db, build_config):
 
 
 def switch_drained_migration(db, manager, bot_id, operation_id, actor, *, verify_destination):
-    """Commit the destination route and authorization reset with the runtime still fenced.
-
-    The supplied verifier checks live Feishu identity and deployment-specific metrics expiry policy.
-    """
+    """Commit the destination route and authorization reset with the runtime still fenced."""
     with manager.transition(bot_id), authority_guard(bot_id):
         db.rollback()
         operator = db.get(User, actor.id)
@@ -188,15 +194,8 @@ def switch_drained_migration(db, manager, bot_id, operation_id, actor, *, verify
             migration.phase = "source_changed"
             db.commit()
             raise HTTPException(409, "Source authorizations changed after the drain")
-        source = public_datasource(bot)
-        if (
-            source
-            and source.get("accessMode") == "short_lived"
-            and (
-                migration.drained_at is None
-                or datetime.now(timezone.utc).replace(tzinfo=None) < migration.drained_at + timedelta(seconds=315)
-            )
-        ):
+        deadline = metrics_grants_deadline(bot, migration)
+        if deadline is not None and not metrics_grants_expired(deadline):
             raise HTTPException(409, "Wait for the previous metrics grants to expire")
         application = db.get(FeishuApplication, migration.target_application_id)
         membership = db.get(FeishuGroupMembership, (migration.target_application_id, migration.target_chat_id))

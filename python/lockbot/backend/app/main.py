@@ -349,9 +349,13 @@ def _migrate_identity_boundaries():
             "credential_encrypted": "TEXT",
             "credential_generation": "INTEGER NOT NULL DEFAULT 0",
         },
+        "bot_migrations": {"metrics_wait_seconds": "INTEGER"},
     }
+    inspector = sa_inspect(engine)
     for table, fields in additions.items():
-        columns = {c["name"] for c in sa_inspect(engine).get_columns(table)}
+        if not inspector.has_table(table):
+            continue
+        columns = {c["name"] for c in inspector.get_columns(table)}
         with engine.begin() as conn:
             for name, ddl in fields.items():
                 if name not in columns:

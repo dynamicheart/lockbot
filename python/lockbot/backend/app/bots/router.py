@@ -10,7 +10,7 @@ import os
 import secrets
 import traceback
 import uuid as _uuid_mod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -2307,12 +2307,27 @@ def _migration_status(db, bot_id, operation_id=None):
     return row
 
 
-def _migration_payload(row):
-    return {
+def _migration_payload(db, row):
+    payload = {
         "operation_id": row.operation_id,
         "phase": row.phase,
         "continue_available": os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") == "1",
     }
+    if row.phase == "drained":
+        from lockbot.backend.app.bots.migration_metrics import metrics_grants_deadline, metrics_grants_expired
+
+        bot = db.get(Bot, row.bot_id)
+        if bot is not None:
+            try:
+                deadline = metrics_grants_deadline(bot, row)
+            except HTTPException:
+                payload["continue_available"] = False
+                payload["metrics_policy_unverified"] = True
+            else:
+                if deadline is not None and not metrics_grants_expired(deadline):
+                    payload["continue_available"] = False
+                    payload["metrics_grants_wait_until"] = deadline.replace(tzinfo=timezone.utc).isoformat()
+    return payload
 
 
 def _verify_feishu_migration_destination(application, chat_id, _drained_at):
@@ -2334,12 +2349,7 @@ def _verify_feishu_migration_destination(application, chat_id, _drained_at):
         raise HTTPException(409, "The Feishu bot and selected group could not be verified")
 
 
-def _verify_before_migration_freeze(bot, application, chat_id):
-    from lockbot.backend.app.bots.datasource import public_datasource
-
-    source = public_datasource(bot)
-    if source and source.get("accessMode") == "short_lived":
-        raise HTTPException(409, "The metrics gateway expiry policy must be verified before switching")
+def _verify_before_migration_freeze(_bot, application, chat_id):
     _verify_feishu_migration_destination(application, chat_id, None)
 
 
@@ -2364,9 +2374,10 @@ def begin_bot_migration(
     try:
         with connectors.application_guard():
             return _migration_payload(
+                db,
                 freeze_migration(
                     db, bot_manager, bot_id, body, user, verify_before_freeze=_verify_before_migration_freeze
-                )
+                ),
             )
     except InstanceRetiring:
         raise api_errors.instance_retiring(bot_id) from None
@@ -2380,7 +2391,7 @@ def bot_migration_status(
     db: Session = Depends(get_db),
 ):
     response.headers["Cache-Control"] = "no-store"
-    return _migration_payload(_migration_status(db, bot_id))
+    return _migration_payload(db, _migration_status(db, bot_id))
 
 
 @router.post("/{bot_id}/migration/{operation_id}/continue", status_code=202)
@@ -2391,7 +2402,6 @@ def advance_bot_migration(
     user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
-    from lockbot.backend.app.bots.datasource import public_datasource
     from lockbot.backend.app.bots.migration_cutover import (
         activate_switched_migration,
         continue_source_drain,
@@ -2408,13 +2418,12 @@ def advance_bot_migration(
             row = _migration_status(db, bot_id, operation_id)
             if row.phase in {"frozen", "recovery_required"}:
                 return _migration_payload(
-                    continue_source_drain(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict)
+                    db,
+                    continue_source_drain(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict),
                 )
             if row.phase == "drained":
-                source = public_datasource(db.get(Bot, bot_id))
-                if source and source.get("accessMode") == "short_lived":
-                    raise HTTPException(409, "The metrics gateway expiry policy must be verified before switching")
                 return _migration_payload(
+                    db,
                     switch_drained_migration(
                         db,
                         bot_manager,
@@ -2422,10 +2431,11 @@ def advance_bot_migration(
                         operation_id,
                         user,
                         verify_destination=_verify_feishu_migration_destination,
-                    )
+                    ),
                 )
             if row.phase in {"switched", "installed"}:
                 return _migration_payload(
+                    db,
                     activate_switched_migration(
                         db,
                         bot_manager,
@@ -2434,9 +2444,9 @@ def advance_bot_migration(
                         user,
                         build_config=_build_config_dict,
                         verify_destination=_verify_feishu_migration_destination,
-                    )
+                    ),
                 )
-            return _migration_payload(row)
+            return _migration_payload(db, row)
     except InstanceRetiring:
         raise api_errors.instance_retiring(bot_id) from None
 
@@ -2454,7 +2464,7 @@ def cancel_bot_migration(
     response.headers["Cache-Control"] = "no-store"
     try:
         return _migration_payload(
-            cancel_source_migration(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict)
+            db, cancel_source_migration(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict)
         )
     except InstanceRetiring:
         raise api_errors.instance_retiring(bot_id) from None

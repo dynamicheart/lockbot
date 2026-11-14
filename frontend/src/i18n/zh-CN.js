@@ -104,6 +104,7 @@ export default {
       source_platform_unsupported: '当前来源平台不支持此迁移',
       source_type_unsupported: '当前机器人类型不支持此迁移',
       source_identity_missing: '原机器人身份信息不完整',
+      source_metrics_expiry_unverified: '请部署管理员验证指标网关的凭证过期规则',
       source_has_outstanding_allocations: '仍有占用、预约或待抢锁事项',
       target_application_missing: '目标飞书应用不存在',
       target_application_identity_unknown: '目标应用企业身份尚未确认',
@@ -113,6 +114,7 @@ export default {
       source_already_has_feishu_route: '原机器人已有飞书群关联',
       cutover_not_implemented: '迁移切换功能尚未开放',
     },
+    metricsWaiting: '原指标凭证将在 {time} 前失效。到时刷新状态后继续。',
     unverified: {
       application_publication: '应用发布状态',
       application_credentials: '应用凭证有效性',

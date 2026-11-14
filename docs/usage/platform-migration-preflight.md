@@ -27,7 +27,15 @@ The reset has the following credential effects:
 
 - Source Agent bindings are revoked. Users enroll again in the destination group.
 - The source OP key is cleared. Reissue it after cutover if needed.
-- Migration currently blocks sources using short-lived metrics grants before freezing. Support requires a verified expiry or revocation policy for the configured gateway. The bundled gateway accepts a five-minute grant plus 15 seconds of expiry leeway. Any expiry-based policy must also account for issuer and verifier clock offset.
+- Short-lived metrics grants expire before the route switches. For a deployment using signed grants, the operator must first verify the expiry policy for every gateway that accepted grants from this Lockbot instance, including candidate sources used in connection tests. Independent credentials remain under their datasource's own authority.
+
+### Verify the metrics gateway policy
+
+Verify that each gateway enforces the Lockbot grant maximum of 300 seconds and at most 15 seconds of expiry leeway. Establish an upper bound in whole seconds on how far each verifier clock can lag the issuer throughout the migration window. Include every replica behind an audience and every audience that may still accept an outstanding grant. An unverified or unreachable verifier must be excluded from migration eligibility until its outstanding grants have verifiably expired or its trust has been revoked.
+
+Set `LOCKBOT_MIGRATION_METRICS_CLOCK_SKEW` in the service environment to a JSON map of canonical metrics audiences to the verified clock lag bounds, for example `{"https://metrics.example.invalid":10}`. Use the exact audience with any path prefix and no trailing slash. While this policy is set, Lockbot only issues grants for those audiences. Keep the policy active through the operation. The setting attests to the verifier configuration and clocks, which Lockbot does not probe.
+
+For signed grants, the route switch waits at least 315 seconds plus the largest configured lag after the source drains. Lockbot records the minimum wait with the operation. Changing the policy cannot shorten that wait. The migration status gives the time to refresh before continuing, and the existing metrics configuration is retained.
 
 ## Run a supervised cutover
 
@@ -42,6 +50,6 @@ Test-tenant delivery and destination re-enrollment must be verified before forma
 
 ## Test deployment cutover API
 
-A signed-in super administrator sends the reviewed target, `review_receipt` and `confirm_clear_live_state: true` to `POST /api/bots/{bot_id}/migration`. Before freezing, the server checks the supported Feishu WebSocket receiver, the application bot identity and access to the selected group. Deployments whose source uses short-lived metrics require a verified expiry policy. The API refuses those migrations before freezing until that policy is supported.
+A signed-in super administrator sends the reviewed target, `review_receipt` and `confirm_clear_live_state: true` to `POST /api/bots/{bot_id}/migration`. Before freezing, the server checks the supported Feishu WebSocket receiver, the application bot identity and access to the selected group. A source with an unverified metrics policy is blocked in preflight and cannot be frozen. During the expiry wait, status returns `metrics_grants_wait_until` in UTC and Continue is unavailable.
 
 Use `GET /api/bots/{bot_id}/migration` to recover the operation ID or inspect its phase. Send a POST to `/api/bots/{bot_id}/migration/{operation_id}/continue` to advance the same operation. Inspect status after a timeout. If the process was interrupted before recording the drain, use Continue to reconcile the canonical source state file. The server settles matching source-revision lifecycle evidence and repeats the original scope comparison before proceeding. It keeps the operation fenced if the file is unreadable or the reviewed source changed. Before the route switches, use Cancel in the migration dialog or POST to the same operation with the `/cancel` suffix. Cancellation resumes the original bot from its verified on-disk state without clearing its current resources or changing its identity revision. After the route switches, finish the operation through Continue. Test-tenant delivery acceptance remains separate.

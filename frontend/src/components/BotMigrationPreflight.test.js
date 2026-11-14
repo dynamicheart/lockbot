@@ -357,3 +357,29 @@ it('recovers an operation after reopening without exposing a second begin action
   expect(state.canContinue).toBe(true)
   expect(posts).toHaveLength(0)
 })
+
+it('shows the expiry wait on reopening and allows Continue after refreshing status', async () => {
+  mount()
+  const operation = { operation_id: 'c'.repeat(32), phase: 'drained' }
+  gets
+    .find(({ path }) => path === '/bots/1/migration')
+    .resolve({
+      data: {
+        ...operation,
+        continue_available: false,
+        metrics_grants_wait_until: '2026-11-14T21:10:00Z',
+      },
+    })
+  await flush()
+  expect(state.operation.metrics_grants_wait_until).toBe('2026-11-14T21:10:00Z')
+  expect(state.canContinue).toBe(false)
+  expect(state.canCancel).toBe(true)
+  await state.continueMigration()
+  expect(posts).toHaveLength(0)
+
+  const refresh = state.loadStatus()
+  gets.at(-1).resolve({ data: { ...operation, continue_available: true } })
+  await refresh
+  expect(state.operation.metrics_grants_wait_until).toBe(null)
+  expect(state.canContinue).toBe(true)
+})

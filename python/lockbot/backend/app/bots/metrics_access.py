@@ -6,10 +6,15 @@ from collections import Counter
 from datetime import timezone
 
 import jwt
+from sqlalchemy import select
 
 from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.metrics_signers import select_metrics_signer
-from lockbot.backend.app.bots.migration_journal import migration_fence
+from lockbot.backend.app.bots.migration_journal import BotMigration
+from lockbot.backend.app.bots.migration_metrics import verified_metrics_gateways
+from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.resource_auth.authority import authority_guard
+from lockbot.metrics.gateway import GRANT_MAX_TTL_SECONDS
 
 
 def _resource_scope(bot, cluster, source, holdings):
@@ -43,16 +48,31 @@ def issue_metrics_access(db, bot, source=None, *, expires_at=None, holdings=None
     source = source or public_datasource(bot)
     if not source or source.get("accessMode", "independent") != "short_lived":
         return None
-    if migration_fence(db, bot.id) is not None:
-        return None
+    # Capture the issue time under the same barrier as the durable freeze. Any
+    # grant already admitted here expires within the window counted after drain.
+    bot_id, revision = bot.id, bot.identity_revision
+    with authority_guard(bot_id):
+        current = db.execute(
+            select(Bot.identity_revision, BotMigration.phase)
+            .outerjoin(BotMigration, BotMigration.bot_id == Bot.id)
+            .where(Bot.id == bot_id, Bot.is_deleted.is_(False))
+        ).one_or_none()
+        if current is None or current[0] != revision or current[1] not in (None, "completed", "cancelled"):
+            return None
+        now = int(time.time())
     signer = select_metrics_signer(source.get("endpoint"))
     if signer is None:
         return None
+    try:
+        policy = verified_metrics_gateways()
+    except (ValueError, RecursionError):
+        return None
+    if policy is not None and signer.audience not in policy:
+        return None
     from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 
-    now = int(time.time())
     issued = now // 30 * 30
-    expiry = issued + 300
+    expiry = issued + GRANT_MAX_TTL_SECONDS
     if expires_at is not None:
         # Database values are naive UTC; an already-aware value denotes its own
         # instant and must not be relabelled as UTC (for example +08:00).
