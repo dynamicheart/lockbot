@@ -177,8 +177,6 @@ def test_installation_failure_is_observable(tmp_path, subject, scenario):
     fixture = make_fixture(tmp_path, subject, scenario)
     manifest = fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})["body"]
     assert not evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
-    if scenario == "bad-bundle":
-        fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
     assert "error" in fixture.call(
         "install_skill",
         {
@@ -188,6 +186,13 @@ def test_installation_failure_is_observable(tmp_path, subject, scenario):
         },
     )
     assert evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
+
+
+def test_manifest_digest_comparison_can_prove_corruption_without_install_attempt(tmp_path, subject):
+    fixture = make_fixture(tmp_path, subject, "bad-bundle")
+    fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})
+    fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
+    assert evaluation.score(fixture.root, "The downloaded digest differs from the manifest.")["observable_pass"]
 
 
 def test_other_key_requires_preserving_the_actual_record_and_key(tmp_path, subject):
