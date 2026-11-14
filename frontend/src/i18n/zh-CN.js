@@ -1,4 +1,22 @@
 export default {
+  nodeAccess: {
+    title: '节点连接',
+    open: '配置登录地址',
+    help: '复制节点 ID 给 Agent，让它根据你的机器清单生成映射，再粘贴到这里。',
+    copyNodes: '复制节点 ID',
+    mapping: '节点映射 JSON',
+    review: '本次变更',
+    noChanges: '映射与已保存配置一致。',
+    saved: '已配置的节点',
+    validate: '校验映射',
+    save: '保存映射',
+    remove: '移除',
+    removeConfirm: '移除节点 {node} 的登录地址？',
+    saveSuccess: '已保存节点映射',
+    readFailed: '无法读取节点信息，请关闭后重试。',
+    validationFailed: '无法校验映射，请检查 JSON 和节点 ID。',
+    writeFailed: '无法确认保存结果，请重新打开检查。',
+  },
   auditCredentials: {
     nameRequired: '请输入凭证名称',
     botsRequired: '请选择至少一个机器人',
