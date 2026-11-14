@@ -451,8 +451,13 @@ function validateGroups(data) {
   return data.groups
 }
 async function readReports(signal, epoch) {
-  const response = await request('resources-stream', undefined, signal)
-  if (response.status === 404 || response.status === 405) {
+  const supportsStreaming = typeof TextDecoderStream === 'function'
+  const response = await request(
+    supportsStreaming ? 'resources-stream' : 'resources',
+    undefined,
+    signal
+  )
+  if (supportsStreaming && (response.status === 404 || response.status === 405)) {
     const data = await api('resources', undefined, signal)
     if (epoch === refreshEpoch) groups.value = validateGroups(data)
     return
@@ -494,7 +499,11 @@ async function readReports(signal, epoch) {
             .sort(([left], [right]) => left - right)
             .flatMap(([, batch]) => batch)
           reportProgress.value = { done: batches.size, total: reportProgress.value.total }
-        } else if (event.event === 'complete' && batches.size === reportProgress.value.total) {
+        } else if (
+          event.event === 'complete' &&
+          reportProgress.value.total &&
+          batches.size === reportProgress.value.total
+        ) {
           complete = true
           break
         } else if (event.event === 'timeout') {
@@ -508,7 +517,7 @@ async function readReports(signal, epoch) {
       }
     }
   } finally {
-    await reader.cancel()
+    await reader.cancel().catch(() => {})
   }
 }
 function identityScope(identities) {

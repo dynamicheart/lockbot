@@ -6,7 +6,7 @@ import json
 import math
 import time
 from collections import deque
-from threading import Lock
+from threading import Event, Lock
 from time import monotonic
 from urllib.parse import urlsplit
 
@@ -661,6 +661,12 @@ def create_panel(
         return {"groups": list(groups.values())}
 
     report_capacity = CapacityLimiter(4)
+    report_tasks = set()
+
+    def complete_report(job):
+        report_tasks.discard(job)
+        if not job.cancelled():
+            job.exception()
 
     @app.get("/resources-stream")
     async def resources_stream(request: Request):
@@ -687,15 +693,20 @@ def create_panel(
             next_index = 0
             deadline = monotonic() + 15
             seen = set()
+            stopped = Event()
+
+            def collect(grant, source):
+                if stopped.is_set():
+                    return []
+                return list(read_groups(grant, source))
+
             try:
                 while pending or next_index < len(jobs):
                     while len(pending) < 4 and next_index < len(jobs):
                         grant, source = jobs[next_index]
-                        job = asyncio.create_task(
-                            to_thread.run_sync(
-                                lambda g=grant, s=source: list(read_groups(g, s)), limiter=report_capacity
-                            )
-                        )
+                        job = asyncio.create_task(to_thread.run_sync(collect, grant, source, limiter=report_capacity))
+                        report_tasks.add(job)
+                        job.add_done_callback(complete_report)
                         pending[job] = next_index
                         next_index += 1
                     finished, _ = await asyncio.wait(
@@ -708,20 +719,21 @@ def create_panel(
                         index = pending.pop(job)
                         results = job.result()
                         if not await to_thread.run_sync(still_authorized):
-                            raise HTTPException(403, "Binding changed")
+                            yield line("unavailable")
+                            return
                         groups = []
                         for key, group in results:
                             if key not in seen:
                                 groups.append(group)
                                 seen.add(key)
                         yield line("batch", index=index, groups=groups)
-                yield line("complete")
+                yield line("complete" if await to_thread.run_sync(still_authorized) else "unavailable")
             except Exception:
                 yield line("unavailable")
             finally:
-                for job in pending:
-                    job.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
+                # A synchronous reporter can outlive the client. Keep its quota
+                # until the thread exits, and skip jobs still waiting for a slot.
+                stopped.set()
 
         return StreamingResponse(stream(), media_type="application/x-ndjson", headers={"X-Accel-Buffering": "no"})
 
