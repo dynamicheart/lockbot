@@ -241,3 +241,78 @@ def test_reports_identify_their_source_without_overriding_login_identity(tmp_pat
         {"kind": "reporter", "label": "共享报表"},
     ]
     assert groups[0]["identity"] == groups[1]["identity"]
+
+
+def test_resources_stream_returns_only_authenticated_grants_and_matches_json(env):
+    import json
+
+    _, agent, browser = env
+    assert agent.get("/me/resources-stream").status_code == 401
+    for key, mode in [("a-secret", "replace"), ("b-secret", "append")]:
+        assert post(browser, "login", {"ticket": issue(agent, key), "mode": mode}).status_code == 200
+    streamed = browser.get("/me/resources-stream")
+    assert streamed.headers["cache-control"] == "no-store"
+    assert streamed.headers["content-type"].startswith("application/x-ndjson")
+    events = [json.loads(line) for line in streamed.iter_lines()]
+    assert events[0] == {"event": "start", "total": 2}
+    assert events[-1] == {"event": "complete"}
+    groups = [group for event in events[1:-1] for group in event["groups"]]
+    assert sorted(groups, key=lambda group: group["label"]) == sorted(
+        browser.get("/me/resources").json()["groups"], key=lambda group: group["label"]
+    )
+    assert {group["label"] for group in groups} == {"GPU A", "GPU B"}
+
+
+def test_http_stream_delivers_fast_group_before_waiting_and_rechecks_revocation(env):
+    import json
+    import socket
+    import threading
+    import time
+
+    import httpx
+    import uvicorn
+
+    directory, agent, browser = env
+    for key, mode in [("a-secret", "replace"), ("b-secret", "append")]:
+        assert post(browser, "login", {"ticket": issue(agent, key), "mode": mode}).status_code == 200
+
+    release_slow = threading.Event()
+    original_report = directory.report
+
+    def report(grant):
+        if grant["ref"] == "b":
+            assert release_slow.wait(8)
+        return original_report(grant)
+
+    directory.report = report
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(browser.app, lifespan="off", access_log=False, log_level="warning"))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+        thread.start()
+        try:
+            for _ in range(50):
+                if server.started:
+                    break
+                assert thread.is_alive()
+                time.sleep(0.05)
+            assert server.started
+            headers = {"Host": urlsplit(ORIGIN).netloc, "Cookie": f"{COOKIE}={browser.cookies.get(COOKIE)}"}
+            url = f"http://127.0.0.1:{port}/me/resources-stream"
+            with httpx.Client(trust_env=False, timeout=5) as http, http.stream("GET", url, headers=headers) as stream:
+                assert stream.status_code == 200
+                events = (json.loads(line) for line in stream.iter_lines())
+                assert next(events) == {"event": "start", "total": 2}
+                first = next(events)
+                assert first["event"] == "batch"
+                assert [group["label"] for group in first["groups"]] == ["GPU A"]
+                assert not release_slow.is_set()
+                directory.bindings.pop("b-secret")
+                release_slow.set()
+                assert list(events) == [{"event": "unavailable"}]
+        finally:
+            release_slow.set()
+            server.should_exit = True
+            thread.join(timeout=10)
+            assert not thread.is_alive()

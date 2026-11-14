@@ -111,3 +111,149 @@ describe('metrics poll lifecycle', () => {
     poll.stop()
   })
 })
+
+it('resumes promptly after sleep even when the monotonic clock paused', async () => {
+  vi.useFakeTimers()
+  let mono = 0,
+    wall = 0
+  const collect = vi.fn(async () => ({}))
+  const poll = createMetricsPoller({
+    collect,
+    publish: vi.fn(),
+    now: () => mono,
+    wallNow: () => wall,
+  })
+  poll.start(300)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collect).toHaveBeenCalledTimes(1)
+  poll.stop()
+  wall += 600000
+  poll.start(300)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collect).toHaveBeenCalledTimes(2)
+  poll.stop()
+  vi.useRealTimers()
+})
+it('keeps the unelapsed Retry-After budget across paused-clock hide/show', async () => {
+  vi.useFakeTimers()
+  let mono = 0,
+    wall = 0
+  const collect = vi.fn(async () => {
+    throw { code: 'limited', retryAfter: 90 }
+  })
+  const poll = createMetricsPoller({
+    collect,
+    publish: vi.fn(),
+    now: () => mono,
+    wallNow: () => wall,
+  })
+  poll.start()
+  await vi.advanceTimersByTimeAsync(0)
+  poll.stop()
+  wall = 10000
+  poll.start()
+  mono = 79999
+  wall = 89999
+  await vi.advanceTimersByTimeAsync(79999)
+  expect(collect).toHaveBeenCalledTimes(1)
+  mono = 80000
+  wall = 90000
+  await vi.advanceTimersByTimeAsync(1)
+  expect(collect).toHaveBeenCalledTimes(2)
+  poll.stop()
+  vi.useRealTimers()
+})
+
+it('cancels a deadline-expired in-flight collection when a visible sleeping tab regains focus', async () => {
+  vi.useFakeTimers()
+  let mono = 0,
+    wall = 0,
+    oldSignal
+  const collect = vi.fn((current) => {
+    if (oldSignal) return Promise.resolve({ fresh: true })
+    oldSignal = current
+    return new Promise((_ok, reject) =>
+      current.addEventListener('abort', () => reject(new Error('abort')))
+    )
+  })
+  const publish = vi.fn()
+  const poll = createMetricsPoller({ collect, publish, now: () => mono, wallNow: () => wall })
+  poll.start(60)
+  await vi.advanceTimersByTimeAsync(0)
+  wall = 600000
+  poll.start(60)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(oldSignal.aborted).toBe(true)
+  expect(collect).toHaveBeenCalledTimes(2)
+  expect(publish).toHaveBeenCalledWith({ loading: false, snapshot: { fresh: true }, error: null })
+  poll.stop()
+  vi.useRealTimers()
+})
+
+it('rejects a sleep-delayed success before focus or suspended timeout callbacks run', async () => {
+  vi.useFakeTimers()
+  let wall = 0,
+    finish,
+    collectedSignal
+  const publish = vi.fn()
+  const collect = vi.fn((signal) => {
+    collectedSignal = signal
+    return new Promise((resolve) => {
+      finish = resolve
+    })
+  })
+  const poll = createMetricsPoller({ collect, publish, now: () => 0, wallNow: () => wall })
+  poll.start()
+  await vi.advanceTimersByTimeAsync(0)
+  wall = 600000
+  finish({ lateSnapshot: true })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collectedSignal.aborted).toBe(true)
+  expect(publish).toHaveBeenCalledWith({ loading: false, error: 'timeout' })
+  expect(publish.mock.calls.some(([value]) => value.snapshot?.lateSnapshot)).toBe(false)
+  poll.start() // The focus event follows the promise, rather than preceding it.
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collect).toHaveBeenCalledTimes(1)
+  poll.stop()
+  vi.useRealTimers()
+})
+
+it('starts a newly received Retry-After after sleep rather than subtracting the previous sleep', async () => {
+  vi.useFakeTimers()
+  let mono = 0,
+    wall = 0,
+    reject
+  const collect = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise((_ok, no) => {
+          reject = no
+        })
+    )
+    .mockResolvedValue({ fresh: true })
+  const poll = createMetricsPoller({
+    collect,
+    publish: vi.fn(),
+    now: () => mono,
+    wallNow: () => wall,
+  })
+  poll.start()
+  await vi.advanceTimersByTimeAsync(0)
+  wall = 600000
+  reject({ code: 'limited', retryAfter: 90 })
+  await vi.advanceTimersByTimeAsync(0)
+  poll.start()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collect).toHaveBeenCalledTimes(1)
+  mono = 89999
+  wall = 689999
+  await vi.advanceTimersByTimeAsync(89999)
+  expect(collect).toHaveBeenCalledTimes(1)
+  mono = 90000
+  wall = 690000
+  await vi.advanceTimersByTimeAsync(1)
+  expect(collect).toHaveBeenCalledTimes(2)
+  poll.stop()
+  vi.useRealTimers()
+})

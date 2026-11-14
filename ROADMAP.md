@@ -81,6 +81,16 @@ The current integration preview, `0a05c45`, includes the #177 resource-link and 
 - [ ] **Explicit key inspection/copy:** #173 implements short-lived authorization and explicit consent for the exact verified native binding. Finish protected merge and isolated native-browser acceptance with synthetic credentials. Legacy digest-only bindings require a valid original key for the same-value recovery flow in #156.
 - [ ] **Separately confirmed key replacement:** #175 requires fresh original-key proof, the exact bot/identity scope, an impact preview, a typed group name and explicit second confirmation. Finish protected merge and isolated native-browser acceptance before enabling the opt-in capability for a deployment.
 
+## Unified resource Skill follow-up
+
+[#164](https://github.com/dynamicheart/lockbot/issues/164) keeps one `lockbot-resource-agent` package for native connections and the optional personal dashboard. A private registry is a distribution channel for that same package. Private deployment adapters stay outside the public Skill. See the [design and current/proposed boundary](docs/design/unified-resource-agent-skill.md).
+
+- [x] Inventory existing deployment-side identity provider, read-only reporters and advisory identity-directory hooks.
+- [ ] Define authenticated, caller-scoped extension discovery and report reads; current browser reporters do not provide this Agent protocol.
+- [ ] Separate portable package integrity from per-service rendered revisions and privately stored connection metadata.
+- [ ] Extend the existing Skill/helper only for explicitly supported protocols; preserve per-instance/per-bot key scope and read-only limits.
+- [ ] Validate native multi-service connections, private distribution, optional reporter isolation and independent fresh sessions before rollout.
+
 ## Explicitly deferred
 
 - [#88 Infoflow → Feishu migration](https://github.com/dynamicheart/lockbot/issues/88): next-release work. The user chose to clear runtime state while preserving resource configuration and immutable history; carrying active locks, queues or paired cross-platform user identities is not the accepted scope. Read-only preflight is delivered; cutover execution is unmerged. Preserve the existing draft branches rather than reintroducing the discarded active-carry design.

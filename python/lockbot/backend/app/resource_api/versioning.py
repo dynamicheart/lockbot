@@ -6,7 +6,7 @@ from starlette.datastructures import Headers
 
 from lockbot.backend.app.resource_api.discovery import API_VERSION, SERVICE_ID
 from lockbot.backend.app.resource_api.ingress import _PATH
-from lockbot.backend.app.resource_api.skill import skill_artifacts
+from lockbot.backend.app.resource_api.skill import package_update_status, skill_artifacts
 
 
 class AgentVersionMiddleware:
@@ -54,6 +54,13 @@ class AgentVersionMiddleware:
                         (b"x-lockbot-skill-url", manifest["skill_url"].encode()),
                     ]
                 )
+                if "package_version" in manifest:
+                    headers.extend(
+                        [
+                            (b"x-lockbot-package-version", manifest["package_version"].encode()),
+                            (b"x-lockbot-package-update", package_update_status(reported, manifest).encode()),
+                        ]
+                    )
                 message = {**message, "headers": headers}
             await send(message)
 

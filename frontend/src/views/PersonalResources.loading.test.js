@@ -82,21 +82,6 @@ it('ends resource loading and shows an error when a reporter request fails', asy
   expect(state.resourceLoading).toBe(false)
   expect(state.resourcesReady).toBe(false)
 })
-it('links to the proven service skill and rejects unsafe or credential-bearing URLs', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => response({ authenticated: false, identities: [] }))
-  )
-  const state = mount()
-  await flush()
-  expect(state.skillLink('https://service.example.invalid/path')).toEqual({
-    service: 'service.example.invalid',
-    url: 'https://service.example.invalid/api/agent-skill/SKILL.md',
-  })
-  for (const issuer of ['javascript:alert(1)', 'https://user:secret@example.invalid', 'invalid']) {
-    expect(state.skillLink(issuer)).toBeNull()
-  }
-})
 
 it('separates login and report sources and excludes another identity', async () => {
   vi.stubGlobal(
@@ -122,6 +107,22 @@ it('separates login and report sources and excludes another identity', async () 
     { kind: 'reporter', label: '共享报表', groups: ['Shared'] },
     { kind: 'unknown', label: '资源来源待确认', groups: ['Legacy'] },
   ])
+})
+
+it('tracks independently changed bot scopes within the same verified principal', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response({ authenticated: false, identities: [] }))
+  )
+  const state = mount()
+  await flush()
+  const principal = { issuer: 'fixture', platform: 'infoflow', realm: 'attested', subject: 'alice' }
+  expect(state.identityScope([{ ...principal, scopes: ['bot-a'] }])).not.toBe(
+    state.identityScope([{ ...principal, scopes: ['bot-a', 'bot-b'] }])
+  )
+  expect(state.identityScope([{ ...principal, scopes: ['bot-a', 'bot-b'] }])).toBe(
+    state.identityScope([{ ...principal, scopes: ['bot-b', 'bot-a'] }])
+  )
 })
 
 const identity = {
@@ -267,4 +268,66 @@ it('does not restore an old resource response after logout', async () => {
   expect(state.session.authenticated).toBe(false)
   expect(state.groups).toEqual([])
   expect(state.resourcesReady).toBe(false)
+})
+
+it('counts confirmed batches while other sources are still loading', async () => {
+  let feed
+  const body = new ReadableStream({
+    start(controller) {
+      feed = controller
+    },
+  })
+  const send = (event) => feed.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url) =>
+      url.endsWith('/session')
+        ? response({ authenticated: true, identities: [identity] })
+        : new Response(body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+    )
+  )
+  const state = mount()
+  send({ event: 'start', total: 2 })
+  await vi.waitFor(() => expect(state.reportProgress).toEqual({ done: 0, total: 2 }))
+  expect(state.statistics.map((item) => item.value)).toEqual([null, null, null])
+
+  send({ event: 'batch', index: 1, groups: [confirmed] })
+  await vi.waitFor(() => expect(state.statistics.map((item) => item.value)).toEqual([1, 1, 0]))
+  expect(state.resourceLoading).toBe(true)
+  expect(state.resourcesReady).toBe(false)
+
+  send({ event: 'batch', index: 0, groups: [{ ...confirmed, status: 'unknown', allocations: [] }] })
+  send({ event: 'complete' })
+  feed.close()
+  await vi.waitFor(() => expect(state.resourcesReady).toBe(true))
+  expect(state.reportProgress).toEqual({ done: 2, total: 2 })
+  expect(state.statistics.map((item) => item.value)).toEqual([1, 1, 0])
+})
+
+it('removes a partial report when the stream invalidates authorization', async () => {
+  let feed
+  const body = new ReadableStream({
+    start(controller) {
+      feed = controller
+    },
+  })
+  const send = (event) => feed.enqueue(new TextEncoder().encode(JSON.stringify(event) + '\n'))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url) =>
+      url.endsWith('/session')
+        ? response({ authenticated: true, identities: [identity] })
+        : new Response(body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+    )
+  )
+  const state = mount()
+  send({ event: 'start', total: 2 })
+  send({ event: 'batch', index: 0, groups: [confirmed] })
+  await vi.waitFor(() => expect(state.groups).toHaveLength(1))
+
+  send({ event: 'unavailable' })
+  feed.close()
+  await vi.waitFor(() => expect(state.resourceLoading).toBe(false))
+  expect(state.groups).toEqual([])
+  expect(state.statistics.every((item) => item.value === null)).toBe(true)
 })

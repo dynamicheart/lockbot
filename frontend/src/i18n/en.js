@@ -1,5 +1,7 @@
 export default {
   auditCredentials: {
+    nameRequired: 'Enter a credential name',
+    botsRequired: 'Select at least one bot',
     selectBots: 'Select permitted bots',
     previous: 'Previous',
     next: 'Next',
@@ -327,6 +329,35 @@ export default {
       samples: 'No complete fresh samples. Check metrics and scrape freshness.',
     },
   },
+  trafficHistory: {
+    inputZone: 'Input timezone: {zone}',
+    notCollected: 'Unknown',
+    live: 'Live',
+    history: 'History',
+    range: 'Time range',
+    start: 'Start time',
+    end: 'End time',
+    invalidRange: 'Choose a past range of up to 31 days.',
+    storageWarning: 'Historical data is incomplete. Contact the site administrator.',
+    trend: 'Historical trends',
+    http: 'HTTP requests',
+    operations: 'Resource operations',
+    coverageHelp:
+      'Gaps are unknown, not zero. Partial buckets and totals include only retained observations. P95 is an estimate; resource operations are separate from HTTP requests. Times are shown in UTC.',
+    coverage: 'Complete {complete_buckets} · partial {partial_buckets} · unknown {unknown_buckets}',
+    resolution: '{minutes}-minute buckets',
+    unknown: 'No retained data',
+    partial: 'Partial coverage',
+    complete: 'Complete coverage',
+    presets: { '24h': '24 hours', '7d': '7 days', '30d': '30 days', custom: 'Custom' },
+    metrics: {
+      requests: 'Requests',
+      client_errors: '4xx',
+      server_errors: '5xx',
+      avg_ms: 'Average latency',
+      p95_ms: 'P95 estimated latency',
+    },
+  },
   serviceTraffic: {
     httpTitle: 'HTTP traffic',
     businessTitle: 'Resource operations',
@@ -573,6 +604,7 @@ export default {
 
   // === Sidebar / Nav ===
   nav: {
+    apiCredentials: 'API credentials',
     myResources: 'My resources',
     dashboard: 'Dashboard',
     myBots: 'My Bots',
@@ -944,6 +976,13 @@ export default {
 
   // === Site Settings ===
   settings: {
+    lifetimeOneDay: '1 day',
+    lifetimeOneWeek: '7 days',
+    lifetimeOneMonth: '1 month',
+    lifetimeThreeMonths: '3 months',
+    lifetimeHalfYear: '6 months',
+    loginSessionLifetime: 'Account session lifetime',
+    loginSessionLifetimeHint: 'Applies to newly issued account sessions. Turning off never-expiring sessions requires those sessions to sign in again.',
     basicInformation: 'Basic information',
     messagePlatforms: 'Messaging platforms',
     agentPromotionSection: 'Agent promotion',
@@ -952,7 +991,7 @@ export default {
     agentPromotionText: 'Link prefix',
     agentPromotionTextHint:
       'Leave blank for defaults. The link is added automatically. Plain single-line text, up to 120 characters.',
-    agentPromotionHint: 'Show the Agent skill link after successful resource requests.',
+    agentPromotionHint: 'Show the Skill installation bundle link after successful resource requests.',
     platformUrl: 'Platform URL',
     platformUrlPlaceholder: 'e.g. http://192.168.1.1:8080',
     githubUrl: 'GitHub URL',

@@ -123,6 +123,12 @@ const routes = [
         meta: { admin: true, superAdminOnly: true },
       },
       {
+        path: 'admin/api-credentials',
+        name: 'ApiCredentials',
+        component: () => import('../views/admin/ApiCredentialsView.vue'),
+        meta: { admin: true, superAdminOnly: true },
+      },
+      {
         path: 'admin/audit',
         name: 'AuditLogs',
         component: AuditLogsView,
