@@ -1,8 +1,8 @@
 <template>
-  <el-button :icon="Plus" aria-haspopup="dialog" @click="visible = true">插件</el-button>
+  <el-button aria-haspopup="dialog" @click="visible = true">已加载插件</el-button>
   <el-dialog
     v-model="visible"
-    title="资源台插件"
+    title="已加载插件"
     width="min(460px, calc(100vw - 32px))"
     append-to-body
   >
@@ -28,7 +28,6 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { Plus } from '@element-plus/icons-vue'
 
 const props = defineProps({
   inventory: { type: Object, default: null },
