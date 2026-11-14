@@ -175,6 +175,25 @@ it('polls mapped holdings and drops the snapshot when the holding or scope disap
   expect(state.utilizationSnapshots).toEqual({})
 })
 
+it('shows remaining lease time across UTC offsets and keeps queued records without a deadline distinct', async () => {
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      allocations: [...confirmed.allocations, { kind: 'reservation', node: 'node-b' }],
+    },
+  ])
+  state.clock = Date.parse('2026-11-14T12:00:00Z')
+  const expiry = '2026-11-14T21:15:00+08:00'
+  expect(state.remaining(expiry)).toBe('1 小时 15 分钟')
+  expect(state.remaining('2026-11-14 13:15:00')).toBe('1 小时 15 分钟')
+  expect(state.remaining(null)).toBe('未提供')
+  state.clock = Date.parse(expiry) - 1000
+  expect(state.remaining(expiry)).toBe('不到 1 分钟')
+  state.clock += 1000
+  expect(state.remaining(expiry)).toBe('已到期')
+  expect(state.allocationSections.map((section) => section.timeLabel)).toEqual(['剩余时间', ''])
+})
+
 it('uses loading placeholders initially and shows a confirmed zero after an empty response', async () => {
   let finish
   vi.stubGlobal(

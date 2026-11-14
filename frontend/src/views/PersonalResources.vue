@@ -146,7 +146,9 @@
               <tr role="row">
                 <th scope="col" role="columnheader">资源群</th>
                 <th scope="col" role="columnheader">节点 / 卡号</th>
-                <th scope="col" role="columnheader">到期时间</th>
+                <th v-if="section.timeLabel" scope="col" role="columnheader">
+                  {{ section.timeLabel }}
+                </th>
                 <th v-if="session.identities.length > 1" scope="col" role="columnheader">
                   本人身份
                 </th>
@@ -161,9 +163,19 @@
                   {{ row.allocation.node ?? '未知节点'
                   }}{{ row.allocation.device == null ? '' : ' / 卡 ' + row.allocation.device }}
                 </td>
-                <td role="cell">
-                  <span aria-hidden="true" class="allocation-label">到期时间</span>
-                  {{ date(row.allocation.expires_at) }}
+                <td v-if="section.timeLabel" role="cell" class="allocation-time">
+                  <span aria-hidden="true" class="allocation-label">{{ section.timeLabel }}</span>
+                  <time
+                    v-if="Number.isFinite(expiration(row.allocation.expires_at))"
+                    :datetime="new Date(expiration(row.allocation.expires_at)).toISOString()"
+                    :title="date(expiration(row.allocation.expires_at) / 1000)"
+                    >{{
+                      section.holdings
+                        ? remaining(row.allocation.expires_at)
+                        : date(row.allocation.expires_at)
+                    }}</time
+                  >
+                  <span v-else class="scope">未提供</span>
                 </td>
                 <td v-if="session.identities.length > 1" role="cell">
                   <span aria-hidden="true" class="allocation-label">本人身份</span>
@@ -328,6 +340,7 @@
 import { computed, onMounted, onUnmounted, ref, useSlots, watch } from 'vue'
 import { ArrowDown, User } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
+import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import { datasourceIdentity } from '../utils/utilization/grants'
@@ -359,6 +372,8 @@ const initialResourceLoading = computed(
 )
 const knownGroups = computed(() => groups.value.filter(fresh))
 const slots = useSlots()
+const clock = ref(Date.now())
+let clockTimer
 const ownTasksAvailable = computed(() =>
   knownGroups.value.some((group) => entries(group).some((allocation) => 'own_task' in allocation))
 )
@@ -410,6 +425,7 @@ const allocationSections = computed(() => {
     fresh(group) ? entries(group).map((allocation) => ({ group, allocation })) : []
   )
   const holds = rows.filter((row) => !queued(row.allocation))
+  const reservations = rows.filter((row) => queued(row.allocation))
   holds.sort(
     (left, right) =>
       expiration(left.allocation.expires_at) - expiration(right.allocation.expires_at)
@@ -418,10 +434,20 @@ const allocationSections = computed(() => {
     {
       label: '持有资源',
       rows: holds,
+      holdings: true,
+      timeLabel: '剩余时间',
       tasks: Boolean(slots.task || ownTasksAvailable.value),
       metrics: Boolean(slots.metrics || utilizationGroups.value.length),
     },
-    { label: '预约与队列', rows: rows.filter((row) => queued(row.allocation)) },
+    {
+      label: '预约与队列',
+      rows: reservations,
+      timeLabel: reservations.some(({ allocation }) =>
+        Number.isFinite(expiration(allocation.expires_at))
+      )
+        ? '到期时间'
+        : '',
+    },
   ]
 })
 const statistics = computed(() => {
@@ -499,13 +525,27 @@ function groupCounts(group) {
   ].map(([label, value]) => ({ label, value: fresh(group) ? value : null }))
 }
 function expiration(value) {
-  const stamp = typeof value === 'number' ? value * 1000 : Date.parse(value)
+  const stamp = parseResourceTime(typeof value === 'number' ? value * 1000 : value).getTime()
   return Number.isFinite(stamp) ? stamp : Infinity
+}
+function remaining(value) {
+  const stamp = expiration(value)
+  if (!Number.isFinite(stamp)) return '未提供'
+  const milliseconds = stamp - clock.value
+  if (milliseconds <= 0) return '已到期'
+  if (milliseconds < 60_000) return '不到 1 分钟'
+  let minutes = Math.floor(milliseconds / 60_000)
+  const days = Math.floor(minutes / 1440)
+  minutes %= 1440
+  const hours = Math.floor(minutes / 60)
+  minutes %= 60
+  return [days && `${days} 天`, hours && `${hours} 小时`, !days && minutes && `${minutes} 分钟`]
+    .filter(Boolean)
+    .join(' ')
 }
 function date(value) {
   if (value == null) return '未提供'
-  const time = new Date(typeof value === 'number' ? value * 1000 : value)
-  return Number.isNaN(time.getTime()) ? '未知' : time.toLocaleString('zh-CN')
+  return formatResourceTime(typeof value === 'number' ? value * 1000 : value)
 }
 function request(path, body, signal) {
   return fetch(`/api/personal-panel/${path}`, {
@@ -721,10 +761,12 @@ watch([pendingPanelTicket, busy, initialized], ([incoming, running, ready]) => {
   })
 })
 onUnmounted(() => {
+  clearInterval(clockTimer)
   ++refreshEpoch
   reportRequest?.abort()
 })
 onMounted(async () => {
+  clockTimer = setInterval(() => (clock.value = Date.now()), 1000)
   await run(refresh)
   initialized.value = true
 })
