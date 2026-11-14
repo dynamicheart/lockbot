@@ -1,5 +1,7 @@
 export default {
   auditCredentials: {
+    nameRequired: '请输入凭证名称',
+    botsRequired: '请选择至少一个机器人',
     selectBots: '选择授权机器人',
     previous: '上一页',
     next: '下一页',
@@ -263,6 +265,7 @@ export default {
     notConfigured: '未配置',
     remove: '移除',
     setupGuide: '接入文档',
+    agentSetupGuide: '交给 Agent 配置',
     adminHint:
       '为当前机器人统一配置。请准备数据源地址、指标名、标签及节点／设备映射；在当前浏览器验证并保存。不要保存共享数据源密钥。',
     testSave: '验证并保存',
@@ -309,6 +312,35 @@ export default {
       upstream: '数据源查询失败。',
       timeout: '数据源请求超时。',
       samples: '没有完整的新鲜样本，请检查指标和采集时间。',
+    },
+  },
+  trafficHistory: {
+    inputZone: '输入时区：{zone}',
+    notCollected: '待采集',
+    live: '实时',
+    history: '历史',
+    range: '时间范围',
+    start: '开始时间',
+    end: '结束时间',
+    invalidRange: '请选择过去 31 天以内的时间范围。',
+    storageWarning: '历史数据不完整，请联系站点管理员检查存储。',
+    trend: '历史趋势',
+    http: 'HTTP 请求',
+    operations: '资源操作',
+    coverageHelp:
+      '空缺表示未知，不代表零。部分覆盖及汇总仅计算已保留的观测；P95 为估算值，资源操作与 HTTP 请求分别统计。时间显示为 UTC+08:00。',
+    coverage: '完整 {complete_buckets} · 部分 {partial_buckets} · 未知 {unknown_buckets}',
+    resolution: '每 {minutes} 分钟',
+    unknown: '未保留数据',
+    partial: '部分覆盖',
+    complete: '完整覆盖',
+    presets: { '24h': '近 24 小时', '7d': '近 7 天', '30d': '近 30 天', custom: '自定义' },
+    metrics: {
+      requests: '请求数',
+      client_errors: '4xx',
+      server_errors: '5xx',
+      avg_ms: '平均耗时',
+      p95_ms: 'P95 估算耗时',
     },
   },
   serviceTraffic: {
@@ -554,6 +586,7 @@ export default {
 
   // === Sidebar / Nav ===
   nav: {
+    apiCredentials: 'API 凭证',
     myResources: '我的资源',
     dashboard: '仪表盘',
     myBots: '我的机器人',
@@ -922,7 +955,7 @@ export default {
     agentPromotion: 'Agent 推广',
     agentPromotionText: '链接前文案',
     agentPromotionTextHint: '留空使用默认文案，链接自动添加。仅限单行纯文本，最多 120 字。',
-    agentPromotionHint: '在资源申请成功消息中展示 Agent 使用链接。',
+    agentPromotionHint: '在资源申请成功消息中展示 Skill 安装包链接。',
     platformUrl: '部署平台 URL',
     platformUrlPlaceholder: '例如 http://192.168.1.1:8080',
     githubUrl: 'GitHub 地址',

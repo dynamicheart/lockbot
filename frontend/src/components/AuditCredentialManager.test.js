@@ -90,6 +90,7 @@ async function finishLoad(rows = []) {
   await flush()
 }
 function fill() {
+  state.openCreate()
   state.name = 'Approved consumer'
   state.botIds = [4]
   state.ttl = 600
@@ -323,4 +324,34 @@ it('updates expiry status locally without polling the service', async () => {
   vi.advanceTimersByTime(30000)
   expect(state.status(credential)).toBe('expired')
   expect(gets).toHaveLength(reads)
+})
+
+it('opens a clean issuance dialog and validates on submit without a request', async () => {
+  mount()
+  await finishLoad()
+  expect(state.showCreate).toBe(false)
+  expect(state.submitted).toBe(false)
+  state.openCreate()
+  expect(state.showCreate).toBe(true)
+  await state.create()
+  expect(state.submitted).toBe(true)
+  expect(writes).toEqual([])
+  state.showCreate = false
+  state.resetForm()
+  expect(state.submitted).toBe(false)
+})
+
+it('discards late credentials on a same-user session change', async () => {
+  mount()
+  await finishLoad()
+  fill()
+  const pending = state.create()
+  app._instance.props.sessionRevision = 1
+  await flush()
+  expect(writes[0].options.signal.aborted).toBe(true)
+  expect(state.showCreate).toBe(false)
+  writes[0].resolve({ data: { ...row(), credential: SECRET, shown_once: true } })
+  await pending
+  expect(state.secret).toBe('')
+  expect(state.items).toEqual([])
 })
