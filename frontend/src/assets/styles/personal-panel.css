@@ -623,20 +623,66 @@
   text-decoration: underline;
 }
 
-.personal-panel :deep(.account-menu) {
+.personal-panel :deep(.workbench-exit) {
   margin-left: auto;
   flex-shrink: 0;
 }
-.personal-panel :deep(.account-menu .el-button) {
-  gap: 6px;
-}
 @media (max-width: 540px) {
-  .personal-panel :deep(.account-label) {
-    display: none;
+  .personal-panel :deep(.bar-inner) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 8px;
+    padding-top: 4px;
+  }
+  .personal-panel :deep(.workbench-exit) {
+    grid-column: 2;
+    grid-row: 1;
   }
   .personal-panel :deep(.nav) {
+    grid-column: 1 / -1;
     min-width: 0;
     overflow-x: auto;
     white-space: nowrap;
+  }
+}
+
+.personal-panel :deep(.workbench-focus) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-block: 16px;
+}
+.personal-panel :deep(.workbench-focus .panel) {
+  margin: 0;
+  padding: 13px 16px;
+}
+.personal-panel :deep(.workbench-resource) {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  text-align: start;
+  gap: 12px;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-top: 1px solid var(--line);
+  padding: 8px 2px;
+}
+.personal-panel :deep(.workbench-resource:hover) {
+  color: var(--accent);
+}
+.personal-panel :deep(.workbench-resource small) {
+  display: block;
+  margin-top: 2px;
+}
+.personal-panel :deep(.workbench-countdown) {
+  color: var(--el-color-warning-dark-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 640px) {
+  .personal-panel :deep(.workbench-focus) {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

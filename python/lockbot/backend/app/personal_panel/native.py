@@ -87,6 +87,11 @@ def _allocations(resources, subject):
                                 "node": node["id"],
                                 "device": identity[1],
                                 "expires_at": entry.get("expires_at"),
+                                **(
+                                    {"position": entry["position"]}
+                                    if kind == "reservation" and "position" in entry
+                                    else {}
+                                ),
                             }
                         )
     return allocations, complete

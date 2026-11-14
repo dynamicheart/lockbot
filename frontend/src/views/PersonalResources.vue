@@ -14,23 +14,21 @@
             {{ item.label }}
           </button>
         </nav>
-        <el-dropdown v-if="session.authenticated" class="account-menu" trigger="click">
-          <el-button text :disabled="busy" aria-label="账号菜单">
-            <el-icon><User /></el-icon><span class="account-label">账号</span>
-            <el-icon><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="run(logout)">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <el-button
+          v-if="session.authenticated"
+          class="workbench-exit"
+          text
+          :disabled="busy"
+          @click="run(logout)"
+        >
+          清除此浏览器授权
+        </el-button>
       </div>
     </header>
     <main class="main" aria-live="polite">
       <div class="page-heading">
         <h1>{{ ticket ? '确认登录身份' : title }}</h1>
-        <div v-if="session.authenticated" class="actions">
+        <div v-if="session.authenticated && tab !== 'connections'" class="actions">
           <el-button :loading="busy" @click="run(refresh)">刷新资源</el-button>
         </div>
       </div>
@@ -130,6 +128,67 @@
         <p v-if="pendingGroups && !resourceLoading" class="resource-coverage" role="status">
           {{ pendingGroups }} 个资源群暂未返回有效数据
         </p>
+        <div v-if="allocationRows.length || resourcesReady" class="workbench-focus">
+          <section class="panel" aria-labelledby="workbench-expiring">
+            <h2 id="workbench-expiring" class="panel-title">即将到期</h2>
+            <p v-if="!expiringItems.length" class="scope">
+              {{
+                resourceLoading
+                  ? '正在检查…'
+                  : pendingGroups
+                    ? '已更新的资源暂无临期'
+                    : '暂无 30 分钟内到期的资源'
+              }}
+            </p>
+            <button
+              v-for="item in expiringItems"
+              :key="item.key"
+              type="button"
+              class="workbench-resource"
+              @click="openWorkbenchResource(item)"
+            >
+              <span
+                ><strong>{{ item.first.allocation.node ?? '未知节点' }}</strong
+                ><small>{{ item.first.group.label }}</small></span
+              >
+              <span class="workbench-countdown">{{
+                remaining(item.first.allocation.expires_at)
+              }}</span>
+            </button>
+          </section>
+          <section class="panel" aria-labelledby="workbench-bookings">
+            <h2 id="workbench-bookings" class="panel-title">我的预约</h2>
+            <p v-if="!recentBookings.length" class="scope">
+              {{
+                resourceLoading
+                  ? '正在读取…'
+                  : pendingGroups
+                    ? '已更新的资源群暂无预约'
+                    : '暂无预约'
+              }}
+            </p>
+            <button
+              v-for="row in recentBookings"
+              :key="row.key"
+              type="button"
+              class="workbench-resource"
+              @click="viewGroup(row.group, 'workbench-reservation-list')"
+            >
+              <span
+                ><strong
+                  >{{ row.allocation.node ?? '未知节点'
+                  }}<span v-if="row.allocation.device != null" class="allocation-device"
+                    >卡 {{ row.allocation.device }}</span
+                  ></strong
+                ><small>{{ row.group.label }}</small></span
+              >
+              <span v-if="Number.isInteger(row.allocation.position) && row.allocation.position >= 0"
+                >第 {{ row.allocation.position + 1 }} 位</span
+              >
+              <span v-else class="scope">已预约</span>
+            </button>
+          </section>
+        </div>
         <div
           v-if="allocationRows.length || allocationQuery || allocationGroup"
           class="allocation-controls"
@@ -160,7 +219,13 @@
             <el-option label="按节点 / 卡号" value="resource" />
           </el-select>
         </div>
-        <section v-for="section in allocationSections" :key="section.label" class="panel">
+        <section
+          v-for="section in allocationSections"
+          :id="section.holdings ? 'workbench-holdings-list' : 'workbench-reservation-list'"
+          :key="section.label"
+          tabindex="-1"
+          class="panel"
+        >
           <h2 class="panel-title">{{ section.label }} · {{ section.rows.length }}</h2>
           <table v-if="section.rows.length" class="allocation-table" role="table">
             <thead role="rowgroup">
@@ -179,7 +244,12 @@
             </thead>
             <tbody role="rowgroup">
               <template v-for="item in section.items" :key="item.key">
-                <tr v-if="item.rows.length > 1" role="row" class="allocation-node-summary">
+                <tr
+                  v-if="item.rows.length > 1"
+                  :id="rowAnchor(item.first)"
+                  role="row"
+                  class="allocation-node-summary"
+                >
                   <td role="cell" class="allocation-group">{{ item.first.group.label }}</td>
                   <td role="cell" class="allocation-name">
                     <button
@@ -214,6 +284,7 @@
                 <template v-if="item.rows.length === 1 || expandedNodes.has(item.key)">
                   <tr
                     v-for="row in item.rows"
+                    :id="item.rows.length === 1 ? rowAnchor(row) : undefined"
                     :key="row.key"
                     role="row"
                     :class="{ 'allocation-detail': item.rows.length > 1 }"
@@ -343,7 +414,14 @@
               ><span>{{ item.label }}</span>
             </div>
           </div>
-          <p v-else class="group-meta group-pending">暂未获取已确认的占用信息</p>
+          <p v-else class="group-meta group-pending">本次未取得资源数据</p>
+          <el-button
+            v-if="fresh(group) && entries(group).length"
+            text
+            type="primary"
+            @click="viewGroup(group)"
+            >查看我的资源</el-button
+          >
         </section>
         <p v-if="!groups.length && !initialResourceLoading" class="empty">
           {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
@@ -360,11 +438,12 @@
             在持有目标群绑定的 Agent 中说“打开我的资源台”，打开链接后确认添加到当前浏览器。
           </p>
         </details>
-        <section
+        <details
           v-for="(identity, index) in session.identities"
           :key="index"
           class="group-card connection-card"
         >
+          <summary>已关联身份 · {{ identity.subject }}</summary>
           <div class="connection-heading">
             <h2>登录身份 · {{ identity.subject }}</h2>
             <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
@@ -403,7 +482,7 @@
               </dl>
             </details>
           </details>
-        </section>
+        </details>
         <p
           v-for="(indices, index) in session.same_person_groups || []"
           :key="index"
@@ -420,8 +499,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, useSlots, watch } from 'vue'
-import { ArrowDown, ArrowRight, User } from '@element-plus/icons-vue'
+import { computed, onMounted, onUnmounted, ref, useSlots, watch, nextTick } from 'vue'
+import { ArrowRight } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
 import LockbotWordmark from '../components/LockbotWordmark.vue'
@@ -440,7 +519,9 @@ const tabs = [
   { id: 'connections', label: '我的凭证' },
 ]
 const tab = ref('mine')
-const title = computed(() => tabs.find((item) => item.id === tab.value).label)
+const title = computed(() =>
+  tab.value === 'mine' ? '个人资源台' : tabs.find((item) => item.id === tab.value).label
+)
 const session = ref({ authenticated: false, identities: [] })
 const groups = ref([])
 const ticket = ref(null)
@@ -610,6 +691,44 @@ function nodeRemaining({ deadlines }) {
   const last = remaining(Math.max(...known) / 1000)
   const range = first === last ? first : `${first} 至 ${last}`
   return known.length < deadlines.length ? `${range}（部分未知）` : range
+}
+const expiringItems = computed(() =>
+  allocationItems(
+    allocationRows.value.filter((row) => !queued(row.allocation)),
+    true
+  )
+    .filter(({ first }) => {
+      const timeLeft = expiration(first.allocation.expires_at) - clock.value
+      return timeLeft > 0 && timeLeft <= 30 * 60_000
+    })
+    .sort(
+      (a, b) =>
+        expiration(a.first.allocation.expires_at) - expiration(b.first.allocation.expires_at)
+    )
+    .slice(0, 4)
+)
+const recentBookings = computed(() =>
+  allocationRows.value.filter((row) => queued(row.allocation)).slice(0, 4)
+)
+function rowAnchor(row) {
+  return 'workbench-resource-' + encodeURIComponent(row.key)
+}
+async function viewGroup(group, target = 'workbench-holdings-list') {
+  allocationGroup.value = allocationGroupKey(group)
+  allocationQuery.value = ''
+  tab.value = 'mine'
+  await nextTick()
+  const anchor = document.getElementById(target)
+  anchor?.scrollIntoView({ block: 'start' })
+  if (anchor?.tagName === 'SECTION') anchor.focus({ preventScroll: true })
+}
+async function openWorkbenchResource(item) {
+  if (item.rows.length > 1) expandedNodes.value.add(item.key)
+  await viewGroup(item.first.group, rowAnchor(item.first))
+  document
+    .getElementById(rowAnchor(item.first))
+    ?.querySelector('button')
+    ?.focus({ preventScroll: true })
 }
 const allocationSections = computed(() => {
   const query = allocationQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)

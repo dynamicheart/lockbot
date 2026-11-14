@@ -160,6 +160,8 @@ def test_live_nonempty_snapshot_returns_only_own_holdings_and_reservations(panel
     assert datetime.fromisoformat(holds[0]["expires_at"]) > datetime.now(timezone.utc)
     bookings = [allocation for allocation in result[0]["allocations"] if allocation["kind"] == "reservation"]
     assert len(bookings) == int(queue)
+    if queue:
+        assert bookings[0]["position"] == 0
     assert api["bot"].state_snapshot()[1] == before
     assert "bob" not in json.dumps(result)
 
