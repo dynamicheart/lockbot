@@ -1,7 +1,8 @@
-"""Purpose-isolated, short-lived native credential disclosure proofs.
+"""Purpose-isolated, short-lived native credential proofs.
 
 Only digests of random tickets, exact grants and opaque credential pins persist.
-These tickets cannot log in, append identities, or authorize rotation.
+Distinct tables prevent login, disclosure and rotation proof conversion. The
+purpose is selected only by the server, never by request data.
 """
 
 import json
@@ -12,16 +13,19 @@ from .sessions import TICKET_LIFETIME
 
 
 class CredentialViews:
-    def __init__(self, sessions):
+    def __init__(self, sessions, *, purpose="view_current_key"):
         self.sessions = sessions
+        self.table = {
+            "view_current_key": "panel_credential_views",
+            "rotate_link": "panel_credential_rotation_links",
+            "rotate_intent": "panel_credential_rotation_intents",
+        }[purpose]
         with sessions._transaction():
             sessions.db.execute(
-                "CREATE TABLE IF NOT EXISTS panel_credential_views "
+                f"CREATE TABLE IF NOT EXISTS {self.table} "
                 "(digest TEXT PRIMARY KEY, grant_json TEXT NOT NULL, pin TEXT NOT NULL, expires REAL NOT NULL)"
             )
-            sessions.db.execute(
-                "CREATE INDEX IF NOT EXISTS panel_credential_views_expiry ON panel_credential_views(expires)"
-            )
+            sessions.db.execute(f"CREATE INDEX IF NOT EXISTS {self.table}_expiry ON {self.table}(expires)")
 
     def issue(self, grant, pin, binding_expiry=None):
         encoded = self.sessions._grant_json(grant)
@@ -31,9 +35,9 @@ class CredentialViews:
             expiry = min(now + TICKET_LIFETIME, binding_expiry) if binding_expiry is not None else now + TICKET_LIFETIME
             if expiry <= now:
                 raise ValueError("Binding expired")
-            self.sessions.db.execute("DELETE FROM panel_credential_views WHERE expires<=?", (now,))
+            self.sessions.db.execute(f"DELETE FROM {self.table} WHERE expires<=?", (now,))
             self.sessions.db.execute(
-                "INSERT INTO panel_credential_views VALUES (?,?,?,?)",
+                f"INSERT INTO {self.table} VALUES (?,?,?,?)",
                 (self.sessions._digest(ticket), encoded, pin, expiry),
             )
         return ticket, expiry
@@ -42,9 +46,9 @@ class CredentialViews:
         """Require the exact currently authorized browser grant, atomically on use."""
         with self.sessions._transaction():
             now = time.time()
-            self.sessions.db.execute("DELETE FROM panel_credential_views WHERE expires<=?", (now,))
+            self.sessions.db.execute(f"DELETE FROM {self.table} WHERE expires<=?", (now,))
             row = self.sessions.db.execute(
-                "SELECT grant_json,pin,expires FROM panel_credential_views WHERE digest=? AND expires>?",
+                f"SELECT grant_json,pin,expires FROM {self.table} WHERE digest=? AND expires>?",
                 (self.sessions._digest(ticket), now),
             ).fetchone()
             if row is None:
@@ -57,7 +61,5 @@ class CredentialViews:
             if session is None or grant not in json.loads(session[0]):
                 raise PermissionError("Matching current browser authorization required")
             if consume:
-                self.sessions.db.execute(
-                    "DELETE FROM panel_credential_views WHERE digest=?", (self.sessions._digest(ticket),)
-                )
+                self.sessions.db.execute(f"DELETE FROM {self.table} WHERE digest=?", (self.sessions._digest(ticket),))
             return grant, row[1], row[2]

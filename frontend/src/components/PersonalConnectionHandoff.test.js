@@ -143,6 +143,33 @@ it('copies only a purpose-specific request to the original Agent when native vie
   expect(message).toContain('不把只读登录或资源链接升级为查看票')
   expect(message).not.toContain(SECRET)
 })
+it('keeps rotation unavailable by default and copies only an opt-in multi-confirmation request', async () => {
+  mount()
+  await flush()
+  expect(state.rotationSupported).toBe(false)
+  await state.copyRotationRequest(state.items[0])
+  expect(clipboard).not.toHaveBeenCalled()
+  const caps = capabilities()
+  caps.connection_management.credential_rotation = {
+    version: 1,
+    purpose: 'rotate_current_key',
+    requires_original_credential: true,
+    requires_matching_browser_grant: true,
+    single_use: true,
+    requires_typed_group: true,
+    requires_second_confirmation: true,
+    issue_path: '/api/personal-panel/credential-rotation-links',
+  }
+  fetchMock.mockImplementation(async (url) =>
+    response(url.endsWith('/capabilities') ? caps : list())
+  )
+  await state.refresh()
+  expect(state.rotationSupported).toBe(true)
+  await state.copyRotationRequest(state.items[0])
+  expect(clipboard.mock.calls[0][0]).toContain('输入完整群名并二次确认')
+  expect(clipboard.mock.calls[0][0]).toContain('所有 Agent 失效')
+  expect(clipboard.mock.calls[0][0]).not.toContain(SECRET)
+})
 it('projects metadata and never retains unexpected key fields in default state or DOM', async () => {
   fetchMock.mockImplementation(async (url) =>
     response(

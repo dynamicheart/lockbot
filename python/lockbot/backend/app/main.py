@@ -338,6 +338,7 @@ def _migrate_identity_boundaries():
         "resource_bindings": {
             "bound_identity_revision": "INTEGER NOT NULL DEFAULT 0",
             "credential_encrypted": "TEXT",
+            "credential_generation": "INTEGER NOT NULL DEFAULT 0",
         },
     }
     for table, fields in additions.items():

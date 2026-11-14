@@ -57,6 +57,8 @@ class ResourceBinding(Base):
     #: Hex sha256 of the credential. The plaintext is never stored.
     credential_digest: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     credential_encrypted: Mapped[str | None] = mapped_column(String, nullable=True)
+    #: Per-binding replacement counter; zero preserves legacy browser scopes.
+    credential_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
 
     #: Agent-supplied free-text label, shown by the chat `bindings` command.
     label: Mapped[str | None] = mapped_column(String(64), nullable=True)

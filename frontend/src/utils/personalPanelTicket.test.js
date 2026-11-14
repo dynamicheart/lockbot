@@ -51,3 +51,20 @@ it('discards ambiguous login and credential-view purposes while clearing the fra
   expect(pendingCredentialViewTicket.value).toBe('')
   expect(replaceState).toHaveBeenCalledOnce()
 })
+
+it('strips a dedicated rotation fragment and rejects any mixed ticket purposes', async () => {
+  for (const hash of [
+    '#/me?credential_rotation=rotate',
+    '#/me?credential_rotation=rotate&credential_view=view',
+  ]) {
+    vi.resetModules()
+    const replaceState = vi.fn()
+    vi.stubGlobal('window', { location: { hash }, history: { replaceState } })
+    const { pendingPanelTicket, pendingCredentialViewTicket, pendingCredentialRotationTicket } =
+      await import('./personalPanelTicket')
+    expect(pendingPanelTicket.value).toBe('')
+    expect(pendingCredentialViewTicket.value).toBe('')
+    expect(pendingCredentialRotationTicket.value).toBe(hash.includes('&') ? '' : 'rotate')
+    expect(replaceState).toHaveBeenCalledOnce()
+  }
+})
