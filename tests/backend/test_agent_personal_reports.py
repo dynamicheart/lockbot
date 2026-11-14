@@ -161,6 +161,32 @@ def test_revocation_during_report_discards_inflight_result(client, api, extensio
     assert "node1" not in response.text
 
 
+def test_extension_replacement_during_report_discards_inflight_result(client, api, extension):
+    reports = client.app.state.agent_personal_reports
+    path = PREFIX + "team-report"
+    grant = reports.provider.authenticate(api["headers"]["Authorization"].split(" ", 1)[1])
+
+    class ChangedReporter(Reporter):
+        def report(self, grant):
+            reports.extensions["team-report"] = replacement
+            return super().report(grant)
+
+    current = ChangedReporter()
+    replacement = Extension.configured(
+        {"id": "team-report", "revision": "3", "label": "New report", "grants": [grant]},
+        extension,
+    )
+    reports.extensions["team-report"] = Extension.configured(
+        {"id": "team-report", "revision": "2", "label": "Old report", "grants": [grant]},
+        current,
+    )
+
+    response = client.get(path, headers=api["headers"])
+    assert response.status_code == 404 and response.headers["cache-control"] == "no-store"
+    assert "node1" not in response.text and current.calls == 1
+    assert client.get(path, headers=api["headers"]).json()["revision"] == "3"
+
+
 def test_mount_loads_only_explicit_adapters(api, db_session, session_factory, tmp_path, monkeypatch):
     import json
 

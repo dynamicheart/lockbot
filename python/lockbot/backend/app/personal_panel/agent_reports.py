@@ -159,10 +159,13 @@ class AgentReports:
             return {"protocol": PROTOCOL, "credential_mode": "same_origin_native", "items": items}
         return None
 
-    def read(self, grant, extension_id):
+    def require_extension(self, grant, extension_id):
         item = self.extensions.get(extension_id)
         if item is None or item not in self.authorized(grant):
             raise HTTPException(404, headers=_CACHE_HEADERS)
+        return item
+
+    def read(self, grant, item):
         groups = []
         status = "unknown"
         if self.capacity.acquire(blocking=False):
@@ -218,7 +221,8 @@ def mount_agent_reports(app, origin, provider, extensions):
             grant = provider.authenticate(token)
         except ProviderError:
             raise ResourceAuthenticationError("Invalid credential", "credential_invalid") from None
-        result = reports.read(grant, extension_id)
+        extension = reports.require_extension(grant, extension_id)
+        result = reports.read(grant, extension)
         db.rollback()
         try:
             current = provider.authenticate(token)
@@ -229,6 +233,8 @@ def mount_agent_reports(app, origin, provider, extensions):
             raise ResourceAuthenticationError("Invalid credential", "credential_invalid") from None
         bot = db.get(Bot, row.bound_bot_id)
         if bot is None or bot.status != "running" or not bot.resource_auth_enabled:
+            raise HTTPException(404, headers=_CACHE_HEADERS)
+        if reports.require_extension(current, extension_id) is not extension:
             raise HTTPException(404, headers=_CACHE_HEADERS)
         response.headers.update(_CACHE_HEADERS)
         return result
