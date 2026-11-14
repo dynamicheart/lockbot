@@ -26,6 +26,8 @@ from lockbot.backend.app.bots.migration_journal import (
 from lockbot.backend.app.bots.migration_preflight import (
     MigrationPreflight,
     _empty_destination_state,
+    _reset_authorizations,
+    _review_digest,
     destination_identity_digest,
     observe_migration,
     verify_migration_review_receipt,
@@ -100,6 +102,7 @@ def continue_source_drain(db, manager, bot_id, operation_id, actor, *, build_con
                     _, state = retired.bot.state_snapshot()
                     destination = _empty_destination_state(state, bot.bot_type, json.loads(bot.cluster_configs))
                     row.target_identity_digest = checkpoint["target_identity_digest"]
+                    row.source_authority_digest = checkpoint["source_authority_digest"]
                     try:
                         observer = getattr(retired.bot.config, "_lifecycle_observer", None)
                         if observer is not None:
@@ -179,6 +182,12 @@ def switch_drained_migration(db, manager, bot_id, operation_id, actor, *, verify
             or (bot.uuid, bot.identity_revision) != (migration.bot_uuid, migration.source_revision)
         ):
             raise HTTPException(409, "The migration source identity changed")
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        _, revisions = _reset_authorizations(db, bot, now)
+        if _review_digest(revisions) != migration.source_authority_digest:
+            migration.phase = "source_changed"
+            db.commit()
+            raise HTTPException(409, "Source authorizations changed after the drain")
         source = public_datasource(bot)
         if (
             source

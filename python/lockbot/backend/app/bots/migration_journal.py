@@ -29,6 +29,7 @@ class BotMigration(Base):
     drained_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     destination_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_identity_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_authority_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     destination_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
@@ -68,6 +69,7 @@ def _destination_scope(row, payload):
         "chat": row.target_chat_id,
         "review": row.review_digest,
         "target_identity": row.target_identity_digest,
+        "source_authority": row.source_authority_digest,
         "payload": payload,
     }
 

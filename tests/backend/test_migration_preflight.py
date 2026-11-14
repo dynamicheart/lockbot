@@ -457,6 +457,7 @@ def test_persisted_migration_fences_manual_routes_and_startup(
     [
         ("unchanged", "drained"),
         ("switch", "drained"),
+        ("authority_changed", "drained"),
         ("changed", "source_changed"),
         ("timeout", "drained"),
         ("restart", "recovery_required"),
@@ -483,7 +484,7 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
     bot_id, _, destination = setup
     actor = db_session.query(User).filter_by(username="adminuser").one()
     config = SimpleNamespace(get_val=lambda key, default=None: default)
-    if retirement == "switch":
+    if retirement in {"switch", "authority_changed"}:
         bot = db_session.get(Bot, bot_id)
         bot.api_key = "fixture-old-op"
         binding = ResourceBinding(
@@ -601,6 +602,24 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
     assert not db_session.query(FeishuGroupRoute).count()
     db_session.expunge_all()
     persisted = migration_fence(db_session, bot_id)
+    if retirement == "authority_changed":
+        binding = db_session.query(ResourceBinding).one()
+        binding.credential_generation += 1
+        db_session.commit()
+
+        def unexpected_verification(*args):
+            pytest.fail("Destination verification ran for a stale source")
+
+        with pytest.raises(HTTPException) as stale:
+            switch_drained_migration(
+                db_session, manager, bot_id, operation_id, actor, verify_destination=unexpected_verification
+            )
+        assert stale.value.status_code == 409
+        assert migration_fence(db_session, bot_id).phase == "source_changed"
+        assert db_session.get(Bot, bot_id).platform.lower() == "infoflow"
+        assert binding.revoked_at is None
+        assert db_session.query(UsageDeclaration).count() == 1
+        return
     if retirement == "switch":
         bot = db_session.get(Bot, bot_id)
         original_uuid, original_revision, inventory = bot.uuid, bot.identity_revision, bot.cluster_configs

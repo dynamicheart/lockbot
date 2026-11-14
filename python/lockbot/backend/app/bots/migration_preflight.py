@@ -283,6 +283,7 @@ def observe_migration(db, manager, bot_id, body, *, retired=None, checkpoint=Non
         blockers.append("source_already_has_feishu_route")
     if checkpoint is not None:
         checkpoint["target_identity_digest"] = target_review
+        checkpoint["source_authority_digest"] = _review_digest(revisions) if source_review else None
     # Selected configuration feeds an observation digest; no raw configuration or task data is returned.
     reviewed = {
         "uuid": bot.uuid,
