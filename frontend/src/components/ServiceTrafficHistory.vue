@@ -6,16 +6,23 @@
           $t('trafficHistory.presets.' + item)
         }}</el-radio-button>
       </el-radio-group>
-      <el-date-picker
-        v-if="preset === 'custom'"
-        v-model="customRange"
-        type="datetimerange"
-        :start-placeholder="$t('trafficHistory.start')"
-        :end-placeholder="$t('trafficHistory.end')"
-      />
-      <span v-if="preset === 'custom'" class="history-range-zone">{{
-        $t('trafficHistory.inputZone', { zone: inputZone })
-      }}</span>
+      <div v-if="preset === 'custom'" class="history-custom-range">
+        <el-date-picker
+          v-model="customRange"
+          type="datetimerange"
+          :start-placeholder="$t('trafficHistory.start')"
+          :end-placeholder="$t('trafficHistory.end')"
+        />
+        <el-tooltip :content="$t('trafficHistory.inputZone', { zone: inputZone })">
+          <button
+            type="button"
+            class="history-help"
+            :aria-label="$t('trafficHistory.inputZone', { zone: inputZone })"
+          >
+            <el-icon><InfoFilled /></el-icon>
+          </button>
+        </el-tooltip>
+      </div>
       <el-button :loading="loading" @click="refresh">{{ $t('common.refresh') }}</el-button>
     </div>
     <p v-if="!range" class="history-warning">{{ $t('trafficHistory.invalidRange') }}</p>
@@ -48,14 +55,16 @@
         </div>
       </div>
       <el-card shadow="never">
-        <template #header
-          ><div class="history-heading">
-            <span>{{ $t('trafficHistory.trend') }}</span
-            ><el-tooltip :content="$t('trafficHistory.coverageHelp')"
-              ><span tabindex="0" class="history-help">ⓘ</span></el-tooltip
-            >
-          </div></template
-        >
+        <template #header>
+          <div class="history-heading">
+            <span>{{ $t('trafficHistory.trend') }}</span>
+            <el-tooltip :content="coverageTooltip">
+              <button type="button" class="history-help" :aria-label="coverageTooltip">
+                <el-icon><InfoFilled /></el-icon>
+              </button>
+            </el-tooltip>
+          </div>
+        </template>
         <div class="history-layer-heading">
           <strong>{{ $t('trafficHistory.http') }}</strong
           ><span
@@ -74,7 +83,7 @@
             <button
               class="history-bar"
               type="button"
-              :class="{ 'is-unknown': !point.known, 'is-partial': point.coverage === 'partial' }"
+              :class="{ 'is-unknown': !point.known }"
               :aria-label="tooltip(point, false)"
             >
               <template v-if="point.known"
@@ -120,7 +129,7 @@
             <button
               class="history-bar"
               type="button"
-              :class="{ 'is-unknown': !point.known, 'is-partial': point.coverage === 'partial' }"
+              :class="{ 'is-unknown': !point.known }"
               :aria-label="tooltip(point, true)"
             >
               <template v-if="point.known"
@@ -142,14 +151,12 @@
             </button>
           </el-tooltip>
         </div>
-        <div class="history-axis">
-          <span>{{ time(rows[0]?.at) }}</span
-          ><span>{{ time(rows.at(-1)?.at) }}</span>
+        <div v-if="rows.length" class="history-axis">
+          <time :datetime="rows[0].at" :title="time(rows[0].at)">{{ axisTime(rows[0].at) }}</time>
+          <time :datetime="rows.at(-1).at" :title="time(rows.at(-1).at)">{{
+            axisTime(rows.at(-1).at)
+          }}</time>
         </div>
-        <p class="history-note">
-          {{ $t('trafficHistory.coverage', snapshot.coverage || {}) }} ·
-          {{ $t('trafficHistory.resolution', { minutes: snapshot.resolution_seconds / 60 }) }}
-        </p>
       </el-card>
     </template>
     <el-empty v-else-if="!loading && range && !failed" :description="$t('common.noData')" />
@@ -157,6 +164,7 @@
 </template>
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { InfoFilled } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { formatResourceTime } from '../utils/resourceTime'
@@ -191,6 +199,25 @@ const httpSources = [
   'other',
 ]
 const rows = computed(() => historyRows(snapshot.value))
+const coverageTooltip = computed(() =>
+  [
+    t('trafficHistory.coverageHelp'),
+    t('trafficHistory.coverage', snapshot.value?.coverage || {}),
+    t('trafficHistory.resolution', { minutes: snapshot.value?.resolution_seconds / 60 }),
+  ].join(' · ')
+)
+const axisFormatter = computed(
+  () =>
+    new Intl.DateTimeFormat(locale.value, {
+      timeZone: inputZone,
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+)
+const axisTime = (value) => axisFormatter.value.format(new Date(value))
 const hasObservations = computed(() => rows.value.some((point) => point.known))
 const operationCounts = computed(() =>
   Object.fromEntries(
@@ -283,6 +310,17 @@ function tooltip(point, operations) {
 .history-controls {
   margin-bottom: 16px;
 }
+.history-custom-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 380px;
+  max-width: 100%;
+}
+.history-custom-range :deep(.el-date-editor) {
+  flex: 1;
+  min-width: 0;
+}
 .history-summary {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -360,9 +398,6 @@ function tooltip(point, operations) {
     var(--lb-border-color) 4px
   );
 }
-.history-bar.is-partial {
-  border-top: 2px dotted var(--el-color-warning);
-}
 .requests,
 .agent {
   background: var(--el-color-primary);
@@ -388,11 +423,13 @@ function tooltip(point, operations) {
   font-size: 12px;
   color: var(--lb-text-secondary);
 }
-.history-note,
-.history-help,
-.history-range-zone {
-  font-size: 12px;
+.history-help {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: transparent;
   color: var(--lb-text-secondary);
+  cursor: help;
 }
 .history-source-breakdown {
   margin: -8px 0 22px;
@@ -419,9 +456,6 @@ function tooltip(point, operations) {
 @media (max-width: 700px) {
   .history-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .history-controls :deep(.el-date-editor) {
-    width: 100%;
   }
 }
 </style>
