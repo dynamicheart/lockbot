@@ -246,7 +246,7 @@ def switch_drained_migration(db, manager, bot_id, operation_id, actor, *, verify
         return migration
 
 
-def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, build_config):
+def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, build_config, verify_destination):
     """Install the reviewed idle state once, then stage and activate the Feishu generation."""
     with manager.transition(bot_id):
         db.rollback()
@@ -280,6 +280,7 @@ def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, bui
             or destination_identity_digest(application, membership) != migration.target_identity_digest
         ):
             raise HTTPException(409, "The reviewed Feishu destination changed")
+        verify_destination(application, migration.target_chat_id, migration.drained_at)
 
         if migration.phase == "switched":
             if manager.get_instance(bot_id) is not None or manager.is_retiring(bot_id):
