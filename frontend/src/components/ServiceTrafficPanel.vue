@@ -9,6 +9,14 @@
             ><span tabindex="0"> ⓘ</span></el-tooltip
           >
         </p>
+        <p v-if="recentAgents && mode === 'live'" class="agent-activity-summary">
+          {{
+            t('serviceTraffic.recentAgents', {
+              minutes: recentAgents.minutes,
+              count: number(recentAgents.count),
+            })
+          }}
+        </p>
       </div>
       <el-button v-if="mode === 'live'" :loading="loading" @click="refresh"
         ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button
@@ -329,6 +337,7 @@ import api from '../utils/api'
 import { createServiceTrafficLoader } from '../utils/serviceTrafficLoader'
 import { buildOperationTrend, operationSources } from '../utils/operationTrend'
 import { trafficBarReference } from '../utils/trafficBarReference'
+import { agentActivitySummary } from '../utils/agentActivity'
 const props = defineProps({
   botId: { type: [Number, String], default: null },
   includePrivate: { type: Boolean, default: false },
@@ -338,6 +347,7 @@ const mode = ref('live')
 const selectedBot = ref(null)
 const botOptions = ref([])
 const snapshot = ref(null)
+const recentAgents = computed(() => agentActivitySummary(snapshot.value?.agent_activity))
 const loading = ref(false)
 const failed = ref(false)
 const grouping = ref('sources')
@@ -581,6 +591,9 @@ h2 {
 }
 .page-heading p {
   margin-top: 8px;
+}
+.page-heading .agent-activity-summary {
+  color: var(--lb-text-primary);
 }
 .traffic-stats {
   display: grid;

@@ -115,6 +115,12 @@ python3 scripts/lockbot_resource.py --connection /private/connection.json comman
 python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a
 ```
 
+Give each Agent installation a stable, recognizable label when you want to track its recent activity.
+Pass `--agent-label "workstation-agent"` to `init`, or set `agent_label` in an existing private
+connection JSON without changing its Key. The helper sends it as a UTF-8 percent-encoded
+`X-Lockbot-Agent-Label` header on authenticated Lockbot requests. Use a short name with
+at most 64 characters and keep secrets out of it. Requests without a label continue to work.
+
 For card bots add explicit `--device 0` (repeat for more cards). Private `task.json` accepts
 only `task_category`, `agent_label`, `purpose`; choose the category from current context.
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.

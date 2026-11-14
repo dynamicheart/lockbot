@@ -243,6 +243,8 @@ class NativeProvider:
                         if expiry.tzinfo is None
                         else expiry.astimezone(timezone.utc)
                     )
+                from lockbot.backend.app.resource_api.activity import binding_label_activity
+
                 value = {
                     "instance_id": self._instance_id(db),
                     "bot": {"id": bot.id, "uuid": bot.uuid, "name": bot.name, "type": bot.bot_type},
@@ -250,6 +252,7 @@ class NativeProvider:
                     "identity_revision": bot.identity_revision,
                     "expires_at": expiry.isoformat() if expiry is not None else None,
                     "credential_recovery_health": health,
+                    "agent_activity": binding_label_activity(db, row.id, include_items=True),
                 }
                 # Decryption may be slow. Re-read authority even if another DB
                 # writer did not participate in this process's guard.

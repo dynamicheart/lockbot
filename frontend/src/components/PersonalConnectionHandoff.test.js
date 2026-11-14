@@ -211,6 +211,40 @@ it('projects metadata and never retains unexpected key fields in default state o
   expect(markup).not.toContain(SECRET)
   expect(clipboard).not.toHaveBeenCalled()
 })
+it('shows named and legacy activity for the credential without adding it to copied instructions', async () => {
+  const timestamp = '2026-11-14T12:00:00+00:00'
+  const activity = {
+    window_seconds: 3600,
+    recent_active_agents: 1,
+    items: [
+      { agent_label: '编译 <agent>', last_observed_ip: '2001:db8::1', last_seen_at: timestamp },
+      { agent_label: null, last_observed_ip: null, last_seen_at: timestamp },
+      { agent_label: SECRET, last_observed_ip: null, last_seen_at: timestamp },
+    ],
+  }
+  fetchMock
+    .mockResolvedValueOnce(response(capabilities()))
+    .mockResolvedValueOnce(response(list([{ ...row(), agent_activity: activity }])))
+  mount()
+  await flush()
+  expect(state.items[0].agentActivity).toEqual({
+    count: 1,
+    minutes: 60,
+    items: [
+      { label: '编译 <agent>', ip: '2001:db8::1', lastSeen: timestamp },
+      { label: null, ip: null, lastSeen: timestamp },
+    ],
+  })
+  const markup = await rendered()
+  expect(markup).toContain('近 60 分钟 · 1 个活跃')
+  expect(markup).toContain('编译 &lt;agent&gt;')
+  expect(markup).toContain('2001:db8::1')
+  expect(markup).toContain('未命名客户端')
+  expect(markup).not.toContain(SECRET)
+  await state.copyInstructions(state.items[0])
+  expect(clipboard).toHaveBeenCalledWith(row().instructions)
+})
+
 it('keeps recovery guidance available without requesting protected data for a lost session', async () => {
   mount({ authenticated: false })
   await flush()

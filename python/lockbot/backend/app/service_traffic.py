@@ -388,8 +388,10 @@ async def service_traffic(
         _get_user_bot(bot_id, user, db)
     response.headers["Cache-Control"] = "no-store"
     payload = request.app.state.service_traffic.snapshot(bot_id)
+    from lockbot.backend.app.resource_api.activity import recent_label_activity
     from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 
+    payload["agent_activity"] = recent_label_activity(db, bot_id)
     if private_task_view(db, user, include_private):
         if payload.get("credentials"):
             audit_private_read(db, user, bot_id=bot_id, surface="management.global_service_traffic")
@@ -421,12 +423,14 @@ def bot_service_traffic(
     db: Session = Depends(get_db),
 ):
     from lockbot.backend.app.bots.router import _get_user_bot
+    from lockbot.backend.app.resource_api.activity import recent_label_activity
 
     _get_user_bot(bot_id, user, db)
     response.headers["Cache-Control"] = "no-store"
     from lockbot.backend.app.resource_api.privacy import audit_private_read, private_task_view
 
     payload = request.app.state.service_traffic.snapshot(bot_id)
+    payload["agent_activity"] = recent_label_activity(db, bot_id)
     payload.pop("bot_options", None)
     if private_task_view(db, user, include_private):
         if payload.get("credentials"):
