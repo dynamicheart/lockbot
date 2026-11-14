@@ -353,6 +353,9 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 14px;
 }
+.native-connections .scope {
+  margin: 0;
+}
 .connection-heading {
   display: flex;
   gap: 12px;
@@ -363,8 +366,17 @@ onBeforeUnmount(() => {
 .connection-entry {
   border-top: 1px solid var(--line);
   padding-top: 16px;
-  display: grid;
-  gap: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 12px;
+  align-items: center;
+}
+.connection-entry > .connection-heading,
+.connection-entry > p,
+.connection-entry > details {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .connection-state {
   color: var(--muted);
