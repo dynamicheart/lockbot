@@ -498,3 +498,10 @@ def test_command_verification_explicitly_does_not_attribute_business_success(cas
     result = case.client.command("book", ["node-a"], [], "2m")
     assert result["verification"] == "observed_state_only"
     assert result["command_outcome"] == "not_structured_by_server"
+
+
+def test_incompatible_python_refuses_before_client_or_network(monkeypatch, capsys):
+    monkeypatch.setattr(helper, "runtime_compatible", lambda: False)
+    monkeypatch.setattr(helper, "Client", lambda *_args, **_kwargs: pytest.fail("must not construct a client"))
+    assert helper.main(["resources"]) == 2
+    assert "helper_requires_python_3_10_or_newer" in capsys.readouterr().err

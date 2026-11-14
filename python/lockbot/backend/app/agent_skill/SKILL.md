@@ -87,9 +87,13 @@ A ZIP URL does not automatically install in every client. Use its installer or v
 manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
 supported; the helper is the recommended fixed path, not a new server requirement.
 
-**MUST:** use the installed helper for supported calls; keep each connection's approved
-service/instance/bot and separate mode-0600 key-file reference; never put raw keys in argv
-or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
+**MUST when the helper is available:** first confirm a Python 3.10+ interpreter and a
+complete installed bundle, then use it for supported calls. `python3` below is an example;
+`python` or Windows `py -3` may be candidates, but verify their actual version. If no suitable
+runtime/installer/network is available, do not install dependencies without authorization or
+claim the helper ran. Use an existing authorized HTTP tool with the same identity, rules and
+readback checks, and report the helper limitation. Keep each connection's approved
+service/instance/bot and private key-file reference; never put raw keys in argv or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
 and explicit durations; verify the readback, and never blindly replay an uncertain write.
 This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
 follow the expiry/stop rules below.

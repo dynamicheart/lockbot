@@ -615,7 +615,14 @@ class SafeParser(argparse.ArgumentParser):
         self.exit(2, '{"error":"invalid_cli_arguments","retry_mutation":false}\n')
 
 
+def runtime_compatible():
+    return sys.version_info >= (3, 10)
+
+
 def main(argv=None):
+    if not runtime_compatible():
+        print(json.dumps({"error": "helper_requires_python_3_10_or_newer", "retry_mutation": False}), file=sys.stderr)
+        return 2
     parser = SafeParser(description=__doc__)
     parser.add_argument("--connection", help="Private mode0600 scoped connection JSON; never a raw key")
     sub = parser.add_subparsers(dest="action", required=True)

@@ -4,6 +4,27 @@ The resource Skill installation ZIP now contains the Markdown, a standard-librar
 
 Existing API routes, personal keys, legacy ZIP URL/root (`lockbot-agent-api`) and Markdown URL stay supported. Scripts are an additional recommended client, not a mandatory server gate for older clients. Operator bundles remain separate and do not gain this personal-key client.
 
+## Client runtime availability
+
+Python is **not** a prerequisite for every Lockbot client or for downloading/installing the
+Skill ZIP. Python 3.10+ is the runtime for this particular helper implementation. Confirm the
+actual available interpreter first: `python3 --version`, `python --version`, or Windows
+`py -3 --version` are candidates, not guarantees. Examples below use `python3` as the chosen
+compatible interpreter. The helper refuses unsupported Python versions before making requests.
+
+If there is no suitable interpreter, installer, private-file permission support or network
+path, report the concrete missing capability. Do not install a runtime/dependencies without
+authorization, fabricate a helper result or abandon a working key. The existing compatible
+HTTP API remains available through an already authorized HTTP tool/credential store, following
+the same service/instance/context/rules/readback and no-replay procedure. Installing Markdown
+or downloading a ZIP does not prove the script can execute.
+
+Local validation covers the available macOS Python runtime and fake HTTP/real API fixtures.
+Windows `py -3`, Windows ACL equivalence to POSIX mode0600, environments without Python, missing
+installer, unavailable networking and other Agent runtimes remain explicit acceptance cases.
+Private files are refused when this helper cannot verify its permission constraint; this
+change does not pretend to provide cross-platform ACL handling or Go/Node alternatives.
+
 ## Install and initialize
 
 1. Fetch the approved service's `/api/agent-skill` **without credentials**. Verify `service_id=lockbot.resource-api`, `api_version=1`, the instance identity and namespaced installation descriptor. Follow only same-origin installation URLs and verify the exact ZIP `installation.sha256` before extraction.
