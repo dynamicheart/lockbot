@@ -32,7 +32,8 @@ reuse a conversation ID in the second invocation.
 
 ```sh
 python scripts/dev/skill_continuity_eval.py prepare /private/case-1 \
-  --skill docs/agent-api/SKILL.md --scenario recover
+  --skill docs/agent-api/SKILL.md --scenario recover \
+  --artifacts /private/frozen-artifacts
 # Invoke the private runner with case-1's prompt/system/MCP configuration.
 python scripts/dev/skill_continuity_eval.py score /private/case-1 --final-file /private/case-1/final.txt
 python scripts/dev/skill_continuity_eval.py resume /private/case-1 --destination /private/case-2
@@ -61,13 +62,21 @@ connection/key references and final claims. A text answer saying “installed”
 remember” is insufficient. The original key bytes must remain unchanged; new bot keys
 are private per-bot files. Never publish the one-use login link or raw credential.
 
-The fixture reuses the base installer adapter, whose known ZIP currently contains
-Markdown. Actual helper files, integrity stamps and runtime execution belong to the
-separate helper/bundle PR's tests; do not claim that this fixture executes that helper.
-When the distributed bundle changes, update the fixture installer to the same manifest
-and file inventory before model testing the complete helper package. Missing Python,
-client installer, network, private credential storage and live browser discovery are
-explicit environment acceptance gates, not silently passed by the synthetic tools.
+Continuity cases require an explicit frozen artifact directory with `manifest.json`,
+rendered `SKILL.md` and `lockbot-resource-agent.zip`. The adapter verifies ZIP/Markdown
+hashes, exactly three members (Skill, real helper path and installation stamp),
+per-file digests and the Markdown-plus-helper revision. Download, inspection and
+installation use the same bytes. Missing helper/stamp or no artifact input is
+**blocked**, never silently treated as a successful Markdown-only installation.
+The fresh-session catalog includes the installed revision and helper path; the
+grader verifies persisted bytes against the supplied artifact.
+
+Production-builder integration runs when the helper bundle is available and skips
+explicitly on pre-helper main. The helper source is not copied into this public
+fixture. Synthetic artifact unit tests use a labelled test double that is never
+executed; separate integration uses the actual production builder. Neither path
+claims real client discovery or script execution. Missing Python, client installer,
+network, private storage and real browser consent remain distinct acceptance gates.
 
 No model calls have been made for these new cases. A later report must name phase-1
 and phase-2 hashes/results independently and distinguish offline assertions, model

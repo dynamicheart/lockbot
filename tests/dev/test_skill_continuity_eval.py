@@ -1,8 +1,11 @@
 """Offline only: no model calls, real credentials, or browser consent automation."""
 
+import hashlib
 import importlib.util
+import io
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -15,13 +18,53 @@ SPEC.loader.exec_module(evaluation)
 base = evaluation.base
 
 
+def write_test_artifact(directory, markdown, helper=b"# Synthetic helper fixture; never executed\n"):
+    directory.mkdir()
+    stamp = {
+        "service_id": "lockbot.resource-api",
+        "api_version": "1",
+        "version": hashlib.sha256(markdown + b"\0" + helper).hexdigest()[:16],
+        "files": {
+            "SKILL.md": hashlib.sha256(markdown).hexdigest(),
+            "scripts/lockbot_resource.py": hashlib.sha256(helper).hexdigest(),
+        },
+    }
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        for name, content in {
+            "SKILL.md": markdown,
+            "scripts/lockbot_resource.py": helper,
+            "installation.json": json.dumps(stamp).encode(),
+        }.items():
+            archive.writestr("lockbot-resource-agent/" + name, content)
+    archive = stream.getvalue()
+    (directory / "SKILL.md").write_bytes(markdown)
+    (directory / "lockbot-resource-agent.zip").write_bytes(archive)
+    (directory / "manifest.json").write_text(
+        json.dumps(
+            {
+                "skill_id": "lockbot-resource-agent",
+                "version": stamp["version"],
+                "skill_sha256": stamp["files"]["SKILL.md"],
+                "installation": {
+                    "name": "lockbot-resource-agent",
+                    "download_url": base.BUNDLE_PATH,
+                    "sha256": hashlib.sha256(archive).hexdigest(),
+                },
+            }
+        )
+    )
+    return directory
+
+
 @pytest.fixture
 def case(tmp_path):
     def create(scenario):
         skill = tmp_path / "subject.md"
         skill.write_text("# Fixture Skill\n<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->")
         root = tmp_path / scenario
-        evaluation.prepare(root, skill, scenario)
+        artifact = write_test_artifact(tmp_path / (scenario + "-artifact"), skill.read_bytes())
+        evaluation.prepare(root, skill, scenario, artifact)
         return evaluation.Fixture(root)
 
     return create
@@ -201,3 +244,81 @@ def test_recovery_payload_matches_production_response_models(case):
     fixture = case("recover")
     BindingDirectoryResponse.model_validate(request(fixture, "/api/agent/bindings", base.KEY)["body"])
     BindingRecoveryResponse.model_validate(request(fixture, "/api/agent/bindings/recover", base.KEY, "POST")["body"])
+
+
+def test_markdown_only_installation_is_explicitly_blocked(tmp_path):
+    skill = tmp_path / "skill.md"
+    skill.write_text("# Synthetic Skill")
+    root = tmp_path / "case"
+    evaluation.prepare(root, skill, "recover")
+    fixture = evaluation.Fixture(root)
+    result = fixture.call(
+        "install_skill",
+        {
+            "url": base.ORIGIN + base.BUNDLE_PATH,
+            "sha256": fixture.manifest()["installation"]["sha256"],
+            "destination": "skills/resource",
+        },
+    )
+    assert result["blocked"] and result["error"] == "complete_artifact_required"
+    assert not evaluation.score(root, "Installed")["observable_pass"]
+
+
+def test_complete_bundle_tampering_blocks_before_any_install(case):
+    fixture = case("recover")
+    artifact = fixture.root / "artifacts"
+    with (artifact / "lockbot-resource-agent.zip").open("ab") as stream:
+        stream.write(b"corrupted")
+    with pytest.raises(evaluation.artifacts.ArtifactBlocked, match="digest"):
+        evaluation.Fixture(fixture.root)
+
+
+def test_production_builder_complete_package_is_accepted_when_available(tmp_path, monkeypatch):
+    from importlib.resources import files
+
+    from lockbot.backend.app.resource_api import skill
+
+    helper = files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py")
+    if not helper.is_file():
+        pytest.skip("Production helper is not available before its separate bundle PR")
+    monkeypatch.setenv("PLATFORM_URL", base.ORIGIN)
+    markdown, _, manifest = skill.skill_artifacts()
+    directory = tmp_path / "production-artifacts"
+    directory.mkdir()
+    (directory / "SKILL.md").write_bytes(markdown)
+    (directory / "manifest.json").write_text(json.dumps(manifest))
+    (directory / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle("agent"))
+    root = tmp_path / "production-case"
+    evaluation.prepare(root, directory / "SKILL.md", "recover", directory)
+    fixture = evaluation.Fixture(root)
+    install_and_save(fixture)
+    assert (fixture.workspace / "skills/resource/scripts/lockbot_resource.py").read_bytes() == helper.read_bytes()
+    destination = tmp_path / "production-session-2"
+    evaluation.resume(root, destination)
+    second = evaluation.Fixture(destination)
+    second.call("discover_local_state", {})
+    assert evaluation.score(destination, "Awaiting further checks")["checks"]["complete_package_persisted"]
+    assert fixture.archive == skill.installation_bundle("agent")
+
+
+def test_rehashed_markdown_only_zip_is_still_blocked(case):
+    fixture = case("recover")
+    directory = fixture.root / "artifacts"
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("lockbot-resource-agent/SKILL.md", fixture.markdown)
+    (directory / "lockbot-resource-agent.zip").write_bytes(stream.getvalue())
+    meta = json.loads((directory / "manifest.json").read_text())
+    meta["installation"]["sha256"] = hashlib.sha256(stream.getvalue()).hexdigest()
+    (directory / "manifest.json").write_text(json.dumps(meta))
+    with pytest.raises(evaluation.artifacts.ArtifactBlocked, match="complete_helper_bundle_required"):
+        evaluation.Fixture(fixture.root)
+
+
+def test_installed_helper_changes_fail_fresh_session_grader(case, tmp_path):
+    fixture = case("panel")
+    install_and_save(fixture)
+    (fixture.workspace / "skills/resource/scripts/lockbot_resource.py").write_text("# changed")
+    destination = tmp_path / "changed-session-2"
+    evaluation.resume(fixture.root, destination)
+    assert not evaluation.score(destination, "Installed")["checks"]["complete_package_persisted"]
