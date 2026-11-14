@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createRenderer, nextTick, ssrContextKey } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import PersonalResources from './PersonalResources.vue'
 
 const renderer = createRenderer({
@@ -15,6 +16,7 @@ const renderer = createRenderer({
   patchProp: () => {},
 })
 let app
+let router
 const flush = async () => {
   await Promise.resolve()
   await nextTick()
@@ -28,6 +30,11 @@ afterEach(() => {
 const response = (data, ok = true) => ({ ok, status: ok ? 200 : 503, json: async () => data })
 function mount() {
   app = renderer.createApp({ ...PersonalResources, render: () => null })
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/me/:view?/:selection?', component: { render: () => null } }],
+  })
+  app.use(router)
   app.provide(ssrContextKey, {})
   app.mount({})
   return app._instance.setupState
@@ -464,25 +471,26 @@ it('opens only the selected resource or group and closes on a change of identity
     { ...confirmed, group_id: 'b' },
   ])
 
-  expect(state.detailOpen).toBe(false)
+  expect(state.detailPage).toBeNull()
   expect(state.detailSections).toEqual([])
   const [holdings, reservations] = state.allocationSections
   const item = holdings.items.find(({ first }) => first.allocation.node === 'node-b')
-  state.openWorkbenchResource(item)
+  await state.openWorkbenchResource(item)
+  expect(router.currentRoute.value.path).toMatch(/^\/me\/holdings\/\d+$/)
   expect(state.detailSections).toHaveLength(1)
   expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
 
-  state.openDetails('reservations', { resource: reservations.rows[0].key })
+  await state.openDetails('reservations', { resource: reservations.rows[0].key })
   expect(state.detailSections).toHaveLength(1)
   expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-a'])
   expect(state.detailUtilizationGroups).toEqual([])
 
-  state.openDetails('group', { groupKey: holdings.rows[0].groupKey })
+  await state.openDetails('group', { groupKey: holdings.rows[0].groupKey })
   expect(state.detailSections).toHaveLength(2)
   expect(
     state.detailSections.flatMap(({ rows }) => rows.map(({ group }) => group.group_id))
   ).toEqual(['a', 'a', 'a', 'a'])
   state.session = { authenticated: false, identities: [] }
-  expect(state.detailOpen).toBe(false)
+  await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/me/groups'))
   expect(state.detailSections).toEqual([])
 })
