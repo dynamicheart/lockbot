@@ -311,3 +311,49 @@ it('compiles the actual migration translations without linked-message errors', (
     }
   }
 })
+
+it('requires separate reset confirmation and continues the returned operation', async () => {
+  mount()
+  await selectTarget()
+  const preview = state.check()
+  posts.at(-1).resolve({
+    data: {
+      ...response(),
+      blockers: [],
+      begin_available: true,
+      review_receipt: { token: 'fixture-token' },
+    },
+  })
+  await preview
+  await state.beginMigration()
+  expect(posts).toHaveLength(1)
+  state.confirmed = true
+  const start = state.beginMigration()
+  expect(posts.at(-1).body).toEqual({
+    application_id: 7,
+    chat_id: 'oc_target',
+    review_receipt: 'fixture-token',
+    confirm_clear_live_state: true,
+  })
+  const operation = { operation_id: 'a'.repeat(32), phase: 'drained', continue_available: true }
+  posts.at(-1).resolve({ data: operation })
+  await start
+  const advance = state.continueMigration()
+  expect(posts.at(-1).path).toBe(`/bots/1/migration/${operation.operation_id}/continue`)
+  posts.at(-1).resolve({ data: { ...operation, phase: 'installed' } })
+  await advance
+  expect(state.operation.phase).toBe('installed')
+})
+
+it('recovers an operation after reopening without exposing a second begin action', async () => {
+  mount({ identityRevision: 1 })
+  const status = gets.find(({ path }) => path === '/bots/1/migration')
+  status.resolve({
+    data: { operation_id: 'b'.repeat(32), phase: 'switched', continue_available: true },
+  })
+  await flush()
+  expect(state.operation.phase).toBe('switched')
+  expect(state.receipt).toBe(null)
+  expect(state.canContinue).toBe(true)
+  expect(posts).toHaveLength(0)
+})

@@ -196,6 +196,7 @@ class BotApplicationSummary(BaseModel):
 
 
 class BotDetail(BotOut):
+    migration_in_progress: bool = False
     """Detail view with sensitive fields (both masked and raw for show/copy)."""
 
     owner: str = ""

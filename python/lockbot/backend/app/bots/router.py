@@ -601,7 +601,8 @@ def get_bot(
     view = view_link(db, bot, str(request.base_url)) if bot.resource_auth_enabled else {}
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
-    return {**_mask_bot(bot, db), **view}
+    migration_in_progress = user.role == "super_admin" and migration_fence(db, bot_id) is not None
+    return {**_mask_bot(bot, db), **view, "migration_in_progress": migration_in_progress}
 
 
 @router.post("/{bot_id}/view-link/regenerate")
@@ -2266,6 +2267,11 @@ def migration_preflight(
     response.headers["Cache-Control"] = "no-store"
     observation = observe_migration(db, bot_manager, bot_id, body)
     observation["review_receipt"] = migration_review_receipt(user, observation)
+    observation["begin_available"] = (
+        os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") == "1" and observation["review_receipt"] is not None
+    )
+    if observation["begin_available"]:
+        observation["blockers"].remove("cutover_not_implemented")
     return observation
 
 
@@ -2302,7 +2308,11 @@ def _migration_status(db, bot_id, operation_id=None):
 
 
 def _migration_payload(row):
-    return {"operation_id": row.operation_id, "phase": row.phase}
+    return {
+        "operation_id": row.operation_id,
+        "phase": row.phase,
+        "continue_available": os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") == "1",
+    }
 
 
 def _verify_feishu_migration_destination(application, chat_id, _drained_at):

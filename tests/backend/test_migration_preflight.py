@@ -706,6 +706,7 @@ def test_migration_routes_require_opt_in_and_explicit_confirmation(
     good = client.post(path, headers=admin_header, json={**payload, "confirm_clear_live_state": True})
     assert good.status_code == 202
     assert good.json()["phase"] == "drained"
+    assert good.json()["continue_available"] is True
     assert checked == [(target["application_id"], target["chat_id"])]
     assert client.get(path, headers=admin_header).json() == good.json()
     assert client.post(path + "/wrong-id/continue", headers=admin_header).status_code == 404
@@ -719,3 +720,4 @@ def test_migration_routes_require_opt_in_and_explicit_confirmation(
     assert switched.status_code == 202, switched.text
     assert switched.json() == {**good.json(), "phase": "switched"}
     assert checked == [(target["application_id"], target["chat_id"])] * 2
+    assert client.get(f"/api/bots/{bot_id}", headers=admin_header).json()["migration_in_progress"] is True

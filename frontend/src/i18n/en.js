@@ -58,8 +58,23 @@ export default {
     check: 'Check migration conditions',
     noApplications: 'Configure a Feishu application in site settings first.',
     cannotMigrate: 'Migration is not available yet; this is a preflight only.',
-    resetPolicy: 'Migration clears current holds, reservations and authorizations. Users enroll again in Feishu. Resource settings and history are retained.',
-    durationWhitelistReset: 'The migration will clear {count} source-platform entries from the duration allowlist.',
+    resetPolicy:
+      'Migration clears current holds, reservations and authorizations. Users enroll again in Feishu. Resource settings and history are retained.',
+    durationWhitelistReset:
+      'The migration will clear {count} source-platform entries from the duration allowlist.',
+    confirmReset: 'I confirm clearing the reviewed holds, reservations and source authorizations.',
+    begin: 'Confirm and stop source',
+    advance: 'Continue migration',
+    reviewConflict: 'Refresh the migration status or run preflight again before continuing.',
+    phases: {
+      frozen: 'Draining source operations',
+      drained: 'Source stopped. Ready to switch.',
+      source_changed: 'Source state changed. Administrator review required.',
+      recovery_required: 'Persisted state requires reconciliation.',
+      switched: 'Route switched. Ready to start.',
+      installed: 'Destination state installed. Ready to start.',
+      completed: 'Migration complete. Users can enroll again in Feishu.',
+    },
     stateUnknown: 'The current resource state could not be verified.',
     blockersTitle: 'Blockers',
     unverifiedTitle: 'Not yet verified',
@@ -1011,7 +1026,8 @@ export default {
     lifetimeThreeMonths: '3 months',
     lifetimeHalfYear: '6 months',
     loginSessionLifetime: 'Account session lifetime',
-    loginSessionLifetimeHint: 'Applies to newly issued account sessions. Turning off never-expiring sessions requires those sessions to sign in again.',
+    loginSessionLifetimeHint:
+      'Applies to newly issued account sessions. Turning off never-expiring sessions requires those sessions to sign in again.',
     basicInformation: 'Basic information',
     messagePlatforms: 'Messaging platforms',
     agentPromotionSection: 'Agent promotion',
@@ -1020,7 +1036,8 @@ export default {
     agentPromotionText: 'Link prefix',
     agentPromotionTextHint:
       'Leave blank for defaults. The link is added automatically. Plain single-line text, up to 120 characters.',
-    agentPromotionHint: 'Show the Skill installation bundle link after successful resource requests.',
+    agentPromotionHint:
+      'Show the Skill installation bundle link after successful resource requests.',
     platformUrl: 'Platform URL',
     platformUrlPlaceholder: 'e.g. http://192.168.1.1:8080',
     githubUrl: 'GitHub URL',
