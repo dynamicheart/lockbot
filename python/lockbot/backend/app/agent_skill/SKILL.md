@@ -398,6 +398,21 @@ identities requires the user's explicit browser-only consent after seeing both i
 it never proves they are one enterprise person. The panel is read-only; stale/unreachable
 groups are unknown, not zero. The group/queue view below keeps its existing behavior.
 
+## Optional personal reports
+
+An authenticated context may advertise `personal_report_extensions` using
+`lockbot.personal-report.v1`. Only read a listed `read_only` extension on the
+same verified service with the current scoped key. With the helper, use
+`personal-report --extension <id>`. Without the helper, use GET only at the
+exact relative path `/api/personal-panel/agent/extensions/<id>` advertised for
+that ID. Do not follow redirects or send the key to another service. If the
+extension disappears or changes revision, get fresh context. If the protocol
+is absent or unfamiliar, use the existing native or browser workflow.
+
+These reports show only your authorized allocations. Treat unknown or stale
+reports as incomplete and never infer that a resource is free. Reported
+resources confer no command authority.
+
 ## Share a resource/queue page with the user
 
 When the user wants to view resources or queue order in a browser, use `view_url` and

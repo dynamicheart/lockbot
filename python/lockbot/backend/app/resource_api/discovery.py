@@ -130,9 +130,10 @@ class AgentContextResponse(BaseModel):
     skill: dict[str, Any]
     view_url: str | None = None
     view_expires_at: str | None = None
+    personal_report_extensions: dict[str, Any] | None = None
 
 
-@router.get("/context", response_model=AgentContextResponse)
+@router.get("/context", response_model=AgentContextResponse, response_model_exclude_unset=True)
 @limiter.limit("60/minute")
 def agent_context(request: Request, response: Response, db: Session = Depends(get_db)):
     """Discover only the identity/bot bound to this key. Never scan or list other bots.
@@ -177,6 +178,17 @@ def _context_payload(request, response, db, row):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
     view = view_link(db, bot, str(request.base_url)) if bot.resource_auth_enabled else {}
+    extensions = {}
+    reports = getattr(request.app.state, "agent_personal_reports", None)
+    if (
+        reports is not None
+        and bot.status == "running"
+        and bot.resource_auth_enabled
+        and str(request.base_url).rstrip("/") == request.app.state.agent_personal_report_origin
+    ):
+        directory = reports.discover_binding(db, row)
+        if directory is not None:
+            extensions["personal_report_extensions"] = directory
     return {
         "server": server_metadata(request, db),
         "actor": {"platform": row.platform, "external_user_id": row.external_user_id},
@@ -222,7 +234,9 @@ def _context_payload(request, response, db, row):
         },
         "skill": skill_artifacts()[2],
         "skill_update": client_skill_notice(request),
-        **view,
+        "view_url": view.get("view_url"),
+        "view_expires_at": view.get("view_expires_at"),
+        **extensions,
     }
 
 
