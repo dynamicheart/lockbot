@@ -21,7 +21,7 @@ class BotMigration(Base):
     bot_uuid: Mapped[str] = mapped_column(String(36))
     source_revision: Mapped[int] = mapped_column(Integer)
     requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    target_application_id: Mapped[int] = mapped_column(ForeignKey("feishu_applications.id"))
+    target_application_id: Mapped[int] = mapped_column(Integer, index=True)
     target_chat_id: Mapped[str] = mapped_column(String(128))
     review_digest: Mapped[str] = mapped_column(String(64))
     frozen_at: Mapped[datetime] = mapped_column(DateTime)

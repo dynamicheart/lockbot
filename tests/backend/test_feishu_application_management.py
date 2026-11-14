@@ -334,3 +334,36 @@ def test_legitimate_rotation_rebinds_retained_guard_and_still_enforces_expiry(
     with pytest.raises(FeishuAPIError):
         retained.send({"receive_id": "oc_fixture"})
     assert requests == []
+
+
+def test_delete_application_respects_unfinished_migration(client, auth_header, db_session, application):
+    from lockbot.backend.app.bots.migration_journal import record_migration_freeze
+    from lockbot.backend.app.bots.models import Bot
+
+    user = db_session.query(User).filter_by(username="testuser").one()
+    bot = Bot(
+        uuid="fixture-migrating-bot",
+        user_id=user.id,
+        name="migration-source",
+        bot_type="NODE",
+        webhook_url="",
+        cluster_configs='["node1"]',
+    )
+    db_session.add(bot)
+    db_session.flush()
+    destination = SimpleNamespace(application_id=application, chat_id="oc_fixture")
+    migration = record_migration_freeze(db_session, bot, destination, "a" * 64)
+    db_session.commit()
+
+    path = f"/api/feishu/applications/{application}"
+    blocked = client.delete(path, headers=auth_header)
+    assert blocked.status_code == 409
+    assert "unfinished migration" in blocked.text
+    assert db_session.get(FeishuApplication, application) is not None
+
+    migration.phase = "cancelled"
+    db_session.commit()
+    assert client.delete(path, headers=auth_header).status_code == 204
+    db_session.expire_all()
+    assert db_session.get(FeishuApplication, application) is None
+    assert migration.target_application_id == application

@@ -229,6 +229,7 @@ def update_application(
 def delete_application(
     application_id: int, request: Request, user: User = Depends(require_super_admin), db: Session = Depends(get_db)
 ):
+    from lockbot.backend.app.bots.migration_journal import BotMigration
     from lockbot.backend.app.feishu.connectors import connectors
     from lockbot.backend.app.feishu.service import invalidate_application_clients
 
@@ -251,6 +252,15 @@ def delete_application(
         app = db.get(FeishuApplication, application_id)
         if app is None or app.app_id != expected_app_id:
             raise HTTPException(409, "Application changed; refresh before deleting")
+        if (
+            db.query(BotMigration)
+            .filter(
+                BotMigration.target_application_id == application_id,
+                BotMigration.phase.notin_({"completed", "cancelled"}),
+            )
+            .first()
+        ):
+            raise HTTPException(409, "Application is the destination of an unfinished migration")
         if db.query(FeishuGroupRoute).filter_by(application_id=application_id).first():
             raise HTTPException(409, "Application is associated with resource bots")
         if db.query(FeishuReceivedMessage).filter_by(application_id=application_id, state="claimed").first():
