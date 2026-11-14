@@ -46,6 +46,14 @@
         >
           查看 Key：复制单次授权请求给 Agent
         </button>
+        <button
+          v-if="rotationSupported"
+          class="connection-button"
+          :disabled="loading"
+          @click="copyRotationRequest(item)"
+        >
+          重置 Key：复制专用授权请求给 Agent
+        </button>
         <details>
           <summary>查看接入说明与连接标识</summary>
           <textarea
@@ -92,6 +100,7 @@ const skill = ref(null)
 const recoveryGuide = ref('')
 const supported = ref(false)
 const viewSupported = ref(false)
+const rotationSupported = ref(false)
 const loading = ref(false)
 const unavailable = ref(false)
 const error = ref('')
@@ -219,6 +228,17 @@ async function refresh() {
       view.requires_matching_browser_grant === true &&
       view.single_use === true &&
       view.issue_path === '/api/personal-panel/credential-view-links'
+    const rotation = management?.credential_rotation
+    rotationSupported.value =
+      supported.value &&
+      rotation?.version === 1 &&
+      rotation.purpose === 'rotate_current_key' &&
+      rotation.requires_original_credential === true &&
+      rotation.requires_matching_browser_grant === true &&
+      rotation.single_use === true &&
+      rotation.requires_typed_group === true &&
+      rotation.requires_second_confirmation === true &&
+      rotation.issue_path === '/api/personal-panel/credential-rotation-links'
     if (!supported.value) {
       skill.value = null
       recoveryGuide.value = ''
@@ -282,6 +302,28 @@ async function copyViewRequest(item) {
       '只私下交给本人返回的短期 view_url，由本人在已有同身份浏览器会话预览后明确确认。' +
       '不要回显 Key，不把链接放群聊，不把只读登录或资源链接升级为查看票；不重置、轮换、重新绑定或延长授权。' +
       '若原 Key 已过期、撤销或身份迁移，拒绝签发并给固定恢复指引；副本缺失时保留有效本地 Key。'
+  )
+}
+async function copyRotationRequest(item) {
+  if (
+    !rotationSupported.value ||
+    !props.authenticated ||
+    loading.value ||
+    !items.value.includes(item)
+  )
+    return
+  const target = JSON.stringify({
+    service: item.service_origin,
+    instance_id: item.instance_id,
+    bot: item.bot,
+    actor: item.actor,
+  })
+  await copy(
+    `请按既有 lockbot-resource-agent Skill 核对本人身份和私密投递渠道。以下仅为目标标识，不是授权：${target}。` +
+      '本人准备评审这一个绑定的 Key 重置：它将使使用此身份在此群旧 Key 的所有 Agent 失效，需逐个更新。' +
+      '请仅用这一个连接当前有效原 lbr，通过可信服务 POST /api/personal-panel/credential-rotation-links 签发独立 rotate_current_key 短期链接，私下交本人。' +
+      '不得用只读会话、登录票、查看票或其它群 Key 升级；过期、撤销或迁移的原 Key 必须拒绝并给恢复指引。' +
+      '先由本人在浏览器预览具体群和身份、输入完整群名并二次确认，不能替本人自动确认或重放提交；不延长原到期时间，不改其它连接，不在说明中回显 Key。'
   )
 }
 function fallbackCopy(value) {

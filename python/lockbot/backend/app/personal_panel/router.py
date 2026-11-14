@@ -123,6 +123,9 @@ def create_panel(
     # authority by returning similarly shaped metadata or display names.
     native_connections = type(provider) is NativeProvider
     credential_views = CredentialViews(sessions) if native_connections else None
+    rotation_enabled = native_connections and provider.config.get("allow_credential_rotation") is True
+    rotation_links = CredentialViews(sessions, purpose="rotate_link") if rotation_enabled else None
+    rotation_intents = CredentialViews(sessions, purpose="rotate_intent") if rotation_enabled else None
     skill = installation(origin) if native_connections else None
     recovery_guide = recovery_instructions(origin, skill) if skill else None
 
@@ -136,6 +139,7 @@ def create_panel(
         browser_post = request.method == "POST" and request.url.path.rsplit("/", 1)[-1] not in (
             "links",
             "credential-view-links",
+            "credential-rotation-links",
         )
         if browser_post and request.headers.get("origin") != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
@@ -187,6 +191,22 @@ def create_panel(
                             "requires_matching_browser_grant": True,
                             "single_use": True,
                         },
+                        **(
+                            {
+                                "credential_rotation": {
+                                    "version": 1,
+                                    "purpose": "rotate_current_key",
+                                    "issue_path": request.url.path.rsplit("/", 1)[0] + "/credential-rotation-links",
+                                    "requires_original_credential": True,
+                                    "requires_matching_browser_grant": True,
+                                    "single_use": True,
+                                    "requires_typed_group": True,
+                                    "requires_second_confirmation": True,
+                                }
+                            }
+                            if rotation_enabled
+                            else {}
+                        ),
                     }
                 }
                 if native_connections
@@ -307,6 +327,114 @@ def create_panel(
             "expires_at": deadline,
             "expires_in": max(0, deadline - time.time()),
             "purpose": "view_current_key",
+        }
+
+    @app.post("/credential-rotation-links")
+    def issue_credential_rotation(request: Request):
+        if not rotation_enabled:
+            raise HTTPException(404)
+        auth = request.headers.get("authorization", "")
+        if request.headers.get("origin") or not auth.startswith("Bearer lbr_") or len(auth) > 8192:
+            raise HTTPException(401, "A fresh original credential is required")
+        with rate_lock:
+            now = monotonic()
+            while recent and recent[0] < now - 60:
+                recent.popleft()
+            if len(recent) >= 120:
+                raise HTTPException(429, headers={"Retry-After": "60"})
+            recent.append(now)
+        try:
+            # This authenticates the original lbr, not a view proof. The new
+            # proof is stored in a separate rotate-purpose table.
+            grant, pin, expiry = provider.issue_credential_view(auth[7:])
+            token, deadline = rotation_links.issue(grant, pin, expiry)
+        except Exception:
+            raise HTTPException(401, "Binding unavailable") from None
+        return {
+            "rotation_url": origin + "/#/me?credential_rotation=" + token,
+            "expires_at": deadline,
+            "purpose": "rotate_current_key",
+        }
+
+    def inspect_rotation(request, store, token, *, consume=False):
+        if not rotation_enabled:
+            raise HTTPException(404)
+        try:
+            grant, pin, deadline = store.inspect(token, request.cookies.get(cookie_name), consume=consume)
+        except PermissionError:
+            raise HTTPException(403, "A matching current personal session is required") from None
+        except ValueError:
+            raise HTTPException(410, "Rotation authorization expired or used") from None
+        if not valid(grant) or time.time() >= deadline:
+            raise HTTPException(403, "Binding changed or expired")
+        return grant, pin, deadline
+
+    @app.post("/credential-rotation-preview")
+    async def preview_credential_rotation(request: Request):
+        data = await fields(request, ["ticket"])
+        grant, pin, deadline = inspect_rotation(request, rotation_links, data["ticket"])
+        try:
+            provider.credential_view(grant, pin)
+            item = provider.connection(grant)
+            provider.credential_view(grant, pin)
+        except Exception:
+            raise HTTPException(403, "Binding changed") from None
+        # Turn one fresh link into exactly one server-side intent. The canonical
+        # group label and expiry are pinned here, never supplied by the browser.
+        inspect_rotation(request, rotation_links, data["ticket"], consume=True)
+        payload = json.dumps({"pin": pin, "canonical_name": item["bot"]["name"]})
+        try:
+            intent, deadline = rotation_intents.issue(grant, payload, deadline)
+        except Exception:
+            raise HTTPException(410, "Rotation authorization unavailable") from None
+        return {
+            "intent": intent,
+            "connection": item,
+            "service_origin": origin,
+            "purpose": "rotate_current_key",
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
+            "impact": (
+                "All Agents using this identity's current Key for this bot lose access; "
+                "other users and bots are unchanged."
+            ),
+        }
+
+    @app.post("/credential-rotation-confirm")
+    async def confirm_credential_rotation(request: Request):
+        data = await fields(request, ["intent", "typed_group", "confirmation"])
+        grant, payload, deadline = inspect_rotation(request, rotation_intents, data["intent"])
+        intent = json.loads(payload)
+        if (
+            data["typed_group"] != intent["canonical_name"]
+            or data["confirmation"] != "invalidate_all_agents_using_this_key"
+        ):
+            raise HTTPException(400, "Exact group name and second confirmation are required")
+        inspect_rotation(request, rotation_intents, data["intent"], consume=True)
+        try:
+            replacement = provider.rotate_credential(grant, intent["pin"], intent["canonical_name"], deadline)
+        except (ProviderError, ValueError):
+            raise HTTPException(409, "Rotation authority changed; request fresh proof, do not replay") from None
+        except Exception:
+            raise HTTPException(503, "Rotation outcome unavailable; do not retry automatically") from None
+        # Rotation is durable now. A lost response must not trigger another
+        # rotation; the encrypted copy remains recoverable through fresh proof.
+        try:
+            authorized = bool(provider.authenticate(replacement)) and time.time() < deadline
+        except Exception:
+            authorized = False
+        try:
+            authorized = sessions.remove_grant(grant, required_cookie=request.cookies.get(cookie_name)) and authorized
+        except Exception:
+            raise HTTPException(503, "Rotation outcome unavailable; do not retry automatically") from None
+        if not authorized or time.time() >= deadline:
+            raise HTTPException(403, "Rotation completed; authorize through IM to recover access, do not replay")
+        return {
+            "credential": replacement,
+            "purpose": "rotated_current_key",
+            "requires_fresh_login": True,
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
         }
 
     def inspect_ticket(token):

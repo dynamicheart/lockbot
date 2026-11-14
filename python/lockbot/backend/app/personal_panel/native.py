@@ -136,12 +136,18 @@ class NativeProvider:
             if not isinstance(pin, dict) or pin.get("platform") != row.platform or not _text(pin.get("realm")):
                 raise ProviderError("identity_namespace_mismatch")
             realm = _namespace("instance", instance, "attested", pin["realm"])
+        generation = row.credential_generation
+        if not isinstance(generation, int) or generation < 0:
+            raise ProviderError("credential_invalid")
+        scope = _namespace(instance, bot.uuid, bot.identity_revision)
+        if generation:
+            scope = _namespace(instance, bot.uuid, bot.identity_revision, "credential_generation", generation)
         return {
             "issuer": self.config["issuer"],
             "platform": row.platform,
             "realm": realm,
             "subject": row.external_user_id,
-            "scope": _namespace(instance, bot.uuid, bot.identity_revision),
+            "scope": scope,
             "ref": row.public_id,
         }
 
@@ -252,6 +258,20 @@ class NativeProvider:
                 if not hmac.compare_digest(self._credential_pin(row), pin):
                     raise ProviderError("credential_changed")
                 return key
+
+    def rotate_credential(self, grant, pin, canonical_name, deadline):
+        """Use a confirmed rotation intent against exact current authority."""
+        with self.session_factory() as db:
+            row = self._validated(db, grant)
+            with authority_guard(row.bound_bot_id, platform=row.platform, external_user_id=row.external_user_id):
+                db.rollback()
+                db.expire_all()
+                row = self._validated(db, grant)
+                if not hmac.compare_digest(self._credential_pin(row), pin):
+                    raise ProviderError("credential_changed")
+                return service.rotate_confirmed_credential(
+                    db, row=row, instance_id=self._instance_id(db), canonical_name=canonical_name, deadline=deadline
+                )
 
     def report(self, grant):
         with self.session_factory() as db:
