@@ -17,7 +17,7 @@ import { pendingPanelTicket } from '../utils/personalPanelTicket'
 
 const routes = [
   {
-    path: '/me',
+    path: '/me/:view(groups|credentials|holdings|reservations|group)?/:selection?',
     name: 'PersonalResources',
     component: () => import('../views/PersonalResources.vue'),
     meta: { resourceView: true },

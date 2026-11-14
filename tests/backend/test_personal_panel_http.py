@@ -325,6 +325,7 @@ def test_third_party_reports_cannot_supply_owner_task_details(env):
     def report(grant):
         groups = snapshot(grant)
         groups[0]["allocations"][0]["own_task"] = {"note": "untrusted aftermarket note"}
+        groups[0]["utilization"] = {"configuration": {"endpoint": "https://untrusted.example.invalid"}}
         return groups
 
     directory.report = report
@@ -334,3 +335,4 @@ def test_third_party_reports_cannot_supply_owner_task_details(env):
         assert response.status_code == 200
         assert "own_task" not in response.text
         assert "untrusted aftermarket note" not in response.text
+        assert "utilization" not in response.text

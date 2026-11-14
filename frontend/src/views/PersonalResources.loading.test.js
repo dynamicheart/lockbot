@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createRenderer, nextTick, ssrContextKey } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
 import PersonalResources from './PersonalResources.vue'
 
 const renderer = createRenderer({
@@ -15,6 +16,7 @@ const renderer = createRenderer({
   patchProp: () => {},
 })
 let app
+let router
 const flush = async () => {
   await Promise.resolve()
   await nextTick()
@@ -28,6 +30,11 @@ afterEach(() => {
 const response = (data, ok = true) => ({ ok, status: ok ? 200 : 503, json: async () => data })
 function mount() {
   app = renderer.createApp({ ...PersonalResources, render: () => null })
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [{ path: '/me/:view?/:selection?', component: { render: () => null } }],
+  })
+  app.use(router)
   app.provide(ssrContextKey, {})
   app.mount({})
   return app._instance.setupState
@@ -152,6 +159,122 @@ async function readyGroups(groups) {
   await vi.waitFor(() => expect(state.resourcesReady).toBe(true))
   return state
 }
+
+it('polls mapped holdings and drops the snapshot when the holding or scope disappears', async () => {
+  const utilization = {
+    connection: 'binding-a',
+    configuration: { nodeMapping: { 'node-a': 'host-a', 'node-b': 'host-b' } },
+  }
+  const group = {
+    ...confirmed,
+    utilization,
+    allocations: [
+      ...confirmed.allocations,
+      { kind: 'hold', node: 'unmapped' },
+      { kind: 'reservation', node: 'node-b' },
+    ],
+  }
+  const state = await readyGroups([group])
+  expect(state.utilizationGroups).toEqual([{ ...utilization, nodes: ['node-a'] }])
+  state.utilizationSnapshots['binding-a'] = { enabled: true, snapshot: {} }
+  state.groups = [{ ...group, status: 'unknown' }]
+  expect(state.utilizationGroups).toEqual([])
+  expect(state.utilizationSnapshots).toEqual({})
+})
+
+it('shows remaining lease time across UTC offsets and keeps queued records without a deadline distinct', async () => {
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      allocations: [...confirmed.allocations, { kind: 'reservation', node: 'node-b' }],
+    },
+  ])
+  state.clock = Date.parse('2026-11-14T12:00:00Z')
+  const expiry = '2026-11-14T21:15:00+08:00'
+  expect(state.remaining(expiry)).toBe('1 小时 15 分钟')
+  expect(state.remaining('2026-11-14 13:15:00')).toBe('1 小时 15 分钟')
+  expect(state.remaining(null)).toBe('未提供')
+  state.clock = Date.parse(expiry) - 1000
+  expect(state.remaining(expiry)).toBe('不到 1 分钟')
+  state.clock += 1000
+  expect(state.remaining(expiry)).toBe('已到期')
+  expect(state.allocationSections.map((section) => section.timeLabel)).toEqual(['剩余时间', ''])
+})
+
+it('filters holdings and bookings across groups without changing summary counts', async () => {
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      group_id: 'a',
+      label: 'Group A',
+      allocations: [
+        { kind: 'hold', node: 'node-10', device: '0', expires_at: 100 },
+        {
+          kind: 'hold',
+          node: 'node-2',
+          device: '1',
+          expires_at: 200,
+          own_task: { category: '模型测试' },
+        },
+        { kind: 'hold', node: 'node-3' },
+      ],
+    },
+    {
+      ...confirmed,
+      group_id: 'b',
+      label: 'Group B',
+      allocations: [{ kind: 'reservation', node: 'node-2', device: '1' }],
+    },
+  ])
+  const heldNodes = () => state.allocationSections[0].rows.map(({ allocation }) => allocation.node)
+  expect(heldNodes()).toEqual(['node-10', 'node-2', 'node-3'])
+  state.allocationSort = 'latest'
+  expect(heldNodes()).toEqual(['node-2', 'node-10', 'node-3'])
+  state.allocationSort = 'resource'
+  expect(heldNodes()).toEqual(['node-2', 'node-3', 'node-10'])
+  state.allocationQuery = 'NODE-2 dev1'
+  expect(heldNodes()).toEqual(['node-2'])
+  expect(state.allocationSections[1].rows).toHaveLength(1)
+  state.allocationQuery = '模型测试'
+  expect(heldNodes()).toEqual(['node-2'])
+  expect(state.allocationSections[1].rows).toHaveLength(0)
+  state.allocationGroup = state.allocationGroups[1].value
+  expect(heldNodes()).toEqual([])
+  expect(state.statistics.map(({ value }) => value)).toEqual([3, 2, 1])
+})
+
+it('groups held cards within one resource group and sorts by the earliest card deadline', async () => {
+  const card = (node, device, expires_at) => ({ kind: 'hold', node, device, expires_at })
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      group_id: 'a',
+      allocations: [
+        card('node-a', '0', 300),
+        card('node-a', '1', 100),
+        card('node-b', '0', 200),
+        { ...card('node-a', '0', 400), kind: 'reservation' },
+      ],
+    },
+    { ...confirmed, group_id: 'b', allocations: [card('node-a', '0', 250)] },
+  ])
+  state.allocationSort = 'latest'
+  const items = () => state.allocationSections[0].items
+  expect(items().map((item) => item.first.allocation.expires_at)).toEqual([250, 200, 100])
+  expect(items().map((item) => item.rows.length)).toEqual([1, 1, 2])
+  expect(state.allocationSections[1].items).toHaveLength(1)
+
+  state.clock = 0
+  expect(state.nodeRemaining(items()[2])).toBe('1 分钟 至 5 分钟')
+  expect(state.nodeRemaining({ deadlines: [300_000] })).toBe('5 分钟')
+  expect(state.nodeRemaining({ deadlines: [300_000, NaN] })).toBe('5 分钟（部分未知）')
+  const { key } = items()[2]
+  expect(state.expandedNodes.has(key)).toBe(false)
+  state.toggleNode(key)
+  expect(state.expandedNodes.has(key)).toBe(true)
+  state.allocationQuery = 'dev1'
+  expect(items().flatMap((item) => item.rows.map((row) => row.allocation.device))).toEqual(['1'])
+})
 
 it('uses loading placeholders initially and shows a confirmed zero after an empty response', async () => {
   let finish
@@ -330,4 +453,44 @@ it('removes a partial report when the stream invalidates authorization', async (
   await vi.waitFor(() => expect(state.resourceLoading).toBe(false))
   expect(state.groups).toEqual([])
   expect(state.statistics.every((item) => item.value === null)).toBe(true)
+})
+
+it('opens only the selected resource or group and closes on a change of identity scope', async () => {
+  const booking = { kind: 'reservation', node: 'node-a', device: '0' }
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      group_id: 'a',
+      allocations: [
+        ...confirmed.allocations,
+        { kind: 'hold', node: 'node-b' },
+        booking,
+        { ...booking, node: 'node-b' },
+      ],
+    },
+    { ...confirmed, group_id: 'b' },
+  ])
+
+  expect(state.detailPage).toBeNull()
+  expect(state.detailSections).toEqual([])
+  const [holdings, reservations] = state.allocationSections
+  const item = holdings.items.find(({ first }) => first.allocation.node === 'node-b')
+  await state.openWorkbenchResource(item)
+  expect(router.currentRoute.value.path).toMatch(/^\/me\/holdings\/\d+$/)
+  expect(state.detailSections).toHaveLength(1)
+  expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
+
+  await state.openDetails('reservations', { resource: reservations.rows[0].key })
+  expect(state.detailSections).toHaveLength(1)
+  expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-a'])
+  expect(state.detailUtilizationGroups).toEqual([])
+
+  await state.openDetails('group', { groupKey: holdings.rows[0].groupKey })
+  expect(state.detailSections).toHaveLength(2)
+  expect(
+    state.detailSections.flatMap(({ rows }) => rows.map(({ group }) => group.group_id))
+  ).toEqual(['a', 'a', 'a', 'a'])
+  state.session = { authenticated: false, identities: [] }
+  await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/me/groups'))
+  expect(state.detailSections).toEqual([])
 })

@@ -2,88 +2,92 @@
   <section v-if="authenticated || supported || loading || error" class="panel native-connections">
     <template v-if="supported || loading || error">
       <div class="connection-heading">
-        <h2>本人连接与 Agent 接入</h2>
-        <button class="connection-button" :disabled="loading" @click="refresh">
-          刷新 Key 状态
-        </button>
+        <h2>Agent 授权</h2>
+        <button class="connection-button" :disabled="loading" @click="refresh">刷新授权</button>
       </div>
-      <p class="scope">刷新只重新检查授权和恢复状态，不更换或延长 Key。接入说明不包含 Key。</p>
-      <p v-if="loading" role="status" class="scope">正在验证本人连接…</p>
+      <p class="scope">换设备或换 Agent 时，复制对应资源群的接入说明发给 Agent。</p>
+      <p v-if="loading" role="status" class="scope">正在检查授权…</p>
       <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
-      <p v-if="unavailable" class="connection-warning">
-        部分绑定已失效或不可用，请让已绑定的 Agent 检查。
-      </p>
+      <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
       <div v-for="item in items" :key="item.id" class="connection-entry">
         <div class="connection-heading">
-          <h3>{{ item.bot.name }}</h3>
-          <span class="connection-state">绑定已确认</span>
-        </div>
-        <p class="scope">
-          {{ platformName(item.actor.platform) }} · {{ item.actor.external_user_id }}
-        </p>
-        <p class="scope">服务 {{ item.service_origin }}</p>
-        <p class="scope">
-          {{ healthText(item.credential_recovery_health) }} · {{ expiryText(item.expires_at) }}
-        </p>
-        <p
-          v-if="['legacy_missing', 'unreadable'].includes(item.credential_recovery_health)"
-          class="connection-warning"
-        >
-          恢复副本不可用不代表本地 Key 作废。保留有效原 Key，由原 Agent 按说明检查或回填。
-        </p>
-        <button
-          class="connection-button primary"
-          :disabled="loading"
-          @click="copyInstructions(item)"
-        >
-          复制接入说明
-        </button>
-        <button
-          v-if="viewSupported"
-          class="connection-button"
-          :disabled="loading"
-          @click="copyViewRequest(item)"
-        >
-          查看 Key：复制单次授权请求给 Agent
-        </button>
-        <button
-          v-if="rotationSupported"
-          class="connection-button"
-          :disabled="loading"
-          @click="copyRotationRequest(item)"
-        >
-          重置 Key：复制专用授权请求给 Agent
-        </button>
-        <button v-if="item.recovery_instructions" class="connection-button" @click="copyConnectionRecovery(item)">复制此连接恢复指引</button>
-        <p v-if="item.skill" class="scope"><a :href="item.skill.bundle_url" target="_blank" rel="noopener noreferrer">完整 Skill ZIP</a> · <a :href="item.skill.markdown_url" target="_blank" rel="noopener noreferrer">SKILL.md</a></p>
-        <details>
-          <summary>查看接入说明与连接标识</summary>
-          <textarea
-            readonly
-            :value="item.instructions"
-            :aria-label="`${item.bot.name} 的无 Key 接入说明`"
-          />
-          <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
-        </details>
-      </div>
-      <div v-if="supported && skill" class="connection-recovery">
-        <div class="connection-heading">
-          <h3>连接失效或需要交给另一位 Agent</h3>
-          <button class="connection-button" @click="copyRecovery">
-            发送给 Agent：复制恢复指引
+          <div>
+            <h3>{{ item.bot.name }}</h3>
+            <p class="scope">
+              {{ platformName(item.actor.platform) }} · {{ item.actor.external_user_id }}
+            </p>
+          </div>
+          <button
+            class="connection-button primary"
+            :disabled="loading"
+            @click="copyInstructions(item)"
+          >
+            复制给 Agent
           </button>
         </div>
-        <p class="scope">
-          先检查现有私有连接；Key 过期或撤销后不能继续授权，不自动重置或重新绑定。
-        </p>
-        <details>
-          <summary>查看恢复指引</summary>
-          <textarea readonly :value="recoveryGuide" aria-label="无 Key 恢复指引" />
+        <details class="credential-details">
+          <summary>凭证管理与恢复</summary>
+          <p class="scope">
+            {{ item.service_origin }} · {{ healthText(item.credential_recovery_health)
+            }}<template v-if="item.expires_at"> · {{ expiryText(item.expires_at) }}</template>
+          </p>
+          <p
+            v-if="['legacy_missing', 'unreadable'].includes(item.credential_recovery_health)"
+            class="connection-warning"
+          >
+            请保留本地有效 Key，并让原 Agent 检查恢复副本。
+          </p>
+          <div class="credential-actions">
+            <button
+              v-if="viewSupported"
+              class="connection-button"
+              :disabled="loading"
+              @click="copyViewRequest(item)"
+            >
+              复制查看 Key 请求
+            </button>
+            <button
+              v-if="rotationSupported"
+              class="connection-button"
+              :disabled="loading"
+              @click="copyRotationRequest(item)"
+            >
+              复制重置 Key 请求
+            </button>
+            <button
+              v-if="item.recovery_instructions"
+              class="connection-button"
+              @click="copyConnectionRecovery(item)"
+            >
+              复制恢复指引
+            </button>
+          </div>
+          <p v-if="item.skill" class="scope">
+            <a :href="item.skill.bundle_url" target="_blank" rel="noopener noreferrer"
+              >下载 Skill</a
+            >
+            ·
+            <a :href="item.skill.markdown_url" target="_blank" rel="noopener noreferrer"
+              >SKILL.md</a
+            >
+          </p>
+          <details>
+            <summary>接入说明与连接标识</summary>
+            <textarea
+              readonly
+              :value="item.instructions"
+              :aria-label="`${item.bot.name} 的无 Key 接入说明`"
+            />
+            <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
+          </details>
         </details>
-        <a :href="skill.bundle_url" target="_blank" rel="noopener noreferrer">完整 Skill ZIP</a>
-        <span aria-hidden="true"> · </span>
-        <a :href="skill.markdown_url" target="_blank" rel="noopener noreferrer">SKILL.md</a>
       </div>
+      <details v-if="supported && skill" class="connection-recovery">
+        <summary>如何找回连接</summary>
+        <button class="connection-button" @click="copyRecovery">复制恢复指引</button>
+        <textarea readonly :value="recoveryGuide" aria-label="无 Key 恢复指引" />
+        <a :href="skill.bundle_url" target="_blank" rel="noopener noreferrer">下载 Skill</a>
+      </details>
       <p v-if="feedback" role="status" class="scope">{{ feedback }}</p>
     </template>
     <template v-else>
@@ -144,7 +148,8 @@ function installation(value, origin = location.origin) {
 function connection(row, pins = null) {
   const source = pins ? pins.get(row?.service_origin) : null
   const sourceOrigin = source ? row.service_origin : location.origin
-  if (pins && (!source || source.instance_id !== row.instance_id)) throw new Error('invalid_metadata')
+  if (pins && (!source || source.instance_id !== row.instance_id))
+    throw new Error('invalid_metadata')
   const sourceSkill = pins ? installation(row.skill, sourceOrigin) : skill.value
   if (
     !/^[a-f0-9]{32}$/.test(row?.id) ||
@@ -170,7 +175,12 @@ function connection(row, pins = null) {
     !instructions.includes(sourceSkill.markdown_url)
   )
     throw new Error('invalid_metadata')
-  if (pins && (!text(row.recovery_instructions, 12000).includes(sourceSkill.bundle_url) || !row.recovery_instructions.includes(sourceSkill.markdown_url))) throw new Error('invalid_metadata')
+  if (
+    pins &&
+    (!text(row.recovery_instructions, 12000).includes(sourceSkill.bundle_url) ||
+      !row.recovery_instructions.includes(sourceSkill.markdown_url))
+  )
+    throw new Error('invalid_metadata')
   // Explicit projection: unexpected credential, digest or provider fields are
   // never retained in the page or copied into another Agent's instruction.
   return {
@@ -191,7 +201,9 @@ function connection(row, pins = null) {
       ? row.credential_recovery_health
       : 'unknown',
     instructions,
-    ...(pins ? { skill: sourceSkill, recovery_instructions: text(row.recovery_instructions, 12000) } : {}),
+    ...(pins
+      ? { skill: sourceSkill, recovery_instructions: text(row.recovery_instructions, 12000) }
+      : {}),
   }
 }
 function platformName(value) {
@@ -226,7 +238,9 @@ async function refresh() {
     if (!current()) return
     const management = capabilities.connection_management
     supported.value =
-      [1, 2].includes(management?.version) && management.refresh_semantics === 'revalidate_only' && (management.version === 1 || management.metadata_available === true)
+      [1, 2].includes(management?.version) &&
+      management.refresh_semantics === 'revalidate_only' &&
+      (management.version === 1 || management.metadata_available === true)
     const view = management?.credential_view
     viewSupported.value =
       management?.version === 1 &&
@@ -254,7 +268,8 @@ async function refresh() {
       return
     }
     skill.value = management.version === 1 ? installation(management.skill) : null
-    recoveryGuide.value = management.version === 1 ? text(management.recovery_instructions, 12000) : ''
+    recoveryGuide.value =
+      management.version === 1 ? text(management.recovery_instructions, 12000) : ''
     if (!props.authenticated) return
     const data = await read('connections', signal)
     if (!current()) return
@@ -266,11 +281,23 @@ async function refresh() {
       throw new Error('invalid_metadata')
     let pins = null
     if (management.version === 2) {
-      if (!Array.isArray(data.service_pins) || !data.service_pins.length || data.service_pins.length > 16) throw new Error('invalid_metadata')
+      if (
+        !Array.isArray(data.service_pins) ||
+        !data.service_pins.length ||
+        data.service_pins.length > 16
+      )
+        throw new Error('invalid_metadata')
       pins = new Map()
       for (const pin of data.service_pins) {
         const url = new URL(text(pin.origin))
-        if (!['http:', 'https:'].includes(url.protocol) || url.origin !== pin.origin || pin.service_id !== 'lockbot.resource-api' || pin.api_version !== '1' || pins.has(pin.origin)) throw new Error('invalid_metadata')
+        if (
+          !['http:', 'https:'].includes(url.protocol) ||
+          url.origin !== pin.origin ||
+          pin.service_id !== 'lockbot.resource-api' ||
+          pin.api_version !== '1' ||
+          pins.has(pin.origin)
+        )
+          throw new Error('invalid_metadata')
         pins.set(pin.origin, { instance_id: text(pin.instance_id) })
       }
     }
@@ -280,7 +307,9 @@ async function refresh() {
     if (run !== epoch || disposed) return
     items.value = []
     error.value = [401, 403].includes(failure.status)
-      ? skill.value ? '当前绑定已失效或不可用，请复制恢复指引发送给已绑定的 Agent。' : '当前绑定已失效或不可用，请让原 Agent 检查连接。'
+      ? skill.value
+        ? '当前绑定已失效或不可用，请复制恢复指引发送给已绑定的 Agent。'
+        : '当前绑定已失效或不可用，请让原 Agent 检查连接。'
       : '无法确认当前连接，请稍后刷新状态；保留仍有效的本地 Key。'
   } finally {
     if (run === epoch) {
@@ -460,5 +489,16 @@ textarea {
   background: transparent;
   color: inherit;
   line-height: 1.6;
+}
+.credential-details {
+  margin-top: 8px;
+}
+.credential-details > :not(summary) {
+  margin-top: 8px;
+}
+.credential-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 </style>

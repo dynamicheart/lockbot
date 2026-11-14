@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.manager import bot_manager
+from lockbot.backend.app.bots.metrics_access import issue_metrics_access
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.snapshot import build_resources
@@ -85,6 +87,11 @@ def _allocations(resources, subject):
                                 "node": node["id"],
                                 "device": identity[1],
                                 "expires_at": entry.get("expires_at"),
+                                **(
+                                    {"position": entry["position"]}
+                                    if kind == "reservation" and "position" in entry
+                                    else {}
+                                ),
                             }
                         )
     return allocations, complete
@@ -307,6 +314,40 @@ class NativeProvider:
                 return service.rotate_confirmed_credential(
                     db, row=row, instance_id=self._instance_id(db), canonical_name=canonical_name, deadline=deadline
                 )
+
+    def utilization(self, grant, *, session_expiry=None, authorize=False):
+        """Describe or authorize telemetry for the exact native bot binding."""
+        if self.config.get("enable_utilization") is not True:
+            return None
+        holdings = []
+        if authorize:
+            (group,) = self.report(grant)
+            if group["status"] != "ok":
+                return None
+            holdings = [row for row in group["allocations"] if row["kind"] == "hold"]
+        with self.session_factory() as db:
+            row = self._validated(db, grant)
+            bot = db.get(Bot, row.bound_bot_id)
+            source = public_datasource(bot)
+            if not source or source["accessMode"] != "short_lived":
+                return None
+            if not authorize:
+                return {"configuration": source}
+            deadlines = [
+                datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
+                for row in holdings
+                if row["node"] in source["nodeMapping"] and row["expires_at"]
+            ]
+            expiry = min([session_expiry, *deadlines])
+            if row.credential_expires_at is not None:
+                credential_expiry = row.credential_expires_at
+                if credential_expiry.tzinfo is None:
+                    credential_expiry = credential_expiry.replace(tzinfo=timezone.utc)
+                expiry = min(expiry, credential_expiry)
+            access = issue_metrics_access(
+                db, bot, source, expires_at=expiry, resource_nodes={row["node"] for row in holdings}
+            )
+            return {"configuration": source, "access": access} if access else None
 
     def report(self, grant):
         with self.session_factory() as db:

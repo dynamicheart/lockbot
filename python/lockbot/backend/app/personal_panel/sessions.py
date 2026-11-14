@@ -149,15 +149,19 @@ class PanelSessions:
             self._prune(now)
         return cookie
 
-    def grants(self, cookie):
-        """Return independent binding references, or [] for an absent session."""
+    def grant_window(self, cookie):
+        """Return referenced bindings and the original browser session deadline."""
         with self._transaction():
             now = time.time()
             self._prune(now)
             row = self.db.execute(
-                "SELECT grants_json FROM panel_sessions WHERE digest=? AND expires>?", (self._digest(cookie), now)
+                "SELECT grants_json, expires FROM panel_sessions WHERE digest=? AND expires>?",
+                (self._digest(cookie), now),
             ).fetchone()
-        return json.loads(row[0]) if row else []
+        return (json.loads(row[0]), row[1]) if row else ([], None)
+
+    def grants(self, cookie):
+        return self.grant_window(cookie)[0]
 
     def logout(self, cookie):
         """Revoke the browser bearer; repeated logout is harmless."""

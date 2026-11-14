@@ -6,6 +6,7 @@ import json
 import math
 import time
 from collections import deque
+from datetime import datetime, timezone
 from threading import Event, Lock
 from time import monotonic
 from urllib.parse import urlsplit
@@ -613,6 +614,27 @@ def create_panel(
             "refresh_semantics": "revalidate_only",
         }
 
+    @app.get("/utilization/{connection}")
+    def utilization(connection: str, request: Request):
+        if not native_connections or provider.config.get("enable_utilization") is not True:
+            raise HTTPException(404)
+        cookie = request.cookies.get(cookie_name)
+        original, expiry = sessions.grant_window(cookie)
+        if not original:
+            raise HTTPException(401)
+        grant = next((item for item in original if connection_id(item) == connection), None)
+        if grant is None:
+            raise HTTPException(404)
+        try:
+            result = provider.utilization(
+                grant, session_expiry=datetime.fromtimestamp(expiry, timezone.utc), authorize=True
+            )
+        except ProviderError:
+            raise HTTPException(404) from None
+        if not result or sessions.grant_window(cookie) != (original, expiry) or not valid(grant):
+            raise HTTPException(404)
+        return result
+
     def read_groups(grant, source):
         try:
             data = source.report(grant)
@@ -621,16 +643,24 @@ def create_panel(
         if not valid(grant):
             raise HTTPException(403, "Binding changed")
         for group in data:
-            if (not native_connections or source is not provider) and isinstance(group.get("allocations"), list):
-                group = {
-                    **group,
-                    "allocations": [
-                        {field: value for field, value in row.items() if field != "own_task"}
-                        if isinstance(row, dict)
-                        else row
-                        for row in group["allocations"]
-                    ],
-                }
+            group = {field: value for field, value in group.items() if field != "utilization"}
+            if native_connections and source is provider:
+                if group.get("status") == "ok" and any(
+                    row.get("kind") == "hold" for row in group.get("allocations", [])
+                ):
+                    try:
+                        metrics = provider.utilization(grant)
+                    except ProviderError:
+                        raise HTTPException(403, "Binding changed") from None
+                    if metrics:
+                        group["utilization"] = {"connection": connection_id(grant), **metrics}
+            elif isinstance(group.get("allocations"), list):
+                group["allocations"] = [
+                    {field: value for field, value in row.items() if field != "own_task"}
+                    if isinstance(row, dict)
+                    else row
+                    for row in group["allocations"]
+                ]
             key = (
                 id(source),
                 grant["issuer"],
