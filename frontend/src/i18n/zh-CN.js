@@ -288,6 +288,7 @@ export default {
     totalMetric: '总显存指标',
     memoryUnit: '显存单位',
     interval: '刷新间隔（秒）',
+    staleAfter: '数据过期阈值（秒）',
     boundary: '浏览器直连数据源，请配置其 CORS 和只读权限；不要填写 Lockbot key。',
     testEnable: '测试并启用',
     unavailable: '暂不可用',

@@ -137,10 +137,15 @@
                     value="B"
                     label="Bytes" /></el-select
               ></el-form-item>
-              <el-form-item :label="$t('utilization.interval')"
-                ><el-input-number v-model="draft.intervalSeconds" :min="30" :max="3600"
-              /></el-form-item>
             </div>
+          </div>
+          <div class="mapping-row">
+            <el-form-item :label="$t('utilization.interval')">
+              <el-input-number v-model="draft.intervalSeconds" :min="30" :max="3600" />
+            </el-form-item>
+            <el-form-item :label="$t('utilization.staleAfter')">
+              <el-input-number v-model="draft.staleSeconds" :min="30" :max="3600" />
+            </el-form-item>
           </div>
         </details>
         <p class="config-note">{{ $t('utilization.boundary') }}</p>
