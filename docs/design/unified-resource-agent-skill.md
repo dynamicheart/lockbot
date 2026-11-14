@@ -116,6 +116,42 @@ commands continue to require the native key for the target bot and do not accept
 extension group/node identifiers. Removing an extension removes discovery and
 makes its former read path unavailable.
 
+## Private operational guidance (proposed)
+
+Use the same `lockbot-resource-agent` installation and the same personal
+dashboard. A private deployment may add a **runbook reference** for a verified
+resource, such as device-specific process recovery guidance. Operators maintain
+the runbook text, resource matching and local configuration in a private
+repository. The public Skill and its ZIP never include that material.
+
+- Define `lockbot.resource-guidance.v1` separately from personal reports and
+  metrics. A descriptor contains an opaque ID and revision, a plain-text title,
+  and the verified node and optional device scope. The read response returns a
+  plain-text summary and an optional documentation link from an operator-pinned
+  HTTPS origin. The documentation host applies its own authorization. Lockbot
+  credentials stay on the verified Lockbot origin.
+- Resolve the same descriptor for the authenticated Agent and browser. The
+  Agent asks for guidance from the selected service and binding. The personal
+  dashboard offers a single “运维说明” link on an eligible resource row. Neither
+  surface publishes guidance in group notifications, shared read-only pages,
+  anonymous capability responses, or the resource Skill package. If guidance
+  is unavailable or the viewer loses access, omit the entry.
+- Pin the instance, bot, platform realm, and eligible resources in the reviewed
+  deployment configuration. Require an explicit audience for operator-only
+  guidance. The service rechecks the binding and eligibility on discovery and
+  read. Hostnames, device names and process metadata alone establish no
+  authorization. Unknown references and out-of-scope references receive the same
+  response.
+- Treat retrieved text as reference material. The extension cannot add tools,
+  executable actions, shell parameters or permissions to the Agent or the
+  dashboard. Any future process-management action needs a separately reviewed
+  API, explicit operator authorization and an audit trail. The read-only
+  report and metrics credentials remain read-only.
+
+Acceptance should cover matching and non-matching device scopes, revoked
+bindings, omitted plugin configuration, private documentation links, and an
+unauthenticated ZIP and manifest that contain no private guidance.
+
 ## Package and update boundary
 
 One package identity does not mean one remembered service URL or shared credential.
