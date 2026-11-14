@@ -612,8 +612,8 @@ def regenerate_view_link(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Explicit owner/admin action invalidates the previous read-only code only."""
-    bot = _get_user_bot(bot_id, user, db)
+    """Explicit owner/super-admin action invalidates the previous read-only code only."""
+    bot = _require_bot_owner(bot_id, user, db, "regenerate the resource view link")
     if not bot.resource_auth_enabled:
         raise HTTPException(409, "Resource access is disabled for this bot")
     from lockbot.backend.app.resource_api.view_links import view_link

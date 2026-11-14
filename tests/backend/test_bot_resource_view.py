@@ -477,8 +477,14 @@ def test_regeneration_requires_owner_or_super_admin(client, api, db_session, vie
 
     initial = link(client, api)
     outsider = _register_user(client, "view-outsider", "view-outsider@test.com", "pass123")
+    ordinary_admin = _register_user(client, "view-admin", "view-admin@test.com", "pass123")
+    from lockbot.backend.app.auth.models import User
+
+    user = db_session.query(User).filter_by(username="view-admin").one()
+    user.role = "admin"
+    db_session.commit()
     path = f"/api/bots/{api['bot_id']}/view-link/regenerate"
-    for auth, expected in [(outsider, 404), ({}, 401), (api["headers"], 401)]:
+    for auth, expected in [(outsider, 404), (ordinary_admin, 403), ({}, 401), (api["headers"], 401)]:
         assert client.post(path, headers=auth).status_code == expected
     assert link(client, api)["view_url"] == initial["view_url"]
     assert client.post(path, headers=view_super_admin_header).status_code == 200
