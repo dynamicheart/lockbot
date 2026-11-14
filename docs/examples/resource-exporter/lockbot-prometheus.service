@@ -1,4 +1,5 @@
 [Unit]
+RequiresMountsFor=/opt/lockbot-telemetry
 Description=Independent resource telemetry Prometheus
 After=network.target lockbot-resource-exporter.service
 
