@@ -12,7 +12,7 @@ A derived `hourly/` JSONL index merges each completed hour by scope. Counts and 
 
 Minute detail is eligible for deletion after 25 hours only if its hourly index exists. Hourly records expire after 30 days. A shared 128 MiB disk budget may evict older files earlier; 30 days is a retention ceiling, not a storage-capacity guarantee. Cleanup first removes old minute files, then hourly files. Write failures and budget eviction leave unknown coverage. There is no backfill from cumulative live counters.
 
-The writer retains at most two minutes of pending memory. A writer stalled longer than that loses old pending data instead of growing without bound. Graceful shutdown records the current partial minute; abrupt shutdown may lose the unflushed interval. Incomplete tails are truncated before the next append; completed malformed lines are skipped with `damaged_segments:true`, never interpreted as zeros. Ordinary reads do not repair files or renew observations.
+The writer retains at most two minutes of pending memory. A writer stalled longer than that loses old pending data instead of growing without bound. Graceful shutdown records the current partial minute; abrupt shutdown may lose the unflushed interval. Incomplete tails are truncated before the next append; completed malformed lines (including overly nested JSON) are skipped with `damaged_segments:true`, never interpreted as zeros. Hourly indexes retain a safe `damaged_segment` marker so compaction and subsequent restarts do not hide this diagnostic. Unexpected worker errors are isolated and retried on the next interval rather than terminating collection. Ordinary reads do not repair files or renew observations.
 
 ## HTTP interface
 

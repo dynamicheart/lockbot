@@ -270,3 +270,44 @@ def test_hourly_rollup_does_not_fill_restart_gap(tmp_path):
     assert result["history"][0]["observed_seconds"] == 120
     assert result["history"][0]["coverage"] == "partial"
     assert result["totals"]["requests"] == 2
+
+
+def test_deep_json_is_unknown_and_rollup_preserves_damage(tmp_path):
+    now = [3600.0]
+    journal = ServiceHistory(tmp_path, lambda: now[0])
+    path = tmp_path / "19700101T00.jsonl"
+    path.write_text("[" * 20000 + "0" + "]" * 20000 + "\n")
+    before = journal.query(0, 3600, 3600)
+    assert before["storage"]["damaged_segments"]
+    assert before["history"][0]["requests"] is None
+    assert before["history"][0]["coverage"] == "unknown"
+    journal.flush()
+    assert journal.error is None
+    assert (tmp_path / "hourly" / path.name).exists()
+    # The derived marker survives a restart and removal of original minute detail.
+    path.unlink()
+    restarted = ServiceHistory(tmp_path, lambda: now[0])
+    after = restarted.query(0, 3600, 3600)
+    assert after["storage"]["damaged_segments"]
+    assert after["history"][0]["requests"] is None
+    assert after["history"][0]["coverage"] == "unknown"
+
+
+def test_writer_survives_unexpected_failure_and_retries(tmp_path, monkeypatch):
+    journal = ServiceHistory(tmp_path, lambda: 3600)
+    calls = []
+
+    class BoundedTicks:
+        def wait(self, seconds):
+            return len(calls) >= 2
+
+    def flush():
+        calls.append(True)
+        if len(calls) == 1:
+            raise RecursionError("damaged telemetry")
+
+    monkeypatch.setattr(journal, "stop_event", BoundedTicks())
+    monkeypatch.setattr(journal, "flush", flush)
+    journal._run()
+    assert len(calls) == 2
+    assert journal.error == "collection_failed"

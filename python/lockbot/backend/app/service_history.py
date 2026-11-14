@@ -187,7 +187,14 @@ class ServiceHistory:
 
     def _run(self):
         while not self.stop_event.wait(15):
-            self.flush()
+            try:
+                self.flush()
+            except Exception:
+                # Unexpected telemetry failures must never terminate collection or
+                # escape into the resource service. Recovery is retried next tick.
+                if self.error != "collection_failed":
+                    log.warning("Service history collection failed; retrying on the next interval")
+                self.error = "collection_failed"
 
     def stop(self):
         self.stop_event.set()
@@ -278,10 +285,12 @@ class ServiceHistory:
             if target.exists() or not source.exists() or source.stat().st_size > 16 * 1024 * 1024:
                 continue
             scopes = {}
+            damaged = False
             with source.open("rb") as stream:
                 while line := stream.readline(MAX_LINE_BYTES + 1):
                     try:
                         if len(line) > MAX_LINE_BYTES or not line.endswith(b"\n"):
+                            damaged = True
                             break
                         row = json.loads(line)
                         validate_record(row)
@@ -301,9 +310,10 @@ class ServiceHistory:
                             item["sources"][key] = item["sources"].get(key, 0) + count
                         for key, count in row["operations"].items():
                             item["operations"][key] += count
-                    except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+                    except (ValueError, TypeError, KeyError, OverflowError, AttributeError, RecursionError):
+                        damaged = True
                         continue
-            output = []
+            output = [{"v": 1, "record_type": "damaged_segment", "at": hour * 3600}] if damaged else []
             for scope, item in scopes.items():
                 intervals = []
                 for left, right in sorted(item["intervals"]):
@@ -389,6 +399,9 @@ class ServiceHistory:
                                 break
                             try:
                                 row = json.loads(line)
+                                if isinstance(row, dict) and row.get("record_type") == "damaged_segment":
+                                    damaged = True
+                                    continue
                                 validate_record(row)
                                 if row["v"] != 1 or row["bot_id"] != bot_id or not start <= row["at"] < end:
                                     continue
@@ -399,7 +412,7 @@ class ServiceHistory:
                                     bucket["sources"][key] += value
                                 for key, value in row["operations"].items():
                                     bucket["operations"][key] += value
-                            except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
+                            except (ValueError, TypeError, KeyError, OverflowError, AttributeError, RecursionError):
                                 damaged = True
                 except OSError:
                     damaged = True
