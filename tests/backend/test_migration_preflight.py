@@ -672,6 +672,14 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
             activate_switched_migration(db_session, manager, bot_id, operation_id, actor, build_config=build_config)
         assert missing.value.status_code == 409
         saved_file.rename(state_file)
+        installed = state_file.read_bytes()
+        for bad in ('{"bot_state":', '{"bot_state":{}}'):
+            state_file.write_text(bad)
+            with pytest.raises(HTTPException) as invalid:
+                activate_switched_migration(db_session, manager, bot_id, operation_id, actor, build_config=build_config)
+            assert invalid.value.status_code == 409
+        assert writes == ["start"]
+        state_file.write_bytes(installed)
         completed = activate_switched_migration(
             db_session, manager, bot_id, operation_id, actor, build_config=build_config
         )
@@ -802,3 +810,86 @@ def test_cancel_restores_original_generation_without_replacing_state(
     assert bot.platform.lower() == "infoflow" and bot.identity_revision == revision
     assert migration_fence(db_session, bot_id) is None
     assert db_session.query(AuditLog).filter_by(action="bot.migration_cancel").count() == 1
+
+
+def test_migration_http_flow_uses_real_generations_and_preserves_history(
+    client, admin_header, setup, db_session, session_factory, monkeypatch
+):
+    from urllib.parse import urlsplit
+
+    from lockbot.backend.app.bots.manager import BotManager
+    from lockbot.backend.app.resource_auth import service
+
+    bot_id, _, target = setup
+    path = f"/api/bots/{bot_id}"
+    manager = BotManager()
+    monkeypatch.setattr(router, "bot_manager", manager)
+    monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
+    monkeypatch.setenv("LOCKBOT_ENABLE_PLATFORM_MIGRATION", "1")
+    feishu = SimpleNamespace(
+        bot_identity=lambda: "ou_fixture",
+        group_name=lambda chat, refresh: {"status": "ok" if chat == "oc_fixture" and refresh else "unavailable"},
+    )
+    monkeypatch.setattr("lockbot.backend.app.feishu.service.application_client", lambda _: feishu)
+    monkeypatch.setattr("lockbot.backend.app.feishu.connectors.connectors.snapshot", lambda _: {"state": "running"})
+    bot = db_session.get(Bot, bot_id)
+    previous_uuid, previous_revision, inventory = bot.uuid, bot.identity_revision, bot.cluster_configs
+    manager.start_bot(bot_id, router._build_config_dict(bot, db_session))
+
+    def issue(platform, identity):
+        issued = client.post("/api/resource-auth/bindings", json={"label": "migration-fixture"}).json()
+        service.handle_chat_binding(
+            platform=platform, external_user_id=identity, bot_id=bot_id, action="bind", argument=issued["bind_code"]
+        )
+        return {"Authorization": "Bearer " + issued["credential"]}
+
+    try:
+        previous_agent = issue("infoflow", "old-user")
+        context = client.get("/api/agent/context", headers=previous_agent)
+        assert context.status_code == 200
+        previous_view = urlsplit(context.json()["view_url"]).fragment.rsplit("/", 1)[1]
+        with manager.admit(bot_id) as lease:
+            lease.bot.lock("old-user", "lock node1 1h")
+            lease.bot.book("old-booking", "book node1 1h")
+            assert lease.bot.state.bot_state["node1"]["current_users"]
+            assert lease.bot.state.bot_state["node1"]["booking_list"]
+        history_path = router.get_managed_paths().bot_file(bot_id, "bot.log")
+        previous_history = history_path.read_bytes()
+        assert b"old-user" in previous_history
+
+        reviewed = client.post(path + "/migration-preflight", headers=admin_header, json=target).json()
+        assert reviewed["stored_obligations"]["holders"] == reviewed["stored_obligations"]["reservations"] == 1
+        assert reviewed["stored_obligations"]["agent_bindings"] == 1
+        begin = client.post(
+            path + "/migration",
+            headers=admin_header,
+            json={**target, "review_receipt": reviewed["review_receipt"]["token"], "confirm_clear_live_state": True},
+        )
+        assert begin.status_code == 202 and begin.json()["phase"] == "drained", begin.text
+        resume = path + "/migration/" + begin.json()["operation_id"] + "/continue"
+        assert client.post(resume, headers=admin_header).json()["phase"] == "switched"
+        done = client.post(resume, headers=admin_header)
+        assert done.status_code == 202 and done.json()["phase"] == "completed", done.text
+
+        with manager.admit(bot_id) as lease:
+            assert lease.bot.adapter.platform_name == "feishu"
+            entry = lease.bot.state_snapshot()[1]["node1"]
+            assert entry == {"status": "idle", "current_users": [], "booking_list": []}
+        db_session.expire_all()
+        assert (bot.uuid, bot.identity_revision, bot.cluster_configs) == (
+            previous_uuid,
+            previous_revision + 1,
+            inventory,
+        )
+        assert history_path.read_bytes().startswith(previous_history)
+        assert client.get("/api/agent/context", headers=previous_agent).status_code == 401
+        assert (
+            client.get(
+                f"/api/bot-views/{bot_id}/state", headers={"Authorization": "Bearer " + previous_view}
+            ).status_code
+            == 403
+        )
+        assert client.get("/api/agent/context", headers=issue("feishu", "ou_new")).status_code == 200
+        assert client.post(resume, headers=admin_header).json() == done.json()
+    finally:
+        manager.shutdown_all()

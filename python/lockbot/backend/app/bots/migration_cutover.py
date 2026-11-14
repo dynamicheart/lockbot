@@ -114,11 +114,8 @@ def continue_source_drain(db, manager, bot_id, operation_id, actor, *, build_con
         return row
 
 
-def _recover_retired_source(bot, db, build_config):
-    """Read the canonical file strictly and settle any old-revision outbox."""
-    if build_config is None:
-        raise ValueError("Source recovery configuration unavailable")
-    path = get_managed_paths().state_file(bot.id)
+def _read_migration_state(bot_id):
+    path = get_managed_paths().state_file(bot_id)
     fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as source:
         info = os.fstat(source.fileno())
@@ -127,6 +124,14 @@ def _recover_retired_source(bot, db, build_config):
         payload = json.load(source)
     if not isinstance(payload, dict) or not isinstance(payload.get("bot_state"), dict):
         raise ValueError("Source state is unavailable")
+    return payload
+
+
+def _recover_retired_source(bot, db, build_config):
+    """Read the canonical file strictly and settle any old-revision outbox."""
+    if build_config is None:
+        raise ValueError("Source recovery configuration unavailable")
+    payload = _read_migration_state(bot.id)
     state = payload["bot_state"]
     config = Config(build_config(bot, db))
     recovered = SimpleNamespace(
@@ -267,7 +272,6 @@ def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, bui
         ):
             raise HTTPException(409, "The reviewed Feishu destination changed")
 
-        paths = get_managed_paths()
         if migration.phase == "switched":
             if manager.get_instance(bot_id) is not None or manager.is_retiring(bot_id):
                 raise HTTPException(409, "The previous bot generation has not retired")
@@ -275,6 +279,7 @@ def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, bui
                 snapshot = read_destination_checkpoint(migration)
             except ValueError:
                 raise HTTPException(409, "The migration checkpoint could not be verified") from None
+            paths = get_managed_paths()
             state_config = Config({"BOT_ID": bot_id, "_MANAGED_BOT_DIR": lambda: paths.core_directory(bot_id)})
             _save_bot_state_atomically(snapshot, state_config)
             migration.phase = "installed"
@@ -284,8 +289,11 @@ def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, bui
         # already admitted work before its final database update failed.
         pid = manager.get_pid(bot_id)
         if pid is None:
-            if not paths.state_file(bot_id).is_file():
-                raise HTTPException(409, "The installed destination state is missing")
+            try:
+                state = _read_migration_state(bot_id)["bot_state"]
+                _empty_destination_state(state, bot.bot_type, json.loads(bot.cluster_configs))
+            except (OSError, TypeError, ValueError):
+                raise HTTPException(409, "The installed destination state could not be verified") from None
             pid = manager.start_bot(bot_id, build_config(bot, db), activate=False)
         bot.status = "running"
         bot.pid = pid
