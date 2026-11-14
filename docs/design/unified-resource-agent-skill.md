@@ -124,25 +124,42 @@ service identity and key references; authenticated responses own current rules.
 A private registry is only another verified distribution channel for the same
 package. Registry login and upstream/private-service login are separate authorities.
 
-Today deployment-rendered Skill Markdown embeds an origin, so its revision can
-differ across deployments. The helper prepared in [PR #161](https://github.com/dynamicheart/lockbot/pull/161)
-also validates the local bundle; its delivery does not resolve the cross-service
-revision boundary described here.
-Before claiming install-once interoperability, separate portable package integrity
-and helper compatibility from each service's rendered Skill/API revision and saved
-origin. Preserve existing Markdown/ZIP URLs and update notices. A new service must
-not silently overwrite the first connection, replace another service's key, or
-ignore an incompatible revision to make a multi-service demo pass. This is a
-remaining packaging/client acceptance decision, not completed behavior.
+The [portable package change](https://github.com/dynamicheart/lockbot/pull/178)
+compares the common instructions and helper independently of the
+deployment-rendered revision. The rendered Skill and installation stamp can still
+carry a deployment origin. Preserve the existing Markdown, manifest and ZIP URLs.
+At runtime the helper checks the approved service's identity, API version and
+package compatibility independently for each saved connection.
+
+### Distribute the same Skill from a private registry
+
+1. Start with the reviewed `lockbot-resource-agent` ZIP from an approved
+   deployment or release. If using a deployment's manifest, check the same-origin
+   installation URL and verify the returned ZIP against its declared SHA-256.
+2. Publish the complete package under `lockbot-resource-agent` in the private
+   registry. Preserve the archive bytes when the registry supports ZIP upload.
+   If the registry takes a directory, keep `SKILL.md`, the helper, the
+   installation stamp and all bundled files together. Record the package revision
+   and archive digest in the private release record. Keep runtime connection
+   files, local keys and adapter configuration outside the upload.
+3. Install from the registry into a fresh Agent environment. Compare the installed
+   file paths and hashes against the reviewed archive. Restart or reload the
+   client, confirm that it discovers the Skill, and verify that the approved
+   service and personal dashboard are discoverable. When the package has no
+   deployment origin, supply the approved service URL during setup.
+4. On update, publish the reviewed package under the same Skill identity. Check
+   that the update preserves local connections and credential references.
+   Configure optional reporters on the deployment server and verify that only
+   their authorized bindings discover them.
 
 ## Delivery checklist
 
 - [x] Identify current provider/reporter/directory hooks and authority boundaries.
 - [x] Document one Skill, multi-connection storage and read-only report semantics.
 - [x] Define authenticated extension metadata and caller-scoped read contract.
-- [ ] Define portable package vs per-service revision compatibility; retain old URLs.
-- [ ] Implement optional extension discovery/read projection with bounded failure handling.
-- [ ] Teach the existing Skill/helper supported extension protocols; no private adapter details.
+- [x] Define portable package vs per-service revision compatibility and retain old URLs in #178.
+- [x] Implement optional extension discovery/read projection with bounded failure handling in #179.
+- [x] Add the common, read-only report workflow to the existing Skill and helper in #179.
 - [ ] Verify optional private-registry installation delivers the same package identity/files.
 - [ ] Test two native services, two bot keys, native plus read-only reporter, unknown data,
       revocation, absent extension, cross-origin rejection and no accidental writes.
