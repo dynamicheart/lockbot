@@ -227,6 +227,90 @@ def test_panel_metrics_are_issued_only_for_current_native_holdings(
     assert browser.get(path + details["connection"]).status_code == 404
 
 
+@pytest.mark.parametrize("api", ["DEVICE"], indirect=True)
+def test_private_guidance_requires_the_exact_active_holding_and_binding(panel, api, client, db_session, tmp_path):
+    from lockbot.backend.app.database import get_db
+    from lockbot.backend.app.personal_panel.guidance import PROTOCOL, Guidance, mount_agent_guidance
+
+    provider, grant = panel
+    origin = provider.config["issuer"]
+    bot = db_session.get(Bot, api["bot_id"])
+    reference = {
+        "id": "a" * 32,
+        "revision": "r1",
+        "instance_id": ensure_instance_id(db_session),
+        "bot_uuid": bot.uuid,
+        "platform": grant["platform"],
+        "realm": grant["realm"],
+        "node": "n1",
+        "device": "0",
+        "title": "Fixture reference",
+        "summary": "Private fixture contents",
+        "documentation_url": "https://runbooks.example.invalid/resources",
+    }
+    with pytest.raises(ValueError):
+        Guidance.configured({"documentation_origins": [], "references": [reference]})
+    provider.guidance = Guidance.configured(
+        {
+            "documentation_origins": ["https://runbooks.example.invalid"],
+            "references": [
+                reference,
+                {**reference, "id": "b" * 32, "device": "1"},
+                {**reference, "id": "c" * 32, "operator_refs": ["another-operator"]},
+                {**reference, "id": "d" * 32, "realm": "another-realm"},
+            ],
+        }
+    )
+    parent = FastAPI()
+    parent.dependency_overrides[get_db] = client.app.dependency_overrides[get_db]
+    mount_agent_guidance(parent, provider)
+    parent.mount("/me", create_panel(origin, tmp_path / "panel.db", provider))
+    agent = TestClient(parent, base_url=origin)
+    browser = TestClient(parent, base_url=origin)
+    ticket = agent.post("/me/links", headers=api["headers"]).json()["login_url"].split("?ticket=", 1)[1]
+    browser.post("/me/login", headers={"Origin": origin}, json={"ticket": ticket, "mode": "replace"}).raise_for_status()
+    bot_url = f"/api/bots/{api['bot_id']}"
+    agent_url = bot_url + "/resource-guidance"
+    browser_url = "/me/resource-guidance/" + reference["id"]
+    assert agent.get(agent_url, headers=api["headers"]).json() == {"protocol": PROTOCOL, "items": []}
+    assert browser.get(browser_url).status_code == 404
+    client.post(bot_url + "/commands", headers=api["headers"], json={"command": "lock n1 dev0 2m"}).raise_for_status()
+    listed = agent.get(agent_url, headers=api["headers"])
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["items"]] == [reference["id"]]
+    assert reference["summary"] not in listed.text and reference["documentation_url"] not in listed.text
+    assert (
+        browser.get("/me/resources").json()["groups"][0]["allocations"][0]["resource_guidance"]
+        == listed.json()["items"]
+    )
+    detail = agent.get(agent_url + "/" + reference["id"], headers=api["headers"])
+    assert detail.json() == browser.get(browser_url).json()
+    assert detail.json()["documentation_url"] == reference["documentation_url"]
+    assert detail.headers["cache-control"] == "no-store"
+    assert reference["summary"] not in client.get("/api/agent-skill/SKILL.md").text
+    import io
+    import zipfile
+
+    from lockbot.backend.app.resource_api import skill
+
+    with zipfile.ZipFile(io.BytesIO(skill.installation_bundle("agent"))) as archive:
+        assert all(reference["summary"].encode() not in archive.read(name) for name in archive.namelist())
+    assert reference["title"] not in client.get("/api/agent-skill").text
+    assert not any("resource-guidance" in path for path in parent.openapi()["paths"])
+    assert agent.get(agent_url + "/" + reference["id"], headers=api["other_headers"]).status_code == 404
+    assert agent.get(agent_url + "/" + "f" * 32, headers=api["headers"]).status_code == 404
+    client.post(bot_url + "/commands", headers=api["headers"], json={"command": "free n1 dev0"}).raise_for_status()
+    assert agent.get(agent_url + "/" + reference["id"], headers=api["headers"]).status_code == 404
+    assert browser.get(browser_url).status_code == 404
+    client.post(bot_url + "/commands", headers=api["headers"], json={"command": "lock n1 dev0 2m"}).raise_for_status()
+    assert browser.get(browser_url).status_code == 200
+    row = _binding(db_session, grant)
+    row.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db_session.commit()
+    assert browser.get(browser_url).status_code == 404
+    assert agent.get(agent_url + "/" + reference["id"], headers=api["headers"]).status_code == 401
+
+
 @pytest.mark.parametrize("invalid_deadline", [None, "invalid", "2999-01-01T00:00:00", "2000-01-01T00:00:00Z"])
 def test_panel_metrics_exclude_holdings_without_a_live_deadline(
     panel, api, client, tmp_path, monkeypatch, invalid_deadline

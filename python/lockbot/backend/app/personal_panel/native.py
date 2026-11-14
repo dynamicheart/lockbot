@@ -92,6 +92,8 @@ def _allocations(resources, subject):
                             allocation["position"] = entry["position"]
                         if kind == "hold" and "node_access" in unit:
                             allocation["node_access"] = unit["node_access"]
+                        if kind == "hold" and "resource_guidance" in unit:
+                            allocation["resource_guidance"] = unit["resource_guidance"]
                         allocations.append(allocation)
     return allocations, complete
 
@@ -145,6 +147,7 @@ class NativeProvider:
             raise ValueError("provider issuer must be explicitly configured")
         self.config = config
         self.session_factory = config.get("session_factory") or SessionLocal
+        self.guidance = None
 
     @staticmethod
     def _instance_id(db: Session):
@@ -400,11 +403,14 @@ class NativeProvider:
                     healthy = (lease.health or bot.status) == "running"
                     if healthy and -30 <= age <= 60:
                         attach_node_access(resources, saved_node_access(bot), row.external_user_id, now)
+                        if self.guidance is not None:
+                            self.guidance.attach(resources, self._instance_id(db), bot.uuid, grant, now)
                     allocations, complete = _allocations(resources, row.external_user_id)
                     known = complete and healthy and -30 <= age <= 60
                     if not known:
                         for allocation in allocations:
                             allocation.pop("node_access", None)
+                            allocation.pop("resource_guidance", None)
                     if known:
                         _attach_own_tasks(db, row, captured, state, allocations)
                     # Read a new transaction even if another database writer bypassed

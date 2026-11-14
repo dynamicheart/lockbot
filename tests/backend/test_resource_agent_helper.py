@@ -123,6 +123,19 @@ def case(tmp_path):
                     "status": "ok",
                     "groups": [],
                 }
+            elif self.path.startswith("/api/bots/7/resource-guidance"):
+                descriptor = {
+                    "protocol": "lockbot.resource-guidance.v1",
+                    "id": "a" * 32,
+                    "revision": "v1",
+                    "title": "Test reference",
+                }
+                if self.path.endswith("/resource-guidance"):
+                    body = {"protocol": descriptor["protocol"], "items": [descriptor]}
+                elif self.path.endswith("/" + descriptor["id"]):
+                    body = {**descriptor, "summary": "Test reference text"}
+                else:
+                    status = 404
             elif self.path == "/api/bots/7/resources":
                 if state.resources_fail and any(path.endswith("commands") for path, *_ in state.requests):
                     status = 503
@@ -641,6 +654,17 @@ def test_optional_report_reads_only_the_discovered_same_origin_path(case):
     case.state.report_directory = None
     with pytest.raises(helper.ClientError, match="personal_reports_unavailable"):
         case.client.personal_report("team-report")
+
+
+def test_guidance_helper_uses_only_verified_bot_and_reference_paths(case):
+    reference = case.client.resource_guidance()["items"][0]
+    assert case.client.resource_guidance(reference["id"])["summary"] == "Test reference text"
+    assert case.state.requests[-1][:2] == ("/api/bots/7/resource-guidance/" + reference["id"], "GET")
+    assert case.state.requests[-1][2]["Authorization"] == "Bearer " + KEY
+    count = len(case.state.requests)
+    with pytest.raises(helper.ClientError, match="invalid_resource_guidance_reference"):
+        case.client.resource_guidance("https://foreign.invalid/reference")
+    assert len(case.state.requests) == count
 
 
 def test_packaged_alias_cli_writes_and_reads_back_without_site_packages(case):

@@ -433,6 +433,7 @@
                       v-if="
                         section.holdings &&
                         (holdingAddress(item) ||
+                          holdingGuidance(item).length ||
                           (!detail.resource &&
                             (slots.metrics ||
                               item.first.group.utilization ||
@@ -456,6 +457,17 @@
                           <span>登录地址</span>
                           <code>{{ holdingAddress(item) }}</code>
                         </div>
+                        <div v-if="holdingGuidance(item).length" class="node-access-details">
+                          <button
+                            v-for="reference in holdingGuidance(item)"
+                            :key="reference.id"
+                            type="button"
+                            class="task-summary"
+                            @click="openGuidance(reference)"
+                          >
+                            {{ holdingGuidance(item).length === 1 ? '运维说明' : reference.title }}
+                          </button>
+                        </div>
                         <template v-for="row in detail.resource ? [] : item.rows" :key="row.key">
                           <slot name="metrics" :row="row">
                             <ResourceMetricsCell
@@ -477,6 +489,7 @@
                           v-if="
                             !detail.resource &&
                             !holdingAddress(item) &&
+                            !holdingGuidance(item).length &&
                             !slots.metrics &&
                             !utilizationSnapshots[item.first.group.utilization?.connection]?.enabled
                           "
@@ -686,6 +699,26 @@
         </details>
       </template>
     </main>
+    <el-dialog
+      :model-value="Boolean(guidanceDialog)"
+      :title="guidanceDialog?.title || '运维说明'"
+      width="min(460px, calc(100vw - 32px))"
+      align-center
+      @close="clearGuidance"
+    >
+      <p v-if="guidanceDialog?.loading" aria-live="polite">正在读取运维说明…</p>
+      <p v-else-if="guidanceDialog?.error" role="alert">运维说明暂不可用，请刷新资源后重试。</p>
+      <template v-else-if="guidanceDialog">
+        <p class="guidance-summary">{{ guidanceDialog.summary }}</p>
+        <a
+          v-if="guidanceDialog.url"
+          :href="guidanceDialog.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          >打开运维文档</a
+        >
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -750,6 +783,8 @@ watch(
 )
 const session = ref({ authenticated: false, identities: [] })
 const groups = ref([])
+const guidanceDialog = ref(null)
+let guidanceRead = null
 const pluginsDialog = ref(null)
 function handleCredentialAction(command) {
   if (command === 'plugins') pluginsDialog.value?.open()
@@ -992,6 +1027,61 @@ function holdingAddress({ rows }) {
   })
   return row ? nodeAccessAddress(row.allocation.node_access) : ''
 }
+function holdingGuidance({ rows }) {
+  const references = new Map()
+  for (const { allocation } of rows) {
+    const expiresAt = expiration(allocation.expires_at)
+    if (!Number.isFinite(expiresAt) || expiresAt <= clock.value) continue
+    if (!Array.isArray(allocation.resource_guidance)) continue
+    for (const item of allocation.resource_guidance) {
+      if (item?.protocol === 'lockbot.resource-guidance.v1' && /^[a-f0-9]{32}$/.test(item.id)) {
+        references.set(item.id, { ...item, expiresAt })
+      }
+    }
+  }
+  return [...references.values()]
+}
+function clearGuidance() {
+  guidanceRead?.abort()
+  guidanceRead = null
+  guidanceDialog.value = null
+}
+async function openGuidance(reference) {
+  clearGuidance()
+  const controller = new AbortController()
+  guidanceRead = controller
+  guidanceDialog.value = { title: reference.title, expiresAt: reference.expiresAt, loading: true }
+  try {
+    const result = await api(`resource-guidance/${reference.id}`, undefined, controller.signal)
+    if (guidanceRead !== controller) return
+    if (reference.expiresAt <= Date.now()) {
+      clearGuidance()
+      return
+    }
+    if (
+      result.protocol !== reference.protocol ||
+      result.id !== reference.id ||
+      result.revision !== reference.revision ||
+      typeof result.summary !== 'string'
+    )
+      throw new Error('Reference changed')
+    const url = result.documentation_url ? new URL(result.documentation_url) : null
+    guidanceDialog.value = {
+      title: reference.title,
+      expiresAt: reference.expiresAt,
+      summary: result.summary,
+      url: url?.protocol === 'https:' && !url.username && !url.password ? url.href : null,
+    }
+  } catch {
+    if (guidanceRead === controller)
+      guidanceDialog.value = { title: reference.title, expiresAt: reference.expiresAt, error: true }
+  }
+}
+watch([() => route.fullPath, () => session.value.authenticated, groups], clearGuidance)
+watch(clock, (now) => {
+  if (guidanceDialog.value?.expiresAt <= now) clearGuidance()
+})
+onUnmounted(clearGuidance)
 function nodeRemaining({ deadlines }) {
   const known = deadlines.filter(Number.isFinite)
   if (!known.length) return '未提供'
@@ -1564,6 +1654,10 @@ onMounted(async () => {
 <style scoped src="../assets/styles/personal-panel.css"></style>
 
 <style scoped>
+.guidance-summary {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .node-access-details {
   color: var(--lb-text-secondary);
   display: flex;

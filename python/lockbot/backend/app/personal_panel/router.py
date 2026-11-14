@@ -641,6 +641,25 @@ def create_panel(
             raise HTTPException(404)
         return result
 
+    @app.get("/resource-guidance/{reference_id}")
+    def resource_guidance(reference_id: str, request: Request):
+        from .guidance import GUIDANCE_ID
+
+        if not native_connections or provider.guidance is None or not GUIDANCE_ID.fullmatch(reference_id):
+            raise HTTPException(404)
+        cookie = request.cookies.get(cookie_name)
+        original = sessions.grants(cookie)
+        if not original:
+            raise HTTPException(401)
+        for grant in original:
+            try:
+                result = provider.guidance.read(provider.report(grant), reference_id)
+            except ProviderError:
+                continue
+            if result is not None and sessions.grants(cookie) == original and valid(grant):
+                return result
+        raise HTTPException(404)
+
     def report_selector(*parts):
         return hashlib.sha256(json.dumps(parts, separators=(",", ":"), sort_keys=True).encode()).hexdigest()[:32]
 
@@ -665,7 +684,11 @@ def create_panel(
                         group["utilization"] = {"connection": connection_id(grant), **metrics}
             elif isinstance(group.get("allocations"), list):
                 group["allocations"] = [
-                    {field: value for field, value in row.items() if field not in {"own_task", "node_access"}}
+                    {
+                        field: value
+                        for field, value in row.items()
+                        if field not in {"own_task", "node_access", "resource_guidance"}
+                    }
                     if isinstance(row, dict)
                     else row
                     for row in group["allocations"]
