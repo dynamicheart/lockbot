@@ -3,14 +3,14 @@
     <div class="page-heading">
       <div>
         <h2>{{ $t('serviceTraffic.title') }}</h2>
-        <p v-if="snapshot">
+        <p v-if="snapshot && mode === 'live'">
           {{ $t('serviceTraffic.since') }} {{ localTime(snapshot.started_at) }}
           <el-tooltip :content="$t('serviceTraffic.scopeHelp')"
             ><span tabindex="0"> ⓘ</span></el-tooltip
           >
         </p>
       </div>
-      <el-button :loading="loading" @click="refresh"
+      <el-button v-if="mode === 'live'" :loading="loading" @click="refresh"
         ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button
       >
     </div>
@@ -29,13 +29,22 @@
         :value="row.bot_id"
       />
     </el-select>
+    <el-tabs v-model="mode" class="traffic-mode-tabs">
+      <el-tab-pane :label="$t('trafficHistory.live')" name="live" />
+      <el-tab-pane :label="$t('trafficHistory.history')" name="history" />
+    </el-tabs>
+    <ServiceTrafficHistory
+      v-if="mode === 'history'"
+      :bot-id="props.botId || selectedBot"
+      :admin="!props.botId"
+    />
     <el-alert
-      v-if="failed"
+      v-if="failed && mode === 'live'"
       :title="$t('serviceTraffic.unavailable')"
       type="warning"
       :closable="false"
     />
-    <template v-if="snapshot">
+    <template v-if="snapshot && mode === 'live'">
       <h3 class="http-heading">{{ $t('serviceTraffic.httpTitle') }}</h3>
       <div class="traffic-stats">
         <div>
@@ -305,11 +314,12 @@
         </div>
       </el-card>
     </template>
-    <el-empty v-else-if="!loading" :description="$t('common.noData')" />
+    <el-empty v-else-if="!loading && mode === 'live'" :description="$t('common.noData')" />
   </div>
 </template>
 
 <script setup>
+import ServiceTrafficHistory from './ServiceTrafficHistory.vue'
 import { platformLabel } from '../utils/platformDisplay'
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Refresh, ChatDotRound, Cpu, Setting, QuestionFilled } from '@element-plus/icons-vue'
@@ -324,6 +334,7 @@ const props = defineProps({
   includePrivate: { type: Boolean, default: false },
 })
 const { locale, t } = useI18n()
+const mode = ref('live')
 const selectedBot = ref(null)
 const botOptions = ref([])
 const snapshot = ref(null)
@@ -428,7 +439,7 @@ const scope = () => ({
   includePrivate: false,
 })
 const loader = createServiceTrafficLoader({
-  canRequest: () => !document.hidden,
+  canRequest: () => !document.hidden && mode.value === 'live',
   request: async ({ botId, filterBot, includePrivate }, signal) => {
     const endpoint = botId ? `/bots/${botId}/service-traffic` : '/admin/service-traffic'
     const { data } = await api.get(endpoint, {
@@ -452,6 +463,10 @@ const refresh = () => {
   return loader.refresh()
 }
 watch(grouping, clearMinute)
+watch(mode, () => {
+  clearMinute()
+  if (mode.value === 'live') refresh()
+})
 watch(
   [() => props.botId, selectedBot],
   ([botId], [previousBotId]) => {
