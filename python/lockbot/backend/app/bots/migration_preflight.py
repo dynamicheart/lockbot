@@ -20,6 +20,7 @@ from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMemb
 from lockbot.backend.app.platform_applications.service import fingerprint
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
+from lockbot.core.io import empty_device_state, empty_node_state, normalize_cluster_configs
 from lockbot.core.platforms.registry import normalize_platform_name
 
 
@@ -58,26 +59,37 @@ def _counts(state, bot_type):
     return result
 
 
-def _inventory_matches(state, bot):
-    """A missing node/card cannot be mistaken for an empty allocation pool."""
-    try:
-        cluster = json.loads(bot.cluster_configs)
-        if bot.bot_type in {"DEVICE", "QUEUE_DEVICE"}:
-            return (
-                isinstance(cluster, dict)
-                and bool(cluster)
-                and set(cluster) == set(state)
-                and all(
-                    isinstance(state[node], list)
-                    and len(state[node]) == len(models)
-                    and {card.get("dev_id") for card in state[node]} == set(range(len(models)))
-                    for node, models in cluster.items()
-                )
+def _empty_destination_state(state, bot_type, cluster):
+    """Prepare a clean runtime image only if the source matches the configured inventory."""
+    if bot_type in {"DEVICE", "QUEUE_DEVICE"}:
+        if (
+            not isinstance(cluster, dict)
+            or not cluster
+            or not all(
+                isinstance(models, list) and models and all(isinstance(model, str) and model for model in models)
+                for models in cluster.values()
             )
-        keys = set(cluster) if isinstance(cluster, (list, dict)) else None
-        return bool(keys) and keys == set(state)
-    except (TypeError, ValueError, AttributeError):
-        return False
+        ):
+            raise ValueError("Unrecognized device inventory")
+        destination = empty_device_state(normalize_cluster_configs(cluster))
+        if set(destination) != set(state) or any(
+            len(cards) != len(state[node])
+            or {card["dev_id"] for card in cards} != {card.get("dev_id") for card in state[node]}
+            for node, cards in destination.items()
+        ):
+            raise ValueError("Source and destination devices differ")
+        if bot_type == "QUEUE_DEVICE":
+            for cards in destination.values():
+                for card in cards:
+                    card["booking_list"] = []
+    elif bot_type in {"NODE", "QUEUE"} and isinstance(cluster, (list, dict)) and cluster:
+        names = list(normalize_cluster_configs(cluster))
+        destination = empty_node_state(names)
+        if len(destination) != len(names) or set(destination) != set(state):
+            raise ValueError("Source and destination nodes differ")
+    else:
+        raise ValueError("Unrecognized node inventory")
+    return destination
 
 
 def _review_digest(value):
@@ -206,12 +218,15 @@ def observe_migration(db, manager, bot_id, body):
                 counts = _counts(state, bot.bot_type)
                 authorization_counts, revisions = _reset_authorizations(db, bot, observed_at.replace(tzinfo=None))
                 counts.update(authorization_counts)
-                if not _inventory_matches(state, bot):
+                try:
+                    destination = _empty_destination_state(state, bot.bot_type, json.loads(bot.cluster_configs))
+                except (AttributeError, TypeError, ValueError):
                     blockers.append("source_inventory_mismatch")
                 else:
                     source_review = _review_digest(
                         {
                             "state": state,
+                            "destination_state": destination,
                             "authorization_revisions": revisions,
                             "duration_whitelist": whitelist,
                             "op_key": bot.api_key,

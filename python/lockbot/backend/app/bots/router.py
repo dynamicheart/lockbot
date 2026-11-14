@@ -63,6 +63,7 @@ from lockbot.backend.app.state_migration import assert_bot_state_ready
 from lockbot.core.config import Config
 from lockbot.core.handler import redact_command_text
 from lockbot.core.i18n import t
+from lockbot.core.io import normalize_cluster_configs
 from lockbot.core.msg_utils import check_signature
 from lockbot.core.platforms.registry import create_adapter
 
@@ -239,15 +240,6 @@ def _commit_initial_status_then_activate(db: Session, bot_id: int) -> None:
         raise
 
 
-def _normalize_cluster_configs(cc):
-    """Normalize device model strings to lowercase."""
-    if isinstance(cc, dict):
-        return {k: [m.lower() for m in v] if isinstance(v, list) else v for k, v in cc.items()}
-    if isinstance(cc, list):
-        return [k.lower() for k in cc]
-    return cc
-
-
 def _get_node_keys(cc) -> set:
     """Extract node key set from cluster_configs (any format)."""
     if _is_device_array_format(cc):
@@ -336,7 +328,7 @@ def _build_config_dict(bot: Bot, db: Session | None = None) -> dict:
         "WEBHOOK_URL": bot_credentials(bot)["webhook_url"],
         "AESKEY": bot_credentials(bot)["aes_key"],
         "TOKEN": bot_credentials(bot)["token"],
-        "CLUSTER_CONFIGS": _normalize_cluster_configs(json.loads(bot.cluster_configs)),
+        "CLUSTER_CONFIGS": normalize_cluster_configs(json.loads(bot.cluster_configs)),
     }
     # Resolve owner username for help text display
     if db:
@@ -1533,7 +1525,7 @@ def update_bot_state(
         Deep-copies the raw payload because alignment mutates nested structures in place, so the
         raw request stays intact for this single derivation under the owner (or lease).
         """
-        cluster_configs = _normalize_cluster_configs(json.loads(bot.cluster_configs))
+        cluster_configs = normalize_cluster_configs(json.loads(bot.cluster_configs))
         config_obj = Config(_build_config_dict(bot, db))
         aligned, warns = _validate_and_align_state(copy.deepcopy(raw_state), bot.bot_type, cluster_configs, config_obj)
         target = os.path.join(_get_bot_data_dir(bot), "bot_state.json")

@@ -13,6 +13,7 @@ from lockbot.backend.app.bots import encryption, router
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
 from lockbot.backend.app.bots.migration_preflight import (
     _counts,
+    _empty_destination_state,
     migration_review_receipt,
     verify_migration_review_receipt,
 )
@@ -20,6 +21,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
+from lockbot.core.bot_instance import BotInstance
 
 
 @pytest.fixture
@@ -379,3 +381,35 @@ def test_receipt_is_bound_to_administrator_target_and_time():
     assert not verify_migration_review_receipt(token, other_actor, observed, now=now)
     actor.effective_token_version = 8
     assert not verify_migration_review_receipt(token, actor, observed, now=now)
+
+
+@pytest.mark.parametrize("bot_type", ["NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"])
+def test_reset_snapshot_uses_normal_runtime_shape_and_preserves_inventory(tmp_path, bot_type):
+    device_bot = bot_type in {"DEVICE", "QUEUE_DEVICE"}
+    inventory = {"node1": ["P800", "P800"]} if device_bot else ["Node1"]
+    normalized = {"node1": ["p800", "p800"]} if device_bot else ["node1"]
+    clean = BotInstance(
+        bot_type,
+        {"BOT_ID": 88, "BOT_NAME": "migration-fixture", "DATA_DIR": str(tmp_path), "CLUSTER_CONFIGS": normalized},
+    ).bot.state.bot_state
+    source = copy.deepcopy(clean)
+    entries = source["node1"] if device_bot else [source["node1"]]
+    for entry in entries:
+        entry.update(
+            status="exclusive",
+            current_users=[{"user_id": "source-owner"}],
+            booking_list=[{"user_id": "source-booker", "is_notified": True}],
+            opaque_runtime_metadata={"user_id": "source-user"},
+        )
+        if device_bot:
+            entry["dev_model"] = "outdated"
+
+    reset = _empty_destination_state(source, bot_type, inventory)
+    assert reset == clean
+    assert all(entry["current_users"] and entry["booking_list"] for entry in entries)
+    assert "source-user" not in str(reset)
+
+
+def test_reset_rejects_case_collisions_in_node_inventory():
+    with pytest.raises(ValueError, match="differ"):
+        _empty_destination_state({"node1": {}}, "NODE", ["Node1", "node1"])
