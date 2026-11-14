@@ -459,6 +459,23 @@ The `2h` values in command examples are examples, not a recommendation: use the 
 caller-effective maximum, defaults, booked duration and task need. If the configured default
 exceeds the effective ceiling, request a valid explicit shorter duration.
 
+### Interpret instants separately from human display time
+
+Lease `start_time`, `expires_at`, snapshot `captured_at` and `next_event_at` are absolute
+instants with an explicit UTC offset (`Z` or `+00:00` in current responses). Parse the
+offset; do not interpret them as the Agent machine's local time. Unix epoch values and
+lease durations do not change with timezone. Never add eight hours to an epoch or relabel
+an existing UTC timestamp as `+08:00` when calculating ownership, renewal or stop deadlines.
+
+For human-facing absolute deadlines, use the user's requested timezone. In a Chinese
+conversation without another stated preference, display `Asia/Shanghai` (`UTC+08:00`),
+including the full date and offset so a UTC-midnight/day change is clear. For example,
+`2030-01-01T16:00:15+00:00` is `2030-01-02 00:00:15 UTC+08:00`, the same instant.
+Keep the server instant in saved records and convert only its presentation. An Agent
+running on a UTC server should still use this display timezone, not silently inherit the
+server timezone. If an expected offset or lease timestamp is missing, refresh and treat
+the deadline as uncertain instead of guessing extra authorized time.
+
 ### Keep a conservative local stop deadline
 
 Record a local monotonic timestamp just before each GET and after receiving it. Use the
