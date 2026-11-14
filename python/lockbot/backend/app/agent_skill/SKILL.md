@@ -236,11 +236,14 @@ failure without retry loops, rotation or reset. A digest cannot reconstruct a ke
 Only genuinely lost credentials or suspected disclosure/compromised authorization
 justify considering revoke/re-enroll. First obtain explicit user confirmation of the
 service, bot and revocation scope, explaining that every Agent sharing the affected
-key loses access and needs private reconfiguration. The verified human can inspect
-chat `bindings`, use `unbind <short-id>` for their own binding, and confirm a new
-`bind <code>`; an authorized owner's revoke-all affects every personal binding on
-that bot. Do not claim a failed/denied revoke succeeded or enroll around it. Revoking
-a key does not release/migrate/recreate locks or queues; discuss and authorize any
+key loses access and needs private reconfiguration. In the affected group, the verified
+human runs `bindings` to identify the old binding, then `unbind <short-id>` to revoke it.
+Wait for confirmed revocation before requesting a fresh enrollment code. The human then
+sends `bind <code>` in that same group. Sending only `bind <code>` while the old binding
+is active leaves the old Key valid and the new code's Key unusable. An authorized
+owner's revoke-all affects every personal binding on that bot. If revocation fails or
+is denied, stop before enrollment. Existing locks and queues survive revocation.
+Discuss and authorize any
 resource changes separately. Never reset during a routine release, Skill update,
 new Agent installation or migration, and never invent a key or silently rebind.
 
