@@ -19,12 +19,11 @@ See the [release checklist](RELEASE_CHECKLIST.md), [release record](docs/release
 
 PR #133 is merged and its bounded Skill-only patch is installed on the formal v3.2.0 base. An explicit deployment origin is embedded in copied Markdown and both ZIPs, with matching hashes and version metadata. PR #134 is merged and installed on 8002, which was restored with its encrypted connection files and four sessions preserved. Real Chrome confirmed five visible groups and separate login/report sources. These observations do not establish a full formal rollout of the personal dashboard or credential recovery. The proposed next release is documented in [3.3.0](docs/releases/3.3.0.md).
 
-## Remaining work
+## 2026-11-14 delivery completion
 
-| Issue | Delivered evidence | Remaining action |
-| --- | --- | --- |
-| [#57 messaging credential registry](https://github.com/dynamicheart/lockbot/issues/57) | Versioned provider-specific registry, additive/idempotent migration, legacy fallback, encrypted-key continuity and guards are merged. Clone tests, integration restart/delivery and formal registry/preservation checks passed. | Finish the remaining normal-delivery/restart rollout acceptance for the installed formal credential path; do not repeat the implementation or treat the old pre-release issue text as current deployment status. |
-| [#27 overall delivery](https://github.com/dynamicheart/lockbot/issues/27) | The accepted release and original delivered scopes are recorded below. | Keep the outstanding acceptance items above visible and close completed issue scope only against its own requirements. |
+Version 3.3.0 is published and formally deployed from `2576438692ee71c6e617e4a039a8f044eeaae0c5`. All release workflows passed and the saved image was verified on the deployment server. Existing keys and authority, bot configuration, live resource state, port, data volume and runtime keys were preserved; native recovery and the personal dashboard are enabled. See the [release record](docs/releases/3.3.0.md).
+
+The user accepted 8002 integration verification and chose direct formal upgrade without repeated manual testing. #57's implementation, migration and preservation scope is accepted; its extra fresh formal normal-delivery check is waived for this rollout. This is not new formal message-delivery evidence. No group command or allocation mutation was sent. #27 closes with this accepted delivery scope; #88/#120/#121 retain the explicit deferrals below.
 
 ## Completed acceptance on 2026-11-05
 
@@ -36,11 +35,11 @@ The verified interval certifies subject-grant allocation time for its selected w
 
 ## Post-release changes
 
-These changes are merged on `main`; they are separate from the installed v3.2.0 image:
+These changes were merged after v3.2.0 and are now included in the installed v3.3.0 image:
 
 - [PR #124](https://github.com/dynamicheart/lockbot/pull/124), commit `0d63c1b86b9e0051c9567dc287c9b5c1fa4bb34e`, adds the opt-in personal resource dashboard. Its final head passed all six CI checks; scoped session/provider regressions and integration frontend interactions passed. This does not establish a production rollout or an organization directory integration.
 - [PR #126](https://github.com/dynamicheart/lockbot/pull/126), commit `2906c5ff74593f468c62870405431e104ff77bcb`, fixes monitoring bar alignment and credential caller-type labels. All six final-head checks passed and the integration assets match the build. Authenticated administrator interaction remains unverified.
-- [PR #128](https://github.com/dynamicheart/lockbot/pull/128), commit `efd1ac8fb5e8e8a6bfa4b465bf68a50fe16615b3`, adds per-bot key discovery/recovery within a verified identity namespace, additive encrypted recovery copies and ordered Skill upgrade guidance. Feishu application/tenant isolation and changes during decryption have regressions; 163 focused checks, 156 compatibility checks and all six final-head CI checks passed. Installed integration acceptance then verified the additive migration, two legacy fixture bindings, per-bot recovery and retention of four browser sessions. One fictional fixture key was rotated during acceptance cleanup; external source credentials were unchanged. The formal service has not received these post-release changes.
+- [PR #128](https://github.com/dynamicheart/lockbot/pull/128), commit `efd1ac8fb5e8e8a6bfa4b465bf68a50fe16615b3`, adds per-bot key discovery/recovery within a verified identity namespace, additive encrypted recovery copies and ordered Skill upgrade guidance. Feishu application/tenant isolation and changes during decryption have regressions; 163 focused checks, 156 compatibility checks and all six final-head CI checks passed. Installed integration acceptance then verified the additive migration, two legacy fixture bindings, per-bot recovery and retention of four browser sessions. One fictional fixture key was rotated during acceptance cleanup; external source credentials were unchanged. These changes were subsequently installed formally in 3.3.0; the earlier integration observations retain their stated scope.
 - [PR #127](https://github.com/dynamicheart/lockbot/pull/127) freezes the queue-display test clock. Its 52 local queue checks and all six final-head CI checks passed. Production logic was unchanged.
 
 Future status changes belong in [issue #27](https://github.com/dynamicheart/lockbot/issues/27) and this section, without rewriting the historical release evidence. Source merge, integration deployment and formal rollout are separate milestones.
