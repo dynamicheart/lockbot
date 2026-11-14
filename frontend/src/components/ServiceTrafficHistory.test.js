@@ -102,6 +102,7 @@ const payload = (requests = 0, coverage = 'complete') => ({
       observed: coverage !== 'unknown',
       requests: coverage === 'unknown' ? null : requests,
       server_errors: coverage === 'unknown' ? null : 0,
+      sources: coverage === 'unknown' ? null : { agent: requests },
       operations: coverage === 'unknown' ? null : { chat: 0, agent: 0, operator: 0 },
     },
   ],
@@ -115,12 +116,16 @@ it('renders confirmed zero as zero and unknown history as gaps, not false zeros'
   const { root, props } = mount()
   await flush()
   expect(text(root)).toContain('trafficHistory.metrics.requests 0')
-  expect(all(root).filter((node) => node.props?.class?.includes?.('is-unknown'))).toHaveLength(0)
+  expect(
+    all(root).filter((node) => node.props?.class?.split?.(' ').includes('is-unknown'))
+  ).toHaveLength(0)
   api.get.mockResolvedValueOnce({ data: payload(0, 'unknown') })
   props.botId = 5
   await flush()
-  expect(text(root)).toContain('trafficHistory.metrics.requests —')
-  expect(all(root).filter((node) => node.props?.class?.includes?.('is-unknown'))).toHaveLength(2)
+  expect(text(root)).toContain('trafficHistory.metrics.requests trafficHistory.notCollected')
+  expect(
+    all(root).filter((node) => node.props?.class?.split?.(' ').includes('is-unknown'))
+  ).toHaveLength(2)
   expect(api.get.mock.calls[1][0]).toBe('/bots/5/service-traffic/history')
 })
 it('clears old results immediately on a bot switch and never publishes a late response', async () => {
@@ -135,6 +140,7 @@ it('clears old results immediately on a bot switch and never publishes a late re
   pending[1].resolve({ data: payload(7) })
   await flush()
   expect(text(root)).toContain('trafficHistory.metrics.requests 7')
+  expect(text(root)).toContain('serviceTraffic.sources.agent 7')
   pending[0].resolve({ data: payload(444) })
   await flush()
   expect(text(root)).not.toContain('444')

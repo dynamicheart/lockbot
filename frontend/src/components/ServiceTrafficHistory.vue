@@ -13,6 +13,9 @@
         :start-placeholder="$t('trafficHistory.start')"
         :end-placeholder="$t('trafficHistory.end')"
       />
+      <span v-if="preset === 'custom'" class="history-range-zone">{{
+        $t('trafficHistory.inputZone', { zone: inputZone })
+      }}</span>
       <el-button :loading="loading" @click="refresh">{{ $t('common.refresh') }}</el-button>
     </div>
     <p v-if="!range" class="history-warning">{{ $t('trafficHistory.invalidRange') }}</p>
@@ -35,9 +38,12 @@
           :key="metric"
         >
           <span>{{ $t('trafficHistory.metrics.' + metric) }}</span
-          ><strong
-            >{{ number(hasObservations ? snapshot.totals?.[metric] : null)
-            }}<small v-if="metric.endsWith('_ms')"> ms</small></strong
+          ><strong :class="{ 'is-unknown-stat': !knownStat(metric) }"
+            >{{
+              knownStat(metric)
+                ? number(snapshot.totals[metric])
+                : $t('trafficHistory.notCollected')
+            }}<small v-if="knownStat(metric) && metric.endsWith('_ms')"> ms</small></strong
           >
         </div>
       </div>
@@ -81,11 +87,26 @@
             </button>
           </el-tooltip>
         </div>
+        <details class="history-source-breakdown">
+          <summary>{{ $t('serviceTraffic.bySource') }}</summary>
+          <div class="history-source-counts">
+            <span v-for="source in httpSources" :key="source"
+              >{{ $t('serviceTraffic.sources.' + source) }}
+              <b>{{
+                Number.isFinite(sourceCounts[source])
+                  ? number(sourceCounts[source])
+                  : $t('trafficHistory.notCollected')
+              }}</b></span
+            >
+          </div>
+        </details>
         <div class="history-layer-heading">
           <strong>{{ $t('trafficHistory.operations') }}</strong
           ><span v-for="source in sources" :key="source"
-            ><i class="key" :class="source"></i
-            >{{ $t('serviceTraffic.businessSources.' + source) }}</span
+            ><i class="key" :class="source"></i>{{ $t('serviceTraffic.businessSources.' + source) }}
+            <b>{{
+              hasObservations ? number(operationCounts[source]) : $t('trafficHistory.notCollected')
+            }}</b></span
           >
         </div>
         <div class="history-chart" role="group" :aria-label="$t('trafficHistory.operations')">
@@ -148,6 +169,7 @@ import {
 } from '../utils/serviceTrafficHistory'
 const props = defineProps({ botId: { type: [Number, String], default: null }, admin: Boolean })
 const { t, locale } = useI18n()
+const inputZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 const preset = ref('24h')
 const customRange = ref([])
 const range = ref(null)
@@ -155,8 +177,43 @@ const snapshot = ref(null)
 const loading = ref(false)
 const failed = ref(false)
 const sources = ['chat', 'agent', 'operator']
+const httpSources = [
+  'agent',
+  'operator',
+  'enrollment',
+  'webhook',
+  'resource_view',
+  'management',
+  'static',
+  'health',
+  'monitoring',
+  'other',
+]
 const rows = computed(() => historyRows(snapshot.value))
 const hasObservations = computed(() => rows.value.some((point) => point.known))
+const operationCounts = computed(() =>
+  Object.fromEntries(
+    sources.map((source) => [
+      source,
+      rows.value
+        .filter((point) => point.known)
+        .reduce((sum, point) => sum + (Number(point.operations?.[source]) || 0), 0),
+    ])
+  )
+)
+const sourceCounts = computed(() => {
+  const observed = rows.value.filter((point) => point.known)
+  return Object.fromEntries(
+    httpSources.map((source) => [
+      source,
+      observed.length && observed.every((point) => Number.isFinite(point.sources?.[source]))
+        ? observed.reduce((sum, point) => sum + point.sources[source], 0)
+        : null,
+    ])
+  )
+})
+const knownStat = (metric) =>
+  hasObservations.value && Number.isFinite(snapshot.value?.totals?.[metric])
 const httpMax = computed(() =>
   Math.max(1, ...rows.value.filter((point) => point.known).map((point) => point.requests))
 )
@@ -250,6 +307,11 @@ function tooltip(point, operations) {
   font-size: 26px;
   margin-top: 8px;
 }
+.history-summary .is-unknown-stat {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--lb-text-secondary);
+}
 .history-summary small {
   font-size: 12px;
   font-weight: 400;
@@ -329,9 +391,28 @@ function tooltip(point, operations) {
   color: var(--lb-text-secondary);
 }
 .history-note,
-.history-help {
+.history-help,
+.history-range-zone {
   font-size: 12px;
   color: var(--lb-text-secondary);
+}
+.history-source-breakdown {
+  margin: -8px 0 22px;
+  font-size: 12px;
+  color: var(--lb-text-secondary);
+}
+.history-source-breakdown summary {
+  cursor: pointer;
+}
+.history-source-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding-top: 12px;
+}
+.history-source-counts b {
+  color: var(--lb-text-primary);
+  margin-left: 4px;
 }
 .history-warning {
   font-size: 13px;

@@ -312,6 +312,8 @@ export default {
     },
   },
   trafficHistory: {
+    inputZone: '输入时区：{zone}',
+    notCollected: '待采集',
     live: '实时',
     history: '历史',
     range: '时间范围',

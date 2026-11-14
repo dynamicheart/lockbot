@@ -327,6 +327,8 @@ export default {
     },
   },
   trafficHistory: {
+    inputZone: 'Input timezone: {zone}',
+    notCollected: 'Unknown',
     live: 'Live',
     history: 'History',
     range: 'Time range',
