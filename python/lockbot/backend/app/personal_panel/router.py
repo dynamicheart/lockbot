@@ -12,6 +12,8 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .handoff import connection_id, connection_instructions, installation, recovery_instructions
+from .native import NativeProvider, ProviderError
 from .sessions import PanelSessions
 
 COOKIE = "__Host-lockbot_me"
@@ -116,6 +118,11 @@ def create_panel(
     app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
     recent = deque()
     rate_lock = Lock()
+    # Reporters and third-party identity providers do not acquire native key
+    # authority by returning similarly shaped metadata or display names.
+    native_connections = type(provider) is NativeProvider
+    skill = installation(origin) if native_connections else None
+    recovery_guide = recovery_instructions(origin, skill) if skill else None
 
     @app.middleware("http")
     async def protect(request, next_handler):
@@ -157,6 +164,20 @@ def create_panel(
             "home": origin + "/#/me",
             "issue_path": request.url.path.rsplit("/", 1)[0] + "/links",
             "transport": "https" if secure else "private-http",
+            **(
+                {
+                    "connection_management": {
+                        "version": 1,
+                        "list_path": request.url.path.rsplit("/", 1)[0] + "/connections",
+                        "skill": skill,
+                        "recovery_instructions": recovery_guide,
+                        "refresh_semantics": "revalidate_only",
+                        "credential_disclosure_supported": False,
+                    }
+                }
+                if native_connections
+                else {}
+            ),
         }
 
     @app.post("/links")
@@ -254,6 +275,45 @@ def create_panel(
             samesite="strict",
         )
         return response
+
+    @app.get("/connections")
+    def connections(request: Request):
+        if not native_connections:
+            raise HTTPException(404)
+
+        def unavailable(status):
+            return HTTPException(status, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide})
+
+        original = sessions.grants(request.cookies.get(cookie_name))
+        grants = [grant for grant in original if valid(grant)]
+        if not grants:
+            raise unavailable(401)
+        items = []
+        for grant in grants:
+            try:
+                item = provider.connection(grant)
+            except ProviderError:
+                raise unavailable(403) from None
+            except Exception:
+                raise HTTPException(503, {"code": "connection_metadata_unavailable"}) from None
+            item.update(id=connection_id(grant), identity=public_identity(grant), service_origin=origin)
+            item["instructions"] = connection_instructions(origin, skill, item)
+            items.append(item)
+        # Logout, expiry or revocation must also win while an earlier connection
+        # was being inspected. Do not extend the browser or binding lifetime.
+        current = sessions.grants(request.cookies.get(cookie_name))
+        if not current:
+            raise unavailable(401)
+        if any(grant not in current or not valid(grant) for grant in grants):
+            raise unavailable(403)
+        return {
+            "schema_version": 1,
+            "connections": items,
+            "some_authorizations_unavailable": len(grants) != len(original),
+            "skill": skill,
+            "recovery_instructions": recovery_guide,
+            "refresh_semantics": "revalidate_only",
+        }
 
     @app.get("/resources")
     def resources(request: Request):

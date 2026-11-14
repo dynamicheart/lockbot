@@ -13,7 +13,7 @@ from lockbot.backend.app.bots.manager import bot_manager
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.snapshot import build_resources
-from lockbot.backend.app.resource_auth import service
+from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
@@ -170,6 +170,44 @@ class NativeProvider:
             return True
         except Exception:
             return False
+
+    def connection(self, grant):
+        """Inspect exactly one proven native binding, never enumerate its user's bots."""
+        with self.session_factory() as db:
+            row = self._validated(db, grant)
+            with authority_guard(row.bound_bot_id, platform=row.platform, external_user_id=row.external_user_id):
+                db.rollback()
+                db.expire_all()
+                row = self._validated(db, grant)
+                bot = db.get(Bot, row.bound_bot_id)
+                health = (
+                    "legacy_missing"
+                    if row.credential_encrypted is None
+                    else "recoverable"
+                    if credentials.recover_credential(row) is not None
+                    else "unreadable"
+                )
+                expiry = row.credential_expires_at
+                if expiry is not None:
+                    expiry = (
+                        expiry.replace(tzinfo=timezone.utc)
+                        if expiry.tzinfo is None
+                        else expiry.astimezone(timezone.utc)
+                    )
+                value = {
+                    "instance_id": self._instance_id(db),
+                    "bot": {"id": bot.id, "uuid": bot.uuid, "name": bot.name, "type": bot.bot_type},
+                    "actor": {"platform": row.platform, "external_user_id": row.external_user_id},
+                    "identity_revision": bot.identity_revision,
+                    "expires_at": expiry.isoformat() if expiry is not None else None,
+                    "credential_recovery_health": health,
+                }
+                # Decryption may be slow. Re-read authority even if another DB
+                # writer did not participate in this process's guard.
+                db.rollback()
+                db.expire_all()
+                self._validated(db, grant)
+                return value
 
     def report(self, grant):
         with self.session_factory() as db:

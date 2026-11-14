@@ -1,6 +1,6 @@
 # Personal resource dashboard
 
-A user can bookmark `/#/me` on their organization's Lockbot HTTPS origin. A headless Agent can authorize the first browser visit with the user's existing IM binding. Browser sessions last up to 30 days, including across restarts, subject to the continued validity of each binding. The dashboard only displays personal allocations and reservations.
+A user can bookmark `/#/me` on their organization's Lockbot HTTPS origin. A headless Agent can authorize the first browser visit with the user's existing IM binding. Browser sessions last up to 30 days, including across restarts, subject to the continued validity of each binding. The dashboard displays personal allocations, reservations and secret-free metadata for individually authorized native connections.
 
 ## Identity and access
 
@@ -25,7 +25,7 @@ For HTTPS, terminate TLS on a trusted ingress, preserve the Host header, and res
 }
 ```
 
-Use the approved canonical service origin as the native provider issuer, as in the example, so connection cards can link to that service’s Agent Skill. Existing issuer identifiers remain valid; a non-URL identifier does not produce a Skill link.
+The provider issuer identifies the identity authority and can remain a non-URL identifier. Native connection instructions obtain the Skill ZIP and Markdown paths from this deployment's published manifest and use the approved panel origin; they do not infer an installation address from the issuer.
 
 The original application mounts the optional dashboard before its SPA fallback. Without configuration the original route setup is preserved. To disable, unset the environment variable and restart the service. To invalidate all browser sessions permanently, retire the dedicated session database while the service is stopped. This database stores digests of random browser tokens and references to confirmed bindings. IM authentication and the original group credentials stay under the existing Lockbot authority.
 
@@ -40,6 +40,12 @@ When the panel and a bot's Agent access are enabled, explicit `help` replies inc
 The Agent reads `GET /api/personal-panel/capabilities` from the trusted origin. A return visit only needs the fixed home. For first login, device recovery, or adding another binding, the Agent calls `POST /api/personal-panel/links` with its existing Bearer binding credential at the same trusted origin. The recipient must already have a verified private delivery channel. The handoff URL is itself a short-lived bearer secret; avoid group chats, unfurlers, ticket logs and external redirects.
 
 The generated ticket expires in two minutes. It is placed in the URL fragment, removed from browser history by the landing page, previewed without consumption, and exchanged only on explicit confirmation. Consumption is atomic and rotates the browser session identifier. The browser receives a Secure, HttpOnly, SameSite=Strict host-only cookie. It can return by bookmark without contacting the Agent. Logout revokes the server-side session. A cleared browser cookie requires a fresh handoff.
+
+## Connection metadata and Agent instructions
+
+The native provider advertises additive `connection_management` version 1 capabilities. `GET /api/personal-panel/connections` revalidates only this browser's independently confirmed grants and returns current bot, actor, expiry and recovery-copy health, plus deployment-pinned secret-free installation instructions. It has no bot or identity selector, does not discover other bindings, and does not return raw binding references, digests or Keys. Refresh revalidates existing authority without extending either lifetime. Logout and binding changes are checked again before releasing the combined response.
+
+This metadata capability does not authorize credential disclosure or rotation. Those require separate, fresh purpose-specific authorization and explicit user confirmation. External reporter groups remain visible as resource-query sources, with credentials managed by the original Agent; custom identity providers do not acquire native credential authority. See the [connection handoff guide](../usage/personal-connection-handoff.md).
 
 ## Optional identity provider
 
