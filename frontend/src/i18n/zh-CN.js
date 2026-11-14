@@ -1,5 +1,7 @@
 export default {
   auditCredentials: {
+    nameRequired: '请输入凭证名称',
+    botsRequired: '请选择至少一个机器人',
     selectBots: '选择授权机器人',
     previous: '上一页',
     next: '下一页',
@@ -584,6 +586,7 @@ export default {
 
   // === Sidebar / Nav ===
   nav: {
+    apiCredentials: 'API 凭证',
     myResources: '我的资源',
     dashboard: '仪表盘',
     myBots: '我的机器人',
@@ -952,7 +955,7 @@ export default {
     agentPromotion: 'Agent 推广',
     agentPromotionText: '链接前文案',
     agentPromotionTextHint: '留空使用默认文案，链接自动添加。仅限单行纯文本，最多 120 字。',
-    agentPromotionHint: '在资源申请成功消息中展示 Agent 使用链接。',
+    agentPromotionHint: '在资源申请成功消息中展示 Skill 安装包链接。',
     platformUrl: '部署平台 URL',
     platformUrlPlaceholder: '例如 http://192.168.1.1:8080',
     githubUrl: 'GitHub 地址',

@@ -35,6 +35,11 @@
         </div>
       </div>
       <el-alert v-if="error" :title="error" type="warning" :closable="false" show-icon />
+      <PersonalCredentialView
+        v-if="initialized"
+        :authenticated="session.authenticated"
+        :scope-key="identityScope(session.identities)"
+      />
       <section v-if="!initialized" class="panel session-loading" role="status">
         <el-skeleton :rows="2" animated />
         <p class="scope">正在验证登录状态…</p>
@@ -256,6 +261,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowDown, User } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.vue'
+import PersonalCredentialView from '../components/PersonalCredentialView.vue'
 
 const tabs = [
   { id: 'mine', label: '我的占用' },

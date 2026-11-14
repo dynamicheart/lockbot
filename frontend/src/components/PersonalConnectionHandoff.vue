@@ -18,7 +18,9 @@
           <h3>{{ item.bot.name }}</h3>
           <span class="connection-state">绑定已确认</span>
         </div>
-        <p class="scope">{{ item.actor.platform }} · {{ item.actor.external_user_id }}</p>
+        <p class="scope">
+          {{ platformName(item.actor.platform) }} · {{ item.actor.external_user_id }}
+        </p>
         <p class="scope">服务 {{ item.service_origin }}</p>
         <p class="scope">
           {{ healthText(item.credential_recovery_health) }} · {{ expiryText(item.expires_at) }}
@@ -35,6 +37,14 @@
           @click="copyInstructions(item)"
         >
           复制接入说明
+        </button>
+        <button
+          v-if="viewSupported"
+          class="connection-button"
+          :disabled="loading"
+          @click="copyViewRequest(item)"
+        >
+          查看 Key：复制单次授权请求给 Agent
         </button>
         <button v-if="item.recovery_instructions" class="connection-button" @click="copyConnectionRecovery(item)">复制此连接恢复指引</button>
         <p v-if="item.skill" class="scope"><a :href="item.skill.bundle_url" target="_blank" rel="noopener noreferrer">完整 Skill ZIP</a> · <a :href="item.skill.markdown_url" target="_blank" rel="noopener noreferrer">SKILL.md</a></p>
@@ -83,6 +93,7 @@ const items = ref([])
 const skill = ref(null)
 const recoveryGuide = ref('')
 const supported = ref(false)
+const viewSupported = ref(false)
 const loading = ref(false)
 const unavailable = ref(false)
 const error = ref('')
@@ -174,6 +185,9 @@ function connection(row, pins = null) {
     ...(pins ? { skill: sourceSkill, recovery_instructions: text(row.recovery_instructions, 12000) } : {}),
   }
 }
+function platformName(value) {
+  return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value
+}
 async function read(path, signal) {
   const response = await fetch(`/api/personal-panel/${path}`, {
     credentials: 'same-origin',
@@ -204,6 +218,16 @@ async function refresh() {
     const management = capabilities.connection_management
     supported.value =
       [1, 2].includes(management?.version) && management.refresh_semantics === 'revalidate_only' && (management.version === 1 || management.metadata_available === true)
+    const view = management?.credential_view
+    viewSupported.value =
+      management?.version === 1 &&
+      supported.value &&
+      view?.version === 1 &&
+      view.purpose === 'view_current_key' &&
+      view.requires_original_credential === true &&
+      view.requires_matching_browser_grant === true &&
+      view.single_use === true &&
+      view.issue_path === '/api/personal-panel/credential-view-links'
     if (!supported.value) {
       skill.value = null
       recoveryGuide.value = ''
@@ -261,6 +285,23 @@ async function copy(value) {
   } catch {
     if (run === epoch && !disposed) feedback.value = '复制失败，请展开说明并手动复制。'
   }
+}
+async function copyViewRequest(item) {
+  if (!viewSupported.value || !props.authenticated || loading.value || !items.value.includes(item))
+    return
+  const target = JSON.stringify({
+    service: item.service_origin,
+    instance_id: item.instance_id,
+    bot: item.bot,
+    actor: item.actor,
+  })
+  await copy(
+    `请按 lockbot-resource-agent Skill 核对本人身份与私密投递渠道。以下仅是连接标识，不是授权：${target}。` +
+      '请使用这一连接已有的有效原 Key，在可信服务调用 POST /api/personal-panel/credential-view-links 签发 view_current_key 单次查看授权；' +
+      '只私下交给本人返回的短期 view_url，由本人在已有同身份浏览器会话预览后明确确认。' +
+      '不要回显 Key，不把链接放群聊，不把只读登录或资源链接升级为查看票；不重置、轮换、重新绑定或延长授权。' +
+      '若原 Key 已过期、撤销或身份迁移，拒绝签发并给固定恢复指引；副本缺失时保留有效本地 Key。'
+  )
 }
 function fallbackCopy(value) {
   const element = document.createElement('textarea')

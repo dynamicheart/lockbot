@@ -15,10 +15,12 @@ import hashlib
 import hmac
 import json
 import secrets
+from typing import Literal
 
 #: Distinguishes a personal resource credential from the legacy per-bot service key
 #: (``lbk_``), so the two principal types cannot be confused by inspection.
 CREDENTIAL_PREFIX = "lbr_"
+RecoveryHealth = Literal["recoverable", "legacy_missing", "unreadable"]
 
 #: Unambiguous when typed or read aloud: no 0/O, 1/I/L, 8/B.
 _BIND_CODE_ALPHABET = "ACDEFGHJKMNPQRTUVWXY2345679"
@@ -86,6 +88,13 @@ def recover_credential(binding) -> str | None:
         return token
     except Exception:
         return None
+
+
+def recovery_health(binding) -> RecoveryHealth:
+    """Describe only a presented binding's recovery material, not its authority."""
+    if binding.credential_encrypted is None:
+        return "legacy_missing"
+    return "recoverable" if recover_credential(binding) is not None else "unreadable"
 
 
 def short_id(public_id: str) -> str:

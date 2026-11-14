@@ -4,6 +4,8 @@ Grants contain no keys or credential digests. Without an administrator-attested
 app/tenant namespace, identities remain isolated by deployment and bot UUID.
 """
 
+import hashlib
+import hmac
 import json
 from datetime import datetime, timezone
 
@@ -208,6 +210,48 @@ class NativeProvider:
                 db.expire_all()
                 self._validated(db, grant)
                 return value
+
+    @staticmethod
+    def _credential_pin(row):
+        return hashlib.sha256(row.credential_digest.encode()).hexdigest()
+
+    def issue_credential_view(self, key):
+        """Original native bearer proof only; no cookie or read-only grant upgrade."""
+        if not isinstance(key, str) or not key.startswith("lbr_"):
+            raise ProviderError("credential_invalid")
+        grant = self.authenticate(key)
+        with self.session_factory() as db:
+            row = self._validated(db, grant)
+            with authority_guard(row.bound_bot_id, platform=row.platform, external_user_id=row.external_user_id):
+                db.rollback()
+                db.expire_all()
+                row = self._validated(db, grant)
+                if not credentials.credential_matches(row.credential_digest, key):
+                    raise ProviderError("credential_invalid")
+                expiry = row.credential_expires_at
+                if expiry is not None:
+                    expiry = expiry.replace(tzinfo=timezone.utc) if expiry.tzinfo is None else expiry
+                return grant, self._credential_pin(row), expiry.timestamp() if expiry else None
+
+    def credential_view(self, grant, pin, *, reveal=False):
+        """Recheck the original binding and current key before and after decryption."""
+        with self.session_factory() as db:
+            row = self._validated(db, grant)
+            with authority_guard(row.bound_bot_id, platform=row.platform, external_user_id=row.external_user_id):
+                db.rollback()
+                db.expire_all()
+                row = self._validated(db, grant)
+                if not hmac.compare_digest(self._credential_pin(row), pin):
+                    raise ProviderError("credential_changed")
+                key = credentials.recover_credential(row) if reveal else None
+                if reveal and key is None:
+                    raise ProviderError("credential_recovery_unavailable")
+                db.rollback()
+                db.expire_all()
+                row = self._validated(db, grant)
+                if not hmac.compare_digest(self._credential_pin(row), pin):
+                    raise ProviderError("credential_changed")
+                return key
 
     def report(self, grant):
         with self.session_factory() as db:

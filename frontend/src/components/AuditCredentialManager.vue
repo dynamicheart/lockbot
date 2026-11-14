@@ -2,45 +2,80 @@
   <section v-if="authorized" class="audit-credentials">
     <div class="credential-toolbar">
       <span>{{ $t('auditCredentials.scopeHint') }}</span>
-      <el-button :disabled="denied || busy || loading" @click="load()">{{
-        $t('common.refresh')
-      }}</el-button>
+      <div class="credential-actions">
+        <el-button :disabled="denied || busy || loading" @click="load()">{{
+          $t('common.refresh')
+        }}</el-button>
+        <el-button type="primary" :disabled="denied || busy || loading" @click="openCreate">{{
+          $t('auditCredentials.create')
+        }}</el-button>
+      </div>
     </div>
-    <el-form label-position="top" class="credential-form" @submit.prevent="create">
-      <el-form-item :label="$t('auditCredentials.name')">
-        <el-input v-model="name" maxlength="64" :disabled="denied || busy" />
-      </el-form-item>
-      <el-form-item :label="$t('auditCredentials.bots')">
-        <el-select
-          v-model="botIds"
-          :placeholder="$t('auditCredentials.selectBots')"
-          multiple
-          filterable
-          :disabled="denied || busy"
+    <el-dialog
+      v-model="showCreate"
+      :title="$t('auditCredentials.create')"
+      width="min(520px, calc(100vw - 32px))"
+      :close-on-click-modal="!creating"
+      :close-on-press-escape="!creating"
+      :show-close="!creating"
+      @closed="resetForm"
+    >
+      <el-form label-position="top" class="credential-form" @submit.prevent="create">
+        <el-form-item
+          :label="$t('auditCredentials.name')"
+          :error="submitted && !name.trim() ? $t('auditCredentials.nameRequired') : ''"
         >
-          <el-option
-            v-for="bot in bots"
-            :key="bot.id"
-            :value="bot.id"
-            :label="`${bot.name} #${bot.id}`"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item :label="$t('auditCredentials.lifetime')">
-        <el-select v-model="ttl" :disabled="denied || busy">
-          <el-option
-            v-for="value in lifetimes"
-            :key="value"
-            :value="value"
-            :label="$t(`auditCredentials.ttl${value}`)"
-          />
-        </el-select>
-      </el-form-item>
-      <el-button type="primary" :disabled="!canCreate" :loading="creating" @click="create">
-        {{ $t('auditCredentials.create') }}
-      </el-button>
-    </el-form>
-    <p v-if="error" role="alert" class="credential-error">{{ $t(error) }}</p>
+          <el-input v-model="name" maxlength="64" :disabled="denied || busy" autocomplete="off" />
+        </el-form-item>
+        <el-form-item
+          :label="$t('auditCredentials.bots')"
+          :error="submitted && !botIds.length ? $t('auditCredentials.botsRequired') : ''"
+        >
+          <el-select
+            v-model="botIds"
+            :placeholder="$t('auditCredentials.selectBots')"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :max-collapse-tags="3"
+            :multiple-limit="100"
+            :disabled="denied || busy"
+          >
+            <el-option
+              v-for="bot in bots"
+              :key="bot.id"
+              :value="bot.id"
+              :label="`${bot.name} #${bot.id}`"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$t('auditCredentials.lifetime')">
+          <el-select v-model="ttl" :disabled="denied || busy">
+            <el-option
+              v-for="value in lifetimes"
+              :key="value"
+              :value="value"
+              :label="$t(`auditCredentials.ttl${value}`)"
+            />
+          </el-select>
+        </el-form-item>
+        <p v-if="error" role="alert" class="credential-error">{{ $t(error) }}</p>
+      </el-form>
+      <template #footer>
+        <el-button :disabled="creating" @click="showCreate = false">{{
+          $t('common.cancel')
+        }}</el-button>
+        <el-button
+          type="primary"
+          :disabled="denied || busy || loading"
+          :loading="creating"
+          @click="create"
+          >{{ $t('auditCredentials.create') }}</el-button
+        >
+      </template>
+    </el-dialog>
+    <p v-if="error && !showCreate" role="alert" class="credential-error">{{ $t(error) }}</p>
     <el-table v-loading="loading" :data="items" :empty-text="$t('common.noData')" stripe>
       <el-table-column prop="name" :label="$t('auditCredentials.name')" min-width="160" />
       <el-table-column :label="$t('auditCredentials.bots')" min-width="140">
@@ -85,7 +120,7 @@
     <el-dialog
       :model-value="!!secret"
       :title="$t('auditCredentials.shownOnce')"
-      width="600px"
+      width="min(600px, calc(100vw - 32px))"
       @close="clearSecret"
     >
       <p>{{ $t('auditCredentials.saveHint') }}</p>
@@ -108,11 +143,14 @@ import { useHelpers } from '../utils/helpers'
 const props = defineProps({
   authorized: Boolean,
   principalId: { type: [Number, String], default: '' },
+  sessionRevision: { type: Number, default: 0 },
 })
 const { copyText } = useHelpers()
 const scope = createBotDetailScope()
 const lifetimes = [600, 3600, 86400, 604800]
 const pageSize = 50
+const showCreate = ref(false)
+const submitted = ref(false)
 const name = ref('')
 const botIds = ref([])
 const ttl = ref(86400)
@@ -136,6 +174,7 @@ const busy = computed(() => creating.value || revoking.value || !!secret.value)
 const canCreate = computed(
   () =>
     props.authorized &&
+    showCreate.value &&
     !denied.value &&
     !busy.value &&
     !loading.value &&
@@ -184,6 +223,7 @@ function fail(err, mutation = false) {
           : 'common.requestFailed'
   if (code === 401 || code === 403) {
     denied.value = true
+    showCreate.value = false
     scope.enter('')
     items.value = []
     bots.value = []
@@ -224,7 +264,21 @@ async function load(internal = false) {
     request.finish()
   }
 }
+function resetForm() {
+  if (creating.value) return
+  name.value = ''
+  botIds.value = []
+  ttl.value = 86400
+  submitted.value = false
+}
+function openCreate() {
+  if (!props.authorized || denied.value || busy.value || loading.value) return
+  resetForm()
+  error.value = ''
+  showCreate.value = true
+}
 async function create() {
+  submitted.value = true
   if (!canCreate.value) return
   const request = scope.begin('create')
   if (!request) return
@@ -254,6 +308,7 @@ async function create() {
       error.value = 'auditCredentials.mutationFailed'
       return
     }
+    showCreate.value = false
     secret.value = data.credential
     name.value = ''
     botIds.value = []
@@ -299,10 +354,12 @@ function changePage(direction) {
   return load()
 }
 watch(
-  () => [props.authorized, props.principalId],
+  () => [props.authorized, props.principalId, props.sessionRevision],
   () => {
-    scope.enter(props.authorized ? String(props.principalId) : '')
+    scope.enter(props.authorized ? `${props.principalId}:${props.sessionRevision}` : '')
     clearSecret()
+    showCreate.value = false
+    submitted.value = false
     items.value = []
     bots.value = []
     botIds.value = []
@@ -335,14 +392,16 @@ onBeforeUnmount(() => {
   color: var(--lb-text-secondary);
   font-size: 13px;
 }
-.credential-form {
-  display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(200px, 2fr) 150px auto;
-  align-items: end;
-  gap: 16px;
+.credential-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.credential-actions .el-button + .el-button {
+  margin-left: 0;
 }
 .credential-form .el-form-item {
-  margin-bottom: 0;
+  margin-bottom: 20px;
 }
 .credential-form .el-select {
   width: 100%;
@@ -355,8 +414,9 @@ onBeforeUnmount(() => {
   margin-top: 16px;
 }
 @media (max-width: 800px) {
-  .credential-form {
-    grid-template-columns: 1fr;
+  .credential-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

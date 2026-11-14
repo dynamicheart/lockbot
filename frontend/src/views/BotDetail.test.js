@@ -441,6 +441,21 @@ it('limits migration preflight to super administrators and Infoflow and closes i
   expect(view.migrationAvailable).toBe(false)
 })
 
+it('passes the shared collection deadline into management grant authorization', async () => {
+  const view = mount()
+  await ready()
+  const deadline = new AbortController()
+  const request = view.datasourceActions.authorize(
+    { name: 'fictional source' },
+    { signal: deadline.signal, force: true }
+  )
+  const pending = latest('post', '/bots/1/utilization-access')
+  deadline.abort()
+  expect(pending.options.signal.aborted).toBe(true)
+  pending.resolve({ token: 'late-metrics-only' })
+  await expect(request).rejects.toMatchObject({ code: 'ERR_CANCELED' })
+})
+
 it('regenerates a resource link only after confirmation and supports permanent expiry', async () => {
   const view = mount()
   await ready()

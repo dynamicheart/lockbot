@@ -25,3 +25,29 @@ it('leaves other routes and their parameters untouched', async () => {
   expect(pendingPanelTicket.value).toBe('')
   expect(replaceState).not.toHaveBeenCalled()
 })
+
+it('strips a separate credential-view proof without turning it into a login proof', async () => {
+  vi.resetModules()
+  const replaceState = vi.fn()
+  vi.stubGlobal('window', {
+    location: { hash: '#/me?credential_view=synthetic-view-proof' },
+    history: { state: null, replaceState },
+  })
+  const { pendingPanelTicket, pendingCredentialViewTicket } = await import('./personalPanelTicket')
+  expect(pendingPanelTicket.value).toBe('')
+  expect(pendingCredentialViewTicket.value).toBe('synthetic-view-proof')
+  expect(replaceState).toHaveBeenCalledWith(null, '', '/#/me')
+})
+
+it('discards ambiguous login and credential-view purposes while clearing the fragment', async () => {
+  vi.resetModules()
+  const replaceState = vi.fn()
+  vi.stubGlobal('window', {
+    location: { hash: '#/me?ticket=login&credential_view=view' },
+    history: { replaceState },
+  })
+  const { pendingPanelTicket, pendingCredentialViewTicket } = await import('./personalPanelTicket')
+  expect(pendingPanelTicket.value).toBe('')
+  expect(pendingCredentialViewTicket.value).toBe('')
+  expect(replaceState).toHaveBeenCalledOnce()
+})
