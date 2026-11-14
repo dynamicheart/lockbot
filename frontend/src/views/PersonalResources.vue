@@ -75,6 +75,7 @@
           登录后，当前浏览器会保留登录状态。收藏本页，下次直接打开；会话失效时再通过已绑定的 Agent
           登录。
         </p>
+        <PersonalConnectionHandoff :authenticated="false" />
       </section>
       <template v-else-if="tab === 'mine'">
         <p v-if="resourceLoading" class="resource-loading" role="status">
@@ -181,21 +182,15 @@
         </p>
       </div>
       <template v-else>
+        <PersonalConnectionHandoff
+          :authenticated="session.authenticated"
+          :scope-key="identityScope(session.identities)"
+        />
         <details class="connection-help">
           <summary>如何添加资源群</summary>
           <p class="scope">
             在持有目标群绑定的 Agent 中说“打开我的资源台”，打开链接后确认添加到当前浏览器。
           </p>
-          <div class="connection-skill-links">
-            <a
-              v-for="link in skillLinks"
-              :key="link.url"
-              :href="link.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              >Agent 使用说明（SKILL.md） · {{ link.service }}</a
-            >
-          </div>
         </details>
         <section
           v-for="(identity, index) in session.identities"
@@ -206,14 +201,6 @@
             <h2>登录身份 · {{ identity.subject }}</h2>
             <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
           </div>
-          <a
-            v-if="skillLink(identity.issuer)"
-            class="connection-skill"
-            :href="skillLink(identity.issuer).url"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Agent 使用说明（SKILL.md）</a
-          >
           <div
             v-for="source in identitySources(identity)"
             :key="source.kind + source.label"
@@ -223,6 +210,9 @@
             <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
               name
             }}</el-tag>
+            <p v-if="source.kind !== 'identity_provider'" class="group-meta">
+              此来源仅支持资源查询，凭证请由原 Agent 管理；原生 Key 管理能力不可用。
+            </p>
           </div>
           <p v-if="!identitySources(identity).length" class="group-meta">
             {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
@@ -265,6 +255,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { ArrowDown, User } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
+import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.vue'
 
 const tabs = [
   { id: 'mine', label: '我的占用' },
@@ -341,23 +332,6 @@ function entries(group) {
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
 }
-function skillLink(issuer) {
-  try {
-    const url = new URL(issuer)
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
-    return { service: url.host, url: url.origin + '/api/agent-skill/SKILL.md' }
-  } catch {
-    return null
-  }
-}
-const skillLinks = computed(() => [
-  ...new Map(
-    session.value.identities
-      .map((identity) => skillLink(identity.issuer))
-      .filter(Boolean)
-      .map((link) => [link.url, link])
-  ).values(),
-])
 function platformName(value) {
   return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'
 }
@@ -427,9 +401,10 @@ let refreshEpoch = 0
 function identityScope(identities) {
   return JSON.stringify(
     (identities || [])
-      .map((identity) =>
-        ['issuer', 'platform', 'realm', 'subject', 'scope'].map((field) => identity[field])
-      )
+      .map((identity) => [
+        ...['issuer', 'platform', 'realm', 'subject', 'scope'].map((field) => identity[field]),
+        [...(identity.scopes || [])].sort(),
+      ])
       .map((values) => JSON.stringify(values))
       .sort()
   )
