@@ -379,6 +379,7 @@ export default {
   },
   serviceTraffic: {
     httpTitle: 'HTTP traffic',
+    recentAgents: 'Active Agents in the last {minutes} min: {count}',
     businessTitle: 'Resource operations',
     businessHelp:
       'Dispatcher attempts since counting started, separate from HTTP requests. Excludes queries/help and requests refused before dispatch. Dispatched does not prove resource acquisition; returned business refusals may also be dispatched. Shared by chat transports including WebSocket. Restart or scope eviction resets counters.',
