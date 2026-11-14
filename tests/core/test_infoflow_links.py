@@ -44,7 +44,6 @@ class TestInfoflowBuildReply:
             {"type": "AT", "atuserids": ["alice"]},
         ]
 
-
     def test_multiple_links_interleaved(self):
         adapter = InfoflowAdapter()
         items = [
