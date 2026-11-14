@@ -57,6 +57,8 @@ export default {
     check: '检查迁移条件',
     noApplications: '请先在站点设置中配置飞书应用。',
     cannotMigrate: '尚不能迁移：当前仅支持预检。',
+    resetPolicy: '迁移将清空当前占用、预约及授权。用户需要在飞书重新绑定。资源配置与历史记录会保留。',
+    durationWhitelistReset: '迁移会清空时长白名单中原平台的 {count} 条用户规则。',
     stateUnknown: '暂时无法确认现有资源状态。',
     blockersTitle: '待处理事项',
     unverifiedTitle: '尚未验证',
@@ -70,6 +72,8 @@ export default {
       reservations: '预约',
       offers: '待抢锁',
       non_idle: '非空闲',
+      agent_bindings: 'Agent 绑定',
+      usage_declarations: '用途登记',
     },
     blockers: {
       source_identity_rules_unrecognized: '原平台用户规则格式需检查',

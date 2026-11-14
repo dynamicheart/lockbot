@@ -1,6 +1,7 @@
 <template>
   <section class="migration-result" aria-live="polite">
     <p class="migration-unavailable">{{ $t('migration.cannotMigrate') }}</p>
+    <p v-if="result.resetPolicy" class="migration-note">{{ $t('migration.resetPolicy') }}</p>
     <dl v-if="result.stored_obligations" class="migration-counts">
       <div v-for="field in countFields" :key="field">
         <dt>{{ $t(`migration.counts.${field}`) }}</dt>
@@ -8,6 +9,9 @@
       </div>
     </dl>
     <p v-else class="migration-note">{{ $t('migration.stateUnknown') }}</p>
+    <p v-if="result.resetPolicy && result.durationWhitelistCount" class="migration-note">
+      {{ $t('migration.durationWhitelistReset', { count: result.durationWhitelistCount }) }}
+    </p>
     <h4>{{ $t('migration.blockersTitle') }}</h4>
     <ul>
       <li v-for="(item, index) in result.blockers" :key="index">
@@ -24,7 +28,15 @@
 </template>
 <script setup>
 defineProps({ result: { type: Object, required: true } })
-const countFields = ['resources', 'holders', 'reservations', 'offers', 'non_idle']
+const countFields = [
+  'resources',
+  'holders',
+  'reservations',
+  'offers',
+  'non_idle',
+  'agent_bindings',
+  'usage_declarations',
+]
 </script>
 <style scoped>
 .migration-result {

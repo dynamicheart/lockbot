@@ -80,7 +80,15 @@ const checking = ref(false)
 const denied = ref(false)
 const result = ref(null)
 const error = ref('')
-const countFields = ['resources', 'holders', 'reservations', 'offers', 'non_idle']
+const countFields = [
+  'resources',
+  'holders',
+  'reservations',
+  'offers',
+  'non_idle',
+  'agent_bindings',
+  'usage_declarations',
+]
 const blockerKeys = Object.fromEntries(
   [
     'source_identity_rules_unrecognized',
@@ -188,6 +196,12 @@ async function check() {
     }
     // Only retain the fields this read-only panel renders, never a raw response dump.
     result.value = {
+      resetPolicy: data.reset_policy === 'clear_live_state_and_reenroll',
+      durationWhitelistCount:
+        Number.isSafeInteger(data.identity_bound_rule_counts?.DURATION_WHITELIST) &&
+        data.identity_bound_rule_counts.DURATION_WHITELIST > 0
+          ? data.identity_bound_rule_counts.DURATION_WHITELIST
+          : 0,
       stored_obligations: data.stored_obligations
         ? Object.fromEntries(
             countFields.map((field) => [

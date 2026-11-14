@@ -9,10 +9,14 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, select
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
+from lockbot.backend.app.resource_api.usage import UsageDeclaration
+from lockbot.backend.app.resource_auth.models import ResourceBinding
+from lockbot.core.platforms.registry import normalize_platform_name
 
 
 class MigrationPreflight(BaseModel):
@@ -68,12 +72,33 @@ def _inventory_matches(state, bot):
         return False
 
 
+def _count_reset_authorizations(db, bot, now):
+    live = (
+        ResourceBinding.bound_bot_id == bot.id,
+        ResourceBinding.bound_bot_uuid == bot.uuid,
+        ResourceBinding.bound_identity_revision == bot.identity_revision,
+        ResourceBinding.platform == normalize_platform_name(bot.platform),
+        ResourceBinding.revoked_at.is_(None),
+        (ResourceBinding.credential_expires_at.is_(None)) | (ResourceBinding.credential_expires_at > now),
+    )
+    return {
+        "agent_bindings": db.scalar(select(func.count()).select_from(ResourceBinding).where(*live)),
+        "usage_declarations": db.scalar(
+            select(func.count())
+            .select_from(UsageDeclaration)
+            .join(ResourceBinding, UsageDeclaration.binding_id == ResourceBinding.id)
+            .where(*live, UsageDeclaration.bot_id == bot.id, UsageDeclaration.expires_at > now)
+        ),
+    }
+
+
 def observe_migration(db, manager, bot_id, body):
     bot = db.get(Bot, bot_id)
     if bot is None or bot.is_deleted:
         raise HTTPException(404, "Bot not found")
     blockers = []
     counts = None
+    observed_at = datetime.now(timezone.utc)
     generation = None
     identity_rule_counts = None
     try:
@@ -88,14 +113,13 @@ def observe_migration(db, manager, bot_id, body):
                 blockers.append("source_identity_rules_unrecognized")
             else:
                 identity_rule_counts = {"DURATION_WHITELIST": len(whitelist)}
-                if whitelist:
-                    blockers.append("source_identity_rules_require_mapping")
             if lease.health == "error":
                 blockers.append("source_generation_unhealthy")
             if lease.bot.config.get_val("_IDENTITY_REVISION", 0) != bot.identity_revision:
                 blockers.append("source_generation_changed")
             try:
                 counts = _counts(lease.bot.state.bot_state, bot.bot_type)
+                counts.update(_count_reset_authorizations(db, bot, observed_at.replace(tzinfo=None)))
                 if not _inventory_matches(lease.bot.state.bot_state, bot):
                     blockers.append("source_inventory_mismatch")
             except (TypeError, ValueError):
@@ -110,8 +134,6 @@ def observe_migration(db, manager, bot_id, body):
         blockers.append("source_type_unsupported")
     if not bot.uuid:
         blockers.append("source_identity_missing")
-    if counts and any(counts[field] for field in ("holders", "reservations", "offers", "non_idle")):
-        blockers.append("source_has_outstanding_allocations")
     app = db.get(FeishuApplication, body.application_id)
     target = {"application_id": body.application_id, "chat_id": body.chat_id}
     if app is None:
@@ -149,7 +171,7 @@ def observe_migration(db, manager, bot_id, body):
     digest = hashlib.sha256(json.dumps(reviewed, sort_keys=True).encode()).hexdigest()
     return {
         "schema_version": 1,
-        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "observed_at": observed_at.isoformat(),
         "read_only": True,
         "can_commit": False,
         "reservation_created": False,
@@ -165,6 +187,7 @@ def observe_migration(db, manager, bot_id, body):
         "target": target,
         "stored_obligations": counts,
         "identity_mapping": {"implemented": False, "unresolved_principals": None},
+        "reset_policy": "clear_live_state_and_reenroll",
         "identity_bound_rule_counts": identity_rule_counts,
         "blockers": blockers + ["cutover_not_implemented"],
         "unverified": [

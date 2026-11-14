@@ -58,6 +58,8 @@ export default {
     check: 'Check migration conditions',
     noApplications: 'Configure a Feishu application in site settings first.',
     cannotMigrate: 'Migration is not available yet; this is a preflight only.',
+    resetPolicy: 'Migration clears current holds, reservations and authorizations. Users enroll again in Feishu. Resource settings and history are retained.',
+    durationWhitelistReset: 'The migration will clear {count} source-platform entries from the duration allowlist.',
     stateUnknown: 'The current resource state could not be verified.',
     blockersTitle: 'Blockers',
     unverifiedTitle: 'Not yet verified',
@@ -72,6 +74,8 @@ export default {
       reservations: 'Reservations',
       offers: 'Claim offers',
       non_idle: 'Non-idle',
+      agent_bindings: 'Agent bindings',
+      usage_declarations: 'Usage declarations',
     },
     blockers: {
       source_identity_rules_unrecognized: 'Review the source identity rule format',

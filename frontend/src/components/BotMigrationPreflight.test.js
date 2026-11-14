@@ -91,7 +91,17 @@ function response(bot = 1, chat = 'oc_target') {
     can_commit: false,
     source: { bot_id: bot, identity_revision: 0 },
     target: { application_id: 7, chat_id: chat },
-    stored_obligations: { resources: 4, holders: 2, reservations: 1, offers: 0, non_idle: 2 },
+    reset_policy: 'clear_live_state_and_reenroll',
+    identity_bound_rule_counts: { DURATION_WHITELIST: 2 },
+    stored_obligations: {
+      resources: 4,
+      holders: 2,
+      reservations: 1,
+      offers: 0,
+      non_idle: 2,
+      agent_bindings: 3,
+      usage_declarations: 2,
+    },
     blockers: ['source_has_outstanding_allocations', 'cutover_not_implemented'],
     unverified: ['current_group_membership'],
   }
@@ -127,6 +137,11 @@ it('renders actual read-only counts and blockers without a cutover control or re
   expect(html).toMatch(/<dd[^>]*>2<\/dd>/)
   expect(html).not.toContain('<button')
   expect(state.result.stored_obligations.holders).toBe(2)
+  expect(state.result.stored_obligations.agent_bindings).toBe(3)
+  expect(state.result.stored_obligations.usage_declarations).toBe(2)
+  expect(html).toContain('migration.resetPolicy')
+  expect(html).toContain('migration.durationWhitelistReset')
+  expect(state.result.durationWhitelistCount).toBe(2)
   expect(JSON.stringify(state.result)).not.toContain('MUST_NOT_RETAIN')
 })
 
