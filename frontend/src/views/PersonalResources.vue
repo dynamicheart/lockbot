@@ -153,11 +153,38 @@
                 <template #default="{ row }">{{ row.group.identity?.subject }}</template>
               </el-table-column>
               <el-table-column
-                v-if="$slots.task && section.label === '持有资源'"
+                v-if="section.label === '持有资源' && ($slots.task || ownTasksAvailable)"
                 label="用途"
                 min-width="125"
               >
-                <template #default="{ row }"><slot name="task" :row="row" /></template>
+                <template #default="{ row }">
+                  <slot name="task" :row="row">
+                    <el-popover
+                      v-if="row.allocation.own_task?.note || row.allocation.own_task?.agent_label"
+                      trigger="click"
+                      placement="bottom-start"
+                      :width="280"
+                    >
+                      <template #reference>
+                        <button class="task-summary" type="button">
+                          {{ row.allocation.own_task.category || '已登记' }}
+                        </button>
+                      </template>
+                      <div class="task-detail">
+                        <p v-if="row.allocation.own_task.note">
+                          {{ row.allocation.own_task.note }}
+                        </p>
+                        <p v-if="row.allocation.own_task.agent_label" class="scope">
+                          Agent · {{ row.allocation.own_task.agent_label }}
+                        </p>
+                      </div>
+                    </el-popover>
+                    <span v-else class="scope">{{
+                      row.allocation.own_task?.category ||
+                      (row.allocation.own_task === null ? '未登记' : '未提供')
+                    }}</span>
+                  </slot>
+                </template>
               </el-table-column>
               <el-table-column
                 v-if="$slots.metrics && section.label === '持有资源'"
@@ -307,6 +334,9 @@ const initialResourceLoading = computed(
   () => resourceLoading.value && !resourcesReady.value && !groups.value.length
 )
 const knownGroups = computed(() => groups.value.filter(fresh))
+const ownTasksAvailable = computed(() =>
+  knownGroups.value.some((group) => entries(group).some((allocation) => 'own_task' in allocation))
+)
 const pendingGroups = computed(() => groups.value.length - knownGroups.value.length)
 const allocationSections = computed(() => {
   const rows = groups.value.flatMap((group) =>
@@ -646,6 +676,16 @@ onMounted(async () => {
 }
 .stat-value .stat-unit {
   font-size: 14px;
+}
+.task-summary {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+}
+.task-detail {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .group-pending {
   min-height: 48px;
