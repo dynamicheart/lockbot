@@ -184,13 +184,37 @@ credential discovery on this instance; resource routes still require the matchin
 bot's key. Never replace all group records with the key used to start recovery.
 
 Legacy bindings remain valid. The first recovery request made with a legacy key
-adds an encrypted recovery copy of that same key, without rotation. During upgrade,
-call recovery once for each distinct saved key on this approved instance, then
-reconcile the combined results. Preserve an existing valid local key when a recovery
-entry has `credential: null` / `credential_recoverable: false`: this means a historical
-copy is missing or unreadable, not that the user must rebind. Use another already
-authorized Agent/store holding that key to backfill it. Only genuinely lost keys
-require the supported revoke/re-enroll flow. Never invent a key or silently rebind.
+adds an encrypted recovery copy of that same key, without rotation. When the manifest
+advertises `credential_recovery_health`, context reports only the current key's state:
+`recoverable` (verified copy), `legacy_missing` (no encrypted copy), or `unreadable`
+(copy cannot be verified, including an unavailable service encryption key). This is
+recovery health, not credential validity; context never exposes another bot's state.
+
+For each distinct saved key on the approved instance with a missing/unreadable copy:
+POST recovery once using that exact key and no body; find the `current: true` entry;
+privately compare its returned key with the original; then GET context again and
+verify the same instance/bot/user and `recoverable` state. Keep the exact key value
+and existing private-store reference. Reconcile each bot separately. If the field is
+absent on an older service, keep the existing capability/context flow.
+
+Preserve an existing valid local key when a recovery entry has `credential: null` /
+`credential_recoverable: false`: the historical copy is missing or unreadable, not
+an instruction to rebind. Use another already authorized Agent/store holding that
+bot's key to backfill it. Missing bot B material does not invalidate bot A or let A's
+key operate on B. HTTP 503 `detail.code: credential_recovery_unavailable` means the
+service could not create a copy; retain the valid key/configuration and report the
+failure without retry loops, rotation or reset. A digest cannot reconstruct a key.
+
+Only genuinely lost credentials or suspected disclosure/compromised authorization
+justify considering revoke/re-enroll. First obtain explicit user confirmation of the
+service, bot and revocation scope, explaining that every Agent sharing the affected
+key loses access and needs private reconfiguration. The verified human can inspect
+chat `bindings`, use `unbind <short-id>` for their own binding, and confirm a new
+`bind <code>`; an authorized owner's revoke-all affects every personal binding on
+that bot. Do not claim a failed/denied revoke succeeded or enroll around it. Revoking
+a key does not release/migrate/recreate locks or queues; discuss and authorize any
+resource changes separately. Never reset during a routine release, Skill update,
+new Agent installation or migration, and never invent a key or silently rebind.
 
 Older services may not advertise this capability: use known saved connections and
 their context endpoints instead of probing bot IDs. Another service or protocol
@@ -371,10 +395,13 @@ When the user wants to view resources or queue order in a browser, use `view_url
 `view_expires_at` returned by `/api/agent/context`. Share that read-only URL; never put your
 personal key into a browser URL. Treat `view_url` as opaque: current short links and older
 long links are compatible; do not parse or reconstruct a code from the URL. No separate web command or link-creation endpoint is needed.
-The server lazily creates one link per bot, reuses it for 24 hours from creation, and only
-replaces it when a subsequent authorized request arrives after expiry. Page refreshes do not
-renew it. Ordinary group queries also return the current link. If the link expires, request
-context again. Keep the returned URL on the user-approved origin.
+The server lazily creates one link per bot. Its lifetime comes from the bot override or
+inherited platform setting (one day by default, up to 30 days, or permanent). A null
+`view_expires_at` means no automatic expiry. Page refreshes never renew it. A subsequent
+authorized request replaces an expired link or applies a changed lifetime policy; an
+administrator can explicitly regenerate it to invalidate the old code. Ordinary group
+queries return the current link. If a link expires or is regenerated, request context
+again. Keep the returned URL on the user-approved origin.
 
 The link permits its holder to read this bot's resource/queue information and preset task categories and can be
 forwarded; it does not prove current group membership or allow commands. Revoking a personal
@@ -624,8 +651,16 @@ The examples below use placeholder resources; replace them with those returned b
   `queue_claim_window_seconds`; without an explicit duration, the booked duration applies.
   `free node1` cancels your booking or releases your lock. Do not continue using a node
   just because you previously booked it. Poll with backoff; no busy loops.
-- `alias node1 <note>` changes the shared resource alias only when enabled (at most 15
-  characters). It is not an Agent task note; use usage declarations for task purposes.
+- `alias node1 <note>` changes the bot-global/public node alias only when enabled (at
+  most 15 characters); `alias node1` clears it. Read the matching node's
+  `resources[].alias` afterward: empty string means unset/cleared. DEVICE/QUEUE_DEVICE
+  expose it on the parent node, not per card. It is not a task note or Agent label;
+  use usage declarations for task purposes. `aliases_observed_at` timestamps the current
+  configuration observation separately from cached lock/queue `captured_at`; they are
+  not atomic. Readback proves neither command attribution nor successful persistence.
+  Check the real reply and actual result; HTTP 200 alone does not prove a change.
+  After uncertainty, read before considering another write. A missing field on an older
+  service means structured readback is unavailable, not that the alias was cleared.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
   Agent keys**. Native chat/OP permissions do not imply permission through this API.
 - HTTP 200 only means the command was dispatched. Inspect `reply` and read `/resources`

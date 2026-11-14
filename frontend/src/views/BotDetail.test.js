@@ -334,11 +334,9 @@ it('aborts reads and blocks deferred confirmations and redirects after unmount',
   expect(model.router.push).not.toHaveBeenCalled()
 })
 
-it('does not accept an old view link, summary or generated key when the same ID is revisited', async () => {
+it('does not accept an old summary or generated key when the same ID is revisited', async () => {
   const view = mount()
   await ready()
-  const link = view.refreshViewLink(),
-    oldLink = latest('bot', '1')
   const summary = view.loadAgentSummary(),
     oldSummary = latest('get', '/bots/1/agent-summary')
   const key = view.handleGenerateApiKey(),
@@ -347,10 +345,9 @@ it('does not accept an old view link, summary or generated key when the same ID 
   await ready('2')
   model.route.params.id = '1'
   await ready('1', '-revisited')
-  oldLink.resolve({ view_url: 'fictional-old-view', view_expires_at: 'old' })
   oldSummary.resolve({ authorizations: 999 })
   oldKey.resolve({ api_key: 'fictional-old-key' })
-  await Promise.all([link, summary, key])
+  await Promise.all([summary, key])
   await flush()
   expect(view.bot.name).toBe('fixture-1-revisited')
   expect(view.bot.view_url).not.toBe('fictional-old-view')
@@ -442,4 +439,47 @@ it('limits migration preflight to super administrators and Infoflow and closes i
   await flush()
   expect(view.showMigration).toBe(false)
   expect(view.migrationAvailable).toBe(false)
+})
+
+it('regenerates a resource link only after confirmation and supports permanent expiry', async () => {
+  const view = mount()
+  await ready()
+  const pending = view.regenerateViewLink()
+  expect(latest('post', '/bots/1/view-link/regenerate')).toBeUndefined()
+  latest('confirm', 'dialog').resolve()
+  await flush()
+  latest('post', '/bots/1/view-link/regenerate').resolve({
+    view_url: 'fictional-new-view',
+    view_expires_at: null,
+  })
+  await pending
+  expect(view.bot.view_url).toBe('fictional-new-view')
+  expect(view.bot.view_expires_at).toBeNull()
+})
+
+it('does not regenerate a different bot after switching during confirmation', async () => {
+  const view = mount()
+  await ready()
+  const pending = view.regenerateViewLink()
+  model.route.params.id = '2'
+  await ready('2')
+  latest('confirm', 'dialog').resolve()
+  await pending
+  expect(latest('post', '/bots/1/view-link/regenerate')).toBeUndefined()
+  expect(view.bot.id).toBe(2)
+})
+
+it('ignores a regenerated link response after switching bots', async () => {
+  const view = mount()
+  await ready()
+  const pending = view.regenerateViewLink()
+  latest('confirm', 'dialog').resolve()
+  await flush()
+  const read = latest('post', '/bots/1/view-link/regenerate')
+  model.route.params.id = '2'
+  await ready('2')
+  read.resolve({ view_url: 'fictional-old-view', view_expires_at: null })
+  await pending
+  expect(view.bot.id).toBe(2)
+  expect(view.bot.view_url).not.toBe('fictional-old-view')
 })

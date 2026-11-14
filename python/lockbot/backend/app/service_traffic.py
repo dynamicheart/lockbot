@@ -36,7 +36,12 @@ _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
 
 
 def source_for(path):
-    if path == "/api/admin/service-traffic" or path.endswith("/service-traffic") or path.endswith("/agent-history"):
+    if (
+        path == "/api/admin/service-traffic"
+        or path.endswith("/service-traffic")
+        or path.endswith("/agent-history")
+        or path.endswith("/service-traffic/history")
+    ):
         return "monitoring"
     if path == "/api/health":
         return "health"
@@ -113,8 +118,9 @@ class Counters:
 
 
 class TrafficStats:
-    def __init__(self, clock=time.time, *, scoped=True):
+    def __init__(self, clock=time.time, *, scoped=True, history=None):
         self.clock = clock
+        self.history = history
         self.started_at = clock()
         self.lock = threading.Lock()
         self.total = Counters()
@@ -150,6 +156,8 @@ class TrafficStats:
             or outcome not in {"dispatched", "rejected", "uncertain"}
         ):
             return
+        if self.history:
+            self.history.operation(bot_id, source)
         key = (source, command, outcome)
         minute = int(self.clock() // 60)
         with self.lock:
@@ -196,6 +204,16 @@ class TrafficStats:
         now = self.clock()
         minute, second = int(now // 60), int(now)
         duration_ms = max(0, duration_ms)
+        if self.history:
+            self.history.record(
+                bot_id=bot_id,
+                source=source,
+                status=status,
+                duration_ms=duration_ms,
+                received=received,
+                sent=sent,
+                failed=failed,
+            )
         with self.lock:
             self.minutes = {key: value for key, value in self.minutes.items() if minute - 59 <= key <= minute}
             self.seconds = {key: value for key, value in self.seconds.items() if second - 59 <= key <= second}
@@ -444,3 +462,47 @@ def agent_history(
         audit_private_read(db, user, bot_id=bot_id, surface="management.agent_history")
     result["details_restricted"] = not private
     return result
+
+
+def _historical(request, response, start, end, resolution_seconds, bot_id):
+    from lockbot.backend.app.service_history import parse_range
+
+    journal = request.app.state.service_history
+    start, end, resolution = parse_range(start, end, resolution_seconds, journal.clock())
+    response.headers["Cache-Control"] = "no-store"
+    return journal.query(start, end, resolution, bot_id)
+
+
+@router.get("/service-traffic/history")
+def global_history(
+    request: Request,
+    response: Response,
+    start: str = Query(..., max_length=40),
+    end: str = Query(..., max_length=40),
+    resolution_seconds: int | None = None,
+    bot_id: int | None = Query(None, ge=1),
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    if bot_id is not None:
+        from lockbot.backend.app.bots.router import _get_user_bot
+
+        _get_user_bot(bot_id, user, db)
+    return _historical(request, response, start, end, resolution_seconds, bot_id)
+
+
+@bot_router.get("/{bot_id}/service-traffic/history")
+def bot_history(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    start: str = Query(..., max_length=40),
+    end: str = Query(..., max_length=40),
+    resolution_seconds: int | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.router import _get_user_bot
+
+    _get_user_bot(bot_id, user, db)
+    return _historical(request, response, start, end, resolution_seconds, bot_id)
