@@ -109,6 +109,22 @@ it('separates login and report sources and excludes another identity', async () 
   ])
 })
 
+it('tracks independently changed bot scopes within the same verified principal', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response({ authenticated: false, identities: [] }))
+  )
+  const state = mount()
+  await flush()
+  const principal = { issuer: 'fixture', platform: 'infoflow', realm: 'attested', subject: 'alice' }
+  expect(state.identityScope([{ ...principal, scopes: ['bot-a'] }])).not.toBe(
+    state.identityScope([{ ...principal, scopes: ['bot-a', 'bot-b'] }])
+  )
+  expect(state.identityScope([{ ...principal, scopes: ['bot-a', 'bot-b'] }])).toBe(
+    state.identityScope([{ ...principal, scopes: ['bot-b', 'bot-a'] }])
+  )
+})
+
 const identity = {
   issuer: 'https://service.example.invalid',
   platform: 'infoflow',

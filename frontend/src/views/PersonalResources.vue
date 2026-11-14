@@ -401,9 +401,10 @@ let refreshEpoch = 0
 function identityScope(identities) {
   return JSON.stringify(
     (identities || [])
-      .map((identity) =>
-        ['issuer', 'platform', 'realm', 'subject', 'scope'].map((field) => identity[field])
-      )
+      .map((identity) => [
+        ...['issuer', 'platform', 'realm', 'subject', 'scope'].map((field) => identity[field]),
+        [...(identity.scopes || [])].sort(),
+      ])
       .map((values) => JSON.stringify(values))
       .sort()
   )
