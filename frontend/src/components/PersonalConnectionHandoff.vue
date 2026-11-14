@@ -2,13 +2,35 @@
   <section v-if="supported || loading || error || authenticated" class="panel native-connections">
     <template v-if="supported || loading || error">
       <div class="connection-heading">
-        <h2>Agent 授权</h2>
-        <button class="connection-button" :disabled="loading" @click="refresh">刷新授权</button>
+        <h2>已识别的凭证</h2>
+        <div class="credential-actions">
+          <button
+            v-if="items.length > 1"
+            class="connection-button primary"
+            :disabled="loading"
+            @click="copyAllInstructions"
+          >
+            复制全部接入说明
+          </button>
+          <button class="connection-button" :disabled="loading" @click="refresh">刷新授权</button>
+        </div>
       </div>
-      <p class="scope">换设备或换 Agent 时，复制对应资源群的接入说明发给 Agent。</p>
       <p v-if="loading" role="status" class="scope">正在检查授权…</p>
       <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
       <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
+      <template v-if="supported && authenticated && !loading && !error">
+        <dl class="credential-summary">
+          <div>
+            <dt>已识别 Key</dt>
+            <dd>{{ items.length }}</dd>
+          </div>
+          <div>
+            <dt>绑定资源群</dt>
+            <dd>{{ boundGroupCount }}</dd>
+          </div>
+        </dl>
+        <p class="scope">按群复制接入说明给 Agent。Key 请通过私密渠道单独提供。</p>
+      </template>
       <div v-for="item in items" :key="item.id" class="connection-entry">
         <div class="connection-heading">
           <div>
@@ -97,10 +119,14 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps({ authenticated: Boolean, scopeKey: { type: String, default: '' } })
 const items = ref([])
+const boundGroupCount = computed(
+  () =>
+    new Set(items.value.map(({ instance_id, bot }) => JSON.stringify([instance_id, bot.uuid]))).size
+)
 const skill = ref(null)
 const recoveryGuide = ref('')
 const supported = ref(false)
@@ -300,7 +326,12 @@ async function refresh() {
         pins.set(pin.origin, { instance_id: text(pin.instance_id) })
       }
     }
-    items.value = data.connections.map((row) => connection(row, pins))
+    const unique = new Map()
+    for (const row of data.connections) {
+      const item = connection(row, pins)
+      if (!unique.has(item.id)) unique.set(item.id, item)
+    }
+    items.value = [...unique.values()]
     unavailable.value = data.some_authorizations_unavailable === true
   } catch (failure) {
     if (run !== epoch || disposed) return
@@ -317,9 +348,9 @@ async function refresh() {
     }
   }
 }
-async function copy(value) {
+async function copy(value, limit) {
   const run = epoch
-  if (!supported.value || !safeText(value)) return
+  if (!supported.value || !safeText(value, limit)) return
   try {
     if (navigator.clipboard?.writeText) {
       try {
@@ -389,6 +420,17 @@ function copyInstructions(item) {
   if (!props.authenticated || loading.value || !items.value.includes(item)) return
   return copy(item.instructions)
 }
+function copyAllInstructions() {
+  if (!props.authenticated || loading.value || items.value.length < 2) return
+  const workbench = new URL('/#/me', location.origin).href
+  const introduction = [
+    '请安装或使用 lockbot-resource-agent Skill，为下列资源群分别保存连接。',
+    '先核对服务地址、机器人和身份，逐个验证已有 Key。缺少 Key 时按对应连接的指引处理。',
+    `个人资源台：${workbench}`,
+  ].join('\n')
+  const instructions = items.value.map((item, index) => `${index + 1}. ${item.instructions}`)
+  return copy([introduction, ...instructions].join('\n\n'), 400000)
+}
 function copyConnectionRecovery(item) {
   if (!props.authenticated || loading.value || !items.value.includes(item)) return
   return copy(item.recovery_instructions)
@@ -425,6 +467,26 @@ onBeforeUnmount(() => {
 }
 .native-connections .scope {
   margin: 0;
+}
+.credential-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px clamp(24px, 7vw, 72px);
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 6px;
+  background: var(--el-fill-color-light);
+}
+.credential-summary dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+.credential-summary dd {
+  margin: 4px 0 0;
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 .connection-heading {
   display: flex;
