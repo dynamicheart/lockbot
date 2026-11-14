@@ -120,7 +120,9 @@ They do not execute real resource commands or provide a client scheduler.
   completed release remains a precondition, but no update hint is injected in the
   prompt. The old client revision must elicit an actual HTTP `skill_update` result,
   followed by reading all latest Skill bytes before adopting its revision. Reporting
-  latest after actually reading it is valid; reading just the manifest is insufficient.
+  the latest revision on a successful authenticated read must receive a matching
+  `current` acknowledgment. Sending the header on public discovery, failed requests,
+  or requests before the complete post-notice read does not establish adoption.
   The frozen Markdown is available at the advertised path with or without the
   documented `?version=<current revision>` cache buster.
   Pass `--origin` when the frozen package advertises a different deployment origin.
