@@ -38,7 +38,12 @@
         <span aria-current="page">{{ detailSectionTitle }}</span>
       </nav>
       <div class="page-heading">
-        <h1 ref="pageTitle" tabindex="-1">{{ ticket ? '确认登录身份' : title }}</h1>
+        <div class="workbench-heading-text">
+          <h1 ref="pageTitle" tabindex="-1">{{ ticket ? '确认登录身份' : title }}</h1>
+          <p v-if="detail?.resource && detail.groupLabel && !ticket" class="scope">
+            {{ detail.groupLabel }}
+          </p>
+        </div>
         <div v-if="session.authenticated && !ticket && tab !== 'connections'" class="actions">
           <span v-if="resourceLoading" class="refresh-status" role="status">
             <template v-if="reportProgress.total">
@@ -108,7 +113,13 @@
           <p class="scope">正在读取明细…</p>
         </section>
         <section v-else-if="!detail" class="panel workbench-empty">
-          <p>当前账号没有这条明细，或该资源已释放。</p>
+          <p>
+            {{
+              !resourcesReady || pendingGroups
+                ? '暂时无法确认这条明细，请刷新资源。'
+                : '当前没有这条资源记录。'
+            }}
+          </p>
           <router-link :to="detailPage === 'group' ? '/me/groups' : '/me'">
             {{ detailPage === 'group' ? '返回资源群' : '返回我的占用' }}
           </router-link>
@@ -185,9 +196,7 @@
             <table v-if="section.rows.length" class="allocation-table" role="table">
               <thead role="rowgroup">
                 <tr role="row">
-                  <th v-if="!detail.groupKey || detail.resource" scope="col" role="columnheader">
-                    资源群
-                  </th>
+                  <th v-if="!detail.groupKey" scope="col" role="columnheader">资源群</th>
                   <th scope="col" role="columnheader">资源</th>
                   <th v-if="section.timeLabel" scope="col" role="columnheader">
                     {{ section.timeLabel }}
@@ -202,12 +211,12 @@
               </thead>
               <tbody role="rowgroup">
                 <template v-for="item in section.items" :key="item.key">
-                  <tr v-if="item.rows.length > 1" role="row" class="allocation-node-summary">
-                    <td
-                      v-if="!detail.groupKey || detail.resource"
-                      role="cell"
-                      class="allocation-group"
-                    >
+                  <tr
+                    v-if="item.rows.length > 1 && !detail.resource"
+                    role="row"
+                    class="allocation-node-summary"
+                  >
+                    <td v-if="!detail.groupKey" role="cell" class="allocation-group">
                       {{ item.first.group.label }}
                     </td>
                     <td role="cell" class="allocation-name">
@@ -240,24 +249,27 @@
                     </td>
                     <td v-if="section.metrics" role="cell" class="allocation-metrics"></td>
                   </tr>
-                  <template v-if="item.rows.length === 1 || expandedNodes.has(item.key)">
+                  <template
+                    v-if="detail.resource || item.rows.length === 1 || expandedNodes.has(item.key)"
+                  >
                     <tr
                       v-for="row in item.rows"
                       :key="row.key"
                       role="row"
-                      :class="{ 'allocation-detail': item.rows.length > 1 }"
+                      :class="{ 'allocation-detail': !detail.resource && item.rows.length > 1 }"
                     >
-                      <td
-                        v-if="!detail.groupKey || detail.resource"
-                        role="cell"
-                        class="allocation-group"
-                      >
+                      <td v-if="!detail.groupKey" role="cell" class="allocation-group">
                         {{ item.rows.length === 1 ? row.group.label : '' }}
                       </td>
                       <td role="cell" class="allocation-name">
-                        <span v-if="item.rows.length === 1" class="allocation-node">{{
-                          row.allocation.node ?? '未知节点'
-                        }}</span>
+                        <span
+                          v-if="
+                            item.rows.length === 1 &&
+                            (!detail.resource || row.allocation.device == null)
+                          "
+                          class="allocation-node"
+                          >{{ row.allocation.node ?? '未知节点' }}</span
+                        >
                         <span v-if="row.allocation.device != null" class="allocation-device">
                           卡 {{ row.allocation.device }}
                         </span>
@@ -408,7 +420,12 @@
         </p>
         <div v-if="allocationRows.length || resourcesReady" class="workbench-focus">
           <section class="panel" aria-labelledby="workbench-expiring">
-            <h2 id="workbench-expiring" class="panel-title">即将到期</h2>
+            <div class="workbench-panel-heading">
+              <h2 id="workbench-expiring" class="panel-title">即将到期</h2>
+              <router-link v-if="expiringItems.length > 4" to="/me/holdings">
+                全部持有
+              </router-link>
+            </div>
             <p v-if="!expiringItems.length" class="scope">
               {{
                 resourceLoading
@@ -418,12 +435,14 @@
                     : '暂无 30 分钟内到期的资源'
               }}
             </p>
-            <button
-              v-for="item in expiringItems"
+            <component
+              :is="holdingPath(item) ? 'RouterLink' : 'button'"
+              v-for="item in expiringItems.slice(0, 4)"
               :key="item.key"
-              type="button"
+              :to="holdingPath(item)"
+              :type="holdingPath(item) ? undefined : 'button'"
               class="workbench-resource"
-              @click="openWorkbenchResource(item)"
+              @click="!holdingPath(item) && openWorkbenchResource(item)"
             >
               <span
                 ><strong>{{ item.first.allocation.node ?? '未知节点' }}</strong
@@ -443,10 +462,15 @@
                 }}</span>
                 <el-icon aria-hidden="true"><ArrowRight /></el-icon>
               </span>
-            </button>
+            </component>
           </section>
           <section class="panel" aria-labelledby="workbench-bookings">
-            <h2 id="workbench-bookings" class="panel-title">我的预约</h2>
+            <div class="workbench-panel-heading">
+              <h2 id="workbench-bookings" class="panel-title">我的预约</h2>
+              <router-link v-if="recentBookings.length > 4" to="/me/reservations">
+                全部预约
+              </router-link>
+            </div>
             <p v-if="!recentBookings.length" class="scope">
               {{
                 resourceLoading
@@ -456,12 +480,14 @@
                     : '暂无预约'
               }}
             </p>
-            <button
-              v-for="row in recentBookings"
+            <component
+              :is="row.allocation.detail_id ? 'RouterLink' : 'button'"
+              v-for="row in recentBookings.slice(0, 4)"
               :key="row.key"
-              type="button"
+              :to="detailPath('reservations', row.allocation.detail_id)"
+              :type="row.allocation.detail_id ? undefined : 'button'"
               class="workbench-resource"
-              @click="openBooking(row)"
+              @click="!row.allocation.detail_id && openBooking(row)"
             >
               <span
                 ><strong
@@ -475,7 +501,7 @@
                 <span>{{ bookingPosition(row.allocation) }}</span>
                 <el-icon aria-hidden="true"><ArrowRight /></el-icon>
               </span>
-            </button>
+            </component>
           </section>
         </div>
       </template>
@@ -865,24 +891,19 @@ function nodeRemaining({ deadlines }) {
 }
 const expiringItems = computed(() =>
   allocationItems(
-    allocationRows.value.filter((row) => !queued(row.allocation)),
+    allocationRows.value.filter(({ allocation }) => {
+      const timeLeft = expiration(allocation.expires_at) - clock.value
+      return !queued(allocation) && timeLeft > 0 && timeLeft <= 30 * 60_000
+    }),
     true
   )
-    .filter(({ first }) => {
-      const timeLeft = expiration(first.allocation.expires_at) - clock.value
-      return timeLeft > 0 && timeLeft <= 30 * 60_000
-    })
     .sort(
       (a, b) =>
         expiration(a.first.allocation.expires_at) - expiration(b.first.allocation.expires_at)
     )
-    .slice(0, 4)
     .map((item) => ({
       ...item,
-      endingCards: item.rows.filter(({ allocation }) => {
-        const remaining = expiration(allocation.expires_at) - clock.value
-        return allocation.device != null && remaining > 0 && remaining <= 30 * 60_000
-      }).length,
+      endingCards: item.rows.filter(({ allocation }) => allocation.device != null).length,
     }))
 )
 const recentBookings = computed(() =>
@@ -894,7 +915,6 @@ const recentBookings = computed(() =>
         allocationOrder.compare(a.allocation.node ?? '', b.allocation.node ?? '') ||
         allocationOrder.compare(a.allocation.device ?? '', b.allocation.device ?? '')
     )
-    .slice(0, 4)
 )
 function groupSelection(group) {
   return { type: 'group', groupKey: allocationGroupKey(group), title: group.label }
@@ -905,14 +925,23 @@ function resourceSelection(type, row) {
     type === 'holdings' && node != null && device != null
       ? JSON.stringify([row.groupKey, node])
       : row.key
-  return { type, groupKey: row.groupKey, resource, title: node }
+  return { type, groupKey: row.groupKey, resource, title: node, groupLabel: row.group.label }
+}
+function detailPath(type, id) {
+  return id ? `/me/${type}/${encodeURIComponent(id)}` : undefined
+}
+function holdingPath({ first: { allocation } }) {
+  return detailPath(
+    'holdings',
+    allocation.device == null ? allocation.detail_id : allocation.node_detail_id
+  )
 }
 function openDetails(selection, id) {
   if (!id) {
     id = String(++detailSelectionId)
     detailSelections.set(id, selection)
   }
-  return router.push(`/me/${selection.type}/${id}`)
+  return router.push(detailPath(selection.type, id))
 }
 function openGroup(group) {
   return openDetails(groupSelection(group), group.detail_id)
@@ -1328,6 +1357,13 @@ onMounted(async () => {
 <style scoped src="../assets/styles/personal-panel.css"></style>
 
 <style scoped>
+.workbench-heading-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workbench-heading-text .scope {
+  margin-top: 4px;
+}
 .workbench-breadcrumb {
   display: flex;
   align-items: center;

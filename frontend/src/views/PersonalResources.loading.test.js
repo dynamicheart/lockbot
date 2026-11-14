@@ -528,3 +528,24 @@ it('restores a card-level node view from its direct URL as reports arrive', asyn
   expect(state.detailSections[0].rows).toHaveLength(2)
   expect(state.expandedNodes.has(state.detailSections[0].items[0].key)).toBe(true)
 })
+
+it('keeps a node on the overview when another card on that node has already expired', async () => {
+  const now = Date.parse('2026-11-14T12:00:00Z')
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      allocations: [-1, 5, 20, 40].map((minutes, device) => ({
+        kind: 'hold',
+        node: 'node-a',
+        device,
+        expires_at: new Date(now + minutes * 60_000).toISOString(),
+        node_detail_id: 'node-a-details',
+      })),
+    },
+  ])
+  state.clock = now
+  expect(state.expiringItems).toHaveLength(1)
+  expect(state.expiringItems[0].endingCards).toBe(2)
+  expect(state.expiringItems[0].first.allocation.device).toBe(1)
+  expect(state.holdingPath(state.expiringItems[0])).toBe('/me/holdings/node-a-details')
+})
