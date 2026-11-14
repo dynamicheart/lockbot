@@ -351,6 +351,8 @@ export default {
   trafficHistory: {
     inputZone: 'Input timezone: {zone}',
     notCollected: 'Unknown',
+    httpSource: 'HTTP entry source',
+    allSources: 'All HTTP sources',
     live: 'Live',
     history: 'History',
     range: 'Time range',
@@ -362,7 +364,7 @@ export default {
     http: 'HTTP requests',
     operations: 'Resource operations',
     coverageHelp:
-      'Gaps are unknown, not zero. Partial buckets and totals include only retained observations. P95 is an estimate; resource operations are separate from HTTP requests. Times are shown in UTC.',
+      'Gaps are unknown. Partial buckets and totals include only retained observations. P95 is an estimate. Resource operations and HTTP requests are counted separately.',
     coverage: 'Complete {complete_buckets} · partial {partial_buckets} · unknown {unknown_buckets}',
     resolution: '{minutes}-minute buckets',
     unknown: 'No retained data',
@@ -375,6 +377,8 @@ export default {
       server_errors: '5xx',
       avg_ms: 'Average latency',
       p95_ms: 'P95 estimated latency',
+      request_bytes: 'Request bytes',
+      response_bytes: 'Response bytes',
     },
   },
   serviceTraffic: {

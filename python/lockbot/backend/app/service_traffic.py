@@ -8,6 +8,7 @@ import time
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
@@ -30,6 +31,18 @@ SOURCES = (
     "other",
 )
 LATENCY_BOUNDS = (1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, math.inf)
+HistorySource = Literal[
+    "agent",
+    "operator",
+    "enrollment",
+    "webhook",
+    "resource_view",
+    "management",
+    "static",
+    "health",
+    "monitoring",
+    "other",
+]
 _RESOURCE = re.compile(r"^/api/bots/[^/]+/(commands|resources|usage-declarations)(/|$)")
 _OPERATOR = re.compile(r"^/api/bots/[^/]+/(op/|(?:opkick|kicklock)/?$|locked-users/?$)")
 _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"}
@@ -468,13 +481,13 @@ def agent_history(
     return result
 
 
-def _historical(request, response, start, end, resolution_seconds, bot_id):
+def _historical(request, response, start, end, resolution_seconds, bot_id, source):
     from lockbot.backend.app.service_history import parse_range
 
     journal = request.app.state.service_history
     start, end, resolution = parse_range(start, end, resolution_seconds, journal.clock())
     response.headers["Cache-Control"] = "no-store"
-    return journal.query(start, end, resolution, bot_id)
+    return journal.query(start, end, resolution, bot_id, source=source)
 
 
 @router.get("/service-traffic/history")
@@ -485,6 +498,7 @@ def global_history(
     end: str = Query(..., max_length=40),
     resolution_seconds: int | None = None,
     bot_id: int | None = Query(None, ge=1),
+    source: HistorySource | None = None,
     user: User = Depends(require_super_admin),
     db: Session = Depends(get_db),
 ):
@@ -492,7 +506,7 @@ def global_history(
         from lockbot.backend.app.bots.router import _get_user_bot
 
         _get_user_bot(bot_id, user, db)
-    return _historical(request, response, start, end, resolution_seconds, bot_id)
+    return _historical(request, response, start, end, resolution_seconds, bot_id, source)
 
 
 @bot_router.get("/{bot_id}/service-traffic/history")
@@ -503,10 +517,11 @@ def bot_history(
     start: str = Query(..., max_length=40),
     end: str = Query(..., max_length=40),
     resolution_seconds: int | None = None,
+    source: HistorySource | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     from lockbot.backend.app.bots.router import _get_user_bot
 
     _get_user_bot(bot_id, user, db)
-    return _historical(request, response, start, end, resolution_seconds, bot_id)
+    return _historical(request, response, start, end, resolution_seconds, bot_id, source)

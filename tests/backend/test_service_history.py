@@ -169,6 +169,12 @@ def test_history_permissions_and_scope(client, auth_header, admin_header, db_ses
     scoped = client.get(bot_path, params=params, headers=auth_header)
     assert scoped.status_code == 200 and scoped.json()["totals"]["requests"] == 1
     assert scoped.headers["cache-control"] == "no-store"
+    filtered_params = {**params, "source": "agent"}
+    assert client.get(bot_path, params=filtered_params, headers=outsider).status_code == 404
+    filtered = client.get(bot_path, params=filtered_params, headers=auth_header).json()
+    assert filtered["source"] == "agent" and filtered["totals"]["requests"] == 1
+    assert client.get(bot_path, params={**params, "source": "invalid"}, headers=auth_header).status_code == 422
+    assert client.get(global_path, params=filtered_params, headers=auth_header).status_code == 403
     admin = db_session.query(User).filter_by(username="adminuser").one()
     admin.role = "super_admin"
     db_session.commit()
@@ -472,3 +478,42 @@ def test_failed_late_write_does_not_replace_sealed_history(tmp_path, monkeypatch
     assert index.read_bytes() == original
     assert journal.query(0, 3600, 3600)["totals"]["requests"] == 1
     event(journal)  # Collection failure does not prevent resource-path recording.
+
+
+def test_source_metrics_survive_mixed_hour_and_keep_legacy_requests(tmp_path):
+    import json
+
+    current = [0.0]
+    journal = ServiceHistory(tmp_path, lambda: current[0])
+    event(journal)
+    current[0] = 60
+    journal.flush()
+    minute_file = tmp_path / "19700101T00.jsonl"
+    records = [json.loads(line) for line in minute_file.read_text().splitlines()]
+    for record in records:
+        record.pop("source_counters")
+    minute_file.write_text("".join(json.dumps(row) + "\n" for row in records))
+    legacy = journal.query(0, 60, 60, source="agent")
+    assert legacy["totals"]["requests"] is None
+    assert legacy["history"][0]["sources"]["agent"] == 1
+    assert legacy["history"][0]["operations"]["agent"] == 0
+    event(journal, duration=7)
+    journal.record(bot_id=1, source="agent", status=503, duration_ms=90, received=11, sent=13, failed=False)
+    journal.record(bot_id=1, source="health", status=200, duration_ms=1, received=17, sent=19, failed=False)
+    current[0] = 120
+    journal.flush()
+    current[0] = 180
+    journal.flush()  # Observed idle bucket.
+    current[0] = 3600
+    journal.flush()
+    for resolution in (60, 3600):
+        result = journal.query(0, 3600, resolution, source="agent")
+        assert result["totals"]["requests"] == 2
+        assert result["totals"]["server_errors"] == 1
+        assert result["totals"]["response_bytes"] == 18
+        assert result["totals"]["p95_ms"] == 90
+        assert journal.query(0, 3600, resolution)["totals"]["requests"] == 4
+    hourly = journal.query(0, 3600, 3600, source="agent")["history"][0]
+    assert hourly["coverage"] == "partial" and hourly["sources"]["agent"] == 3
+    assert journal.query(120, 180, 60, source="health")["totals"]["requests"] == 0
+    assert journal.query(0, 3600, 3600, 2, source="agent")["totals"]["requests"] is None

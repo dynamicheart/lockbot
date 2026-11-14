@@ -23,6 +23,19 @@
           </button>
         </el-tooltip>
       </div>
+      <el-select
+        v-model="httpSource"
+        class="history-source-filter"
+        :aria-label="$t('trafficHistory.httpSource')"
+      >
+        <el-option value="" :label="$t('trafficHistory.allSources')" />
+        <el-option
+          v-for="source in httpSources"
+          :key="source"
+          :value="source"
+          :label="$t('serviceTraffic.sources.' + source)"
+        />
+      </el-select>
       <el-button :loading="loading" @click="refresh">{{ $t('common.refresh') }}</el-button>
     </div>
     <p v-if="!range" class="history-warning">{{ $t('trafficHistory.invalidRange') }}</p>
@@ -40,10 +53,7 @@
         {{ $t('trafficHistory.storageWarning') }}
       </p>
       <div class="history-summary">
-        <div
-          v-for="metric in ['requests', 'client_errors', 'server_errors', 'avg_ms', 'p95_ms']"
-          :key="metric"
-        >
+        <div v-for="metric in summaryMetrics" :key="metric">
           <span>{{ $t('trafficHistory.metrics.' + metric) }}</span
           ><strong :class="{ 'is-unknown-stat': !knownStat(metric) }"
             >{{
@@ -114,7 +124,7 @@
           ><span v-for="source in sources" :key="source"
             ><i class="key" :class="source"></i>{{ $t('serviceTraffic.businessSources.' + source) }}
             <b>{{
-              hasObservations ? number(operationCounts[source]) : $t('trafficHistory.notCollected')
+              hasOperations ? number(operationCounts[source]) : $t('trafficHistory.notCollected')
             }}</b></span
           >
         </div>
@@ -129,10 +139,10 @@
             <button
               class="history-bar"
               type="button"
-              :class="{ 'is-unknown': !point.known }"
+              :class="{ 'is-unknown': !point.operations }"
               :aria-label="tooltip(point, true)"
             >
-              <template v-if="point.known"
+              <template v-if="point.operations"
                 ><span
                   v-for="(source, index) in sources"
                   :key="source"
@@ -180,6 +190,7 @@ const props = defineProps({ botId: { type: [Number, String], default: null }, ad
 const { t, locale } = useI18n()
 const inputZone = Intl.DateTimeFormat().resolvedOptions().timeZone
 const preset = ref('24h')
+const httpSource = ref('')
 const customRange = ref([])
 const range = ref(null)
 const snapshot = ref(null)
@@ -198,6 +209,14 @@ const httpSources = [
   'monitoring',
   'other',
 ]
+const summaryMetrics = computed(() => [
+  'requests',
+  'client_errors',
+  'server_errors',
+  'avg_ms',
+  'p95_ms',
+  ...(httpSource.value ? ['request_bytes', 'response_bytes'] : []),
+])
 const rows = computed(() => historyRows(snapshot.value))
 const coverageTooltip = computed(() =>
   [
@@ -219,18 +238,19 @@ const axisFormatter = computed(
 )
 const axisTime = (value) => axisFormatter.value.format(new Date(value))
 const hasObservations = computed(() => rows.value.some((point) => point.known))
+const hasOperations = computed(() => rows.value.some((point) => point.operations))
 const operationCounts = computed(() =>
   Object.fromEntries(
     sources.map((source) => [
       source,
       rows.value
-        .filter((point) => point.known)
+        .filter((point) => point.operations)
         .reduce((sum, point) => sum + (Number(point.operations?.[source]) || 0), 0),
     ])
   )
 )
 const sourceCounts = computed(() => {
-  const observed = rows.value.filter((point) => point.known)
+  const observed = rows.value.filter((point) => point.sources)
   return Object.fromEntries(
     httpSources.map((source) => [
       source,
@@ -246,13 +266,19 @@ const httpMax = computed(() =>
   Math.max(1, ...rows.value.filter((point) => point.known).map((point) => point.requests))
 )
 const operationMax = computed(() =>
-  Math.max(1, ...rows.value.filter((point) => point.known).map(operationCount))
+  Math.max(1, ...rows.value.filter((point) => point.operations).map(operationCount))
 )
 const loader = createTrafficHistoryLoader({
-  request: async ({ botId, admin, start, end, resolution_seconds }, signal) => {
+  request: async ({ botId, admin, start, end, resolution_seconds, source }, signal) => {
     const { data } = await api.get(historyEndpoint(botId, admin), {
       signal,
-      params: { start, end, resolution_seconds, bot_id: admin ? botId || undefined : undefined },
+      params: {
+        start,
+        end,
+        resolution_seconds,
+        source,
+        bot_id: admin ? botId || undefined : undefined,
+      },
     })
     return data
   },
@@ -269,9 +295,14 @@ function refresh() {
     loader.setScope(null)
     return
   }
-  return loader.setScope({ botId: props.botId, admin: props.admin, ...range.value })
+  return loader.setScope({
+    botId: props.botId,
+    admin: props.admin,
+    source: httpSource.value || undefined,
+    ...range.value,
+  })
 }
-watch([() => props.botId, () => props.admin, preset, customRange], refresh, {
+watch([() => props.botId, () => props.admin, preset, customRange, httpSource], refresh, {
   immediate: true,
   flush: 'sync',
 })
@@ -283,7 +314,7 @@ const number = (value) =>
 const height = (value, max) => `${Math.min(100, (Math.max(0, Number(value) || 0) / max) * 100)}%`
 const time = (value) => formatResourceTime(value, locale.value)
 function tooltip(point, operations) {
-  const values = !point.known
+  const values = !(operations ? point.operations : point.known)
     ? [t('trafficHistory.unknown')]
     : operations
       ? sources.map(
@@ -294,7 +325,10 @@ function tooltip(point, operations) {
           `${t('serviceTraffic.requests')}: ${number(point.requests)}`,
           `${t('serviceTraffic.serverErrors')}: ${number(point.server_errors)}`,
         ]
-  return [time(point.at), ...values, t('trafficHistory.' + point.coverage)].join('\n')
+  const coverage = operations ? point.operation_coverage : point.coverage
+  return [time(point.at), ...values, ...(coverage ? [t('trafficHistory.' + coverage)] : [])].join(
+    '\n'
+  )
 }
 </script>
 <style scoped>
@@ -309,6 +343,10 @@ function tooltip(point, operations) {
 }
 .history-controls {
   margin-bottom: 16px;
+}
+.history-source-filter {
+  width: 180px;
+  max-width: 100%;
 }
 .history-custom-range {
   display: flex;
