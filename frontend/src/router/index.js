@@ -13,7 +13,7 @@ import ProfileSettings from '../views/ProfileSettings.vue'
 import ForceChangePassword from '../views/ForceChangePassword.vue'
 import NotFound from '../views/NotFound.vue'
 import { isDemoMode, LS_KEYS } from '../utils/demoMode'
-import { pendingPanelTicket } from '../utils/personalPanelTicket'
+import { capturePersonalPanelTickets } from '../utils/personalPanelTicket'
 
 const routes = [
   {
@@ -149,8 +149,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, _from, next) => {
-  if (to.name === 'PersonalResources' && typeof to.query.ticket === 'string') {
-    pendingPanelTicket.value = to.query.ticket
+  if (to.path === '/me' && capturePersonalPanelTickets(to.query)) {
     return next({ path: '/me', replace: true })
   }
   if (to.meta.resourceView) return next()

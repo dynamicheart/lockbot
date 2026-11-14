@@ -4,20 +4,34 @@ import { shallowRef } from 'vue'
 export const pendingPanelTicket = shallowRef('')
 export const pendingCredentialViewTicket = shallowRef('')
 export const pendingCredentialRotationTicket = shallowRef('')
+export function capturePersonalPanelTickets(tickets) {
+  const proofs = [
+    ['ticket', pendingPanelTicket],
+    ['credential_view', pendingCredentialViewTicket],
+    ['credential_rotation', pendingCredentialRotationTicket],
+  ].filter(([name]) => Object.hasOwn(tickets, name))
+  if (proofs.length === 1) {
+    const [name, target] = proofs[0]
+    const value = tickets[name]
+    if (typeof value === 'string' && value) target.value = value
+  }
+  return proofs.length > 0
+}
+
 const browser = globalThis.window
 const [path, query = ''] = (browser?.location?.hash || '').slice(1).split('?')
 if (path === '/me') {
-  const ticket = new URLSearchParams(query).get('ticket')
-  const credentialView = new URLSearchParams(query).get('credential_view')
-  const rotation = new URLSearchParams(query).get('credential_rotation')
-  if (ticket || credentialView || rotation) {
-    // Distinct purposes never auto-convert into one another. An ambiguous
-    // fragment is discarded rather than selecting one authority implicitly.
-    if ([ticket, credentialView, rotation].filter(Boolean).length === 1) {
-      if (credentialView) pendingCredentialViewTicket.value = credentialView
-      if (ticket) pendingPanelTicket.value = ticket
-      if (rotation) pendingCredentialRotationTicket.value = rotation
-    }
+  const params = new URLSearchParams(query)
+  if (
+    capturePersonalPanelTickets(
+      Object.fromEntries(
+        ['ticket', 'credential_view', 'credential_rotation']
+          .map((name) => [name, params.getAll(name)])
+          .filter(([, values]) => values.length)
+          .map(([name, values]) => [name, values.length === 1 ? values[0] : values])
+      )
+    )
+  ) {
     browser.history.replaceState(browser.history.state, '', '/#/me')
   }
 }
