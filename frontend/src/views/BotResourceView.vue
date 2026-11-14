@@ -20,9 +20,9 @@
           </h1>
           <p>{{ $t('resourceView.updated') }} {{ localTime(snapshot.captured_at) }}</p>
         </div>
-        <el-button :loading="loading" @click="refresh"
-          ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button
-        >
+        <el-button :icon="Refresh" :loading="loading" @click="refresh">{{
+          $t('common.refresh')
+        }}</el-button>
       </header>
       <div v-if="snapshot.health === 'running'" class="resource-summary">
         <div>
@@ -181,6 +181,7 @@
 </template>
 
 <script setup>
+import { Refresh } from '@element-plus/icons-vue'
 import { botTypeLabel } from '../utils/helpers'
 import { formatResourceTime } from '../utils/resourceTime'
 import { createViewMetricsAuthorizer } from '../utils/utilization/grants'

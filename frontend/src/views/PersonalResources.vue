@@ -86,18 +86,6 @@
         <PersonalConnectionHandoff :authenticated="false" />
       </section>
       <template v-else-if="tab === 'mine'">
-        <ResourceUtilization
-          v-for="{ connection, configuration, nodes } in utilizationGroups"
-          :key="connection"
-          :bot-id="connection"
-          :scope-key="connection"
-          :source="configuration"
-          :nodes="nodes"
-          :authorize="(source, options) => authorizeUtilization(connection, source, options)"
-          :allowed="!ticket && session.authenticated"
-          hide-toolbar
-          @change="updateUtilizationSnapshot(connection, $event)"
-        />
         <p v-if="resourceLoading" class="resource-loading" role="status">
           <template v-if="reportProgress.total">
             正在读取资源 · {{ reportProgress.done }} / {{ reportProgress.total }} 个来源
@@ -130,7 +118,12 @@
         </p>
         <div v-if="allocationRows.length || resourcesReady" class="workbench-focus">
           <section class="panel" aria-labelledby="workbench-expiring">
-            <h2 id="workbench-expiring" class="panel-title">即将到期</h2>
+            <div class="workbench-section-heading">
+              <h2 id="workbench-expiring" class="panel-title">即将到期</h2>
+              <el-button v-if="hasHoldings" link type="primary" @click="openDetails('holdings')">
+                查看全部持有
+              </el-button>
+            </div>
             <p v-if="!expiringItems.length" class="scope">
               {{
                 resourceLoading
@@ -157,7 +150,17 @@
             </button>
           </section>
           <section class="panel" aria-labelledby="workbench-bookings">
-            <h2 id="workbench-bookings" class="panel-title">我的预约</h2>
+            <div class="workbench-section-heading">
+              <h2 id="workbench-bookings" class="panel-title">我的预约</h2>
+              <el-button
+                v-if="recentBookings.length"
+                link
+                type="primary"
+                @click="openDetails('reservations')"
+              >
+                查看全部预约
+              </el-button>
+            </div>
             <p v-if="!recentBookings.length" class="scope">
               {{
                 resourceLoading
@@ -172,7 +175,9 @@
               :key="row.key"
               type="button"
               class="workbench-resource"
-              @click="viewGroup(row.group, 'workbench-reservation-list')"
+              @click="
+                openDetails('reservations', { resource: row.key, title: row.allocation.node })
+              "
             >
               <span
                 ><strong
@@ -189,9 +194,140 @@
             </button>
           </section>
         </div>
+      </template>
+      <div v-else-if="tab === 'groups'" class="group-grid">
+        <section v-if="initialResourceLoading" class="group-card" role="status">
+          <el-skeleton :rows="2" animated />
+          <p class="group-meta">正在读取资源群…</p>
+        </section>
+        <section v-for="(group, index) in groups" :key="index" class="group-card">
+          <div class="page-heading">
+            <h2>{{ group.label }}</h2>
+            <el-tag
+              :type="fresh(group) ? 'success' : 'warning'"
+              :title="
+                Number.isFinite(expiration(group.source_at))
+                  ? '状态采集于 ' + date(group.source_at)
+                  : undefined
+              "
+              >{{ fresh(group) ? '已更新' : '待确认' }}</el-tag
+            >
+          </div>
+          <p class="group-meta">{{ identityLabel(group.identity) }}</p>
+          <div v-if="fresh(group)" class="group-metrics">
+            <div v-for="item in groupCounts(group)" :key="item.label">
+              <strong>{{ item.value }}</strong
+              ><span>{{ item.label }}</span>
+            </div>
+          </div>
+          <p v-else class="group-meta group-pending">本次未取得资源数据</p>
+          <el-button
+            v-if="fresh(group) && entries(group).length"
+            text
+            type="primary"
+            @click="
+              openDetails('group', { groupKey: allocationGroupKey(group), title: group.label })
+            "
+            >查看我的资源</el-button
+          >
+        </section>
+        <p v-if="!groups.length && !initialResourceLoading" class="empty">
+          {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
+        </p>
+      </div>
+      <template v-else>
+        <PersonalConnectionHandoff
+          :authenticated="session.authenticated"
+          :scope-key="identityScope(session.identities)"
+        />
+        <details class="connection-help">
+          <summary>如何添加资源群</summary>
+          <p class="scope">
+            在持有目标群绑定的 Agent 中说“打开我的资源台”，打开链接后确认添加到当前浏览器。
+          </p>
+        </details>
+        <details
+          v-for="(identity, index) in session.identities"
+          :key="index"
+          class="group-card connection-card"
+        >
+          <summary>已关联身份 · {{ identity.subject }}</summary>
+          <div class="connection-heading">
+            <h2>登录身份 · {{ identity.subject }}</h2>
+            <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
+          </div>
+          <div
+            v-for="source in identitySources(identity)"
+            :key="source.kind + source.label"
+            class="connection-groups"
+          >
+            <span class="group-meta">{{ source.label }} · 当前可见资源群</span>
+            <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
+              name
+            }}</el-tag>
+            <p v-if="source.kind !== 'identity_provider'" class="group-meta">
+              此来源仅支持资源查询，凭证请由原 Agent 管理；原生 Key 管理能力不可用。
+            </p>
+          </div>
+          <p v-if="!identitySources(identity).length" class="group-meta">
+            {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
+          </p>
+          <details class="connection-details">
+            <summary>连接详情</summary>
+            <dl>
+              <dt>服务地址</dt>
+              <dd>{{ identity.issuer }}</dd>
+              <dt>账号</dt>
+              <dd>{{ identity.subject }}</dd>
+            </dl>
+            <details class="connection-diagnostics">
+              <summary>诊断信息</summary>
+              <dl>
+                <dt>身份命名空间</dt>
+                <dd>{{ identity.realm }}</dd>
+                <dt>授权范围</dt>
+                <dd>{{ identity.scopes?.join('、') }}</dd>
+              </dl>
+            </details>
+          </details>
+        </details>
+        <p
+          v-for="(indices, index) in session.same_person_groups || []"
+          :key="index"
+          class="group-meta"
+        >
+          组织目录确认属于同一人
+          {{
+            indices.map((i) => identityLabel(session.identities[i])).join('、')
+          }}。各群授权分别生效。
+        </p>
+      </template>
+      <el-dialog
+        v-if="session.authenticated && !ticket"
+        v-model="detailOpen"
+        :title="detailTitle"
+        width="min(1120px, calc(100vw - 24px))"
+        destroy-on-close
+      >
+        <ResourceUtilization
+          v-for="{ connection, configuration, nodes } in detailUtilizationGroups"
+          :key="connection"
+          :bot-id="connection"
+          :scope-key="connection"
+          :source="configuration"
+          :nodes="nodes"
+          :authorize="(source, options) => authorizeUtilization(connection, source, options)"
+          :allowed="detailOpen"
+          hide-toolbar
+          @change="updateUtilizationSnapshot(connection, $event)"
+        />
         <div
-          v-if="allocationRows.length || allocationQuery || allocationGroup"
+          v-if="
+            !detail?.resource &&
+            (detailSections.some((section) => section.total) || allocationQuery)
+          "
           class="allocation-controls"
+          :class="{ 'allocation-controls-scoped': detail?.groupKey }"
         >
           <el-input
             v-model="allocationQuery"
@@ -200,6 +336,7 @@
             placeholder="搜索节点、卡号或用途"
           />
           <el-select
+            v-if="!detail?.groupKey"
             v-model="allocationGroup"
             aria-label="筛选资源群"
             placeholder="全部资源群"
@@ -219,13 +356,7 @@
             <el-option label="按节点 / 卡号" value="resource" />
           </el-select>
         </div>
-        <section
-          v-for="section in allocationSections"
-          :id="section.holdings ? 'workbench-holdings-list' : 'workbench-reservation-list'"
-          :key="section.label"
-          tabindex="-1"
-          class="panel"
-        >
+        <section v-for="section in detailSections" :key="section.label" class="panel">
           <h2 class="panel-title">{{ section.label }} · {{ section.rows.length }}</h2>
           <table v-if="section.rows.length" class="allocation-table" role="table">
             <thead role="rowgroup">
@@ -244,12 +375,7 @@
             </thead>
             <tbody role="rowgroup">
               <template v-for="item in section.items" :key="item.key">
-                <tr
-                  v-if="item.rows.length > 1"
-                  :id="rowAnchor(item.first)"
-                  role="row"
-                  class="allocation-node-summary"
-                >
+                <tr v-if="item.rows.length > 1" role="row" class="allocation-node-summary">
                   <td role="cell" class="allocation-group">{{ item.first.group.label }}</td>
                   <td role="cell" class="allocation-name">
                     <button
@@ -284,7 +410,6 @@
                 <template v-if="item.rows.length === 1 || expandedNodes.has(item.key)">
                   <tr
                     v-for="row in item.rows"
-                    :id="item.rows.length === 1 ? rowAnchor(row) : undefined"
                     :key="row.key"
                     role="row"
                     :class="{ 'allocation-detail': item.rows.length > 1 }"
@@ -388,118 +513,13 @@
             }}
           </p>
         </section>
-      </template>
-      <div v-else-if="tab === 'groups'" class="group-grid">
-        <section v-if="initialResourceLoading" class="group-card" role="status">
-          <el-skeleton :rows="2" animated />
-          <p class="group-meta">正在读取资源群…</p>
-        </section>
-        <section v-for="(group, index) in groups" :key="index" class="group-card">
-          <div class="page-heading">
-            <h2>{{ group.label }}</h2>
-            <el-tag
-              :type="fresh(group) ? 'success' : 'warning'"
-              :title="
-                Number.isFinite(expiration(group.source_at))
-                  ? '状态采集于 ' + date(group.source_at)
-                  : undefined
-              "
-              >{{ fresh(group) ? '已更新' : '待确认' }}</el-tag
-            >
-          </div>
-          <p class="group-meta">{{ identityLabel(group.identity) }}</p>
-          <div v-if="fresh(group)" class="group-metrics">
-            <div v-for="item in groupCounts(group)" :key="item.label">
-              <strong>{{ item.value }}</strong
-              ><span>{{ item.label }}</span>
-            </div>
-          </div>
-          <p v-else class="group-meta group-pending">本次未取得资源数据</p>
-          <el-button
-            v-if="fresh(group) && entries(group).length"
-            text
-            type="primary"
-            @click="viewGroup(group)"
-            >查看我的资源</el-button
-          >
-        </section>
-        <p v-if="!groups.length && !initialResourceLoading" class="empty">
-          {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
-        </p>
-      </div>
-      <template v-else>
-        <PersonalConnectionHandoff
-          :authenticated="session.authenticated"
-          :scope-key="identityScope(session.identities)"
-        />
-        <details class="connection-help">
-          <summary>如何添加资源群</summary>
-          <p class="scope">
-            在持有目标群绑定的 Agent 中说“打开我的资源台”，打开链接后确认添加到当前浏览器。
-          </p>
-        </details>
-        <details
-          v-for="(identity, index) in session.identities"
-          :key="index"
-          class="group-card connection-card"
-        >
-          <summary>已关联身份 · {{ identity.subject }}</summary>
-          <div class="connection-heading">
-            <h2>登录身份 · {{ identity.subject }}</h2>
-            <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
-          </div>
-          <div
-            v-for="source in identitySources(identity)"
-            :key="source.kind + source.label"
-            class="connection-groups"
-          >
-            <span class="group-meta">{{ source.label }} · 当前可见资源群</span>
-            <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
-              name
-            }}</el-tag>
-            <p v-if="source.kind !== 'identity_provider'" class="group-meta">
-              此来源仅支持资源查询，凭证请由原 Agent 管理；原生 Key 管理能力不可用。
-            </p>
-          </div>
-          <p v-if="!identitySources(identity).length" class="group-meta">
-            {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
-          </p>
-          <details class="connection-details">
-            <summary>连接详情</summary>
-            <dl>
-              <dt>服务地址</dt>
-              <dd>{{ identity.issuer }}</dd>
-              <dt>账号</dt>
-              <dd>{{ identity.subject }}</dd>
-            </dl>
-            <details class="connection-diagnostics">
-              <summary>诊断信息</summary>
-              <dl>
-                <dt>身份命名空间</dt>
-                <dd>{{ identity.realm }}</dd>
-                <dt>授权范围</dt>
-                <dd>{{ identity.scopes?.join('、') }}</dd>
-              </dl>
-            </details>
-          </details>
-        </details>
-        <p
-          v-for="(indices, index) in session.same_person_groups || []"
-          :key="index"
-          class="group-meta"
-        >
-          组织目录确认属于同一人
-          {{
-            indices.map((i) => identityLabel(session.identities[i])).join('、')
-          }}。各群授权分别生效。
-        </p>
-      </template>
+      </el-dialog>
     </main>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, useSlots, watch, nextTick } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useSlots, watch } from 'vue'
 import { ArrowRight } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
@@ -588,6 +608,12 @@ const pendingGroups = computed(() => groups.value.length - knownGroups.value.len
 const allocationQuery = ref('')
 const allocationGroup = ref('')
 const allocationSort = ref('soonest')
+const detailOpen = ref(false)
+const detail = ref(null)
+const detailTitle = computed(() => {
+  if (detail.value?.title) return detail.value.title
+  return detail.value?.type === 'reservations' ? '预约与队列' : '持有资源'
+})
 const expandedNodes = ref(new Set())
 function toggleNode(key) {
   if (expandedNodes.value.has(key)) expandedNodes.value.delete(key)
@@ -595,7 +621,12 @@ function toggleNode(key) {
 }
 watch(
   () => identityScope(session.value.identities),
-  () => expandedNodes.value.clear()
+  () => {
+    detailOpen.value = false
+    detail.value = null
+    expandedNodes.value.clear()
+  },
+  { flush: 'sync' }
 )
 const allocationOrder = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
 function allocationGroupKey(group) {
@@ -628,7 +659,8 @@ watch(allocationGroups, (options) => {
   }
 })
 function matchesAllocation({ group, groupKey, allocation }, query) {
-  if (allocationGroup.value && groupKey !== allocationGroup.value) return false
+  const selectedGroup = (detailOpen.value && detail.value?.groupKey) || allocationGroup.value
+  if (selectedGroup && groupKey !== selectedGroup) return false
   const device = allocation.device
   const searchable = [
     group.label,
@@ -710,25 +742,18 @@ const expiringItems = computed(() =>
 const recentBookings = computed(() =>
   allocationRows.value.filter((row) => queued(row.allocation)).slice(0, 4)
 )
-function rowAnchor(row) {
-  return 'workbench-resource-' + encodeURIComponent(row.key)
-}
-async function viewGroup(group, target = 'workbench-holdings-list') {
-  allocationGroup.value = allocationGroupKey(group)
+const hasHoldings = computed(() => allocationRows.value.some((row) => !queued(row.allocation)))
+function openDetails(type, selection = {}) {
+  allocationGroup.value = ''
   allocationQuery.value = ''
-  tab.value = 'mine'
-  await nextTick()
-  const anchor = document.getElementById(target)
-  anchor?.scrollIntoView({ block: 'start' })
-  if (anchor?.tagName === 'SECTION') anchor.focus({ preventScroll: true })
+  allocationSort.value = 'soonest'
+  expandedNodes.value.clear()
+  if (type === 'holdings' && selection.resource) expandedNodes.value.add(selection.resource)
+  detail.value = { type, ...selection }
+  detailOpen.value = true
 }
-async function openWorkbenchResource(item) {
-  if (item.rows.length > 1) expandedNodes.value.add(item.key)
-  await viewGroup(item.first.group, rowAnchor(item.first))
-  document
-    .getElementById(rowAnchor(item.first))
-    ?.querySelector('button')
-    ?.focus({ preventScroll: true })
+function openWorkbenchResource(item) {
+  openDetails('holdings', { resource: item.key, title: item.first.allocation.node })
 }
 const allocationSections = computed(() => {
   const query = allocationQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
@@ -760,6 +785,42 @@ const allocationSections = computed(() => {
         : '',
     },
   ].map((section) => ({ ...section, items: allocationItems(section.rows, section.holdings) }))
+})
+const detailSections = computed(() => {
+  const selection = detail.value
+  if (!selection) return []
+  const sections = allocationSections.value.filter(
+    (section) =>
+      selection.type === 'group' || Boolean(section.holdings) === (selection.type === 'holdings')
+  )
+  if (!selection.resource) return sections
+  return sections.map((section) => {
+    const items = section.items.filter((item) => item.key === selection.resource)
+    const rows = items.flatMap((item) => item.rows)
+    return { ...section, items, rows, total: rows.length }
+  })
+})
+const detailUtilizationGroups = computed(() => {
+  const selection = detail.value
+  if (!detailOpen.value || !selection || selection.type === 'reservations') return []
+  const holdings = allocationRows.value.filter((row) => !queued(row.allocation))
+  const selectedGroup = selection.groupKey || allocationGroup.value
+  const nodesByConnection = new Map()
+  for (const item of allocationItems(holdings, true)) {
+    if (selectedGroup && item.first.groupKey !== selectedGroup) continue
+    if (selection.resource && item.key !== selection.resource) continue
+    const row = item.first
+    const connection = row.group.utilization?.connection
+    if (!connection) continue
+    if (!nodesByConnection.has(connection)) nodesByConnection.set(connection, new Set())
+    nodesByConnection.get(connection).add(row.allocation.node)
+  }
+  return utilizationGroups.value
+    .map((group) => ({
+      ...group,
+      nodes: group.nodes.filter((node) => nodesByConnection.get(group.connection)?.has(node)),
+    }))
+    .filter(({ nodes }) => nodes.length)
 })
 const statistics = computed(() => {
   const machines = knownGroups.value.reduce(
@@ -1121,18 +1182,28 @@ onMounted(async () => {
   color: var(--muted);
   font-size: 13px;
 }
+.workbench-section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  column-gap: 12px;
+}
 .allocation-controls {
   display: grid;
   grid-template-columns: minmax(200px, 300px) minmax(125px, 210px) 180px;
   gap: 8px;
   margin: 16px 0;
 }
+.allocation-controls-scoped {
+  grid-template-columns: minmax(200px, 300px) 180px;
+}
 .allocation-controls :deep(.el-input__inner:focus-visible) {
   outline: none;
 }
 @media (max-width: 700px) {
   .allocation-controls {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
   .allocation-controls > :first-child {
     grid-column: 1 / -1;

@@ -447,3 +447,42 @@ it('removes a partial report when the stream invalidates authorization', async (
   expect(state.groups).toEqual([])
   expect(state.statistics.every((item) => item.value === null)).toBe(true)
 })
+
+it('opens only the selected resource or group and closes on a change of identity scope', async () => {
+  const booking = { kind: 'reservation', node: 'node-a', device: '0' }
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      group_id: 'a',
+      allocations: [
+        ...confirmed.allocations,
+        { kind: 'hold', node: 'node-b' },
+        booking,
+        { ...booking, node: 'node-b' },
+      ],
+    },
+    { ...confirmed, group_id: 'b' },
+  ])
+
+  expect(state.detailOpen).toBe(false)
+  expect(state.detailSections).toEqual([])
+  const [holdings, reservations] = state.allocationSections
+  const item = holdings.items.find(({ first }) => first.allocation.node === 'node-b')
+  state.openWorkbenchResource(item)
+  expect(state.detailSections).toHaveLength(1)
+  expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
+
+  state.openDetails('reservations', { resource: reservations.rows[0].key })
+  expect(state.detailSections).toHaveLength(1)
+  expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-a'])
+  expect(state.detailUtilizationGroups).toEqual([])
+
+  state.openDetails('group', { groupKey: holdings.rows[0].groupKey })
+  expect(state.detailSections).toHaveLength(2)
+  expect(
+    state.detailSections.flatMap(({ rows }) => rows.map(({ group }) => group.group_id))
+  ).toEqual(['a', 'a', 'a', 'a'])
+  state.session = { authenticated: false, identities: [] }
+  expect(state.detailOpen).toBe(false)
+  expect(state.detailSections).toEqual([])
+})
