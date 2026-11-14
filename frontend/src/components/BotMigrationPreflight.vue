@@ -122,7 +122,9 @@ const canContinue = computed(
     props.authorized &&
     !denied.value &&
     operation.value?.continue_available &&
-    ['frozen', 'drained', 'switched', 'installed'].includes(operation.value.phase)
+    ['frozen', 'recovery_required', 'drained', 'switched', 'installed'].includes(
+      operation.value.phase
+    )
 )
 const countFields = [
   'resources',

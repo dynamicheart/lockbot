@@ -460,6 +460,9 @@ def test_persisted_migration_fences_manual_routes_and_startup(
         ("changed", "source_changed"),
         ("timeout", "drained"),
         ("restart", "recovery_required"),
+        ("restart_saved", "drained"),
+        ("restart_changed", "source_changed"),
+        ("restart_invalid", "recovery_required"),
     ],
 )
 def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeypatch, tmp_path, retirement, expected):
@@ -527,13 +530,13 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
 
     def retire(retiring_bot_id):
         row = migration_fence(db_session, retiring_bot_id)
-        assert row.phase == "frozen"
+        assert row.phase in {"frozen", "recovery_required"}
         calls.append(retiring_bot_id)
         if retirement == "changed":
             state["node1"]["booking_list"].append({"user_id": "last-admitted", "duration": 60})
         if retirement == "timeout" and len(calls) == 1:
             raise MayHaveExecuted(retiring_bot_id)
-        if retirement == "restart":
+        if retirement.startswith("restart"):
             raise BotNotRunning()
         return lease
 
@@ -554,6 +557,32 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
 
     operation = freeze_migration(db_session, manager, bot_id, review, actor)
     assert operation.requested_by == actor.id
+    if retirement in {"restart_saved", "restart_changed", "restart_invalid"}:
+        import json
+
+        from lockbot.backend.app.managed_paths import ManagedPaths
+
+        paths = ManagedPaths(tmp_path / "source-recovery")
+        monkeypatch.setattr("lockbot.backend.app.bots.migration_cutover.get_managed_paths", lambda: paths)
+        state_file = paths.state_file(bot_id)
+        state_file.parent.mkdir(parents=True)
+        saved = copy.deepcopy(state)
+        if retirement == "restart_changed":
+            saved["node1"]["booking_list"].append({"user_id": "late-source-booking"})
+        if retirement == "restart_invalid":
+            state_file.write_text('{"bot_state":')
+        else:
+            state_file.write_text(json.dumps({"bot_state": saved}))
+        original = state_file.read_bytes()
+
+        def source_config(bot, db):
+            return {"BOT_ID": bot_id, "BOT_TYPE": "QUEUE", "_IDENTITY_REVISION": bot.identity_revision}
+
+        operation = continue_source_drain(
+            db_session, manager, bot_id, operation.operation_id, actor, build_config=source_config
+        )
+        assert state_file.read_bytes() == original
+
     operation_id = operation.operation_id
     if retirement == "timeout":
         assert operation.phase == "frozen"
@@ -561,7 +590,14 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
     assert operation.phase == expected
     assert operation.operation_id == operation_id
     assert continue_source_drain(db_session, manager, bot_id, operation_id, actor).phase == expected
-    assert len(calls) == (2 if retirement == "timeout" else 1)
+    expected_calls = {
+        "timeout": 2,
+        "restart": 2,
+        "restart_saved": 2,
+        "restart_changed": 2,
+        "restart_invalid": 3,
+    }
+    assert len(calls) == expected_calls.get(retirement, 1)
     assert not db_session.query(FeishuGroupRoute).count()
     db_session.expunge_all()
     persisted = migration_fence(db_session, bot_id)

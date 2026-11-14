@@ -1,7 +1,11 @@
 """Retire and recheck a reviewed source before destructive migration work."""
 
 import json
+import os
+import stat
+import threading
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select
@@ -29,6 +33,8 @@ from lockbot.backend.app.bots.migration_preflight import (
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
 from lockbot.backend.app.managed_paths import get_managed_paths
+from lockbot.backend.app.resource_api.lease_contract import MAX_STATE_FILE_BYTES
+from lockbot.backend.app.resource_api.lease_history import LeaseJournal
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.service import revoke_bindings_for_bot
@@ -58,7 +64,7 @@ def freeze_migration(db, manager, bot_id, review, actor, *, verify_before_freeze
         return continue_source_drain(db, manager, bot_id, operation_id, current_actor)
 
 
-def continue_source_drain(db, manager, bot_id, operation_id, actor):
+def continue_source_drain(db, manager, bot_id, operation_id, actor, *, build_config=None):
     """Continue the same operation after a timed-out drain without replaying admitted work."""
     with manager.transition(bot_id):
         db.rollback()
@@ -67,7 +73,7 @@ def continue_source_drain(db, manager, bot_id, operation_id, actor):
         row = migration_fence(db, bot_id)
         if row is None or row.operation_id != operation_id:
             raise HTTPException(404, "Migration operation not found")
-        if row.phase != "frozen":
+        if row.phase not in {"frozen", "recovery_required"}:
             return row
         bot = db.get(Bot, bot_id)
         if bot is None or bot.is_deleted or (bot.uuid, bot.identity_revision) != (row.bot_uuid, row.source_revision):
@@ -78,10 +84,13 @@ def continue_source_drain(db, manager, bot_id, operation_id, actor):
             except MayHaveExecuted:
                 return row
             except BotNotRunning:
-                # A process restart has already closed admission. Reconcile from
-                # durable state before authorizing any reset.
-                row.phase = "recovery_required"
-            else:
+                try:
+                    retired = _recover_retired_source(bot, db, build_config)
+                except (OSError, ValueError):
+                    row.phase = "recovery_required"
+                    db.commit()
+                    return row
+            if retired is not None:
                 target = MigrationPreflight(application_id=row.target_application_id, chat_id=row.target_chat_id)
                 checkpoint = {}
                 observed = observe_migration(db, manager, bot_id, target, retired=retired, checkpoint=checkpoint)
@@ -103,6 +112,36 @@ def continue_source_drain(db, manager, bot_id, operation_id, actor):
                 row.drained_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit()
         return row
+
+
+def _recover_retired_source(bot, db, build_config):
+    """Read the canonical file strictly and settle any old-revision outbox."""
+    if build_config is None:
+        raise ValueError("Source recovery configuration unavailable")
+    path = get_managed_paths().state_file(bot.id)
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > MAX_STATE_FILE_BYTES:
+            raise ValueError("Source state is not bounded private regular storage")
+        payload = json.load(source)
+    if not isinstance(payload, dict) or not isinstance(payload.get("bot_state"), dict):
+        raise ValueError("Source state is unavailable")
+    state = payload["bot_state"]
+    config = Config(build_config(bot, db))
+    recovered = SimpleNamespace(
+        _lock=threading.Lock(),
+        adapter=SimpleNamespace(platform_name=bot.platform),
+        config=config,
+        state=SimpleNamespace(bot_state=state),
+        state_snapshot=lambda: (datetime.now(timezone.utc), state),
+    )
+    if "lifecycle_outbox" in payload:
+        journal = LeaseJournal(bot.id, recovered, recover_only=True)
+        if not journal.outbox.recovered:
+            raise ValueError("Source lifecycle evidence does not match the saved state")
+        journal.outbox.flush()
+    return SimpleNamespace(bot=recovered, generation=None, health=None)
 
 
 def switch_drained_migration(db, manager, bot_id, operation_id, actor, *, verify_destination):

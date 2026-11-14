@@ -2406,8 +2406,10 @@ def advance_bot_migration(
         with connectors.application_guard(), bot_manager.transition(bot_id):
             db.rollback()
             row = _migration_status(db, bot_id, operation_id)
-            if row.phase == "frozen":
-                return _migration_payload(continue_source_drain(db, bot_manager, bot_id, operation_id, user))
+            if row.phase in {"frozen", "recovery_required"}:
+                return _migration_payload(
+                    continue_source_drain(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict)
+                )
             if row.phase == "drained":
                 source = public_datasource(db.get(Bot, bot_id))
                 if source and source.get("accessMode") == "short_lived":
