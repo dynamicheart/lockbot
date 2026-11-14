@@ -3,6 +3,7 @@
 import copy
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +14,8 @@ from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, Insta
 from lockbot.backend.app.bots.migration_preflight import _counts
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
+from lockbot.backend.app.resource_api.usage import UsageDeclaration
+from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 
 @pytest.fixture
@@ -109,7 +112,7 @@ def test_preview_is_observation_only_without_state_db_or_audit_changes(
 
 
 @pytest.mark.parametrize("kind", ["NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"])
-def test_stored_expired_locks_and_notified_offers_remain_blockers(kind):
+def test_stored_expired_locks_and_notified_offers_are_counted(kind):
     entry = {
         "status": "exclusive",
         "current_users": [{"user_id": "sensitive_holder", "start_time": 1, "duration": 1}],
@@ -134,7 +137,9 @@ def test_preview_never_returns_obligation_principals_or_notes(client, admin_head
         },
     )
     result = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=body)
-    assert "source_has_outstanding_allocations" in result.json()["blockers"]
+    assert result.json()["blockers"] == ["cutover_not_implemented"]
+    assert result.json()["reset_policy"] == "clear_live_state_and_reenroll"
+    assert result.json()["stored_obligations"]["reservations"] == 1
     assert all(value not in result.text for value in ("secret-principal", "secret-purpose", "secret-label"))
 
 
@@ -217,7 +222,7 @@ def test_missing_card_cannot_look_empty(client, admin_header, db_session, setup,
     assert "source_inventory_mismatch" in data["blockers"]
 
 
-def test_identity_based_rules_block_even_an_empty_pool(client, admin_header, setup, monkeypatch):
+def test_identity_based_rules_are_counted_without_requesting_identity_mapping(client, admin_header, setup, monkeypatch):
     bot_id, _, body = setup
     live(
         monkeypatch,
@@ -225,6 +230,62 @@ def test_identity_based_rules_block_even_an_empty_pool(client, admin_header, set
         whitelist=["secret-source-principal"],
     )
     response = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=body)
-    assert "source_identity_rules_require_mapping" in response.json()["blockers"]
+    assert response.json()["blockers"] == ["cutover_not_implemented"]
     assert response.json()["identity_bound_rule_counts"] == {"DURATION_WHITELIST": 1}
     assert "secret-source-principal" not in response.text
+
+
+def test_reset_counts_only_live_bindings_and_unexpired_declarations(
+    client, admin_header, db_session, setup, monkeypatch
+):
+    bot_id, _, body = setup
+    bot = db_session.get(Bot, bot_id)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    future = now + timedelta(days=3)
+    past = now - timedelta(days=3)
+    for label, attrs in [
+        ("current", {}),
+        ("expired", {"credential_expires_at": past}),
+        ("revoked", {"revoked_at": past}),
+        ("old_revision", {"bound_identity_revision": bot.identity_revision + 1}),
+        ("old_uuid", {"bound_bot_uuid": "old-bot"}),
+        ("different_platform", {"platform": "feishu"}),
+    ]:
+        values = dict(
+            platform=bot.platform.lower(),
+            bound_bot_uuid=bot.uuid,
+            bound_identity_revision=bot.identity_revision,
+        )
+        values.update(attrs)
+        row = ResourceBinding(
+            public_id=f"fixture-{label}",
+            external_user_id=f"hidden-user-{label}",
+            bound_bot_id=bot_id,
+            credential_digest=f"hidden-credential-{label}",
+            **values,
+        )
+        db_session.add(row)
+        db_session.flush()
+        for resource, expires in [("node1", future), ("expired-declaration", past)]:
+            db_session.add(
+                UsageDeclaration(
+                    bot_id=bot_id,
+                    binding_id=row.id,
+                    resource_id=resource,
+                    purpose="hidden-purpose",
+                    holding_proof="fixture-proof",
+                    updated_at=past,
+                    expires_at=expires,
+                )
+            )
+    db_session.commit()
+    live(monkeypatch, {"node1": {"status": "idle", "current_users": [], "booking_list": []}})
+
+    response = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=body)
+
+    assert response.status_code == 200
+    counts = response.json()["stored_obligations"]
+    assert counts["agent_bindings"] == counts["usage_declarations"] == 1
+    assert "hidden-" not in response.text
+    assert db_session.query(ResourceBinding).count() == 6
+    assert db_session.query(UsageDeclaration).count() == 12

@@ -1,6 +1,6 @@
 # Infoflow → Feishu resource-bot migration
 
-Status: implementation plan, 2026-10-30. Tracked in [#88](https://github.com/dynamicheart/lockbot/issues/88). No production migration has run. This supersedes the previous copy-only decision for this direction; copying configuration remains a separate operation.
+Status: implementation plan following the 2026-10-31 reset decision in [#88](https://github.com/dynamicheart/lockbot/issues/88). The current implementation only observes preflight conditions.
 
 ## Product behavior
 
@@ -8,18 +8,16 @@ An administrator opens **Migrate to Feishu** in the existing bot's detail page, 
 
 One migration has one scheduling authority. This is a channel handover, not two bots with independent state and not concurrent cross-platform access. Existing Infoflow bots outside the selected migration remain unchanged.
 
-Delivery is split into independent PRs:
+The confirmed cutover clears current holders, reservations, offers, source Agent enrollments and current usage declarations. Users enroll again in the selected Feishu group. Inventory, platform-neutral scheduling settings, utilization configuration and historical evidence remain attached to the same bot. Source-platform access rules such as `DURATION_WHITELIST` must be listed in the review and cleared for the destination according to the approved reset.
 
-1. Plan, preflight and durable empty-state cutover/recovery. Existing locks, reservations and pending offers must finish naturally; nothing is silently released or deleted.
-2. Administrator UI and integration acceptance.
-3. Verified identity linking and active-state migration. Preserve absolute deadlines, queue order and provenance. An unresolved user blocks this mode. Empty-state delivery alone does not complete active migration.
+Deliver read-only review, durable reset and recovery, then administrator confirmation and fictional end-to-end acceptance.
 
 ## Identity and data boundaries
 
 | Item | Treatment |
 | --- | --- |
 | Bot ID/UUID, resource names and allocation authority | Preserve; do not create a second resource pool |
-| Inventory, aliases, platform-neutral duration/renewal/quota rules, language, metrics configuration | Preserve and include in plan digest; identity-bearing exceptions require separate mapping |
+| Inventory, aliases, platform-neutral duration/renewal/quota rules, language, metrics configuration | Preserve and include in plan digest; list identity-bearing exceptions for reset |
 | Infoflow webhook/token/AES | Keep an encrypted source-configuration reference for controlled rollback; fence its authority in the typed application registry as well as legacy fields. Never repurpose it as Feishu fields or expose it in preview |
 | Feishu application | Reference the existing approved application; validate tenant/app/chat and bot membership; do not copy its secret into migration records |
 | Platform user identity | Treat Infoflow ID and Feishu tenant/application-scoped Open ID as different principals; never match by name |
@@ -29,11 +27,11 @@ Delivery is split into independent PRs:
 | Old logs/history and detailed notes | Preserve original platform, principal and revision; historical access stays within current role/delegation rules. Do not relabel old events as Feishu events |
 | Pending notifications, broadcasts, query panels and bind codes | Fence old revision; do not deliver source payloads to the destination group |
 
-Do not put credentials, raw group messages, task notes or personal identity mapping proofs in the public plan or audit summary. Migration journal stores references and digests, not secrets. Retention/deletion of identity-link proofs needs its own bounded policy.
+Do not put credentials, raw group messages, task notes or personal identity mapping proofs in the public plan or audit summary. Migration journal stores references and digests, not secrets.
 
 ## Preflight and review
 
-Preflight is read-only. It returns source identity revision/configuration digest, target application/group references, allocation counts, unresolved identity count and explicit blockers. A preview is not a reservation or permission to commit later.
+Preflight is read-only. It returns source identity revision/configuration digest, target application/group references, counts of allocations, bindings and declarations and explicit blockers. A preview is not a reservation or permission to commit later.
 
 Checks include:
 
@@ -41,7 +39,7 @@ Checks include:
 - Supported source type/platform, stable bot UUID, healthy recoverable state and no competing lifecycle operation.
 - Destination application exists in the expected tenant, server-side credentials validate, proxy/receiver is available, and the application can access the target group.
 - Unique `(application_id, chat_id)` and bot route; reject another bot's binding without overwriting or transferring ownership. This restriction is Feishu-specific.
-- No pending unknown-result command or incomplete lifecycle journal. Empty-state mode checks locks, books, offers and pending handoffs, not only a utilization counter.
+- No pending unknown-result command or incomplete lifecycle journal. Review counts for locks, reservations, offers, current bindings, declarations and source identity rules. Outstanding allocations are part of the reset confirmation.
 - Review old/new group, retained settings, keys requiring re-enrollment, outstanding work and expected interruption. Confirmation is tied to an expiring plan digest, not an arbitrary target submitted afterwards.
 
 Application publication and group membership are external facts. They are checked as closely as practical to commit, but provider/network failures remain possible. A destination failure must leave scheduling frozen or recoverably stopped; it must not restore a second writer automatically.
@@ -69,24 +67,18 @@ Execution requirements:
 
 1. Acquire the lifecycle transition owner before rereading configuration. Persist admission freeze; all mutation entry points, including Agent/OP, webhook/WS, scheduler and restart/autostart, must honor it. An in-process flag alone does not survive a crash.
 2. Retire source generation, reject new writes and drain admitted operations. A drain timeout is an uncertain result, not permission to replay commands or start the target. Keep the checkpoint compatible with scheduler/expiration behavior.
-3. Reread state and compare the plan. In empty-state mode any live lock/book/offer aborts before identity switch. In active mode every live principal and provenance reference must have a verified mapping.
+3. Reread state and compare the plan. Bind the expiring confirmation to the exact destination, source identity, reviewed counts and snapshot digest. Abort on change and obtain a new confirmation.
 4. Drain and durably settle the source lifecycle outbox before changing revision: recovery currently rejects envelopes from another revision. Preserve old frames unchanged and create a destination-revision baseline/coverage boundary; never relabel old frames or discard pending evidence. Write and fsync the checkpoint and operation evidence before switching. Transactionally update the platform/application/route, bump revision, fence old credentials/notifications and record switched phase. Enforce unique group binding in the DB as well as preflight.
-5. Load the same bot's state, apply only validated identity mapping if requested, then start the Feishu generation. Keep it frozen until readiness and state digest checks pass. Record completion before opening mutation admission.
+5. Publish a clean runtime snapshot at the destination revision before starting the Feishu generation. Use a durable migration phase and an idempotent checkpoint so restart after either the file write or DB commit does not repeat the reset or restore a source writer. Keep it frozen until readiness and state digest checks pass. Record completion before opening mutation admission.
 6. Retrying the operation ID returns/reconciles its existing result. A different target or digest conflicts. Startup discovers incomplete operations and keeps them unavailable until reconciled; it must not autostart the obsolete channel.
 
 A verified externally changed target route or source snapshot blocks recovery for operator review. Never infer success from a prior HTTP timeout or `status=stopped` alone.
 
-## Active locks and identity linking
+## Reset and re-enrollment
 
-Users prove control of both accounts using short-lived, single-use challenges through signature-verified source and destination messages. The challenge is scoped to instance, bot UUID, migration ID, source revision and target tenant/app/chat. The existing Agent key can identify the source principal but is not proof of the destination identity. Names, contact search results and an administrator's guess are not proof.
+Preserve resource IDs and neutral inventory metadata. Clear runtime holders, queues and offers from the destination snapshot. Retain old revisions and their immutable audit records. Revoke current bindings and clear old OP and view credentials, pending deliveries, usage declarations and source-platform identity rules through their authoritative stores. Independently verify the configured metrics verifier's residual grant lifetime before activation.
 
-`DURATION_WHITELIST` contains platform-native user IDs, so even an empty-state migration must explicitly map, remove or rebuild these entries. Scan all identity-bearing overrides rather than copying them as ordinary scheduling settings. Usage-declaration holding proofs include user/start/holding identity: revalidate or rebuild current proofs under the destination principal while retaining source attribution; do not transfer source-key authority.
-
-A separate, explicit administrator-assisted override, if needed, must show exact principals, require a reason and audit the decision; it is not an automatic fallback. Duplicate mappings, many-to-one ownership/quota conflicts, missing users or changed destinations block cutover.
-
-Keep original lease IDs, reservation sequence, acquisition times and absolute expiration timestamps. Migration elapsed time does not extend locks. Expired entries are reconciled as expirations with evidence, not copied into new leases. Pending reservation offers require an explicit transfer/expiry policy; do not silently grant a queued user a lock. Detailed-note ownership and cleanup tokens must be revalidated against the mapped principal and revision; preserve historical attribution separately.
-
-Destination Agent re-enrollment can happen after linked users are established. It must recognize a transferred allocation without issuing a duplicate lock; old keys remain rejected.
+The destination begins with no inherited platform principals. A successful destination onboarding must prove the new identity in the selected Feishu group.
 
 ## Rollback
 
@@ -101,6 +93,6 @@ Backups are disaster-recovery evidence, not a cross-platform undo button. Preser
 - Freeze all write paths; source delivery delayed until after cutover cannot mutate the target.
 - Fault injection before/after checkpoint publication, identity transaction and target activation; process restart does not create a second writer or replay allocations.
 - Old Agent/OP/view/audit/metrics access is denied to the extent promised, with a documented short-lived-grant policy; public schemas do not disclose detailed audit authority.
-- Real integration migration in a fictional group, empty-state and active-state modes separately; exact deadlines, queue order, notes ownership and history attribution are compared before/after.
+- Fictional integration with a nonempty source: verify cleared holders, reservations, offers and live declarations, deny old credentials, re-enroll in the selected destination, and compare preserved inventory and historical attribution.
 - UI exposes phase/blockers/recovery without secrets, resets old request/download state on bot switches, and does not claim a timeout rolled back.
 - Current-head CI and independent review precede squash merge; a tagged artifact, formal deployment and corporate-app approval are separately verified.
