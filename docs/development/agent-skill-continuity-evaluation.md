@@ -114,6 +114,8 @@ They do not execute real resource commands or provide a client scheduler.
 - [x] **Previous revision update notice, offline fixture:** prepare with current
   server `--artifacts` and a distinct verified older `--installed-artifacts` bundle.
   Missing/identical older artifacts are blocked; no fake old version is substituted.
+  When a manifest supplies an instance ID, the saved connection uses the current
+  manifest's ID. Two manifests that supply different IDs are rejected at preparation.
   Only old bytes/revision start in the installed directory and connection. A prior
   completed release remains a precondition, but no update hint is injected in the
   prompt. The old client revision must elicit an actual HTTP `skill_update` result,

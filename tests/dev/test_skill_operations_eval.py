@@ -1,6 +1,7 @@
 """Bounded virtual-clock cases; no paid models or installed client schedulers."""
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -140,6 +141,32 @@ def test_update_blocks_without_a_verified_distinct_older_bundle(tmp_path):
         evaluation.prepare(tmp_path / "missing-older", skill, "update", artifact)
     with pytest.raises(evaluation.artifacts.ArtifactBlocked, match="distinct_real"):
         evaluation.prepare(tmp_path / "same-version", skill, "update", artifact, artifact)
+
+
+def test_update_uses_the_frozen_instance_and_refuses_a_different_one(tmp_path):
+    skill = tmp_path / "skill.md"
+    skill.write_text("# Current")
+    artifact = write_test_artifact(tmp_path / "artifact", skill.read_bytes())
+    older = write_test_artifact(tmp_path / "older", b"# Older")
+    for directory in (artifact, older):
+        manifest = directory / "manifest.json"
+        value = json.loads(manifest.read_text())
+        value["instance_id"] = "frozen-installation-instance"
+        manifest.write_text(json.dumps(value))
+
+    root = tmp_path / "upgrade"
+    evaluation.prepare(root, skill, "update", artifact, older)
+    fixture = evaluation.Fixture(root)
+    connection = json.loads((fixture.workspace / "private/connection.json").read_text())
+    context = request(fixture, "/api/agent/context")["body"]
+    assert connection["instance_id"] == context["server"]["instance_id"] == "frozen-installation-instance"
+
+    value["instance_id"] = "another-instance"
+    manifest.write_text(json.dumps(value))
+    rejected = tmp_path / "rejected"
+    with pytest.raises(evaluation.artifacts.ArtifactBlocked, match="must_share_instance"):
+        evaluation.prepare(rejected, skill, "update", artifact, older)
+    assert not rejected.exists()
 
 
 def test_reporting_latest_without_reading_it_does_not_pass(case):

@@ -38,10 +38,14 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
         or installed["manifest"]["version"] == current["manifest"]["version"]
     ):
         raise artifacts.ArtifactBlocked("distinct_real_installed_and_server_bundles_required")
+    current_instance = current["manifest"].get("instance_id", base.INSTANCE) if current else base.INSTANCE
+    installed_instance = installed["manifest"].get("instance_id", current_instance) if installed else current_instance
+    if scenario == "update" and installed_instance != current_instance:
+        raise artifacts.ArtifactBlocked("installed_and_server_bundles_must_share_instance")
     base.prepare(root, skill, "existing-key")
     case = json.loads((root / "case.json").read_text())
     case.update(
-        scenario=scenario, fixture_version=6, installed_version=installed["manifest"]["version"] if installed else None
+        scenario=scenario, fixture_version=7, installed_version=installed["manifest"]["version"] if installed else None
     )
     base.save_json(
         root / "runtime.json",
@@ -61,7 +65,7 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
         root / "workspace/private/connection.json",
         {
             "origin": base.ORIGIN,
-            "instance_id": base.INSTANCE,
+            "instance_id": current_instance,
             "bot_uuid": base.BOT_UUID,
             "credential_ref": "private/current.key",
             "loaded_skill_version": case["installed_version"],
