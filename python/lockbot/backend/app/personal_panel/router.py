@@ -1,6 +1,7 @@
 """Browser access to a personal read-only dashboard on a trusted Lockbot origin."""
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import math
@@ -635,6 +636,9 @@ def create_panel(
             raise HTTPException(404)
         return result
 
+    def report_selector(*parts):
+        return hashlib.sha256(json.dumps(parts, separators=(",", ":"), sort_keys=True).encode()).hexdigest()[:32]
+
     def read_groups(grant, source):
         try:
             data = source.report(grant)
@@ -670,10 +674,29 @@ def create_panel(
                 group.get("group_id", group["label"]),
                 grant["scope"] if source is provider else "",
             )
+            group_selector = report_selector(
+                next(index for index, reporter in enumerate((provider, *reporters)) if reporter is source),
+                key[1:],
+            )
+            allocations = group.get("allocations")
+            if isinstance(allocations, list):
+                group["allocations"] = [
+                    {
+                        **row,
+                        "detail_id": report_selector(
+                            group_selector, row.get("kind"), row.get("node"), row.get("device")
+                        ),
+                        "node_detail_id": report_selector(group_selector, "node", row.get("node")),
+                    }
+                    if isinstance(row, dict)
+                    else row
+                    for row in allocations
+                ]
             yield (
                 key,
                 dict(
                     group,
+                    detail_id=group_selector,
                     identity=public_identity(grant),
                     source={
                         "kind": "identity_provider" if source is provider else "reporter",

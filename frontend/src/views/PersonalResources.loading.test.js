@@ -17,6 +17,7 @@ const renderer = createRenderer({
 })
 let app
 let router
+let initialPath
 const flush = async () => {
   await Promise.resolve()
   await nextTick()
@@ -25,6 +26,7 @@ const flush = async () => {
 }
 afterEach(() => {
   app?.unmount()
+  initialPath = undefined
   vi.unstubAllGlobals()
 })
 const response = (data, ok = true) => ({ ok, status: ok ? 200 : 503, json: async () => data })
@@ -36,6 +38,10 @@ function mount() {
   })
   app.use(router)
   app.provide(ssrContextKey, {})
+  if (initialPath) return router.replace(initialPath).then(mountView)
+  return mountView()
+}
+function mountView() {
   app.mount({})
   return app._instance.setupState
 }
@@ -154,7 +160,7 @@ async function readyGroups(groups) {
         : response({ groups })
     )
   )
-  const state = mount()
+  const state = await mount()
   await flush()
   await vi.waitFor(() => expect(state.resourcesReady).toBe(true))
   return state
@@ -456,16 +462,17 @@ it('removes a partial report when the stream invalidates authorization', async (
 })
 
 it('opens only the selected resource or group and closes on a change of identity scope', async () => {
-  const booking = { kind: 'reservation', node: 'node-a', device: '0' }
+  const booking = { kind: 'reservation', node: 'node-a', device: '0', detail_id: 'booking-a' }
   const state = await readyGroups([
     {
       ...confirmed,
       group_id: 'a',
+      detail_id: 'group-a',
       allocations: [
         ...confirmed.allocations,
-        { kind: 'hold', node: 'node-b' },
+        { kind: 'hold', node: 'node-b', detail_id: 'holding-b' },
         booking,
-        { ...booking, node: 'node-b' },
+        { ...booking, node: 'node-b', detail_id: 'booking-b' },
       ],
     },
     { ...confirmed, group_id: 'b' },
@@ -476,21 +483,48 @@ it('opens only the selected resource or group and closes on a change of identity
   const [holdings, reservations] = state.allocationSections
   const item = holdings.items.find(({ first }) => first.allocation.node === 'node-b')
   await state.openWorkbenchResource(item)
-  expect(router.currentRoute.value.path).toMatch(/^\/me\/holdings\/\d+$/)
+  expect(router.currentRoute.value.path).toBe('/me/holdings/holding-b')
   expect(state.detailSections).toHaveLength(1)
   expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
+  await router.push('/me')
+  await router.push('/me/holdings/holding-b')
+  expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
 
-  await state.openDetails('reservations', { resource: reservations.rows[0].key })
+  await state.openBooking(reservations.rows[0])
   expect(state.detailSections).toHaveLength(1)
   expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-a'])
   expect(state.detailUtilizationGroups).toEqual([])
 
-  await state.openDetails('group', { groupKey: holdings.rows[0].groupKey })
+  await state.openGroup(holdings.rows[0].group)
   expect(state.detailSections).toHaveLength(2)
   expect(
     state.detailSections.flatMap(({ rows }) => rows.map(({ group }) => group.group_id))
   ).toEqual(['a', 'a', 'a', 'a'])
+  await router.push('/me/holdings/unknown')
+  expect(state.detailSections).toEqual([])
+  await router.push('/me/group/group-a')
+  expect(state.detailSections).toHaveLength(2)
   state.session = { authenticated: false, identities: [] }
   await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/me/groups'))
   expect(state.detailSections).toEqual([])
+})
+
+it('restores a card-level node view from its direct URL as reports arrive', async () => {
+  initialPath = '/me/holdings/node-a-details'
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      detail_id: 'group-a',
+      allocations: ['0', '1'].map((device) => ({
+        kind: 'hold',
+        node: 'node-a',
+        device,
+        detail_id: 'card-' + device,
+        node_detail_id: 'node-a-details',
+      })),
+    },
+  ])
+  expect(router.currentRoute.value.path).toBe(initialPath)
+  expect(state.detailSections[0].rows).toHaveLength(2)
+  expect(state.expandedNodes.has(state.detailSections[0].items[0].key)).toBe(true)
 })

@@ -261,6 +261,17 @@ def test_resources_stream_returns_only_authenticated_grants_and_matches_json(env
         browser.get("/me/resources").json()["groups"], key=lambda group: group["label"]
     )
     assert {group["label"] for group in groups} == {"GPU A", "GPU B"}
+    selectors = {
+        value
+        for group in groups
+        for value in (
+            group["detail_id"],
+            group["allocations"][0]["detail_id"],
+            group["allocations"][0]["node_detail_id"],
+        )
+    }
+    assert len(selectors) == 6
+    assert all(len(value) == 32 and value == f"{int(value, 16):032x}" for value in selectors)
 
 
 def test_http_stream_delivers_fast_group_before_waiting_and_rechecks_revocation(env):
