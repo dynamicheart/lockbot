@@ -51,7 +51,7 @@ def extension(client, api, db_session, session_factory):
     # its adapter after creating the app, which may already have built assets.
     routes = client.app.router.routes
     route = routes.pop()
-    static = next((index for index, item in enumerate(routes) if item.name == "static"), len(routes))
+    static = next((index for index, item in enumerate(routes) if getattr(item, "name", None) == "static"), len(routes))
     routes.insert(static, route)
     try:
         yield reporter
