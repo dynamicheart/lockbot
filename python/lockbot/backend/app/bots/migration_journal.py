@@ -34,7 +34,8 @@ class BotMigration(Base):
 
 def migration_fence(db, bot_id):
     """A journal row fences manual transitions and process startup until reconciliation."""
-    return db.get(BotMigration, bot_id)
+    row = db.get(BotMigration, bot_id)
+    return row if row is not None and row.phase != "completed" else None
 
 
 def record_migration_freeze(db, bot, target, review_digest, *, requested_by=None):
@@ -79,7 +80,7 @@ def stage_destination_checkpoint(row, state):
 def read_destination_checkpoint(row):
     """Validate the persisted checkpoint before a later operation can publish it."""
     payload = row.destination_payload
-    if row.phase not in {"drained", "switched"} or not payload or not row.destination_digest:
+    if row.phase not in {"drained", "switched", "installed"} or not payload or not row.destination_digest:
         raise ValueError("Destination checkpoint is unavailable")
     if len(payload.encode()) > MAX_STATE_FILE_BYTES or not hmac.compare_digest(
         row.destination_digest, _review_digest(_destination_scope(row, payload))

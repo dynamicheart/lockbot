@@ -462,9 +462,10 @@ def test_persisted_migration_fences_manual_routes_and_startup(
         ("restart", "recovery_required"),
     ],
 )
-def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeypatch, retirement, expected):
+def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeypatch, tmp_path, retirement, expected):
     from lockbot.backend.app.bots.manager import MayHaveExecuted
     from lockbot.backend.app.bots.migration_cutover import (
+        activate_switched_migration,
         continue_source_drain,
         freeze_migration,
         switch_drained_migration,
@@ -600,6 +601,55 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
             == "switched"
         )
         assert bot.identity_revision == original_revision + 1
+
+        import json
+
+        from lockbot.backend.app.managed_paths import ManagedPaths
+
+        paths = ManagedPaths(tmp_path / "migration-data")
+        monkeypatch.setattr("lockbot.backend.app.bots.migration_cutover.get_managed_paths", lambda: paths)
+        writes = []
+
+        def start(*args, **kwargs):
+            writes.append("start")
+            assert kwargs == {"activate": False}
+            if len(writes) == 1:
+                raise RuntimeError("fixture start failed")
+            return 42
+
+        manager.get_pid = lambda _: None
+        manager.start_bot = start
+        manager.activate_bot = lambda _: writes.append("activate")
+
+        def build_config(bot, db):
+            return {"PLATFORM": bot.platform}
+
+        with pytest.raises(RuntimeError, match="fixture start failed"):
+            activate_switched_migration(db_session, manager, bot_id, operation_id, actor, build_config=build_config)
+        stored = migration_fence(db_session, bot_id)
+        assert stored.phase == "installed"
+        state_file = paths.state_file(bot_id)
+        assert json.loads(state_file.read_text())["bot_state"]["node1"]["status"] == "idle"
+        saved_file = state_file.with_name("hidden.fixture")
+        state_file.rename(saved_file)
+        with pytest.raises(HTTPException) as missing:
+            activate_switched_migration(db_session, manager, bot_id, operation_id, actor, build_config=build_config)
+        assert missing.value.status_code == 409
+        saved_file.rename(state_file)
+        completed = activate_switched_migration(
+            db_session, manager, bot_id, operation_id, actor, build_config=build_config
+        )
+        assert completed.phase == "completed" and completed.destination_payload is None
+        assert migration_fence(db_session, bot_id) is None
+        state_file.write_text("new-runtime-state")
+        assert (
+            activate_switched_migration(
+                db_session, manager, bot_id, operation_id, actor, build_config=build_config
+            ).phase
+            == "completed"
+        )
+        assert state_file.read_text() == "new-runtime-state"
+        assert writes == ["start", "start", "activate"]
         return
     if expected == "drained":
         assert read_destination_checkpoint(persisted) == {

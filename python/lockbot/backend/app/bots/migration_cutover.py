@@ -13,6 +13,7 @@ from lockbot.backend.app.bots import encryption
 from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.manager import BotNotRunning, MayHaveExecuted
 from lockbot.backend.app.bots.migration_journal import (
+    BotMigration,
     migration_fence,
     read_destination_checkpoint,
     record_migration_freeze,
@@ -27,9 +28,12 @@ from lockbot.backend.app.bots.migration_preflight import (
 )
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
+from lockbot.backend.app.managed_paths import get_managed_paths
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.service import revoke_bindings_for_bot
+from lockbot.core.config import Config
+from lockbot.core.io import _save_bot_state_atomically
 
 
 def freeze_migration(db, manager, bot_id, review, actor):
@@ -87,8 +91,11 @@ def continue_source_drain(db, manager, bot_id, operation_id, actor):
                     destination = _empty_destination_state(state, bot.bot_type, json.loads(bot.cluster_configs))
                     row.target_identity_digest = checkpoint["target_identity_digest"]
                     try:
+                        observer = getattr(retired.bot.config, "_lifecycle_observer", None)
+                        if observer is not None:
+                            observer.outbox.flush()
                         stage_destination_checkpoint(row, destination)
-                    except ValueError:
+                    except (OSError, ValueError):
                         row.phase = "recovery_required"
                     else:
                         row.phase = "drained"
@@ -107,10 +114,10 @@ def switch_drained_migration(db, manager, bot_id, operation_id, actor, *, verify
         operator = db.get(User, actor.id)
         if operator is None or operator.role != "super_admin":
             raise HTTPException(403, "Super admin required")
-        migration = migration_fence(db, bot_id)
+        migration = db.get(BotMigration, bot_id)
         if migration is None or migration.operation_id != operation_id:
             raise HTTPException(404, "Migration operation not found")
-        if migration.phase == "switched":
+        if migration.phase in {"switched", "installed", "completed"}:
             return migration
         if migration.phase != "drained" or manager.get_instance(bot_id) is not None or manager.is_retiring(bot_id):
             raise HTTPException(409, "The migration source is not drained")
@@ -182,4 +189,70 @@ def switch_drained_migration(db, manager, bot_id, operation_id, actor, *, verify
         except IntegrityError:
             db.rollback()
             raise HTTPException(409, "The Feishu destination is already bound") from None
+        return migration
+
+
+def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, build_config):
+    """Install the reviewed idle state once, then stage and activate the Feishu generation."""
+    with manager.transition(bot_id):
+        db.rollback()
+        if db.scalar(select(User.role).where(User.id == actor.id)) != "super_admin":
+            raise HTTPException(403, "Super admin required")
+        migration = db.get(BotMigration, bot_id)
+        if migration is None or migration.operation_id != operation_id:
+            raise HTTPException(404, "Migration operation not found")
+        if migration.phase == "completed":
+            return migration
+        if migration.phase not in {"switched", "installed"}:
+            raise HTTPException(409, "The destination route has not been switched")
+        bot = db.get(Bot, bot_id)
+        route = db.scalar(select(FeishuGroupRoute).where(FeishuGroupRoute.bot_id == bot_id))
+        if (
+            bot is None
+            or bot.is_deleted
+            or (bot.uuid, bot.identity_revision) != (migration.bot_uuid, migration.source_revision + 1)
+            or str(bot.platform).lower() != "feishu"
+            or bot.group_id != migration.target_chat_id
+            or route is None
+            or (route.application_id, route.chat_id) != (migration.target_application_id, migration.target_chat_id)
+        ):
+            raise HTTPException(409, "The Feishu route changed since switch")
+
+        application = db.get(FeishuApplication, migration.target_application_id)
+        membership = db.get(FeishuGroupMembership, (migration.target_application_id, migration.target_chat_id))
+        if (
+            application is None
+            or membership is None
+            or destination_identity_digest(application, membership) != migration.target_identity_digest
+        ):
+            raise HTTPException(409, "The reviewed Feishu destination changed")
+
+        paths = get_managed_paths()
+        if migration.phase == "switched":
+            if manager.get_instance(bot_id) is not None or manager.is_retiring(bot_id):
+                raise HTTPException(409, "The previous bot generation has not retired")
+            try:
+                snapshot = read_destination_checkpoint(migration)
+            except ValueError:
+                raise HTTPException(409, "The migration checkpoint could not be verified") from None
+            state_config = Config({"BOT_ID": bot_id, "_MANAGED_BOT_DIR": lambda: paths.core_directory(bot_id)})
+            _save_bot_state_atomically(snapshot, state_config)
+            migration.phase = "installed"
+            db.commit()
+
+        # After installation, a retry must start from disk even if activation
+        # already admitted work before its final database update failed.
+        pid = manager.get_pid(bot_id)
+        if pid is None:
+            if not paths.state_file(bot_id).is_file():
+                raise HTTPException(409, "The installed destination state is missing")
+            pid = manager.start_bot(bot_id, build_config(bot, db), activate=False)
+        bot.status = "running"
+        bot.pid = pid
+        db.commit()
+        manager.activate_bot(bot_id)
+        migration.phase = "completed"
+        migration.destination_payload = None
+        migration.destination_digest = None
+        db.commit()
         return migration
