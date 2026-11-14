@@ -16,6 +16,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+from sqlalchemy import exists, or_
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.config import (
@@ -207,6 +208,76 @@ def touch_last_used(db: Session, row: ResourceBinding) -> None:
 
 
 # ── Revocation ────────────────────────────────────────────────────────────────
+
+
+def rotate_confirmed_credential(
+    db: Session, *, row: ResourceBinding, instance_id: str, canonical_name: str, deadline: float
+) -> str:
+    """Transactionally replace one current key after fresh, purpose-bound consent.
+
+    No expiry, identity, binding reference or bot revision changes. Seal before
+    the CAS so encryption failure leaves the original credential untouched.
+    """
+    from lockbot.backend.app.bots.models import Bot
+    from lockbot.backend.app.settings.models import SiteSetting
+
+    expected = (
+        row.id,
+        row.public_id,
+        row.platform,
+        row.external_user_id,
+        row.bound_bot_id,
+        row.bound_bot_uuid,
+        row.bound_identity_revision,
+        row.credential_digest,
+        row.credential_generation,
+    )
+    replacement = credentials.generate_credential()
+    encrypted = credentials.seal_credential(row.public_id, replacement)
+    now = _naive_utc(_utcnow())
+    try:
+        if now >= datetime.fromtimestamp(deadline, timezone.utc).replace(tzinfo=None):
+            raise ValueError("Rotation intent expired")
+        changed = (
+            db.query(ResourceBinding)
+            .filter(
+                ResourceBinding.id == expected[0],
+                ResourceBinding.public_id == expected[1],
+                ResourceBinding.platform == expected[2],
+                ResourceBinding.external_user_id == expected[3],
+                ResourceBinding.bound_bot_id == expected[4],
+                ResourceBinding.bound_bot_uuid == expected[5],
+                ResourceBinding.bound_identity_revision == expected[6],
+                ResourceBinding.credential_digest == expected[7],
+                ResourceBinding.credential_generation == expected[8],
+                ResourceBinding.revoked_at.is_(None),
+                or_(ResourceBinding.credential_expires_at.is_(None), ResourceBinding.credential_expires_at > now),
+                exists().where(
+                    Bot.id == expected[4],
+                    Bot.uuid == expected[5],
+                    Bot.identity_revision == expected[6],
+                    Bot.resource_auth_enabled.is_(True),
+                    Bot.is_deleted.is_(False),
+                    Bot.name == canonical_name,
+                ),
+                exists().where(SiteSetting.key == "resource_api_instance_id", SiteSetting.value == instance_id),
+            )
+            .update(
+                {
+                    ResourceBinding.credential_digest: credentials.digest_credential(replacement),
+                    ResourceBinding.credential_encrypted: encrypted,
+                    ResourceBinding.credential_generation: expected[8] + 1,
+                },
+                synchronize_session=False,
+            )
+        )
+        if changed != 1:
+            raise ValueError("Rotation authority changed")
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return replacement
 
 
 def revoke_bindings_for_bot(db: Session, bot_id: int) -> int:
