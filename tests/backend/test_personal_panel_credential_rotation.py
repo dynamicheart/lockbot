@@ -2,6 +2,7 @@
 
 # ruff: noqa: F811
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
@@ -72,6 +73,7 @@ def test_disabled_by_default_and_readonly_or_view_proofs_cannot_upgrade(env, rot
     assert post(rotation[2], "/login", token, mode="append").status_code == 410
 
 
+@pytest.mark.parametrize("api", ["QUEUE"], indirect=True)
 def test_rotation_changes_only_this_binding_and_requires_fresh_login(rotation, api, db_session):
     provider, agent, browser, _ = rotation
     login(agent, browser, api["other_headers"]["Authorization"][7:], "append")
@@ -84,6 +86,11 @@ def test_rotation_changes_only_this_binding_and_requires_fresh_login(rotation, a
     expiry, public_id = row.credential_expires_at, row.public_id
     bot_revision = db_session.get(Bot, api["bot_id"]).identity_revision
     before_bob = provider.authenticate(api["other_headers"]["Authorization"][7:])
+    bot = api["bot"]
+    bot.lock("alice", "lock n1 1h")
+    bot.book("bob", "book n1 1h")
+    resources_before = deepcopy(bot.state_snapshot()[1])
+    assert resources_before["n1"]["current_users"] and resources_before["n1"]["booking_list"]
     preview = prepare(rotation, api)
     response = confirm(browser, preview)
     assert response.status_code == 200, response.text
@@ -95,6 +102,7 @@ def test_rotation_changes_only_this_binding_and_requires_fresh_login(rotation, a
     assert row.credential_generation == 1 and row.credential_expires_at == expiry
     assert row.public_id == public_id and row.revoked_at is None
     assert db_session.get(Bot, api["bot_id"]).identity_revision == bot_revision
+    assert bot.state_snapshot()[1] == resources_before
     assert credentials.recover_credential(row) == key
     assert not provider.validate(grant)
     assert provider.authenticate(key)["scope"] != grant["scope"]
