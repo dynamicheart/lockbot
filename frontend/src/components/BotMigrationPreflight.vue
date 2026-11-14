@@ -50,6 +50,16 @@
     <p v-if="error" class="migration-error" role="alert">{{ $t(error) }}</p>
     <BotMigrationPreflightResult v-if="result && !operation" :result="result" />
     <p v-if="operation" aria-live="polite">{{ $t('migration.phases.' + operation.phase) }}</p>
+    <p v-if="operation?.metrics_grants_wait_until">
+      {{
+        $t('migration.metricsWaiting', {
+          time: formatResourceTime(operation.metrics_grants_wait_until, $i18n?.locale),
+        })
+      }}
+    </p>
+    <p v-else-if="operation?.metrics_policy_unverified">
+      {{ $t('migration.blockers.source_metrics_expiry_unverified') }}
+    </p>
     <el-checkbox v-if="receipt && !operation" v-model="confirmed" :disabled="changing">
       {{ $t('migration.confirmReset') }}
     </el-checkbox>
@@ -91,6 +101,7 @@ import { QuestionFilled } from '@element-plus/icons-vue'
 import BotMigrationPreflightResult from './BotMigrationPreflightResult.vue'
 import api from '../utils/api'
 import { createBotDetailScope } from '../utils/botDetailScope'
+import { formatResourceTime } from '../utils/resourceTime'
 
 const props = defineProps({
   botId: { type: [Number, String], required: true },
@@ -161,6 +172,7 @@ const blockerKeys = Object.fromEntries(
     'source_platform_unsupported',
     'source_type_unsupported',
     'source_identity_missing',
+    'source_metrics_expiry_unverified',
     'source_has_outstanding_allocations',
     'target_application_missing',
     'target_application_identity_unknown',
@@ -243,6 +255,12 @@ function applyOperation(data) {
     operation_id: data.operation_id,
     phase: data.phase,
     continue_available: data.continue_available === true,
+    metrics_grants_wait_until:
+      typeof data.metrics_grants_wait_until === 'string' &&
+      Number.isFinite(Date.parse(data.metrics_grants_wait_until))
+        ? data.metrics_grants_wait_until
+        : null,
+    metrics_policy_unverified: data.metrics_policy_unverified === true,
   }
 }
 

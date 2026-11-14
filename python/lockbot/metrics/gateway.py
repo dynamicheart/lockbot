@@ -40,6 +40,8 @@ METRICS = frozenset(
     }
 )
 MAX_BODY, MAX_RESPONSE, MAX_SERIES = 32768, 2 * 1024 * 1024, 4096
+GRANT_MAX_TTL_SECONDS = 300
+GRANT_CLOCK_LEEWAY_SECONDS = 15
 JSON_STRING = r'"(?:[^"\\]|\\.)*"'
 LABELS = {
     "__name__",
@@ -212,20 +214,23 @@ class Gateway:
                 algorithms=["HS256"],
                 issuer=issuer,
                 audience=audience,
-                leeway=15,
+                leeway=GRANT_CLOCK_LEEWAY_SECONDS,
                 options={"require": ["iss", "sub", "aud", "iat", "exp"]},
             )
             if claims["aud"] != audience or claims["iss"] != issuer or not isinstance(claims["sub"], str):
                 raise ValueError
             if type(claims["iat"]) is not int or type(claims["exp"]) is not int:
                 raise ValueError
-            if not 0 < claims["exp"] - claims["iat"] <= 300:
+            if not 0 < claims["exp"] - claims["iat"] <= GRANT_MAX_TTL_SECONDS:
                 raise ValueError
-            if claims["iat"] > self.clock() + 15 or claims["exp"] < self.clock() - 15:
+            if (
+                claims["iat"] > self.clock() + GRANT_CLOCK_LEEWAY_SECONDS
+                or claims["exp"] < self.clock() - GRANT_CLOCK_LEEWAY_SECONDS
+            ):
                 raise ValueError
             if "nbf" in claims and (type(claims["nbf"]) is not int or claims["nbf"] > claims["exp"]):
                 raise ValueError
-            if "nbf" in claims and claims["nbf"] > self.clock() + 15:
+            if "nbf" in claims and claims["nbf"] > self.clock() + GRANT_CLOCK_LEEWAY_SECONDS:
                 raise ValueError
             scope = grant_scope(claims)
             if isinstance(scope, dict) and claims["exp"] <= self.clock():

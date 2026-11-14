@@ -71,7 +71,7 @@ export default {
       cancelling: 'Restoring the original bot',
       cancelled: 'Migration cancelled. The original bot is running.',
       frozen: 'Draining source operations',
-      drained: 'Source stopped. Ready to switch.',
+      drained: 'Source stopped.',
       source_changed: 'Source state changed. Administrator review required.',
       recovery_required: 'Persisted state requires reconciliation.',
       switched: 'Route switched. Ready to start.',
@@ -107,6 +107,8 @@ export default {
       source_platform_unsupported: 'The source platform is unsupported',
       source_type_unsupported: 'The source bot type is unsupported',
       source_identity_missing: 'The source identity is incomplete',
+      source_metrics_expiry_unverified:
+        'The operator needs to verify the metrics gateway expiry policy',
       source_has_outstanding_allocations: 'Allocations, reservations or claim offers remain',
       target_application_missing: 'The target application does not exist',
       target_application_identity_unknown: 'The target enterprise identity is not verified',
@@ -116,6 +118,7 @@ export default {
       source_already_has_feishu_route: 'The source bot already has a Feishu route',
       cutover_not_implemented: 'The migration cutover is not available yet',
     },
+    metricsWaiting: 'Earlier metrics grants expire by {time}. Refresh after that time to continue.',
     unverified: {
       application_publication: 'Application publication',
       application_credentials: 'Application credential validity',

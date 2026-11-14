@@ -27,6 +27,7 @@ class BotMigration(Base):
     frozen_at: Mapped[datetime] = mapped_column(DateTime)
     phase: Mapped[str] = mapped_column(String(24), default="frozen")
     drained_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    metrics_wait_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     destination_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_identity_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_authority_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -61,7 +62,7 @@ def record_migration_freeze(db, bot, target, review_digest, *, requested_by=None
 
 
 def _destination_scope(row, payload):
-    return {
+    scope = {
         "operation": row.operation_id,
         "bot": row.bot_uuid,
         "source_revision": row.source_revision,
@@ -72,6 +73,9 @@ def _destination_scope(row, payload):
         "source_authority": row.source_authority_digest,
         "payload": payload,
     }
+    if row.metrics_wait_seconds is not None:
+        scope["metrics_wait_seconds"] = row.metrics_wait_seconds
+    return scope
 
 
 def stage_destination_checkpoint(row, state):

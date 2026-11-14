@@ -1,6 +1,7 @@
 """Migration preview must observe, never switch or silently discard obligations."""
 
 import copy
+import json
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -798,6 +799,33 @@ def test_migration_routes_require_opt_in_and_explicit_confirmation(
     assert client.get(f"/api/bots/{bot_id}", headers=admin_header).json()["migration_in_progress"] is True
 
 
+@pytest.mark.parametrize(
+    "policy",
+    [None, '{"https://other.example.invalid": 2}', '{"https://metrics.example.invalid": true}'],
+)
+def test_preview_blocks_unverified_metrics_before_freeze(client, admin_header, setup, db_session, monkeypatch, policy):
+    from lockbot.backend.app.bots.migration_metrics import METRICS_POLICY_ENV
+
+    bot_id, _, target = setup
+    db_session.get(Bot, bot_id).utilization_config = json.dumps(
+        {"endpoint": "https://metrics.example.invalid", "accessMode": "short_lived", "nodeMapping": {"node1": "host"}}
+    )
+    db_session.commit()
+    live(monkeypatch, {"node1": {"status": "idle", "current_users": [], "booking_list": []}})
+    monkeypatch.setenv("LOCKBOT_ENABLE_PLATFORM_MIGRATION", "1")
+    if policy is None:
+        monkeypatch.delenv(METRICS_POLICY_ENV, raising=False)
+    else:
+        monkeypatch.setenv(METRICS_POLICY_ENV, policy)
+
+    path = f"/api/bots/{bot_id}/migration"
+    observed = client.post(path + "-preflight", headers=admin_header, json=target).json()
+    assert "source_metrics_expiry_unverified" in observed["blockers"]
+    assert observed["review_receipt"] is None
+    assert not observed["begin_available"]
+    assert client.get(path, headers=admin_header).status_code == 404
+
+
 def test_cancel_restores_original_generation_without_replacing_state(
     client, admin_header, setup, db_session, tmp_path, monkeypatch
 ):
@@ -844,12 +872,15 @@ def test_cancel_restores_original_generation_without_replacing_state(
 
 
 def test_migration_http_flow_uses_real_generations_and_preserves_history(
-    client, admin_header, setup, db_session, session_factory, monkeypatch
+    client, admin_header, setup, db_session, session_factory, monkeypatch, tmp_path
 ):
     from urllib.parse import urlsplit
 
     from lockbot.backend.app.bots.manager import BotManager
+    from lockbot.backend.app.bots.migration_journal import BotMigration
+    from lockbot.backend.app.bots.migration_metrics import METRICS_POLICY_ENV, metrics_grants_expired
     from lockbot.backend.app.resource_auth import service
+    from lockbot.metrics.gateway import Gateway, Rejected
 
     bot_id, _, target = setup
     path = f"/api/bots/{bot_id}"
@@ -865,6 +896,15 @@ def test_migration_http_flow_uses_real_generations_and_preserves_history(
     receiver = {"state": "running"}
     monkeypatch.setattr("lockbot.backend.app.feishu.connectors.connectors.snapshot", lambda _: receiver)
     bot = db_session.get(Bot, bot_id)
+    endpoint = "https://metrics.example.invalid"
+    metrics = {"endpoint": endpoint, "accessMode": "short_lived", "nodeMapping": {"node1": "host-a"}}
+    bot.utilization_config = json.dumps(metrics)
+    db_session.commit()
+    key_file = tmp_path / "metrics.key"
+    key_file.write_bytes(b"m" * 64)
+    key_file.chmod(0o600)
+    monkeypatch.setenv("METRICS_GRANT_SECRET_FILE", str(key_file))
+    monkeypatch.setenv(METRICS_POLICY_ENV, json.dumps({endpoint: 10}))
     previous_uuid, previous_revision, inventory = bot.uuid, bot.identity_revision, bot.cluster_configs
     manager.start_bot(bot_id, router._build_config_dict(bot, db_session))
 
@@ -879,6 +919,13 @@ def test_migration_http_flow_uses_real_generations_and_preserves_history(
         previous_agent = issue("infoflow", "old-user")
         context = client.get("/api/agent/context", headers=previous_agent)
         assert context.status_code == 200
+        old_grant = context.json()["utilization"]["access"]["token"]
+        issuer = context.json()["server"]["instance_id"]
+        gateway_config = {
+            "audience": endpoint,
+            "issuers": {issuer: {"key_file": str(key_file), "bots": {bot.uuid: ["host-a"]}}},
+        }
+        assert Gateway(gateway_config).grant_reader(old_grant)[1] == frozenset({"host-a"})
         previous_view = urlsplit(context.json()["view_url"]).fragment.rsplit("/", 1)[1]
         with manager.admit(bot_id) as lease:
             lease.bot.lock("old-user", "lock node1 1h")
@@ -898,7 +945,37 @@ def test_migration_http_flow_uses_real_generations_and_preserves_history(
             json={**target, "review_receipt": reviewed["review_receipt"]["token"], "confirm_clear_live_state": True},
         )
         assert begin.status_code == 202 and begin.json()["phase"] == "drained", begin.text
+        assert not begin.json()["continue_available"]
+        assert "metrics_grants_wait_until" in begin.json()
         resume = path + "/migration/" + begin.json()["operation_id"] + "/continue"
+        assert client.post(path + "/utilization-access", headers=admin_header, json=metrics).status_code == 503
+        assert client.get("/api/agent/context", headers=previous_agent).json()["utilization"]["access"] is None
+        monkeypatch.delenv(METRICS_POLICY_ENV)
+        unknown = client.get(path + "/migration", headers=admin_header).json()
+        assert unknown["metrics_policy_unverified"] and not unknown["continue_available"]
+        assert client.post(resume, headers=admin_header).status_code == 409
+        monkeypatch.setenv(METRICS_POLICY_ENV, json.dumps({endpoint: 0}))
+        assert client.get(path + "/migration", headers=admin_header).json() == begin.json()
+        assert client.post(resume, headers=admin_header).status_code == 409
+        assert db_session.get(Bot, bot_id).platform.lower() == "infoflow"
+        migration = db_session.get(BotMigration, bot_id)
+        assert migration.metrics_wait_seconds == 325
+        resume_at = migration.drained_at + timedelta(seconds=326)
+
+        assert not metrics_grants_expired(resume_at, now=resume_at)
+        # Move only the metrics wall clock. Destination enrollment uses real time.
+        from lockbot.backend.app.bots import migration_metrics
+
+        class AfterWait(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return resume_at.replace(tzinfo=tz)
+
+        monkeypatch.setattr(migration_metrics, "datetime", AfterWait)
+        lagged_gateway = Gateway(gateway_config, clock=lambda: resume_at.replace(tzinfo=timezone.utc).timestamp() - 10)
+        with pytest.raises(Rejected) as rejected:
+            lagged_gateway.grant_reader(old_grant)
+        assert rejected.value.status == 401
         assert client.post(resume, headers=admin_header).json()["phase"] == "switched"
         receiver["state"] = "stopped"
         disconnected = client.post(resume, headers=admin_header)
@@ -920,6 +997,7 @@ def test_migration_http_flow_uses_real_generations_and_preserves_history(
             inventory,
         )
         assert history_path.read_bytes().startswith(previous_history)
+        assert json.loads(bot.utilization_config) == metrics
         assert client.get("/api/agent/context", headers=previous_agent).status_code == 401
         assert (
             client.get(
@@ -927,7 +1005,10 @@ def test_migration_http_flow_uses_real_generations_and_preserves_history(
             ).status_code
             == 403
         )
-        assert client.get("/api/agent/context", headers=issue("feishu", "ou_new")).status_code == 200
+        new_context = client.get("/api/agent/context", headers=issue("feishu", "ou_new"))
+        assert new_context.status_code == 200
+        new_grant = new_context.json()["utilization"]["access"]["token"]
+        assert Gateway(gateway_config).grant_reader(new_grant)[1] == frozenset({"host-a"})
         assert client.post(resume, headers=admin_header).json() == done.json()
     finally:
         manager.shutdown_all()

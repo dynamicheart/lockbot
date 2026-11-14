@@ -8,6 +8,7 @@ import jwt
 import pytest
 from lockbot.backend.app.bots.metrics_access import issue_metrics_access
 from lockbot.backend.app.bots.metrics_signers import MAX_CONFIG_BYTES, MAX_SOURCES, select_metrics_signer
+from lockbot.backend.app.bots.migration_metrics import METRICS_POLICY_ENV
 from lockbot.backend.app.bots.models import Bot
 from lockbot.metrics.gateway import Gateway, Rejected
 
@@ -74,6 +75,15 @@ def test_unknown_candidate_source_cannot_use_legacy_signer(client, api, registry
     rejected = client.post(path, headers=api["auth_header"], json=source_at("https://unknown.example.invalid"))
     assert rejected.status_code == 503 and "token" not in rejected.json()
     assert str(registry[0]) not in rejected.text
+
+
+def test_migration_policy_restricts_candidate_grants_to_verified_audiences(client, api, registry, monkeypatch):
+    path = f"/api/bots/{api['bot_id']}/utilization-access"
+    monkeypatch.setenv(METRICS_POLICY_ENV, json.dumps({A: 10}))
+    assert client.post(path, headers=api["auth_header"], json=source_at(A)).status_code == 200
+    assert client.post(path, headers=api["auth_header"], json=source_at(B)).status_code == 503
+    monkeypatch.setenv(METRICS_POLICY_ENV, '{"https://metrics-a.example.invalid":true}')
+    assert client.post(path, headers=api["auth_header"], json=source_at(A)).status_code == 503
 
 
 @pytest.mark.parametrize("setting", ["", "missing", "relative"])
