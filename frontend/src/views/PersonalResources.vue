@@ -135,12 +135,16 @@
                 ><template #default="{ row }">{{ row.group.label }}</template></el-table-column
               >
               <el-table-column label="节点 / 卡号" min-width="160"
-                ><template #default="{ row }"
-                  >{{ row.allocation.node ?? '未知节点'
-                  }}{{
-                    row.allocation.device == null ? '' : ' / 卡 ' + row.allocation.device
-                  }}</template
-                ></el-table-column
+                ><template #default="{ row }">
+                  <div>
+                    {{ row.allocation.node ?? '未知节点'
+                    }}{{ row.allocation.device == null ? '' : ' / 卡 ' + row.allocation.device }}
+                  </div>
+                  <details v-if="row.allocation.node_access">
+                    <summary>登录地址</summary>
+                    <code>{{ nodeAccessAddress(row.allocation.node_access) }}</code>
+                  </details>
+                </template></el-table-column
               >
               <el-table-column label="到期时间" min-width="175">
                 <template #default="{ row }">{{ date(row.allocation.expires_at) }}</template>
@@ -396,6 +400,9 @@ function entries(group) {
 }
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
+}
+function nodeAccessAddress({ host, port }) {
+  return `${host.includes(':') ? `[${host}]` : host}:${port}`
 }
 function platformName(value) {
   return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'
