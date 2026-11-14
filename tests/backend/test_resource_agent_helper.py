@@ -582,6 +582,31 @@ def test_additive_actor_metadata_does_not_invalidate_scoped_connection(case):
     assert case.client.command("lock", ["node-a"], [], "2m")["verified"]
 
 
+def test_packaged_alias_cli_writes_and_reads_back_without_site_packages(case):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "alias",
+            "--node",
+            "node-a",
+            "--set",
+            "Training",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert KEY not in result.stdout + result.stderr
+    assert json.loads(result.stdout)["result"]["alias"] == "Training"
+    assert [request[1] for request in case.state.requests[-3:]] == ["GET", "POST", "GET"]
+
+
 def test_shared_alias_read_set_change_clear_and_skip_unchanged_write(case):
     case.state.bot_type = "QUEUE_DEVICE"
     assert case.client.alias("node-a")["alias"] == ""
