@@ -13,6 +13,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -51,11 +52,24 @@ def serve(settings_file, descriptor):
 
     connectors.start = lambda *_args, **_kwargs: None
     connectors.shutdown = lambda *_args, **_kwargs: None
+    app = fixture_app(root / "frontend-disabled")
+
+    import uvicorn
+
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", workers=1, access_log=False, log_level="warning"))
+    server.run(sockets=[socket.socket(fileno=descriptor)])
+
+
+def fixture_app(frontend_dist):
+    """Build the API-only acceptance app with an explicitly absent frontend path."""
     from lockbot.backend.app.main import create_app
     from lockbot.backend.app.resource_auth import service
     from pydantic import BaseModel
 
-    app = create_app()
+    # An already built frontend mounts '/' before this test-only identity seam.
+    # This API-only probe must not depend on a checkout's frontend build artifacts.
+    with patch.dict(os.environ, {"FRONTEND_DIST": str(frontend_dist)}):
+        app = create_app()
 
     class FixtureBinding(BaseModel):
         bot_id: int
@@ -69,10 +83,7 @@ def serve(settings_file, descriptor):
         )
         return {"bound": True}
 
-    import uvicorn
-
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", workers=1, access_log=False, log_level="warning"))
-    server.run(sockets=[socket.socket(fileno=descriptor)])
+    return app
 
 
 def probe(output):

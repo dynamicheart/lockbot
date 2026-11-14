@@ -36,6 +36,7 @@ _ENV_FALLBACKS = {
     "platform_feishu_enabled": "true",
     "agent_promotion_text_zh": "",
     "agent_promotion_text_en": "",
+    "resource_view_link_days": "1",
     "feishu_proxy_mode": "deployment",
     "feishu_proxy_url": "",
 }
@@ -135,6 +136,10 @@ def batch_update_settings(
     for key, value in body.settings.items():
         if key not in allowed:
             raise HTTPException(status_code=422, detail=f"Unknown setting key: {key}")
+        if key == "resource_view_link_days" and (
+            not isinstance(value, str) or not value.isascii() or not value.isdecimal() or not 0 <= int(value) <= 30
+        ):
+            raise HTTPException(status_code=422, detail="resource_view_link_days must be 0 (permanent) or 1 to 30 days")
         if key in {"agent_promotion_enabled", "platform_infoflow_enabled", "platform_feishu_enabled"} and value not in (
             "true",
             "false",

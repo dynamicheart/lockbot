@@ -45,6 +45,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
         errors.append("FORBID_RELOCK must be a boolean")
     if "FEISHU_QUERY_PANEL" in v and not isinstance(v["FEISHU_QUERY_PANEL"], bool):
         errors.append("FEISHU_QUERY_PANEL must be a boolean")
+    if "RESOURCE_VIEW_LINK_DAYS" in v:
+        days = v["RESOURCE_VIEW_LINK_DAYS"]
+        if isinstance(days, bool) or not isinstance(days, int) or not 0 <= days <= 30:
+            errors.append("RESOURCE_VIEW_LINK_DAYS must be 0 (permanent) or 1 to 30 days; omit to inherit")
     cap = v.get("MAX_RESOURCES_PER_USER", -1)
     if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):
         errors.append("MAX_RESOURCES_PER_USER must be -1 or a positive integer")
