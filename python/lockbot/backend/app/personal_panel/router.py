@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .credential_views import CredentialViews
 from .handoff import connection_id, connection_instructions, installation, recovery_instructions
 from .native import NativeProvider, ProviderError
 from .sessions import PanelSessions
@@ -130,6 +131,7 @@ def create_panel(
     # Reporters and third-party identity providers do not acquire native key
     # authority by returning similarly shaped metadata or display names.
     native_connections = type(provider) is NativeProvider
+    credential_views = CredentialViews(sessions) if native_connections else None
     if metadata_adapter is not None:
         from .metadata import pinned_services
 
@@ -147,7 +149,10 @@ def create_panel(
         origin_header = request.headers.get("origin")
         if origin_header is not None and origin_header != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
-        browser_post = request.method == "POST" and not request.url.path.endswith("/links")
+        browser_post = request.method == "POST" and request.url.path.rsplit("/", 1)[-1] not in (
+            "links",
+            "credential-view-links",
+        )
         if browser_post and request.headers.get("origin") != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
         response = await next_handler(request)
@@ -200,7 +205,16 @@ def create_panel(
                         "skill": skill,
                         "recovery_instructions": recovery_guide,
                         "refresh_semantics": "revalidate_only",
-                        "credential_disclosure_supported": False,
+                        "credential_disclosure_supported": True,
+                        "credential_view": {
+                            "version": 1,
+                            "purpose": "view_current_key",
+                            "issue_path": request.url.path.rsplit("/", 1)[0] + "/credential-view-links",
+                            "expires_in": 120,
+                            "requires_original_credential": True,
+                            "requires_matching_browser_grant": True,
+                            "single_use": True,
+                        },
                     }
                 }
                 if native_connections
@@ -228,6 +242,100 @@ def create_panel(
             raise HTTPException(401, "Binding unavailable")
         token = sessions.issue(grant)
         return dict(home=origin + "/#/me", login_url=origin + "/#/me?ticket=" + token, expires_in=120)
+
+    @app.post("/credential-view-links")
+    def issue_credential_view(request: Request):
+        if not native_connections:
+            raise HTTPException(404)
+        auth = request.headers.get("authorization", "")
+        if request.headers.get("origin") or not auth.startswith("Bearer lbr_") or len(auth) > 8192:
+            raise HTTPException(401, "A fresh original binding credential is required")
+        with rate_lock:
+            now = monotonic()
+            while recent and recent[0] < now - 60:
+                recent.popleft()
+            if len(recent) >= 120:
+                raise HTTPException(429, headers={"Retry-After": "60"})
+            recent.append(now)
+        try:
+            grant, pin, expiry = provider.issue_credential_view(auth[7:])
+            token, deadline = credential_views.issue(grant, pin, expiry)
+        except Exception:
+            raise HTTPException(401, "Binding unavailable") from None
+        return {
+            "view_url": origin + "/#/me?credential_view=" + token,
+            "expires_at": deadline,
+            "purpose": "view_current_key",
+        }
+
+    def inspect_credential_view(request, token, *, consume=False):
+        if not native_connections:
+            raise HTTPException(404)
+        try:
+            grant, pin, deadline = credential_views.inspect(token, request.cookies.get(cookie_name), consume=consume)
+        except PermissionError:
+            raise HTTPException(403, "A matching current personal session is required") from None
+        except ValueError:
+            raise HTTPException(410, "Key view link expired or used") from None
+        if not valid(grant):
+            raise HTTPException(403, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide})
+        return grant, pin, deadline
+
+    @app.post("/credential-view-preview")
+    async def preview_credential_view(request: Request):
+        data = await fields(request, ["ticket"])
+        grant, pin, deadline = inspect_credential_view(request, data["ticket"])
+        try:
+            provider.credential_view(grant, pin)
+            item = provider.connection(grant)
+            provider.credential_view(grant, pin)
+        except Exception:
+            raise HTTPException(
+                403, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide}
+            ) from None
+        inspect_credential_view(request, data["ticket"])
+        if time.time() >= deadline:
+            raise HTTPException(410, "Key view link expired")
+        return {
+            "connection": item,
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
+            "purpose": "view_current_key",
+        }
+
+    @app.post("/credential-view")
+    async def reveal_credential(request: Request):
+        data = await fields(request, ["ticket", "confirmation"])
+        if data["confirmation"] != "view_current_key":
+            raise HTTPException(400)
+        grant, pin, deadline = inspect_credential_view(request, data["ticket"], consume=True)
+        try:
+            key = provider.credential_view(grant, pin, reveal=True)
+        except ProviderError as exc:
+            code = exc.code if exc.code == "credential_recovery_unavailable" else "panel_binding_unavailable"
+            raise HTTPException(403, {"code": code, "recovery_instructions": recovery_guide}) from None
+        except Exception:
+            raise HTTPException(503, "Key view unavailable") from None
+        if (
+            time.time() >= deadline
+            or grant not in sessions.grants(request.cookies.get(cookie_name))
+            or not valid(grant)
+        ):
+            raise HTTPException(403, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide})
+        # A final current-key pin check also catches replacement during other
+        # response checks. The ticket has already been atomically consumed.
+        try:
+            provider.credential_view(grant, pin)
+        except Exception:
+            raise HTTPException(403, "Binding changed") from None
+        if time.time() >= deadline or grant not in sessions.grants(request.cookies.get(cookie_name)):
+            raise HTTPException(403, "Key view authorization expired")
+        return {
+            "credential": key,
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
+            "purpose": "view_current_key",
+        }
 
     def inspect_ticket(token):
         try:

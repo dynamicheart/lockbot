@@ -144,7 +144,7 @@
             <el-input
               v-model="form.agent_promotion_text_zh"
               :maxlength="120"
-              placeholder="发送给你的Agent来申请资源："
+              placeholder="让 Agent 安装 Skill："
               clearable
               style="margin-bottom: 8px"
             >
@@ -153,7 +153,7 @@
             <el-input
               v-model="form.agent_promotion_text_en"
               :maxlength="120"
-              placeholder="Try an Agent for resource requests: "
+              placeholder="Install this Skill with your Agent: "
               clearable
             >
               <template #prepend>English</template>
