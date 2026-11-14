@@ -30,7 +30,11 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session):
     assert len(bundle.content) == meta["size_bytes"]
     assert meta["version"] in bundle.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
-        assert archive.namelist() == ["lockbot-agent-api/SKILL.md"]
+        assert set(archive.namelist()) == {
+            "lockbot-agent-api/SKILL.md",
+            "lockbot-agent-api/scripts/lockbot_resource.py",
+            "lockbot-agent-api/installation.json",
+        }
         assert archive.read(archive.namelist()[0]) == markdown.content
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).parents[2] / ".." / "docs/agent-api/SKILL.md"
