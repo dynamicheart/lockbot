@@ -7,6 +7,7 @@ import json
 import sys
 import zipfile
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 
@@ -112,6 +113,49 @@ def test_service_saved_uses_instance_advertised_by_the_frozen_artifact(case):
     fixture = evaluation.Fixture(fixture.root)
     install_and_save(fixture)
     assert evaluation.score(fixture.root, "")["checks"]["service_saved"]
+
+
+def test_telemetry_retries_once_at_the_scoped_source_with_a_fresh_grant(case):
+    fixture = case("telemetry")
+    install_and_save(fixture)
+    assert request(fixture, "/api/bots/7/resources", base.KEY)["status"] == 200
+    assert (
+        fixture.http(
+            {
+                "url": base.ORIGIN + "/api/agent/bindings/recover",
+                "method": "POST",
+                "headers": {"Authorization": "Bearer " + base.KEY},
+            }
+        )["status"]
+        == 405
+    )
+    names = "|".join(evaluation.METRICS_SAMPLES)
+    query = f'{{__name__=~"^(?:{names})$",node=~"^(?:host-a)$"}}'
+
+    def context():
+        return request(fixture, "/api/agent/context", base.KEY)["body"]["utilization"]["access"]["token"]
+
+    def metrics(token, selector=query):
+        return fixture.call(
+            "http_request",
+            {
+                "url": evaluation.METRICS_URL,
+                "method": "POST",
+                "headers": {"Authorization": "Bearer " + token, "Content-Type": "application/x-www-form-urlencoded"},
+                "body": urlencode({"query": selector}),
+            },
+        )
+
+    assert metrics(context())["status"] == 401
+    grant = context()
+    assert metrics(grant)["status"] == 200
+    result = evaluation.score(fixture.root, "The sample is 8 seconds old and shows 42% utilization.")
+    assert result["observable_pass"] and result["fixture_version"] == 5
+    assert metrics(grant, query.replace("host-a", "host-b"))["status"] == 403
+    assert metrics(base.KEY)["status"] == 401
+    result = evaluation.score(fixture.root, grant)
+    assert not result["checks"]["one_refresh_and_retry"]
+    assert not result["checks"]["grants_scoped_and_ephemeral"]
 
 
 def test_recovery_directory_has_existing_api_shape_and_uses_per_bot_keys(case):
