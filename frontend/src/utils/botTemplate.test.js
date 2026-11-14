@@ -51,3 +51,14 @@ describe('configuration-only bot template', () => {
     expect(source.config_overrides.NODE_ALIASES.n1).toBe('node')
   })
 })
+
+it.each([0, 30])(
+  'retains an explicit resource-link policy %s when copying configuration',
+  (days) => {
+    const copy = copyBotTemplate({
+      name: 'fixture',
+      config_overrides: { RESOURCE_VIEW_LINK_DAYS: days },
+    })
+    expect(copy.config_overrides.RESOURCE_VIEW_LINK_DAYS).toBe(days)
+  }
+)

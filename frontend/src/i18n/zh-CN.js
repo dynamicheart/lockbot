@@ -372,6 +372,16 @@ export default {
     },
   },
   resourceView: {
+    linkLifetime: '资源链接有效期',
+    inheritLifetime: '继承平台',
+    permanent: '永久有效',
+    lifetimeDays: '{count} 天',
+    platformLifetimeHint:
+      '机器人可单独覆盖。更改后再次获取链接，旧链接会失效；不影响个人 Key 或利用率短期授权。',
+    botLifetimeHint:
+      '单独设置优先于平台。更改后再次获取链接，旧链接会失效；不影响个人 Key 或利用率短期授权。',
+    regenerate: '重新生成链接',
+    regenerateConfirm: '重新生成后旧链接立即失效，是否继续？',
     quickOverview: '快速查看',
     busyAndQueued: '占用 / 排队',
     queueBadge: '排队 {count}',
