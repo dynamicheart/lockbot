@@ -120,6 +120,13 @@ only `task_category`, `agent_label`, `purpose`; choose the category from current
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.
 
+For a shared node label, use `alias --node <node>` to read it, `--set "<label>"` to
+set or change it, and `--clear` to remove it. These are subcommands of the same helper
+with the selected private connection. MUST use the parent node on card bots, keep
+labels suitable for everyone in the resource group, and never publish keys or private
+task details. A mutation verifies the observed label; that readback does not prove
+persistence or exclude another user's concurrent update.
+
 For metrics, separately approve the source origin via `init --metrics-origin <origin>`;
 then use `--connection <file> metrics --node <mapped-node>`. Only the existing
 `prometheus` / `lockbot-v1` profile is supported; unsupported profiles fail explicitly.
