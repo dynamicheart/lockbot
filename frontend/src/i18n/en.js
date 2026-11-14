@@ -1,5 +1,7 @@
 export default {
   auditCredentials: {
+    nameRequired: 'Enter a credential name',
+    botsRequired: 'Select at least one bot',
     selectBots: 'Select permitted bots',
     previous: 'Previous',
     next: 'Next',
@@ -602,6 +604,7 @@ export default {
 
   // === Sidebar / Nav ===
   nav: {
+    apiCredentials: 'API credentials',
     myResources: 'My resources',
     dashboard: 'Dashboard',
     myBots: 'My Bots',

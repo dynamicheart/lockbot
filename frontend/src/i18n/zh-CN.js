@@ -1,5 +1,7 @@
 export default {
   auditCredentials: {
+    nameRequired: '请输入凭证名称',
+    botsRequired: '请选择至少一个机器人',
     selectBots: '选择授权机器人',
     previous: '上一页',
     next: '下一页',
@@ -584,6 +586,7 @@ export default {
 
   // === Sidebar / Nav ===
   nav: {
+    apiCredentials: 'API 凭证',
     myResources: '我的资源',
     dashboard: '仪表盘',
     myBots: '我的机器人',
