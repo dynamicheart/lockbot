@@ -3,8 +3,11 @@
 # ruff: noqa: F811
 
 import json
+import threading
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import jwt
 import pytest
 from fastapi import FastAPI
@@ -16,6 +19,7 @@ from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
+from lockbot.metrics.gateway import make_server
 
 from backend.test_metrics_access import signing_key, source
 from backend.test_resource_api_resources import api  # noqa: F401
@@ -173,7 +177,7 @@ def test_panel_metrics_are_issued_only_for_current_native_holdings(
     panel, api, client, db_session, tmp_path, monkeypatch
 ):
     provider, grant = panel
-    signing_key(tmp_path, monkeypatch)
+    key_file = signing_key(tmp_path, monkeypatch)
     origin = provider.config["issuer"]
     provider.config["enable_utilization"] = True
     config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-b"}}
@@ -204,6 +208,7 @@ def test_panel_metrics_are_issued_only_for_current_native_holdings(
     claims = jwt.decode(access["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
     assert claims["nodes"] == ["host-a"]
     assert claims["exp"] <= datetime.fromisoformat(group["allocations"][0]["expires_at"]).timestamp()
+    verify_metrics_gateway(tmp_path, key_file, claims, access["token"], origin)
 
     assert client.post(bot_url + "/commands", headers=api["headers"], json={"command": "free n1"}).status_code == 200
     assert browser.get(path + details["connection"]).status_code == 404
@@ -211,6 +216,64 @@ def test_panel_metrics_are_issued_only_for_current_native_holdings(
     row.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db_session.commit()
     assert browser.get(path + details["connection"]).status_code == 404
+
+
+def verify_metrics_gateway(tmp_path, key_file, claims, token, origin):
+    metric = "lockbot_accelerator_process_info"
+    allowed_sample = {"__name__": metric, "node": "host-a", "device": "0", "container_name": "fixture-container"}
+    response = {
+        "status": "success",
+        "data": {"resultType": "vector", "result": [{"metric": allowed_sample, "value": [claims["iat"], "1"]}]},
+    }
+    upstream_requests = []
+
+    class PrometheusFixture(BaseHTTPRequestHandler):
+        def do_POST(self):
+            upstream_requests.append(self.rfile.read(int(self.headers["Content-Length"])))
+            payload = json.dumps(response).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *_args):
+            pass
+
+    upstream = ThreadingHTTPServer(("127.0.0.1", 0), PrometheusFixture)
+    policy = {
+        "audience": claims["aud"],
+        "upstream": f"http://127.0.0.1:{upstream.server_port}",
+        "origins": [origin],
+        "issuers": {claims["iss"]: {"key_file": str(key_file), "bots": {claims["sub"]: ["host-a", "host-b"]}}},
+    }
+    policy_file = tmp_path / "gateway.json"
+    policy_file.write_text(json.dumps(policy))
+    gateway = make_server(str(policy_file), "127.0.0.1", 0)
+    servers = [(server, threading.Thread(target=server.serve_forever)) for server in (upstream, gateway)]
+    for _, thread in servers:
+        thread.start()
+    try:
+        with httpx.Client(
+            base_url=f"http://127.0.0.1:{gateway.server_port}", headers={"Origin": origin}, trust_env=False, timeout=5
+        ) as browser:
+            path = "/api/v1/query"
+            options = browser.options(path)
+            assert options.status_code == 204
+            assert options.headers["Access-Control-Allow-Origin"] == origin
+            data = {"query": f'{metric}{{node=~"^(?:host-a)$"}}'}
+            assert browser.post(path, data=data).status_code == 401
+            auth = {"Authorization": f"Bearer {token}"}
+            allowed = browser.post(path, headers=auth, data=data)
+            assert allowed.status_code == 200
+            assert allowed.json()["data"]["result"][0]["metric"] == allowed_sample
+            outside = browser.post(path, headers=auth, data={"query": f'{metric}{{node=~"^(?:host-b)$"}}'})
+            assert outside.status_code == 403
+        assert len(upstream_requests) == 1
+    finally:
+        for server, thread in reversed(servers):
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
 
 
 def test_revocation_during_snapshot_is_rechecked(panel, api, session_factory, monkeypatch):
