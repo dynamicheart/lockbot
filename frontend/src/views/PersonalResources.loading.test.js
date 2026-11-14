@@ -305,6 +305,46 @@ it('shows one node address for the held cards and removes it when the last lease
   expect(state.holdingAddress(item)).toBe('')
 })
 
+it('reads guidance on demand and clears it when the holding expires', async () => {
+  const now = Date.now()
+  const expiresAt = now + 60_000
+  const descriptor = {
+    protocol: 'lockbot.resource-guidance.v1',
+    id: 'a'.repeat(32),
+    revision: 'r1',
+    title: 'Device guide',
+  }
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      allocations: [
+        {
+          kind: 'hold',
+          node: 'node-a',
+          device: '0',
+          expires_at: new Date(expiresAt).toISOString(),
+          resource_guidance: [descriptor],
+        },
+      ],
+    },
+  ])
+  state.clock = now
+  const [item] = state.allocationSections[0].items
+  const [reference] = state.holdingGuidance(item)
+  expect(reference).toEqual({ ...descriptor, expiresAt })
+  const fetch = vi.fn(async () =>
+    response({ ...descriptor, summary: 'Fixture text', documentation_url: 'javascript:alert(1)' })
+  )
+  vi.stubGlobal('fetch', fetch)
+  await state.openGuidance(reference)
+  expect(fetch.mock.calls[0][0]).toBe('/api/personal-panel/resource-guidance/' + descriptor.id)
+  expect(state.guidanceDialog).toMatchObject({ summary: 'Fixture text', url: null })
+  state.clock = expiresAt
+  await flush()
+  expect(state.guidanceDialog).toBe(null)
+  expect(state.holdingGuidance(item)).toEqual([])
+})
+
 it('filters holdings and bookings across groups without changing summary counts', async () => {
   const state = await readyGroups([
     {
