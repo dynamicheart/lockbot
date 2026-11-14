@@ -35,7 +35,7 @@ class BotMigration(Base):
 def migration_fence(db, bot_id):
     """A journal row fences manual transitions and process startup until reconciliation."""
     row = db.get(BotMigration, bot_id)
-    return row if row is not None and row.phase != "completed" else None
+    return row if row is not None and row.phase not in {"completed", "cancelled"} else None
 
 
 def record_migration_freeze(db, bot, target, review_digest, *, requested_by=None):
@@ -51,6 +51,10 @@ def record_migration_freeze(db, bot, target, review_digest, *, requested_by=None
         review_digest=review_digest,
         frozen_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
+    previous = db.get(BotMigration, bot.id)
+    if previous is not None and previous.phase == "cancelled":
+        db.delete(previous)
+        db.flush()
     db.add(row)
     return row
 

@@ -75,6 +75,9 @@
       <el-button v-if="operation" :disabled="changing" @click="loadStatus()">{{
         $t('common.refresh')
       }}</el-button>
+      <el-button v-if="canCancel" :disabled="changing" @click="cancelMigration">
+        {{ $t('migration.cancel') }}
+      </el-button>
       <el-button v-if="canContinue" type="primary" :loading="changing" @click="continueMigration">
         {{ $t('migration.advance') }}
       </el-button>
@@ -116,6 +119,8 @@ const phases = [
   'switched',
   'installed',
   'completed',
+  'cancelling',
+  'cancelled',
 ]
 const canContinue = computed(
   () =>
@@ -124,6 +129,14 @@ const canContinue = computed(
     operation.value?.continue_available &&
     ['frozen', 'recovery_required', 'drained', 'switched', 'installed'].includes(
       operation.value.phase
+    )
+)
+const canCancel = computed(
+  () =>
+    props.authorized &&
+    !denied.value &&
+    ['frozen', 'drained', 'source_changed', 'recovery_required', 'cancelling'].includes(
+      operation.value?.phase
     )
 )
 const countFields = [
@@ -242,7 +255,7 @@ async function loadStatus({ initial = false } = {}) {
       signal: request.signal,
       _silent: true,
     })
-    if (request.isCurrent()) applyOperation(data)
+    if (request.isCurrent() && !(initial && data?.phase === 'cancelled')) applyOperation(data)
   } catch (err) {
     if (request.isCurrent() && err.response?.status !== 404 && !initial) failure(err)
   } finally {
@@ -288,6 +301,10 @@ function beginMigration() {
 
 function continueMigration() {
   if (canContinue.value) return changeMigration(`/${operation.value.operation_id}/continue`)
+}
+
+function cancelMigration() {
+  if (canCancel.value) return changeMigration(`/${operation.value.operation_id}/cancel`)
 }
 
 async function check() {

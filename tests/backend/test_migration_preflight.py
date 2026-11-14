@@ -757,3 +757,48 @@ def test_migration_routes_require_opt_in_and_explicit_confirmation(
     assert switched.json() == {**good.json(), "phase": "switched"}
     assert checked == [(target["application_id"], target["chat_id"])] * 2
     assert client.get(f"/api/bots/{bot_id}", headers=admin_header).json()["migration_in_progress"] is True
+
+
+def test_cancel_restores_original_generation_without_replacing_state(
+    client, admin_header, setup, db_session, tmp_path, monkeypatch
+):
+    import json
+
+    from lockbot.backend.app.bots.migration_journal import migration_fence, record_migration_freeze
+    from lockbot.backend.app.bots.migration_preflight import MigrationPreflight
+    from lockbot.backend.app.managed_paths import ManagedPaths
+
+    bot_id, _, target = setup
+    bot = db_session.get(Bot, bot_id)
+    revision = bot.identity_revision
+    migration = record_migration_freeze(db_session, bot, MigrationPreflight(**target), "a" * 64)
+    migration.phase = "source_changed"
+    db_session.commit()
+
+    paths = ManagedPaths(tmp_path / "cancel-fixture")
+    state_file = paths.state_file(bot_id)
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(
+        json.dumps({"bot_state": {"node1": {"status": "exclusive", "current_users": [{"user_id": "source-user"}]}}})
+    )
+    source = state_file.read_bytes()
+    monkeypatch.setattr("lockbot.backend.app.bots.migration_cutover.get_managed_paths", lambda: paths)
+    monkeypatch.setattr(router, "_build_config_dict", lambda bot, db: {"BOT_TYPE": bot.bot_type})
+    monkeypatch.setattr(router.bot_manager, "get_pid", lambda _: None)
+    monkeypatch.setattr(router.bot_manager, "stop_bot", lambda _: None)
+    monkeypatch.setattr(router.bot_manager, "retire_bot", lambda _: None)
+    started = []
+    monkeypatch.setattr(router.bot_manager, "start_bot", lambda *args, **kwargs: started.append(args) or 42)
+    monkeypatch.setattr(router.bot_manager, "activate_bot", lambda _: None)
+    cancel = f"/api/bots/{bot_id}/migration/{migration.operation_id}/cancel"
+    assert client.post(cancel, json={}).status_code == 401
+    first = client.post(cancel, headers=admin_header)
+    assert first.status_code == 200, first.text
+    assert first.json()["phase"] == "cancelled"
+    assert client.post(cancel, headers=admin_header).json() == first.json()
+    assert len(started) == 1
+    assert state_file.read_bytes() == source
+    db_session.expire_all()
+    assert bot.platform.lower() == "infoflow" and bot.identity_revision == revision
+    assert migration_fence(db_session, bot_id) is None
+    assert db_session.query(AuditLog).filter_by(action="bot.migration_cancel").count() == 1

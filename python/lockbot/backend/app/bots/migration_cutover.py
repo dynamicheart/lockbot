@@ -296,3 +296,65 @@ def activate_switched_migration(db, manager, bot_id, operation_id, actor, *, bui
         migration.destination_digest = None
         db.commit()
         return migration
+
+
+def cancel_source_migration(db, manager, bot_id, operation_id, actor, *, build_config):
+    """Resume the original writer only while the migration still owns the source revision."""
+    with manager.transition(bot_id):
+        db.rollback()
+        operator = db.get(User, actor.id)
+        if operator is None or operator.role != "super_admin":
+            raise HTTPException(403, "Super admin required")
+        migration = db.get(BotMigration, bot_id)
+        if migration is None or migration.operation_id != operation_id:
+            raise HTTPException(404, "Migration operation not found")
+        if migration.phase == "cancelled":
+            return migration
+        if migration.phase not in {"frozen", "drained", "source_changed", "recovery_required", "cancelling"}:
+            raise HTTPException(409, "The destination route has already been switched")
+        bot = db.get(Bot, bot_id)
+        route = db.scalar(select(FeishuGroupRoute.id).where(FeishuGroupRoute.bot_id == bot_id))
+        if (
+            bot is None
+            or bot.is_deleted
+            or str(bot.platform).lower() != "infoflow"
+            or (bot.uuid, bot.identity_revision) != (migration.bot_uuid, migration.source_revision)
+            or route is not None
+        ):
+            raise HTTPException(409, "The original source identity changed")
+
+        if migration.phase != "cancelling" or manager.is_retiring(bot_id):
+            try:
+                manager.retire_bot(bot_id)
+            except BotNotRunning:
+                pass
+            except MayHaveExecuted:
+                raise HTTPException(409, "The source is still draining. Retry cancellation.") from None
+            migration.phase = "cancelling"
+            db.commit()
+
+        pid = manager.get_pid(bot_id)
+        if pid is None:
+            # A normal start can fall back to idle if its state is invalid.
+            try:
+                _recover_retired_source(bot, db, build_config)
+            except (OSError, ValueError):
+                raise HTTPException(409, "The saved source state could not be verified") from None
+            pid = manager.start_bot(bot_id, build_config(bot, db), activate=False)
+        bot.status = "running"
+        bot.pid = pid
+        db.commit()
+        manager.activate_bot(bot_id)
+        migration.phase = "cancelled"
+        migration.destination_payload = None
+        migration.destination_digest = None
+        write_audit_log(
+            db,
+            operator,
+            "bot.migration_cancel",
+            target_type="bot",
+            target_id=bot_id,
+            detail={"operation_id": operation_id},
+        )
+        db.commit()
+        return migration

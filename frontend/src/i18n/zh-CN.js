@@ -64,7 +64,10 @@ export default {
     begin: '确认并停止原端',
     advance: '继续迁移',
     reviewConflict: '迁移暂时无法继续，请刷新状态或重新预检。',
+    cancel: '取消迁移并恢复原端',
     phases: {
+      cancelling: '正在恢复原端',
+      cancelled: '迁移已取消，原端已恢复',
       frozen: '正在排空原端操作',
       drained: '原端已停止，等待切换',
       source_changed: '原端状态已变化，等待管理员核对',

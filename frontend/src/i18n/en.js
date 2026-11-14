@@ -66,7 +66,10 @@ export default {
     begin: 'Confirm and stop source',
     advance: 'Continue migration',
     reviewConflict: 'Refresh the migration status or run preflight again before continuing.',
+    cancel: 'Cancel migration and resume source',
     phases: {
+      cancelling: 'Restoring the original bot',
+      cancelled: 'Migration cancelled. The original bot is running.',
       frozen: 'Draining source operations',
       drained: 'Source stopped. Ready to switch.',
       source_changed: 'Source state changed. Administrator review required.',

@@ -2438,3 +2438,22 @@ def advance_bot_migration(
             return _migration_payload(row)
     except InstanceRetiring:
         raise api_errors.instance_retiring(bot_id) from None
+
+
+@router.post("/{bot_id}/migration/{operation_id}/cancel")
+def cancel_bot_migration(
+    bot_id: int,
+    operation_id: str,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.migration_cutover import cancel_source_migration
+
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return _migration_payload(
+            cancel_source_migration(db, bot_manager, bot_id, operation_id, user, build_config=_build_config_dict)
+        )
+    except InstanceRetiring:
+        raise api_errors.instance_retiring(bot_id) from None
