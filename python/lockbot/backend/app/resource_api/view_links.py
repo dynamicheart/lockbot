@@ -1,7 +1,8 @@
-"""Bot-scoped read-only links, created lazily and reused for a fixed 24-hour lifetime."""
+"""Bot-scoped links with lazily applied platform and bot lifetime policies."""
 
 import base64
 import hmac
+import json
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,8 @@ from lockbot.backend.app import config
 from lockbot.backend.app.database import Base
 
 LIFETIME_SECONDS = 86400
+# Keep the existing NOT NULL storage/signature format; API clients see null.
+PERMANENT_EXPIRY = datetime(9999, 12, 31)
 _SHORT_VIEW_CODE = re.compile(r"[A-Za-z0-9_-]{22}\Z")
 _VIEW_CODE = re.compile(r"lbv1\.[A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{43}\Z")
 
@@ -35,6 +38,40 @@ def utcnow():
 
 def _iso(value):
     return value.replace(tzinfo=timezone.utc).isoformat()
+
+
+def window_expiry(window):
+    """Permanent links retain a signed sentinel internally, never a fake public date."""
+    return None if window.expires_at == PERMANENT_EXPIRY else window.expires_at
+
+
+def public_window_expiry(window):
+    value = window_expiry(window)
+    return _iso(value) if value is not None else None
+
+
+def effective_lifetime_days(db, bot):
+    """A missing bot override inherits the platform policy; 0 means permanent."""
+    from lockbot.backend.app.settings.models import SiteSetting
+
+    try:
+        overrides = json.loads(bot.config_overrides or "{}")
+    except (TypeError, ValueError):
+        overrides = {}
+    override = overrides.get("RESOURCE_VIEW_LINK_DAYS") if isinstance(overrides, dict) else None
+    if isinstance(override, int) and not isinstance(override, bool) and 0 <= override <= 30:
+        return override
+    setting = db.get(SiteSetting, "resource_view_link_days")
+    raw = setting.value if setting is not None else None
+    return int(raw) if isinstance(raw, str) and raw.isascii() and raw.isdecimal() and 0 <= int(raw) <= 30 else 1
+
+
+def _policy_matches(window, days):
+    if window is None:
+        return False
+    if days == 0:
+        return window.expires_at == PERMANENT_EXPIRY
+    return window.expires_at - window.issued_at == timedelta(days=days)
 
 
 def _signature(db, window, *, compact=False):
@@ -71,7 +108,7 @@ def compact_view_path(db, window):
     return f"/r/{window.bot_id}/{_signature(db, window, compact=True)}"
 
 
-def view_link(db: Session, bot, base_url: str) -> dict:
+def view_link(db: Session, bot, base_url: str, *, regenerate=False) -> dict:
     """Authorized group, Agent or bot-detail reads may obtain a link; state polling never renews it."""
     parsed = urlsplit(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
@@ -80,14 +117,16 @@ def view_link(db: Session, bot, base_url: str) -> dict:
         return {}
     now = utcnow().replace(microsecond=0)
     window = db.get(BotViewWindow, bot.id)
-    if not _current(window, bot, now):
+    days = effective_lifetime_days(db, bot)
+    if regenerate or not _current(window, bot, now) or not _policy_matches(window, days):
+        previous_nonce = window.nonce if window is not None else None
         values = {
             "bot_id": bot.id,
             "bot_uuid": bot.uuid,
             "identity_revision": bot.identity_revision,
             "nonce": secrets.token_urlsafe(18),
             "issued_at": now,
-            "expires_at": now + timedelta(seconds=LIFETIME_SECONDS),
+            "expires_at": PERMANENT_EXPIRY if days == 0 else now + timedelta(days=days),
         }
         db.execute(
             insert(BotViewWindow)
@@ -96,6 +135,7 @@ def view_link(db: Session, bot, base_url: str) -> dict:
                 index_elements=[BotViewWindow.bot_id],
                 set_={key: value for key, value in values.items() if key != "bot_id"},
                 where=or_(
+                    BotViewWindow.nonce == previous_nonce if previous_nonce is not None else False,
                     BotViewWindow.expires_at <= now,
                     BotViewWindow.bot_uuid != bot.uuid,
                     BotViewWindow.identity_revision != bot.identity_revision,
@@ -106,7 +146,7 @@ def view_link(db: Session, bot, base_url: str) -> dict:
         db.expire_all()
         window = db.get(BotViewWindow, bot.id)
     base = base_url.split("#", 1)[0].split("?", 1)[0].rstrip("/")
-    return {"view_url": f"{base}/#{compact_view_path(db, window)}", "view_expires_at": _iso(window.expires_at)}
+    return {"view_url": f"{base}/#{compact_view_path(db, window)}", "view_expires_at": public_window_expiry(window)}
 
 
 def verify_view(db, bot, token):

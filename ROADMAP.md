@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-11-05. [Issue #27](https://github.com/dynamicheart/lockbot/issues/27) tracks delivery. This page separates outstanding work from delivered features and retained historical evidence. An open issue does not necessarily mean its implementation is missing.
+Updated 2026-11-14. [Issue #139](https://github.com/dynamicheart/lockbot/issues/139) tracks current follow-up delivery; #27 records the accepted release baseline. This page separates outstanding work from delivered features and retained historical evidence. An open issue does not necessarily mean its implementation is missing.
 
 ## Accepted release baseline
 
@@ -42,7 +42,13 @@ These changes were merged after v3.2.0 and are now included in the installed v3.
 - [PR #128](https://github.com/dynamicheart/lockbot/pull/128), commit `efd1ac8fb5e8e8a6bfa4b465bf68a50fe16615b3`, adds per-bot key discovery/recovery within a verified identity namespace, additive encrypted recovery copies and ordered Skill upgrade guidance. Feishu application/tenant isolation and changes during decryption have regressions; 163 focused checks, 156 compatibility checks and all six final-head CI checks passed. Installed integration acceptance then verified the additive migration, two legacy fixture bindings, per-bot recovery and retention of four browser sessions. One fictional fixture key was rotated during acceptance cleanup; external source credentials were unchanged. These changes were subsequently installed formally in 3.3.0; the earlier integration observations retain their stated scope.
 - [PR #127](https://github.com/dynamicheart/lockbot/pull/127) freezes the queue-display test clock. Its 52 local queue checks and all six final-head CI checks passed. Production logic was unchanged.
 
-Future status changes belong in [issue #27](https://github.com/dynamicheart/lockbot/issues/27) and this section, without rewriting the historical release evidence. Source merge, integration deployment and formal rollout are separate milestones.
+Future status changes belong in [issue #139](https://github.com/dynamicheart/lockbot/issues/139) and this section, without rewriting the historical release evidence. Source merge, integration deployment and formal rollout are separate milestones.
+
+## Current follow-up checklist
+
+Source, CI, test deployment and formal rollout are separate gates in [#139](https://github.com/dynamicheart/lockbot/issues/139). Scope: shared-link lifetime (#137), metrics service startup reliability (#138), explicit timezone guidance, personal-resource loading states, and the shared four-column resource table (#140). The chosen table layout applies to both shared resource pages and robot administration details; empty queues use subdued translated text.
+
+The [metrics plugin protocol v1](docs/design/metrics-datasource-protocol.md) defines a vendor-neutral design with Prometheus and HTTP JSON examples. A generic JSON adapter and metric attachment to the personal dashboard are not implemented by the documentation change. Preserve the existing read-only Reporter interface and private integration boundary.
 
 ## Explicitly deferred
 

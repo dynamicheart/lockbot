@@ -270,6 +270,18 @@
         </div>
       </section>
 
+      <section class="agent-settings-group">
+        <div class="agent-setting-row">
+          <label class="agent-setting-label">
+            {{ $t('resourceView.linkLifetime') }}
+            <el-tooltip :content="$t('resourceView.botLifetimeHint')" placement="top">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </label>
+          <ResourceViewLifetimeSelect v-model="resourceViewLinkDays" allow-inherit />
+        </div>
+      </section>
+
       <section v-if="form.platform.toLowerCase() === 'feishu'" class="agent-settings-group">
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-reaction-replies">
@@ -549,6 +561,7 @@
 import { copyBotTemplate } from '../utils/botTemplate'
 import { platformLabel } from '../utils/platformDisplay'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
+import ResourceViewLifetimeSelect from '../components/ResourceViewLifetimeSelect.vue'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -646,6 +659,8 @@ watch(
     ])
   }
 )
+
+const resourceViewLinkDays = ref('inherit')
 
 // Advanced runtime config — maps to Bot.config_overrides
 const advancedConfig = reactive({
@@ -746,6 +761,7 @@ onMounted(async () => {
         if (overrides.MAX_LOCK_DURATION != null)
           advancedConfig.MAX_LOCK_DURATION = overrides.MAX_LOCK_DURATION
         if (overrides.TIME_ALERT != null) advancedConfig.TIME_ALERT = overrides.TIME_ALERT
+        resourceViewLinkDays.value = overrides.RESOURCE_VIEW_LINK_DAYS ?? 'inherit'
         advancedConfig.FORBID_RELOCK = overrides.FORBID_RELOCK ?? false
         advancedConfig.FEISHU_QUERY_PANEL = overrides.FEISHU_QUERY_PANEL ?? false
         advancedConfig.MAX_RESOURCES_PER_USER = overrides.MAX_RESOURCES_PER_USER ?? -1
@@ -805,6 +821,8 @@ function configPayload() {
   if (form.aes_key) data.aes_key = form.aes_key
   if (form.token) data.token = form.token
   const overrides = { ...advancedConfig }
+  if (resourceViewLinkDays.value !== 'inherit')
+    overrides.RESOURCE_VIEW_LINK_DAYS = resourceViewLinkDays.value
   if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_QUERY_PANEL
   if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_MEMBERSHIP_NOTICES
   if (form.platform.toLowerCase() !== 'feishu') delete overrides.FEISHU_REACTION_REPLIES

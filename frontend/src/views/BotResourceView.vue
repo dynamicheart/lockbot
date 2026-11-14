@@ -166,13 +166,20 @@
           </template>
         </article>
       </div>
-      <footer>{{ $t('resourceView.expires') }} {{ localTime(snapshot.view_expires_at) }}</footer>
+      <footer>
+        {{
+          snapshot.view_expires_at === null
+            ? $t('resourceView.permanent')
+            : `${$t('resourceView.expires')} ${localTime(snapshot.view_expires_at)}`
+        }}
+      </footer>
     </template>
   </main>
 </template>
 
 <script setup>
 import { botTypeLabel } from '../utils/helpers'
+import { formatResourceTime } from '../utils/resourceTime'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -181,6 +188,7 @@ import ResourceStatusList from '../components/ResourceStatusList.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
+import { resourceViewDeadline } from '../utils/resourceViewLifetime'
 
 const route = useRoute()
 const router = useRouter()
@@ -239,7 +247,11 @@ async function refresh() {
     const data = await response.json()
     if (epoch !== requestEpoch) return
     serverOffset = Date.parse(data.server_time) - Date.now()
-    deadline = Date.parse(data.view_expires_at) - serverOffset
+    deadline = resourceViewDeadline(data.view_expires_at, serverOffset)
+    if (deadline === null) {
+      clear()
+      return
+    }
     if (expired()) return
     snapshot.value = data
     failed.value = false
@@ -331,7 +343,7 @@ const summary = computed(() => {
     queued: resources.reduce((sum, row) => sum + (row.booking_list?.length || 0), 0),
   }
 })
-const localTime = (value) => (value ? new Date(value).toLocaleString(locale.value) : '—')
+const localTime = (value) => formatResourceTime(value, locale.value)
 const statusText = (resource) => t('resourceView.' + resourceStatus(resource))
 function duration(seconds) {
   const minutes = Math.ceil(Math.max(0, seconds) / 60)
