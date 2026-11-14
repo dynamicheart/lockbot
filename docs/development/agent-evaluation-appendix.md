@@ -4,7 +4,7 @@
 
 主评审入口见 [测试框架与测试事项](agent-evaluation-review.md)。本页保留结果、限制与环境兼容等详细记录。
 
-这份文档用于检查“把安装包链接或 Skill 正文交给不同 Agent 后，它能否正确接入、保存连接并使用资源”。请重点看第 3、5、6 节的用例与缺口。新增测试需求统一记录到 [#154](https://github.com/dynamicheart/lockbot/issues/154)，固定脚本记录到 [#153](https://github.com/dynamicheart/lockbot/issues/153)，旧 Key 恢复记录到 [#156](https://github.com/dynamicheart/lockbot/issues/156)。
+这份文档用于检查“把安装包链接或 Skill 正文交给不同 Agent 后，它能否正确接入、保存连接并使用资源”。本页保留先前拆分的内部用例与边界记录；主验收收敛为安装、保存服务信息、新会话可用。新增测试需求统一记录到 [#154](https://github.com/dynamicheart/lockbot/issues/154)，固定脚本记录到 [#153](https://github.com/dynamicheart/lockbot/issues/153)，旧 Key 恢复记录到 [#156](https://github.com/dynamicheart/lockbot/issues/156)。
 
 ## 1. 什么是本地离线测试
 
@@ -44,7 +44,7 @@ flowchart LR
 - 当前模型 fixture 的 ZIP **只含 Markdown**。完整脚本包、真实客户端安装目录与热加载须另行验收，不能把这个模拟安装器当成 Codex、Claude 或其他客户端的实际安装结果。
 - 单例上限目前为 24 次客户端轮次、每次响应 4096 输出 token、180 秒进程组截止时间。客户端适配器另设支出上限；超时、预算耗尽与行为错误分开记录。
 
-## 3. 已有模型用例
+## 3. 历史场景拆分（内部记录）
 
 “已有”表示框架能运行并已取得至少一次样本，不表示所有模型全部通过。
 
