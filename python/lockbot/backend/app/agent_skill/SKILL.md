@@ -582,8 +582,16 @@ The examples below use placeholder resources; replace them with those returned b
   `queue_claim_window_seconds`; without an explicit duration, the booked duration applies.
   `free node1` cancels your booking or releases your lock. Do not continue using a node
   just because you previously booked it. Poll with backoff; no busy loops.
-- `alias node1 <note>` changes the shared resource alias only when enabled (at most 15
-  characters). It is not an Agent task note; use usage declarations for task purposes.
+- `alias node1 <note>` changes the bot-global/public node alias only when enabled (at
+  most 15 characters); `alias node1` clears it. Read the matching node's
+  `resources[].alias` afterward: empty string means unset/cleared. DEVICE/QUEUE_DEVICE
+  expose it on the parent node, not per card. It is not a task note or Agent label;
+  use usage declarations for task purposes. `aliases_observed_at` timestamps the current
+  configuration observation separately from cached lock/queue `captured_at`; they are
+  not atomic. Readback proves neither command attribution nor successful persistence.
+  Check the real reply and actual result; HTTP 200 alone does not prove a change.
+  After uncertainty, read before considering another write. A missing field on an older
+  service means structured readback is unavailable, not that the alias was cleared.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
   Agent keys**. Native chat/OP permissions do not imply permission through this API.
 - HTTP 200 only means the command was dispatched. Inspect `reply` and read `/resources`

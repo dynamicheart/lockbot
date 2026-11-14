@@ -31,20 +31,21 @@ LOCK_STATUS_DOC = (
     "every holder at `remaining_seconds: 0` is about to become idle."
 )
 
-#: AC-5.1. `alias` has four properties that make it unlike every other reachable command,
-#: and an agent that assumes otherwise will be wrong in ways that are hard to debug.
+#: Alias is a separate configuration observation, not a lock-state or task-note field.
 ALIAS_DOC = (
-    "`alias` is reachable so an agent can declare what it is running, but it behaves "
-    "unlike the lock operations in four ways. (1) It is bot-GLOBAL and visible to "
-    "everyone, not scoped to you: setting it renames the node for every user. (2) It is "
-    "NOT covered by the bot state lock, so it carries none of the consistency guarantees "
-    "the lock operations and this snapshot do, and it does not appear in this snapshot at "
-    "all -- an alias lives in bot configuration, not in lock state. (3) The value is "
+    "`alias` edits a shared node label, not a private task note. (1) It is bot-GLOBAL "
+    "and visible to everyone, not scoped to you. (2) `resources[].alias` reads current "
+    "running configuration at `aliases_observed_at`, separately from the possibly cached "
+    "lock/queue state at `captured_at`. It is NOT covered by the bot state lock and does "
+    "not establish an atomic observation with lock state or prove which command set it. "
+    "DEVICE/QUEUE_DEVICE aliases belong to the parent node, not individual cards. "
+    "An unset or cleared alias is an empty string. (3) The command value is "
     "capped at 15 characters, newlines are rejected, the target must be a known node key, "
     "and an empty value clears it. (4) Persistence is best-effort: the write can succeed "
-    "in memory and fail to reach the database silently, so a successful reply does not "
-    "guarantee the alias survives a restart. A bot may also have the feature disabled "
-    "entirely, which answers with code `aliases_disabled`."
+    "in memory and fail to reach the database silently. Neither HTTP 200, a successful "
+    "reply nor this current-config readback guarantees the alias survives a restart. "
+    "Disabled editing answers with code `aliases_disabled`; existing aliases remain "
+    "readable. SHOW_NODE_ALIAS controls IM display only, not this public label field."
 )
 
 
@@ -161,6 +162,13 @@ def scrub_private(resources: list[dict]) -> list[dict]:
         for key in [k for k in resource if k.startswith("_")]:
             resource.pop(key)
     return resources
+
+
+def attach_node_aliases(resources: list[dict], aliases: dict) -> None:
+    """Attach the detached current config observation only to parent nodes."""
+    for resource in resources:
+        value = aliases.get(resource["id"], "")
+        resource["alias"] = value if isinstance(value, str) else ""
 
 
 def _caller_position(booking_list, caller_id) -> int | None:
