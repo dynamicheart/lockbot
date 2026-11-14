@@ -680,7 +680,9 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
             return {"PLATFORM": bot.platform}
 
         with pytest.raises(RuntimeError, match="fixture start failed"):
-            activate_switched_migration(db_session, manager, bot_id, operation_id, actor, build_config=build_config)
+            activate_switched_migration(
+                db_session, manager, bot_id, operation_id, actor, build_config=build_config, verify_destination=verify
+            )
         stored = migration_fence(db_session, bot_id)
         assert stored.phase == "installed"
         state_file = paths.state_file(bot_id)
@@ -688,26 +690,36 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
         saved_file = state_file.with_name("hidden.fixture")
         state_file.rename(saved_file)
         with pytest.raises(HTTPException) as missing:
-            activate_switched_migration(db_session, manager, bot_id, operation_id, actor, build_config=build_config)
+            activate_switched_migration(
+                db_session, manager, bot_id, operation_id, actor, build_config=build_config, verify_destination=verify
+            )
         assert missing.value.status_code == 409
         saved_file.rename(state_file)
         installed = state_file.read_bytes()
         for bad in ('{"bot_state":', '{"bot_state":{}}'):
             state_file.write_text(bad)
             with pytest.raises(HTTPException) as invalid:
-                activate_switched_migration(db_session, manager, bot_id, operation_id, actor, build_config=build_config)
+                activate_switched_migration(
+                    db_session,
+                    manager,
+                    bot_id,
+                    operation_id,
+                    actor,
+                    build_config=build_config,
+                    verify_destination=verify,
+                )
             assert invalid.value.status_code == 409
         assert writes == ["start"]
         state_file.write_bytes(installed)
         completed = activate_switched_migration(
-            db_session, manager, bot_id, operation_id, actor, build_config=build_config
+            db_session, manager, bot_id, operation_id, actor, build_config=build_config, verify_destination=verify
         )
         assert completed.phase == "completed" and completed.destination_payload is None
         assert migration_fence(db_session, bot_id) is None
         state_file.write_text("new-runtime-state")
         assert (
             activate_switched_migration(
-                db_session, manager, bot_id, operation_id, actor, build_config=build_config
+                db_session, manager, bot_id, operation_id, actor, build_config=build_config, verify_destination=verify
             ).phase
             == "completed"
         )
@@ -850,7 +862,8 @@ def test_migration_http_flow_uses_real_generations_and_preserves_history(
         group_name=lambda chat, refresh: {"status": "ok" if chat == "oc_fixture" and refresh else "unavailable"},
     )
     monkeypatch.setattr("lockbot.backend.app.feishu.service.application_client", lambda _: feishu)
-    monkeypatch.setattr("lockbot.backend.app.feishu.connectors.connectors.snapshot", lambda _: {"state": "running"})
+    receiver = {"state": "running"}
+    monkeypatch.setattr("lockbot.backend.app.feishu.connectors.connectors.snapshot", lambda _: receiver)
     bot = db_session.get(Bot, bot_id)
     previous_uuid, previous_revision, inventory = bot.uuid, bot.identity_revision, bot.cluster_configs
     manager.start_bot(bot_id, router._build_config_dict(bot, db_session))
@@ -887,6 +900,12 @@ def test_migration_http_flow_uses_real_generations_and_preserves_history(
         assert begin.status_code == 202 and begin.json()["phase"] == "drained", begin.text
         resume = path + "/migration/" + begin.json()["operation_id"] + "/continue"
         assert client.post(resume, headers=admin_header).json()["phase"] == "switched"
+        receiver["state"] = "stopped"
+        disconnected = client.post(resume, headers=admin_header)
+        assert disconnected.status_code == 409
+        assert client.get(path + "/migration", headers=admin_header).json()["phase"] == "switched"
+        assert manager.get_instance(bot_id) is None
+        receiver["state"] = "running"
         done = client.post(resume, headers=admin_header)
         assert done.status_code == 202 and done.json()["phase"] == "completed", done.text
 
