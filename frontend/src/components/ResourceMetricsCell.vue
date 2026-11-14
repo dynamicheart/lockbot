@@ -94,6 +94,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { loadLevel } from '../utils/utilization/display'
+import { formatResourceTime } from '../utils/resourceTime'
 import { metricStatus, resolveCards, resolveHost } from '../utils/utilization/prometheus'
 const props = defineProps({
   enabled: Boolean,
@@ -143,7 +144,7 @@ function sampleTime(card) {
   const times = Object.values(card.metrics)
     .map((metric) => metric.observedAt)
     .filter(Number.isFinite)
-  return times.length ? new Date(Math.min(...times)).toLocaleString(locale.value) : '—'
+  return times.length ? formatResourceTime(Math.min(...times), locale.value) : '—'
 }
 function loadClass(card) {
   const level = loadLevel([card], props.now, props.config?.staleSeconds || 90, metricStatus)
