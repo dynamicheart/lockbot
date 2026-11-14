@@ -18,7 +18,19 @@
             {{ snapshot.name }}
             <el-tag size="small" type="info">{{ botTypeLabel(snapshot.bot_type) }}</el-tag>
           </h1>
-          <p>{{ $t('resourceView.updated') }} {{ localTime(snapshot.captured_at) }}</p>
+          <div class="view-meta">
+            <span>{{ $t('resourceView.updated') }} {{ localTime(snapshot.captured_at) }}</span>
+            <span>
+              {{
+                $t('resourceView.linkLifetimeStatus', {
+                  value:
+                    snapshot.view_expires_at === null
+                      ? $t('resourceView.permanent')
+                      : localTime(snapshot.view_expires_at),
+                })
+              }}
+            </span>
+          </div>
         </div>
         <el-button :icon="Refresh" :loading="loading" @click="refresh">{{
           $t('common.refresh')
@@ -169,13 +181,6 @@
           </template>
         </article>
       </div>
-      <footer>
-        {{
-          snapshot.view_expires_at === null
-            ? $t('resourceView.permanent')
-            : `${$t('resourceView.expires')} ${localTime(snapshot.view_expires_at)}`
-        }}
-      </footer>
     </template>
   </main>
 </template>
@@ -450,15 +455,17 @@ h1 {
   align-items: center;
   gap: 12px;
 }
-.view-header p,
-footer,
+.view-meta,
 .participant-time,
 .device-heading > span,
 .node-alias {
   color: var(--lb-text-secondary);
   font-size: 12px;
 }
-.view-header p {
+.view-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
   margin-top: 8px;
 }
 .resource-grid {
@@ -498,10 +505,6 @@ h3 {
 .participant-time {
   display: block;
   margin-top: 4px;
-}
-footer {
-  margin-top: 22px;
-  text-align: right;
 }
 .view-message {
   max-width: 500px;

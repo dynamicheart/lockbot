@@ -424,6 +424,7 @@ export default {
   },
   resourceView: {
     linkLifetime: '资源链接有效期',
+    linkLifetimeStatus: '链接有效期：{value}',
     inheritLifetime: '继承平台',
     permanent: '永久有效',
     lifetimeDays: '{count} 天',
