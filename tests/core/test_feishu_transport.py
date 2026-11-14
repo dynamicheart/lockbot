@@ -10,6 +10,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 from lockbot.core.config import Config
 from lockbot.core.handler import execute_command
+from lockbot.core.message_adapter import ReplyLink
 from lockbot.core.node_bot import NodeBot
 from lockbot.core.platforms.feishu import FeishuAdapter, FeishuAPIError, FeishuClient
 from lockbot.core.platforms.feishu_events import (
@@ -130,6 +131,17 @@ def test_rich_post_preserves_blank_lines_links_and_structured_mentions():
     assert [node for row in rows for node in row if node["tag"] == "at"] == [{"tag": "at", "user_id": "ou_alice"}]
     assert "https://example.com" in adapter.extract_reply_text(reply)
     assert any(node.get("tag") == "a" for row in rows for node in row)
+
+
+def test_resource_page_uses_clickable_text_without_repeating_the_url():
+    adapter = FeishuAdapter()
+    url = "https://example.com/#/r/1/abcdefghijklmnopqrstuv"
+    reply = adapter.build_reply(["Resources\n\n", ReplyLink("查看资源与排队", url), "\n"], ["ou_alice"])
+    rows = json.loads(reply["content"])["zh_cn"]["content"]
+    assert rows[2] == [{"tag": "a", "text": "查看资源与排队", "href": url}]
+    assert rows[3] == [{"tag": "text", "text": " "}]
+    assert rows[4] == [{"tag": "at", "user_id": "ou_alice"}]
+    assert url not in adapter.extract_reply_text(reply)
 
 
 def test_token_refresh_is_coalesced_and_send_does_not_leak_failure(monkeypatch):

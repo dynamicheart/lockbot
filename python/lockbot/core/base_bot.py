@@ -13,6 +13,7 @@ from importlib.metadata import version as _pkg_version
 
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
+from lockbot.core.message_adapter import ReplyLink
 from lockbot.core.platforms.registry import create_adapter
 from lockbot.core.utils import format_duration
 
@@ -495,7 +496,11 @@ class BaseLockBot:
             try:
                 view = getter()
                 if view.get("view_url"):
-                    content = [content.rstrip() + "\n\n", (t("view.link", config=self.config), view["view_url"]), "\n"]
+                    content = [
+                        content.rstrip() + "\n\n",
+                        ReplyLink(t("view.link", config=self.config), view["view_url"]),
+                        "\n",
+                    ]
             except Exception:
                 self.logger.warning("Could not obtain resource view link for bot %s", self.config.get_val("BOT_ID"))
         return self.adapter.build_reply(content, [user_id])
