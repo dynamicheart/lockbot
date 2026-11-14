@@ -463,8 +463,14 @@
   font-size: 12px;
   font-weight: 400;
 }
+.personal-panel :deep(.allocation-table .allocation-detail td) {
+  background: var(--lb-bg-page, #f5f7fa);
+}
 .personal-panel :deep(.allocation-table .allocation-detail .allocation-name) {
   padding-inline-start: 32px;
+}
+.personal-panel :deep(.allocation-time) {
+  width: 165px;
 }
 @media (max-width: 760px) {
   .personal-panel :deep(.allocation-table),

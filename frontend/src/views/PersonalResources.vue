@@ -195,11 +195,9 @@
                   </td>
                   <td role="cell" class="allocation-time">
                     <span aria-hidden="true" class="allocation-label">剩余时间</span>
-                    <template v-if="Number.isFinite(expiration(item.first.allocation.expires_at))">
-                      <span class="scope">最早到期</span>
-                      {{ remaining(item.first.allocation.expires_at) }}
-                    </template>
-                    <span v-else class="scope">未提供</span>
+                    <span :title="item.deadlines.length > 1 ? '各卡到期时间不同' : undefined">
+                      {{ nodeRemaining(item) }}
+                    </span>
                   </td>
                   <td v-if="session.identities.length > 1" role="cell">
                     <span aria-hidden="true" class="allocation-label">本人身份</span>
@@ -232,24 +230,28 @@
                       </span>
                     </td>
                     <td v-if="section.timeLabel" role="cell" class="allocation-time">
-                      <span aria-hidden="true" class="allocation-label">{{
-                        section.timeLabel
-                      }}</span>
-                      <time
-                        v-if="Number.isFinite(expiration(row.allocation.expires_at))"
-                        :datetime="new Date(expiration(row.allocation.expires_at)).toISOString()"
-                        :title="date(expiration(row.allocation.expires_at) / 1000)"
-                        >{{
-                          section.holdings
-                            ? remaining(row.allocation.expires_at)
-                            : date(row.allocation.expires_at)
-                        }}</time
-                      >
-                      <span v-else class="scope">未提供</span>
+                      <template v-if="item.rows.length === 1 || item.deadlines.length > 1">
+                        <span aria-hidden="true" class="allocation-label">{{
+                          section.timeLabel
+                        }}</span>
+                        <time
+                          v-if="Number.isFinite(expiration(row.allocation.expires_at))"
+                          :datetime="new Date(expiration(row.allocation.expires_at)).toISOString()"
+                          :title="date(expiration(row.allocation.expires_at) / 1000)"
+                          >{{
+                            section.holdings
+                              ? remaining(row.allocation.expires_at)
+                              : date(row.allocation.expires_at)
+                          }}</time
+                        >
+                        <span v-else class="scope">未提供</span>
+                      </template>
                     </td>
                     <td v-if="session.identities.length > 1" role="cell">
-                      <span aria-hidden="true" class="allocation-label">本人身份</span>
-                      {{ row.group.identity?.subject }}
+                      <template v-if="item.rows.length === 1">
+                        <span aria-hidden="true" class="allocation-label">本人身份</span>
+                        {{ row.group.identity?.subject }}
+                      </template>
                     </td>
                     <td v-if="section.tasks" role="cell">
                       <span aria-hidden="true" class="allocation-label">用途</span>
@@ -593,8 +595,21 @@ function allocationItems(rows, holdings) {
   return sortAllocations([...byFirst.keys()], holdings).map((first) => {
     const item = byFirst.get(first)
     const categories = new Set(item.rows.map((row) => row.allocation.own_task?.category || ''))
-    return { ...item, category: categories.size === 1 ? categories.values().next().value : '' }
+    const deadlines = [...new Set(item.rows.map((row) => expiration(row.allocation.expires_at)))]
+    return {
+      ...item,
+      deadlines,
+      category: categories.size === 1 ? categories.values().next().value : '',
+    }
   })
+}
+function nodeRemaining({ deadlines }) {
+  const known = deadlines.filter(Number.isFinite)
+  if (!known.length) return '未提供'
+  const first = remaining(Math.min(...known) / 1000)
+  const last = remaining(Math.max(...known) / 1000)
+  const range = first === last ? first : `${first} 至 ${last}`
+  return known.length < deadlines.length ? `${range}（部分未知）` : range
 }
 const allocationSections = computed(() => {
   const query = allocationQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)

@@ -257,6 +257,10 @@ it('groups held cards within one resource group and sorts by the earliest card d
   expect(items().map((item) => item.rows.length)).toEqual([1, 1, 2])
   expect(state.allocationSections[1].items).toHaveLength(1)
 
+  state.clock = 0
+  expect(state.nodeRemaining(items()[2])).toBe('1 分钟 至 5 分钟')
+  expect(state.nodeRemaining({ deadlines: [300_000] })).toBe('5 分钟')
+  expect(state.nodeRemaining({ deadlines: [300_000, NaN] })).toBe('5 分钟（部分未知）')
   const { key } = items()[2]
   expect(state.expandedNodes.has(key)).toBe(false)
   state.toggleNode(key)
