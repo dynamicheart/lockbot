@@ -2433,6 +2433,7 @@ def advance_bot_migration(
                         operation_id,
                         user,
                         build_config=_build_config_dict,
+                        verify_destination=_verify_feishu_migration_destination,
                     )
                 )
             return _migration_payload(row)
