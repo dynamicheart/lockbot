@@ -263,6 +263,7 @@ export default {
     notConfigured: '未配置',
     remove: '移除',
     setupGuide: '接入文档',
+    agentSetupGuide: '交给 Agent 配置',
     adminHint:
       '为当前机器人统一配置。请准备数据源地址、指标名、标签及节点／设备映射；在当前浏览器验证并保存。不要保存共享数据源密钥。',
     testSave: '验证并保存',
@@ -372,6 +373,16 @@ export default {
     },
   },
   resourceView: {
+    linkLifetime: '资源链接有效期',
+    inheritLifetime: '继承平台',
+    permanent: '永久有效',
+    lifetimeDays: '{count} 天',
+    platformLifetimeHint:
+      '机器人可单独覆盖。更改后再次获取链接，旧链接会失效；不影响个人 Key 或利用率短期授权。',
+    botLifetimeHint:
+      '单独设置优先于平台。更改后再次获取链接，旧链接会失效；不影响个人 Key 或利用率短期授权。',
+    regenerate: '重新生成链接',
+    regenerateConfirm: '重新生成后旧链接立即失效，是否继续？',
     quickOverview: '快速查看',
     busyAndQueued: '占用 / 排队',
     queueBadge: '排队 {count}',
@@ -399,6 +410,7 @@ export default {
     updated: '更新于',
     expires: '链接有效至',
     queue: '预约队列',
+    noBookings: '暂无预约',
     unavailable: '暂时无法更新，请稍后刷新。',
     stopped: '机器人未运行，暂无实时状态。',
     empty: '暂无资源。',

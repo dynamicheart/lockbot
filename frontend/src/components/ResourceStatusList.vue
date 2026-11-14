@@ -29,7 +29,10 @@
       :row-class-name="({ row }) => (row.id === selectedId ? 'resource-row-selected' : '')"
       class="resource-status-list desktop-resource-list"
     >
-      <el-table-column :label="$t('resourceView.resource')" width="160">
+      <el-table-column
+        :label="$t('resourceView.resource')"
+        :width="$slots.metrics ? Math.min(160, Math.max(120, Math.round(tableWidth * 0.15))) : 160"
+      >
         <template #default="{ row }">
           <div class="resource-identity" :data-resource-id="row.id">
             <div class="node-identity">
@@ -44,7 +47,9 @@
       </el-table-column>
       <el-table-column
         :label="$t('resourceView.currentHolder')"
-        :width="$slots.metrics ? 240 : undefined"
+        :width="
+          $slots.metrics ? Math.min(220, Math.max(180, Math.round(tableWidth * 0.2))) : undefined
+        "
         min-width="230"
       >
         <template #default="{ row }">
@@ -65,7 +70,9 @@
       </el-table-column>
       <el-table-column
         :label="$t('resourceView.queue')"
-        :width="$slots.metrics ? 260 : undefined"
+        :width="
+          $slots.metrics ? Math.min(240, Math.max(200, Math.round(tableWidth * 0.23))) : undefined
+        "
         min-width="280"
       >
         <template #default="{ row }">
@@ -83,10 +90,10 @@
               >
             </ResourceParticipants>
           </template>
-          <span v-else class="empty-value">—</span>
+          <span v-else class="empty-value">{{ $t('resourceView.noBookings') }}</span>
         </template>
       </el-table-column>
-      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="420">
+      <el-table-column v-if="$slots.metrics" :label="$t('utilization.title')" min-width="320">
         <template #default="{ row }"><slot name="metrics" :row="row" /></template>
       </el-table-column>
     </el-table>
@@ -155,6 +162,8 @@ const props = defineProps({
 })
 const { t } = useI18n()
 const root = ref(null)
+const tableWidth = ref(1000)
+let resizeObserver
 const selectedId = ref('')
 let highlightTimer
 async function focusResource(id) {
@@ -195,11 +204,19 @@ function cancelWithEscape(event) {
   if (event.key === 'Escape') cancelHighlight()
 }
 onMounted(() => {
+  tableWidth.value = root.value?.clientWidth || 1000
+  if (typeof ResizeObserver !== 'undefined' && root.value) {
+    resizeObserver = new ResizeObserver(([entry]) => {
+      tableWidth.value = entry.contentRect.width
+    })
+    resizeObserver.observe(root.value)
+  }
   if (!props.quickOverview) return
   document.addEventListener('pointerdown', cancelOutside, true)
   document.addEventListener('keydown', cancelWithEscape)
 })
 onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
   clearTimeout(highlightTimer)
   document.removeEventListener('pointerdown', cancelOutside, true)
   document.removeEventListener('keydown', cancelWithEscape)
@@ -398,6 +415,8 @@ function shortMinutes(minutes) {
 }
 .empty-value {
   color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  font-weight: 400;
 }
 .mobile-resource-list {
   display: none;
