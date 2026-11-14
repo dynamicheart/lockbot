@@ -97,3 +97,29 @@ it('links to the proven service skill and rejects unsafe or credential-bearing U
     expect(state.skillLink(issuer)).toBeNull()
   }
 })
+
+it('separates login and report sources and excludes another identity', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response({ authenticated: false, identities: [] }))
+  )
+  const state = mount()
+  await flush()
+  const identity = {
+    issuer: 'https://service.example.invalid',
+    platform: 'infoflow',
+    realm: 'one',
+    subject: 'alice',
+  }
+  state.groups = [
+    { label: 'Native', identity, source: { kind: 'identity_provider', label: '登录服务' } },
+    { label: 'Shared', identity, source: { kind: 'reporter', label: '共享报表' } },
+    { label: 'Legacy', identity },
+    { label: 'Other user', identity: { ...identity, subject: 'bob' } },
+  ]
+  expect(state.identitySources(identity)).toEqual([
+    { kind: 'identity_provider', label: '登录服务', groups: ['Native'] },
+    { kind: 'reporter', label: '共享报表', groups: ['Shared'] },
+    { kind: 'unknown', label: '资源来源待确认', groups: ['Legacy'] },
+  ])
+})

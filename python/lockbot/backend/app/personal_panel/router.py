@@ -282,7 +282,16 @@ def create_panel(
                         grant["scope"] if source is provider else "",
                     )
                     if key not in seen:
-                        groups.append(dict(group, identity=who))
+                        groups.append(
+                            dict(
+                                group,
+                                identity=who,
+                                source={
+                                    "kind": "identity_provider" if source is provider else "reporter",
+                                    "label": "登录服务" if source is provider else getattr(source, "label", "外部报表"),
+                                },
+                            )
+                        )
                         seen.add(key)
         # Loading a later group can take time. Recheck earlier grants before releasing the combined response.
         if any(not valid(grant) for grant in grants):
