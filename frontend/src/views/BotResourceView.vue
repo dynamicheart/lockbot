@@ -166,7 +166,13 @@
           </template>
         </article>
       </div>
-      <footer>{{ $t('resourceView.expires') }} {{ localTime(snapshot.view_expires_at) }}</footer>
+      <footer>
+        {{
+          snapshot.view_expires_at === null
+            ? $t('resourceView.permanent')
+            : `${$t('resourceView.expires')} ${localTime(snapshot.view_expires_at)}`
+        }}
+      </footer>
     </template>
   </main>
 </template>
@@ -182,6 +188,7 @@ import ResourceStatusList from '../components/ResourceStatusList.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
+import { resourceViewDeadline } from '../utils/resourceViewLifetime'
 
 const route = useRoute()
 const router = useRouter()
@@ -240,7 +247,11 @@ async function refresh() {
     const data = await response.json()
     if (epoch !== requestEpoch) return
     serverOffset = Date.parse(data.server_time) - Date.now()
-    deadline = Date.parse(data.view_expires_at) - serverOffset
+    deadline = resourceViewDeadline(data.view_expires_at, serverOffset)
+    if (deadline === null) {
+      clear()
+      return
+    }
     if (expired()) return
     snapshot.value = data
     failed.value = false
