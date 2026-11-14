@@ -84,6 +84,22 @@ python3 scripts/lockbot_resource.py install --origin https://resources.example.t
 
 It refuses an existing destination, unexpected/duplicate ZIP entries, symlinks, oversized expanded content and mismatched hashes. It does not claim to have registered/reloaded the package in the Agent client or created a connection. Use the client's update workflow for an existing Skill and preserve external connection/key files.
 
+## Shared node aliases
+
+```sh
+python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a
+python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a --set "Training"
+python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a --clear
+```
+
+The alias is a public label on the parent node. Use at most 15 characters.
+Readback uses `aliases_observed_at` and reports an empty string for an unset alias.
+Older responses without structured alias readback cannot confirm a value.
+Writes require the current bot's alias editing rule and are checked against a
+new resource response. Repeating the currently observed value skips the write.
+Review the command response separately for persistence information. A matching
+observation alone cannot attribute the change or guarantee it survives restart.
+
 ## Best-effort metrics
 
 ```sh

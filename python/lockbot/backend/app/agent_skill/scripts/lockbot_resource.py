@@ -522,21 +522,7 @@ class Client:
             command += " " + duration
         if len(command) > 512:
             raise ClientError("command_too_large")
-        # Header updates learned during the pre-read must block the subsequent write.
-        if self.needs_update:
-            raise ClientError("update_bundle_before_mutation")
-        try:
-            result = self._request(
-                same_origin_url(self.base, context["links"]["commands"]),
-                token=self.key,
-                method="POST",
-                body={"command": command, **metadata},
-                readonly=False,
-            )
-        except ClientError as exc:
-            if exc.status is not None and 400 <= exc.status < 500:
-                raise
-            raise ClientError("mutation_outcome_unknown_read_resources_do_not_replay") from exc
+        result = self._post_command(context, command, metadata)
         try:
             after = self.resources(context)
             targets = self._selected(after, nodes, devices)
@@ -575,6 +561,76 @@ class Client:
             "update_required": self.needs_update,
             "job_runner": False,
         }
+
+    def alias(self, node, value=None):
+        if not re.fullmatch(r"[\w-]+", node):
+            raise ClientError("invalid_node")
+        if value is not None and (
+            len(value) > 15 or not (value == "" or value.isprintable() and value == value.strip())
+        ):
+            raise ClientError("invalid_public_alias")
+        if value and re.search(r"\b(?:lbr_|lbk_|lb[a-z][0-9]+\.)", value):
+            raise ClientError("secret_in_alias_refused")
+        context = self.context()
+        if not context.get("agent_access_enabled"):
+            raise ClientError("agent_access_disabled")
+        before = self.resources(context)
+        observed = self._alias_observation(before, node)
+        if value is None:
+            return observed
+        if self.needs_update:
+            raise ClientError("update_bundle_before_mutation")
+        if context.get("bot_rules", {}).get("allow_user_alias") is not True:
+            raise ClientError("aliases_disabled")
+        if "alias" not in before.get("supported_operations", []):
+            raise ClientError("operation_not_supported_by_bot")
+        if observed["alias"] == value:
+            return {**observed, "command_sent": False}
+        command = f"alias {node}" + (f" {value}" if value else "")
+        result = self._post_command(context, command, {})
+        try:
+            after = self._alias_observation(self.resources(context), node)
+            if after["alias"] != value:
+                raise ClientError("alias_value_mismatch")
+        except (ClientError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise ClientError("mutation_not_confirmed_read_resources_do_not_replay") from exc
+        return {**after, "command_sent": True, "command_result": result}
+
+    def _alias_observation(self, snapshot, node):
+        (parent,) = self._selected(snapshot, [node], [])
+        alias = parent.get("alias")
+        observed_at = snapshot.get("aliases_observed_at")
+        if not isinstance(alias, str) or not isinstance(observed_at, str):
+            raise ClientError("alias_readback_unavailable")
+        try:
+            timestamp = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ClientError("alias_readback_unavailable") from exc
+        if timestamp.utcoffset() is None:
+            raise ClientError("alias_readback_unavailable")
+        return {
+            "node": node,
+            "alias": alias,
+            "aliases_observed_at": observed_at,
+            "verification": "observed_shared_alias_only",
+        }
+
+    def _post_command(self, context, command, metadata):
+        # Header updates learned during the pre-read must block the subsequent write.
+        if self.needs_update:
+            raise ClientError("update_bundle_before_mutation")
+        try:
+            return self._request(
+                same_origin_url(self.base, context["links"]["commands"]),
+                token=self.key,
+                method="POST",
+                body={"command": command, **metadata},
+                readonly=False,
+            )
+        except ClientError as exc:
+            if exc.status is not None and 400 <= exc.status < 500:
+                raise
+            raise ClientError("mutation_outcome_unknown_read_resources_do_not_replay") from exc
 
     @staticmethod
     def _own(rows, actor):
@@ -776,6 +832,11 @@ def main(argv=None):
     sub.add_parser("resources")
     report = sub.add_parser("personal-report")
     report.add_argument("--extension", required=True)
+    alias = sub.add_parser("alias", help="Read or edit a shared node alias")
+    alias.add_argument("--node", required=True)
+    edit = alias.add_mutually_exclusive_group()
+    edit.add_argument("--set", dest="alias_value", metavar="LABEL")
+    edit.add_argument("--clear", dest="alias_value", action="store_const", const="")
     command = sub.add_parser("command")
     command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "renew", "release"])
     command.add_argument("--node", action="append", required=True)
@@ -802,6 +863,8 @@ def main(argv=None):
             result = client.resources(client.context())
         elif args.action == "personal-report":
             result = client.personal_report(args.extension)
+        elif args.action == "alias":
+            result = client.alias(args.node, args.alias_value)
         elif args.action == "command":
             metadata = private_json(args.metadata_file) if args.metadata_file else {}
             result = client.command(args.operation, args.node, args.device, args.duration, metadata)

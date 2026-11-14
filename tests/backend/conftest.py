@@ -56,6 +56,10 @@ def _setup_db(tmp_path, _managed_deployment):
     import lockbot.backend.app.bots.models  # noqa: F401
     import lockbot.backend.app.resource_auth.models  # noqa: F401
 
+    # The periodic backup loop opens its own DB connection during startup.
+    # Leave it off in request tests, which create and drop the schema per test.
+    _backup_patcher = patch("lockbot.backend.app.backup.scheduler.backup_scheduler.start")
+    _backup_patcher.start()
     _broadcast_patcher = patch("lockbot.backend.app.broadcast.service.broadcast_worker.start")
     _broadcast_patcher.start()
     _notification_patcher = patch("lockbot.backend.app.resource_api.notifications.notification_budget.start")
@@ -93,6 +97,7 @@ def _setup_db(tmp_path, _managed_deployment):
     yield
     _notification_patcher.stop()
     _broadcast_patcher.stop()
+    _backup_patcher.stop()
     _limiter_patcher.stop()
     _patcher.stop()
     Base.metadata.drop_all(bind=_engine)

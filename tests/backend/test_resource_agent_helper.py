@@ -49,6 +49,10 @@ def case(tmp_path):
         actor={"platform": "infoflow", "external_user_id": "alice"},
         holding=None,
         booking=[],
+        alias="",
+        aliases_supported=True,
+        allow_alias=True,
+        bot_type="NODE",
         context_count=0,
         grant_fail=False,
         command_status=200,
@@ -91,10 +95,10 @@ def case(tmp_path):
                 state.context_count += 1
                 body = {
                     "server": {"service_id": helper.SERVICE, "instance_id": "instance-a", "api_version": "1"},
-                    "bot": {"id": 7, "uuid": state.bot_uuid, "type": "NODE"},
+                    "bot": {"id": 7, "uuid": state.bot_uuid, "type": state.bot_type},
                     "actor": state.actor,
                     "agent_access_enabled": True,
-                    "bot_rules": {"forbid_relock": state.forbidden},
+                    "bot_rules": {"forbid_relock": state.forbidden, "allow_user_alias": state.allow_alias},
                     "usage_privacy": {"public_task_categories": {"unit_testing": "Unit testing"}},
                     "links": {"resources": "/api/bots/7/resources", "commands": "/api/bots/7/commands"},
                     "skill": meta,
@@ -135,6 +139,10 @@ def case(tmp_path):
                         }
                     ],
                 }
+                if state.aliases_supported:
+                    body["supported_operations"].append("alias")
+                    body["aliases_observed_at"] = captured.isoformat()
+                    body["resources"][0]["alias"] = state.alias
                 if state.retry:
                     state.retry = False
                     status, extra = 429, {"Retry-After": "2"}
@@ -143,7 +151,10 @@ def case(tmp_path):
             elif self.path == "/api/bots/7/commands":
                 command = json.loads(raw)["command"]
                 if state.command_applies:
-                    if command.startswith("unlock"):
+                    if command.startswith("alias "):
+                        _, _, state.alias = (command + " ").split(" ", 2)
+                        state.alias = state.alias.strip()
+                    elif command.startswith("unlock"):
                         state.holding, state.booking = None, []
                     elif command.startswith("book"):
                         state.booking = [{"external_user_id": "alice"}]
@@ -604,3 +615,72 @@ def test_optional_report_reads_only_the_discovered_same_origin_path(case):
     case.state.report_directory = None
     with pytest.raises(helper.ClientError, match="personal_reports_unavailable"):
         case.client.personal_report("team-report")
+
+
+def test_packaged_alias_cli_writes_and_reads_back_without_site_packages(case):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "alias",
+            "--node",
+            "node-a",
+            "--set",
+            "Training",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert KEY not in result.stdout + result.stderr
+    assert json.loads(result.stdout)["result"]["alias"] == "Training"
+    assert [request[1] for request in case.state.requests[-3:]] == ["GET", "POST", "GET"]
+
+
+def test_shared_alias_read_set_change_clear_and_skip_unchanged_write(case):
+    case.state.bot_type = "QUEUE_DEVICE"
+    assert case.client.alias("node-a")["alias"] == ""
+    assert case.client.alias("node-a", "Shared label")["alias"] == "Shared label"
+    assert not case.client.alias("node-a", "Shared label")["command_sent"]
+    changed = helper.Client(case.path, root=case.root).alias("node-a", "新标签")
+    assert changed["verification"] == "observed_shared_alias_only"
+    cleared = helper.Client(case.path, root=case.root).alias("node-a", "")
+    assert cleared["alias"] == ""
+    assert [json.loads(raw)["command"] for _, _, _, raw in commands(case)] == [
+        "alias node-a Shared label",
+        "alias node-a 新标签",
+        "alias node-a",
+    ]
+
+
+def test_shared_alias_read_survives_disabled_edits_and_older_servers_refuse_unknown_state(case):
+    case.state.alias = "Shared label"
+    case.state.allow_alias = False
+    assert case.client.alias("node-a")["alias"] == "Shared label"
+    with pytest.raises(helper.ClientError, match="aliases_disabled"):
+        case.client.alias("node-a", "")
+    case.state.aliases_supported = False
+    with pytest.raises(helper.ClientError, match="alias_readback_unavailable"):
+        case.client.alias("node-a", "")
+    assert not commands(case)
+
+
+@pytest.mark.parametrize("value", ["bad\nline", "x" * 16, " l", "lbr_xxxx", "lba1.example"])
+def test_shared_alias_refuses_invalid_or_credential_like_labels(case, value):
+    with pytest.raises(helper.ClientError):
+        case.client.alias("node-a", value)
+    assert not case.state.requests
+
+
+@pytest.mark.parametrize("status, error", [(200, "mutation_not_confirmed"), (503, "mutation_outcome_unknown")])
+def test_shared_alias_write_with_uncertain_outcome_is_never_replayed(case, status, error):
+    case.state.command_status = status
+    case.state.command_applies = False
+    with pytest.raises(helper.ClientError, match=error):
+        case.client.alias("node-a", "Shared label")
+    assert len(commands(case)) == 1
