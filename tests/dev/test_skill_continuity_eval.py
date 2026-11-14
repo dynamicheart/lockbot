@@ -150,7 +150,7 @@ def test_telemetry_retries_once_at_the_scoped_source_with_a_fresh_grant(case):
     grant = context()
     assert metrics(grant)["status"] == 200
     result = evaluation.score(fixture.root, "The sample is 8 seconds old and shows 42% utilization.")
-    assert result["observable_pass"] and result["fixture_version"] == 5
+    assert result["observable_pass"] and result["fixture_version"] == 7
     assert metrics(grant, query.replace("host-a", "host-b"))["status"] == 403
     assert metrics(base.KEY)["status"] == 401
     result = evaluation.score(fixture.root, grant)
@@ -302,6 +302,25 @@ def test_recovery_payload_matches_production_response_models(case):
     fixture = case("recover")
     BindingDirectoryResponse.model_validate(request(fixture, "/api/agent/bindings", base.KEY)["body"])
     BindingRecoveryResponse.model_validate(request(fixture, "/api/agent/bindings/recover", base.KEY, "POST")["body"])
+
+
+def test_installer_rejects_a_directory_that_local_discovery_cannot_load(case):
+    fixture = case("telemetry")
+    arguments = {
+        "url": base.ORIGIN + base.BUNDLE_PATH,
+        "sha256": fixture.manifest()["installation"]["sha256"],
+        "destination": ".skills/lockbot-resource-agent",
+    }
+    blocked = fixture.call("install_skill", arguments)
+    assert blocked["blocked"] and blocked["error"] == "destination_outside_skill_catalog"
+    assert not fixture.path(arguments["destination"]).exists()
+    catalog = fixture.call("discover_local_state", {})
+    assert catalog["installed_skills"] == []
+    assert catalog["supported_skill_catalogs"] == blocked["supported_skill_catalogs"]
+    destination = catalog["supported_skill_catalogs"][0] + "/lockbot-resource-agent"
+    installed = fixture.call("install_skill", {**arguments, "destination": destination})
+    assert installed["installed"]
+    assert fixture.call("discover_local_state", {})["installed_skills"][0]["path"] == destination + "/SKILL.md"
 
 
 def test_markdown_only_installation_is_explicitly_blocked(tmp_path):
