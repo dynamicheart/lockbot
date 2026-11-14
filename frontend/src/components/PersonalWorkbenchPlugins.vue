@@ -1,5 +1,7 @@
 <template>
-  <el-button aria-haspopup="dialog" @click="visible = true">已加载插件</el-button>
+  <el-button v-if="showTrigger" aria-haspopup="dialog" @click="visible = true">
+    已加载插件
+  </el-button>
   <el-dialog
     v-model="visible"
     title="已加载插件"
@@ -30,12 +32,14 @@
 import { computed, ref } from 'vue'
 
 const props = defineProps({
+  showTrigger: { type: Boolean, default: true },
   inventory: { type: Object, default: null },
   groups: { type: Array, required: true },
   metricSources: { type: Array, required: true },
   loading: Boolean,
 })
 const visible = ref(false)
+defineExpose({ open: () => (visible.value = true) })
 const uniqueNames = (names) => [
   ...new Set(names.filter((name) => typeof name === 'string' && name.trim())),
 ]
