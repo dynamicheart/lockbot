@@ -109,6 +109,9 @@ ruff check python/ tests/
 ruff format --check python/ tests/
 ```
 
+For opt-in model behavior tests of Skill onboarding and scoped credential handling, see
+[Agent Skill evaluation](docs/development/agent-skill-evaluation.md). Ordinary CI makes no paid model calls.
+
 ## Migrating an older standalone deployment
 
 The deprecated Flask entry (`lockbot.core.entry.create_app` / `run_bot`) and process-global
