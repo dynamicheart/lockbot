@@ -295,7 +295,7 @@ export default {
     compute: '计算利用率',
     memory: '显存',
     sampled: '最早采样时间',
-    stale: '已过期',
+    stale: '暂无最新数据',
     peak: '已上报卡最高',
     cards: '已上报 {count} 张卡',
     errors: {

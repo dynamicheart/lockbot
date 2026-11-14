@@ -310,7 +310,7 @@ export default {
     compute: 'Compute',
     memory: 'Memory',
     sampled: 'Oldest sample',
-    stale: 'Stale',
+    stale: 'No recent data',
     peak: 'Reported maximum',
     cards: '{count} reported cards',
     errors: {

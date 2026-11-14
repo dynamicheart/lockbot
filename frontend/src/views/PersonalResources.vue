@@ -119,7 +119,7 @@
                 ><el-skeleton-item variant="text" class="stat-skeleton"
               /></template>
             </el-skeleton>
-            <div v-else-if="item.value === null" class="stat-value stat-pending">待确认</div>
+            <div v-else-if="item.value === null" class="stat-value stat-pending">暂无数据</div>
             <div v-else class="stat-value">
               <AnimatedResourceCount :value="item.value" /><span class="stat-unit">{{
                 item.unit
@@ -127,18 +127,9 @@
             </div>
           </div>
         </div>
-        <p v-if="groups.length || resourcesReady" class="scope">
-          已确认 {{ knownGroups.length }} 个群<template v-if="pendingGroups">
-            · {{ pendingGroups }} 个群待确认</template
-          >
+        <p v-if="pendingGroups && !resourceLoading" class="resource-coverage" role="status">
+          {{ pendingGroups }} 个资源群暂未返回有效数据
         </p>
-        <el-alert
-          v-if="pendingGroups"
-          :title="`${pendingGroups} 个群的数据待确认，统计可能不完整。`"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
         <div
           v-if="allocationRows.length || allocationQuery || allocationGroup"
           class="allocation-controls"
@@ -149,8 +140,12 @@
             aria-label="搜索资源"
             placeholder="搜索节点、卡号或用途"
           />
-          <el-select v-model="allocationGroup" aria-label="筛选资源群">
-            <el-option label="全部资源群" value="" />
+          <el-select
+            v-model="allocationGroup"
+            aria-label="筛选资源群"
+            placeholder="全部资源群"
+            clearable
+          >
             <el-option
               v-for="group in allocationGroups"
               :key="group.value"
@@ -906,11 +901,19 @@ onMounted(async () => {
   color: var(--muted);
   white-space: nowrap;
 }
+.resource-coverage {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
 .allocation-controls {
   display: grid;
   grid-template-columns: minmax(200px, 300px) minmax(125px, 210px) 180px;
   gap: 8px;
   margin: 16px 0;
+}
+.allocation-controls :deep(.el-input__inner:focus-visible) {
+  outline: none;
 }
 @media (max-width: 700px) {
   .allocation-controls {
