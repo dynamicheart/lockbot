@@ -320,9 +320,13 @@ unavailable, not permission to try another service's token.
 When context includes `utilization.access` with `token`, `expires_at` and `scope: metrics:read`,
 it is a short-lived data-source credential, not a Lockbot management JWT. Use it only at
 `utilization.configuration.endpoint`; keep it in memory and refresh context within the
-normal API budget when needed. Do not persist it as the bot's personal key. If automatic
-source access is unavailable, report missing metrics and ask the administrator to check the
-source; do not rebind, switch bots or send a Lockbot key to compensate.
+normal API budget before it expires (prefer renewal when under 30 seconds remain). A 30-day
+or permanent resource-view link does not make this metrics token permanent: each grant is
+still at most 300 seconds. After a source 401/403, refresh context and retry at most once;
+never bypass 429 or Retry-After by minting another token. Do not persist it as the bot's
+personal key. If automatic source access is unavailable, report missing metrics and ask
+the administrator to check the source; do not rebind, switch bots or send a Lockbot key
+to compensate.
 
 
 The `lockbot-v1` profile uses Prometheus `/api/v1/query`, `node` / `device` labels and the
