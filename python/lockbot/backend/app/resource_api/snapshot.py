@@ -41,9 +41,9 @@ ALIAS_DOC = (
     "DEVICE/QUEUE_DEVICE aliases belong to the parent node, not individual cards. "
     "An unset or cleared alias is an empty string. (3) The command value is "
     "capped at 15 characters, newlines are rejected, the target must be a known node key, "
-    "and an empty value clears it. (4) Persistence is best-effort: the write can succeed "
-    "in memory and fail to reach the database silently. Neither HTTP 200, a successful "
-    "reply nor this current-config readback guarantees the alias survives a restart. "
+    "and an empty value clears it. (4) Persistence is best-effort: in-memory readback "
+    "alone does not prove persistence; inspect the real reply/outcome. Neither HTTP 200 "
+    "nor this current-config readback guarantees the alias survives a restart. "
     "Disabled editing answers with code `aliases_disabled`; existing aliases remain "
     "readable. SHOW_NODE_ALIAS controls IM display only, not this public label field."
 )
