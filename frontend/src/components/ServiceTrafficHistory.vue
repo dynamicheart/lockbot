@@ -83,18 +83,22 @@
           >
         </div>
         <div class="history-chart" role="group" :aria-label="$t('trafficHistory.http')">
-          <el-tooltip
-            v-for="point in rows"
-            :key="point.at"
-            :content="tooltip(point, false)"
-            effect="light"
-            :show-after="100"
-          >
+          <template v-for="point in rows" :key="point.at">
             <button
               class="history-bar"
               type="button"
-              :class="{ 'is-unknown': !point.known }"
+              :class="{
+                'is-unknown': !point.known,
+                'is-active': activeBar?.point === point && !activeBar.operations,
+              }"
+              :data-bar-height="point.known ? barPercent(point.requests, httpMax) : 100"
               :aria-label="tooltip(point, false)"
+              @pointerenter="showBar(point, false, $event)"
+              @pointerleave="clearBar"
+              @focus="showBar(point, false, $event)"
+              @blur="clearBar"
+              @click="showBar(point, false, $event)"
+              @keydown.esc="clearBar"
             >
               <template v-if="point.known"
                 ><span class="requests" :style="{ height: height(point.requests, httpMax) }"></span
@@ -104,7 +108,7 @@
                 ></span
               ></template>
             </button>
-          </el-tooltip>
+          </template>
         </div>
         <details class="history-source-breakdown">
           <summary>{{ $t('serviceTraffic.bySource') }}</summary>
@@ -129,18 +133,24 @@
           >
         </div>
         <div class="history-chart" role="group" :aria-label="$t('trafficHistory.operations')">
-          <el-tooltip
-            v-for="point in rows"
-            :key="point.at"
-            :content="tooltip(point, true)"
-            effect="light"
-            :show-after="100"
-          >
+          <template v-for="point in rows" :key="point.at">
             <button
               class="history-bar"
               type="button"
-              :class="{ 'is-unknown': !point.operations }"
+              :class="{
+                'is-unknown': !point.operations,
+                'is-active': activeBar?.point === point && activeBar.operations,
+              }"
+              :data-bar-height="
+                point.operations ? barPercent(operationCount(point), operationMax) : 100
+              "
               :aria-label="tooltip(point, true)"
+              @pointerenter="showBar(point, true, $event)"
+              @pointerleave="clearBar"
+              @focus="showBar(point, true, $event)"
+              @blur="clearBar"
+              @click="showBar(point, true, $event)"
+              @keydown.esc="clearBar"
             >
               <template v-if="point.operations"
                 ><span
@@ -159,8 +169,21 @@
                 ></span
               ></template>
             </button>
-          </el-tooltip>
+          </template>
         </div>
+        <el-tooltip
+          v-if="activeBar"
+          :visible="true"
+          :content="tooltip(activeBar.point, activeBar.operations)"
+          :virtual-ref="activeBar.reference"
+          virtual-triggering
+          placement="top"
+          effect="light"
+          popper-class="history-point-tooltip"
+          :show-arrow="false"
+          :enterable="false"
+          transition=""
+        />
         <div v-if="rows.length" class="history-axis">
           <time :datetime="rows[0].at" :title="time(rows[0].at)">{{ axisTime(rows[0].at) }}</time>
           <time :datetime="rows.at(-1).at" :title="time(rows.at(-1).at)">{{
@@ -173,11 +196,12 @@
   </section>
 </template>
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { formatResourceTime } from '../utils/resourceTime'
+import { trafficBarReference } from '../utils/trafficBarReference'
 import {
   createTrafficHistoryLoader,
   historyEndpoint,
@@ -196,6 +220,13 @@ const range = ref(null)
 const snapshot = ref(null)
 const loading = ref(false)
 const failed = ref(false)
+const activeBar = shallowRef(null)
+function showBar(point, operations, event) {
+  activeBar.value = { point, operations, reference: trafficBarReference(event.currentTarget) }
+}
+function clearBar() {
+  activeBar.value = null
+}
 const sources = ['chat', 'agent', 'operator']
 const httpSources = [
   'agent',
@@ -283,7 +314,10 @@ const loader = createTrafficHistoryLoader({
     return data
   },
   publish: (update) => {
-    if ('snapshot' in update) snapshot.value = update.snapshot
+    if ('snapshot' in update) {
+      clearBar()
+      snapshot.value = update.snapshot
+    }
     if ('loading' in update) loading.value = update.loading
     if ('failed' in update) failed.value = update.failed
   },
@@ -311,7 +345,8 @@ const number = (value) =>
   Number.isFinite(value)
     ? new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(value)
     : '—'
-const height = (value, max) => `${Math.min(100, (Math.max(0, Number(value) || 0) / max) * 100)}%`
+const barPercent = (value, max) => Math.min(100, (Math.max(0, Number(value) || 0) / max) * 100)
+const height = (value, max) => `${barPercent(value, max)}%`
 const time = (value) => formatResourceTime(value, locale.value)
 function tooltip(point, operations) {
   const values = !(operations ? point.operations : point.known)
@@ -326,9 +361,11 @@ function tooltip(point, operations) {
           `${t('serviceTraffic.serverErrors')}: ${number(point.server_errors)}`,
         ]
   const coverage = operations ? (point.operation_coverage ?? point.coverage) : point.coverage
-  return [time(point.at), ...values, ...(coverage ? [t('trafficHistory.' + coverage)] : [])].join(
-    '\n'
-  )
+  return [
+    new Date(point.at).toLocaleString(locale.value),
+    ...values,
+    ...(coverage ? [t('trafficHistory.' + coverage)] : []),
+  ].join('\n')
 }
 </script>
 <style scoped>
@@ -414,7 +451,7 @@ function tooltip(point, operations) {
   position: relative;
   border: 0;
   background: transparent;
-  cursor: help;
+  cursor: pointer;
 }
 .history-bar > span {
   position: absolute;
@@ -422,10 +459,17 @@ function tooltip(point, operations) {
   left: 0;
   width: 100%;
 }
-.history-bar:hover,
+.history-bar.is-active > span {
+  opacity: 0.78;
+}
 .history-bar:focus-visible {
-  background: var(--el-color-primary-light-9);
-  outline: 1px solid var(--el-color-primary);
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 1px;
+}
+:global(.history-point-tooltip) {
+  white-space: pre-line;
+  max-width: min(260px, calc(100vw - 24px));
+  pointer-events: none;
 }
 .history-bar.is-unknown {
   background: repeating-linear-gradient(
@@ -467,7 +511,7 @@ function tooltip(point, operations) {
   border: 0;
   background: transparent;
   color: var(--lb-text-secondary);
-  cursor: help;
+  cursor: pointer;
 }
 .history-source-breakdown {
   margin: -8px 0 22px;
