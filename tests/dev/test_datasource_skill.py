@@ -46,6 +46,8 @@ def test_cli_delivers_private_files_and_refuses_overwrite(tmp_path):
     assert config["accessMode"] == "independent"
     assert "HTTPS 端点" in files["handoff.md"].decode()
     assert "HTTP 未加密" not in files["handoff.md"].decode()
+    assert "intervalSeconds 填入「刷新间隔（秒）」" in files["handoff.md"].decode()
+    assert "staleSeconds 填入「数据过期阈值（秒）」" in files["handoff.md"].decode()
     assert all(p.stat().st_mode & 0o077 == 0 for p in out.iterdir())
     assert subprocess.run(command, capture_output=True).returncode == 2
     assert files == {p.name: p.read_bytes() for p in out.iterdir()}
