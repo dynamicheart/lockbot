@@ -82,21 +82,6 @@ it('ends resource loading and shows an error when a reporter request fails', asy
   expect(state.resourceLoading).toBe(false)
   expect(state.resourcesReady).toBe(false)
 })
-it('links to the proven service skill and rejects unsafe or credential-bearing URLs', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => response({ authenticated: false, identities: [] }))
-  )
-  const state = mount()
-  await flush()
-  expect(state.skillLink('https://service.example.invalid/path')).toEqual({
-    service: 'service.example.invalid',
-    url: 'https://service.example.invalid/api/agent-skill/SKILL.md',
-  })
-  for (const issuer of ['javascript:alert(1)', 'https://user:secret@example.invalid', 'invalid']) {
-    expect(state.skillLink(issuer)).toBeNull()
-  }
-})
 
 it('separates login and report sources and excludes another identity', async () => {
   vi.stubGlobal(
@@ -122,6 +107,22 @@ it('separates login and report sources and excludes another identity', async () 
     { kind: 'reporter', label: '共享报表', groups: ['Shared'] },
     { kind: 'unknown', label: '资源来源待确认', groups: ['Legacy'] },
   ])
+})
+
+it('tracks independently changed bot scopes within the same verified principal', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => response({ authenticated: false, identities: [] }))
+  )
+  const state = mount()
+  await flush()
+  const principal = { issuer: 'fixture', platform: 'infoflow', realm: 'attested', subject: 'alice' }
+  expect(state.identityScope([{ ...principal, scopes: ['bot-a'] }])).not.toBe(
+    state.identityScope([{ ...principal, scopes: ['bot-a', 'bot-b'] }])
+  )
+  expect(state.identityScope([{ ...principal, scopes: ['bot-a', 'bot-b'] }])).toBe(
+    state.identityScope([{ ...principal, scopes: ['bot-b', 'bot-a'] }])
+  )
 })
 
 const identity = {

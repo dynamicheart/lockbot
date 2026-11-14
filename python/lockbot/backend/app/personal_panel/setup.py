@@ -53,6 +53,19 @@ def mount_if_configured(app):
         resolver = _load_plugin(item, "lockbot_identity_resolver", "create_resolver")
         if not callable(getattr(resolver, "resolve", None)):
             raise ValueError("Invalid identity resolver")
+    metadata_adapter, metadata_pins = None, None
+    metadata = config.get("connection_metadata")
+    if metadata is not None:
+        from .metadata import pinned_services
+
+        metadata_pins = pinned_services(
+            metadata.get("allowed_service_origins"),
+            metadata.get("instance_pins"),
+            config.get("allow_private_http", False),
+        )
+        metadata_adapter = _load_plugin(metadata["adapter"], "lockbot_connection_metadata", "create_metadata_adapter")
+        if not callable(getattr(metadata_adapter, "describe_connection", None)):
+            raise ValueError("Invalid connection metadata adapter")
     app.mount(
         "/api/personal-panel",
         create_panel(
@@ -63,6 +76,8 @@ def mount_if_configured(app):
             identity_resolver=resolver,
             identity_directory=directory,
             allow_private_http=config.get("allow_private_http", False),
+            metadata_adapter=metadata_adapter,
+            metadata_pins=metadata_pins,
         ),
     )
 

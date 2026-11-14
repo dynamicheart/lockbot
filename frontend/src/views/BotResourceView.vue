@@ -53,8 +53,10 @@
       <ResourceUtilization
         :key="String(route.params.id)"
         :bot-id="route.params.id"
+        :scope-key="route.params.code || route.query.view || ''"
         :source="snapshot.utilization_config || null"
         :access="snapshot.utilization_access || null"
+        :authorize="authorizeMetrics"
         :nodes="snapshot.resources.map((node) => node.id)"
         :resources="metricResourceIds"
         :allowed="!invalid && !failed && snapshot.health === 'running'"
@@ -166,7 +168,13 @@
           </template>
         </article>
       </div>
-      <footer>{{ $t('resourceView.expires') }} {{ localTime(snapshot.view_expires_at) }}</footer>
+      <footer>
+        {{
+          snapshot.view_expires_at === null
+            ? $t('resourceView.permanent')
+            : `${$t('resourceView.expires')} ${localTime(snapshot.view_expires_at)}`
+        }}
+      </footer>
     </template>
   </main>
 </template>
@@ -174,6 +182,7 @@
 <script setup>
 import { botTypeLabel } from '../utils/helpers'
 import { formatResourceTime } from '../utils/resourceTime'
+import { createViewMetricsAuthorizer } from '../utils/utilization/grants'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -182,6 +191,7 @@ import ResourceStatusList from '../components/ResourceStatusList.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
+import { resourceViewDeadline } from '../utils/resourceViewLifetime'
 
 const route = useRoute()
 const router = useRouter()
@@ -198,8 +208,23 @@ let deadline = 0
 let serverOffset = 0
 let controller = null
 let requestEpoch = 0
+let viewGeneration = 0
+const authorizeMetrics = createViewMetricsAuthorizer({
+  getScope: () =>
+    !invalid.value && token && !expired()
+      ? {
+          botId,
+          token,
+          generation: viewGeneration,
+          source: snapshot.value?.utilization_config,
+          access: snapshot.value?.utilization_access,
+        }
+      : null,
+  denied: () => clear(),
+})
 
 function clear() {
+  viewGeneration++
   controller?.abort()
   requestEpoch++
   snapshot.value = null
@@ -240,7 +265,11 @@ async function refresh() {
     const data = await response.json()
     if (epoch !== requestEpoch) return
     serverOffset = Date.parse(data.server_time) - Date.now()
-    deadline = Date.parse(data.view_expires_at) - serverOffset
+    deadline = resourceViewDeadline(data.view_expires_at, serverOffset)
+    if (deadline === null) {
+      clear()
+      return
+    }
     if (expired()) return
     snapshot.value = data
     failed.value = false

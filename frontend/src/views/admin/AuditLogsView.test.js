@@ -98,10 +98,8 @@ it('defaults off, resets the page on toggle, and ignores old read-inclusive resu
   app = null
 })
 
-it('resets the credential tab on session changes and loss of the super administrator role', async () => {
-  api.get.mockImplementation((path) =>
-    Promise.resolve({ data: path === '/admin/bots' ? [] : { items: [], total: 0 } })
-  )
+it('keeps credential management out of audit logs, including after role changes', async () => {
+  api.get.mockResolvedValue({ data: { items: [], total: 0 } })
   app = renderer.createApp(AuditLogsView)
   app.provide(ssrContextKey, { modules: new Set() })
   app.config.warnHandler = () => {}
@@ -109,23 +107,10 @@ it('resets the credential tab on session changes and loss of the super administr
   app.directive('loading', {})
   app.mount({ children: [] })
   const view = app._instance.setupState
-  view.activeTab = 'credentials'
   await flush()
-  expect(api.get.mock.calls.some(([path]) => path === '/admin/audit-credentials')).toBe(false)
   view.authStore.isSuperAdmin = true
-  await flush()
-  view.activeTab = 'credentials'
-  await flush()
-  expect(view.activeTab).toBe('credentials')
   view.authStore.token = 'replacement-session'
   await flush()
-  expect(view.activeTab).toBe('logs')
-  view.activeTab = 'credentials'
-  view.authStore.isSuperAdmin = false
-  await flush()
-  expect(view.activeTab).toBe('logs')
-  const count = api.get.mock.calls.length
-  view.activeTab = 'credentials'
-  await flush()
-  expect(api.get.mock.calls).toHaveLength(count)
+  expect(api.get.mock.calls.every(([path]) => !path.includes('audit-credentials'))).toBe(true)
+  expect('activeTab' in view).toBe(false)
 })

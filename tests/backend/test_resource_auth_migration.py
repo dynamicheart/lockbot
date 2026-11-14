@@ -57,7 +57,7 @@ class TestUpgrade:
         app_main._migrate_identity_boundaries()
         app_main._migrate_identity_boundaries()
         with file_engine.connect() as conn:
-            assert conn.execute(text("SELECT * FROM resource_bindings")).one() == (7, "existing-digest", 0, None)
+            assert conn.execute(text("SELECT * FROM resource_bindings")).one() == (7, "existing-digest", 0, None, 0)
 
     def test_binding_table_is_created_on_a_database_without_it(self, file_engine):
         for name, table in Base.metadata.tables.items():

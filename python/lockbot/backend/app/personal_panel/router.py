@@ -12,6 +12,9 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .credential_views import CredentialViews
+from .handoff import connection_id, connection_instructions, installation, recovery_instructions
+from .native import NativeProvider, ProviderError
 from .sessions import PanelSessions
 
 COOKIE = "__Host-lockbot_me"
@@ -105,7 +108,16 @@ def panel_origin(origin, allow_private_http=False):
 
 
 def create_panel(
-    origin, path, provider, reporters=(), *, identity_resolver=None, identity_directory=None, allow_private_http=False
+    origin,
+    path,
+    provider,
+    reporters=(),
+    *,
+    identity_resolver=None,
+    identity_directory=None,
+    allow_private_http=False,
+    metadata_adapter=None,
+    metadata_pins=None,
 ):
     upstream = panel_origin(origin, allow_private_http)
     secure = upstream.scheme == "https"
@@ -116,6 +128,22 @@ def create_panel(
     app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
     recent = deque()
     rate_lock = Lock()
+    # Reporters and third-party identity providers do not acquire native key
+    # authority by returning similarly shaped metadata or display names.
+    native_connections = type(provider) is NativeProvider
+    credential_views = CredentialViews(sessions) if native_connections else None
+    if metadata_adapter is not None:
+        from .metadata import pinned_services
+
+        if native_connections or not callable(getattr(metadata_adapter, "describe_connection", None)):
+            raise ValueError("Metadata adapter requires a non-native provider and a callable descriptor")
+        metadata_pins = pinned_services(list(metadata_pins or {}), metadata_pins, allow_private_http)
+    metadata_available = metadata_adapter is not None
+    rotation_enabled = native_connections and provider.config.get("allow_credential_rotation") is True
+    rotation_links = CredentialViews(sessions, purpose="rotate_link") if rotation_enabled else None
+    rotation_intents = CredentialViews(sessions, purpose="rotate_intent") if rotation_enabled else None
+    skill = installation(origin) if native_connections else None
+    recovery_guide = recovery_instructions(origin, skill) if skill else None
 
     @app.middleware("http")
     async def protect(request, next_handler):
@@ -124,7 +152,11 @@ def create_panel(
         origin_header = request.headers.get("origin")
         if origin_header is not None and origin_header != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
-        browser_post = request.method == "POST" and not request.url.path.endswith("/links")
+        browser_post = request.method == "POST" and request.url.path.rsplit("/", 1)[-1] not in (
+            "links",
+            "credential-view-links",
+            "credential-rotation-links",
+        )
         if browser_post and request.headers.get("origin") != origin:
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
         response = await next_handler(request)
@@ -153,10 +185,61 @@ def create_panel(
     @app.get("/capabilities")
     def capabilities(request: Request):
         return {
+            **(
+                {
+                    "connection_management": {
+                        "version": 2,
+                        "metadata_available": True,
+                        "credential_disclosure_supported": False,
+                        "refresh_semantics": "revalidate_only",
+                    }
+                }
+                if metadata_available
+                else {}
+            ),
             "protocol": "lockbot.personal-panel.v1",
             "home": origin + "/#/me",
             "issue_path": request.url.path.rsplit("/", 1)[0] + "/links",
             "transport": "https" if secure else "private-http",
+            **(
+                {
+                    "connection_management": {
+                        "version": 1,
+                        "list_path": request.url.path.rsplit("/", 1)[0] + "/connections",
+                        "skill": skill,
+                        "recovery_instructions": recovery_guide,
+                        "refresh_semantics": "revalidate_only",
+                        "credential_disclosure_supported": True,
+                        "credential_view": {
+                            "version": 1,
+                            "purpose": "view_current_key",
+                            "issue_path": request.url.path.rsplit("/", 1)[0] + "/credential-view-links",
+                            "expires_in": 120,
+                            "requires_original_credential": True,
+                            "requires_matching_browser_grant": True,
+                            "single_use": True,
+                        },
+                        **(
+                            {
+                                "credential_rotation": {
+                                    "version": 1,
+                                    "purpose": "rotate_current_key",
+                                    "issue_path": request.url.path.rsplit("/", 1)[0] + "/credential-rotation-links",
+                                    "requires_original_credential": True,
+                                    "requires_matching_browser_grant": True,
+                                    "single_use": True,
+                                    "requires_typed_group": True,
+                                    "requires_second_confirmation": True,
+                                }
+                            }
+                            if rotation_enabled
+                            else {}
+                        ),
+                    }
+                }
+                if native_connections
+                else {}
+            ),
         }
 
     @app.post("/links")
@@ -179,6 +262,208 @@ def create_panel(
             raise HTTPException(401, "Binding unavailable")
         token = sessions.issue(grant)
         return dict(home=origin + "/#/me", login_url=origin + "/#/me?ticket=" + token, expires_in=120)
+
+    @app.post("/credential-view-links")
+    def issue_credential_view(request: Request):
+        if not native_connections:
+            raise HTTPException(404)
+        auth = request.headers.get("authorization", "")
+        if request.headers.get("origin") or not auth.startswith("Bearer lbr_") or len(auth) > 8192:
+            raise HTTPException(401, "A fresh original binding credential is required")
+        with rate_lock:
+            now = monotonic()
+            while recent and recent[0] < now - 60:
+                recent.popleft()
+            if len(recent) >= 120:
+                raise HTTPException(429, headers={"Retry-After": "60"})
+            recent.append(now)
+        try:
+            grant, pin, expiry = provider.issue_credential_view(auth[7:])
+            token, deadline = credential_views.issue(grant, pin, expiry)
+        except Exception:
+            raise HTTPException(401, "Binding unavailable") from None
+        return {
+            "view_url": origin + "/#/me?credential_view=" + token,
+            "expires_at": deadline,
+            "purpose": "view_current_key",
+        }
+
+    def inspect_credential_view(request, token, *, consume=False):
+        if not native_connections:
+            raise HTTPException(404)
+        try:
+            grant, pin, deadline = credential_views.inspect(token, request.cookies.get(cookie_name), consume=consume)
+        except PermissionError:
+            raise HTTPException(403, "A matching current personal session is required") from None
+        except ValueError:
+            raise HTTPException(410, "Key view link expired or used") from None
+        if not valid(grant):
+            raise HTTPException(403, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide})
+        return grant, pin, deadline
+
+    @app.post("/credential-view-preview")
+    async def preview_credential_view(request: Request):
+        data = await fields(request, ["ticket"])
+        grant, pin, deadline = inspect_credential_view(request, data["ticket"])
+        try:
+            provider.credential_view(grant, pin)
+            item = provider.connection(grant)
+            provider.credential_view(grant, pin)
+        except Exception:
+            raise HTTPException(
+                403, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide}
+            ) from None
+        inspect_credential_view(request, data["ticket"])
+        if time.time() >= deadline:
+            raise HTTPException(410, "Key view link expired")
+        return {
+            "connection": item,
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
+            "purpose": "view_current_key",
+        }
+
+    @app.post("/credential-view")
+    async def reveal_credential(request: Request):
+        data = await fields(request, ["ticket", "confirmation"])
+        if data["confirmation"] != "view_current_key":
+            raise HTTPException(400)
+        grant, pin, deadline = inspect_credential_view(request, data["ticket"], consume=True)
+        try:
+            key = provider.credential_view(grant, pin, reveal=True)
+        except ProviderError as exc:
+            code = exc.code if exc.code == "credential_recovery_unavailable" else "panel_binding_unavailable"
+            raise HTTPException(403, {"code": code, "recovery_instructions": recovery_guide}) from None
+        except Exception:
+            raise HTTPException(503, "Key view unavailable") from None
+        if (
+            time.time() >= deadline
+            or grant not in sessions.grants(request.cookies.get(cookie_name))
+            or not valid(grant)
+        ):
+            raise HTTPException(403, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide})
+        # A final current-key pin check also catches replacement during other
+        # response checks. The ticket has already been atomically consumed.
+        try:
+            provider.credential_view(grant, pin)
+        except Exception:
+            raise HTTPException(403, "Binding changed") from None
+        if time.time() >= deadline or grant not in sessions.grants(request.cookies.get(cookie_name)):
+            raise HTTPException(403, "Key view authorization expired")
+        return {
+            "credential": key,
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
+            "purpose": "view_current_key",
+        }
+
+    @app.post("/credential-rotation-links")
+    def issue_credential_rotation(request: Request):
+        if not rotation_enabled:
+            raise HTTPException(404)
+        auth = request.headers.get("authorization", "")
+        if request.headers.get("origin") or not auth.startswith("Bearer lbr_") or len(auth) > 8192:
+            raise HTTPException(401, "A fresh original credential is required")
+        with rate_lock:
+            now = monotonic()
+            while recent and recent[0] < now - 60:
+                recent.popleft()
+            if len(recent) >= 120:
+                raise HTTPException(429, headers={"Retry-After": "60"})
+            recent.append(now)
+        try:
+            # This authenticates the original lbr, not a view proof. The new
+            # proof is stored in a separate rotate-purpose table.
+            grant, pin, expiry = provider.issue_credential_view(auth[7:])
+            token, deadline = rotation_links.issue(grant, pin, expiry)
+        except Exception:
+            raise HTTPException(401, "Binding unavailable") from None
+        return {
+            "rotation_url": origin + "/#/me?credential_rotation=" + token,
+            "expires_at": deadline,
+            "purpose": "rotate_current_key",
+        }
+
+    def inspect_rotation(request, store, token, *, consume=False):
+        if not rotation_enabled:
+            raise HTTPException(404)
+        try:
+            grant, pin, deadline = store.inspect(token, request.cookies.get(cookie_name), consume=consume)
+        except PermissionError:
+            raise HTTPException(403, "A matching current personal session is required") from None
+        except ValueError:
+            raise HTTPException(410, "Rotation authorization expired or used") from None
+        if not valid(grant) or time.time() >= deadline:
+            raise HTTPException(403, "Binding changed or expired")
+        return grant, pin, deadline
+
+    @app.post("/credential-rotation-preview")
+    async def preview_credential_rotation(request: Request):
+        data = await fields(request, ["ticket"])
+        grant, pin, deadline = inspect_rotation(request, rotation_links, data["ticket"])
+        try:
+            provider.credential_view(grant, pin)
+            item = provider.connection(grant)
+            provider.credential_view(grant, pin)
+        except Exception:
+            raise HTTPException(403, "Binding changed") from None
+        # Turn one fresh link into exactly one server-side intent. The canonical
+        # group label and expiry are pinned here, never supplied by the browser.
+        inspect_rotation(request, rotation_links, data["ticket"], consume=True)
+        payload = json.dumps({"pin": pin, "canonical_name": item["bot"]["name"]})
+        try:
+            intent, deadline = rotation_intents.issue(grant, payload, deadline)
+        except Exception:
+            raise HTTPException(410, "Rotation authorization unavailable") from None
+        return {
+            "intent": intent,
+            "connection": item,
+            "service_origin": origin,
+            "purpose": "rotate_current_key",
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
+            "impact": (
+                "All Agents using this identity's current Key for this bot lose access; "
+                "other users and bots are unchanged."
+            ),
+        }
+
+    @app.post("/credential-rotation-confirm")
+    async def confirm_credential_rotation(request: Request):
+        data = await fields(request, ["intent", "typed_group", "confirmation"])
+        grant, payload, deadline = inspect_rotation(request, rotation_intents, data["intent"])
+        intent = json.loads(payload)
+        if (
+            data["typed_group"] != intent["canonical_name"]
+            or data["confirmation"] != "invalidate_all_agents_using_this_key"
+        ):
+            raise HTTPException(400, "Exact group name and second confirmation are required")
+        inspect_rotation(request, rotation_intents, data["intent"], consume=True)
+        try:
+            replacement = provider.rotate_credential(grant, intent["pin"], intent["canonical_name"], deadline)
+        except (ProviderError, ValueError):
+            raise HTTPException(409, "Rotation authority changed; request fresh proof, do not replay") from None
+        except Exception:
+            raise HTTPException(503, "Rotation outcome unavailable; do not retry automatically") from None
+        # Rotation is durable now. A lost response must not trigger another
+        # rotation; the encrypted copy remains recoverable through fresh proof.
+        try:
+            authorized = bool(provider.authenticate(replacement)) and time.time() < deadline
+        except Exception:
+            authorized = False
+        try:
+            authorized = sessions.remove_grant(grant, required_cookie=request.cookies.get(cookie_name)) and authorized
+        except Exception:
+            raise HTTPException(503, "Rotation outcome unavailable; do not retry automatically") from None
+        if not authorized or time.time() >= deadline:
+            raise HTTPException(403, "Rotation completed; authorize through IM to recover access, do not replay")
+        return {
+            "credential": replacement,
+            "purpose": "rotated_current_key",
+            "requires_fresh_login": True,
+            "expires_at": deadline,
+            "expires_in": max(0, deadline - time.time()),
+        }
 
     def inspect_ticket(token):
         try:
@@ -254,6 +539,77 @@ def create_panel(
             samesite="strict",
         )
         return response
+
+    @app.get("/connections")
+    def connections(request: Request):
+        if not native_connections and not metadata_available:
+            raise HTTPException(404)
+
+        def unavailable(status):
+            return HTTPException(status, {"code": "panel_binding_unavailable", "recovery_instructions": recovery_guide})
+
+        original = sessions.grants(request.cookies.get(cookie_name))
+        grants = [grant for grant in original if valid(grant)]
+        if not grants:
+            raise unavailable(401)
+        items = []
+        for grant in grants:
+            try:
+                if metadata_available:
+                    from .metadata import project
+
+                    raw = metadata_adapter.describe_connection(dict(grant))
+                    if raw is None:
+                        continue
+                    item = project(raw, grant, metadata_pins)
+                else:
+                    item = provider.connection(grant)
+            except ProviderError:
+                raise unavailable(403) from None
+            except Exception:
+                raise HTTPException(503, {"code": "connection_metadata_unavailable"}) from None
+            source = item["service_origin"] if metadata_available else origin
+            source_skill = installation(source) if metadata_available else skill
+            item.update(id=connection_id(grant), identity=public_identity(grant), service_origin=source)
+            item["instructions"] = connection_instructions(source, source_skill, item)
+            if metadata_available:
+                item["skill"] = source_skill
+                item["recovery_instructions"] = recovery_instructions(source, source_skill)
+            items.append(item)
+        # Logout, expiry or revocation must also win while an earlier connection
+        # was being inspected. Do not extend the browser or binding lifetime.
+        current = sessions.grants(request.cookies.get(cookie_name))
+        if not current:
+            raise unavailable(401)
+        if any(grant not in current or not valid(grant) for grant in grants):
+            raise unavailable(403)
+        if metadata_available:
+            if not items:
+                raise unavailable(403)
+            used = {item["service_origin"] for item in items}
+            return {
+                "schema_version": 2,
+                "connections": items,
+                "some_authorizations_unavailable": len(items) != len(original),
+                "service_pins": [
+                    {
+                        "origin": source,
+                        "instance_id": metadata_pins[source],
+                        "service_id": "lockbot.resource-api",
+                        "api_version": "1",
+                    }
+                    for source in sorted(used)
+                ],
+                "refresh_semantics": "revalidate_only",
+            }
+        return {
+            "schema_version": 1,
+            "connections": items,
+            "some_authorizations_unavailable": len(grants) != len(original),
+            "skill": skill,
+            "recovery_instructions": recovery_guide,
+            "refresh_semantics": "revalidate_only",
+        }
 
     @app.get("/resources")
     def resources(request: Request):
