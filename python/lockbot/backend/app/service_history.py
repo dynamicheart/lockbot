@@ -19,6 +19,7 @@ RETENTION_DAYS = 30
 DISK_BUDGET = 128 * 1024 * 1024
 MAX_READ_BYTES = 64 * 1024 * 1024
 MAX_LINE_BYTES = 1024 * 1024
+MAX_ROLLUP_INPUT_BYTES = 64 * 1024 * 1024
 RESOLUTIONS = (60, 900, 3600, 21600)
 
 
@@ -93,17 +94,44 @@ def validate_record(row):
         if not number(left) or not number(right) or not previous <= left < right <= stamp + step:
             raise ValueError("invalid coverage")
         previous = right
-    raw = row["counter"]
-    if any(not number(raw[key]) for key in asdict(counter()) if key not in ("statuses", "latency")):
-        raise ValueError("invalid counters")
-    if len(raw["latency"]) != len(LATENCY_BOUNDS) or any(not number(value) for value in raw["latency"]):
-        raise ValueError("invalid histogram")
-    if set(raw["statuses"]) != set(counter().statuses) or any(not number(value) for value in raw["statuses"].values()):
-        raise ValueError("invalid statuses")
-    if sum(raw["latency"]) != raw["requests"] or sum(raw["statuses"].values()) != raw["requests"]:
-        raise ValueError("invalid count sums")
+    template = asdict(counter())
+
+    def check_counter(raw):
+        if any(not number(raw[key]) for key in template if key not in ("statuses", "latency")):
+            raise ValueError("invalid counters")
+        if len(raw["latency"]) != len(LATENCY_BOUNDS) or any(not number(value) for value in raw["latency"]):
+            raise ValueError("invalid histogram")
+        if set(raw["statuses"]) != set(template["statuses"]) or any(
+            not number(value) for value in raw["statuses"].values()
+        ):
+            raise ValueError("invalid statuses")
+        if sum(raw["latency"]) != raw["requests"] or sum(raw["statuses"].values()) != raw["requests"]:
+            raise ValueError("invalid count sums")
+
+    check_counter(row["counter"])
     if set(row["sources"]) - set(SOURCES) or any(not number(value) for value in row["sources"].values()):
         raise ValueError("invalid sources")
+    if "source_counters" in row:
+        counters = row["source_counters"]
+        if not isinstance(counters, dict) or set(counters) - set(row["sources"]):
+            raise ValueError("invalid source counters")
+        for source, raw in counters.items():
+            check_counter(raw)
+            if raw["requests"] > row["sources"][source]:
+                raise ValueError("invalid source count")
+        known = row.get("source_intervals", intervals)
+        if not isinstance(known, list) or len(known) > 60:
+            raise ValueError("invalid source coverage")
+        previous = stamp
+        for left, right in known:
+            if (
+                not number(left)
+                or not number(right)
+                or left < previous
+                or not any(start <= left < right <= end for start, end in intervals)
+            ):
+                raise ValueError("invalid source coverage")
+            previous = right
     if set(row["operations"]) != {"chat", "agent", "operator"} or any(
         not number(value) for value in row["operations"].values()
     ):
@@ -135,6 +163,7 @@ class ServiceHistory:
             self.pending[key] = {
                 "counter": counter(),
                 "sources": {},
+                "source_counters": {},
                 "operations": {"chat": 0, "agent": 0, "operator": 0},
             }
         return self.pending[key]
@@ -157,6 +186,9 @@ class ServiceHistory:
                 bucket = self._scope(minute, scope)
                 bucket["counter"].add(status, duration_ms, received, sent, failed)
                 bucket["sources"][source] = bucket["sources"].get(source, 0) + 1
+                if source not in bucket["source_counters"]:
+                    bucket["source_counters"][source] = counter()
+                bucket["source_counters"][source].add(status, duration_ms, received, sent, failed)
 
     def _prune(self, minute):
         if minute != self.pruned_minute:
@@ -236,6 +268,7 @@ class ServiceHistory:
                         bucket = self.pending.pop((minute, bot_id), None) or {
                             "counter": counter(),
                             "sources": {},
+                            "source_counters": {},
                             "operations": {"chat": 0, "agent": 0, "operator": 0},
                         }
                         records.append(
@@ -247,6 +280,9 @@ class ServiceHistory:
                                 "coverage": [observed_start, observed_end],
                                 "counter": asdict(bucket["counter"]),
                                 "sources": bucket["sources"],
+                                "source_counters": {
+                                    name: asdict(value) for name, value in bucket["source_counters"].items()
+                                },
                                 "operations": bucket["operations"],
                             }
                         )
@@ -304,7 +340,7 @@ class ServiceHistory:
         for hour in range(int(now // 3600) - 2, int(now // 3600)):
             name = datetime.fromtimestamp(hour * 3600, timezone.utc).strftime("%Y%m%dT%H") + ".jsonl"
             target, source = directory / name, self.directory / name
-            if target.exists() or not source.exists() or source.stat().st_size > 16 * 1024 * 1024:
+            if target.exists() or not source.exists() or source.stat().st_size > MAX_ROLLUP_INPUT_BYTES:
                 continue
             scopes = {}
             damaged = False
@@ -322,6 +358,8 @@ class ServiceHistory:
                             {
                                 "counter": counter(),
                                 "sources": {},
+                                "source_counters": {},
+                                "source_intervals": [],
                                 "operations": dict.fromkeys(("chat", "agent", "operator"), 0),
                                 "intervals": [],
                             },
@@ -330,6 +368,12 @@ class ServiceHistory:
                         item["intervals"].append(row["coverage"])
                         for key, count in row["sources"].items():
                             item["sources"][key] = item["sources"].get(key, 0) + count
+                        if "source_counters" in row:
+                            item["source_intervals"].append(row["coverage"])
+                            for key, value in row["source_counters"].items():
+                                if key not in item["source_counters"]:
+                                    item["source_counters"][key] = counter()
+                                merge(item["source_counters"][key], value)
                         for key, count in row["operations"].items():
                             item["operations"][key] += count
                     except (ValueError, TypeError, KeyError, OverflowError, AttributeError, RecursionError):
@@ -337,12 +381,6 @@ class ServiceHistory:
                         continue
             output = [{"v": 1, "record_type": "damaged_segment", "at": hour * 3600}] if damaged else []
             for scope, item in scopes.items():
-                intervals = []
-                for left, right in sorted(item["intervals"]):
-                    if intervals and left <= intervals[-1][1]:
-                        intervals[-1][1] = max(intervals[-1][1], right)
-                    else:
-                        intervals.append([left, right])
                 output.append(
                     {
                         "v": 1,
@@ -351,9 +389,11 @@ class ServiceHistory:
                         "interval_seconds": 3600,
                         "bot_id": scope,
                         "coverage": [hour * 3600, (hour + 1) * 3600],
-                        "intervals": intervals,
+                        "intervals": combined_intervals(item["intervals"]),
                         "counter": asdict(item["counter"]),
                         "sources": item["sources"],
+                        "source_counters": {name: asdict(value) for name, value in item["source_counters"].items()},
+                        "source_intervals": combined_intervals(item["source_intervals"]),
                         "operations": item["operations"],
                     }
                 )
@@ -392,7 +432,7 @@ class ServiceHistory:
                 path.unlink()
                 total -= size
 
-    def query(self, start, end, resolution, bot_id=None):
+    def query(self, start, end, resolution, bot_id=None, *, source=None):
         from lockbot.backend.app.service_traffic import SOURCES
 
         first = math.floor(start / resolution) * resolution
@@ -400,6 +440,7 @@ class ServiceHistory:
             stamp: {
                 "counter": counter(),
                 "intervals": [],
+                "operation_intervals": [],
                 "sources": dict.fromkeys(SOURCES, 0),
                 "operations": dict.fromkeys(("chat", "agent", "operator"), 0),
                 "incomplete": False,
@@ -449,8 +490,15 @@ class ServiceHistory:
                                     if row["v"] != 1 or row["bot_id"] != bot_id or not start <= row["at"] < end:
                                         continue
                                     bucket = buckets[math.floor(row["at"] / resolution) * resolution]
-                                    merge(bucket["counter"], row["counter"])
-                                    bucket["intervals"].extend(row.get("intervals", [row["coverage"]]))
+                                    intervals = row.get("intervals", [row["coverage"]])
+                                    bucket["operation_intervals"].extend(intervals)
+                                    if source is None:
+                                        merge(bucket["counter"], row["counter"])
+                                        bucket["intervals"].extend(intervals)
+                                    elif "source_counters" in row:
+                                        bucket["intervals"].extend(row.get("source_intervals", intervals))
+                                        if source in row["source_counters"]:
+                                            merge(bucket["counter"], row["source_counters"][source])
                                     for key, value in row["sources"].items():
                                         bucket["sources"][key] += value
                                     for key, value in row["operations"].items():
@@ -469,16 +517,11 @@ class ServiceHistory:
             counter(),
         )
         for stamp, bucket in buckets.items():
-            intervals = sorted(bucket["intervals"])
-            covered, right = 0, max(start, stamp)
-            for left, finish in intervals:
-                left, finish = max(left, start, stamp), min(finish, end, stamp + resolution)
-                covered += max(0, finish - max(left, right))
-                right = max(right, finish)
-            expected = min(end, stamp + resolution) - max(start, stamp)
-            coverage = (
-                "complete" if covered >= expected and not bucket["incomplete"] else "partial" if covered else "unknown"
-            )
+            left, right = max(start, stamp), min(end, stamp + resolution)
+            covered = covered_seconds(bucket["intervals"], left, right)
+            operation_covered = covered_seconds(bucket["operation_intervals"], left, right)
+            missing_source_requests = source is not None and bucket["counter"].requests < bucket["sources"][source]
+            coverage = coverage_status(covered, right - left, bucket["incomplete"] or missing_source_requests)
             counts[coverage + "_buckets"] += 1
             payload = bucket["counter"].payload()
             merge(totals, asdict(bucket["counter"]))
@@ -491,8 +534,9 @@ class ServiceHistory:
                     "observed": bool(covered),
                     "observed_seconds": round(covered, 3),
                     **payload,
-                    "sources": bucket["sources"] if covered else None,
-                    "operations": bucket["operations"] if covered else None,
+                    "sources": bucket["sources"] if operation_covered else None,
+                    "operations": bucket["operations"] if operation_covered else None,
+                    "operation_coverage": coverage_status(operation_covered, right - left, bucket["incomplete"]),
                 }
             )
         return {
@@ -502,8 +546,13 @@ class ServiceHistory:
             "resolution_seconds": resolution,
             "captured_at": iso(self.clock()),
             "bot_id": bot_id,
+            "source": source,
             "history": history,
-            "totals": totals.payload(),
+            "totals": (
+                dict.fromkeys(totals.payload())
+                if source is not None and not any(item["observed"] for item in history)
+                else totals.payload()
+            ),
             "coverage": counts,
             "storage": {
                 "healthy": not self.error,
@@ -515,3 +564,23 @@ class ServiceHistory:
                 "damaged_segments": damaged,
             },
         }
+
+
+def combined_intervals(intervals):
+    merged = []
+    for left, right in sorted(intervals):
+        if merged and left <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], right)
+        else:
+            merged.append([left, right])
+    return merged
+
+
+def covered_seconds(intervals, start, end):
+    return sum(max(0, min(right, end) - max(left, start)) for left, right in combined_intervals(intervals))
+
+
+def coverage_status(observed, expected, incomplete):
+    if observed >= expected and not incomplete:
+        return "complete"
+    return "partial" if observed else "unknown"
