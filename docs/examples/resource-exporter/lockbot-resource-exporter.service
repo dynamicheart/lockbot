@@ -1,4 +1,5 @@
 [Unit]
+RequiresMountsFor=/opt/lockbot-telemetry
 Description=Independent cached resource telemetry exporter
 After=network.target
 
