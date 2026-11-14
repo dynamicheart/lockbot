@@ -22,7 +22,7 @@ MESSAGES = {
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
-    "help.agent_lock_hint": "Read and install this resource Skill with your Agent: {url}",
+    "help.agent_lock_hint": "Install this Skill with your Agent: {url}",
     # ── Duration formatting ──
     "duration.days": "{value} days",
     "duration.hours": "{value} hours",
