@@ -333,19 +333,32 @@ class NativeProvider:
                 return None
             if not authorize:
                 return {"configuration": source}
-            deadlines = [
-                datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00"))
-                for row in holdings
-                if row["node"] in source["nodeMapping"] and row["expires_at"]
-            ]
-            expiry = min([session_expiry, *deadlines])
+            # An allocation without a confirmed deadline cannot authorize telemetry.
+            # Keep its node out of the grant even when other holdings are valid.
+            deadlines = {}
+            now = datetime.now(timezone.utc)
+            for holding in holdings:
+                node = holding["node"]
+                expires_at = holding.get("expires_at")
+                if node not in source["nodeMapping"] or not isinstance(expires_at, str):
+                    continue
+                try:
+                    deadline = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                if deadline.tzinfo is None or deadline <= now:
+                    continue
+                deadlines[node] = min(deadlines.get(node, deadline), deadline)
+            if not deadlines or session_expiry is None:
+                return None
+            expiry = min(session_expiry, *deadlines.values())
             if row.credential_expires_at is not None:
                 credential_expiry = row.credential_expires_at
                 if credential_expiry.tzinfo is None:
                     credential_expiry = credential_expiry.replace(tzinfo=timezone.utc)
                 expiry = min(expiry, credential_expiry)
             access = issue_metrics_access(
-                db, bot, source, expires_at=expiry, resource_nodes={row["node"] for row in holdings}
+                db, bot, source, expires_at=expiry, resource_nodes=deadlines
             )
             return {"configuration": source, "access": access} if access else None
 

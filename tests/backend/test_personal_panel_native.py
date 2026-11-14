@@ -220,6 +220,30 @@ def test_panel_metrics_are_issued_only_for_current_native_holdings(
     assert browser.get(path + details["connection"]).status_code == 404
 
 
+@pytest.mark.parametrize("invalid_deadline", [None, "invalid", "2999-01-01T00:00:00", "2000-01-01T00:00:00Z"])
+def test_panel_metrics_exclude_holdings_without_a_live_deadline(
+    panel, api, client, tmp_path, monkeypatch, invalid_deadline
+):
+    provider, grant = panel
+    signing_key(tmp_path, monkeypatch)
+    provider.config["enable_utilization"] = True
+    config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-b"}}
+    assert client.put(
+        f"/api/bots/{api['bot_id']}", headers=api["auth_header"], json={"utilization_config": config}
+    ).status_code == 200
+    browser_expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+    live = {"kind": "hold", "node": "n1", "expires_at": browser_expiry.isoformat()}
+    unverified = {"kind": "hold", "node": "n2", "expires_at": invalid_deadline}
+    group = {"status": "ok", "allocations": [live, unverified]}
+    monkeypatch.setattr(provider, "report", lambda _grant: [group])
+
+    result = provider.utilization(grant, session_expiry=browser_expiry, authorize=True)
+    claims = jwt.decode(result["access"]["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
+    assert claims["nodes"] == ["host-a"]
+    group["allocations"] = [unverified]
+    assert provider.utilization(grant, session_expiry=browser_expiry, authorize=True) is None
+
+
 def verify_metrics_gateway(tmp_path, key_file, claims, token, origin):
     metric = "lockbot_accelerator_process_info"
     allowed_sample = {"__name__": metric, "node": "host-a", "device": "0", "container_name": "fixture-container"}
