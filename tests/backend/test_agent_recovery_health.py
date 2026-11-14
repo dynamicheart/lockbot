@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pytest
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.resource_api.discovery import _backfill_presented_key
-from lockbot.backend.app.resource_auth import credentials
+from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 from backend.test_agent_binding_directory import second_binding
@@ -15,6 +15,26 @@ from backend.test_resource_api_resources import api  # noqa: F401
 
 def source(db):
     return db.query(ResourceBinding).filter_by(external_user_id="alice").order_by(ResourceBinding.id).first()
+
+
+@pytest.mark.parametrize("field", ["platform", "external_user_id"])
+def test_context_rechecks_principal_before_disclosing_recovery_health(client, api, db_session, monkeypatch, field):
+    original = service.authenticate_for_any_bot
+    reads = 0
+
+    def change_before_guarded_read(db, *, token):
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            setattr(source(db_session), field, "replacement")
+            db_session.commit()
+        return original(db, token=token)
+
+    monkeypatch.setattr(service, "authenticate_for_any_bot", change_before_guarded_read)
+    response = client.get("/api/agent/context", headers=api["headers"])
+    assert response.status_code == 401
+    assert "credential_recovery_health" not in response.json()
+    assert "replacement" not in response.text
 
 
 @pytest.mark.parametrize("copy", ["healthy", None, "", "corrupt", "swapped"])

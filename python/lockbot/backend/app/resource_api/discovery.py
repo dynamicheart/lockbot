@@ -159,7 +159,7 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
     with authority_guard(bot_id, platform=platform, external_user_id=user_id):
         db.rollback()
         row = service.authenticate_for_any_bot(db, token=_bearer_token(request))
-        if row is None or row.bound_bot_id != bot_id:
+        if row is None or (row.bound_bot_id, row.platform, row.external_user_id) != (bot_id, platform, user_id):
             raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
         return _context_payload(request, response, db, row)
 
