@@ -142,28 +142,23 @@
                   }}</template
                 ></el-table-column
               >
-              <el-table-column label="状态" min-width="100"
-                ><template #default="{ row }"
-                  ><el-tag :type="fresh(row.group) ? 'success' : 'warning'">{{
-                    fresh(row.group) ? section.status : '待确认'
-                  }}</el-tag></template
-                ></el-table-column
+              <el-table-column label="到期时间" min-width="175">
+                <template #default="{ row }">{{ date(row.allocation.expires_at) }}</template>
+              </el-table-column>
+              <el-table-column
+                v-if="session.identities.length > 1"
+                label="本人身份"
+                min-width="120"
               >
-              <el-table-column label="本人身份" min-width="120"
-                ><template #default="{ row }">{{
-                  row.group.identity?.subject
-                }}</template></el-table-column
+                <template #default="{ row }">{{ row.group.identity?.subject }}</template>
+              </el-table-column>
+              <el-table-column
+                v-if="$slots.task && section.label === '持有资源'"
+                label="用途"
+                min-width="125"
               >
-              <el-table-column label="到期时间" min-width="170"
-                ><template #default="{ row }">{{
-                  date(row.allocation.expires_at)
-                }}</template></el-table-column
-              >
-              <el-table-column label="源数据时间" min-width="170"
-                ><template #default="{ row }">{{
-                  date(row.group.source_at)
-                }}</template></el-table-column
-              >
+                <template #default="{ row }"><slot name="task" :row="row" /></template>
+              </el-table-column>
               <el-table-column
                 v-if="$slots.metrics && section.label === '持有资源'"
                 label="利用率"
@@ -294,7 +289,7 @@ import PersonalCredentialRotation from '../components/PersonalCredentialRotation
 const tabs = [
   { id: 'mine', label: '我的占用' },
   { id: 'groups', label: '资源群' },
-  { id: 'connections', label: '我的连接' },
+  { id: 'connections', label: '我的凭证' },
 ]
 const tab = ref('mine')
 const title = computed(() => tabs.find((item) => item.id === tab.value).label)
@@ -315,11 +310,16 @@ const knownGroups = computed(() => groups.value.filter(fresh))
 const pendingGroups = computed(() => groups.value.length - knownGroups.value.length)
 const allocationSections = computed(() => {
   const rows = groups.value.flatMap((group) =>
-    entries(group).map((allocation) => ({ group, allocation }))
+    fresh(group) ? entries(group).map((allocation) => ({ group, allocation })) : []
+  )
+  const holds = rows.filter((row) => !queued(row.allocation))
+  holds.sort(
+    (left, right) =>
+      expiration(left.allocation.expires_at) - expiration(right.allocation.expires_at)
   )
   return [
-    { label: '持有资源', status: '持有中', rows: rows.filter((row) => !queued(row.allocation)) },
-    { label: '预约与队列', status: '预约中', rows: rows.filter((row) => queued(row.allocation)) },
+    { label: '持有资源', rows: holds },
+    { label: '预约与队列', rows: rows.filter((row) => queued(row.allocation)) },
   ]
 })
 const statistics = computed(() => {
@@ -395,6 +395,10 @@ function groupCounts(group) {
     ['持有记录', entries(group).filter((a) => !queued(a)).length],
     ['预约记录', entries(group).filter(queued).length],
   ].map(([label, value]) => ({ label, value: fresh(group) ? value : null }))
+}
+function expiration(value) {
+  const stamp = typeof value === 'number' ? value * 1000 : Date.parse(value)
+  return Number.isFinite(stamp) ? stamp : Infinity
 }
 function date(value) {
   if (value == null) return '未提供'
