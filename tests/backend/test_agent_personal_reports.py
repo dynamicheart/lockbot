@@ -183,3 +183,95 @@ def test_mount_loads_only_explicit_adapters(api, db_session, session_factory, tm
         assert app.state.agent_personal_reports.discover(grant)["items"][0]["read_path"] == PREFIX + "team-report"
     finally:
         app.state.agent_personal_reports.close()
+
+
+def test_fresh_installed_helper_reads_report_over_http(api, client, db_session, session_factory, tmp_path, monkeypatch):
+    import json
+    import os
+    import socket
+    import subprocess
+    import sys
+    import threading
+    import time
+
+    import httpx
+    import uvicorn
+
+    from backend.test_resource_agent_helper import SCRIPT
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+        origin = f"http://127.0.0.1:{port}"
+        monkeypatch.setenv("PLATFORM_URL", origin)
+        ensure_instance_id(db_session)
+        bot = db_session.get(Bot, api["bot_id"])
+        bot.status = "running"
+        db_session.commit()
+        provider = NativeProvider({"issuer": origin, "session_factory": session_factory})
+        key = api["headers"]["Authorization"].split(" ", 1)[1]
+        allowed = provider.authenticate(key)
+        item = Extension.configured(
+            {"id": "team-report", "label": "Test report", "revision": "1", "grants": [allowed]},
+            Reporter(),
+        )
+        mount_agent_reports(client.app, origin, provider, [item])
+        routes = client.app.router.routes
+        route = routes.pop()
+        static = next(
+            (index for index, item in enumerate(routes) if getattr(item, "name", None) == "static"), len(routes)
+        )
+        routes.insert(static, route)
+        config = uvicorn.Config(client.app, lifespan="off", access_log=False, log_level="warning")
+        server = uvicorn.Server(config)
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+        thread.start()
+        try:
+            with httpx.Client(base_url=origin, timeout=1, trust_env=False) as http:
+                for _ in range(50):
+                    try:
+                        if http.get("/api/health").status_code == 200:
+                            break
+                    except httpx.TransportError:
+                        pass
+                    assert thread.is_alive()
+                    time.sleep(0.1)
+                else:
+                    pytest.fail("The loopback report service did not start")
+            install = tmp_path / "skill"
+            env = dict(os.environ, NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
+
+            def run(script, *args):
+                result = subprocess.run(
+                    [sys.executable, str(script), *map(str, args)],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                assert key not in result.stdout and key not in result.stderr
+                assert result.returncode == 0, result.stderr
+                return json.loads(result.stdout)["result"]
+
+            assert run(SCRIPT, "install", "--origin", origin, "--destination", install)["client_reload_required"]
+            helper = install / "scripts" / "lockbot_resource.py"
+            key_path = tmp_path / "key"
+            key_path.write_text(key)
+            key_path.chmod(0o600)
+            connection = tmp_path / "connection.json"
+            result = run(helper, "init", "--origin", origin, "--key-file", key_path, "--destination", connection)
+            assert result["connection_created"] and not result["update_required"]
+            original = (connection.read_bytes(), key_path.read_bytes())
+            report = run(helper, "--connection", connection, "personal-report", "--extension", "team-report")
+            assert report["status"] == "ok"
+            assert report["groups"][0]["allocations"][0]["node"] == "node1"
+            assert "private_detail" not in report["groups"][0]
+            assert original == (connection.read_bytes(), key_path.read_bytes())
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10)
+            client.app.state.agent_personal_reports.close()
+            del client.app.state.agent_personal_reports
+            del client.app.state.agent_personal_report_origin
+            routes.remove(route)
+            assert not thread.is_alive()
