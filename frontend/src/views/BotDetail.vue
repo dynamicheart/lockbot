@@ -126,18 +126,23 @@
                 ><el-icon><CopyDocument /></el-icon
               ></el-button>
               <el-button
+                v-if="canEdit"
                 link
                 size="small"
                 class="resource-link-action"
-                :aria-label="$t('common.refresh')"
-                :title="$t('common.refresh')"
+                :aria-label="$t('resourceView.regenerate')"
+                :title="$t('resourceView.regenerate')"
                 :loading="viewLinkLoading"
-                @click="refreshViewLink"
+                @click="regenerateViewLink"
                 ><el-icon v-if="!viewLinkLoading"><Refresh /></el-icon
               ></el-button>
             </div>
             <div class="resource-view-expiry">
-              {{ $t('resourceView.expires') }} {{ formatDateTime(bot.view_expires_at) }}
+              {{
+                bot.view_expires_at === null
+                  ? $t('resourceView.permanent')
+                  : `${$t('resourceView.expires')} ${formatDateTime(bot.view_expires_at)}`
+              }}
             </div>
           </el-descriptions-item>
           <template v-if="bot.platform.toLowerCase() !== 'feishu'">
@@ -1237,16 +1242,32 @@ async function refreshBot() {
   }
 }
 
-async function refreshViewLink() {
-  if (!captureBot() || viewLinkLoading.value) return
+async function regenerateViewLink() {
+  const target = captureBot()
+  if (!target || !canEdit.value || viewLinkLoading.value) return
+  try {
+    await ElMessageBox.confirm(t('resourceView.regenerateConfirm'), t('resourceView.regenerate'), {
+      type: 'warning',
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
+    })
+    if (!target.isCurrent()) return
+  } catch {
+    return
+  }
   const read = detailScope.begin('viewLink')
   if (!read) return
   viewLinkLoading.value = true
   try {
-    const current = await botsStore.getBot(read.id, { signal: read.signal })
+    const { data } = await api.post(
+      `/bots/${read.id}/view-link/regenerate`,
+      {},
+      { signal: read.signal }
+    )
     if (!read.isCurrent()) return
-    bot.value.view_url = current.view_url
-    bot.value.view_expires_at = current.view_expires_at
+    bot.value.view_url = data.view_url
+    bot.value.view_expires_at = data.view_expires_at
+    ElMessage.success(t('common.success'))
   } catch {
     /* handled by the API client */
   } finally {

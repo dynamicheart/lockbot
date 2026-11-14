@@ -22,7 +22,7 @@ MESSAGES = {
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
-    "help.agent_lock_hint": "Try an Agent for resource requests: {url}",
+    "help.agent_lock_hint": "Install this Skill with your Agent: {url}",
     # ── Duration formatting ──
     "duration.days": "{value} days",
     "duration.hours": "{value} hours",
@@ -209,7 +209,9 @@ MESSAGES = {
     "alias.clear_ok": "✅ Cleared alias for {node_key}\n\n",
     "alias.disabled": "User alias command is not enabled for this bot",
     # ── Identity binding (agent API enrollment) ──
-    "binding.agent_usage_hint": "Agent usage: {url}\nSend this link to your Agent for help with binding.",
+    "binding.agent_usage_hint": (
+        "Agent usage: {url}\nSend this bundle link to your Agent to read, install, and help with binding."
+    ),
     "binding.unavailable": ("❌[Agent authorization unavailable]\n\nAgent authorization is unavailable on this bot."),
     "binding.failed": ("❌[Agent authorization failed]\n\nCould not process this command. Please try again later."),
     "binding.enrollment_disabled": ("❌[Agent access disabled]\n\nAsk the bot owner to enable Agent access."),

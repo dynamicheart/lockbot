@@ -3,6 +3,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import jwt
+import pytest
 from lockbot.backend.app.bots.metrics_access import issue_metrics_access
 from lockbot.backend.app.bots.models import Bot
 
@@ -72,24 +73,34 @@ def test_expiry_caps_view_access_and_key_permissions_are_enforced(api, db_sessio
     assert issue_metrics_access(db_session, bot, source()) is None
 
 
+@pytest.mark.parametrize("days", [1, 30, 0])
 def test_readonly_view_receives_only_short_metrics_grant_after_its_normal_authorization(
-    client, api, tmp_path, monkeypatch
+    client, api, tmp_path, monkeypatch, days
 ):
     from urllib.parse import urlsplit
 
     monkeypatch.setattr("lockbot.backend.app.resource_api.views.bot_manager", api["manager"])
     signing_key(tmp_path, monkeypatch)
     path = f"/api/bots/{api['bot_id']}"
-    assert client.put(path, headers=api["auth_header"], json={"utilization_config": source()}).status_code == 200
+    assert (
+        client.put(
+            path,
+            headers=api["auth_header"],
+            json={"utilization_config": source(), "config_overrides": {"RESOURCE_VIEW_LINK_DAYS": days}},
+        ).status_code
+        == 200
+    )
     context = client.get("/api/agent/context", headers=api["headers"]).json()
     view_code = urlsplit(context["view_url"]).fragment.rsplit("/", 1)[1]
     view_path = f"/api/bot-views/{api['bot_id']}/state"
     assert client.get(view_path).status_code != 200
     response = client.get(view_path, headers={"Authorization": "Bearer " + view_code})
     assert response.status_code == 200, response.text
+    assert (response.json()["view_expires_at"] is None) == (days == 0)
     grant = response.json()["utilization_access"]
     decoded = jwt.decode(grant["token"], b"x" * 64, algorithms=["HS256"], audience=source()["endpoint"])
     assert decoded["nodes"] == ["host-a"] and decoded["sub"] == context["bot"]["uuid"]
+    assert 0 < decoded["exp"] - time.time() <= 300
     assert "x" * 64 not in response.text and view_code not in grant["token"]
 
 
