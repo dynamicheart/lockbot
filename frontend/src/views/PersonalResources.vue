@@ -703,6 +703,7 @@
       :model-value="Boolean(guidanceDialog)"
       :title="guidanceDialog?.title || '运维说明'"
       width="min(460px, calc(100vw - 32px))"
+      align-center
       @close="clearGuidance"
     >
       <p v-if="guidanceDialog?.loading" aria-live="polite">正在读取运维说明…</p>
