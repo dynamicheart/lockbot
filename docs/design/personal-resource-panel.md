@@ -1,6 +1,6 @@
 # Personal resource dashboard
 
-A user can bookmark `/#/me` on their organization's Lockbot HTTPS origin. A headless Agent can authorize the first browser visit with the user's existing IM binding. Browser sessions last up to 30 days, including across restarts, subject to the continued validity of each binding. The dashboard only displays personal allocations and reservations.
+A user can bookmark `/#/me` on their organization's Lockbot HTTPS origin. A headless Agent can authorize the first browser visit with the user's existing IM binding. Browser sessions last up to 30 days, including across restarts, subject to the continued validity of each binding. The dashboard displays personal allocations, reservations and secret-free metadata for individually authorized native connections.
 
 ## Identity and access
 
@@ -25,7 +25,7 @@ For HTTPS, terminate TLS on a trusted ingress, preserve the Host header, and res
 }
 ```
 
-Use the approved canonical service origin as the native provider issuer, as in the example, so connection cards can link to that service’s Agent Skill. Existing issuer identifiers remain valid; a non-URL identifier does not produce a Skill link.
+The provider issuer identifies the identity authority and can remain a non-URL identifier. Native connection instructions obtain the Skill ZIP and Markdown paths from this deployment's published manifest and use the approved panel origin; they do not infer an installation address from the issuer.
 
 The original application mounts the optional dashboard before its SPA fallback. Without configuration the original route setup is preserved. To disable, unset the environment variable and restart the service. To invalidate all browser sessions permanently, retire the dedicated session database while the service is stopped. This database stores digests of random browser tokens and references to confirmed bindings. IM authentication and the original group credentials stay under the existing Lockbot authority.
 
@@ -40,6 +40,26 @@ When the panel and a bot's Agent access are enabled, explicit `help` replies inc
 The Agent reads `GET /api/personal-panel/capabilities` from the trusted origin. A return visit only needs the fixed home. For first login, device recovery, or adding another binding, the Agent calls `POST /api/personal-panel/links` with its existing Bearer binding credential at the same trusted origin. The recipient must already have a verified private delivery channel. The handoff URL is itself a short-lived bearer secret; avoid group chats, unfurlers, ticket logs and external redirects.
 
 The generated ticket expires in two minutes. It is placed in the URL fragment, removed from browser history by the landing page, previewed without consumption, and exchanged only on explicit confirmation. Consumption is atomic and rotates the browser session identifier. The browser receives a Secure, HttpOnly, SameSite=Strict host-only cookie. It can return by bookmark without contacting the Agent. Logout revokes the server-side session. A cleared browser cookie requires a fresh handoff.
+
+## Connection metadata and Agent instructions
+
+The native provider advertises additive `connection_management` version 1 capabilities. `GET /api/personal-panel/connections` revalidates only this browser's independently confirmed grants and returns current bot, actor, expiry and recovery-copy health, plus deployment-pinned secret-free installation instructions. It has no bot or identity selector, does not discover other bindings, and does not return raw binding references, digests or Keys. Refresh revalidates existing authority without extending either lifetime. Logout and binding changes are checked again before releasing the combined response.
+
+The metadata capability and read-only browser cookie do not themselves authorize credential disclosure or rotation. Native providers separately advertise `credential_view` version 1 with purpose `view_current_key`. An Agent holding the valid original `lbr_` authenticates `POST /credential-view-links` without a browser Origin. A distinct ticket expires within two minutes and no later than the original binding; it cannot log in, append identities or authorize rotation. Only a browser already holding the exact independently confirmed grant can preview it and explicitly consume it through `POST /credential-view`. Preview returns only metadata. Atomic consumption precedes decryption; authority, current credential pin, deadline and browser scope are rechecked before returning the original Key in a no-store response. Concurrent use yields at most one disclosure, and failed/uncertain consumption is not retried.
+
+The dedicated ticket table stores hashes of random ticket tokens, exact grant references, an opaque current-credential pin and expiry, without plaintext credentials. The existing session and login-ticket schema is unchanged. Missing/corrupt recovery material never rotates, backfills or invalidates a valid original Key. The browser projects public preview metadata, performs no automatic disclosure/copy, and clears a disclosed Key on close, logout, scope change, unmount or deadline. Request and publication deadlines reject results that resolve after sleep before a timer/focus handler runs.
+
+External reporter groups remain visible as resource-query sources, with credentials managed by the original Agent; custom identity providers do not acquire native credential authority. Credential view is native-only, independently of any future provider metadata adapter. See the [connection handoff guide](../usage/personal-connection-handoff.md).
+
+## Opt-in credential rotation
+
+Native provider configuration may explicitly set `allow_credential_rotation: true` after independent acceptance; the default is disabled, with no advertised entry or ticket issuance. Rotation has its own `rotate_current_key` capability, raw-original-key issue endpoint and physically separate link/intent tables. Read-only, login and view proofs cannot upgrade. The preview consumes one fresh link and creates a server-side single-use intent pinned to the canonical group name, exact grant/current credential and original deadline. Confirmation requires the exact group name and the separate `invalidate_all_agents_using_this_key` acknowledgement.
+
+The original binding must still be active, unexpired and unchanged. A transactional compare-and-swap verifies its principal, bot UUID/revision, digest and generation, current deployment, enabled bot and canonical name. Encryption completes before mutation; controlled seal/transaction/CAS failures preserve the old Key. Only the digest, encrypted copy and per-binding `credential_generation` change. Original expiry, binding reference, identity and bot revision stay intact. Concurrent/stale intents cannot produce a second rotation.
+
+The additive non-null `credential_generation` column defaults to zero on fresh and migrated schemas. Generation zero keeps the legacy scope encoding byte-for-byte. A successful rotation increments only this binding's generation and changes its native panel scope, invalidating old browser grants, login/view/rotation proofs across processes. Local session cleanup removes that grant while retaining independent grants and their original lifetime. New-Key login requires fresh proof; neither automatic browser login nor expiry extension occurs.
+
+The replacement is returned once in a no-store response after final current authority/session/deadline checks. Once committed, a later response or cleanup failure can leave an uncertain client outcome; the response and UI prohibit automatic replay and direct the user to IM confirmation/recovery. Disabling the feature hides new issuance without reverting a completed rotation. Operators must apply the additive migration before using the updated model; downgrading must retain the generation check or invalidate old dashboard session databases, as old code cannot enforce post-rotation scopes.
 
 ## Optional identity provider
 
