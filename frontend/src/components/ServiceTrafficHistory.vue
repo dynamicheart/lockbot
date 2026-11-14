@@ -325,7 +325,7 @@ function tooltip(point, operations) {
           `${t('serviceTraffic.requests')}: ${number(point.requests)}`,
           `${t('serviceTraffic.serverErrors')}: ${number(point.server_errors)}`,
         ]
-  const coverage = operations ? point.operation_coverage : point.coverage
+  const coverage = operations ? (point.operation_coverage ?? point.coverage) : point.coverage
   return [time(point.at), ...values, ...(coverage ? [t('trafficHistory.' + coverage)] : [])].join(
     '\n'
   )
