@@ -32,7 +32,15 @@ Panel.render = new Function(
 )(Vue)
 
 vi.mock('../utils/api', () => ({ default: { get: vi.fn() } }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key, locale: { value: 'en' } }) }))
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key, parameters) =>
+      key === 'serviceTraffic.recentAgents'
+        ? `${parameters.count} / ${parameters.minutes} min`
+        : key,
+    locale: { value: 'en' },
+  }),
+}))
 const renderer = createRenderer({
   createElement: (tag) => ({ tag, children: [], props: {} }),
   createText: (text) => ({ text }),
@@ -166,6 +174,24 @@ it('renders exact sparse/error/source counts for one minute and aligns both char
   await nextTick()
   expect(outputs()).toEqual([])
   expect(view.activeMinute).toBeNull()
+})
+
+it('renders the live active Agent count for its supplied time window and omits it on older servers', async () => {
+  const view = await mount()
+  const summaries = () => find((node) => node.props?.class === 'agent-activity-summary')
+  expect(summaries()).toHaveLength(0)
+  view.refresh()
+  pending.at(-1).resolve({
+    data: {
+      ...fixture(),
+      agent_activity: { window_seconds: 5400, recent_active_agents: 0 },
+    },
+  })
+  await flush()
+  expect(summaries().map((node) => node.text)).toEqual(['0 / 90 min'])
+  view.mode = 'history'
+  await flush()
+  expect(summaries()).toHaveLength(0)
 })
 
 it('distinguishes observed zero from missing operation evidence, including chart edges', async () => {

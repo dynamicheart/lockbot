@@ -65,6 +65,7 @@
           />
           <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
         </details>
+        <PersonalAgentActivity v-if="item.agentActivity" :activity="item.agentActivity" />
       </div>
       <div v-if="supported && skill" class="connection-recovery">
         <div class="connection-heading">
@@ -95,6 +96,8 @@
 
 <script setup>
 import { onBeforeUnmount, ref, watch } from 'vue'
+import PersonalAgentActivity from './PersonalAgentActivity.vue'
+import { credentialAgentActivity } from '../utils/agentActivity'
 
 const props = defineProps({ authenticated: Boolean, scopeKey: { type: String, default: '' } })
 const items = ref([])
@@ -191,6 +194,7 @@ function connection(row, pins = null) {
       ? row.credential_recovery_health
       : 'unknown',
     instructions,
+    agentActivity: pins ? null : credentialAgentActivity(row.agent_activity),
     ...(pins ? { skill: sourceSkill, recovery_instructions: text(row.recovery_instructions, 12000) } : {}),
   }
 }
