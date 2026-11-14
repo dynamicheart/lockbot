@@ -17,20 +17,28 @@
           <router-link to="/bots" class="workbench-console">机器人控制台</router-link>
           <PersonalWorkbenchPlugins
             v-if="session.authenticated"
+            ref="pluginsDialog"
+            :show-trigger="tab !== 'connections'"
             :inventory="session.workbench_plugins"
             :groups="groups"
             :metric-sources="utilizationGroups"
             :loading="resourceLoading"
           />
-          <el-button
+          <el-dropdown
             v-if="session.authenticated && tab === 'connections'"
-            class="workbench-exit"
-            text
-            :disabled="busy"
-            @click="run(confirmLogout)"
+            trigger="click"
+            @command="handleCredentialAction"
           >
-            清除此浏览器授权
-          </el-button>
+            <el-button>更多</el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="plugins">已加载插件</el-dropdown-item>
+                <el-dropdown-item divided command="clear" :disabled="busy">
+                  清除此浏览器授权
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </div>
       </div>
     </header>
@@ -661,76 +669,15 @@
           :authenticated="session.authenticated"
           :scope-key="identityScope(session.identities)"
         />
-        <section class="credential-access" aria-labelledby="browser-access-heading">
-          <div class="connection-heading credential-access-heading">
-            <div>
-              <h2 id="browser-access-heading">浏览器授权</h2>
-              <p class="scope">通过已绑定的 Agent 添加资源群。</p>
-            </div>
-            <details class="connection-help">
-              <summary>接入帮助</summary>
-              <p class="scope">在原 Agent 中说“打开我的资源台”，打开链接后确认添加。</p>
-              <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
-                >Agent 使用说明</a
-              >
-            </details>
-          </div>
-          <article
-            v-for="(identity, index) in session.identities"
-            :key="index"
-            class="group-card connection-card"
-          >
-            <div class="connection-heading">
-              <h2>{{ identity.subject }}</h2>
-              <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
-            </div>
-            <div
-              v-for="source in identitySources(identity)"
-              :key="source.kind + source.label"
-              class="connection-source"
+        <details class="credential-access-help">
+          <summary>如何添加其他机器群的 Key</summary>
+          <p class="scope">
+            在已绑定该群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
+            <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
+              >Agent 使用说明</a
             >
-              <p>
-                {{
-                  source.kind === 'identity_provider'
-                    ? '已连接的资源群'
-                    : source.kind === 'reporter'
-                      ? source.label
-                      : '资源群'
-                }}
-              </p>
-              <span v-if="source.kind === 'reporter'" class="scope">仅查看资源</span>
-              <div class="connection-groups">
-                <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
-                  name
-                }}</el-tag>
-              </div>
-            </div>
-            <p v-if="!identitySources(identity).length" class="group-meta">
-              {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
-            </p>
-            <details class="connection-details">
-              <summary>连接详情</summary>
-              <dl>
-                <dt>身份服务</dt>
-                <dd>{{ identity.issuer }}</dd>
-                <dt>身份命名空间</dt>
-                <dd>{{ identity.realm }}</dd>
-                <dt>授权范围</dt>
-                <dd>{{ identity.scopes?.join('、') }}</dd>
-              </dl>
-            </details>
-          </article>
-        </section>
-        <p
-          v-for="(indices, index) in session.same_person_groups || []"
-          :key="index"
-          class="group-meta"
-        >
-          组织目录确认属于同一人
-          {{
-            indices.map((i) => identityLabel(session.identities[i])).join('、')
-          }}。各群授权分别生效。
-        </p>
+          </p>
+        </details>
       </template>
     </main>
   </div>
@@ -797,6 +744,11 @@ watch(
 )
 const session = ref({ authenticated: false, identities: [] })
 const groups = ref([])
+const pluginsDialog = ref(null)
+function handleCredentialAction(command) {
+  if (command === 'plugins') pluginsDialog.value?.open()
+  if (command === 'clear') run(confirmLogout)
+}
 const ticket = ref(null)
 const combine = ref(false)
 const error = ref('')
@@ -1286,23 +1238,6 @@ function platformName(value) {
 }
 function identityLabel(identity) {
   return `${platformName(identity?.platform)} · ${identity?.subject || ''}`
-}
-function identitySources(identity) {
-  const sources = new Map()
-  for (const group of groups.value) {
-    if (
-      !['issuer', 'platform', 'realm', 'subject'].every(
-        (key) => group.identity?.[key] === identity[key]
-      )
-    )
-      continue
-    const kind = group.source?.kind || 'unknown'
-    const label = group.source?.label || '资源来源待确认'
-    const key = JSON.stringify([kind, label])
-    if (!sources.has(key)) sources.set(key, { kind, label, groups: [] })
-    sources.get(key).groups.push(group.label)
-  }
-  return [...sources.values()]
 }
 function groupCounts(group) {
   if (!fresh(group)) return []
