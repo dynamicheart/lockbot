@@ -92,7 +92,7 @@ def login(request: Request, body: UserLogin, db: Session = Depends(get_db)):
     write_audit_log(db, user, "auth.login", ip=ip)
     db.commit()
     return TokenOut(
-        access_token=create_access_token(user.id, user.effective_token_version, user.must_change_password),
+        access_token=create_access_token(user.id, user.effective_token_version, user.must_change_password, db=db),
         must_change_password=user.must_change_password,
     )
 
@@ -114,11 +114,12 @@ def change_password(
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user.password_hash = _hash_password(body.new_password)
+    user.token_version = user.effective_token_version + 1
     user.must_change_password = False
     write_audit_log(db, user, "auth.change_password", ip=request.client.host if request.client else None)
     db.commit()
     return TokenOut(
-        access_token=create_access_token(user.id, user.effective_token_version, False),
+        access_token=create_access_token(user.id, user.effective_token_version, False, db=db),
         must_change_password=False,
     )
 
@@ -137,6 +138,7 @@ def force_change_password(
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user.password_hash = _hash_password(body.new_password)
+    user.token_version = user.effective_token_version + 1
     user.must_change_password = False
     write_audit_log(
         db,
@@ -147,7 +149,7 @@ def force_change_password(
     )
     db.commit()
     return TokenOut(
-        access_token=create_access_token(user.id, user.effective_token_version, False),
+        access_token=create_access_token(user.id, user.effective_token_version, False, db=db),
         must_change_password=False,
     )
 

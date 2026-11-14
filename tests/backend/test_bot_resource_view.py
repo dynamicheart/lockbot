@@ -45,8 +45,7 @@ def test_owner_and_admin_detail_share_existing_short_link_without_list_disclosur
         assert response.status_code == 200
         detail = response.json()
         assert detail["view_url"] == context["view_url"]
-        detail_expiry = datetime.fromisoformat(detail["view_expires_at"].replace("Z", "+00:00"))
-        assert detail_expiry == datetime.fromisoformat(context["view_expires_at"])
+        assert detail["view_expires_at"] is None and context["view_expires_at"] is None
         assert response.headers["cache-control"] == "no-store"
         assert "Authorization" in {part.strip() for part in response.headers["vary"].split(",")}
         assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(detail)).status_code == 200
@@ -54,6 +53,9 @@ def test_owner_and_admin_detail_share_existing_short_link_without_list_disclosur
 
 
 def test_detail_link_renews_only_after_expiry_and_is_hidden_when_disabled(client, api, db_session, monkeypatch):
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.config_overrides = '{"RESOURCE_VIEW_LINK_DAYS":1}'
+    db_session.commit()
     clock = datetime(2030, 1, 1, 11, 23, 45)
     monkeypatch.setattr(view_links, "utcnow", lambda: clock)
     path = f"/api/bots/{api['bot_id']}"
@@ -84,6 +86,9 @@ def test_unauthorized_detail_cannot_issue_readonly_link(client, api, db_session)
 
 
 def test_lazy_creation_and_shared_24_hour_window(client, api, db_session, monkeypatch):
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.config_overrides = '{"RESOURCE_VIEW_LINK_DAYS":1}'
+    db_session.commit()
     clock = datetime(2030, 1, 1, 11, 23, 45)
     monkeypatch.setattr(view_links, "utcnow", lambda: clock)
     assert db_session.query(BotViewWindow).count() == 0
@@ -301,7 +306,7 @@ def test_signed_group_query_and_personal_context_share_the_same_link(client, fak
     assert state.status_code == 200 and state.json()["resources"]
 
 
-@pytest.mark.parametrize("days", [1, 30, 0])
+@pytest.mark.parametrize("days", [1, 7, 30, 90, 180, 0])
 def test_persisted_window_and_concurrent_first_use_are_stable(tmp_path, days):
     engine = create_engine("sqlite:///" + str(tmp_path / "views.db"), connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
@@ -389,21 +394,26 @@ def view_super_admin_header(admin_header, db_session):
     return admin_header
 
 
-def test_platform_lifetime_and_bot_override_inheritance(client, api, db_session, view_super_admin_header, monkeypatch):
+@pytest.mark.parametrize("days", [12, 30, 90, 180])
+def test_platform_lifetime_and_bot_override_inheritance(
+    client, api, db_session, view_super_admin_header, monkeypatch, days
+):
     import json
 
     clock = datetime(2030, 1, 1, 11, 23, 45)
     monkeypatch.setattr(view_links, "utcnow", lambda: clock)
     original = link(client, api)
     changed = client.put(
-        "/api/admin/settings", headers=view_super_admin_header, json={"settings": {"resource_view_link_days": "30"}}
+        "/api/admin/settings",
+        headers=view_super_admin_header,
+        json={"settings": {"resource_view_link_days": str(days)}},
     )
     assert changed.status_code == 200
     # Public polling cannot rotate or extend an already issued link.
     polled = client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(original))
     assert polled.status_code == 200 and polled.json()["view_expires_at"] == original["view_expires_at"]
     inherited = link(client, api)
-    assert inherited["view_expires_at"] == "2030-01-31T11:23:45+00:00"
+    assert inherited["view_expires_at"] == (clock + timedelta(days=days)).isoformat() + "+00:00"
     assert inherited["view_url"] != original["view_url"]
     assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(original)).status_code == 403
     bot = db_session.get(Bot, api["bot_id"])
@@ -424,12 +434,8 @@ def test_permanent_window_public_null_legacy_codes_and_explicit_regeneration(
 ):
     clock = datetime(2030, 1, 1, 11, 23, 45)
     monkeypatch.setattr(view_links, "utcnow", lambda: clock)
-    assert (
-        client.put(
-            "/api/admin/settings", headers=view_super_admin_header, json={"settings": {"resource_view_link_days": "0"}}
-        ).status_code
-        == 200
-    )
+    settings = client.get("/api/admin/settings", headers=view_super_admin_header)
+    assert {item["key"]: item["value"] for item in settings.json()}["resource_view_link_days"] == "0"
     first = link(client, api)
     assert first["view_expires_at"] is None
     window = db_session.get(BotViewWindow, api["bot_id"])
@@ -494,7 +500,7 @@ def test_regeneration_requires_owner_or_super_admin(client, api, db_session, vie
     assert client.post(path, headers=api["auth_header"]).status_code == 409
 
 
-@pytest.mark.parametrize("value", ["-1", "31", "1.5", "true", "", None, "１"])
+@pytest.mark.parametrize("value", ["-1", "181", "1.5", "true", "", None, "１"])
 def test_platform_link_lifetime_validation(client, view_super_admin_header, value):
     result = client.put(
         "/api/admin/settings", headers=view_super_admin_header, json={"settings": {"resource_view_link_days": value}}
@@ -502,7 +508,7 @@ def test_platform_link_lifetime_validation(client, view_super_admin_header, valu
     assert result.status_code == 422
 
 
-@pytest.mark.parametrize("value", [-1, 31, True, 1.5, "30", None])
+@pytest.mark.parametrize("value", [-1, 181, True, 1.5, "30", None])
 def test_bot_link_lifetime_validation(value):
     from lockbot.backend.app.bots.schemas import BotUpdate
     from pydantic import ValidationError

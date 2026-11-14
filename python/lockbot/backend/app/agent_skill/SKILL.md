@@ -420,7 +420,7 @@ When the user wants to view resources or queue order in a browser, use `view_url
 personal key into a browser URL. Treat `view_url` as opaque: current short links and older
 long links are compatible; do not parse or reconstruct a code from the URL. No separate web command or link-creation endpoint is needed.
 The server lazily creates one link per bot. Its lifetime comes from the bot override or
-inherited platform setting (one day by default, up to 30 days, or permanent). A null
+inherited platform setting. New installations default to permanent links. A null
 `view_expires_at` means no automatic expiry. Page refreshes never renew it. A subsequent
 authorized request replaces an expired link or applies a changed lifetime policy; an
 administrator can explicitly regenerate it to invalidate the old code. Ordinary group

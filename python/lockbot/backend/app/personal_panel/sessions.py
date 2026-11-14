@@ -170,6 +170,30 @@ class PanelSessions:
         with self._transaction():
             return self._prune(time.time())
 
+    def remove_grant(self, grant, *, required_cookie=None):
+        """Remove only the rotated binding, preserving other scopes and expiry."""
+        with self._transaction():
+            self._prune(time.time())
+            authorized = True
+            if required_cookie is not None:
+                current = self.db.execute(
+                    "SELECT grants_json FROM panel_sessions WHERE digest=? AND expires>?",
+                    (self._digest(required_cookie), time.time()),
+                ).fetchone()
+                authorized = current is not None and grant in json.loads(current[0])
+            for digest, encoded in self.db.execute("SELECT digest,grants_json FROM panel_sessions").fetchall():
+                previous = json.loads(encoded)
+                remaining = [item for item in previous if item != grant]
+                if remaining == previous:
+                    continue
+                if remaining:
+                    self.db.execute(
+                        "UPDATE panel_sessions SET grants_json=? WHERE digest=?", (json.dumps(remaining), digest)
+                    )
+                else:
+                    self.db.execute("DELETE FROM panel_sessions WHERE digest=?", (digest,))
+            return authorized
+
     def close(self):
         with self.lock:
             self.db.close()

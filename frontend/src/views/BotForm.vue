@@ -270,18 +270,6 @@
         </div>
       </section>
 
-      <section class="agent-settings-group">
-        <div class="agent-setting-row">
-          <label class="agent-setting-label">
-            {{ $t('resourceView.linkLifetime') }}
-            <el-tooltip :content="$t('resourceView.botLifetimeHint')" placement="top">
-              <el-icon class="help-icon"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </label>
-          <ResourceViewLifetimeSelect v-model="resourceViewLinkDays" allow-inherit />
-        </div>
-      </section>
-
       <section v-if="form.platform.toLowerCase() === 'feishu'" class="agent-settings-group">
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-reaction-replies">
@@ -314,6 +302,15 @@
       <!-- Advanced Config -->
       <el-collapse>
         <el-collapse-item :title="$t('botCreate.advancedConfig')" name="advanced">
+          <el-form-item>
+            <template #label>
+              {{ $t('resourceView.linkLifetime') }}
+              <el-tooltip :content="$t('resourceView.botLifetimeHint')" placement="top">
+                <el-icon class="help-icon"><QuestionFilled /></el-icon>
+              </el-tooltip>
+            </template>
+            <ResourceViewLifetimeSelect v-model="resourceViewLinkDays" allow-inherit />
+          </el-form-item>
           <el-row :gutter="16">
             <el-col :xs="24" :sm="12">
               <el-form-item>
