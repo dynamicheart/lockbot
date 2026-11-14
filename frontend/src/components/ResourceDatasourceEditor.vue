@@ -35,6 +35,13 @@
         rel="noopener noreferrer"
         >{{ $t('utilization.setupGuide') }}</a
       >
+      <a
+        class="setup-guide agent-setup-guide"
+        href="https://github.com/dynamicheart/lockbot/blob/main/skills/lockbot-datasource-setup/SKILL.md"
+        target="_blank"
+        rel="noopener noreferrer"
+        >{{ $t('utilization.agentSetupGuide') }}</a
+      >
       <el-form label-position="top" @submit.prevent.stop="testAndEnable">
         <section class="datasource-section">
           <h3>{{ $t('utilization.connectionSection') }}</h3>
@@ -386,6 +393,9 @@ onBeforeUnmount(() => {
 .source-name.is-configured {
   font-size: 14px;
   font-weight: 500;
+}
+.agent-setup-guide {
+  margin-left: 16px;
 }
 .setup-guide {
   display: inline-block;

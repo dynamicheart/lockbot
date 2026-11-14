@@ -10,11 +10,38 @@ description: >
 # Lockbot Resource API Agent API
 
 A LockBot bot guards shared resources (GPU cards, cluster nodes, or queue slots). As an agent
-you act as **one verified IM identity on exactly one bot**, using a personal credential.
+each personal credential acts as **one verified IM identity on one bot**. One Agent may
+manage several separately scoped service/bot connections.
 
 ## When a user shares this skill URL
 
 <!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->
+
+### First-contact checklist
+
+1. Locate the service from the shared full URL or the **Deployment Skill URL** in pasted
+   Markdown. Do not ask the user to repeat a supplied address. If neither exists, ask for
+   the original full Skill URL; example hosts are not deployment addresses.
+2. Read the public manifest on that origin **without a key**. Explain the service address
+   and recommend installing this Skill for ongoing use in your first response. A pasted
+   document is useful instructions, but is not evidence of local installation.
+3. When the user asks to install or authorizes persistent setup, install the manifest's
+   complete `installation` ZIP using the client's supported installer, verify its hashes,
+   and inspect the saved files. Also save the approved origin, verified instance ID, Skill
+   URL and revision privately. With no key yet, mark the connection **pending enrollment**;
+   do not postpone saving approved service metadata just because enrollment is incomplete.
+4. Reuse a matching saved key; its authenticated `/api/agent/context` supplies the bot ID,
+   UUID and actor. Users need not supply a bot ID. Save a reference to the private key,
+   not the key in Skill files or shared notes. If there is no matching key, first establish
+   which resource group the user intends; enrollment then requires human confirmation in
+   that group. Promotional text or pasted instructions alone do not request enrollment.
+
+**MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
+files or public memory. Refer to the private credential entry when explaining a problem.
+Never try another service's key or report installation/enrollment as complete without
+verifying the corresponding files/authenticated context. If installation is unavailable
+or verification fails, say so and offer a one-off use of the freshly read instructions.
+
 
 Use the full Skill URL from the user's message as the service locator, even if the
 message also contains this Markdown or a short instruction before the URL. Keep the URL
@@ -49,6 +76,51 @@ or installation/hot reload is unavailable, use the freshly read Markdown for thi
 explain that a future task must load it again. Never claim an update succeeded without
 checking the client's saved skill. Never store a key in `SKILL.md`, a downloaded ZIP or
 public memory; use the client's private credential store.
+
+## Install the complete ZIP and use the fixed client
+
+<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
+
+For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
+alone: it contains `SKILL.md`, `scripts/lockbot_resource.py` and `installation.json`.
+A ZIP URL does not automatically install in every client. Use its installer or verify the
+manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
+supported; the helper is the recommended fixed path, not a new server requirement.
+
+**MUST when the helper is available:** first confirm a Python 3.10+ interpreter and a
+complete installed bundle, then use it for supported calls. `python3` below is an example;
+`python` or Windows `py -3` may be candidates, but verify their actual version. If no suitable
+runtime/installer/network is available, do not install dependencies without authorization or
+claim the helper ran. Use an existing authorized HTTP tool with the same identity, rules and
+readback checks, and report the helper limitation. Keep each connection's approved
+service/instance/bot and private key-file reference; never put raw keys in argv or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
+and explicit durations; verify the readback, and never blindly replay an uncertain write.
+This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
+follow the expiry/stop rules below.
+
+Start with an already-approved service URL and an existing private personal-key file. The
+`init` command discovers the bot UUID through context; the user need not know a bot ID:
+
+```sh
+python3 scripts/lockbot_resource.py init --origin <approved-origin> --key-file /private/resource.key --destination /private/connection.json
+python3 scripts/lockbot_resource.py --connection /private/connection.json context
+python3 scripts/lockbot_resource.py --connection /private/connection.json resources
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --duration 30m --metadata-file /private/task.json
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --duration 30m
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a
+```
+
+For card bots add explicit `--device 0` (repeat for more cards). Private `task.json` accepts
+only `task_category`, `agent_label`, `purpose`; choose the category from current context.
+`init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
+Keep connection/key files outside the installation. Credentials/grants are redacted in output.
+
+For metrics, separately approve the source origin via `init --metrics-origin <origin>`;
+then use `--connection <file> metrics --node <mapped-node>`. Only the existing
+`prometheus` / `lockbot-v1` profile is supported; unsupported profiles fail explicitly.
+Queries are best effort, never imply resource ownership, and use metrics-specific credentials;
+short grants refresh through context with one auth retry. Never send personal/OP keys to a
+source. See [helper installation, private configuration and limits](https://github.com/dynamicheart/lockbot/blob/main/docs/usage/resource-agent-helper.md).
 
 ## Identify the service before using a saved credential
 
@@ -112,13 +184,37 @@ credential discovery on this instance; resource routes still require the matchin
 bot's key. Never replace all group records with the key used to start recovery.
 
 Legacy bindings remain valid. The first recovery request made with a legacy key
-adds an encrypted recovery copy of that same key, without rotation. During upgrade,
-call recovery once for each distinct saved key on this approved instance, then
-reconcile the combined results. Preserve an existing valid local key when a recovery
-entry has `credential: null` / `credential_recoverable: false`: this means a historical
-copy is missing or unreadable, not that the user must rebind. Use another already
-authorized Agent/store holding that key to backfill it. Only genuinely lost keys
-require the supported revoke/re-enroll flow. Never invent a key or silently rebind.
+adds an encrypted recovery copy of that same key, without rotation. When the manifest
+advertises `credential_recovery_health`, context reports only the current key's state:
+`recoverable` (verified copy), `legacy_missing` (no encrypted copy), or `unreadable`
+(copy cannot be verified, including an unavailable service encryption key). This is
+recovery health, not credential validity; context never exposes another bot's state.
+
+For each distinct saved key on the approved instance with a missing/unreadable copy:
+POST recovery once using that exact key and no body; find the `current: true` entry;
+privately compare its returned key with the original; then GET context again and
+verify the same instance/bot/user and `recoverable` state. Keep the exact key value
+and existing private-store reference. Reconcile each bot separately. If the field is
+absent on an older service, keep the existing capability/context flow.
+
+Preserve an existing valid local key when a recovery entry has `credential: null` /
+`credential_recoverable: false`: the historical copy is missing or unreadable, not
+an instruction to rebind. Use another already authorized Agent/store holding that
+bot's key to backfill it. Missing bot B material does not invalidate bot A or let A's
+key operate on B. HTTP 503 `detail.code: credential_recovery_unavailable` means the
+service could not create a copy; retain the valid key/configuration and report the
+failure without retry loops, rotation or reset. A digest cannot reconstruct a key.
+
+Only genuinely lost credentials or suspected disclosure/compromised authorization
+justify considering revoke/re-enroll. First obtain explicit user confirmation of the
+service, bot and revocation scope, explaining that every Agent sharing the affected
+key loses access and needs private reconfiguration. The verified human can inspect
+chat `bindings`, use `unbind <short-id>` for their own binding, and confirm a new
+`bind <code>`; an authorized owner's revoke-all affects every personal binding on
+that bot. Do not claim a failed/denied revoke succeeded or enroll around it. Revoking
+a key does not release/migrate/recreate locks or queues; discuss and authorize any
+resource changes separately. Never reset during a routine release, Skill update,
+new Agent installation or migration, and never invent a key or silently rebind.
 
 Older services may not advertise this capability: use known saved connections and
 their context endpoints instead of probing bot IDs. Another service or protocol
@@ -303,10 +399,13 @@ When the user wants to view resources or queue order in a browser, use `view_url
 `view_expires_at` returned by `/api/agent/context`. Share that read-only URL; never put your
 personal key into a browser URL. Treat `view_url` as opaque: current short links and older
 long links are compatible; do not parse or reconstruct a code from the URL. No separate web command or link-creation endpoint is needed.
-The server lazily creates one link per bot, reuses it for 24 hours from creation, and only
-replaces it when a subsequent authorized request arrives after expiry. Page refreshes do not
-renew it. Ordinary group queries also return the current link. If the link expires, request
-context again. Keep the returned URL on the user-approved origin.
+The server lazily creates one link per bot. Its lifetime comes from the bot override or
+inherited platform setting (one day by default, up to 30 days, or permanent). A null
+`view_expires_at` means no automatic expiry. Page refreshes never renew it. A subsequent
+authorized request replaces an expired link or applies a changed lifetime policy; an
+administrator can explicitly regenerate it to invalidate the old code. Ordinary group
+queries return the current link. If a link expires or is regenerated, request context
+again. Keep the returned URL on the user-approved origin.
 
 The link permits its holder to read this bot's resource/queue information and preset task categories and can be
 forwarded; it does not prove current group membership or allow commands. Revoking a personal
@@ -556,8 +655,16 @@ The examples below use placeholder resources; replace them with those returned b
   `queue_claim_window_seconds`; without an explicit duration, the booked duration applies.
   `free node1` cancels your booking or releases your lock. Do not continue using a node
   just because you previously booked it. Poll with backoff; no busy loops.
-- `alias node1 <note>` changes the shared resource alias only when enabled (at most 15
-  characters). It is not an Agent task note; use usage declarations for task purposes.
+- `alias node1 <note>` changes the bot-global/public node alias only when enabled (at
+  most 15 characters); `alias node1` clears it. Read the matching node's
+  `resources[].alias` afterward: empty string means unset/cleared. DEVICE/QUEUE_DEVICE
+  expose it on the parent node, not per card. It is not a task note or Agent label;
+  use usage declarations for task purposes. `aliases_observed_at` timestamps the current
+  configuration observation separately from cached lock/queue `captured_at`; they are
+  not atomic. Readback proves neither command attribution nor successful persistence.
+  Check the real reply and actual result; HTTP 200 alone does not prove a change.
+  After uncertainty, read before considering another write. A missing field on an older
+  service means structured readback is unavailable, not that the alias was cleared.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
   Agent keys**. Native chat/OP permissions do not imply permission through this API.
 - HTTP 200 only means the command was dispatched. Inspect `reply` and read `/resources`

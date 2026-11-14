@@ -308,7 +308,7 @@ def _agent_skill_url(bot_id, expected_uuid):
         parsed = urlsplit(base)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             return ""
-        return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill/SKILL.md"
+        return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill/lockbot-resource-agent.zip"
 
 
 def _personal_panel_url(bot_id, expected_uuid):
@@ -602,6 +602,25 @@ def get_bot(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization"
     return {**_mask_bot(bot, db), **view}
+
+
+@router.post("/{bot_id}/view-link/regenerate")
+def regenerate_view_link(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Explicit owner/super-admin action invalidates the previous read-only code only."""
+    bot = _require_bot_owner(bot_id, user, db, "regenerate the resource view link")
+    if not bot.resource_auth_enabled:
+        raise HTTPException(409, "Resource access is disabled for this bot")
+    from lockbot.backend.app.resource_api.view_links import view_link
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Authorization"
+    return view_link(db, bot, str(request.base_url), regenerate=True)
 
 
 @router.post("/{bot_id}/utilization-access")
