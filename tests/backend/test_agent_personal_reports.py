@@ -88,6 +88,30 @@ def test_only_current_binding_discovers_and_reads_closed_projection(client, api,
     assert extension.calls == 1
 
 
+def test_context_tracks_extension_revisions_and_removal(client, api, extension):
+    reports = client.app.state.agent_personal_reports
+    grant = reports.provider.authenticate(api["headers"]["Authorization"].split(" ", 1)[1])
+    path = PREFIX + "team-report"
+
+    def directory():
+        context = client.get("/api/agent/context", headers=api["headers"])
+        assert context.status_code == 200 and context.headers["cache-control"] == "no-store"
+        return context.json().get("personal_report_extensions")
+
+    assert directory()["items"][0]["revision"] == "1"
+    reports.extensions["team-report"] = Extension.configured(
+        {"id": "team-report", "label": "Test report", "revision": "2", "grants": [grant]}, extension
+    )
+    assert directory()["items"][0]["revision"] == "2"
+    assert client.get(path, headers=api["headers"]).json()["revision"] == "2"
+    assert extension.calls == 1
+
+    del reports.extensions["team-report"]
+    assert directory() is None
+    assert client.get(path, headers=api["headers"]).status_code == 404
+    assert extension.calls == 1
+
+
 def test_reports_distinguish_unknown_from_verified_empty(client, api, extension):
     path = PREFIX + "team-report"
     extension.result[0]["source_at"] = "2000-01-01T00:00:00Z"
