@@ -72,3 +72,39 @@ explicit environment acceptance gates, not silently passed by the synthetic tool
 No model calls have been made for these new cases. A later report must name phase-1
 and phase-2 hashes/results independently and distinguish offline assertions, model
 behavior, real installed-client discovery and real browser consent.
+
+## Three additional core capabilities for review
+
+Keep these as three focused cases, not a cross-product test matrix. No new model
+runs are authorized by this plan. The two executable fixtures below use the same
+private runner/MCP convention; prepare with `skill_operations_eval.py prepare`,
+`--scenario queue` or `--scenario update`, then score the resulting private trace.
+They do not execute real resource commands or provide a client scheduler.
+
+- [ ] **Alias read, write and clear:** first read the actual public alias, set an
+  explicit harmless value, read back, clear with `alias <node>`, read back again.
+  **Disabled pending real API support:** current Agent `/resources` intentionally
+  omits alias (`resource_api/snapshot.py`, `ALIAS_DOC`); shared-view decoration is
+  not the Agent read contract. Do not fabricate `resources[].alias` in an eval.
+  Add the minimal real API read projection and its regression first, then enable
+  this case. Alias is a shared resource label, not a detailed Agent task note.
+- [x] **Queue progress and approaching expiry, offline fixture:** book is not
+  ownership. The other holder releases before its displayed expiry; poll detects
+  `claimable_by_you` and uses `claim_command`, then verifies own live holding and
+  performs another read with 15 seconds remaining. A supplied 429 requires its
+  `Retry-After` wait; repeated early reads fail the grader. Waiting advances a
+  bounded synthetic clock only. A real client may use a timer only if that client
+  provides one; neither the Skill nor this fixture installs background scheduling.
+- [x] **Previous revision update notice, offline fixture:** a prior successful
+  release is an explicit supplied precondition, not a new model action. The old
+  loaded revision receives the real `skill_update` shape (`update_available`,
+  `current_version`, `reported_version`, `manifest_url`, `skill_url`, instructions).
+  Read the resulting state, guide confirmation/installation of the complete ZIP,
+  retain key and connection bytes, and perform no repeated release or unapproved
+  installation. Server hints do not prove client reload or compel an old client
+  to support updates. A separate authorized install/reload remains a live gate.
+
+The executable checks assert state/trace evidence, not only final-answer wording.
+Final explanation quality, scheduling claims and actual installed-client update
+behavior still require review. Alias acceptance and all model/live-client runs are
+unchecked; offline fixture completion does not close those gates.
