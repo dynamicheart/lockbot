@@ -84,12 +84,14 @@ import { useI18n } from 'vue-i18n'
 import { sourceHealth } from '../utils/utilization/display'
 import { formatResourceTime } from '../utils/resourceTime'
 import { createMetricsPoller } from '../utils/utilization/poller'
+import { createGrantedMetricsCollector } from '../utils/utilization/grants'
 const props = defineProps({
   botId: { type: [String, Number], required: true },
   source: { type: Object, default: null },
   access: { type: Object, default: null },
   nodes: { type: Array, default: () => [] },
   allowed: Boolean,
+  scopeKey: { type: [String, Number], default: '' },
   deviceResources: Boolean,
   authorize: { type: Function, default: null },
 })
@@ -118,28 +120,25 @@ function publish(update = {}) {
   Object.assign(state, update)
   emit('change', { ...state, enabled: !!config.value && props.allowed, config: config.value })
 }
-const poller = createMetricsPoller({
-  collect: async (signal) => {
-    const grant =
-      config.value?.accessMode === 'short_lived' && props.authorize
-        ? await props.authorize(config.value)
-        : props.access
-    if (signal.aborted) throw new ProviderError('timeout')
-    const token = config.value?.accessMode === 'short_lived' ? grant?.token : activeBearer
-    if (config.value?.accessMode === 'short_lived' && !token) throw new ProviderError('grant')
-    return prometheusDatasource.query(config.value, props.nodes, { signal, bearer: token || '' })
-  },
-  publish,
+const collector = createGrantedMetricsCollector({
+  getConfig: () => config.value,
+  getNodes: () => props.nodes,
+  getBearer: () => activeBearer,
+  authorize: (value, options) =>
+    props.authorize ? props.authorize(value, options) : Promise.reject(new ProviderError('grant')),
+  query: (value, nodes, options) => prometheusDatasource.query(value, nodes, options),
 })
+const poller = createMetricsPoller({ collect: collector.collect, publish })
 function sync() {
   if (config.value && props.allowed && !document.hidden) poller.start(config.value.intervalSeconds)
   else poller.stop()
   publish()
 }
 watch(
-  () => JSON.stringify([props.botId, props.source, props.nodes]),
+  () => JSON.stringify([props.botId, props.scopeKey, props.source, props.nodes]),
   () => {
     poller.stop()
+    collector.reset()
     activeBearer = ''
     bearer.value = ''
     authentication.value = false
@@ -153,19 +152,21 @@ watch(
     }
     sync()
   },
-  { immediate: true }
+  { immediate: true, flush: 'sync' }
 )
 watch(
   () => props.allowed,
   (value) => {
     if (!value) {
+      collector.reset()
       activeBearer = ''
       bearer.value = ''
       authentication.value = false
       state.snapshot = null
     }
     sync()
-  }
+  },
+  { flush: 'sync' }
 )
 function applyToken() {
   activeBearer = bearer.value
@@ -178,11 +179,16 @@ watch(authentication, (value) => {
   if (!value) bearer.value = ''
 })
 document.addEventListener('visibilitychange', sync)
+window.addEventListener('pageshow', sync)
+window.addEventListener('focus', sync)
 onBeforeUnmount(() => {
   poller.stop()
   activeBearer = ''
   bearer.value = ''
+  collector.reset()
   document.removeEventListener('visibilitychange', sync)
+  window.removeEventListener('pageshow', sync)
+  window.removeEventListener('focus', sync)
 })
 </script>
 <style scoped>

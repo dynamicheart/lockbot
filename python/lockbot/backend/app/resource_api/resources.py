@@ -42,6 +42,7 @@ from lockbot.backend.app.resource_api.snapshot import (
     ALIAS_DOC,
     LOCK_STATUS_DOC,
     QUEUE_CLAIM_WINDOW_SECONDS,
+    attach_node_aliases,
     build_resources,
     compute_next_event,
     scrub_private,
@@ -221,6 +222,12 @@ def get_resources(
                 from_cache = False
             declarations = declarations_for_state(rows, raw_state, captured_at)
             config = lease.bot.config
+            # Alias writes use configuration rather than the state lock/cache.
+            # Detach this observation while the admitted generation is still held;
+            # it is deliberately not claimed to be atomic with captured_at.
+            configured_aliases = config.get_val("NODE_ALIASES")
+            aliases = configured_aliases.copy() if isinstance(configured_aliases, dict) else {}
+            aliases_observed_at = datetime.now(timezone.utc).isoformat()
             supported = sorted(set(lease.bot.supported_commands()) & AGENT_ALLOWED_COMMANDS)
             early_notify = bool(config.get_val("EARLY_NOTIFY"))
             time_alert = int(config.get_val("TIME_ALERT") or 0)
@@ -238,6 +245,7 @@ def get_resources(
         platform=platform,
         caller_id=actor.external_user_id,
     )
+    attach_node_aliases(resources, aliases)
     from lockbot.backend.app.resource_api.usage import visible_declarations
 
     attach_declarations(resources, visible_declarations(declarations, caller_id=actor.external_user_id))
@@ -285,6 +293,7 @@ def get_resources(
             else None
         ),
         "captured_at": captured_at.isoformat(),
+        "aliases_observed_at": aliases_observed_at,
         "age_seconds": age_seconds,
         "actor": actor.as_payload(),
         "next_event_at": next_event_at,
@@ -299,11 +308,12 @@ def get_resources(
             "lock_status": LOCK_STATUS_DOC,
             "alias": ALIAS_DOC,
             "attribution": (
-                "This snapshot proves what is true at captured_at. It does not attribute "
+                "Lock/queue fields describe captured_at; aliases observe configuration separately "
+                "at aliases_observed_at. This response does not attribute "
                 "state to any particular preceding command."
             ),
             "staleness": (
-                "age_seconds > 0 means this was served from a short-TTL cache. Correct "
+                "age_seconds > 0 means lock/queue state was served from a short-TTL cache. Correct "
                 "remaining_seconds by age_seconds, or prefer the absolute expires_at."
             ),
             "delivery": (

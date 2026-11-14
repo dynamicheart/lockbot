@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 import os
 import re
 import zipfile
@@ -45,10 +46,39 @@ def _skill_artifacts(kind, origin):
     if origin:
         source = f"Deployment Skill URL: `{origin}{prefix}/SKILL.md`."
         markdown = markdown.replace(b"<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->", source.encode("ascii"), 1)
-    version = hashlib.sha256(markdown).hexdigest()[:16]
-    bundle = _zip_skill(markdown, name)
+        endpoints = "\n".join(
+            [
+                "Deployment API addresses (use the verified context links for the bot scope):",
+                f"- Manifest: `GET {origin}{prefix}`",
+                f"- Context: `GET {origin}/api/agent/context`",
+                f"- Complete installation ZIP: `{origin}{prefix}/lockbot-resource-agent.zip`",
+                f"- Resources: `GET {origin}/api/bots/{{bot_id}}/resources`",
+                f"- Commands: `POST {origin}/api/bots/{{bot_id}}/commands`",
+                "  `bot_id` comes from this key's context; do not ask the user to guess it.",
+            ]
+        )
+        markdown = markdown.replace(b"<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->", endpoints.encode("ascii"), 1)
+    extras = {}
+    if kind == "agent":
+        extras["scripts/lockbot_resource.py"] = (
+            files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes()
+        )
+    version = hashlib.sha256(markdown + (b"\0" + extras["scripts/lockbot_resource.py"] if extras else b"")).hexdigest()[
+        :16
+    ]
+    if extras:
+        stamp = {
+            "service_id": "lockbot.resource-api",
+            "api_version": "1",
+            "version": version,
+            "files": {
+                path: hashlib.sha256(content).hexdigest() for path, content in {"SKILL.md": markdown, **extras}.items()
+            },
+        }
+        extras["installation.json"] = json.dumps(stamp, sort_keys=True, separators=(",", ":")).encode()
+    bundle = _zip_skill(markdown, name, extras)
     skill_id = {"agent": "lockbot-resource-agent", "operator": "lockbot-operator-agent"}[kind]
-    installation = _zip_skill(markdown, skill_id)
+    installation = _zip_skill(markdown, skill_id, extras)
     return (
         markdown,
         bundle,
@@ -98,13 +128,14 @@ def client_skill_notice(request):
     }
 
 
-def _zip_skill(markdown, name):
+def _zip_skill(markdown, name, extras=None):
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        entry = zipfile.ZipInfo(f"{name}/SKILL.md", date_time=(1980, 1, 1, 0, 0, 0))
-        entry.compress_type = zipfile.ZIP_DEFLATED
-        entry.external_attr = 0o100644 << 16
-        archive.writestr(entry, markdown)
+        for relative, content in {"SKILL.md": markdown, **(extras or {})}.items():
+            entry = zipfile.ZipInfo(f"{name}/{relative}", date_time=(1980, 1, 1, 0, 0, 0))
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = 0o100644 << 16
+            archive.writestr(entry, content)
     return output.getvalue()
 
 
@@ -128,8 +159,11 @@ def public_skill_manifest(kind, request, response, db):
 
 
 def installation_bundle(kind):
-    markdown, _, meta = skill_artifacts(kind)
-    return _zip_skill(markdown, meta["skill_id"])
+    markdown, bundle, meta = skill_artifacts(kind)
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        prefix = meta["name"] + "/"
+        extras = {path[len(prefix) :]: archive.read(path) for path in archive.namelist() if path != prefix + "SKILL.md"}
+    return _zip_skill(markdown, meta["skill_id"], extras)
 
 
 @router.get("")

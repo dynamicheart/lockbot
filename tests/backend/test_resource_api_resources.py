@@ -132,26 +132,15 @@ class TestShape:
         assert "does not attribute" in _get(client, api).json()["notes"]["attribution"]
 
     def test_alias_non_standard_properties_are_documented(self, client, api):
-        """AC-5.1: all four, plus the fact that alias is absent from this snapshot."""
+        """Alias is a public config observation, with distinct timing and durability."""
         note = _get(client, api).json()["notes"]["alias"]
         assert "bot-GLOBAL" in note
         assert "NOT covered by the bot state lock" in note
         assert "15 characters" in note
         assert "best-effort" in note
         assert "aliases_disabled" in note
-
-    def test_the_snapshot_does_not_cover_alias(self, client, api):
-        """AC-6 negative: an alias lives in configuration, not in lock state."""
-        resp = client.post(
-            f"/api/bots/{api['bot_id']}/commands",
-            headers=api["headers"],
-            json={"command": "alias n1 10.0.0.9"},
-        )
-        assert resp.status_code == 200, resp.text
-        snapshot_cache.clear()
-        raw = _get(client, api).text
-        assert "10.0.0.9" not in raw
-        assert "alias" not in {k for r in _get(client, api).json()["resources"] for k in r}
+        assert "aliases_observed_at" in note
+        assert "does not establish an atomic observation" in note
 
     def test_absence_of_push_delivery_is_stated(self, client, api):
         assert "no push delivery" in _get(client, api).json()["notes"]["delivery"]

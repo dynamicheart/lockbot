@@ -180,10 +180,22 @@ it('shows the custom input browser timezone and clears the previous range', asyn
   expect(text(root)).not.toContain('trafficHistory.metrics.requests')
   expect(api.get).toHaveBeenCalledTimes(1)
 })
-it('uses the common Chinese UTC+8 formatter for history axes', async () => {
-  mocks.locale.value = 'zh'
-  api.get.mockResolvedValueOnce({ data: payload(1) })
-  const { root } = mount()
-  await flush()
-  expect(text(root)).toContain('2026-11-14 09:00:00 UTC+08:00')
+it('uses the browser timezone for history axes independently of UI language', async () => {
+  const resolved = new Intl.DateTimeFormat().resolvedOptions()
+  const zone = vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockReturnValue({
+    ...resolved,
+    timeZone: 'America/Los_Angeles',
+  })
+  try {
+    mocks.locale.value = 'zh'
+    api.get.mockResolvedValueOnce({ data: payload(1) })
+    const { root } = mount()
+    await flush()
+    expect(text(root)).toContain('2026-11-13 17:00:00 UTC-08:00')
+    mocks.locale.value = 'en'
+    await flush()
+    expect(text(root)).toContain('2026-11-13 17:00:00 UTC-08:00')
+  } finally {
+    zone.mockRestore()
+  }
 })

@@ -53,8 +53,10 @@
       <ResourceUtilization
         :key="String(route.params.id)"
         :bot-id="route.params.id"
+        :scope-key="route.params.code || route.query.view || ''"
         :source="snapshot.utilization_config || null"
         :access="snapshot.utilization_access || null"
+        :authorize="authorizeMetrics"
         :nodes="snapshot.resources.map((node) => node.id)"
         :resources="metricResourceIds"
         :allowed="!invalid && !failed && snapshot.health === 'running'"
@@ -180,6 +182,7 @@
 <script setup>
 import { botTypeLabel } from '../utils/helpers'
 import { formatResourceTime } from '../utils/resourceTime'
+import { createViewMetricsAuthorizer } from '../utils/utilization/grants'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -205,8 +208,23 @@ let deadline = 0
 let serverOffset = 0
 let controller = null
 let requestEpoch = 0
+let viewGeneration = 0
+const authorizeMetrics = createViewMetricsAuthorizer({
+  getScope: () =>
+    !invalid.value && token && !expired()
+      ? {
+          botId,
+          token,
+          generation: viewGeneration,
+          source: snapshot.value?.utilization_config,
+          access: snapshot.value?.utilization_access,
+        }
+      : null,
+  denied: () => clear(),
+})
 
 function clear() {
+  viewGeneration++
   controller?.abort()
   requestEpoch++
   snapshot.value = null
