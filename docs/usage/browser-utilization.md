@@ -80,7 +80,7 @@ NODE/QUEUE 整机行也逐张展示上报卡的计算利用率和已用/总显�
 
 浏览器每轮使用一个固定指标白名单的批量查询，按当前 bot 已映射节点过滤；最多 8192 条序列、4 MiB 响应、4 秒源查询 timeout。不得把前端过滤当作授权，数据源入口仍须按读者范围限制查询。
 
-采集器默认每台 5 分钟并错开采样，Prometheus 抓缓存和页面刷新不会触发 SMI。网页建议 60 秒读取一次缓存，660 秒未采样显示过期；失败显示暂不可用，不以缓存旧值证明当前空闲。CPU 利用率由两次计数器差值计算；进程刚退出、PID 变化等均可能造成归属暂时缺失。
+采集器默认每台 5 分钟并错开采样，Prometheus 抓缓存和页面刷新不会触发 SMI。网页默认每 60 秒读取一次缓存，660 秒未采样显示过期。需要修改时，在数据源的「高级配置」填写刷新间隔和数据过期阈值。失败显示暂不可用，不以缓存旧值证明当前空闲。CPU 利用率由两次计数器差值计算；进程刚退出、PID 变化等均可能造成归属暂时缺失。
 
 容器名和主机用户是管理员授权展示的运维归属信息。程序摘要只保留程序/脚本名称，不把秘密参数、环境变量或完整任务命令写入指标。Agent 私人任务备注不会被复制进这里。
 
@@ -125,7 +125,7 @@ CORS 不是权限控制。浏览器中的节点过滤只是节省查询，不是
 
 ### Template setup and troubleshooting
 
-Open the bot detail page → Configuration → Data source. Choose **Lockbot collector** for the unified XPU/GPU/host protocol, **NVIDIA DCGM** for its standard GPU metrics, or **Custom Prometheus** for advanced metric/label overrides. Presets provide metric names, labels and units. Enter the endpoint, then match the already configured bot nodes and devices in the mapping table. Standard device indices are suggestions: verify them against the collector's actual identities. Advanced node JSON import is optional.
+Open the bot detail page → Configuration → Data source. Choose **Lockbot collector** for the unified XPU/GPU/host protocol, **NVIDIA DCGM** for its standard GPU metrics, or **Custom Prometheus** for advanced metric/label overrides. Presets provide metric names, labels and units. Enter the endpoint, then match the already configured bot nodes and devices in the mapping table. Verify the suggested device indices against the collector's actual identities. Under **Advanced settings**, you can import node mappings as JSON and set the polling interval and stale threshold for any template.
 
 Validation queries only the configured node scope from the current browser. Every configured node and device must have fresh, successful samples before saving; failures identify affected resources. Browser network/CORS errors and source authentication errors are reported separately. These checks do not guarantee future reachability. Access credentials remain independent of Lockbot keys; automatic short-lived grants require the existing server/gateway signing configuration described above.
 
