@@ -15,6 +15,7 @@ from lockbot.backend.app.bots.manager import bot_manager
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.snapshot import build_resources
+from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES, UsageDeclaration, holding_proof
 from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.models import ResourceBinding
@@ -87,6 +88,40 @@ def _allocations(resources, subject):
                             }
                         )
     return allocations, complete
+
+
+def _attach_own_tasks(db, binding, captured, state, allocations):
+    holds = {}
+    for allocation in allocations:
+        if allocation["kind"] != "hold":
+            continue
+        node, device = allocation["node"], allocation["device"]
+        resource_id = node if device is None else f"{node}:dev{device}"
+        holds[resource_id] = allocation
+        allocation["own_task"] = None
+    if not holds:
+        return
+    active = (
+        db.query(UsageDeclaration)
+        .filter(
+            UsageDeclaration.bot_id == binding.bound_bot_id,
+            UsageDeclaration.binding_id == binding.id,
+            UsageDeclaration.expires_at > captured.replace(tzinfo=None),
+        )
+        .yield_per(128)
+    )
+    for note in active:
+        if note.resource_id not in holds:
+            continue
+        if note.holding_proof != holding_proof(
+            state, note.resource_id, binding.external_user_id, now=captured.timestamp()
+        ):
+            continue
+        holds[note.resource_id]["own_task"] = {
+            "category": TASK_CATEGORIES.get(note.task_category),
+            "note": note.purpose,
+            "agent_label": note.agent_label,
+        }
 
 
 class NativeProvider:
@@ -299,12 +334,14 @@ class NativeProvider:
                     allocations, complete = _allocations(resources, row.external_user_id)
                     age = (datetime.now(timezone.utc) - captured).total_seconds()
                     healthy = (lease.health or bot.status) == "running"
+                    known = complete and healthy and -30 <= age <= 60
+                    if known:
+                        _attach_own_tasks(db, row, captured, state, allocations)
                     # Read a new transaction even if another database writer bypassed
                     # this process's authority guard while the snapshot was assembled.
                     db.rollback()
                     db.expire_all()
                     self._validated(db, grant)
-                    known = complete and healthy and -30 <= age <= 60
                     return [
                         {
                             "label": bot.name,

@@ -621,6 +621,16 @@ def create_panel(
         if not valid(grant):
             raise HTTPException(403, "Binding changed")
         for group in data:
+            if (not native_connections or source is not provider) and isinstance(group.get("allocations"), list):
+                group = {
+                    **group,
+                    "allocations": [
+                        {field: value for field, value in row.items() if field != "own_task"}
+                        if isinstance(row, dict)
+                        else row
+                        for row in group["allocations"]
+                    ],
+                }
             key = (
                 id(source),
                 grant["issuer"],

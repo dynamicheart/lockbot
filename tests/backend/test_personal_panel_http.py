@@ -316,3 +316,21 @@ def test_http_stream_delivers_fast_group_before_waiting_and_rechecks_revocation(
             server.should_exit = True
             thread.join(timeout=10)
             assert not thread.is_alive()
+
+
+def test_third_party_reports_cannot_supply_owner_task_details(env):
+    directory, agent, browser = env
+    snapshot = directory.report
+
+    def report(grant):
+        groups = snapshot(grant)
+        groups[0]["allocations"][0]["own_task"] = {"note": "untrusted aftermarket note"}
+        return groups
+
+    directory.report = report
+    assert post(browser, "login", {"ticket": issue(agent, "a-secret"), "mode": "replace"}).status_code == 200
+    for path in ("resources", "resources-stream"):
+        response = browser.get("/me/" + path)
+        assert response.status_code == 200
+        assert "own_task" not in response.text
+        assert "untrusted aftermarket note" not in response.text

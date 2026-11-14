@@ -272,6 +272,7 @@ def test_group_query_appends_link_outside_state_lock(api):
 def test_signed_group_query_and_personal_context_share_the_same_link(client, fakeim_api, db_session, monkeypatch):
     from fake_adapter import VALID_SIGNATURE, encode_message
     from lockbot.backend.app.settings.models import SiteSetting
+    from lockbot.core.message_adapter import ReplyLink
 
     bot_id, bot = fakeim_api["bot_id"], fakeim_api["bot"]
     row = db_session.get(Bot, bot_id)
@@ -294,7 +295,7 @@ def test_signed_group_query_and_personal_context_share_the_same_link(client, fak
     assert db_session.query(BotViewWindow).count() == 0
     assert message("").status_code == 200
     sent = fakeim_api["bot"].adapter.sent[-1]
-    url = next(part[1] for part in sent["envelope"]["segments"] if isinstance(part, tuple))
+    url = next(part.url for part in sent["envelope"]["segments"] if isinstance(part, ReplyLink))
     assert url.startswith(f"http://testserver/#/r/{bot_id}/")
 
     issued = client.post("/api/resource-auth/bindings", json={}).json()
