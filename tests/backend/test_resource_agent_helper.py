@@ -4,6 +4,8 @@ import hashlib
 import importlib.util
 import io
 import json
+import subprocess
+import sys
 import threading
 import urllib.parse
 import zipfile
@@ -505,3 +507,17 @@ def test_incompatible_python_refuses_before_client_or_network(monkeypatch, capsy
     monkeypatch.setattr(helper, "Client", lambda *_args, **_kwargs: pytest.fail("must not construct a client"))
     assert helper.main(["resources"]) == 2
     assert "helper_requires_python_3_10_or_newer" in capsys.readouterr().err
+
+
+def test_packaged_cli_runs_without_site_packages_and_redacts_credentials(case):
+    result = subprocess.run(
+        [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH), "--connection", str(case.path), "context"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["result"]["bot"]["uuid"] == "bot-a"
+    assert KEY not in result.stdout + result.stderr and "metrics-grant-1" not in result.stdout
