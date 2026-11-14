@@ -31,7 +31,7 @@
     >
       <el-table-column
         :label="$t('resourceView.resource')"
-        :width="$slots.metrics ? Math.max(120, Math.round(tableWidth * 0.15)) : 160"
+        :width="$slots.metrics ? Math.min(160, Math.max(120, Math.round(tableWidth * 0.15))) : 160"
       >
         <template #default="{ row }">
           <div class="resource-identity" :data-resource-id="row.id">
@@ -47,7 +47,9 @@
       </el-table-column>
       <el-table-column
         :label="$t('resourceView.currentHolder')"
-        :width="$slots.metrics ? Math.max(180, Math.round(tableWidth * 0.2)) : undefined"
+        :width="
+          $slots.metrics ? Math.min(220, Math.max(180, Math.round(tableWidth * 0.2))) : undefined
+        "
         min-width="230"
       >
         <template #default="{ row }">
@@ -68,7 +70,9 @@
       </el-table-column>
       <el-table-column
         :label="$t('resourceView.queue')"
-        :width="$slots.metrics ? Math.max(200, Math.round(tableWidth * 0.23)) : undefined"
+        :width="
+          $slots.metrics ? Math.min(240, Math.max(200, Math.round(tableWidth * 0.23))) : undefined
+        "
         min-width="280"
       >
         <template #default="{ row }">

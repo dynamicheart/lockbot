@@ -20,7 +20,12 @@ from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.resources import snapshot_cache
 from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
-from lockbot.backend.app.resource_api.view_links import compact_view_path, verify_view
+from lockbot.backend.app.resource_api.view_links import (
+    compact_view_path,
+    public_window_expiry,
+    verify_view,
+    window_expiry,
+)
 from lockbot.core.platforms.registry import normalize_platform_name
 
 router = APIRouter(prefix="/api/bot-views", tags=["Read-only resource view"])
@@ -83,7 +88,7 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
         "name": bot.name,
         "bot_type": bot.bot_type,
         "server_time": _iso(utcnow()),
-        "view_expires_at": _iso(window.expires_at),
+        "view_expires_at": public_window_expiry(window),
         "view_path": compact_view_path(db, window),
     }
     try:
@@ -132,14 +137,14 @@ def view_state(bot_id: int, request: Request, response: Response, db: Session = 
             from lockbot.core.resource_policy import public_policy
 
             return {
-                "utilization_access": issue_metrics_access(db, bot, expires_at=window.expires_at),
+                "utilization_access": issue_metrics_access(db, bot, expires_at=window_expiry(window)),
                 "utilization_config": public_datasource(bot),
                 "resource_policy": public_policy(state, lease.bot.config, now=captured_at.timestamp()),
                 **metadata,
                 "name": bot.name,
                 "health": lease.health or bot.status,
                 "server_time": _iso(utcnow()),
-                "view_expires_at": _iso(window.expires_at),
+                "view_expires_at": public_window_expiry(window),
                 "view_path": compact_view_path(db, window),
                 "captured_at": captured_at.isoformat(),
                 "age_seconds": max(0, (datetime.now(timezone.utc) - captured_at).total_seconds()),
