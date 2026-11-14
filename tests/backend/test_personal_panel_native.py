@@ -5,14 +5,19 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import jwt
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.personal_panel import native
+from lockbot.backend.app.personal_panel.router import create_panel
 from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
 
+from backend.test_metrics_access import signing_key, source
 from backend.test_resource_api_resources import api  # noqa: F401
 
 
@@ -162,6 +167,50 @@ def test_unavailable_group_remains_unknown_with_stable_group_id(panel, api):
     after = provider.report(grant)[0]
     assert after["status"] == "unknown" and after["allocations"] == []
     assert after["group_id"] == before["group_id"]
+
+
+def test_panel_metrics_are_issued_only_for_current_native_holdings(
+    panel, api, client, db_session, tmp_path, monkeypatch
+):
+    provider, grant = panel
+    signing_key(tmp_path, monkeypatch)
+    origin = provider.config["issuer"]
+    provider.config["enable_utilization"] = True
+    config = {**source(), "nodeMapping": {"n1": "host-a", "n2": "host-b"}}
+    bot_url = f"/api/bots/{api['bot_id']}"
+    assert client.put(bot_url, headers=api["auth_header"], json={"utilization_config": config}).status_code == 200
+    parent = FastAPI()
+    parent.mount("/me", create_panel(origin, tmp_path / "panel.db", provider))
+    agent = TestClient(parent, base_url=origin)
+    browser = TestClient(parent, base_url=origin)
+    link = agent.post("/me/links", headers=api["headers"])
+    ticket = link.json()["login_url"].split("?ticket=", 1)[1]
+    assert (
+        browser.post("/me/login", headers={"Origin": origin}, json={"ticket": ticket, "mode": "replace"}).status_code
+        == 200
+    )
+    path = "/me/utilization/"
+    assert agent.get(path + "unknown").status_code == 401
+    assert browser.get(path + "unknown").status_code == 404
+    assert "utilization" not in browser.get("/me/resources").json()["groups"][0]
+    assert client.post(bot_url + "/commands", headers=api["headers"], json={"command": "lock n1 2m"}).status_code == 200
+    group = browser.get("/me/resources").json()["groups"][0]
+    details = group["utilization"]
+    assert set(details) == {"connection", "configuration"}
+    response = browser.get(path + details["connection"])
+    assert response.status_code == 200, response.text
+    assert "no-store" in response.headers["Cache-Control"]
+    access = response.json()["access"]
+    claims = jwt.decode(access["token"], b"x" * 64, algorithms=["HS256"], audience=config["endpoint"])
+    assert claims["nodes"] == ["host-a"]
+    assert claims["exp"] <= datetime.fromisoformat(group["allocations"][0]["expires_at"]).timestamp()
+
+    assert client.post(bot_url + "/commands", headers=api["headers"], json={"command": "free n1"}).status_code == 200
+    assert browser.get(path + details["connection"]).status_code == 404
+    row = _binding(db_session, grant)
+    row.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db_session.commit()
+    assert browser.get(path + details["connection"]).status_code == 404
 
 
 def test_revocation_during_snapshot_is_rechecked(panel, api, session_factory, monkeypatch):

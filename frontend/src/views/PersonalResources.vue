@@ -88,6 +88,18 @@
         <PersonalConnectionHandoff :authenticated="false" />
       </section>
       <template v-else-if="tab === 'mine'">
+        <ResourceUtilization
+          v-for="{ connection, configuration, nodes } in utilizationGroups"
+          :key="connection"
+          :bot-id="connection"
+          :scope-key="connection"
+          :source="configuration"
+          :nodes="nodes"
+          :authorize="(source, options) => authorizeUtilization(connection, source, options)"
+          :allowed="!ticket && session.authenticated"
+          hide-toolbar
+          @change="updateUtilizationSnapshot(connection, $event)"
+        />
         <p v-if="resourceLoading" class="resource-loading" role="status">
           <template v-if="reportProgress.total">
             正在读取资源 · {{ reportProgress.done }} / {{ reportProgress.total }} 个来源
@@ -187,12 +199,24 @@
                 </template>
               </el-table-column>
               <el-table-column
-                v-if="$slots.metrics && section.label === '持有资源'"
+                v-if="section.label === '持有资源' && ($slots.metrics || utilizationGroups.length)"
                 label="利用率"
                 min-width="235"
               >
                 <template #default="{ row }">
-                  <slot v-if="fresh(row.group)" name="metrics" :row="row" />
+                  <slot v-if="fresh(row.group)" name="metrics" :row="row">
+                    <ResourceMetricsCell
+                      v-if="utilizationSnapshots[row.group.utilization?.connection]?.enabled"
+                      v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                      :node-id="row.allocation.node"
+                      :resource-id="
+                        row.allocation.device == null
+                          ? null
+                          : `${row.allocation.node}:dev${row.allocation.device}`
+                      "
+                    />
+                    <span v-else class="scope">未提供</span>
+                  </slot>
                 </template>
               </el-table-column>
             </el-table>
@@ -308,6 +332,10 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowDown, User } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
+import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
+import ResourceUtilization from '../components/ResourceUtilization.vue'
+import { datasourceIdentity } from '../utils/utilization/grants'
+import { ProviderError } from '../utils/utilization/prometheus'
 import AnimatedResourceCount from '../components/AnimatedResourceCount.vue'
 import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.vue'
 import PersonalCredentialView from '../components/PersonalCredentialView.vue'
@@ -337,6 +365,48 @@ const knownGroups = computed(() => groups.value.filter(fresh))
 const ownTasksAvailable = computed(() =>
   knownGroups.value.some((group) => entries(group).some((allocation) => 'own_task' in allocation))
 )
+const utilizationSnapshots = ref({})
+const utilizationGroups = computed(() =>
+  knownGroups.value
+    .filter((group) => group.utilization?.configuration && group.utilization.connection)
+    .map((group) => ({
+      ...group.utilization,
+      nodes: [
+        ...new Set(
+          entries(group)
+            .filter((entry) => !queued(entry))
+            .map((entry) => entry.node)
+        ),
+      ]
+        .filter((node) => group.utilization.configuration.nodeMapping[node])
+        .sort(),
+    }))
+    .filter(({ nodes }) => nodes.length)
+)
+watch(
+  utilizationGroups,
+  (active) => {
+    const recognized = new Set(active.map(({ connection }) => connection))
+    for (const id of Object.keys(utilizationSnapshots.value)) {
+      if (!recognized.has(id)) delete utilizationSnapshots.value[id]
+    }
+  },
+  { flush: 'sync' }
+)
+function updateUtilizationSnapshot(connection, snapshot) {
+  if (utilizationGroups.value.some((item) => item.connection === connection)) {
+    utilizationSnapshots.value[connection] = snapshot
+  }
+}
+async function authorizeUtilization(connection, source, { signal }) {
+  const result = await api('utilization/' + encodeURIComponent(connection), undefined, signal)
+  if (
+    !utilizationGroups.value.some((item) => item.connection === connection) ||
+    datasourceIdentity(result.configuration) !== datasourceIdentity(source)
+  )
+    throw new ProviderError('grant')
+  return result.access
+}
 const pendingGroups = computed(() => groups.value.length - knownGroups.value.length)
 const allocationSections = computed(() => {
   const rows = groups.value.flatMap((group) =>

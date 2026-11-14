@@ -101,6 +101,8 @@ NODE/QUEUE 整机行也逐张展示上报卡的计算利用率和已用/总显�
 
 对第三方数据源保留 `accessMode: independent`，使用源自己的独立凭证，不要求第三方接受本协议。源故障/授权失败都只影响指标，Lockbot 资源功能保持可用。
 
+个人资源台的原生部署可在 `LOCKBOT_PERSONAL_PANEL_CONFIG` 的 `provider` 中设置 `"enable_utilization": true`。浏览器用原生绑定请求短期授权。每次签发时重新核对当前持有的映射节点，到期时间受浏览器会话、个人 Key 和持有期限约束。指标网关按节点授权，按卡机器人在个人资源台只展示本人持有的卡。授权范围内可能包含容器和主机用户信息，管理员应按数据源可见性要求决定是否开启。释放或撤销绑定后，已经签发的短期授权在到期前仍可被网关接受。外部报表接入使用自己的展示能力。
+
 ## CORS、认证与负载
 
 提供方需要允许网页 origin（含协议和端口）及 POST；如果使用 Bearer token，还需正确响应 `OPTIONS` 并允许 `Authorization` 和表单内容类型。浏览器请求使用 `credentials: omit`，不携带页面 cookies，也不支持将网页登录 cookies 自动转给 Prometheus。请使用提供方自己的只读短期 Token 或合适的访问入口。

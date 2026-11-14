@@ -1,6 +1,8 @@
 <template>
   <div v-if="enabled" class="resource-metrics">
-    <span v-if="error" class="is-muted">{{ $t('utilization.unavailable') }}</span>
+    <span v-if="error" class="is-muted" :title="$t('utilization.contactAdmin')">{{
+      $t('utilization.unavailable')
+    }}</span>
     <template v-else>
       <div v-if="host && !resourceId" class="host-metrics">
         <span :title="$t('utilization.hostMemory') + ': ' + memoryText(host)">
@@ -37,7 +39,7 @@
             </template>
           </div>
           <el-popover
-            v-if="card.processes?.length || card.processesTruncated"
+            v-if="state(card.processSample) === 'ok'"
             trigger="click"
             popper-class="resource-process-popover"
             placement="bottom-end"

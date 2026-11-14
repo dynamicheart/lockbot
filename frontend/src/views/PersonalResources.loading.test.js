@@ -153,6 +153,28 @@ async function readyGroups(groups) {
   return state
 }
 
+it('polls mapped holdings and drops the snapshot when the holding or scope disappears', async () => {
+  const utilization = {
+    connection: 'binding-a',
+    configuration: { nodeMapping: { 'node-a': 'host-a', 'node-b': 'host-b' } },
+  }
+  const group = {
+    ...confirmed,
+    utilization,
+    allocations: [
+      ...confirmed.allocations,
+      { kind: 'hold', node: 'unmapped' },
+      { kind: 'reservation', node: 'node-b' },
+    ],
+  }
+  const state = await readyGroups([group])
+  expect(state.utilizationGroups).toEqual([{ ...utilization, nodes: ['node-a'] }])
+  state.utilizationSnapshots['binding-a'] = { enabled: true, snapshot: {} }
+  state.groups = [{ ...group, status: 'unknown' }]
+  expect(state.utilizationGroups).toEqual([])
+  expect(state.utilizationSnapshots).toEqual({})
+})
+
 it('uses loading placeholders initially and shows a confirmed zero after an empty response', async () => {
   let finish
   vi.stubGlobal(

@@ -10,7 +10,7 @@ from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.metrics_signers import select_metrics_signer
 
 
-def issue_metrics_access(db, bot, source=None, *, expires_at=None):
+def issue_metrics_access(db, bot, source=None, *, expires_at=None, resource_nodes=None):
     source = source or public_datasource(bot)
     if not source or source.get("accessMode", "independent") != "short_lived":
         return None
@@ -40,7 +40,7 @@ def issue_metrics_access(db, bot, source=None, *, expires_at=None):
         mapping = source.get("nodeMapping", {})
         if set(mapping) - configured:
             return None
-        nodes = sorted(set(mapping.values()))
+        nodes = sorted({label for node, label in mapping.items() if resource_nodes is None or node in resource_nodes})
         if not nodes or len(nodes) > 512:
             return None
     except (TypeError, ValueError, AttributeError):
