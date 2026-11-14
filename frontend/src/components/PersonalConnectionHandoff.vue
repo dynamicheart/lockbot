@@ -1,58 +1,113 @@
 <template>
-  <section v-if="supported || loading || error || authenticated" class="panel native-connections">
-    <template v-if="supported || loading || error">
-      <div class="connection-heading">
-        <h2>已识别的凭证</h2>
-        <div class="credential-actions">
-          <button
-            v-if="items.length > 1"
-            class="connection-button primary"
-            :disabled="loading"
-            @click="copyAllInstructions"
-          >
-            复制全部接入说明
-          </button>
-          <button class="connection-button" :disabled="loading" @click="refresh">刷新授权</button>
-        </div>
+  <section
+    v-if="supported || loading || error"
+    class="native-connections"
+    aria-labelledby="agent-credentials"
+  >
+    <div class="connection-heading credential-overview">
+      <div>
+        <h2 id="agent-credentials">Agent 凭证</h2>
+        <p v-if="supported && authenticated && !loading && !error" class="scope">
+          {{ items.length }} 个凭证 · {{ boundGroupCount }} 个绑定群
+        </p>
       </div>
-      <p v-if="loading" role="status" class="scope">正在检查授权…</p>
-      <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
-      <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
-      <template v-if="supported && authenticated && !loading && !error">
-        <dl class="credential-summary">
-          <div>
-            <dt>已识别 Key</dt>
-            <dd>{{ items.length }}</dd>
-          </div>
-          <div>
-            <dt>绑定资源群</dt>
-            <dd>{{ boundGroupCount }}</dd>
-          </div>
-        </dl>
-        <p class="scope">按群复制接入说明给 Agent。Key 请通过私密渠道单独提供。</p>
-      </template>
-      <div v-for="item in items" :key="item.id" class="connection-entry">
-        <div class="connection-heading">
-          <div>
-            <h3>{{ item.bot.name }}</h3>
-            <p class="scope">
-              {{ platformName(item.actor.platform) }} · {{ item.actor.external_user_id }}
-            </p>
-          </div>
-          <button
-            class="connection-button primary"
-            :disabled="loading"
-            @click="copyInstructions(item)"
-          >
-            复制给 Agent
-          </button>
-        </div>
-        <details class="credential-details">
-          <summary>凭证管理与恢复</summary>
-          <p class="scope">
-            {{ item.service_origin }} · {{ healthText(item.credential_recovery_health)
-            }}<template v-if="item.expires_at"> · {{ expiryText(item.expires_at) }}</template>
-          </p>
+      <div class="credential-actions">
+        <button
+          v-if="items.length > 1"
+          class="connection-button primary"
+          :disabled="loading"
+          @click="copyAllInstructions"
+        >
+          复制全部接入说明
+        </button>
+        <button v-if="authenticated" class="connection-button" :disabled="loading" @click="refresh">
+          刷新状态
+        </button>
+        <span v-if="feedbackTarget === 'all'" class="copy-status" role="status">{{
+          feedback
+        }}</span>
+      </div>
+    </div>
+    <p v-if="loading" role="status" class="scope">正在检查授权…</p>
+    <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
+    <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
+    <p v-if="items.length" class="scope">接入说明可发给多个 Agent，内容不含 Key。</p>
+    <p v-else-if="supported && authenticated && !error && !loading" class="scope">
+      当前浏览器没有可用的 Agent 凭证。可通过已绑定的 Agent 添加资源群。
+    </p>
+    <table v-if="items.length" class="credential-table" aria-label="Agent 凭证列表">
+      <thead>
+        <tr>
+          <th scope="col">资源群</th>
+          <th scope="col">绑定身份</th>
+          <th scope="col">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template v-for="item in items" :key="item.id">
+          <tr class="connection-entry">
+            <th scope="row">{{ item.bot.name }}</th>
+            <td class="credential-identity">
+              <span>{{ item.actor.external_user_id }}</span>
+              <small>
+                {{ platformName(item.actor.platform) }}
+                <template v-if="item.expires_at"> · {{ expiryText(item.expires_at) }}</template>
+              </small>
+            </td>
+            <td class="credential-controls">
+              <div class="credential-actions">
+                <button
+                  class="connection-button primary"
+                  :disabled="loading"
+                  @click="copyInstructions(item)"
+                >
+                  复制接入说明
+                </button>
+                <button
+                  class="connection-button"
+                  aria-haspopup="dialog"
+                  :aria-label="`${item.bot.name}的详情`"
+                  @click="openDetails(item)"
+                >
+                  详情
+                </button>
+              </div>
+              <span v-if="feedbackTarget === item.id" class="copy-status" role="status">{{
+                feedback
+              }}</span>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <el-dialog
+      v-model="detailsOpen"
+      :title="selectedItem?.bot.name || '凭证详情'"
+      width="min(620px, calc(100% - 24px))"
+      append-to-body
+      destroy-on-close
+    >
+      <div v-if="selectedItem" class="credential-dialog">
+        <template v-for="item in [selectedItem]" :key="item.id">
+          <dl class="credential-facts">
+            <div>
+              <dt>绑定身份</dt>
+              <dd>{{ item.actor.external_user_id }} · {{ platformName(item.actor.platform) }}</dd>
+            </div>
+            <div>
+              <dt>有效期</dt>
+              <dd>{{ expiryText(item.expires_at) }}</dd>
+            </div>
+            <div>
+              <dt>服务地址</dt>
+              <dd>{{ item.service_origin }}</dd>
+            </div>
+            <div>
+              <dt>恢复状态</dt>
+              <dd>{{ healthText(item.credential_recovery_health) }}</dd>
+            </div>
+          </dl>
+          <PersonalAgentActivity v-if="item.agentActivity" :activity="item.agentActivity" />
           <p
             v-if="['legacy_missing', 'unreadable'].includes(item.credential_recovery_health)"
             class="connection-warning"
@@ -66,7 +121,7 @@
               :disabled="loading"
               @click="copyViewRequest(item)"
             >
-              复制查看 Key 请求
+              请求查看 Key
             </button>
             <button
               v-if="rotationSupported"
@@ -74,48 +129,50 @@
               :disabled="loading"
               @click="copyRotationRequest(item)"
             >
-              复制重置 Key 请求
+              请求重置 Key
             </button>
             <button
-              v-if="item.recovery_instructions"
+              v-if="item.recovery_instructions || skill"
               class="connection-button"
               @click="copyConnectionRecovery(item)"
             >
               复制恢复指引
             </button>
           </div>
-          <p v-if="item.skill" class="scope">
-            <a :href="item.skill.bundle_url" target="_blank" rel="noopener noreferrer"
+          <span v-if="feedbackTarget === item.id + '-more'" class="copy-status" role="status">{{
+            feedback
+          }}</span>
+          <p v-if="rotationSupported" class="scope">重置后，使用此 Key 的所有 Agent 都需要更新。</p>
+          <p v-if="item.skill || skill" class="scope">
+            <a :href="(item.skill || skill).bundle_url" target="_blank" rel="noopener noreferrer"
               >下载 Skill</a
             >
             ·
-            <a :href="item.skill.markdown_url" target="_blank" rel="noopener noreferrer"
+            <a :href="(item.skill || skill).markdown_url" target="_blank" rel="noopener noreferrer"
               >SKILL.md</a
             >
           </p>
-          <details>
-            <summary>接入说明与连接标识</summary>
-            <textarea
-              readonly
-              :value="item.instructions"
-              :aria-label="`${item.bot.name} 的无 Key 接入说明`"
-            />
-            <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
-          </details>
-        </details>
-        <PersonalAgentActivity v-if="item.agentActivity" :activity="item.agentActivity" />
+          <textarea
+            readonly
+            :value="item.instructions"
+            :aria-label="`${item.bot.name} 的无 Key 接入说明`"
+          />
+          <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
+        </template>
       </div>
-      <details v-if="supported && skill" class="connection-recovery">
-        <summary>如何找回连接</summary>
-        <button class="connection-button" @click="copyRecovery">复制恢复指引</button>
-        <textarea readonly :value="recoveryGuide" aria-label="无 Key 恢复指引" />
-        <a :href="skill.bundle_url" target="_blank" rel="noopener noreferrer">下载 Skill</a>
-      </details>
-      <p v-if="feedback" role="status" class="scope">{{ feedback }}</p>
-    </template>
-    <p v-else class="connection-owner">
-      此页面可以查看资源。要查看或更换 Key，请使用原来绑定资源群的 Agent。
-    </p>
+      <template #footer>
+        <el-button @click="detailsOpen = false">关闭</el-button>
+      </template>
+    </el-dialog>
+    <details v-if="supported && skill && !items.length" class="connection-recovery">
+      <summary>如何找回连接</summary>
+      <button class="connection-button" @click="copyRecovery">复制恢复指引</button>
+      <span v-if="feedbackTarget === 'recovery'" class="copy-status" role="status">{{
+        feedback
+      }}</span>
+      <textarea readonly :value="recoveryGuide" aria-label="无 Key 恢复指引" />
+      <a :href="skill.bundle_url" target="_blank" rel="noopener noreferrer">下载 Skill</a>
+    </details>
   </section>
 </template>
 
@@ -139,6 +196,15 @@ const loading = ref(false)
 const unavailable = ref(false)
 const error = ref('')
 const feedback = ref('')
+const feedbackTarget = ref('')
+const selectedId = ref('')
+const detailsOpen = ref(false)
+const selectedItem = computed(() => items.value.find(({ id }) => id === selectedId.value))
+function openDetails(item) {
+  selectedId.value = item.id
+  detailsOpen.value = true
+}
+let copySequence = 0
 let epoch = 0,
   controller,
   timeout,
@@ -260,7 +326,8 @@ async function refresh() {
   const current = () => run === epoch && !disposed && !signal.aborted
   items.value = []
   unavailable.value = false
-  error.value = feedback.value = ''
+  error.value = feedback.value = feedbackTarget.value = selectedId.value = ''
+  detailsOpen.value = false
   loading.value = true
   try {
     const capabilities = await read('capabilities', signal)
@@ -352,21 +419,29 @@ async function refresh() {
     }
   }
 }
-async function copy(value, limit) {
+async function copy(value, limit, target) {
   const run = epoch
+  const sequence = ++copySequence
+  const current = () => run === epoch && sequence === copySequence && !disposed
   if (!supported.value || !safeText(value, limit)) return
   try {
     if (navigator.clipboard?.writeText) {
       try {
         await navigator.clipboard.writeText(value)
       } catch {
-        if (run !== epoch || disposed) return
+        if (!current()) return
         fallbackCopy(value)
       }
     } else fallbackCopy(value)
-    if (run === epoch && !disposed) feedback.value = '已复制无 Key 说明，可发送给 Agent。'
+    if (current()) {
+      feedbackTarget.value = target
+      feedback.value = '已复制无 Key 说明'
+    }
   } catch {
-    if (run === epoch && !disposed) feedback.value = '复制失败，请展开说明并手动复制。'
+    if (current()) {
+      feedbackTarget.value = target
+      feedback.value = '复制失败，请稍后重试。'
+    }
   }
 }
 async function copyViewRequest(item) {
@@ -383,7 +458,9 @@ async function copyViewRequest(item) {
       '请使用这一连接已有的有效原 Key，在可信服务调用 POST /api/personal-panel/credential-view-links 签发 view_current_key 单次查看授权；' +
       '只私下交给本人返回的短期 view_url，由本人在已有同身份浏览器会话预览后明确确认。' +
       '不要回显 Key，不把链接放群聊，不把只读登录或资源链接升级为查看票；不重置、轮换、重新绑定或延长授权。' +
-      '若原 Key 已过期、撤销或身份迁移，拒绝签发并给固定恢复指引；副本缺失时保留有效本地 Key。'
+      '若原 Key 已过期、撤销或身份迁移，拒绝签发并给固定恢复指引；副本缺失时保留有效本地 Key。',
+    undefined,
+    item.id + '-more'
   )
 }
 async function copyRotationRequest(item) {
@@ -405,7 +482,9 @@ async function copyRotationRequest(item) {
       '本人准备评审这一个绑定的 Key 重置：它将使使用此身份在此群旧 Key 的所有 Agent 失效，需逐个更新。' +
       '请仅用这一个连接当前有效原 lbr，通过可信服务 POST /api/personal-panel/credential-rotation-links 签发独立 rotate_current_key 短期链接，私下交本人。' +
       '不得用只读会话、登录票、查看票或其它群 Key 升级；过期、撤销或迁移的原 Key 必须拒绝并给恢复指引。' +
-      '先由本人在浏览器预览具体群和身份、输入完整群名并二次确认，不能替本人自动确认或重放提交；不延长原到期时间，不改其它连接，不在说明中回显 Key。'
+      '先由本人在浏览器预览具体群和身份、输入完整群名并二次确认，不能替本人自动确认或重放提交；不延长原到期时间，不改其它连接，不在说明中回显 Key。',
+    undefined,
+    item.id + '-more'
   )
 }
 function fallbackCopy(value) {
@@ -422,7 +501,7 @@ function fallbackCopy(value) {
 }
 function copyInstructions(item) {
   if (!props.authenticated || loading.value || !items.value.includes(item)) return
-  return copy(item.instructions)
+  return copy(item.instructions, undefined, item.id)
 }
 function copyAllInstructions() {
   if (!props.authenticated || loading.value || items.value.length < 2) return
@@ -433,14 +512,14 @@ function copyAllInstructions() {
     `个人资源台：${workbench}`,
   ].join('\n')
   const instructions = items.value.map((item, index) => `${index + 1}. ${item.instructions}`)
-  return copy([introduction, ...instructions].join('\n\n'), 400000)
+  return copy([introduction, ...instructions].join('\n\n'), 400000, 'all')
 }
 function copyConnectionRecovery(item) {
   if (!props.authenticated || loading.value || !items.value.includes(item)) return
-  return copy(item.recovery_instructions)
+  return copy(item.recovery_instructions || recoveryGuide.value, undefined, item.id + '-more')
 }
 function copyRecovery() {
-  return copy(recoveryGuide.value)
+  return copy(recoveryGuide.value, undefined, 'recovery')
 }
 function healthText(value) {
   return (
@@ -467,103 +546,171 @@ onBeforeUnmount(() => {
 <style scoped>
 .native-connections {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+  min-width: 0;
 }
+.native-connections h2,
+.native-connections h3,
 .native-connections .scope {
   margin: 0;
 }
-.credential-summary {
+.credential-overview .scope,
+.credential-identity .scope {
+  margin-top: 5px;
+}
+.connection-heading,
+.credential-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px clamp(24px, 7vw, 72px);
-  margin: 0;
-  padding: 12px 16px;
-  border-radius: 6px;
-  background: var(--el-fill-color-light);
+  align-items: center;
+  gap: 8px;
 }
-.credential-summary dt {
+.connection-heading {
+  justify-content: space-between;
+}
+.credential-table {
+  width: 100%;
+  table-layout: fixed;
+  border-spacing: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--el-bg-color);
+  overflow: hidden;
+}
+.credential-table thead {
+  background: var(--el-fill-color-light);
   color: var(--muted);
   font-size: 13px;
 }
-.credential-summary dd {
-  margin: 4px 0 0;
-  font-size: 24px;
-  font-weight: 650;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
+.credential-table thead th:last-child {
+  width: 240px;
 }
-.connection-heading {
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.connection-entry {
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 9px 12px;
-  align-items: center;
-}
-.connection-entry > .connection-heading,
-.connection-entry > p,
-.connection-entry > details {
-  flex-basis: 100%;
-  min-width: 0;
+.credential-table th,
+.credential-table td {
+  padding: 10px 14px;
+  text-align: left;
   overflow-wrap: anywhere;
 }
-.connection-state {
+.credential-table tbody tr > * {
+  border-top: 1px solid var(--line);
+}
+.credential-table tbody th {
+  font-size: 15px;
+}
+.credential-identity small {
+  display: block;
+  margin-top: 3px;
+}
+.credential-dialog {
+  --line: var(--el-border-color);
+  --muted: var(--el-text-color-secondary);
+  display: grid;
+  gap: 12px;
+  overflow-wrap: anywhere;
+  max-height: 58vh;
+  overflow-y: auto;
+}
+.credential-dialog p,
+.credential-facts,
+.credential-facts dd {
+  margin: 0;
+}
+.credential-facts {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+}
+.credential-facts dt {
   color: var(--muted);
   font-size: 12px;
 }
+.credential-facts dd {
+  font-size: 14px;
+  margin-top: 2px;
+}
+.connection-recovery[open] > :not(:last-child) {
+  margin-bottom: 9px;
+}
+.connection-recovery > summary {
+  cursor: pointer;
+  padding-block: 6px;
+  color: var(--muted);
+}
+.credential-controls .copy-status {
+  display: block;
+  margin-top: 4px;
+}
+@media (max-width: 580px) {
+  .credential-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .credential-table tbody,
+  .credential-table tr,
+  .credential-table td,
+  .credential-table tbody th {
+    display: block;
+  }
+  .credential-table .connection-entry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    border-top: 1px solid var(--line);
+    padding: 9px 10px;
+    gap: 7px;
+    align-items: start;
+  }
+  .credential-table tbody tr:first-child {
+    border-top: 0;
+  }
+  .credential-table .connection-entry > * {
+    border-top: 0;
+    padding: 0;
+  }
+  .credential-table .credential-controls {
+    grid-column: 1 / -1;
+  }
+}
 .connection-warning {
   color: var(--lb-color-warning, #a46914);
+  margin: 0;
 }
 .connection-button {
-  width: fit-content;
+  background: var(--el-bg-color);
   border: 1px solid var(--line);
-  background: transparent;
   color: inherit;
-  padding: 7px 12px;
+  padding: 7px 11px;
   border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 .connection-button.primary {
   color: var(--accent);
-  border-color: currentColor;
+  background: var(--el-color-primary-light-9);
+  border-color: var(--el-color-primary-light-7);
+  font-weight: 600;
 }
 .connection-button:disabled {
   opacity: 0.5;
   cursor: wait;
 }
-.connection-recovery {
-  border-top: 1px solid var(--line);
-  padding-top: 16px;
-  display: grid;
-  gap: 10px;
+.copy-status {
+  font-size: 13px;
+  color: var(--muted);
 }
 textarea {
   display: block;
+  box-sizing: border-box;
   width: 100%;
-  min-height: 145px;
-  margin-block: 10px;
+  min-height: 105px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: transparent;
+  background: var(--el-fill-color-light);
   color: inherit;
   line-height: 1.6;
-}
-.credential-details {
-  margin-top: 8px;
-}
-.credential-details > :not(summary) {
-  margin-top: 8px;
-}
-.credential-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 </style>
