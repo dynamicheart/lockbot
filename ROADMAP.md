@@ -50,19 +50,23 @@ Future status changes belong in [issue #139](https://github.com/dynamicheart/loc
 
 ### Integrated test preview
 
-On 2026-11-14 the test service was updated to integration commit `499e3cb5dc62ef71cd707d007d9752d05d46071d`. Backend verification passed 2633 tests with 7 skips; frontend verification passed 320 tests, lint and production build. Existing accounts, ownership, credential authority and personal-panel browser sessions were preserved. Actual HTTP and administrator-browser checks covered the complete deployment-rendered Skill package, independent API credential page/dialog, historical monitoring, link-lifetime options and datasource configuration entry. This does not establish a new production rollout, a paid-model result or a live metrics-grant expiry run.
+On 2026-11-14 the test service was updated to integration commit `98b8a03ee2a349c1e26ba5c44b95565c0db4f18d`, followed by the static-only connection layout update `cd890a4`. Backend verification passed 2,684 tests with 7 skips. Frontend verification passed 352 tests in UTC, lint and production build. Deployment checks preserved existing accounts, ownership, credential authority and personal-panel browser sessions. The live index matches the updated build. Chrome verified the scoped connection row before the layout update was deployed. Visual and clipboard verification on the updated page remain open.
 
 | Requirement | Source and tracking | Test preview | Formal rollout |
 | --- | --- | --- | --- |
 | Inherited resource-link lifetime, 1–30 days or permanent, bot override and regeneration | #137; #145 merged | Installed; lifetime choices and existing links checked | Pending |
 | Compact shared resource table and subdued empty queue labels in shared/admin views | #140 and #152 merged | Installed; administrator resource table checked | Pending |
 | Datasource protocol, setup Skill and reproducible authorization/configuration guidance | #144 and #149 merged; #147 tracks further acceptance | Installed; template, mapping fields and guide links checked | Pending |
-| Bounded JSONL service history and scoped historical UI | #146; #150 and #148 under protected merge review | Installed; history API, no-store, time ranges and unknown coverage checked | Pending |
+| Bounded JSONL service history and scoped historical UI | #146; #150 and #148 merged | Installed; history API, no-store, time ranges and unknown coverage checked | Pending |
 | Continuous metrics grants and expiry recovery | #151; #162 under review | Installed; deadline/cancellation/renewal regressions passed; no new live aging claim | Pending |
-| Complete Skill ZIP, scoped helper and concise promotion | #153; #161 and #158 under review | Installed; actual ZIP has Skill, helper and installation stamp, with actual deployment origin | Pending |
-| Legacy key health and recovery guidance without automatic rotation | #156; #159 under review | Installed; existing keys retained | Pending |
-| Independent administrator API credential page and compact issuance dialog | #155; #166 under review | Installed; real page/dialog checked without issuing a credential | Pending |
-| Agent alias readback with its separate observation time | #167; #168 under review | Installed; 108 relevant API checks passed | Pending |
+| Complete Skill ZIP, scoped helper and concise promotion | #153; #158 merged; #161 under review | Installed; actual ZIP has Skill, helper and installation stamp, with actual deployment origin | Pending |
+| Legacy key health and recovery guidance without automatic rotation | #156; #159 merged | Installed; existing keys retained | Pending |
+| Independent administrator API credential page and compact issuance dialog | #155; #166 merged | Installed; real page/dialog checked without issuing a credential | Pending |
+| Agent alias readback with its separate observation time | #167; #168 merged | Installed; 108 relevant API checks passed | Pending |
+| Viewer timezone for resource deadlines and monitoring | #171 under review | Installed; browser timezone governs display and lease arithmetic uses the UTC instant | Pending |
+| Scoped connection metadata, copyable Agent handoff and compact layout | #164; #172, #174 and #176 under review | Installed; the existing browser session showed an authorized native connection and the external report groups | Pending |
+| One-time native key viewing with fresh original-key proof | #164; #173 under review | Installed; native behavior covered with test credentials. The preview's remote provider exposes connection metadata only | Pending |
+| Separately confirmed native key replacement | #164; #175 under review | Independent source review and focused tests passed. Preview deployment and end-to-end acceptance remain open | Pending |
 
 Do not backfill pre-installation historical gaps with zero traffic. The [metrics plugin protocol v1](docs/design/metrics-datasource-protocol.md) is vendor-neutral and includes Prometheus and HTTP JSON examples; a generic JSON adapter or personal-dashboard metrics attachment is not implemented merely by publishing that document.
 
@@ -70,11 +74,9 @@ Do not backfill pre-installation historical gaps with zero traffic. The [metrics
 
 - [ ] **One user-facing resource Skill:** #164 and the design in #165 retain `lockbot-resource-agent` as the sole user entry. Multiple services/groups use scoped connection/key references. Deployment-specific private adapters and registry details stay outside the public repository. Dynamic authenticated extension discovery and a portable package-version boundary remain implementation work.
 - [ ] **Fresh Agent and operational acceptance:** #154 and #163 track installation persistence, correct key recovery, personal-dashboard handoff/bookmark, alias read/write/clear, early-release polling, expiry and previous-Skill update behavior. Offline fixture checks, model observations, native-client installation and actual browser consent must be reported separately. Model results belong to the exact Skill/PR snapshot, not a permanent leaderboard.
-- [ ] **Personal workspace connection management:** #164/#156 track non-secret status and copyable Skill/service/bot/identity instructions. Refresh means rechecking current authorization, not rotating the key. Expired/revoked/unrecoverable states give an Agent-guided recovery path rather than pretending a valid credential exists.
-- [ ] **Explicit key inspection/copy:** implement purpose-bound, short-lived authorization and user confirmation for the exact verified native binding. Existing read-only panel cookies, administrator sessions, shared-view codes and external Reporter adapters do not gain credential-recovery authority. Hash-only legacy keys cannot be reconstructed.
-- [ ] **Separately confirmed key replacement:** treat rotation as an independent dangerous action with fresh server-side authorization, exact bot/identity scope, an impact preview and explicit second confirmation. Do not rotate during install, refresh, ordinary recovery or copying. All Agents sharing the old key are affected; failures and concurrent requests must not invalidate a working key accidentally.
-
-The last three items were requested after the deployed preview was built and are not included in `499e3cb`. Follow their implementation PRs and the issue checklist before reporting them as available in the test service.
+- [ ] **Personal workspace connection management:** #172/#174/#176 implement scoped status and copyable Skill/service/bot/identity instructions. Refresh rechecks current authorization. Finish current-build browser/clipboard verification and protected merges.
+- [ ] **Explicit key inspection/copy:** #173 implements short-lived authorization and explicit consent for the exact verified native binding. Finish protected merge and isolated native-browser acceptance with synthetic credentials. Legacy digest-only bindings require a valid original key for the same-value recovery flow in #156.
+- [ ] **Separately confirmed key replacement:** #175 requires fresh original-key proof, the exact bot/identity scope, an impact preview, a typed group name and explicit second confirmation. Finish protected merge and isolated native-browser acceptance before enabling the opt-in capability for a deployment.
 
 ## Explicitly deferred
 
