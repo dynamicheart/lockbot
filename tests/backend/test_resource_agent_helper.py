@@ -559,3 +559,9 @@ def test_response_completion_after_deadline_is_not_accepted():
     client = helper.Client(approved_origin="https://service.example.invalid", opener=Transport(), clock=lambda: now[0])
     with pytest.raises(helper.ClientError, match="request_budget_exhausted"):
         client.discover()
+
+
+def test_additive_actor_metadata_does_not_invalidate_scoped_connection(case):
+    case.state.actor["display_name"] = "Alice updated"
+    assert case.client.context()["actor"]["external_user_id"] == "alice"
+    assert case.client.command("lock", ["node-a"], [], "2m")["verified"]

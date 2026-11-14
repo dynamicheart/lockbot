@@ -284,7 +284,15 @@ class Client:
                 isinstance(actor.get(field), str) and 0 < len(actor[field]) <= 512
                 for field in ("platform", "external_user_id")
             )
-            or (not initializing and actor != self.config.get("actor"))
+            or (
+                not initializing
+                and (
+                    not isinstance(self.config.get("actor"), dict)
+                    or any(
+                        actor[field] != self.config["actor"].get(field) for field in ("platform", "external_user_id")
+                    )
+                )
+            )
         ):
             raise ClientError("context_actor_mismatch_reinitialize_connection_without_rotating_key")
         if (
@@ -313,7 +321,7 @@ class Client:
         }
         context = self._read_context(initializing=True)
         self.config["bot_uuid"] = context["bot"]["uuid"]
-        self.config["actor"] = dict(context["actor"])
+        self.config["actor"] = {field: context["actor"][field] for field in ("platform", "external_user_id")}
         if metrics_origin is not None:
             self.config["approved_metrics_origin"] = origin(metrics_origin)
         path = Path(destination)
