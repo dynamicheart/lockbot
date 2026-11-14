@@ -9,6 +9,7 @@ import jwt
 
 from lockbot.backend.app.bots.datasource import public_datasource
 from lockbot.backend.app.bots.metrics_signers import select_metrics_signer
+from lockbot.backend.app.bots.migration_journal import migration_fence
 
 
 def _resource_scope(bot, cluster, source, holdings):
@@ -41,6 +42,8 @@ def _resource_scope(bot, cluster, source, holdings):
 def issue_metrics_access(db, bot, source=None, *, expires_at=None, holdings=None):
     source = source or public_datasource(bot)
     if not source or source.get("accessMode", "independent") != "short_lived":
+        return None
+    if migration_fence(db, bot.id) is not None:
         return None
     signer = select_metrics_signer(source.get("endpoint"))
     if signer is None:

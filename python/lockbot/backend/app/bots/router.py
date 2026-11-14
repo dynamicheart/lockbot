@@ -28,6 +28,7 @@ from lockbot.backend.app.bots.manager import (
     MayHaveExecuted,
     bot_manager,
 )
+from lockbot.backend.app.bots.migration_journal import migration_fence
 from lockbot.backend.app.bots.migration_preflight import MigrationPreflight, MigrationReview
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
@@ -193,6 +194,8 @@ def _owned_bot(bot_id: int, user: User, db: Session):
                 raise HTTPException(status_code=404, detail="Bot not found")
             if user.role != "super_admin" and bot.user_id != user.id:
                 raise HTTPException(status_code=403, detail="Cannot act on another user's bot")
+            if migration_fence(db, bot_id) is not None:
+                raise HTTPException(status_code=409, detail="Bot is fenced for platform migration")
             yield bot
     except InstanceRetiring:
         raise api_errors.instance_retiring(bot_id) from None

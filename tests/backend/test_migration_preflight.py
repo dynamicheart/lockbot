@@ -413,3 +413,40 @@ def test_reset_snapshot_uses_normal_runtime_shape_and_preserves_inventory(tmp_pa
 def test_reset_rejects_case_collisions_in_node_inventory():
     with pytest.raises(ValueError, match="differ"):
         _empty_destination_state({"node1": {}}, "NODE", ["Node1", "node1"])
+
+
+def test_persisted_migration_fences_manual_routes_and_startup(
+    client, admin_header, setup, session_factory, monkeypatch
+):
+    from lockbot.backend.app import main
+    from lockbot.backend.app.bots.manager import BotManager
+    from lockbot.backend.app.bots.migration_journal import migration_fence, record_migration_freeze
+    from lockbot.backend.app.bots.migration_preflight import MigrationPreflight
+
+    bot_id, _, target = setup
+    with session_factory() as db:
+        bot = db.get(Bot, bot_id)
+        migration = record_migration_freeze(db, bot, MigrationPreflight(**target), "a" * 64)
+        operation_id = migration.operation_id
+        db.commit()
+
+    manager = BotManager()
+    monkeypatch.setattr("lockbot.backend.app.bots.manager.bot_manager", manager)
+    monkeypatch.setattr(router, "bot_manager", manager)
+    monkeypatch.setattr(main, "SessionLocal", session_factory)
+
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("Attempted to start a bot with a persisted migration fence")
+
+    monkeypatch.setattr(manager, "start_bot", unexpected_start)
+    main._reset_running_bots()
+    for action in ("start", "restart", "stop"):
+        response = client.post(f"/api/bots/{bot_id}/{action}", headers=admin_header)
+        assert response.status_code == 409
+        assert "platform migration" in response.text
+    with session_factory() as db:
+        row = migration_fence(db, bot_id)
+        assert row.operation_id == operation_id
+        assert row.target_chat_id == target["chat_id"]
+        assert db.get(Bot, bot_id).status == "running"
+    assert not manager.is_running(bot_id)

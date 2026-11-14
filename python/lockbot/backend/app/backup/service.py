@@ -746,6 +746,10 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
                         existing = db.get(Bot, existing_id)
                         if existing is None or existing.is_deleted or existing.uuid != uuid:
                             raise ValueError("Restore target identity changed")
+                        from lockbot.backend.app.bots.migration_journal import migration_fence
+
+                        if migration_fence(db, existing_id) is not None:
+                            raise ValueError("Restore target is fenced for platform migration")
                         if bot_id_str not in state_files and (
                             existing.status == "recovery_required"
                             or existing.bot_type != bot_type

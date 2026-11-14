@@ -549,6 +549,7 @@ def _reset_running_bots():
     import contextlib
 
     from lockbot.backend.app.bots.manager import InstanceRetiring, bot_manager
+    from lockbot.backend.app.bots.migration_journal import migration_fence
     from lockbot.backend.app.bots.models import Bot
     from lockbot.backend.app.bots.router import _build_config_dict
 
@@ -566,6 +567,9 @@ def _reset_running_bots():
                 bot = db.get(Bot, bot_id)
                 if bot is None or bot.is_deleted or bot.status not in ("running", "error"):
                     return False  # deleted / no longer eligible since selection
+                if migration_fence(db, bot_id) is not None:
+                    logger.info("Auto-recovery skipped for migration-fenced bot %d", bot_id)
+                    return False
                 config_dict = _build_config_dict(bot, db)
                 pid = bot_manager.start_bot(bot_id, config_dict, activate=False)
                 bot.status = "running"
