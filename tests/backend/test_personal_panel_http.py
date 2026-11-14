@@ -139,6 +139,28 @@ def test_cross_origin_cannot_read_cookie_scoped_data(env):
         assert browser.get(endpoint, headers={"Origin": "https://sibling.example.test"}).status_code == 403
 
 
+def test_plugin_inventory_counts_mounted_reporters_without_exposing_their_metadata(tmp_path):
+    class Reporter:
+        label = "Test external resource source"
+
+        def report(self, _grant):
+            return []
+
+    provider = Directory()
+    parent = FastAPI()
+    parent.mount("/me", create_panel(ORIGIN, tmp_path / "state.db", provider, [Reporter()]))
+    agent = TestClient(parent, base_url=ORIGIN)
+    browser = TestClient(parent, base_url=ORIGIN)
+    assert "workbench_plugins" not in agent.get("/me/session").json()
+    assert post(browser, "login", {"ticket": issue(agent, "a-secret"), "mode": "replace"}).status_code == 200
+    response = browser.get("/me/session")
+    assert response.json()["workbench_plugins"] == {"resource_reporters": 1}
+    assert Reporter.label not in response.text
+    assert response.headers["Cache-Control"] == "no-store"
+    provider.bindings.clear()
+    assert "workbench_plugins" not in browser.get("/me/session").json()
+
+
 def test_first_binding_revoked_while_second_group_loads(env):
     directory, agent, browser = env
     for key, mode in [("a-secret", "replace"), ("b-secret", "append")]:
@@ -261,6 +283,17 @@ def test_resources_stream_returns_only_authenticated_grants_and_matches_json(env
         browser.get("/me/resources").json()["groups"], key=lambda group: group["label"]
     )
     assert {group["label"] for group in groups} == {"GPU A", "GPU B"}
+    selectors = {
+        value
+        for group in groups
+        for value in (
+            group["detail_id"],
+            group["allocations"][0]["detail_id"],
+            group["allocations"][0]["node_detail_id"],
+        )
+    }
+    assert len(selectors) == 6
+    assert all(len(value) == 32 and value == f"{int(value, 16):032x}" for value in selectors)
 
 
 def test_http_stream_delivers_fast_group_before_waiting_and_rechecks_revocation(env):
@@ -325,6 +358,7 @@ def test_third_party_reports_cannot_supply_owner_task_details(env):
     def report(grant):
         groups = snapshot(grant)
         groups[0]["allocations"][0]["own_task"] = {"note": "untrusted aftermarket note"}
+        groups[0]["utilization"] = {"configuration": {"endpoint": "https://untrusted.example.invalid"}}
         return groups
 
     directory.report = report
@@ -334,3 +368,4 @@ def test_third_party_reports_cannot_supply_owner_task_details(env):
         assert response.status_code == 200
         assert "own_task" not in response.text
         assert "untrusted aftermarket note" not in response.text
+        assert "utilization" not in response.text

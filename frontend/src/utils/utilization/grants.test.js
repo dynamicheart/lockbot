@@ -45,6 +45,18 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-11-14T00:00:00Z'))
 })
 afterEach(() => vi.useRealTimers())
+
+it('only queries nodes in the restricted resource grant', async () => {
+  const authorize = vi.fn(async () => ({
+    ...grant(),
+    scope_version: 2,
+    node_ids: ['node2'],
+  }))
+  const { collect, query } = collector({ authorize, getNodes: () => ['node1', 'node2'] })
+  await collect(signal())
+  expect(query).toHaveBeenCalledWith(expect.any(Object), ['node2'], expect.any(Object))
+})
+
 it.each([null, '2026-12-14T00:00:00Z'])(
   'renews across multiple five-minute expiries independently of view lifetime %s',
   async (viewExpiry) => {
