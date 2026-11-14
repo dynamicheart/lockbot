@@ -229,6 +229,32 @@ def test_service_discovery_precedes_key_and_redacts_context(case):
     assert helper.installed_version(case.root) == skill.skill_artifacts()[2]["version"]
 
 
+def test_installation_label_is_saved_and_sent_only_to_authenticated_lockbot_requests(case):
+    fresh = helper.Client(approved_origin=case.base, root=case.root)
+    credential = case.tmp / "resource.key"
+    connection = case.tmp / "additional-connection.json"
+    label = "工作台 agent"
+    fresh.initialize(credential, connection, case.base, label)
+    assert json.loads(connection.read_text())["agent_label"] == label
+    client = helper.Client(connection, root=case.root)
+    client.metrics(["node-a"])
+    for path, _, headers, _ in case.state.requests:
+        reported = next((value for key, value in headers.items() if key.lower() == "x-lockbot-agent-label"), None)
+        if path == "/api/agent/context":
+            assert urllib.parse.unquote(reported, errors="strict") == label
+        else:
+            assert reported is None
+    assert credential.read_text() == KEY
+
+
+@pytest.mark.parametrize("label", ["line\nbreak", "x" * 65, KEY])
+def test_invalid_installation_labels_fail_before_sending_the_key(case, label):
+    case.client.config["agent_label"] = label
+    with pytest.raises(helper.ClientError, match="invalid_agent_label"):
+        case.client.context()
+    assert all("Authorization" not in headers for _, _, headers, _ in case.state.requests)
+
+
 @pytest.mark.parametrize(
     "field,value", [("instance_id", "wrong-instance"), ("service_id", "other-service"), ("api_version", "2")]
 )

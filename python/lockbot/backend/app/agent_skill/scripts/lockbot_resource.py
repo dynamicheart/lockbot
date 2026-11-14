@@ -10,6 +10,7 @@ import re
 import stat
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -185,6 +186,15 @@ def installed_version(root):
         raise ClientError("installed_bundle_incomplete_or_modified") from exc
 
 
+def normalize_agent_label(value):
+    if not isinstance(value, str) or not value.isprintable():
+        raise ClientError("invalid_agent_label")
+    label = unicodedata.normalize("NFC", value).strip()
+    if not 1 <= len(label) <= 64 or re.search(r"\b(?:lbr_|lbk_|lba1\.)", label):
+        raise ClientError("invalid_agent_label")
+    return label
+
+
 class Client:
     def __init__(
         self, connection=None, *, approved_origin=None, root=None, opener=None, clock=time.monotonic, sleep=time.sleep
@@ -222,6 +232,9 @@ class Client:
             headers = {"Accept": "application/json"}
             if token:
                 headers["Authorization"] = "Bearer " + token
+                if token == self.key and "agent_label" in self.config:
+                    label = normalize_agent_label(self.config["agent_label"])
+                    headers["X-Lockbot-Agent-Label"] = urllib.parse.quote(label, safe="")
             if self.version:
                 headers["X-Lockbot-Client-Skill-Version"] = self.version
                 headers["X-Lockbot-Client-API-Version"] = API_VERSION
@@ -391,7 +404,7 @@ class Client:
     def context(self):
         return self._read_context()
 
-    def initialize(self, key_file, destination, metrics_origin=None):
+    def initialize(self, key_file, destination, metrics_origin=None, agent_label=None):
         if self.config or self.connection_dir is not None:
             raise ClientError("init_requires_new_connection")
         manifest = self.discover()
@@ -400,6 +413,8 @@ class Client:
             "instance_id": manifest["instance_id"],
             "key_file": str(Path(key_file).absolute()),
         }
+        if agent_label is not None:
+            self.config["agent_label"] = normalize_agent_label(agent_label)
         context = self._read_context(initializing=True)
         self.config["bot_uuid"] = context["bot"]["uuid"]
         self.config["actor"] = {field: context["actor"][field] for field in ("platform", "external_user_id")}
@@ -800,6 +815,7 @@ def main(argv=None):
         if action == "init":
             command.add_argument("--key-file", required=True, help="Existing private personal-key file, not a raw key")
             command.add_argument("--metrics-origin", help="Separately approved metrics origin, optional")
+            command.add_argument("--agent-label", help="Optional stable name for this Agent installation")
     sub.add_parser("context")
     sub.add_parser("resources")
     alias = sub.add_parser("alias", help="Read or edit a shared node alias")
@@ -826,7 +842,7 @@ def main(argv=None):
         elif args.action == "install":
             result = client.install(args.destination)
         elif args.action == "init":
-            result = client.initialize(args.key_file, args.destination, args.metrics_origin)
+            result = client.initialize(args.key_file, args.destination, args.metrics_origin, args.agent_label)
         elif args.action == "context":
             result = client.context()
         elif args.action == "resources":
