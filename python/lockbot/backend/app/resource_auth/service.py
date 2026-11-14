@@ -410,7 +410,11 @@ def _with_agent_usage_hint(db, bot, lang, reply):
         return reply
     if parsed.scheme not in ("http", "https") or not parsed.netloc:
         return reply
-    return reply + "\n\n" + t("binding.agent_usage_hint", lang=lang, url=base + "/api/agent-skill/SKILL.md")
+    return (
+        reply
+        + "\n\n"
+        + t("binding.agent_usage_hint", lang=lang, url=base + "/api/agent-skill/lockbot-resource-agent.zip")
+    )
 
 
 def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str, argument: str):

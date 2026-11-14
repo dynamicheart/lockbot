@@ -1,20 +1,6 @@
 <template>
   <div>
-    <el-radio-group
-      v-if="!userMode && authStore.isSuperAdmin"
-      v-model="activeTab"
-      class="audit-tabs"
-    >
-      <el-radio-button value="logs">{{ $t('audit.title') }}</el-radio-button>
-      <el-radio-button value="credentials">{{ $t('auditCredentials.title') }}</el-radio-button>
-    </el-radio-group>
-    <AuditCredentialManager
-      v-if="activeTab === 'credentials' && !userMode && authStore.isSuperAdmin"
-      :authorized="authStore.isSuperAdmin"
-      :principal-id="authStore.user?.id"
-    />
     <div
-      v-if="activeTab === 'logs'"
       style="
         display: flex;
         justify-content: space-between;
@@ -35,7 +21,7 @@
 
     <!-- Security alert banner (userMode only) -->
     <el-alert
-      v-if="activeTab === 'logs' && userMode && failedLoginIps.length"
+      v-if="userMode && failedLoginIps.length"
       :title="$t('audit.securityAlertTitle')"
       type="warning"
       show-icon
@@ -53,7 +39,7 @@
     </el-alert>
 
     <!-- Filters -->
-    <el-card v-if="activeTab === 'logs'" style="margin-bottom: 16px">
+    <el-card style="margin-bottom: 16px">
       <el-row :gutter="12">
         <el-col :xs="24" :sm="8" :md="userMode ? 8 : 6">
           <el-select
@@ -115,7 +101,7 @@
     </el-card>
 
     <!-- Table -->
-    <el-card v-if="activeTab === 'logs'">
+    <el-card>
       <el-table v-loading="loading" :data="logs" stripe>
         <el-table-column :label="$t('audit.time')" width="180" fixed>
           <template #default="{ row }">
@@ -261,8 +247,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import AuditCredentialManager from '../../components/AuditCredentialManager.vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Refresh, InfoFilled, User, Document } from '@element-plus/icons-vue'
 import { useAuthStore } from '../../stores/auth'
@@ -276,16 +261,6 @@ const props = defineProps({
 
 const { tm, locale } = useI18n()
 const authStore = useAuthStore()
-const activeTab = ref('logs')
-// Account/session changes unmount the credential panel and discard its one-time secret.
-watch(
-  () => [authStore.user?.id, authStore.token, authStore.isSuperAdmin, props.userMode],
-  () => {
-    activeTab.value = 'logs'
-  },
-  { flush: 'sync' }
-)
-
 const loading = ref(false)
 const logs = ref([])
 const total = ref(0)
@@ -399,9 +374,3 @@ onMounted(() => {
   fetchSecurityAlerts()
 })
 </script>
-
-<style scoped>
-.audit-tabs {
-  margin-bottom: 20px;
-}
-</style>

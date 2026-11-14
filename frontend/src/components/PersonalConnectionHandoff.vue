@@ -54,6 +54,8 @@
         >
           重置 Key：复制专用授权请求给 Agent
         </button>
+        <button v-if="item.recovery_instructions" class="connection-button" @click="copyConnectionRecovery(item)">复制此连接恢复指引</button>
+        <p v-if="item.skill" class="scope"><a :href="item.skill.bundle_url" target="_blank" rel="noopener noreferrer">完整 Skill ZIP</a> · <a :href="item.skill.markdown_url" target="_blank" rel="noopener noreferrer">SKILL.md</a></p>
         <details>
           <summary>查看接入说明与连接标识</summary>
           <textarea
@@ -64,7 +66,7 @@
           <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
         </details>
       </div>
-      <div v-if="supported" class="connection-recovery">
+      <div v-if="supported && skill" class="connection-recovery">
         <div class="connection-heading">
           <h3>连接失效或需要交给另一位 Agent</h3>
           <button class="connection-button" @click="copyRecovery">
@@ -117,7 +119,7 @@ const text = (value, limit = 2048) => {
   if (!safeText(value, limit) || !value.trim()) throw new Error('invalid_metadata')
   return value
 }
-function installation(value) {
+function installation(value, origin = location.origin) {
   if (value?.skill_id !== 'lockbot-resource-agent') throw new Error('invalid_metadata')
   const result = { skill_id: value.skill_id }
   for (const [field, path] of Object.entries({
@@ -127,7 +129,7 @@ function installation(value) {
   })) {
     const url = new URL(text(value[field]))
     if (
-      url.origin !== location.origin ||
+      url.origin !== origin ||
       url.pathname !== path ||
       url.search ||
       url.hash ||
@@ -139,10 +141,14 @@ function installation(value) {
   }
   return result
 }
-function connection(row) {
+function connection(row, pins = null) {
+  const source = pins ? pins.get(row?.service_origin) : null
+  const sourceOrigin = source ? row.service_origin : location.origin
+  if (pins && (!source || source.instance_id !== row.instance_id)) throw new Error('invalid_metadata')
+  const sourceSkill = pins ? installation(row.skill, sourceOrigin) : skill.value
   if (
     !/^[a-f0-9]{32}$/.test(row?.id) ||
-    row.service_origin !== location.origin ||
+    row.service_origin !== sourceOrigin ||
     !Number.isInteger(row.bot?.id) ||
     row.bot.id <= 0
   )
@@ -160,10 +166,11 @@ function connection(row) {
     throw new Error('invalid_metadata')
   const instructions = text(row.instructions, 12000)
   if (
-    !instructions.includes(skill.value.bundle_url) ||
-    !instructions.includes(skill.value.markdown_url)
+    !instructions.includes(sourceSkill.bundle_url) ||
+    !instructions.includes(sourceSkill.markdown_url)
   )
     throw new Error('invalid_metadata')
+  if (pins && (!text(row.recovery_instructions, 12000).includes(sourceSkill.bundle_url) || !row.recovery_instructions.includes(sourceSkill.markdown_url))) throw new Error('invalid_metadata')
   // Explicit projection: unexpected credential, digest or provider fields are
   // never retained in the page or copied into another Agent's instruction.
   return {
@@ -184,6 +191,7 @@ function connection(row) {
       ? row.credential_recovery_health
       : 'unknown',
     instructions,
+    ...(pins ? { skill: sourceSkill, recovery_instructions: text(row.recovery_instructions, 12000) } : {}),
   }
 }
 function platformName(value) {
@@ -218,9 +226,10 @@ async function refresh() {
     if (!current()) return
     const management = capabilities.connection_management
     supported.value =
-      management?.version === 1 && management.refresh_semantics === 'revalidate_only'
+      [1, 2].includes(management?.version) && management.refresh_semantics === 'revalidate_only' && (management.version === 1 || management.metadata_available === true)
     const view = management?.credential_view
     viewSupported.value =
+      management?.version === 1 &&
       supported.value &&
       view?.version === 1 &&
       view.purpose === 'view_current_key' &&
@@ -244,24 +253,34 @@ async function refresh() {
       recoveryGuide.value = ''
       return
     }
-    skill.value = installation(management.skill)
-    recoveryGuide.value = text(management.recovery_instructions, 12000)
+    skill.value = management.version === 1 ? installation(management.skill) : null
+    recoveryGuide.value = management.version === 1 ? text(management.recovery_instructions, 12000) : ''
     if (!props.authenticated) return
     const data = await read('connections', signal)
     if (!current()) return
     if (
-      data.schema_version !== 1 ||
+      data.schema_version !== management.version ||
       !Array.isArray(data.connections) ||
       data.connections.length > 32
     )
       throw new Error('invalid_metadata')
-    items.value = data.connections.map(connection)
+    let pins = null
+    if (management.version === 2) {
+      if (!Array.isArray(data.service_pins) || !data.service_pins.length || data.service_pins.length > 16) throw new Error('invalid_metadata')
+      pins = new Map()
+      for (const pin of data.service_pins) {
+        const url = new URL(text(pin.origin))
+        if (!['http:', 'https:'].includes(url.protocol) || url.origin !== pin.origin || pin.service_id !== 'lockbot.resource-api' || pin.api_version !== '1' || pins.has(pin.origin)) throw new Error('invalid_metadata')
+        pins.set(pin.origin, { instance_id: text(pin.instance_id) })
+      }
+    }
+    items.value = data.connections.map((row) => connection(row, pins))
     unavailable.value = data.some_authorizations_unavailable === true
   } catch (failure) {
     if (run !== epoch || disposed) return
     items.value = []
     error.value = [401, 403].includes(failure.status)
-      ? '当前绑定已失效或不可用，请复制恢复指引发送给已绑定的 Agent。'
+      ? skill.value ? '当前绑定已失效或不可用，请复制恢复指引发送给已绑定的 Agent。' : '当前绑定已失效或不可用，请让原 Agent 检查连接。'
       : '无法确认当前连接，请稍后刷新状态；保留仍有效的本地 Key。'
   } finally {
     if (run === epoch) {
@@ -342,6 +361,10 @@ function copyInstructions(item) {
   if (!props.authenticated || loading.value || !items.value.includes(item)) return
   return copy(item.instructions)
 }
+function copyConnectionRecovery(item) {
+  if (!props.authenticated || loading.value || !items.value.includes(item)) return
+  return copy(item.recovery_instructions)
+}
 function copyRecovery() {
   return copy(recoveryGuide.value)
 }
@@ -372,6 +395,9 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 14px;
 }
+.native-connections .scope {
+  margin: 0;
+}
 .connection-heading {
   display: flex;
   gap: 12px;
@@ -382,8 +408,17 @@ onBeforeUnmount(() => {
 .connection-entry {
   border-top: 1px solid var(--line);
   padding-top: 16px;
-  display: grid;
-  gap: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px 12px;
+  align-items: center;
+}
+.connection-entry > .connection-heading,
+.connection-entry > p,
+.connection-entry > details {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .connection-state {
   color: var(--muted);
