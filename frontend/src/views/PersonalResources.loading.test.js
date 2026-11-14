@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createRenderer, nextTick, ssrContextKey } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
 import PersonalResources from './PersonalResources.vue'
 
 const renderer = createRenderer({
@@ -27,6 +28,7 @@ const flush = async () => {
 afterEach(() => {
   app?.unmount()
   initialPath = undefined
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 const response = (data, ok = true) => ({ ok, status: ok ? 200 : 503, json: async () => data })
@@ -463,6 +465,27 @@ it('does not restore an old resource response after logout', async () => {
   expect(state.session.authenticated).toBe(false)
   expect(state.groups).toEqual([])
   expect(state.resourcesReady).toBe(false)
+})
+
+it('clears the browser authorization only after confirmation', async () => {
+  const state = await readyGroups([confirmed])
+  const fetch = vi.fn(async () => response({}))
+  vi.stubGlobal('fetch', fetch)
+  const confirm = vi.spyOn(ElMessageBox, 'confirm')
+
+  for (const action of ['cancel', 'close']) {
+    confirm.mockRejectedValueOnce(action)
+    await state.run(state.confirmLogout)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(state.session.authenticated).toBe(true)
+    expect(state.error).toBe('')
+  }
+
+  confirm.mockResolvedValueOnce('confirm')
+  await state.run(state.confirmLogout)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(fetch.mock.calls[0][0]).toMatch(/\/logout$/)
+  expect(state.session.authenticated).toBe(false)
 })
 
 it('counts confirmed batches while other sources are still loading', async () => {

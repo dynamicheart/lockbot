@@ -13,15 +13,23 @@
             {{ item.label }}
           </router-link>
         </nav>
-        <el-button
-          v-if="session.authenticated && !ticket && tab === 'connections'"
-          class="workbench-exit"
-          text
-          :disabled="busy"
-          @click="run(logout)"
-        >
-          清除此浏览器授权
-        </el-button>
+        <div v-if="session.authenticated && !ticket" class="workbench-actions">
+          <PersonalWorkbenchPlugins
+            :inventory="session.workbench_plugins"
+            :groups="groups"
+            :metric-sources="utilizationGroups"
+            :loading="resourceLoading"
+          />
+          <el-button
+            v-if="tab === 'connections'"
+            class="workbench-exit"
+            text
+            :disabled="busy"
+            @click="run(confirmLogout)"
+          >
+            清除此浏览器授权
+          </el-button>
+        </div>
       </div>
     </header>
     <main class="main">
@@ -729,10 +737,12 @@ import {
   watch,
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
 import { ArrowRight, Calendar, Cpu, Monitor, Refresh } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
 import LockbotWordmark from '../components/LockbotWordmark.vue'
+import PersonalWorkbenchPlugins from '../components/PersonalWorkbenchPlugins.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import { datasourceIdentity } from '../utils/utilization/grants'
@@ -1507,6 +1517,25 @@ async function login(mode) {
   await refresh()
   if (!session.value.authenticated)
     throw new Error('登录后未检测到会话，请检查浏览器 Cookie 设置。')
+}
+async function confirmLogout() {
+  try {
+    await ElMessageBox.confirm(
+      '清除后，此浏览器需要重新授权才能查看个人资源。Agent 的 Key 仍然有效。',
+      '清除此浏览器授权？',
+      {
+        cancelButtonText: '取消',
+        confirmButtonText: '清除授权',
+        confirmButtonType: 'danger',
+        type: 'warning',
+        closeOnClickModal: false,
+      }
+    )
+  } catch (action) {
+    if (action === 'cancel' || action === 'close') return
+    throw action
+  }
+  await logout()
 }
 async function logout() {
   ++refreshEpoch

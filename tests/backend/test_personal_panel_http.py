@@ -139,6 +139,28 @@ def test_cross_origin_cannot_read_cookie_scoped_data(env):
         assert browser.get(endpoint, headers={"Origin": "https://sibling.example.test"}).status_code == 403
 
 
+def test_plugin_inventory_counts_mounted_reporters_without_exposing_their_metadata(tmp_path):
+    class Reporter:
+        label = "Test external resource source"
+
+        def report(self, _grant):
+            return []
+
+    provider = Directory()
+    parent = FastAPI()
+    parent.mount("/me", create_panel(ORIGIN, tmp_path / "state.db", provider, [Reporter()]))
+    agent = TestClient(parent, base_url=ORIGIN)
+    browser = TestClient(parent, base_url=ORIGIN)
+    assert "workbench_plugins" not in agent.get("/me/session").json()
+    assert post(browser, "login", {"ticket": issue(agent, "a-secret"), "mode": "replace"}).status_code == 200
+    response = browser.get("/me/session")
+    assert response.json()["workbench_plugins"] == {"resource_reporters": 1}
+    assert Reporter.label not in response.text
+    assert response.headers["Cache-Control"] == "no-store"
+    provider.bindings.clear()
+    assert "workbench_plugins" not in browser.get("/me/session").json()
+
+
 def test_first_binding_revoked_while_second_group_loads(env):
     directory, agent, browser = env
     for key, mode in [("a-secret", "replace"), ("b-secret", "append")]:

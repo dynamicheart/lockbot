@@ -528,7 +528,12 @@ def create_panel(
                 raise HTTPException(403, "Binding changed")
             if not sessions.grants(request.cookies.get(cookie_name)):
                 raise HTTPException(401)
-        return {"authenticated": bool(identities), "identities": identities, "same_person_groups": groups}
+        return {
+            "authenticated": bool(identities),
+            "identities": identities,
+            "same_person_groups": groups,
+            **({"workbench_plugins": {"resource_reporters": len(reporters)}} if identities else {}),
+        }
 
     @app.post("/logout")
     async def logout(request: Request):
