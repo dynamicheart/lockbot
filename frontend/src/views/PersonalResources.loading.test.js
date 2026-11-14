@@ -283,6 +283,28 @@ it('shows remaining lease time across UTC offsets and keeps queued records witho
   expect(state.allocationSections.map((section) => section.timeLabel)).toEqual(['剩余时间', ''])
 })
 
+it('shows one node address for the held cards and removes it when the last lease expires', async () => {
+  const now = Date.parse('2026-11-14T12:00:00Z')
+  const address = { host: '2001:db8::1', port: 2222 }
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      allocations: [0, 60, 120].map((seconds, device) => ({
+        kind: 'hold',
+        node: 'node-a',
+        device: String(device),
+        expires_at: new Date(now + seconds * 1000).toISOString(),
+        node_access: device === 1 ? undefined : address,
+      })),
+    },
+  ])
+  state.clock = now
+  const [item] = state.allocationSections[0].items
+  expect(state.holdingAddress(item)).toBe('[2001:db8::1]:2222')
+  state.clock = now + 120_000
+  expect(state.holdingAddress(item)).toBe('')
+})
+
 it('filters holdings and bookings across groups without changing summary counts', async () => {
   const state = await readyGroups([
     {

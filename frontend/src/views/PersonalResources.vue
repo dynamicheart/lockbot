@@ -336,10 +336,6 @@
                           <span v-if="row.allocation.device != null" class="allocation-device">
                             卡 {{ row.allocation.device }}
                           </span>
-                          <details v-if="row.allocation.node_access" class="node-access-details">
-                            <summary>登录地址</summary>
-                            <code>{{ nodeAccessAddress(row.allocation.node_access) }}</code>
-                          </details>
                         </td>
                         <td v-if="section.timeLabel" role="cell" class="allocation-time">
                           <template
@@ -435,10 +431,11 @@
                     <tr
                       v-if="
                         section.holdings &&
-                        !detail.resource &&
-                        (slots.metrics ||
-                          item.first.group.utilization ||
-                          !item.rows.some(hasHoldingDetails))
+                        (holdingAddress(item) ||
+                          (!detail.resource &&
+                            (slots.metrics ||
+                              item.first.group.utilization ||
+                              !item.rows.some(hasHoldingDetails))))
                       "
                       class="allocation-detail"
                       role="row"
@@ -448,12 +445,17 @@
                           2 +
                           Number(!detail.groupKey) +
                           Number(section.tasks) +
-                          Number(session.identities.length > 1)
+                          Number(session.identities.length > 1) +
+                          Number(section.metrics && !!detail.resource)
                         "
                         class="allocation-inline-metrics"
                         role="cell"
                       >
-                        <template v-for="row in item.rows" :key="row.key">
+                        <div v-if="holdingAddress(item)" class="node-access-details">
+                          <span>登录地址</span>
+                          <code>{{ holdingAddress(item) }}</code>
+                        </div>
+                        <template v-for="row in detail.resource ? [] : item.rows" :key="row.key">
                           <slot name="metrics" :row="row">
                             <ResourceMetricsCell
                               v-if="
@@ -471,6 +473,8 @@
                         </template>
                         <span
                           v-if="
+                            !detail.resource &&
+                            !holdingAddress(item) &&
                             !slots.metrics &&
                             !utilizationSnapshots[item.first.group.utilization?.connection]?.enabled
                           "
@@ -965,12 +969,14 @@ function allocationItems(rows, holdings) {
   })
 }
 function hasHoldingDetails({ allocation }) {
-  return (
-    allocation.device != null ||
-    allocation.node_access ||
-    allocation.own_task?.note ||
-    allocation.own_task?.agent_label
-  )
+  return allocation.device != null || allocation.own_task?.note || allocation.own_task?.agent_label
+}
+function holdingAddress({ rows }) {
+  const row = rows.find(({ allocation }) => {
+    const expiry = expiration(allocation.expires_at)
+    return allocation.node_access && Number.isFinite(expiry) && expiry > clock.value
+  })
+  return row ? nodeAccessAddress(row.allocation.node_access) : ''
 }
 function nodeRemaining({ deadlines }) {
   const known = deadlines.filter(Number.isFinite)
@@ -1541,10 +1547,9 @@ onMounted(async () => {
 <style scoped>
 .node-access-details {
   color: var(--lb-text-secondary);
-  margin-top: 5px;
-}
-.node-access-details summary {
-  width: fit-content;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
 }
 .node-access-details code {
   overflow-wrap: anywhere;
