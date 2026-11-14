@@ -342,3 +342,133 @@ def test_backward_clock_changes_keep_pending_minutes_bounded(tmp_path):
         event(journal)
         now[0] -= 60
     assert len({minute for minute, _ in journal.pending}) <= 2
+
+
+def sealed_hour(directory, now):
+    journal = ServiceHistory(directory, lambda: now[0])
+    event(journal, duration=1)
+    for minute in range(60):
+        now[0] = (minute + 1) * 60
+        journal.flush()
+    return journal
+
+
+@pytest.mark.parametrize("restart", [False, True])
+def test_clock_rollback_adds_to_sealed_hour_without_replacing_its_index(tmp_path, restart):
+    now = [0.0]
+    journal = sealed_hour(tmp_path, now)
+    index = tmp_path / "hourly/19700101T00.jsonl"
+    original = index.read_bytes()
+    now[0] = 1800
+    if restart:
+        journal = ServiceHistory(tmp_path, lambda: now[0])
+    event(journal, duration=10000)
+    journal.operation(1, "agent")
+    journal.flush()
+    now[0] = 1860
+    journal.flush()
+    now[0] = 3600
+    journal.flush()
+    assert parse_range("1970-01-01T00:00:00Z", "1970-01-01T01:00:00Z", 3600, now[0]) == (0, 3600, 3600)
+    for resolution in (60, 900, 3600, 21600):
+        for scope in (None, 1):
+            result = journal.query(0, 3600, resolution, scope)
+            assert result["totals"]["requests"] == 2
+            assert result["totals"]["p95_ms"] == 10000
+            assert sum(row["operations"]["agent"] for row in result["history"]) == 1
+            assert result["coverage"]["unknown_buckets"] == 0
+    assert index.read_bytes() == original
+    late = tmp_path / "late/19700101T00.jsonl"
+    assert late.exists() and late.stat().st_mode & 0o777 == 0o600
+    # A second restart/read never applies the delta twice.
+    restarted = ServiceHistory(tmp_path, lambda: now[0])
+    assert restarted.query(0, 3600, 3600)["totals"]["requests"] == 2
+
+
+def late_hour(directory, *, expire_detail=False):
+    now = [0.0]
+    journal = sealed_hour(directory, now)
+    if expire_detail:
+        now[0] = 27 * 3600
+        journal.flush()
+        assert not (directory / "19700101T00.jsonl").exists()
+    now[0] = 1800
+    journal = ServiceHistory(directory, lambda: now[0])
+    event(journal)
+    now[0] = 1860
+    journal.flush()
+    return journal, now
+
+
+def test_late_hour_preserves_compacted_counts_after_detail_expiry(tmp_path):
+    journal, now = late_hour(tmp_path, expire_detail=True)
+    now[0] = 3600
+    result = journal.query(0, 3600, 3600)
+    assert result["totals"]["requests"] == 2
+    assert result["history"][0]["coverage"] == "complete"
+    detail = journal.query(0, 3600, 60)
+    assert detail["totals"]["requests"] == 1
+    assert detail["coverage"]["unknown_buckets"] == 59
+
+
+def test_clock_rollback_before_process_start_retains_new_observations(tmp_path):
+    now = [0.0]
+    sealed_hour(tmp_path, now)
+    now[0] = 7200
+    journal = ServiceHistory(tmp_path, lambda: now[0])
+    now[0] = 1800
+    event(journal)
+    now[0] = 1860
+    journal.flush()
+    for resolution in (60, 3600):
+        assert journal.query(0, 3600, resolution)["totals"]["requests"] == 2
+
+
+@pytest.mark.parametrize("failure", ["damaged", "read_budget"])
+def test_unread_late_records_never_leave_a_complete_hour(tmp_path, monkeypatch, failure):
+    import lockbot.backend.app.service_history as module
+
+    journal, _ = late_hour(tmp_path)
+    if failure == "damaged":
+        with (tmp_path / "late/19700101T00.jsonl").open("ab") as stream:
+            stream.write(b"invalid completed record\n")
+    else:
+        monkeypatch.setattr(module, "MAX_READ_BYTES", (tmp_path / "hourly/19700101T00.jsonl").stat().st_size)
+    result = journal.query(0, 3600, 3600)
+    assert result["history"][0]["coverage"] == "partial"
+    assert result["storage"]["damaged_segments" if failure == "damaged" else "query_truncated"]
+
+
+def test_late_segments_share_disk_budget_and_expire_after_retention(tmp_path):
+    journal, now = late_hour(tmp_path)
+    late = tmp_path / "late/19700101T00.jsonl"
+    journal.disk_budget = late.stat().st_size + 1
+    journal._cleanup(now[0])
+    assert late.exists()
+    assert not (tmp_path / "hourly/19700101T00.jsonl").exists()
+    assert sum(path.stat().st_size for path in tmp_path.rglob("*.jsonl")) <= journal.disk_budget
+    assert journal.query(0, 3600, 3600)["history"][0]["coverage"] == "partial"
+    now[0] = 32 * 86400
+    journal._cleanup(now[0])
+    assert not late.exists()
+
+
+def test_failed_late_write_does_not_replace_sealed_history(tmp_path, monkeypatch):
+    now = [0.0]
+    sealed_hour(tmp_path, now)
+    index = tmp_path / "hourly/19700101T00.jsonl"
+    original = index.read_bytes()
+    now[0] = 1800
+    journal = ServiceHistory(tmp_path, lambda: now[0])
+    event(journal)
+
+    def unavailable(*args):
+        raise OSError("unavailable history storage")
+
+    monkeypatch.setattr(journal, "_append", unavailable)
+    now[0] = 1860
+    journal.flush()
+    assert journal.error == "storage_unavailable"
+    assert index.read_bytes() == original
+    assert journal.query(0, 3600, 3600)["totals"]["requests"] == 1
+    event(journal)  # Collection failure does not prevent resource-path recording.

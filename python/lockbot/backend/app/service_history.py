@@ -120,6 +120,7 @@ class ServiceHistory:
         self.stop_event = threading.Event()
         self.thread = None
         self.started = clock()
+        self.last_observation = self.started
         self.next_minute = int(self.started // 60)
         self.process = uuid4().hex
         self.pending = {}
@@ -141,10 +142,11 @@ class ServiceHistory:
     def record(self, *, bot_id=None, source, status, duration_ms, received, sent, failed, **_):
         from lockbot.backend.app.service_traffic import SOURCES
 
-        now = self.clock()
-        minute = int(now // 60)
         source = source if source in SOURCES else "other"
         with self.lock:
+            now = self.clock()
+            minute = int(now // 60)
+            self._observe_clock(now)
             # Two minutes maximum: a stalled writer loses coverage instead of growing memory.
             self._prune(minute)
             scopes = [None]
@@ -161,6 +163,17 @@ class ServiceHistory:
             self.pending = {key: value for key, value in self.pending.items() if minute - 1 <= key[0] <= minute}
             self.pruned_minute = minute
 
+    def _observe_clock(self, now):
+        if now < self.last_observation:
+            # Start a new observed interval instead of dropping requests whose
+            # wall time now predates this process/bot's original start time.
+            self.started = now
+            self.next_minute = int(now // 60)
+            for bot_id in self.bots:
+                self.bots[bot_id] = now
+            self._prune(self.next_minute)
+        self.last_observation = now
+
     def _track_bot(self, bot_id, now):
         if bot_id not in self.bots:
             if len(self.bots) >= 256:
@@ -170,9 +183,10 @@ class ServiceHistory:
         self.bots.move_to_end(bot_id)
 
     def operation(self, bot_id, source):
-        now = self.clock()
-        minute = int(now // 60)
         with self.lock:
+            now = self.clock()
+            minute = int(now // 60)
+            self._observe_clock(now)
             self._prune(minute)
             self._track_bot(bot_id, now)
             for scope in (None, bot_id):
@@ -203,10 +217,11 @@ class ServiceHistory:
         self.flush(final=True)
 
     def flush(self, *, final=False):
-        now = self.clock()
-        current = int(now // 60)
         with self.io_lock:
             with self.lock:
+                now = self.clock()
+                current = int(now // 60)
+                self._observe_clock(now)
                 # Never infer coverage after an unobserved writer delay of more than 2 minutes.
                 first = max(self.next_minute, current - 1)
                 stop = current + int(final)
@@ -246,7 +261,14 @@ class ServiceHistory:
                         raise ValueError("aggregate too large")
                     batches.setdefault(filename, []).append(line)
                 for filename, lines in batches.items():
-                    self._append(self.directory / filename, b"".join(lines))
+                    # A clock correction/restart can revisit an already sealed
+                    # hour. Keep new records separate: rebuilding from minute
+                    # detail could discard older data already compacted away.
+                    directory = self.directory
+                    if (directory / "hourly" / filename).exists():
+                        directory = directory / "late"
+                        directory.mkdir(mode=0o700, exist_ok=True)
+                    self._append(directory / filename, b"".join(lines))
                 self._rollup(now)
                 self._cleanup(now)
                 self.last_write, self.error = now, None
@@ -349,11 +371,15 @@ class ServiceHistory:
                 temporary.unlink(missing_ok=True)
 
     def _cleanup(self, now):
-        files = sorted(self.directory.glob("????????T??.jsonl")) + sorted(
-            (self.directory / "hourly").glob("????????T??.jsonl")
+        files = (
+            sorted(self.directory.glob("????????T??.jsonl"))
+            + sorted((self.directory / "hourly").glob("????????T??.jsonl"))
+            + sorted((self.directory / "late").glob("????????T??.jsonl"))
         )
         total = sum(path.stat().st_size for path in files)
         # Minute detail expires after 25h only when its hourly aggregate exists.
+        # Budget eviction removes hourly bases before late deltas: retaining a
+        # complete base after silently losing its delta would misstate coverage.
         for path in files:
             stamp = datetime.strptime(path.stem, "%Y%m%dT%H").replace(tzinfo=timezone.utc).timestamp()
             size = path.stat().st_size
@@ -376,12 +402,19 @@ class ServiceHistory:
                 "intervals": [],
                 "sources": dict.fromkeys(SOURCES, 0),
                 "operations": dict.fromkeys(("chat", "agent", "operator"), 0),
+                "incomplete": False,
             }
             for stamp in range(int(first), math.ceil(end), resolution)
         }
         truncated = False
         bytes_read = 0
         damaged = False
+
+        def mark_incomplete(hour):
+            for stamp in range(hour * 3600 // resolution * resolution, (hour + 1) * 3600, resolution):
+                if stamp in buckets:
+                    buckets[stamp]["incomplete"] = True
+
         with self.io_lock:
             for hour in range(int(start // 3600), int((end - 0.001) // 3600) + 1):
                 path = self.directory / (
@@ -390,37 +423,46 @@ class ServiceHistory:
                 hourly = self.directory / "hourly" / path.name
                 if resolution >= 3600 and hourly.exists():
                     path = hourly
-                try:
-                    if not path.exists():
-                        continue
-                    if bytes_read + path.stat().st_size > MAX_READ_BYTES:
-                        truncated = True
-                        break
-                    with path.open("rb") as stream:
-                        while line := stream.readline(MAX_LINE_BYTES + 1):
-                            bytes_read += len(line)
-                            if len(line) > MAX_LINE_BYTES or not line.endswith(b"\n"):
-                                damaged = True
-                                break
-                            try:
-                                row = json.loads(line)
-                                if isinstance(row, dict) and row.get("record_type") == "damaged_segment":
+                segments = (path, self.directory / "late" / path.name)
+                for path in segments:
+                    try:
+                        if not path.exists():
+                            continue
+                        if bytes_read + path.stat().st_size > MAX_READ_BYTES:
+                            truncated = True
+                            mark_incomplete(hour)
+                            break
+                        with path.open("rb") as stream:
+                            while line := stream.readline(MAX_LINE_BYTES + 1):
+                                bytes_read += len(line)
+                                if len(line) > MAX_LINE_BYTES or not line.endswith(b"\n"):
                                     damaged = True
-                                    continue
-                                validate_record(row)
-                                if row["v"] != 1 or row["bot_id"] != bot_id or not start <= row["at"] < end:
-                                    continue
-                                bucket = buckets[math.floor(row["at"] / resolution) * resolution]
-                                merge(bucket["counter"], row["counter"])
-                                bucket["intervals"].extend(row.get("intervals", [row["coverage"]]))
-                                for key, value in row["sources"].items():
-                                    bucket["sources"][key] += value
-                                for key, value in row["operations"].items():
-                                    bucket["operations"][key] += value
-                            except (ValueError, TypeError, KeyError, OverflowError, AttributeError, RecursionError):
-                                damaged = True
-                except OSError:
-                    damaged = True
+                                    mark_incomplete(hour)
+                                    break
+                                try:
+                                    row = json.loads(line)
+                                    if isinstance(row, dict) and row.get("record_type") == "damaged_segment":
+                                        damaged = True
+                                        mark_incomplete(hour)
+                                        continue
+                                    validate_record(row)
+                                    if row["v"] != 1 or row["bot_id"] != bot_id or not start <= row["at"] < end:
+                                        continue
+                                    bucket = buckets[math.floor(row["at"] / resolution) * resolution]
+                                    merge(bucket["counter"], row["counter"])
+                                    bucket["intervals"].extend(row.get("intervals", [row["coverage"]]))
+                                    for key, value in row["sources"].items():
+                                        bucket["sources"][key] += value
+                                    for key, value in row["operations"].items():
+                                        bucket["operations"][key] += value
+                                except (ValueError, TypeError, KeyError, OverflowError, AttributeError, RecursionError):
+                                    damaged = True
+                                    mark_incomplete(hour)
+                    except OSError:
+                        damaged = True
+                        mark_incomplete(hour)
+                if truncated:
+                    break
         history, counts, totals = (
             [],
             dict.fromkeys(("complete_buckets", "partial_buckets", "unknown_buckets"), 0),
@@ -434,7 +476,9 @@ class ServiceHistory:
                 covered += max(0, finish - max(left, right))
                 right = max(right, finish)
             expected = min(end, stamp + resolution) - max(start, stamp)
-            coverage = "complete" if covered >= expected else "partial" if covered else "unknown"
+            coverage = (
+                "complete" if covered >= expected and not bucket["incomplete"] else "partial" if covered else "unknown"
+            )
             counts[coverage + "_buckets"] += 1
             payload = bucket["counter"].payload()
             merge(totals, asdict(bucket["counter"]))
