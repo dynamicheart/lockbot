@@ -4,16 +4,20 @@ This module deliberately cannot create a migration, reserve a route or change st
 """
 
 import hashlib
+import hmac
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.config import JWT_ALGORITHM, JWT_SECRET
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
+from lockbot.backend.app.platform_applications.service import fingerprint
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.core.platforms.registry import normalize_platform_name
@@ -23,6 +27,10 @@ class MigrationPreflight(BaseModel):
     model_config = ConfigDict(extra="forbid")
     application_id: int = Field(gt=0)
     chat_id: str = Field(pattern=r"^oc_[A-Za-z0-9_-]+$", max_length=128)
+
+
+class MigrationReview(MigrationPreflight):
+    review_receipt: str = Field(min_length=1, max_length=2048)
 
 
 def _counts(state, bot_type):
@@ -72,7 +80,67 @@ def _inventory_matches(state, bot):
         return False
 
 
-def _count_reset_authorizations(db, bot, now):
+def _review_digest(value):
+    key = hmac.digest(JWT_SECRET.encode(), b"lockbot.migration-reset-review.v1", "sha256")
+    return hmac.new(key, json.dumps(value, allow_nan=False, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+
+
+_RECEIPT_TTL = timedelta(minutes=5)
+_RECEIPT_AUDIENCE = "lockbot.migration-reset-review"
+
+
+def _receipt_key():
+    return hmac.digest(JWT_SECRET.encode(), b"lockbot.migration-reset-receipt.v1", "sha256")
+
+
+def _review_scope(user, observation):
+    return {
+        "actor": user.id,
+        "actor_version": user.effective_token_version,
+        "bot_uuid": observation["source"]["bot_uuid"],
+        "identity_revision": observation["source"]["identity_revision"],
+        "application": observation["target"]["application_id"],
+        "chat": observation["target"]["chat_id"],
+        "review": observation["review_digest"],
+    }
+
+
+def migration_review_receipt(user, observation, *, now=None):
+    """Issue a short-lived receipt for an observed reset scope."""
+    if not observation.get("review_digest"):
+        return None
+    now = now or datetime.now(timezone.utc)
+    expires = now + _RECEIPT_TTL
+    claims = {**_review_scope(user, observation), "aud": _RECEIPT_AUDIENCE, "exp": expires, "iat": now}
+    return {
+        "token": jwt.encode(claims, _receipt_key(), algorithm=JWT_ALGORITHM),
+        "expires_at": expires.isoformat(),
+    }
+
+
+def verify_migration_review_receipt(token, user, fresh_observation, *, now=None):
+    """Compare against a fresh observation after the caller has checked current authority."""
+    if not fresh_observation.get("review_digest") or not isinstance(token, str) or len(token) > 2048:
+        return False
+    try:
+        claims = jwt.decode(
+            token,
+            _receipt_key(),
+            algorithms=[JWT_ALGORITHM],
+            audience=_RECEIPT_AUDIENCE,
+            options={"require": ["iat", "exp", "aud"], "verify_iat": False, "verify_exp": False},
+        )
+        if type(claims["iat"]) is not int or type(claims["exp"]) is not int:
+            return False
+        now = (now or datetime.now(timezone.utc)).timestamp()
+        if not claims["iat"] <= now < claims["exp"] or claims["exp"] - claims["iat"] != _RECEIPT_TTL.total_seconds():
+            return False
+        return all(claims.get(key) == value for key, value in _review_scope(user, fresh_observation).items())
+    except (jwt.PyJWTError, ValueError):
+        return False
+
+
+def _reset_authorizations(db, bot, now):
     live = (
         ResourceBinding.bound_bot_id == bot.id,
         ResourceBinding.bound_bot_uuid == bot.uuid,
@@ -81,15 +149,29 @@ def _count_reset_authorizations(db, bot, now):
         ResourceBinding.revoked_at.is_(None),
         (ResourceBinding.credential_expires_at.is_(None)) | (ResourceBinding.credential_expires_at > now),
     )
-    return {
-        "agent_bindings": db.scalar(select(func.count()).select_from(ResourceBinding).where(*live)),
-        "usage_declarations": db.scalar(
-            select(func.count())
-            .select_from(UsageDeclaration)
-            .join(ResourceBinding, UsageDeclaration.binding_id == ResourceBinding.id)
-            .where(*live, UsageDeclaration.bot_id == bot.id, UsageDeclaration.expires_at > now)
-        ),
-    }
+    bindings = db.execute(
+        select(ResourceBinding.id, ResourceBinding.credential_generation, ResourceBinding.credential_expires_at)
+        .where(*live)
+        .order_by(ResourceBinding.id)
+        .execution_options(yield_per=200)
+    )
+    declarations = db.execute(
+        select(UsageDeclaration.id, UsageDeclaration.updated_at, UsageDeclaration.expires_at)
+        .join(ResourceBinding, UsageDeclaration.binding_id == ResourceBinding.id)
+        .where(*live, UsageDeclaration.bot_id == bot.id, UsageDeclaration.expires_at > now)
+        .order_by(UsageDeclaration.id)
+        .execution_options(yield_per=200)
+    )
+    counts, revisions = {}, {}
+    for name, rows in (("agent_bindings", bindings), ("usage_declarations", declarations)):
+        count = 0
+        digest = hashlib.sha256()
+        for record in rows:
+            count += 1
+            digest.update(json.dumps(tuple(record), default=str, separators=(",", ":")).encode() + b"\n")
+        counts[name] = count
+        revisions[name] = digest.hexdigest()
+    return counts, revisions
 
 
 def observe_migration(db, manager, bot_id, body):
@@ -100,6 +182,8 @@ def observe_migration(db, manager, bot_id, body):
     counts = None
     observed_at = datetime.now(timezone.utc)
     generation = None
+    source_review = None
+    target_review = None
     identity_rule_counts = None
     try:
         with manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
@@ -118,10 +202,22 @@ def observe_migration(db, manager, bot_id, body):
             if lease.bot.config.get_val("_IDENTITY_REVISION", 0) != bot.identity_revision:
                 blockers.append("source_generation_changed")
             try:
-                counts = _counts(lease.bot.state.bot_state, bot.bot_type)
-                counts.update(_count_reset_authorizations(db, bot, observed_at.replace(tzinfo=None)))
-                if not _inventory_matches(lease.bot.state.bot_state, bot):
+                state = lease.bot.state.bot_state
+                counts = _counts(state, bot.bot_type)
+                authorization_counts, revisions = _reset_authorizations(db, bot, observed_at.replace(tzinfo=None))
+                counts.update(authorization_counts)
+                if not _inventory_matches(state, bot):
                     blockers.append("source_inventory_mismatch")
+                else:
+                    source_review = _review_digest(
+                        {
+                            "state": state,
+                            "authorization_revisions": revisions,
+                            "duration_whitelist": whitelist,
+                            "op_key": bot.api_key,
+                            "messaging_credentials": fingerprint(bot, "infoflow"),
+                        }
+                    )
             except (TypeError, ValueError):
                 blockers.append("source_state_unrecognized")
     except (BotNotRunning, InstanceRetiring, AdmissionFull):
@@ -144,6 +240,16 @@ def observe_migration(db, manager, bot_id, body):
             blockers.append("target_application_identity_unknown")
         membership = db.get(FeishuGroupMembership, (app.id, body.chat_id))
         target["membership_observation"] = membership.status if membership else "unknown"
+        target_review = {
+            "app_id": app.app_id,
+            "tenant_key": app.tenant_key,
+            "bot_open_id": app.bot_open_id,
+            "transport": app.transport,
+            "credentials": fingerprint(app, "feishu"),
+            "membership_event": (
+                [membership.event_id, membership.event_time_ms, membership.status] if membership is not None else None
+            ),
+        }
         if membership is None or membership.status != "present":
             blockers.append("target_membership_unverified")
         elif (membership.app_id, membership.tenant_key) != (app.app_id, app.tenant_key):
@@ -162,6 +268,7 @@ def observe_migration(db, manager, bot_id, body):
         "cluster": bot.cluster_configs,
         "rules": bot.config_overrides,
         "utilization": bot.utilization_config,
+        "node_access": bot.node_access_config,
         "owner_id": bot.user_id,
         "group_id": bot.group_id,
         "resource_auth_enabled": bot.resource_auth_enabled,
@@ -184,6 +291,11 @@ def observe_migration(db, manager, bot_id, body):
             "generation": generation,
         },
         "configuration_digest": digest,
+        "review_digest": (
+            _review_digest({"configuration": digest, "source": source_review, "target": target_review})
+            if not blockers and source_review and target_review
+            else None
+        ),
         "target": target,
         "stored_obligations": counts,
         "identity_mapping": {"implemented": False, "unresolved_principals": None},

@@ -11,7 +11,11 @@ from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots import encryption, router
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
-from lockbot.backend.app.bots.migration_preflight import _counts
+from lockbot.backend.app.bots.migration_preflight import (
+    _counts,
+    migration_review_receipt,
+    verify_migration_review_receipt,
+)
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
@@ -98,6 +102,7 @@ def test_preview_is_observation_only_without_state_db_or_audit_changes(
     assert data["read_only"] and not data["can_commit"] and not data["reservation_created"]
     assert data["blockers"] == ["cutover_not_implemented"]
     assert data["stored_obligations"]["holders"] == 0
+    assert len(data["review_digest"]) == 64
     assert data["credential_changes"]["metrics"]["minimum_wait_seconds"] == 315
     assert state == original
     db_session.expire_all()
@@ -289,3 +294,88 @@ def test_reset_counts_only_live_bindings_and_unexpired_declarations(
     assert "hidden-" not in response.text
     assert db_session.query(ResourceBinding).count() == 6
     assert db_session.query(UsageDeclaration).count() == 12
+
+    original_review = response.json()["review_digest"]
+    binding = db_session.query(ResourceBinding).filter_by(public_id="fixture-current").one()
+    binding.credential_generation += 1
+    db_session.commit()
+    rotated = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=body).json()
+    assert rotated["stored_obligations"] == counts
+    assert rotated["review_digest"] != original_review
+
+
+def test_review_digest_changes_for_same_count_lease_and_identifies_target(
+    client, admin_header, db_session, setup, monkeypatch
+):
+    bot_id, app_id, target = setup
+    state = {
+        "node1": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "private-owner", "start_time": 5, "duration": 100}],
+            "booking_list": [{"user_id": "private-booking", "duration": 50}],
+        }
+    }
+    live(monkeypatch, state)
+
+    def observe():
+        response = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=target)
+        assert response.status_code == 200
+        assert "private-" not in response.text
+        return response.json()
+
+    original = observe()
+    assert observe()["review_digest"] == original["review_digest"]
+    state["node1"]["current_users"][0]["duration"] = 200
+    renewed = observe()
+    assert renewed["stored_obligations"] == original["stored_obligations"]
+    assert renewed["configuration_digest"] == original["configuration_digest"]
+    assert renewed["review_digest"] != original["review_digest"]
+
+    db_session.get(FeishuApplication, app_id).bot_open_id = "ou_replaced"
+    db_session.commit()
+    changed_destination = observe()
+    assert changed_destination["review_digest"] != renewed["review_digest"]
+    assert changed_destination["target"] == renewed["target"]
+
+
+def test_review_endpoint_checks_snapshot_without_changing_state(client, admin_header, setup, monkeypatch):
+    bot_id, _, target = setup
+    state = {"node1": {"status": "idle", "current_users": [], "booking_list": []}}
+    live(monkeypatch, state)
+    preflight_url = f"/api/bots/{bot_id}/migration-preflight"
+    review_url = f"/api/bots/{bot_id}/migration-review"
+    observation = client.post(preflight_url, headers=admin_header, json=target).json()
+    request = {**target, "review_receipt": observation["review_receipt"]["token"]}
+    good = client.post(review_url, headers=admin_header, json=request)
+    assert good.status_code == 200
+    assert good.headers["Cache-Control"] == "no-store"
+    assert good.json() == {"review_matches": True, "can_commit": False}
+    assert client.post(review_url, json=request).status_code == 401
+
+    state["node1"]["booking_list"].append({"user_id": "fixture-user", "duration": 3600})
+    stale = client.post(review_url, headers=admin_header, json=request)
+    assert stale.status_code == 409
+    assert stale.headers["Cache-Control"] == "no-store"
+    assert "fixture-user" not in stale.text
+    assert state["node1"]["booking_list"][0]["duration"] == 3600
+
+
+def test_receipt_is_bound_to_administrator_target_and_time():
+    observed = {
+        "review_digest": "scope-fingerprint",
+        "source": {"bot_uuid": "fixture", "identity_revision": 2},
+        "target": {"chat_id": "oc_fixture", "application_id": 1},
+    }
+    actor = SimpleNamespace(id=42, effective_token_version=7)
+    now = datetime(2026, 11, 15, tzinfo=timezone.utc)
+    token = migration_review_receipt(actor, observed, now=now)["token"]
+    assert verify_migration_review_receipt(token, actor, observed, now=now)
+    assert not verify_migration_review_receipt(token, actor, observed, now=now + timedelta(minutes=5))
+    assert not verify_migration_review_receipt(token, actor, observed, now=now - timedelta(seconds=1))
+    assert not verify_migration_review_receipt("invalid-receipt", actor, observed, now=now)
+    changed_chat = {**observed, "target": {**observed["target"], "chat_id": "oc_changed"}}
+    assert not verify_migration_review_receipt(token, actor, changed_chat, now=now)
+    other_actor = SimpleNamespace(id=43, effective_token_version=7)
+    assert not verify_migration_review_receipt(token, other_actor, observed, now=now)
+    actor.effective_token_version = 8
+    assert not verify_migration_review_receipt(token, actor, observed, now=now)
