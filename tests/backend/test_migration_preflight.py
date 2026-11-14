@@ -450,3 +450,71 @@ def test_persisted_migration_fences_manual_routes_and_startup(
         assert row.target_chat_id == target["chat_id"]
         assert db.get(Bot, bot_id).status == "running"
     assert not manager.is_running(bot_id)
+
+
+@pytest.mark.parametrize(
+    ("retirement", "expected"),
+    [("unchanged", "drained"), ("changed", "source_changed"), ("timeout", "drained"), ("restart", "recovery_required")],
+)
+def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeypatch, retirement, expected):
+    from lockbot.backend.app.bots.manager import MayHaveExecuted
+    from lockbot.backend.app.bots.migration_cutover import continue_source_drain, freeze_migration
+    from lockbot.backend.app.bots.migration_journal import migration_fence
+    from lockbot.backend.app.bots.migration_preflight import (
+        MigrationPreflight,
+        MigrationReview,
+        observe_migration,
+    )
+
+    bot_id, _, destination = setup
+    actor = db_session.query(User).filter_by(username="adminuser").one()
+    config = SimpleNamespace(get_val=lambda key, default=None: default)
+    state = {"node1": {"status": "idle", "current_users": [], "booking_list": []}}
+    lease = SimpleNamespace(
+        generation=1,
+        health=None,
+        bot=SimpleNamespace(_lock=threading.Lock(), config=config, state=SimpleNamespace(bot_state=state)),
+    )
+
+    @contextmanager
+    def admit(*args, **kwargs):
+        yield lease
+
+    calls = []
+
+    def retire(retiring_bot_id):
+        row = migration_fence(db_session, retiring_bot_id)
+        assert row.phase == "frozen"
+        calls.append(retiring_bot_id)
+        if retirement == "changed":
+            state["node1"]["booking_list"].append({"user_id": "last-admitted", "duration": 60})
+        if retirement == "timeout" and len(calls) == 1:
+            raise MayHaveExecuted(retiring_bot_id)
+        if retirement == "restart":
+            raise BotNotRunning()
+        return lease
+
+    manager = SimpleNamespace(transition=admit, admit=admit, retire_bot=retire)
+    target = MigrationPreflight(**destination)
+    observation = observe_migration(db_session, manager, bot_id, target)
+    receipt = migration_review_receipt(actor, observation)
+    review = MigrationReview(**destination, review_receipt=receipt["token"])
+    from fastapi import HTTPException
+
+    stale_review = review.model_copy(update={"review_receipt": "bad-receipt"})
+    with pytest.raises(HTTPException) as error:
+        freeze_migration(db_session, manager, bot_id, stale_review, actor)
+    assert error.value.status_code == 409
+    assert migration_fence(db_session, bot_id) is None
+
+    operation = freeze_migration(db_session, manager, bot_id, review, actor)
+    assert operation.requested_by == actor.id
+    operation_id = operation.operation_id
+    if retirement == "timeout":
+        assert operation.phase == "frozen"
+        operation = continue_source_drain(db_session, manager, bot_id, operation_id, actor)
+    assert operation.phase == expected
+    assert operation.operation_id == operation_id
+    assert continue_source_drain(db_session, manager, bot_id, operation_id, actor).phase == expected
+    assert len(calls) == (2 if retirement == "timeout" else 1)
+    assert not db_session.query(FeishuGroupRoute).count()

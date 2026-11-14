@@ -6,6 +6,7 @@ This module deliberately cannot create a migration, reserve a route or change st
 import hashlib
 import hmac
 import json
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -186,7 +187,7 @@ def _reset_authorizations(db, bot, now):
     return counts, revisions
 
 
-def observe_migration(db, manager, bot_id, body):
+def observe_migration(db, manager, bot_id, body, *, retired=None):
     bot = db.get(Bot, bot_id)
     if bot is None or bot.is_deleted:
         raise HTTPException(404, "Bot not found")
@@ -198,7 +199,8 @@ def observe_migration(db, manager, bot_id, body):
     target_review = None
     identity_rule_counts = None
     try:
-        with manager.admit(bot_id, for_read=True) as lease, lease.bot._lock:
+        admission = manager.admit(bot_id, for_read=True) if retired is None else nullcontext(retired)
+        with admission as lease, lease.bot._lock:
             db.rollback()
             bot = db.get(Bot, bot_id)
             if bot is None or bot.is_deleted:
