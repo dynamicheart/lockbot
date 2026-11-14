@@ -43,35 +43,78 @@ revalidates grants, and source failure is unknown rather than an empty successfu
 report. Existing metrics configuration/grants are a separate data-source mechanism;
 a utilization source is not an identity provider or resource-command backend.
 
-## Proposed authenticated extension discovery
+## Authenticated extension discovery v1
 
-After native service discovery and key verification, the same Skill should learn
-which reviewed extensions this deployment allows **this principal** to use. Additive
-metadata must describe stable extension ID, protocol/revision, readable operations,
-source label, credential mode and approved same-origin read links. Do not publish
-private endpoints, secrets, implementation paths or unrelated users' resources in
-the unauthenticated manifest. Unsupported/absent discovery retains today's native
-workflow; clients must not guess routes, scrape admin configuration or probe plugins.
+The native Agent discovers the optional capability in its authenticated
+`GET /api/agent/context` response. Only an active native binding with at least one
+explicitly authorized extension receives `personal_report_extensions`. The
+unauthenticated Skill manifest and the browser's panel capabilities never list
+extensions. The field has this shape:
 
-No discovery field name, endpoint or wire schema is implemented by this document.
-Specify and review that contract before coding it. Plugin installation remains an
-administrator action using reviewed local files; API metadata must never cause an
-Agent or server to import arbitrary remote Python or execute upstream content.
+```json
+{
+  "protocol": "lockbot.personal-report.v1",
+  "credential_mode": "same_origin_native",
+  "items": [
+    {
+      "id": "team-report",
+      "label": "Team resource report",
+      "revision": "1",
+      "mode": "read_only",
+      "read_path": "/api/personal-panel/agent/extensions/team-report"
+    }
+  ]
+}
+```
 
-An Agent read bridge, if added, must authenticate and revalidate the current caller,
-project only that caller's allocations, bound time/size/fan-out, and preserve unknown,
-stale and unavailable states. Reuse reporter filtering logic without reusing browser
-cookies as Agent credentials. A reporter cannot mint or widen identity grants. Use
-deployment-owned upstream secrets inside the adapter; return normalized records,
-not upstream keys. If an adapter requires a separate user credential, require an
-explicit, separately scoped private reference and verified destination contract.
-It must never receive the native `lbr_` key merely because it contributes a report.
+IDs are operator-configured lowercase ASCII slugs. Labels are short plain text.
+`revision` is an opaque adapter contract/configuration marker. The discovery
+document contains only descriptors for which the exact caller is authorized.
+Eligibility checks use local, explicit deployment configuration and never depend
+on a report having data. The response is `Cache-Control: no-store`. When access
+is disabled or no extension is authorized, omit the field. A missing field or
+unknown protocol leaves the normal resource and browser handoff flows available.
 
-Discover `read-only` explicitly. Do not advertise native command links for reporter
-resources or translate reported names into bot IDs. Write-capable adapters are out
-of scope until their own authentication, authority and operation semantics are designed.
-Native locks, existing APIs/keys, IM messages and browser sessions must retain their
-current behavior when no extension is installed or an extension fails.
+The Agent may read a discovered `read_path` on the same verified origin with the
+same native key. It validates the protocol and the fixed relative path grammar,
+refuses redirects, and does not accept a caller-supplied actor, bot, group, or URL
+selector. Browser cookies, OP keys, other instances' keys, and shared view links
+do not authorize this route. A different dashboard host keeps its existing
+explicitly authorized browser handoff. V1 does not forward a native key to that
+host or expose a delegated cross-origin Agent credential.
+
+The read response has `protocol`, `id`, `revision`, `status`, and `groups`.
+Each group contains an opaque `id`, a short `label`, `status`, optional
+`source_at` with an offset, and `allocations`. Each allocation contains
+`kind` (`hold` or `reservation`), `node`, optional `device`, and optional
+`expires_at` with an offset. The server projects these fields. Free-form notes,
+raw reports, upstream URLs, execution instructions and credentials are excluded.
+An unavailable or malformed report has `status: "unknown"`; an authorized
+successful report with no allocations has `status: "ok"`. Stale sources are
+marked per group. Unknown data may not be used as evidence that a resource is free.
+
+The server authenticates the current native key, resolves the exact instance,
+platform realm, subject, bot scope and binding, and checks the configured
+extension grant on both discovery and read. Invalid credentials receive 401;
+unknown and out-of-scope extension IDs both receive 404. Recheck the current key,
+binding and grant after report generation. A stopped bot, disabled Agent access,
+revocation or identity change cannot yield a report. Each request reads a single
+extension. Use the native credential read budget with bounded concurrency,
+timeouts and response sizes. A failed source stays isolated from native queries.
+
+Administrators opt in each extension using reviewed local code and explicit
+binding-to-reporter authorization. The adapter receives an immutable copy of the
+verified identity metadata and no native bearer key. An existing browser-only
+reporter is not automatically eligible. Opt-in adapters must document the
+upstream identity verification and filter returned allocations to that subject.
+Upstream credentials remain under deployment control. Extension metadata cannot
+install packages, execute code or grant operational authority.
+
+The public Skill and helper issue only the fixed optional read request, and can
+show its output next to native and browser dashboard information. Resource
+commands continue to require the native key for the target bot and do not accept
+extension group/node identifiers. Removing an extension removes discovery and
+makes its former read path unavailable.
 
 ## Package and update boundary
 
@@ -96,7 +139,7 @@ remaining packaging/client acceptance decision, not completed behavior.
 
 - [x] Identify current provider/reporter/directory hooks and authority boundaries.
 - [x] Document one Skill, multi-connection storage and read-only report semantics.
-- [ ] Define authenticated extension metadata and caller-scoped read contract.
+- [x] Define authenticated extension metadata and caller-scoped read contract.
 - [ ] Define portable package vs per-service revision compatibility; retain old URLs.
 - [ ] Implement optional extension discovery/read projection with bounded failure handling.
 - [ ] Teach the existing Skill/helper supported extension protocols; no private adapter details.
