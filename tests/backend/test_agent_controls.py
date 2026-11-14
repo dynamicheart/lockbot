@@ -115,7 +115,7 @@ def test_help_skill_discovery_obeys_current_saved_agent_switch(client, api, db_s
     db_session.commit()
     row = db_session.get(Bot, api["bot_id"])
     bot = NodeBot(config_dict=_build_config_dict(row, db_session))
-    url = "https://lockbot.example/api/agent-skill/SKILL.md"
+    url = "https://lockbot.example/api/agent-skill/lockbot-resource-agent.zip"
     assert bot._agent_skill_url() == url
     assert "bindings" in bot.adapter.extract_reply_text(bot.print_help("alice"))
     row.resource_auth_enabled = False
