@@ -840,12 +840,6 @@
   font-weight: 500;
 }
 
-.personal-panel :deep(.main.credentials-page),
-.personal-panel :deep(.bar-inner.credentials-bar) {
-  box-sizing: border-box;
-  max-width: 1160px;
-  margin-inline: auto;
-}
 .personal-panel :deep(.credentials-page .native-connections .scope) {
   margin: 0;
 }

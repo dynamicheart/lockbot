@@ -1,7 +1,7 @@
 <template>
   <div class="personal-panel">
     <header class="bar">
-      <div class="bar-inner" :class="{ 'credentials-bar': tab === 'connections' && !ticket }">
+      <div class="bar-inner">
         <LockbotWordmark />
         <nav v-if="session.authenticated && !ticket" class="nav" aria-label="主导航">
           <router-link
