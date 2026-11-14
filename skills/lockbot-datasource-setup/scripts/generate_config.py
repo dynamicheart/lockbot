@@ -153,7 +153,8 @@ def main():
         lines += [
             "授权说明：独立认证需私下提供源专用凭证；自动短期授权需管理员事先建立签名信任。本输出不包含秘密，也不建立信任。",
             "",
-            "网络说明：HTTP 未加密；Agent 可达不证明浏览器 CORS 或所有用户可达。真实目录可能敏感，不默认提交公共仓库。",
+            ("网络说明：HTTPS 端点；" if urlsplit(config["endpoint"]).scheme == "https" else "网络说明：HTTP 未加密；")
+            + "Agent 可达不证明浏览器 CORS 或所有用户可达。真实目录可能敏感，不默认提交公共仓库。",
             "",
         ]
         path = out / "handoff.md"

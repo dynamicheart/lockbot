@@ -44,6 +44,8 @@ def test_cli_delivers_private_files_and_refuses_overwrite(tmp_path):
     config = json.loads(files["utilization-config.json"])
     assert config["nodeMapping"] == BASE["node_mapping"]
     assert config["accessMode"] == "independent"
+    assert "HTTPS 端点" in files["handoff.md"].decode()
+    assert "HTTP 未加密" not in files["handoff.md"].decode()
     assert all(p.stat().st_mode & 0o077 == 0 for p in out.iterdir())
     assert subprocess.run(command, capture_output=True).returncode == 2
     assert files == {p.name: p.read_bytes() for p in out.iterdir()}
