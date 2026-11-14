@@ -29,7 +29,6 @@ class MigrationPreflight(BaseModel):
     chat_id: str = Field(pattern=r"^oc_[A-Za-z0-9_-]+$", max_length=128)
 
 
-
 class MigrationReview(MigrationPreflight):
     review_receipt: str = Field(min_length=1, max_length=2048)
 
@@ -134,10 +133,7 @@ def verify_migration_review_receipt(token, user, fresh_observation, *, now=None)
         if type(claims["iat"]) is not int or type(claims["exp"]) is not int:
             return False
         now = (now or datetime.now(timezone.utc)).timestamp()
-        if (
-            not claims["iat"] <= now < claims["exp"]
-            or claims["exp"] - claims["iat"] != _RECEIPT_TTL.total_seconds()
-        ):
+        if not claims["iat"] <= now < claims["exp"] or claims["exp"] - claims["iat"] != _RECEIPT_TTL.total_seconds():
             return False
         return all(claims.get(key) == value for key, value in _review_scope(user, fresh_observation).items())
     except (jwt.PyJWTError, ValueError):
@@ -251,9 +247,7 @@ def observe_migration(db, manager, bot_id, body):
             "transport": app.transport,
             "credentials": fingerprint(app, "feishu"),
             "membership_event": (
-                [membership.event_id, membership.event_time_ms, membership.status]
-                if membership is not None
-                else None
+                [membership.event_id, membership.event_time_ms, membership.status] if membership is not None else None
             ),
         }
         if membership is None or membership.status != "present":
