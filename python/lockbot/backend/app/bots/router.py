@@ -11,6 +11,7 @@ import secrets
 import traceback
 import uuid as _uuid_mod
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
@@ -2289,3 +2290,139 @@ def check_migration_review(
         )
     response.headers["Cache-Control"] = "no-store"
     return {"review_matches": True, "can_commit": False}
+
+
+def _migration_status(db, bot_id, operation_id=None):
+    from lockbot.backend.app.bots.migration_journal import BotMigration
+
+    row = db.get(BotMigration, bot_id, populate_existing=True)
+    if row is None or (operation_id is not None and row.operation_id != operation_id):
+        raise HTTPException(404, "Migration operation not found")
+    return row
+
+
+def _migration_payload(row):
+    return {"operation_id": row.operation_id, "phase": row.phase}
+
+
+def _verify_feishu_migration_destination(application, chat_id, _drained_at):
+    from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.service import application_client
+    from lockbot.core.platforms.feishu import FeishuAPIError
+
+    if application.transport != "websocket" or connectors.snapshot(application.id)["state"] != "running":
+        raise HTTPException(409, "Connect the destination Feishu WebSocket receiver before switching")
+    try:
+        client = application_client(application)
+        ready = (
+            client.bot_identity() == application.bot_open_id
+            and client.group_name(chat_id, refresh=True)["status"] == "ok"
+        )
+    except FeishuAPIError:
+        ready = False
+    if not ready:
+        raise HTTPException(409, "The Feishu bot and selected group could not be verified")
+
+
+def _verify_before_migration_freeze(bot, application, chat_id):
+    from lockbot.backend.app.bots.datasource import public_datasource
+
+    source = public_datasource(bot)
+    if source and source.get("accessMode") == "short_lived":
+        raise HTTPException(409, "The metrics gateway expiry policy must be verified before switching")
+    _verify_feishu_migration_destination(application, chat_id, None)
+
+
+class MigrationConfirmation(MigrationReview):
+    confirm_clear_live_state: Literal[True]
+
+
+@router.post("/{bot_id}/migration", status_code=202)
+def begin_bot_migration(
+    bot_id: int,
+    body: MigrationConfirmation,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.migration_cutover import freeze_migration
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    if os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") != "1":
+        raise HTTPException(409, "Platform migration is disabled on this deployment")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        with connectors.application_guard():
+            return _migration_payload(
+                freeze_migration(
+                    db, bot_manager, bot_id, body, user, verify_before_freeze=_verify_before_migration_freeze
+                )
+            )
+    except InstanceRetiring:
+        raise api_errors.instance_retiring(bot_id) from None
+
+
+@router.get("/{bot_id}/migration")
+def bot_migration_status(
+    bot_id: int,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return _migration_payload(_migration_status(db, bot_id))
+
+
+@router.post("/{bot_id}/migration/{operation_id}/continue", status_code=202)
+def advance_bot_migration(
+    bot_id: int,
+    operation_id: str,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    from lockbot.backend.app.bots.datasource import public_datasource
+    from lockbot.backend.app.bots.migration_cutover import (
+        activate_switched_migration,
+        continue_source_drain,
+        switch_drained_migration,
+    )
+    from lockbot.backend.app.feishu.connectors import connectors
+
+    if os.environ.get("LOCKBOT_ENABLE_PLATFORM_MIGRATION") != "1":
+        raise HTTPException(409, "Platform migration is disabled on this deployment")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        with connectors.application_guard(), bot_manager.transition(bot_id):
+            db.rollback()
+            row = _migration_status(db, bot_id, operation_id)
+            if row.phase == "frozen":
+                return _migration_payload(continue_source_drain(db, bot_manager, bot_id, operation_id, user))
+            if row.phase == "drained":
+                source = public_datasource(db.get(Bot, bot_id))
+                if source and source.get("accessMode") == "short_lived":
+                    raise HTTPException(409, "The metrics gateway expiry policy must be verified before switching")
+                return _migration_payload(
+                    switch_drained_migration(
+                        db,
+                        bot_manager,
+                        bot_id,
+                        operation_id,
+                        user,
+                        verify_destination=_verify_feishu_migration_destination,
+                    )
+                )
+            if row.phase in {"switched", "installed"}:
+                return _migration_payload(
+                    activate_switched_migration(
+                        db,
+                        bot_manager,
+                        bot_id,
+                        operation_id,
+                        user,
+                        build_config=_build_config_dict,
+                    )
+                )
+            return _migration_payload(row)
+    except InstanceRetiring:
+        raise api_errors.instance_retiring(bot_id) from None

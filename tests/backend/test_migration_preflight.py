@@ -662,3 +662,60 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
         assert persisted.destination_payload is None
         with pytest.raises(ValueError, match="unavailable"):
             read_destination_checkpoint(persisted)
+
+
+def test_migration_routes_require_opt_in_and_explicit_confirmation(
+    client, admin_header, setup, db_session, monkeypatch
+):
+    bot_id, _, target = setup
+    path = f"/api/bots/{bot_id}/migration"
+    state = {"node1": {"status": "idle", "current_users": [], "booking_list": []}}
+    live(monkeypatch, state)
+    observation = client.post(path + "-preflight", headers=admin_header, json=target).json()
+    payload = {**target, "review_receipt": observation["review_receipt"]["token"]}
+
+    monkeypatch.delenv("LOCKBOT_ENABLE_PLATFORM_MIGRATION", raising=False)
+    assert (
+        client.post(path, headers=admin_header, json={**payload, "confirm_clear_live_state": True}).status_code == 409
+    )
+    monkeypatch.setenv("LOCKBOT_ENABLE_PLATFORM_MIGRATION", "1")
+    assert client.post(path, headers=admin_header, json=payload).status_code == 422
+    assert (
+        client.post(path, headers=admin_header, json={**payload, "confirm_clear_live_state": False}).status_code == 422
+    )
+    assert client.get(path, headers=admin_header).status_code == 404
+
+    checked = []
+    monkeypatch.setattr(
+        router, "_verify_feishu_migration_destination", lambda app, chat, _: checked.append((app.id, chat))
+    )
+    monkeypatch.setattr(
+        router.bot_manager,
+        "retire_bot",
+        lambda _: SimpleNamespace(
+            generation=7,
+            health=None,
+            bot=SimpleNamespace(
+                _lock=threading.Lock(),
+                config=SimpleNamespace(get_val=lambda key, default=None: default),
+                state=SimpleNamespace(bot_state=state),
+                state_snapshot=lambda: (datetime.now(timezone.utc), copy.deepcopy(state)),
+            ),
+        ),
+    )
+    good = client.post(path, headers=admin_header, json={**payload, "confirm_clear_live_state": True})
+    assert good.status_code == 202
+    assert good.json()["phase"] == "drained"
+    assert checked == [(target["application_id"], target["chat_id"])]
+    assert client.get(path, headers=admin_header).json() == good.json()
+    assert client.post(path + "/wrong-id/continue", headers=admin_header).status_code == 404
+    assert client.post(path + "/" + good.json()["operation_id"] + "/continue", json={}).status_code == 401
+    assert db_session.get(Bot, bot_id).platform.lower() == "infoflow"
+
+    resume = path + "/" + good.json()["operation_id"] + "/continue"
+    monkeypatch.setattr(router.bot_manager, "get_instance", lambda _: None)
+    monkeypatch.setattr(router.bot_manager, "is_retiring", lambda _: False)
+    switched = client.post(resume, headers=admin_header)
+    assert switched.status_code == 202, switched.text
+    assert switched.json() == {**good.json(), "phase": "switched"}
+    assert checked == [(target["application_id"], target["chat_id"])] * 2

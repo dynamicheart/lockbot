@@ -28,4 +28,10 @@ Credential work remains necessary before any future cutover:
 - The bundled metrics gateway accepts a five-minute grant plus 15 seconds of expiry leeway. A future migration must stop **all** issuance paths first and wait at least 315 seconds plus verified issuer/verifier clock offset, or implement and test a separate revocation mechanism. An independently operated or third-party gateway may have different rules and requires separate verification. The response does not assert a countdown has started or that grants have expired.
 - The planned cutover clears live source obligations and authorizations and requires destination re-enrollment. It retains resource settings and historical records. The response reports this decision as `reset_policy: "clear_live_state_and_reenroll"`. A durable freeze, restart recovery and explicit confirmation are still required.
 
-Production migration and the administrator cutover UI remain separate deliveries. Do not change database `platform` fields manually or replay lock commands to simulate migration.
+## Test deployment cutover API
+
+A deployment operator can enable the supervised API with `LOCKBOT_ENABLE_PLATFORM_MIGRATION=1`. The default leaves preflight and review available and disables begin and continue requests.
+
+A signed-in super administrator sends the reviewed target, `review_receipt` and `confirm_clear_live_state: true` to `POST /api/bots/{bot_id}/migration`. Before freezing, the server checks the supported Feishu WebSocket receiver, the application bot identity and access to the selected group. Deployments whose source uses short-lived metrics require a verified expiry policy. The API refuses those migrations before freezing until that policy is supported.
+
+Use `GET /api/bots/{bot_id}/migration` to recover the operation ID or inspect its phase. Send a POST to `/api/bots/{bot_id}/migration/{operation_id}/continue` to advance the same operation. Inspect status after a timeout. A changed source or a pending recovery stays fenced for reconciliation. The administrator UI and test-tenant delivery acceptance remain separate.

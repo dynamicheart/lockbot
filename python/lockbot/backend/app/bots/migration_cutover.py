@@ -36,7 +36,7 @@ from lockbot.core.config import Config
 from lockbot.core.io import _save_bot_state_atomically
 
 
-def freeze_migration(db, manager, bot_id, review, actor):
+def freeze_migration(db, manager, bot_id, review, actor, *, verify_before_freeze=None):
     """Persist the selected scope, then stop admission and drain the exact source generation."""
     with manager.transition(bot_id):
         db.rollback()
@@ -49,9 +49,10 @@ def freeze_migration(db, manager, bot_id, review, actor):
         observed = observe_migration(db, manager, bot_id, target)
         if not verify_migration_review_receipt(review.review_receipt, current_actor, observed):
             raise HTTPException(409, "The migration review changed or expired. Open a new preflight.")
-        row = record_migration_freeze(
-            db, db.get(Bot, bot_id), target, observed["review_digest"], requested_by=current_actor.id
-        )
+        bot = db.get(Bot, bot_id)
+        if verify_before_freeze is not None:
+            verify_before_freeze(bot, db.get(FeishuApplication, target.application_id), target.chat_id)
+        row = record_migration_freeze(db, bot, target, observed["review_digest"], requested_by=current_actor.id)
         operation_id = row.operation_id
         db.commit()
         return continue_source_drain(db, manager, bot_id, operation_id, current_actor)
