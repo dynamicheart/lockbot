@@ -1,0 +1,50 @@
+{
+  "protocol_version": 1,
+  "datasource_id": "example-source",
+  "generated_at": "2026-11-14T06:00:03Z",
+  "coverage": "partial",
+  "entities": [
+    {
+      "id": "node-a",
+      "kind": "host",
+      "node_id": "node-a",
+      "metrics": [
+        {"id": "host.cpu.utilization", "unit": "percent", "value": 12, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"},
+        {"id": "host.memory.total", "unit": "bytes", "value": 274877906944, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"},
+        {"id": "host.memory.available", "unit": "bytes", "value": 206158430208, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"},
+        {"id": "host.memory.used", "unit": "bytes", "value": 68719476736, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"},
+        {"id": "host.memory.buff_cache", "unit": "bytes", "value": 107374182400, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"}
+      ]
+    },
+    {
+      "id": "accelerator-uuid-a",
+      "kind": "accelerator",
+      "node_id": "node-a",
+      "device_id": "card-0",
+      "metrics": [
+        {"id": "accelerator.utilization", "unit": "percent", "value": 0, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"},
+        {"id": "accelerator.memory.used", "unit": "bytes", "value": 8589934592, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"},
+        {"id": "accelerator.memory.total", "unit": "bytes", "value": 103079215104, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"}
+      ]
+    },
+    {
+      "id": "node-a-rootfs",
+      "kind": "filesystem",
+      "node_id": "node-a",
+      "metrics": [
+        {"id": "filesystem.used", "unit": "bytes", "value": 536870912000, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"},
+        {"id": "filesystem.total", "unit": "bytes", "value": 1073741824000, "status": "ok", "observed_at": "2026-11-14T06:00:00Z"}
+      ]
+    },
+    {
+      "id": "accelerator-uuid-b",
+      "kind": "accelerator",
+      "node_id": "node-b",
+      "device_id": "card-0",
+      "metrics": [
+        {"id": "accelerator.utilization", "unit": "percent", "value": null, "status": "failed", "observed_at": null}
+      ]
+    }
+  ],
+  "errors": [{"entity_id": "accelerator-uuid-b", "code": "collection_failed"}]
+}
