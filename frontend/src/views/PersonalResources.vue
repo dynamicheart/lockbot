@@ -767,6 +767,18 @@ const initialResourceLoading = computed(
 const knownGroups = computed(() => groups.value.filter(fresh))
 const slots = useSlots()
 const clock = ref(Date.now())
+const holdingCutoff = computed(() => {
+  // Recompute derived lists and metric scopes only when a holding crosses its deadline.
+  let cutoff = -Infinity
+  for (const group of knownGroups.value) {
+    for (const allocation of Array.isArray(group.allocations) ? group.allocations : []) {
+      if (queued(allocation)) continue
+      const deadline = expiration(allocation.expires_at)
+      if (deadline <= clock.value && deadline > cutoff) cutoff = deadline
+    }
+  }
+  return cutoff
+})
 let clockTimer
 const ownTasksAvailable = computed(() =>
   knownGroups.value.some((group) => entries(group).some((allocation) => 'own_task' in allocation))
@@ -1227,7 +1239,12 @@ function fresh(group) {
   return ['ok', 'fresh', 'active', 'ready', 'available', 'healthy'].includes(group.status)
 }
 function entries(group) {
-  return Array.isArray(group.allocations) ? group.allocations : []
+  return Array.isArray(group.allocations)
+    ? group.allocations.filter(
+        (allocation) =>
+          queued(allocation) || expiration(allocation.expires_at) > holdingCutoff.value
+      )
+    : []
 }
 function bookingPosition(allocation) {
   const { position } = allocation

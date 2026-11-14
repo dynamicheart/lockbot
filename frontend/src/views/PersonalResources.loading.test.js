@@ -330,6 +330,7 @@ it('filters holdings and bookings across groups without changing summary counts'
       allocations: [{ kind: 'reservation', node: 'node-2', device: '1' }],
     },
   ])
+  state.clock = 0
   const heldNodes = () => state.allocationSections[0].rows.map(({ allocation }) => allocation.node)
   expect(heldNodes()).toEqual(['node-10', 'node-2', 'node-3'])
   state.allocationSort = 'latest'
@@ -362,13 +363,13 @@ it('groups held cards within one resource group and sorts by the earliest card d
     },
     { ...confirmed, group_id: 'b', allocations: [card('node-a', '0', 250)] },
   ])
+  state.clock = 0
   state.allocationSort = 'latest'
   const items = () => state.allocationSections[0].items
   expect(items().map((item) => item.first.allocation.expires_at)).toEqual([250, 200, 100])
   expect(items().map((item) => item.rows.length)).toEqual([1, 1, 2])
   expect(state.allocationSections[1].items).toHaveLength(1)
 
-  state.clock = 0
   expect(state.nodeRemaining(items()[2])).toBe('1 分钟 至 5 分钟')
   expect(state.nodeRemaining({ deadlines: [300_000] })).toBe('5 分钟')
   expect(state.nodeRemaining({ deadlines: [300_000, NaN] })).toBe('5 分钟（部分未知）')
@@ -678,4 +679,40 @@ it('keeps a node on the overview when another card on that node has already expi
     path: '/me/holdings',
     query: { node: 'node-a-details' },
   })
+})
+
+it('drops expired holds from totals, group details and metrics while retaining unknown deadlines', async () => {
+  const now = Date.parse('2026-11-14T12:00:00Z')
+  const group = {
+    ...confirmed,
+    capacity: { nodes: 5, cards: 16 },
+    utilization: {
+      connection: 'binding-a',
+      configuration: { nodeMapping: { 'node-a': 'host-a', 'node-b': 'host-b' } },
+    },
+    allocations: [
+      { kind: 'hold', node: 'node-a', device: '0', expires_at: (now + 60_000) / 1000 },
+      { kind: 'hold', node: 'node-a', device: '1', expires_at: (now + 120_000) / 1000 },
+      { kind: 'hold', node: 'node-b', expires_at: null },
+      { kind: 'reservation', node: 'node-a' },
+    ],
+  }
+  const state = await readyGroups([group])
+  state.clock = now
+  const summary = () => state.statistics.map(({ value }) => value)
+  expect(summary()).toEqual([2, 2, 1])
+  const { holdingsKey } = state.utilizationGroups[0]
+  state.updateUtilizationSnapshot('binding-a', holdingsKey, { enabled: true })
+  state.clock = now + 60_000
+  expect(summary()).toEqual([2, 1, 1])
+  expect(state.utilizationSnapshots['binding-a']).toBeUndefined()
+  state.updateUtilizationSnapshot('binding-a', holdingsKey, { enabled: true })
+  expect(state.utilizationSnapshots['binding-a']).toBeUndefined()
+  state.clock = now + 120_000
+  expect(summary()).toEqual([1, 0, 1])
+  expect(state.groupCounts(group).map(({ value }) => value)).toEqual([1, 0, 1])
+  expect(state.allocationSections[0].rows.map(({ allocation }) => allocation.node)).toEqual([
+    'node-b',
+  ])
+  expect(state.utilizationGroups[0].nodes).toEqual(['node-b'])
 })
