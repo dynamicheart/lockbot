@@ -253,3 +253,32 @@ it('copies only a public instruction through the private-HTTP clipboard fallback
   expect(document.body.removeChild).toHaveBeenCalledWith(element)
   expect(state.feedback).toContain('已复制无 Key 说明')
 })
+
+const FOREIGN = 'https://resource.example.test'
+const foreignSkill = () => Object.fromEntries(Object.entries(skill()).map(([key, value]) => [key, typeof value === 'string' ? value.replace(ORIGIN, FOREIGN) : value]))
+const metadataCaps = () => ({ connection_management: { version: 2, metadata_available: true, refresh_semantics: 'revalidate_only', credential_disclosure_supported: false } })
+const metadataList = () => ({ schema_version: 2, service_pins: [{ origin: FOREIGN, instance_id: 'fixture-instance', service_id: 'lockbot.resource-api', api_version: '1' }], connections: [{ ...row(), service_origin: FOREIGN, skill: foreignSkill(), instructions: row().instructions.replaceAll(ORIGIN, FOREIGN), recovery_instructions: guide().replaceAll(ORIGIN, FOREIGN) }] })
+
+it('validates an authenticated metadata-only service pin and copies only its source instructions', async () => {
+  fetchMock.mockResolvedValueOnce(response(metadataCaps())).mockResolvedValueOnce(response(metadataList()))
+  mount()
+  await flush()
+  expect(state.items).toHaveLength(1)
+  await state.copyInstructions(state.items[0])
+  expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(FOREIGN + '/api/agent-skill/lockbot-resource-agent.zip'))
+  expect(clipboard.mock.calls[0][0]).not.toContain(SECRET)
+})
+
+it.each(['missing-pin', 'instance', 'foreign-path', 'secret'])('rejects unpinned or unsafe metadata: %s', async (change) => {
+  const data = metadataList()
+  if (change === 'missing-pin') data.service_pins[0].origin = 'https://other.example.test'
+  if (change === 'instance') data.connections[0].instance_id = 'other-instance'
+  if (change === 'foreign-path') data.connections[0].skill.bundle_url = FOREIGN + '/not-the-skill'
+  if (change === 'secret') data.connections[0].instructions += SECRET
+  fetchMock.mockResolvedValueOnce(response(metadataCaps())).mockResolvedValueOnce(response(data))
+  mount()
+  await flush()
+  expect(state.items).toEqual([])
+  expect(state.error).toBeTruthy()
+  expect(clipboard).not.toHaveBeenCalled()
+})

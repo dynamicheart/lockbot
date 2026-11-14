@@ -107,7 +107,16 @@ def panel_origin(origin, allow_private_http=False):
 
 
 def create_panel(
-    origin, path, provider, reporters=(), *, identity_resolver=None, identity_directory=None, allow_private_http=False
+    origin,
+    path,
+    provider,
+    reporters=(),
+    *,
+    identity_resolver=None,
+    identity_directory=None,
+    allow_private_http=False,
+    metadata_adapter=None,
+    metadata_pins=None,
 ):
     upstream = panel_origin(origin, allow_private_http)
     secure = upstream.scheme == "https"
@@ -121,6 +130,13 @@ def create_panel(
     # Reporters and third-party identity providers do not acquire native key
     # authority by returning similarly shaped metadata or display names.
     native_connections = type(provider) is NativeProvider
+    if metadata_adapter is not None:
+        from .metadata import pinned_services
+
+        if native_connections or not callable(getattr(metadata_adapter, "describe_connection", None)):
+            raise ValueError("Metadata adapter requires a non-native provider and a callable descriptor")
+        metadata_pins = pinned_services(list(metadata_pins or {}), metadata_pins, allow_private_http)
+    metadata_available = metadata_adapter is not None
     skill = installation(origin) if native_connections else None
     recovery_guide = recovery_instructions(origin, skill) if skill else None
 
@@ -160,6 +176,18 @@ def create_panel(
     @app.get("/capabilities")
     def capabilities(request: Request):
         return {
+            **(
+                {
+                    "connection_management": {
+                        "version": 2,
+                        "metadata_available": True,
+                        "credential_disclosure_supported": False,
+                        "refresh_semantics": "revalidate_only",
+                    }
+                }
+                if metadata_available
+                else {}
+            ),
             "protocol": "lockbot.personal-panel.v1",
             "home": origin + "/#/me",
             "issue_path": request.url.path.rsplit("/", 1)[0] + "/links",
@@ -278,7 +306,7 @@ def create_panel(
 
     @app.get("/connections")
     def connections(request: Request):
-        if not native_connections:
+        if not native_connections and not metadata_available:
             raise HTTPException(404)
 
         def unavailable(status):
@@ -291,13 +319,26 @@ def create_panel(
         items = []
         for grant in grants:
             try:
-                item = provider.connection(grant)
+                if metadata_available:
+                    from .metadata import project
+
+                    raw = metadata_adapter.describe_connection(dict(grant))
+                    if raw is None:
+                        continue
+                    item = project(raw, grant, metadata_pins)
+                else:
+                    item = provider.connection(grant)
             except ProviderError:
                 raise unavailable(403) from None
             except Exception:
                 raise HTTPException(503, {"code": "connection_metadata_unavailable"}) from None
-            item.update(id=connection_id(grant), identity=public_identity(grant), service_origin=origin)
-            item["instructions"] = connection_instructions(origin, skill, item)
+            source = item["service_origin"] if metadata_available else origin
+            source_skill = installation(source) if metadata_available else skill
+            item.update(id=connection_id(grant), identity=public_identity(grant), service_origin=source)
+            item["instructions"] = connection_instructions(source, source_skill, item)
+            if metadata_available:
+                item["skill"] = source_skill
+                item["recovery_instructions"] = recovery_instructions(source, source_skill)
             items.append(item)
         # Logout, expiry or revocation must also win while an earlier connection
         # was being inspected. Do not extend the browser or binding lifetime.
@@ -306,6 +347,25 @@ def create_panel(
             raise unavailable(401)
         if any(grant not in current or not valid(grant) for grant in grants):
             raise unavailable(403)
+        if metadata_available:
+            if not items:
+                raise unavailable(403)
+            used = {item["service_origin"] for item in items}
+            return {
+                "schema_version": 2,
+                "connections": items,
+                "some_authorizations_unavailable": len(items) != len(original),
+                "service_pins": [
+                    {
+                        "origin": source,
+                        "instance_id": metadata_pins[source],
+                        "service_id": "lockbot.resource-api",
+                        "api_version": "1",
+                    }
+                    for source in sorted(used)
+                ],
+                "refresh_semantics": "revalidate_only",
+            }
         return {
             "schema_version": 1,
             "connections": items,
