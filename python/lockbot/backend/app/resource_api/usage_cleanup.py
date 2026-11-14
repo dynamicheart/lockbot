@@ -99,3 +99,14 @@ async def usage_cleanup_loop():
             cursor = result["cursor"]
         except Exception:
             logger.exception("Task declaration cleanup failed; retrying next interval")
+        try:
+            await asyncio.to_thread(_cleanup_agent_labels)
+        except Exception:
+            logger.exception("Agent label activity cleanup failed; retrying next interval")
+
+
+def _cleanup_agent_labels():
+    from lockbot.backend.app.resource_api.activity import cleanup_label_activity
+
+    with SessionLocal() as db:
+        cleanup_label_activity(db)
