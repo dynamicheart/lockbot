@@ -16,7 +16,7 @@ from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.rules import BotRules, current_bot_rules
 from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_auth import credentials, service
-from lockbot.backend.app.resource_auth.dependencies import _bearer_token
+from lockbot.backend.app.resource_auth.dependencies import _bearer_token, attribute_resource_actor
 from lockbot.backend.app.resource_auth.http_errors import ResourceAuthenticationError
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
@@ -143,6 +143,7 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
     row = service.authenticate_for_any_bot(db, token=_bearer_token(request))
     if row is None:
         raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+    attribute_resource_actor(request, db, row)
     request.state.traffic_bot_id = row.bound_bot_id
     request.state.traffic_credential = {
         "id": row.public_id,
@@ -310,6 +311,7 @@ def _own_bindings(request, response, db, *, recover):
     row = service.authenticate_for_any_bot(db, token=token)
     if row is None:
         raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+    attribute_resource_actor(request, db, row)
     request.state.traffic_bot_id = row.bound_bot_id
     request.state.traffic_credential = {
         "id": row.public_id,

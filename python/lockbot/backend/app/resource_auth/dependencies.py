@@ -35,6 +35,7 @@ class ResourceActor:
     #: Primary key of the durable binding row, for log and audit attribution.
     binding_record_id: int
     binding_public_id: str
+    credential_generation: int = 0
 
     def as_payload(self) -> dict:
         """Platform-neutral actor block for an HTTP response body."""
@@ -72,20 +73,25 @@ def require_resource_actor(
         code = "wrong_bot" if valid_elsewhere is not None else "credential_invalid"
         raise ResourceAuthenticationError("Invalid credential", code)
 
+    actor = attribute_resource_actor(request, db, row)
     service.touch_last_used(db, row)
     db.commit()
+    if not bot.resource_auth_enabled:
+        raise _agent_access_disabled()
+    return actor
 
+
+def attribute_resource_actor(request: Request, db: Session, row: ResourceBinding) -> ResourceActor:
     actor = ResourceActor(
         platform=row.platform,
         external_user_id=row.external_user_id,
-        bot_id=bot_id,
+        bot_id=row.bound_bot_id,
         binding_record_id=row.id,
         binding_public_id=row.public_id,
+        credential_generation=row.credential_generation,
     )
     request.state.resource_actor = actor
     request.state.resource_activity_engine = db.get_bind()
-    if not bot.resource_auth_enabled:
-        raise _agent_access_disabled()
     return actor
 
 
