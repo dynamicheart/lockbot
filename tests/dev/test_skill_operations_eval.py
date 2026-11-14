@@ -89,6 +89,20 @@ def test_busy_polling_is_not_a_passing_wait_and_clock_is_bounded(case):
     assert "error" in fixture.call("wait_seconds", {"seconds": 1000000})
 
 
+def test_queue_backoff_requires_observation_and_a_successful_retry_after_waiting(case):
+    fixture = case("queue")
+    path = "/api/bots/7/resources"
+    assert request(fixture, path)["status"] == 200
+    assert not evaluation.score(fixture.root, "No backoff observed")["checks"]["retry_after_respected"]
+    assert request(fixture, path)["status"] == 429
+    assert not evaluation.score(fixture.root, "I stopped after throttling")["checks"]["retry_after_respected"]
+    fixture.call("wait_seconds", {"seconds": 14})
+    assert request(fixture, path)["status"] == 429
+    fixture.call("wait_seconds", {"seconds": 1})
+    assert request(fixture, path)["status"] == 200
+    assert not evaluation.score(fixture.root, "I retried early")["checks"]["retry_after_respected"]
+
+
 def test_previous_revision_notice_preserves_key_and_does_not_replay_release(case):
     fixture = case("update")
     # One prior successful write is a supplied precondition, not a new model action.
