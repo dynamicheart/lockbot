@@ -61,4 +61,4 @@ flowchart LR
 - [ ] **安装异常**：缺工具、无法执行脚本、不能保存文件或加载失败时，准确说明完成到哪一步。
 - [ ] **真实客户端**：确认安装后能发现、读取并执行完整 Skill，而不仅是模拟目录里有文件。
 
-实现与执行方式见 [运行指南](agent-skill-evaluation.md)。模型结果、详细覆盖和环境兼容记录放在 [附录](agent-evaluation-appendix.md)，后续补充事项跟踪 [#154](https://github.com/dynamicheart/lockbot/issues/154)。
+实现与执行方式见 [运行指南](agent-skill-evaluation.md)。每次模型测试结果贴到对应 Skill 修改 PR，并注明提交与 Skill 哈希、日期和用例版本；后续重测追加新记录。详细覆盖和环境兼容记录放在 [附录](agent-evaluation-appendix.md)，后续补充事项跟踪 [#154](https://github.com/dynamicheart/lockbot/issues/154)。
