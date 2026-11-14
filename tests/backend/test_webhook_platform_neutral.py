@@ -64,6 +64,89 @@ def test_read_only_command_completes_and_replies(fake_bot):
     assert len(fake_bot.adapter.sent) == 1
 
 
+def test_webhook_uses_one_parse_for_scope_dispatch_and_reply(fake_bot, monkeypatch):
+    from lockbot.core.command_context import command_source
+
+    parsed = []
+    observed = []
+    original_lock = fake_bot.lock
+
+    def extract_once(message):
+        assert not parsed
+        result = FakeAdapter.extract_command(fake_bot.adapter, message)
+        parsed.append(result)
+        return result
+
+    def record_lock(*args, **kwargs):
+        observed.append(command_source.get())
+        return original_lock(*args, **kwargs)
+
+    group = "authorized-conversation"
+    fake_bot.config.set_val("_AUTHORIZED_GROUP_IDS", [group])
+    monkeypatch.setattr(fake_bot.adapter, "extract_command", extract_once)
+    monkeypatch.setattr(fake_bot, "lock", record_lock)
+
+    _, status, meta = handle_webhook(
+        fake_bot,
+        raw_form={},
+        raw_args={"signature": VALID_SIGNATURE},
+        raw_body=encode_message("lock n1 1h", actor="owner", conversation=group),
+    )
+
+    assert status == 200
+    assert parsed == [("owner", group, "lock n1 1h")]
+    assert observed == ["chat"]
+    assert meta == {"user_id": "owner", "group_id": group, "command": "lock n1 1h"}
+    assert fake_bot.adapter.sent[0]["envelope"]["conversation"] == group
+
+
+def test_webhook_refuses_an_unlisted_group_before_dispatch(fake_bot):
+    fake_bot.config.set_val("_AUTHORIZED_GROUP_IDS", ["allowed-group"])
+
+    result = handle_webhook(
+        fake_bot,
+        raw_form={},
+        raw_args={"signature": VALID_SIGNATURE},
+        raw_body=encode_message("lock n1", conversation="other-group"),
+    )
+
+    assert result == ("conversation not authorized", 403, {"event": "scope_refused"})
+    assert fake_bot.state.bot_state["n1"]["status"] == "idle"
+    assert fake_bot.adapter.sent == []
+
+
+@pytest.mark.parametrize("restricted", [False, True])
+def test_webhook_rejects_unparseable_input_without_retry(fake_bot, monkeypatch, restricted):
+    if restricted:
+        fake_bot.config.set_val("_AUTHORIZED_GROUP_IDS", ["allowed-group"])
+
+    calls = []
+
+    def malformed(message):
+        calls.append(message)
+        raise ValueError("malformed command")
+
+    monkeypatch.setattr(fake_bot.adapter, "extract_command", malformed)
+
+    def callback():
+        return handle_webhook(
+            fake_bot,
+            raw_form={},
+            raw_args={"signature": VALID_SIGNATURE},
+            raw_body=encode_message("lock n1"),
+        )
+
+    if restricted:
+        assert callback() == ("conversation not authorized", 403, {"event": "scope_refused"})
+    else:
+        with pytest.raises(ValueError, match="malformed command"):
+            callback()
+
+    assert len(calls) == 1
+    assert fake_bot.state.bot_state["n1"]["status"] == "idle"
+    assert fake_bot.adapter.sent == []
+
+
 def test_mutating_command_commits_and_still_replies(fake_bot):
     """The reported failure mode: the lock committed but the reply blew up afterwards."""
     body, status, _ = handle_webhook(
