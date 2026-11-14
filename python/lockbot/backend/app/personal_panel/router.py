@@ -625,7 +625,7 @@ def create_panel(
                 group = {
                     **group,
                     "allocations": [
-                        {field: value for field, value in row.items() if field != "own_task"}
+                        {field: value for field, value in row.items() if field not in {"own_task", "node_access"}}
                         if isinstance(row, dict)
                         else row
                         for row in group["allocations"]

@@ -320,6 +320,8 @@ def _read_backup_bots(zf) -> list[dict]:
             )
             if "utilization_config" in columns:
                 select_cols.append("utilization_config")
+            if "node_access_config" in columns:
+                select_cols.append("node_access_config")
             # uuid may not exist in older backups
             if "uuid" in columns:
                 select_cols.insert(1, "uuid")
@@ -687,6 +689,22 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
         try:
             from types import SimpleNamespace
 
+            from lockbot.backend.app.bots.node_access import (
+                node_ids,
+                parse_access_mapping,
+                saved_node_access,
+                serialize_node_access,
+            )
+
+            allowed_nodes = set(node_ids(json.loads(cc_str)))
+            if "node_access_config" in bb:
+                try:
+                    raw_access = bb["node_access_config"]
+                    archived_access = parse_access_mapping(raw_access, allowed_nodes) if raw_access else {}
+                    agent_options["node_access_config"] = serialize_node_access(archived_access)
+                except (ValueError, TypeError, RecursionError):
+                    raise ValueError("Invalid archived node access configuration") from None
+
             # Do not erase the only clue to old occupancy before checking it. Existing
             # deployment overrides and the incoming archive both need this preflight.
             paths = get_managed_paths()
@@ -754,6 +772,14 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
                         existing.observed_group_ids = None
                         existing.last_user_id = None
                         existing.last_request_at = None
+                        if "node_access_config" not in bb and existing.node_access_config:
+                            existing.node_access_config = serialize_node_access(
+                                {
+                                    node: access
+                                    for node, access in saved_node_access(existing).items()
+                                    if node in allowed_nodes
+                                }
+                            )
                         for key, value in agent_options.items():
                             setattr(existing, key, value)
                         existing.name = name

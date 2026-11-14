@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from lockbot.backend.app.bots.manager import bot_manager
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.bots.node_access import attach_node_access, saved_node_access
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.snapshot import build_resources
 from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES, UsageDeclaration, holding_proof
@@ -85,6 +86,11 @@ def _allocations(resources, subject):
                                 "node": node["id"],
                                 "device": identity[1],
                                 "expires_at": entry.get("expires_at"),
+                                **(
+                                    {"node_access": unit["node_access"]}
+                                    if kind == "hold" and "node_access" in unit
+                                    else {}
+                                ),
                             }
                         )
     return allocations, complete
@@ -331,10 +337,16 @@ class NativeProvider:
                         platform=row.platform,
                         caller_id=row.external_user_id,
                     )
-                    allocations, complete = _allocations(resources, row.external_user_id)
-                    age = (datetime.now(timezone.utc) - captured).total_seconds()
+                    now = datetime.now(timezone.utc)
+                    age = (now - captured).total_seconds()
                     healthy = (lease.health or bot.status) == "running"
+                    if healthy and -30 <= age <= 60:
+                        attach_node_access(resources, saved_node_access(bot), row.external_user_id, now)
+                    allocations, complete = _allocations(resources, row.external_user_id)
                     known = complete and healthy and -30 <= age <= 60
+                    if not known:
+                        for allocation in allocations:
+                            allocation.pop("node_access", None)
                     if known:
                         _attach_own_tasks(db, row, captured, state, allocations)
                     # Read a new transaction even if another database writer bypassed
