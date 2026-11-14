@@ -1,5 +1,6 @@
 """Browser access to a personal read-only dashboard on a trusted Lockbot origin."""
 
+import asyncio
 import ipaddress
 import json
 import math
@@ -9,8 +10,9 @@ from threading import Lock
 from time import monotonic
 from urllib.parse import urlsplit
 
+from anyio import CapacityLimiter, to_thread
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .credential_views import CredentialViews
 from .handoff import connection_id, connection_instructions, installation, recovery_instructions
@@ -611,50 +613,116 @@ def create_panel(
             "refresh_semantics": "revalidate_only",
         }
 
+    def read_groups(grant, source):
+        try:
+            data = source.report(grant)
+        except Exception:
+            data = [{"label": getattr(source, "label", "资源服务"), "status": "unknown", "allocations": []}]
+        if not valid(grant):
+            raise HTTPException(403, "Binding changed")
+        for group in data:
+            key = (
+                id(source),
+                grant["issuer"],
+                grant["platform"],
+                grant["realm"],
+                grant["subject"],
+                group.get("group_id", group["label"]),
+                grant["scope"] if source is provider else "",
+            )
+            yield (
+                key,
+                dict(
+                    group,
+                    identity=public_identity(grant),
+                    source={
+                        "kind": "identity_provider" if source is provider else "reporter",
+                        "label": "登录服务" if source is provider else getattr(source, "label", "外部报表"),
+                    },
+                ),
+            )
+
     @app.get("/resources")
     def resources(request: Request):
         grants = live(request)
         if not grants:
             raise HTTPException(401)
-        groups = []
-        seen = set()
+        groups = {}
         for grant in grants:
             for source in (provider, *reporters):
-                try:
-                    data = source.report(grant)
-                except Exception:
-                    data = [{"label": getattr(source, "label", "资源服务"), "status": "unknown", "allocations": []}]
-                if not valid(grant):
-                    raise HTTPException(403, "Binding changed")
-                for group in data:
-                    who = public_identity(grant)
-                    key = (
-                        id(source),
-                        grant["issuer"],
-                        grant["platform"],
-                        grant["realm"],
-                        grant["subject"],
-                        group.get("group_id", group["label"]),
-                        grant["scope"] if source is provider else "",
-                    )
-                    if key not in seen:
-                        groups.append(
-                            dict(
-                                group,
-                                identity=who,
-                                source={
-                                    "kind": "identity_provider" if source is provider else "reporter",
-                                    "label": "登录服务" if source is provider else getattr(source, "label", "外部报表"),
-                                },
-                            )
-                        )
-                        seen.add(key)
+                for key, group in read_groups(grant, source):
+                    groups.setdefault(key, group)
         # Loading a later group can take time. Recheck earlier grants before releasing the combined response.
         if any(not valid(grant) for grant in grants):
             raise HTTPException(403, "Binding changed")
         # Sign-out from another tab takes effect even if a provider call was in flight.
         if not sessions.grants(request.cookies.get(cookie_name)):
             raise HTTPException(401)
-        return {"groups": groups}
+        return {"groups": list(groups.values())}
+
+    report_capacity = CapacityLimiter(4)
+
+    @app.get("/resources-stream")
+    async def resources_stream(request: Request):
+        cookie = request.cookies.get(cookie_name)
+
+        def checked_snapshot():
+            original = sessions.grants(cookie)
+            return original, [grant for grant in original if valid(grant)]
+
+        original, grants = await to_thread.run_sync(checked_snapshot)
+        if not grants:
+            raise HTTPException(401)
+
+        def still_authorized():
+            return sessions.grants(cookie) == original and all(valid(grant) for grant in grants)
+
+        def line(event, **payload):
+            return json.dumps({"event": event, **payload}, ensure_ascii=True) + "\n"
+
+        async def stream():
+            jobs = [(grant, source) for grant in grants for source in (provider, *reporters)]
+            yield line("start", total=len(jobs))
+            pending = {}
+            next_index = 0
+            deadline = monotonic() + 15
+            seen = set()
+            try:
+                while pending or next_index < len(jobs):
+                    while len(pending) < 4 and next_index < len(jobs):
+                        grant, source = jobs[next_index]
+                        job = asyncio.create_task(
+                            to_thread.run_sync(
+                                lambda g=grant, s=source: list(read_groups(g, s)), limiter=report_capacity
+                            )
+                        )
+                        pending[job] = next_index
+                        next_index += 1
+                    finished, _ = await asyncio.wait(
+                        pending, timeout=max(0, deadline - monotonic()), return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if not finished:
+                        yield line("timeout" if await to_thread.run_sync(still_authorized) else "unavailable")
+                        return
+                    for job in sorted(finished, key=pending.__getitem__):
+                        index = pending.pop(job)
+                        results = job.result()
+                        if not await to_thread.run_sync(still_authorized):
+                            raise HTTPException(403, "Binding changed")
+                        groups = []
+                        for key, group in results:
+                            if key not in seen:
+                                groups.append(group)
+                                seen.add(key)
+                        yield line("batch", index=index, groups=groups)
+                yield line("complete")
+            except Exception:
+                yield line("unavailable")
+            finally:
+                for job in pending:
+                    job.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+
+        return StreamingResponse(stream(), media_type="application/x-ndjson", headers={"X-Accel-Buffering": "no"})
 
     return app

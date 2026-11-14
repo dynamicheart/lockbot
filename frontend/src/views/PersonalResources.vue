@@ -89,7 +89,10 @@
       </section>
       <template v-else-if="tab === 'mine'">
         <p v-if="resourceLoading" class="resource-loading" role="status">
-          {{ resourcesReady ? '正在更新，当前显示上次结果…' : '正在读取资源…' }}
+          <template v-if="reportProgress.total">
+            正在读取资源 · {{ reportProgress.done }} / {{ reportProgress.total }} 个来源
+          </template>
+          <template v-else>{{ resourcesReady ? '正在更新资源…' : '正在读取资源…' }}</template>
         </p>
         <div class="stats">
           <div v-for="item in statistics" :key="item.label" class="stat">
@@ -106,13 +109,16 @@
             </el-skeleton>
             <div v-else-if="item.value === null" class="stat-value stat-pending">待确认</div>
             <div v-else class="stat-value">
-              {{ item.value }}<span>{{ item.unit }}</span>
+              <AnimatedResourceCount :value="item.value" /><span class="stat-unit">{{
+                item.unit
+              }}</span>
             </div>
           </div>
         </div>
-        <p v-if="resourcesReady || groups.length" class="scope">
-          已确认 {{ knownGroups.length }} / {{ groups.length }} 个群 ·
-          仅统计已确认占用，机器按群计数
+        <p v-if="groups.length || resourcesReady" class="scope">
+          已确认 {{ knownGroups.length }} 个群<template v-if="pendingGroups">
+            · {{ pendingGroups }} 个群待确认</template
+          >
         </p>
         <el-alert
           v-if="pendingGroups"
@@ -158,10 +164,25 @@
                   date(row.group.source_at)
                 }}</template></el-table-column
               >
+              <el-table-column
+                v-if="$slots.metrics && section.label === '持有资源'"
+                label="利用率"
+                min-width="235"
+              >
+                <template #default="{ row }">
+                  <slot v-if="fresh(row.group)" name="metrics" :row="row" />
+                </template>
+              </el-table-column>
             </el-table>
           </div>
           <p v-else class="empty">
-            {{ resourcesReady ? '已确认的群中暂无记录。' : '资源信息待更新。' }}
+            {{
+              resourceLoading
+                ? '正在读取…'
+                : resourcesReady
+                  ? '已确认的群中暂无记录。'
+                  : '资源信息待更新。'
+            }}
           </p>
         </section>
       </template>
@@ -262,9 +283,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ArrowDown, User } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
+import AnimatedResourceCount from '../components/AnimatedResourceCount.vue'
 import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.vue'
 import PersonalCredentialView from '../components/PersonalCredentialView.vue'
 import PersonalCredentialRotation from '../components/PersonalCredentialRotation.vue'
@@ -285,6 +307,7 @@ const busy = ref(false)
 const initialized = ref(false)
 const resourcesReady = ref(false)
 const resourceLoading = ref(false)
+const reportProgress = ref({ done: 0, total: 0 })
 const initialResourceLoading = computed(
   () => resourceLoading.value && !resourcesReady.value && !groups.value.length
 )
@@ -331,7 +354,7 @@ const statistics = computed(() => {
   ].map(([label, value, unit]) => ({
     label,
     value:
-      resourcesReady.value && (!groups.value.length || knownGroups.value.length) ? value : null,
+      knownGroups.value.length || (resourcesReady.value && !groups.value.length) ? value : null,
     unit,
   }))
 })
@@ -378,17 +401,21 @@ function date(value) {
   const time = new Date(typeof value === 'number' ? value * 1000 : value)
   return Number.isNaN(time.getTime()) ? '未知' : time.toLocaleString('zh-CN')
 }
-async function api(path, body) {
-  const response = await fetch(`/api/personal-panel/${path}`, {
+function request(path, body, signal) {
+  return fetch(`/api/personal-panel/${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     credentials: 'same-origin',
     cache: 'no-store',
     redirect: 'error',
     referrerPolicy: 'no-referrer',
+    signal,
     ...(body === undefined
       ? {}
       : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   })
+}
+async function api(path, body, signal) {
+  const response = await request(path, body, signal)
   if (!response.ok)
     throw new Error(
       response.status === 410
@@ -410,6 +437,76 @@ async function run(action) {
   }
 }
 let refreshEpoch = 0
+let reportRequest
+function clearReports() {
+  groups.value = []
+  resourcesReady.value = false
+}
+function validateGroups(data) {
+  if (!Array.isArray(data.groups)) throw new Error('资源响应无效，请稍后刷新。')
+  return data.groups
+}
+async function readReports(signal, epoch) {
+  const response = await request('resources-stream', undefined, signal)
+  if (response.status === 404 || response.status === 405) {
+    const data = await api('resources', undefined, signal)
+    if (epoch === refreshEpoch) groups.value = validateGroups(data)
+    return
+  }
+  if (!response.ok) throw new Error('无法更新资源或登录状态，请稍后刷新。')
+  if (!response.headers?.get('content-type')?.includes('application/x-ndjson')) {
+    const data = await response.json()
+    if (epoch === refreshEpoch) groups.value = validateGroups(data)
+    return
+  }
+
+  const batches = new Map()
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+  let remainder = ''
+  let complete = false
+  try {
+    while (!complete) {
+      const { done, value } = await reader.read()
+      if (epoch !== refreshEpoch) return
+      if (done) throw new Error('资源读取中断，请稍后刷新。')
+      remainder += value
+      let newline
+      while ((newline = remainder.indexOf('\n')) !== -1) {
+        const event = JSON.parse(remainder.slice(0, newline))
+        remainder = remainder.slice(newline + 1)
+        if (event.event === 'start') {
+          if (reportProgress.value.total || !Number.isSafeInteger(event.total) || event.total < 1)
+            throw new Error('资源响应无效，请稍后刷新。')
+          reportProgress.value = { done: 0, total: event.total }
+        } else if (
+          event.event === 'batch' &&
+          Number.isSafeInteger(event.index) &&
+          event.index >= 0 &&
+          event.index < reportProgress.value.total &&
+          !batches.has(event.index)
+        ) {
+          batches.set(event.index, validateGroups(event))
+          groups.value = [...batches]
+            .sort(([left], [right]) => left - right)
+            .flatMap(([, batch]) => batch)
+          reportProgress.value = { done: batches.size, total: reportProgress.value.total }
+        } else if (event.event === 'complete' && batches.size === reportProgress.value.total) {
+          complete = true
+          break
+        } else if (event.event === 'timeout') {
+          if (!batches.size) clearReports()
+          error.value = '部分来源响应超时，请刷新重试。'
+          return false
+        } else {
+          clearReports()
+          throw new Error('无法确认资源授权或读取结果，请稍后刷新。')
+        }
+      }
+    }
+  } finally {
+    await reader.cancel()
+  }
+}
 function identityScope(identities) {
   return JSON.stringify(
     (identities || [])
@@ -423,11 +520,17 @@ function identityScope(identities) {
 }
 async function refresh() {
   const epoch = ++refreshEpoch
+  reportRequest?.abort()
+  const controller = new AbortController()
+  reportRequest = controller
+  // Bound the first paint wait and a stalled response, including old servers without streaming.
+  const deadline = setTimeout(() => controller.abort(), 18000)
+  reportProgress.value = { done: 0, total: 0 }
   resourceLoading.value = true
   try {
     let current
     try {
-      current = await api('session')
+      current = await api('session', undefined, controller.signal)
     } catch (failure) {
       if (epoch === refreshEpoch) {
         groups.value = []
@@ -448,22 +551,26 @@ async function refresh() {
     initialized.value = true
     if (!current.authenticated) return
     try {
-      const data = await api('resources')
-      if (epoch !== refreshEpoch) return
-      if (!Array.isArray(data.groups)) throw new Error('资源响应无效，请稍后刷新。')
-      groups.value = data.groups
-      resourcesReady.value = true
+      const finished = await readReports(controller.signal, epoch)
+      if (epoch === refreshEpoch) resourcesReady.value = finished !== false
     } catch (failure) {
       if (epoch === refreshEpoch) {
-        groups.value = groups.value.map((group) => ({ ...group, status: 'unknown' }))
+        groups.value = groups.value.map((group) => ({
+          ...group,
+          status: 'unknown',
+          allocations: [],
+        }))
         resourcesReady.value = false
       }
       throw failure
     }
   } catch (failure) {
-    if (epoch === refreshEpoch && !initialized.value) groups.value = []
+    if (epoch !== refreshEpoch) return
+    if (!initialized.value) clearReports()
+    if (controller.signal.aborted) throw new Error('资源读取超时，请刷新重试。')
     throw failure
   } finally {
+    clearTimeout(deadline)
     if (epoch === refreshEpoch) resourceLoading.value = false
   }
 }
@@ -478,6 +585,7 @@ async function login(mode) {
 }
 async function logout() {
   ++refreshEpoch
+  reportRequest?.abort()
   resourceLoading.value = false
   await api('logout', {})
   session.value = { authenticated: false, identities: [] }
@@ -496,6 +604,10 @@ watch([pendingPanelTicket, busy, initialized], ([incoming, running, ready]) => {
     combine.value = false
     ticket.value = { token: incoming, identity: preview.identity }
   })
+})
+onUnmounted(() => {
+  ++refreshEpoch
+  reportRequest?.abort()
 })
 onMounted(async () => {
   await run(refresh)
@@ -518,6 +630,9 @@ onMounted(async () => {
   font-size: 18px;
   font-weight: 500;
   color: var(--lb-text-secondary);
+}
+.stat-value .stat-unit {
+  font-size: 14px;
 }
 .group-pending {
   min-height: 48px;

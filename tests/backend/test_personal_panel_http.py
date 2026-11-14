@@ -241,3 +241,23 @@ def test_reports_identify_their_source_without_overriding_login_identity(tmp_pat
         {"kind": "reporter", "label": "共享报表"},
     ]
     assert groups[0]["identity"] == groups[1]["identity"]
+
+
+def test_resources_stream_returns_only_authenticated_grants_and_matches_json(env):
+    import json
+
+    _, agent, browser = env
+    assert agent.get("/me/resources-stream").status_code == 401
+    for key, mode in [("a-secret", "replace"), ("b-secret", "append")]:
+        assert post(browser, "login", {"ticket": issue(agent, key), "mode": mode}).status_code == 200
+    streamed = browser.get("/me/resources-stream")
+    assert streamed.headers["cache-control"] == "no-store"
+    assert streamed.headers["content-type"].startswith("application/x-ndjson")
+    events = [json.loads(line) for line in streamed.iter_lines()]
+    assert events[0] == {"event": "start", "total": 2}
+    assert events[-1] == {"event": "complete"}
+    groups = [group for event in events[1:-1] for group in event["groups"]]
+    assert sorted(groups, key=lambda group: group["label"]) == sorted(
+        browser.get("/me/resources").json()["groups"], key=lambda group: group["label"]
+    )
+    assert {group["label"] for group in groups} == {"GPU A", "GPU B"}
