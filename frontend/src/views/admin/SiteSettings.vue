@@ -32,6 +32,23 @@
           </template>
           <ResourceViewLifetimeSelect v-model="resourceViewLinkDays" />
         </el-form-item>
+        <el-form-item>
+          <template #label>
+            {{ $t('settings.loginSessionLifetime') }}
+            <el-tooltip :content="$t('settings.loginSessionLifetimeHint')" placement="top">
+              <el-icon class="proxy-help"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
+          <el-select
+            v-model="form.login_session_days"
+            :aria-label="$t('settings.loginSessionLifetime')"
+            style="width: 220px; max-width: 100%"
+          >
+            <el-option value="90" :label="$t('settings.lifetimeThreeMonths')" />
+            <el-option value="180" :label="$t('settings.lifetimeHalfYear')" />
+            <el-option value="0" :label="$t('resourceView.permanent')" />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="$t('settings.githubUrl')">
           <el-input
             v-model="form.github_url"
@@ -301,7 +318,8 @@ const loading = ref(false)
 const saving = ref(false)
 const form = ref({
   platform_url: '',
-  resource_view_link_days: '1',
+  resource_view_link_days: '0',
+  login_session_days: '90',
   github_url: '',
   admin_contact: '',
   news_content: '',
