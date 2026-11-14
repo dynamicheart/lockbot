@@ -820,6 +820,16 @@ Published 401 `detail` strings and HTTP statuses are preserved for older clients
 auth responses add `code` and `context_url` without changing those fields. On 2.10.0,
 a string-only 401 has no machine code: do not interpret it as permission to scan bot IDs.
 
+A 401 tells you that the server rejected the credential on that request. It does not
+identify revocation, expiry, or a change to the saved Key. On an approved origin, first
+check that the request sent the complete original Key from the selected connection,
+without truncation, masking, or surrounding whitespace. Let the helper or a trusted
+HTTP tool load the private credential directly when it can. If a write may have
+succeeded, correct any request-format error and use a bounded read of context or
+resources to reconcile. Never replay the write, rotate the Key, or enroll again
+solely because a read returned 401. If the complete credential is still rejected,
+report that observation and ask the user before any credential change.
+
 | code | meaning | action |
 |---|---|---|
 | `command_not_allowed` | word is never reachable via a credential | do not retry |
@@ -829,7 +839,7 @@ a string-only 401 has no machine code: do not interpret it as permission to scan
 | `admission_full` | the bot's concurrency slot is full | back off, `Retry-After` |
 | `rate_limited` | you exceeded your per-credential budget | back off, `Retry-After` |
 | `credential_missing` | no Bearer key | load this origin/instance's own key |
-| `credential_invalid` | unknown, revoked, expired or foreign key | check saved origin/instance; enrol only on the intended service if needed |
+| `credential_invalid` | unknown, revoked, expired or foreign key, or an incorrect value in this request | verify the saved origin, instance and exact credential; reconcile prior writes with a read |
 | `wrong_bot` | valid key, wrong existing bot URL (legacy HTTP 401) | GET `/api/agent/context` and use its operation links; do not bind again |
 | `may_have_executed` | admitted but outcome unknown | do NOT blindly retry; read `/resources` |
 
