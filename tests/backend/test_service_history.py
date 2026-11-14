@@ -311,3 +311,25 @@ def test_writer_survives_unexpected_failure_and_retries(tmp_path, monkeypatch):
     journal._run()
     assert len(calls) == 2
     assert journal.error == "collection_failed"
+
+
+def test_failed_rollup_does_not_accumulate_temporary_files(tmp_path, monkeypatch):
+    now = [0.0]
+    journal = ServiceHistory(tmp_path, lambda: now[0])
+    event(journal)
+    now[0] = 60
+    journal.flush()
+    original = journal._append
+
+    def fail_index(path, data):
+        original(path, data)
+        if path.suffix == ".tmp":
+            raise OSError("full storage")
+
+    monkeypatch.setattr(journal, "_append", fail_index)
+    now[0] = 3600
+    journal.flush()
+    assert journal.error == "storage_unavailable"
+    assert not list((tmp_path / "hourly").glob("*.tmp"))
+    # Original minute detail remains available after the failed index write.
+    assert journal.query(0, 3600, 3600)["totals"]["requests"] == 1

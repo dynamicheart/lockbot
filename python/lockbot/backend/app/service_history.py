@@ -337,18 +337,23 @@ class ServiceHistory:
                 )
             temporary = target.with_suffix(".tmp")
             temporary.unlink(missing_ok=True)
-            self._append(
-                temporary,
-                b"".join((json.dumps(row, separators=(",", ":"), allow_nan=False) + "\n").encode() for row in output),
-            )
-            temporary.replace(target)
+            try:
+                self._append(
+                    temporary,
+                    b"".join(
+                        (json.dumps(row, separators=(",", ":"), allow_nan=False) + "\n").encode() for row in output
+                    ),
+                )
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def _cleanup(self, now):
         files = sorted(self.directory.glob("????????T??.jsonl")) + sorted(
             (self.directory / "hourly").glob("????????T??.jsonl")
         )
         total = sum(path.stat().st_size for path in files)
-        # Minute detail expires after 24h only when its hourly aggregate exists.
+        # Minute detail expires after 25h only when its hourly aggregate exists.
         for path in files:
             stamp = datetime.strptime(path.stem, "%Y%m%dT%H").replace(tzinfo=timezone.utc).timestamp()
             size = path.stat().st_size
