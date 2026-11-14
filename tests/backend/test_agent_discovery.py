@@ -15,7 +15,8 @@ from lockbot.backend.app.resource_auth.models import ResourceBinding
 from backend.test_resource_api_resources import api  # noqa: F401
 
 
-def test_public_skill_bundle_matches_manifest_and_text(client, db_session):
+def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monkeypatch):
+    monkeypatch.delenv("PLATFORM_URL", raising=False)
     before = db_session.query(AuditLog).count()
     manifest = client.get("/api/agent-skill")
     assert manifest.status_code == 200
@@ -37,9 +38,8 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session):
         }
         assert archive.read(archive.namelist()[0]) == markdown.content
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
-    source = Path(__file__).parents[2] / ".." / "docs/agent-api/SKILL.md"
-    if source.exists():
-        assert source.read_bytes() == markdown.content
+    source = Path(__file__).resolve().parents[2] / "docs/agent-api/SKILL.md"
+    assert source.read_bytes() == markdown.content
     assert db_session.query(AuditLog).count() == before
     assert client.get(meta["download_url"], headers={"If-None-Match": bundle.headers["etag"]}).status_code == 304
     paths = client.get("/api/public-openapi.json").json()["paths"]
