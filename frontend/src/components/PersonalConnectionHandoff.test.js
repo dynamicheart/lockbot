@@ -162,11 +162,14 @@ it('copies only a purpose-specific request to the original Agent when native vie
     issue_path: '/api/personal-panel/credential-view-links',
   }
   fetchMock.mockImplementation(async (url) =>
-    response(url.endsWith('/capabilities') ? caps : list())
+    response(url.endsWith('/capabilities') ? caps : list([{ ...row(), credential_recovery_health: 'recoverable' }]))
   )
   mount()
   await flush()
   expect(state.viewSupported).toBe(true)
+  expect(await rendered()).toContain('查看 Key')
+  state.openDetails(state.items[0], true)
+  expect(await rendered()).toContain('复制查看请求')
   expect(clipboard).not.toHaveBeenCalled()
   await state.copyViewRequest(state.items[0])
   const message = clipboard.mock.calls[0][0]
@@ -300,7 +303,9 @@ it('does not infer native credential authority when an identity provider lacks t
   expect(state.supported).toBe(false)
   expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(state.items).toEqual([])
-  expect(await rendered()).not.toContain('Agent 凭证')
+  const markup = await rendered()
+  expect(markup).toContain('暂无可管理的机器群 Key')
+  expect(markup).not.toContain('Agent 凭证列表')
 })
 it.each([
   'https://different.example.test/api/agent-skill/lockbot-resource-agent.zip',
@@ -383,6 +388,11 @@ it('validates an authenticated metadata-only service pin and copies only its sou
   mount()
   await flush()
   expect(state.items).toHaveLength(1)
+  expect(await rendered()).toContain('查看 Key')
+  state.openDetails(state.items[0], true)
+  const help = await rendered()
+  expect(help).toContain('请让已绑定该群的 Agent 刷新 Key')
+  expect(help).not.toContain('复制查看请求')
   await state.copyInstructions(state.items[0])
   expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(FOREIGN + '/api/agent-skill/lockbot-resource-agent.zip'))
   expect(clipboard.mock.calls[0][0]).not.toContain(SECRET)

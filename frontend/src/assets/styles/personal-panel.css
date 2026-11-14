@@ -600,36 +600,6 @@
 .personal-panel :deep(.connection-heading h2) {
   font-size: 18px;
 }
-.personal-panel :deep(.connection-groups) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 16px 0;
-}
-.personal-panel :deep(.connection-help summary),
-.personal-panel :deep(.connection-details summary) {
-  color: var(--muted);
-  font-size: 13px;
-}
-.personal-panel :deep(.connection-details) {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-.personal-panel :deep(.connection-details dl) {
-  display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
-  gap: 10px 16px;
-  margin: 16px 0 0;
-  font-size: 13px;
-}
-.personal-panel :deep(.connection-details dt) {
-  color: var(--muted);
-}
-.personal-panel :deep(.connection-details dd) {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
 .personal-panel :deep(.connection-diagnostics) {
   margin-top: 16px;
 }
@@ -646,9 +616,6 @@
     align-items: flex-start;
     flex-wrap: wrap;
     gap: 16px;
-  }
-  .personal-panel :deep(.connection-details dl) {
-    grid-template-columns: 80px minmax(0, 1fr);
   }
 }
 
@@ -689,10 +656,6 @@
 .personal-panel :deep(.workbench-console:hover) {
   color: var(--accent);
   text-decoration: underline;
-}
-.personal-panel :deep(.workbench-exit) {
-  margin-left: 0;
-  padding-inline: 4px;
 }
 @media (max-width: 540px) {
   .personal-panel :deep(.bar-inner) {
@@ -876,42 +839,24 @@
   font-size: 15px;
   font-weight: 500;
 }
-.personal-panel :deep(.connection-source) {
-  margin: 14px 0;
-}
-.personal-panel :deep(.connection-source .connection-groups) {
-  margin: 6px 0 0;
-}
 
-.personal-panel :deep(.main.credentials-page) {
+.personal-panel :deep(.main.credentials-page),
+.personal-panel :deep(.bar-inner.credentials-bar) {
   box-sizing: border-box;
   max-width: 1160px;
   margin-inline: auto;
 }
-.personal-panel :deep(.credentials-page .native-connections .scope),
-.personal-panel :deep(.credentials-page .credential-access .scope) {
+.personal-panel :deep(.credentials-page .native-connections .scope) {
   margin: 0;
 }
-.personal-panel :deep(.credentials-page .credential-overview .scope),
-.personal-panel :deep(.credentials-page .credential-identity .scope),
-.personal-panel :deep(.credentials-page .credential-access-heading .scope) {
-  margin-top: 5px;
+.personal-panel :deep(.credentials-page .credential-access-help) {
+  margin-top: 18px;
 }
-.personal-panel :deep(.credential-access) {
-  display: grid;
-  gap: 12px;
-  margin-top: 26px;
+.personal-panel :deep(.credentials-page .credential-access-help summary) {
+  color: var(--muted);
+  font-size: 13px;
+  width: fit-content;
 }
-.personal-panel :deep(.credential-access-heading) {
-  align-items: flex-start;
-  justify-content: space-between;
-}
-.personal-panel :deep(.credential-access-heading .connection-help) {
-  min-width: 0;
-  max-width: 320px;
-}
-.personal-panel :deep(.credential-access-heading summary) {
-  cursor: pointer;
-  color: var(--accent);
-  font-size: 14px;
+.personal-panel :deep(.credentials-page .credential-access-help .scope) {
+  margin: 8px 0 0;
 }
