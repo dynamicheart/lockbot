@@ -105,14 +105,22 @@ They do not execute real resource commands or provide a client scheduler.
   `Retry-After` wait; repeated early reads fail the grader. Waiting advances a
   bounded synthetic clock only. A real client may use a timer only if that client
   provides one; neither the Skill nor this fixture installs background scheduling.
-- [x] **Previous revision update notice, offline fixture:** a prior successful
-  release is an explicit supplied precondition, not a new model action. The old
-  loaded revision receives the real `skill_update` shape (`update_available`,
-  `current_version`, `reported_version`, `manifest_url`, `skill_url`, instructions).
-  Read the resulting state, guide confirmation/installation of the complete ZIP,
-  retain key and connection bytes, and perform no repeated release or unapproved
-  installation. Server hints do not prove client reload or compel an old client
-  to support updates. A separate authorized install/reload remains a live gate.
+- [x] **Previous revision update notice, offline fixture:** prepare with current
+  server `--artifacts` and a distinct verified older `--installed-artifacts` bundle.
+  Missing/identical older artifacts are blocked; no fake old version is substituted.
+  Only old bytes/revision start in the installed directory and connection. A prior
+  completed release remains a precondition, but no update hint is injected in the
+  prompt. The old client revision must elicit an actual HTTP `skill_update` result,
+  followed by reading all latest Skill bytes before adopting its revision. Reporting
+  latest after actually reading it is valid; reading just the manifest is insufficient.
+  The response-triggered-update case still requires old hint before the new read.
+  Preserve key/connection bytes, authenticate/read back released state, ask for full
+  ZIP installation confirmation, and do not replay or silently install.
+
+The six earlier authorized model calls are retained with their original `ef58963`
+fixture/source/artifact hashes in the PR evidence comment. The corrected old-bundle
+fixture has only offline verification; no paid reruns or retroactive full-pass claim
+were made. Actual client installation/reload remains a separate gate.
 
 The executable checks assert state/trace evidence, not only final-answer wording.
 Final explanation quality, scheduling claims and actual installed-client update

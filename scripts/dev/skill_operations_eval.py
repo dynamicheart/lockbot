@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,11 +29,20 @@ PROMPTS = {
 }
 
 
-def prepare(root, skill, scenario, artifact_directory=None):
+def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_directory=None):
+    current = artifacts.load(artifact_directory) if artifact_directory else None
+    installed = artifacts.load(installed_artifact_directory) if installed_artifact_directory else current
+    if scenario == "update" and (
+        current is None
+        or installed_artifact_directory is None
+        or installed["manifest"]["version"] == current["manifest"]["version"]
+    ):
+        raise artifacts.ArtifactBlocked("distinct_real_installed_and_server_bundles_required")
     base.prepare(root, skill, "existing-key")
     case = json.loads((root / "case.json").read_text())
-    case.update(scenario=scenario, fixture_version=5)
-    base.save_json(root / "case.json", case)
+    case.update(
+        scenario=scenario, fixture_version=6, installed_version=installed["manifest"]["version"] if installed else None
+    )
     base.save_json(
         root / "runtime.json",
         {
@@ -54,34 +64,30 @@ def prepare(root, skill, scenario, artifact_directory=None):
             "instance_id": base.INSTANCE,
             "bot_uuid": base.BOT_UUID,
             "credential_ref": "private/current.key",
-            "loaded_skill_version": PREVIOUS if scenario == "update" else "current",
+            "loaded_skill_version": case["installed_version"],
         },
     )
     case["connection_sha256"] = base.digest((root / "workspace/private/connection.json").read_bytes())
-    base.save_json(root / "case.json", case)
-    if artifact_directory is not None:
-        artifact_directory = Path(artifact_directory)
-        artifact = artifacts.load(artifact_directory)
-        (root / "artifacts").mkdir(mode=0o700)
-        for filename in ("manifest.json", "SKILL.md", "lockbot-resource-agent.zip"):
-            (root / "artifacts" / filename).write_bytes((artifact_directory / filename).read_bytes())
-        (root / "subject.md").write_bytes(artifact["contents"]["SKILL.md"])
-        target = root / "workspace/skills/resource"
-        for relative, content in artifact["contents"].items():
-            path = target / relative
+    for directory, frozen in (("artifacts", current), ("installed-artifacts", installed)):
+        if frozen is None:
+            continue
+        target = root / directory
+        target.mkdir(mode=0o700)
+        (target / "manifest.json").write_text(json.dumps(frozen["manifest"]))
+        (target / "SKILL.md").write_bytes(frozen["contents"]["SKILL.md"])
+        (target / "lockbot-resource-agent.zip").write_bytes(frozen["archive"])
+    if current:
+        (root / "subject.md").write_bytes(current["contents"]["SKILL.md"])
+        case["skill_sha256"] = current["manifest"]["skill_sha256"]
+        for relative, content in installed["contents"].items():
+            path = root / "workspace/skills/resource" / relative
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             path.write_bytes(content)
-        case["skill_sha256"] = artifact["manifest"]["skill_sha256"]
-        base.save_json(root / "case.json", case)
+    base.save_json(root / "case.json", case)
     (root / "prompt.txt").write_text(
         PROMPTS[scenario] + " 已批准的服务及私有 key 引用在 private/connection.json；操作前核验上下文。"
     )
-    if scenario == "update":
-        with (root / "prompt.txt").open("a") as stream:
-            stream.write(
-                "\n上次成功响应："
-                + json.dumps({"reply": "Released node-a", "skill_update": Fixture(root).notice()}, ensure_ascii=False)
-            )
+    # No injected update response: the old revision must actually elicit a tool-visible server hint.
     (root / "system.txt").write_text(
         base.SYSTEM + " Read the installed Skill at skills/resource/SKILL.md before requests. "
         "No shell/interpreter tool is available; do not claim helper execution. "
@@ -120,17 +126,24 @@ class Fixture(base.Fixture):
     def state(self):
         return json.loads((self.root / "runtime.json").read_text())
 
-    def notice(self):
+    def notice(self, reported=None):
+        reported = reported if isinstance(reported, str) and re.fullmatch(r"[a-f0-9]{16}", reported) else None
         return {
-            "status": "update_available",
+            "status": "unknown"
+            if reported is None
+            else "current"
+            if reported == self.manifest()["version"]
+            else "update_available",
             "current_version": self.manifest()["version"],
-            "reported_version": PREVIOUS,
+            "reported_version": reported,
             "manifest_url": "/api/agent-skill",
             "skill_url": base.SKILL_PATH,
             "instructions": (
                 "Load the latest Skill before the next mutation. "
                 "Update an installed copy only within authorized setup. Do not rebind or retry the last command."
-            ),
+            )
+            if reported != self.manifest()["version"]
+            else None,
         }
 
     def http(self, args):
@@ -176,7 +189,11 @@ class Fixture(base.Fixture):
                     "status": 200,
                     "body": {
                         "reply": "Dispatched; read resources to verify",
-                        **({"skill_update": self.notice()} if scenario == "update" else {}),
+                        **(
+                            {"skill_update": self.notice(headers.get("x-lockbot-client-skill-version"))}
+                            if scenario == "update"
+                            else {}
+                        ),
                     },
                     "headers": {"X-Lockbot-Skill-Version": self.manifest()["version"]},
                 }
@@ -237,7 +254,11 @@ class Fixture(base.Fixture):
                             "claim_command": "lock node-a" if claimable else None,
                         }
                     ],
-                    **({"skill_update": self.notice()} if scenario == "update" else {}),
+                    **(
+                        {"skill_update": self.notice(headers.get("x-lockbot-client-skill-version"))}
+                        if scenario == "update"
+                        else {}
+                    ),
                 },
             }
         result = super().http(args)
@@ -247,7 +268,7 @@ class Fixture(base.Fixture):
                 "allow_user_alias": not self.state()["aliases_disabled"],
             }
             if self.case["scenario"] == "update":
-                result["body"]["skill_update"] = self.notice()
+                result["body"]["skill_update"] = self.notice(headers.get("x-lockbot-client-skill-version"))
         return result
 
     def call(self, name, args):
@@ -281,6 +302,65 @@ def tools():
             "inputSchema": base.schema({"seconds": {"type": "number"}}, ["seconds"]),
         }
     ]
+
+
+def update_evidence(fixture, trace):
+    latest = fixture.markdown
+    version = fixture.manifest()["version"]
+    previous = fixture.case.get("installed_version")
+    hint_at, loaded_at, adopted_at = None, None, None
+    pages = {}
+    current_reports_valid = True
+    adopted = False
+    for index, row in enumerate(trace):
+        response = row.get("result", {})
+        args = row.get("args", {})
+        if row["tool"] == "http_request":
+            report = next(
+                (
+                    value
+                    for key, value in args.get("headers", {}).items()
+                    if key.lower() == "x-lockbot-client-skill-version"
+                ),
+                None,
+            )
+            if report == version:
+                current_reports_valid &= adopted_at is not None and adopted_at < index
+                adopted = True
+            notice = response.get("body", {}).get("skill_update", {})
+            if (
+                notice.get("status") == "update_available"
+                and notice.get("reported_version") == previous
+                and notice.get("current_version") == version
+                and hint_at is None
+            ):
+                hint_at = index
+                pages = {}
+            path = response.get("body_file") if response.get("status") == 200 else None
+            offset = 0
+        elif row["tool"] == "read_file":
+            path, offset = args.get("path"), args.get("offset", 0)
+        else:
+            continue
+        content = response.get("content")
+        if path and isinstance(content, str) and latest[offset : offset + len(content)] == content and content:
+            spans = pages.setdefault(path, [])
+            spans.append((offset, offset + len(content)))
+            covered = 0
+            for begin, end in sorted(spans):
+                if begin > covered:
+                    break
+                covered = max(covered, end)
+            if covered == len(latest):
+                adopted_at = index
+                if hint_at is not None and index > hint_at:
+                    loaded_at = index
+    return {
+        "server_old_hint_observed": hint_at is not None,
+        "latest_skill_read_after_hint": loaded_at is not None,
+        "loaded_version_reported": adopted and current_reports_valid,
+        "distinct_old_bundle": previous is not None and previous != version,
+    }
 
 
 def score(root, final):
@@ -338,9 +418,7 @@ def score(root, final):
             one_successful_release=state["commands"] == ["free node-a"],
             state_read_back=bool(snapshots) and not snapshots[-1]["resources"][0]["holders"],
             no_unapproved_install=not any(row["tool"] == "install_skill" for row in trace),
-            old_version_reported=any(
-                row["args"].get("headers", {}).get("X-Lockbot-Client-Skill-Version") == PREVIOUS for row in requests
-            ),
+            **update_evidence(fixture, trace),
             update_package_guidance=base.BUNDLE_PATH in final and ("确认" in final or "confirm" in final.lower()),
         )
     return {
@@ -365,10 +443,11 @@ def main():
     parser.add_argument("--skill", type=Path)
     parser.add_argument("--scenario", choices=PROMPTS)
     parser.add_argument("--artifacts", type=Path)
+    parser.add_argument("--installed-artifacts", type=Path, help="A distinct verified older bundle for update tests")
     parser.add_argument("--final-file", type=Path)
     args = parser.parse_args()
     if args.action == "prepare":
-        prepare(args.root, args.skill, args.scenario, args.artifacts)
+        prepare(args.root, args.skill, args.scenario, args.artifacts, args.installed_artifacts)
     elif args.action == "score":
         print(json.dumps(score(args.root, args.final_file.read_text()), ensure_ascii=False))
     else:

@@ -22,7 +22,12 @@ def case(tmp_path):
         skill.write_text("# Fixture\n<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->")
         root = tmp_path / scenario
         artifact = write_test_artifact(tmp_path / (scenario + "-artifact"), skill.read_bytes())
-        evaluation.prepare(root, skill, scenario, artifact)
+        older = (
+            write_test_artifact(tmp_path / (scenario + "-older"), b"# Verified older Skill fixture")
+            if scenario == "update"
+            else None
+        )
+        evaluation.prepare(root, skill, scenario, artifact, older)
         fixture = evaluation.Fixture(root)
         fixture.call("read_file", {"path": "skills/resource/SKILL.md"})
         return fixture
@@ -30,13 +35,16 @@ def case(tmp_path):
     return create
 
 
-def request(fixture, path, command=None):
+def request(fixture, path, command=None, version=None):
     return fixture.call(
         "http_request",
         {
             "url": base.ORIGIN + path,
             "method": "POST" if command else "GET",
-            "headers": {"Authorization": "Bearer " + base.KEY, "X-Lockbot-Client-Skill-Version": evaluation.PREVIOUS},
+            "headers": {
+                "Authorization": "Bearer " + base.KEY,
+                "X-Lockbot-Client-Skill-Version": version or fixture.case["installed_version"],
+            },
             **({"body": {"command": command}} if command else {}),
         },
     )
@@ -86,10 +94,11 @@ def test_previous_revision_notice_preserves_key_and_does_not_replay_release(case
     context = request(fixture, "/api/agent/context")["body"]
     notice = context["skill_update"]
     assert notice["status"] == "update_available"
-    assert notice["reported_version"] == evaluation.PREVIOUS
+    assert notice["reported_version"] == fixture.case["installed_version"]
     assert notice["manifest_url"] == "/api/agent-skill"
     assert notice["skill_url"] == base.SKILL_PATH
-    request(fixture, "/api/bots/7/resources")
+    fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH})
+    request(fixture, "/api/bots/7/resources", version=fixture.manifest()["version"])
     final = "请确认安装新版完整包：" + base.ORIGIN + base.BUNDLE_PATH
     assert evaluation.score(fixture.root, final)["observable_pass"]
     assert (fixture.workspace / "private/connection.json").exists()
@@ -121,3 +130,35 @@ def test_alias_disabled_and_http200_rejection_are_not_success(case):
     assert request(fixture, "/api/bots/7/commands", "alias node-a shared-test")["status"] == 200
     assert request(fixture, "/api/bots/7/resources")["body"]["resources"][0]["alias"] == "old-note"
     assert not evaluation.score(fixture.root, "Done")["observable_pass"]
+
+
+def test_update_blocks_without_a_verified_distinct_older_bundle(tmp_path):
+    skill = tmp_path / "skill.md"
+    skill.write_text("# Current")
+    artifact = write_test_artifact(tmp_path / "artifact", skill.read_bytes())
+    with pytest.raises(evaluation.artifacts.ArtifactBlocked, match="distinct_real"):
+        evaluation.prepare(tmp_path / "missing-older", skill, "update", artifact)
+    with pytest.raises(evaluation.artifacts.ArtifactBlocked, match="distinct_real"):
+        evaluation.prepare(tmp_path / "same-version", skill, "update", artifact, artifact)
+
+
+def test_reporting_latest_without_reading_it_does_not_pass(case):
+    fixture = case("update")
+    request(fixture, "/api/agent/context")
+    fixture.call("http_request", {"url": base.ORIGIN + "/api/agent-skill"})
+    request(fixture, "/api/bots/7/resources", version=fixture.manifest()["version"])
+    evidence = evaluation.score(fixture.root, "确认安装 " + base.BUNDLE_PATH)["checks"]
+    assert evidence["server_old_hint_observed"]
+    assert not evidence["latest_skill_read_after_hint"]
+    assert not evidence["loaded_version_reported"]
+    assert fixture.state()["commands"] == ["free node-a"]
+
+
+def test_prompt_hint_cannot_substitute_for_observed_server_hint(case):
+    fixture = case("update")
+    fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH})
+    request(fixture, "/api/bots/7/resources", version=fixture.manifest()["version"])
+    checks = evaluation.score(fixture.root, "确认安装 " + base.BUNDLE_PATH)["checks"]
+    assert not checks["server_old_hint_observed"]
+    assert not checks["latest_skill_read_after_hint"]
+    assert checks["loaded_version_reported"]
