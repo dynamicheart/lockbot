@@ -46,9 +46,35 @@ Future status changes belong in [issue #139](https://github.com/dynamicheart/loc
 
 ## Current follow-up checklist
 
-Source, CI, test deployment and formal rollout are separate gates in [#139](https://github.com/dynamicheart/lockbot/issues/139). Scope: shared-link lifetime (#137), metrics service startup reliability (#138), explicit timezone guidance, personal-resource loading states, and the shared four-column resource table (#140). The chosen table layout applies to both shared resource pages and robot administration details; empty queues use subdued translated text.
+[#139](https://github.com/dynamicheart/lockbot/issues/139) is the delivery checklist. Source merge, test-service acceptance and formal rollout are separate gates; the v3.3.0 production baseline above remains unchanged by a test preview.
 
-The [metrics plugin protocol v1](docs/design/metrics-datasource-protocol.md) defines a vendor-neutral design with Prometheus and HTTP JSON examples. A generic JSON adapter and metric attachment to the personal dashboard are not implemented by the documentation change. Preserve the existing read-only Reporter interface and private integration boundary.
+### Integrated test preview
+
+On 2026-11-14 the test service was updated to integration commit `499e3cb5dc62ef71cd707d007d9752d05d46071d`. Backend verification passed 2633 tests with 7 skips; frontend verification passed 320 tests, lint and production build. Existing accounts, ownership, credential authority and personal-panel browser sessions were preserved. Actual HTTP and administrator-browser checks covered the complete deployment-rendered Skill package, independent API credential page/dialog, historical monitoring, link-lifetime options and datasource configuration entry. This does not establish a new production rollout, a paid-model result or a live metrics-grant expiry run.
+
+| Requirement | Source and tracking | Test preview | Formal rollout |
+| --- | --- | --- | --- |
+| Inherited resource-link lifetime, 1–30 days or permanent, bot override and regeneration | #137; #145 merged | Installed; lifetime choices and existing links checked | Pending |
+| Compact shared resource table and subdued empty queue labels in shared/admin views | #140 and #152 merged | Installed; administrator resource table checked | Pending |
+| Datasource protocol, setup Skill and reproducible authorization/configuration guidance | #144 and #149 merged; #147 tracks further acceptance | Installed; template, mapping fields and guide links checked | Pending |
+| Bounded JSONL service history and scoped historical UI | #146; #150 and #148 under protected merge review | Installed; history API, no-store, time ranges and unknown coverage checked | Pending |
+| Continuous metrics grants and expiry recovery | #151; #162 under review | Installed; deadline/cancellation/renewal regressions passed; no new live aging claim | Pending |
+| Complete Skill ZIP, scoped helper and concise promotion | #153; #161 and #158 under review | Installed; actual ZIP has Skill, helper and installation stamp, with actual deployment origin | Pending |
+| Legacy key health and recovery guidance without automatic rotation | #156; #159 under review | Installed; existing keys retained | Pending |
+| Independent administrator API credential page and compact issuance dialog | #155; #166 under review | Installed; real page/dialog checked without issuing a credential | Pending |
+| Agent alias readback with its separate observation time | #167; #168 under review | Installed; 108 relevant API checks passed | Pending |
+
+Do not backfill pre-installation historical gaps with zero traffic. The [metrics plugin protocol v1](docs/design/metrics-datasource-protocol.md) is vendor-neutral and includes Prometheus and HTTP JSON examples; a generic JSON adapter or personal-dashboard metrics attachment is not implemented merely by publishing that document.
+
+### Remaining Agent and personal-workspace work
+
+- [ ] **One user-facing resource Skill:** #164 and the design in #165 retain `lockbot-resource-agent` as the sole user entry. Multiple services/groups use scoped connection/key references. Deployment-specific private adapters and registry details stay outside the public repository. Dynamic authenticated extension discovery and a portable package-version boundary remain implementation work.
+- [ ] **Fresh Agent and operational acceptance:** #154 and #163 track installation persistence, correct key recovery, personal-dashboard handoff/bookmark, alias read/write/clear, early-release polling, expiry and previous-Skill update behavior. Offline fixture checks, model observations, native-client installation and actual browser consent must be reported separately. Model results belong to the exact Skill/PR snapshot, not a permanent leaderboard.
+- [ ] **Personal workspace connection management:** #164/#156 track non-secret status and copyable Skill/service/bot/identity instructions. Refresh means rechecking current authorization, not rotating the key. Expired/revoked/unrecoverable states give an Agent-guided recovery path rather than pretending a valid credential exists.
+- [ ] **Explicit key inspection/copy:** implement purpose-bound, short-lived authorization and user confirmation for the exact verified native binding. Existing read-only panel cookies, administrator sessions, shared-view codes and external Reporter adapters do not gain credential-recovery authority. Hash-only legacy keys cannot be reconstructed.
+- [ ] **Separately confirmed key replacement:** treat rotation as an independent dangerous action with fresh server-side authorization, exact bot/identity scope, an impact preview and explicit second confirmation. Do not rotate during install, refresh, ordinary recovery or copying. All Agents sharing the old key are affected; failures and concurrent requests must not invalidate a working key accidentally.
+
+The last three items were requested after the deployed preview was built and are not included in `499e3cb`. Follow their implementation PRs and the issue checklist before reporting them as available in the test service.
 
 ## Explicitly deferred
 
