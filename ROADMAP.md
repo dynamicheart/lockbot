@@ -15,6 +15,10 @@ Post-upgrade checks established:
 
 See the [release checklist](RELEASE_CHECKLIST.md), [release record](docs/releases/3.2.0.md), and [formal deployment evidence](https://github.com/dynamicheart/lockbot/issues/27#issuecomment-6530309410).
 
+## 2026-11-14 integration and Skill update
+
+PR #133 is merged and its bounded Skill-only patch is installed on the formal v3.2.0 base. An explicit deployment origin is embedded in copied Markdown and both ZIPs, with matching hashes and version metadata. PR #134 is merged and installed on 8002, which was restored with its encrypted connection files and four sessions preserved. Real Chrome confirmed five visible groups and separate login/report sources. These observations do not establish a full formal rollout of the personal dashboard or credential recovery. The proposed next release is documented in [3.3.0](docs/releases/3.3.0.md).
+
 ## Remaining work
 
 | Issue | Delivered evidence | Remaining action |
