@@ -94,13 +94,24 @@ def install_and_save(fixture):
             "content": json.dumps(
                 {
                     "origin": base.ORIGIN,
-                    "instance_id": base.INSTANCE,
+                    "instance_id": meta["instance_id"],
                     "bot_uuid": base.BOT_UUID,
                     "credential_ref": "private/current.key",
                 }
             ),
         },
     )
+
+
+def test_service_saved_uses_instance_advertised_by_the_frozen_artifact(case):
+    fixture = case("recover")
+    manifest_path = fixture.root / "artifacts" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["instance_id"] = "22222222-2222-4222-8222-222222222222"
+    manifest_path.write_text(json.dumps(manifest))
+    fixture = evaluation.Fixture(fixture.root)
+    install_and_save(fixture)
+    assert evaluation.score(fixture.root, "")["checks"]["service_saved"]
 
 
 def test_recovery_directory_has_existing_api_shape_and_uses_per_bot_keys(case):
@@ -165,6 +176,7 @@ def test_no_key_refuses_recovery_and_requires_human_group_guidance(case):
 def test_panel_requires_external_human_consent_and_bookmarks_only_fixed_home(case, tmp_path):
     fixture = case("panel")
     install_and_save(fixture)
+    assert not evaluation.score(fixture.root, evaluation.HOME)["checks"]["capability_verified"]
     capability = request(fixture, "/api/personal-panel/capabilities")["body"]
     assert capability["issue_path"] == "/api/personal-panel/links"
     response = request(fixture, capability["issue_path"], base.KEY, "POST")["body"]
@@ -194,7 +206,6 @@ def test_panel_requires_external_human_consent_and_bookmarks_only_fixed_home(cas
     second.call("discover_local_state", {})
     request(second, "/api/agent/context", base.KEY)
     request(second, "/api/bots/7/resources", base.KEY)
-    request(second, "/api/personal-panel/capabilities")
     browser = second.call("browser_home", {"url": evaluation.HOME})
     assert browser["own_occupancy"] and browser["own_bookings"]
     assert browser["bookmarks"] == [evaluation.HOME]
