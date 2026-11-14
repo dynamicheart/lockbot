@@ -141,35 +141,36 @@
         />
         <section v-for="section in allocationSections" :key="section.label" class="panel">
           <h2 class="panel-title">{{ section.label }} · {{ section.rows.length }}</h2>
-          <div v-if="section.rows.length" class="table-scroll">
-            <el-table :data="section.rows" class="allocation-table">
-              <el-table-column label="资源群" min-width="160"
-                ><template #default="{ row }">{{ row.group.label }}</template></el-table-column
-              >
-              <el-table-column label="节点 / 卡号" min-width="160"
-                ><template #default="{ row }"
-                  >{{ row.allocation.node ?? '未知节点'
-                  }}{{
-                    row.allocation.device == null ? '' : ' / 卡 ' + row.allocation.device
-                  }}</template
-                ></el-table-column
-              >
-              <el-table-column label="到期时间" min-width="175">
-                <template #default="{ row }">{{ date(row.allocation.expires_at) }}</template>
-              </el-table-column>
-              <el-table-column
-                v-if="session.identities.length > 1"
-                label="本人身份"
-                min-width="120"
-              >
-                <template #default="{ row }">{{ row.group.identity?.subject }}</template>
-              </el-table-column>
-              <el-table-column
-                v-if="section.label === '持有资源' && ($slots.task || ownTasksAvailable)"
-                label="用途"
-                min-width="125"
-              >
-                <template #default="{ row }">
+          <table v-if="section.rows.length" class="allocation-table" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th scope="col" role="columnheader">资源群</th>
+                <th scope="col" role="columnheader">节点 / 卡号</th>
+                <th scope="col" role="columnheader">到期时间</th>
+                <th v-if="session.identities.length > 1" scope="col" role="columnheader">
+                  本人身份
+                </th>
+                <th v-if="section.tasks" scope="col" role="columnheader">用途</th>
+                <th v-if="section.metrics" scope="col" role="columnheader">利用率</th>
+              </tr>
+            </thead>
+            <tbody role="rowgroup">
+              <tr v-for="(row, index) in section.rows" :key="index" role="row">
+                <td role="cell" class="allocation-group">{{ row.group.label }}</td>
+                <td role="cell" class="allocation-name">
+                  {{ row.allocation.node ?? '未知节点'
+                  }}{{ row.allocation.device == null ? '' : ' / 卡 ' + row.allocation.device }}
+                </td>
+                <td role="cell">
+                  <span aria-hidden="true" class="allocation-label">到期时间</span>
+                  {{ date(row.allocation.expires_at) }}
+                </td>
+                <td v-if="session.identities.length > 1" role="cell">
+                  <span aria-hidden="true" class="allocation-label">本人身份</span>
+                  {{ row.group.identity?.subject }}
+                </td>
+                <td v-if="section.tasks" role="cell">
+                  <span aria-hidden="true" class="allocation-label">用途</span>
                   <slot name="task" :row="row">
                     <el-popover
                       v-if="row.allocation.own_task?.note || row.allocation.own_task?.agent_label"
@@ -196,14 +197,9 @@
                       (row.allocation.own_task === null ? '未登记' : '未提供')
                     }}</span>
                   </slot>
-                </template>
-              </el-table-column>
-              <el-table-column
-                v-if="section.label === '持有资源' && ($slots.metrics || utilizationGroups.length)"
-                label="利用率"
-                min-width="235"
-              >
-                <template #default="{ row }">
+                </td>
+                <td v-if="section.metrics" role="cell" class="allocation-metrics">
+                  <span aria-hidden="true" class="allocation-label">利用率</span>
                   <slot v-if="fresh(row.group)" name="metrics" :row="row">
                     <ResourceMetricsCell
                       v-if="utilizationSnapshots[row.group.utilization?.connection]?.enabled"
@@ -217,10 +213,10 @@
                     />
                     <span v-else class="scope">未提供</span>
                   </slot>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
           <p v-else class="empty">
             {{
               resourceLoading
@@ -329,7 +325,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useSlots, watch } from 'vue'
 import { ArrowDown, User } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
@@ -362,6 +358,7 @@ const initialResourceLoading = computed(
   () => resourceLoading.value && !resourcesReady.value && !groups.value.length
 )
 const knownGroups = computed(() => groups.value.filter(fresh))
+const slots = useSlots()
 const ownTasksAvailable = computed(() =>
   knownGroups.value.some((group) => entries(group).some((allocation) => 'own_task' in allocation))
 )
@@ -418,7 +415,12 @@ const allocationSections = computed(() => {
       expiration(left.allocation.expires_at) - expiration(right.allocation.expires_at)
   )
   return [
-    { label: '持有资源', rows: holds },
+    {
+      label: '持有资源',
+      rows: holds,
+      tasks: Boolean(slots.task || ownTasksAvailable.value),
+      metrics: Boolean(slots.metrics || utilizationGroups.value.length),
+    },
     { label: '预约与队列', rows: rows.filter((row) => queued(row.allocation)) },
   ]
 })

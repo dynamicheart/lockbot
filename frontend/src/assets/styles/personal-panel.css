@@ -434,8 +434,60 @@
   padding: 20px;
 }
 
-.personal-panel :deep(.allocation-table) {
-  min-width: 880px;
+.personal-panel :deep(.allocation-table td) {
+  vertical-align: top;
+}
+.personal-panel :deep(.allocation-metrics) {
+  min-width: 210px;
+  width: 32%;
+}
+.personal-panel :deep(.allocation-label) {
+  display: none;
+}
+@media (max-width: 760px) {
+  .personal-panel :deep(.allocation-table),
+  .personal-panel :deep(.allocation-table tbody) {
+    display: block;
+  }
+  .personal-panel :deep(.allocation-table thead) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+    overflow: hidden;
+  }
+  .personal-panel :deep(.allocation-table tr) {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding-block: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .personal-panel :deep(.allocation-table td) {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .personal-panel :deep(.allocation-group),
+  .personal-panel :deep(.allocation-label) {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .personal-panel :deep(.allocation-label) {
+    display: inline-block;
+    margin-inline-end: 8px;
+  }
+  .personal-panel :deep(.allocation-name) {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .personal-panel :deep(.allocation-metrics) {
+    min-width: 0;
+    width: 100%;
+  }
+  .personal-panel :deep(.allocation-metrics .allocation-label) {
+    margin-block: 4px;
+  }
 }
 .personal-panel :deep(.el-alert) {
   margin: 14px 0;
