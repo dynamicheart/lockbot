@@ -90,6 +90,8 @@ export function createGrantedMetricsCollector({
       if (!force) {
         if (valid(cached, now(), 30000)) return cached
       }
+      // A rejected renewal must never fall back to a previously cached grant.
+      cached = null
       let grant
       try {
         grant = await abortable(authorize(config, { signal, force }), signal)
@@ -117,6 +119,9 @@ export function createGrantedMetricsCollector({
         )
         guard()
         return result
+      } catch (error) {
+        if (error.code === 'auth' && run === generation) cached = null
+        throw error
       } finally {
         linked.abort()
         linked.dispose()

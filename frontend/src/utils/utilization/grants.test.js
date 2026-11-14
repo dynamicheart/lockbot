@@ -288,3 +288,14 @@ it('rejects old authorization when the current view data source changes without 
   )
   await expect(result).rejects.toMatchObject({ code: 'grant' })
 })
+
+it('never reuses a cached grant after the current origin denies renewal', async () => {
+  const item = collector()
+  item.query.mockRejectedValue(new ProviderError('auth'))
+  item.authorize.mockResolvedValueOnce(grant()).mockRejectedValue({ response: { status: 403 } })
+  await expect(item.collect(signal())).rejects.toMatchObject({ code: 'grant' })
+  expect(item.query).toHaveBeenCalledTimes(1)
+  await expect(item.collect(signal())).rejects.toMatchObject({ code: 'grant' })
+  expect(item.authorize).toHaveBeenCalledTimes(3)
+  expect(item.query).toHaveBeenCalledTimes(1)
+})
