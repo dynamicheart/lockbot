@@ -1,4 +1,9 @@
-import { ProviderError, validateConfig, retryAfterSeconds as retryDelay } from './prometheus'
+import {
+  ProviderError,
+  validateConfig,
+  retryAfterSeconds as retryDelay,
+  checkCollectionDeadline as check,
+} from './prometheus'
 
 export function linkSignals(...signals) {
   const controller = new AbortController()
@@ -13,9 +18,6 @@ export function linkSignals(...signals) {
     dispose: () =>
       signals.filter(Boolean).forEach((signal) => signal.removeEventListener('abort', abort)),
   }
-}
-function check(signal) {
-  if (signal?.aborted) throw new ProviderError('timeout')
 }
 export function abortable(promise, signal) {
   return new Promise((resolve, reject) => {
@@ -69,7 +71,7 @@ export function createGrantedMetricsCollector({
   let cached
   let identity
   let generation = 0
-  async function collect(signal) {
+  async function collect(signal, { deadlineAt = Infinity, wallNow = now } = {}) {
     const config = getConfig(),
       nodes = [...getNodes()]
     const scope = JSON.stringify([datasourceIdentity(config), nodes])
@@ -79,12 +81,19 @@ export function createGrantedMetricsCollector({
       generation++
     }
     const run = generation
-    const guard = () => {
-      check(signal)
+    const guard = (retryAfter = 0) => {
+      check(signal, deadlineAt, wallNow, retryAfter)
       if (run !== generation) throw new ProviderError('grant')
     }
-    if (config.accessMode !== 'short_lived')
-      return query(config, nodes, { signal, bearer: getBearer() || '' })
+    guard()
+    if (config.accessMode !== 'short_lived') {
+      const result = await abortable(
+        query(config, nodes, { signal, bearer: getBearer() || '', deadlineAt, wallNow }),
+        signal
+      )
+      guard()
+      return result
+    }
     const renew = async (force = false) => {
       guard()
       if (!force) {
@@ -94,7 +103,7 @@ export function createGrantedMetricsCollector({
       cached = null
       let grant
       try {
-        grant = await abortable(authorize(config, { signal, force }), signal)
+        grant = await abortable(authorize(config, { signal, force, deadlineAt, wallNow }), signal)
       } catch (error) {
         if (error instanceof ProviderError) throw error
         if (error.response?.status === 429)
@@ -114,7 +123,7 @@ export function createGrantedMetricsCollector({
       const linked = linkSignals(signal)
       try {
         const result = await abortable(
-          query(config, nodes, { signal: linked.signal, bearer: grant.token }),
+          query(config, nodes, { signal: linked.signal, bearer: grant.token, deadlineAt, wallNow }),
           signal
         )
         guard()
@@ -131,7 +140,7 @@ export function createGrantedMetricsCollector({
     try {
       return await attempt(grant)
     } catch (error) {
-      guard()
+      guard(error.retryAfter || 0)
       if (error.code !== 'auth' || error.retryAfter > 0) throw error
       return attempt(await renew(true))
     }
@@ -148,8 +157,12 @@ export function createGrantedMetricsCollector({
 
 /** Uses only the current view capability at the same Lockbot origin. */
 export function createViewMetricsAuthorizer({ getScope, denied = () => {}, fetchImpl = fetch }) {
-  return async (source, { signal, force = false } = {}) => {
-    check(signal)
+  return async (
+    source,
+    { signal, force = false, deadlineAt = Infinity, wallNow = Date.now } = {}
+  ) => {
+    const guard = (retryAfter = 0) => check(signal, deadlineAt, wallNow, retryAfter)
+    guard()
     const scope = getScope()
     if (!scope?.token) throw new ProviderError('grant')
     if (
@@ -178,7 +191,7 @@ export function createViewMetricsAuthorizer({ getScope, denied = () => {}, fetch
       }),
       signal
     )
-    check(signal)
+    guard(retryDelay(response.headers.get('retry-after')))
     if (!current()) throw new ProviderError('grant')
     if ([401, 403, 404].includes(response.status)) {
       denied()
@@ -190,7 +203,7 @@ export function createViewMetricsAuthorizer({ getScope, denied = () => {}, fetch
         retryDelay(response.headers.get('retry-after'))
       )
     const data = await abortable(response.json(), signal)
-    check(signal)
+    guard()
     if (
       !current() ||
       data.health !== 'running' ||

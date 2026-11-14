@@ -189,3 +189,71 @@ it('cancels a deadline-expired in-flight collection when a visible sleeping tab 
   poll.stop()
   vi.useRealTimers()
 })
+
+it('rejects a sleep-delayed success before focus or suspended timeout callbacks run', async () => {
+  vi.useFakeTimers()
+  let wall = 0,
+    finish,
+    collectedSignal
+  const publish = vi.fn()
+  const collect = vi.fn((signal) => {
+    collectedSignal = signal
+    return new Promise((resolve) => {
+      finish = resolve
+    })
+  })
+  const poll = createMetricsPoller({ collect, publish, now: () => 0, wallNow: () => wall })
+  poll.start()
+  await vi.advanceTimersByTimeAsync(0)
+  wall = 600000
+  finish({ lateSnapshot: true })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collectedSignal.aborted).toBe(true)
+  expect(publish).toHaveBeenCalledWith({ loading: false, error: 'timeout' })
+  expect(publish.mock.calls.some(([value]) => value.snapshot?.lateSnapshot)).toBe(false)
+  poll.start() // The focus event follows the promise, rather than preceding it.
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collect).toHaveBeenCalledTimes(1)
+  poll.stop()
+  vi.useRealTimers()
+})
+
+it('starts a newly received Retry-After after sleep rather than subtracting the previous sleep', async () => {
+  vi.useFakeTimers()
+  let mono = 0,
+    wall = 0,
+    reject
+  const collect = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise((_ok, no) => {
+          reject = no
+        })
+    )
+    .mockResolvedValue({ fresh: true })
+  const poll = createMetricsPoller({
+    collect,
+    publish: vi.fn(),
+    now: () => mono,
+    wallNow: () => wall,
+  })
+  poll.start()
+  await vi.advanceTimersByTimeAsync(0)
+  wall = 600000
+  reject({ code: 'limited', retryAfter: 90 })
+  await vi.advanceTimersByTimeAsync(0)
+  poll.start()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(collect).toHaveBeenCalledTimes(1)
+  mono = 89999
+  wall = 689999
+  await vi.advanceTimersByTimeAsync(89999)
+  expect(collect).toHaveBeenCalledTimes(1)
+  mono = 90000
+  wall = 690000
+  await vi.advanceTimersByTimeAsync(1)
+  expect(collect).toHaveBeenCalledTimes(2)
+  poll.stop()
+  vi.useRealTimers()
+})

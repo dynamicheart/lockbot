@@ -40,6 +40,7 @@ export function createMetricsPoller({
     }
     busy = true
     startedAtWall = wallNow()
+    const deadlineAt = startedAtWall + 15000
     due = now() + interval
     const run = generation
     const currentController = new AbortController()
@@ -48,13 +49,20 @@ export function createMetricsPoller({
     timeout = currentTimeout
     publish({ loading: true })
     try {
-      const snapshot = await collect(currentController.signal)
+      const snapshot = await collect(currentController.signal, { deadlineAt, wallNow })
       if (run !== generation || !active) return false
+      reconcileSleep()
+      if (currentController.signal.aborted || wallNow() >= deadlineAt) {
+        currentController.abort()
+        throw new Error('timeout')
+      }
       failures = 0
       due = now() + interval
       publish({ loading: false, snapshot, error: null })
     } catch (error) {
       if (run !== generation || !active) return false
+      reconcileSleep()
+      if (wallNow() >= deadlineAt) currentController.abort()
       failures++
       due =
         now() +

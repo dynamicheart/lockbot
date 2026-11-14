@@ -299,3 +299,118 @@ it('never reuses a cached grant after the current origin denies renewal', async 
   expect(item.authorize).toHaveBeenCalledTimes(3)
   expect(item.query).toHaveBeenCalledTimes(1)
 })
+
+it.each(['authorization', 'auth-rejection', 'forced-renewal', 'retry-result'])(
+  'keeps the original wall deadline when sleep resumes at %s before focus',
+  async (stage) => {
+    let wall = Date.now()
+    const started = wall,
+      waiting = deferred(),
+      item = collector(),
+      publish = vi.fn()
+    if (stage === 'authorization') item.authorize.mockReturnValueOnce(waiting.promise)
+    else if (stage === 'auth-rejection') item.query.mockReturnValueOnce(waiting.promise)
+    else {
+      item.query.mockRejectedValueOnce(new ProviderError('auth'))
+      if (stage === 'forced-renewal')
+        item.authorize.mockResolvedValueOnce(grant()).mockReturnValueOnce(waiting.promise)
+      else item.query.mockReturnValueOnce(waiting.promise)
+    }
+    const poll = createMetricsPoller({
+      collect: item.collect,
+      publish,
+      now: () => 0,
+      wallNow: () => wall,
+    })
+    poll.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(item.authorize).toHaveBeenCalledTimes(
+      ['forced-renewal', 'retry-result'].includes(stage) ? 2 : 1
+    )
+    for (const [, options] of item.authorize.mock.calls)
+      expect(options.deadlineAt).toBe(started + 15000)
+    wall += 600000
+    if (stage === 'auth-rejection') waiting.reject(new ProviderError('auth'))
+    else waiting.resolve(stage === 'retry-result' ? { lateSnapshot: true } : grant('late-grant'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(item.query).toHaveBeenCalledTimes(
+      stage === 'authorization' ? 0 : stage === 'retry-result' ? 2 : 1
+    )
+    expect(item.authorize).toHaveBeenCalledTimes(
+      ['forced-renewal', 'retry-result'].includes(stage) ? 2 : 1
+    )
+    expect(publish).toHaveBeenCalledWith({ loading: false, error: 'timeout' })
+    expect(publish.mock.calls.some(([value]) => value.snapshot)).toBe(false)
+    poll.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(publish.mock.calls.some(([value]) => value.snapshot)).toBe(false)
+    poll.stop()
+  }
+)
+
+it.each(['headers', 'body'])(
+  'checks the same deadline after view authorization %s',
+  async (stage) => {
+    let wall = Date.now()
+    const waiting = deferred()
+    const data = {
+      health: 'running',
+      utilization_config: source(),
+      utilization_access: grant(),
+    }
+    const json = vi.fn(() => (stage === 'body' ? waiting.promise : Promise.resolve(data)))
+    const value = { ...response(data), json }
+    const authorize = createViewMetricsAuthorizer({
+      getScope: () => ({ botId: '7', generation: 1, token: 'view-code' }),
+      fetchImpl: () => (stage === 'headers' ? waiting.promise : Promise.resolve(value)),
+    })
+    const pending = authorize(source(), {
+      signal: signal(),
+      deadlineAt: wall + 15000,
+      wallNow: () => wall,
+    })
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'timeout' })
+    await vi.advanceTimersByTimeAsync(0)
+    wall += 600000
+    waiting.resolve(stage === 'headers' ? value : data)
+    await rejected
+    if (stage === 'headers') expect(json).not.toHaveBeenCalled()
+    else expect(json).toHaveBeenCalledTimes(1)
+  }
+)
+
+it.each(['limited', 'auth'])(
+  'retains a newly received %s Retry-After even when the collection deadline elapsed during sleep',
+  async (code) => {
+    let wall = Date.now()
+    const waiting = deferred(),
+      item = collector()
+    item.query.mockReturnValueOnce(waiting.promise)
+    const pending = item.collect(signal(), { deadlineAt: wall + 15000, wallNow: () => wall })
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'timeout', retryAfter: 90 })
+    await vi.advanceTimersByTimeAsync(0)
+    wall += 600000
+    waiting.reject(new ProviderError(code, 90))
+    await rejected
+    expect(item.authorize).toHaveBeenCalledTimes(1)
+    expect(item.query).toHaveBeenCalledTimes(1)
+  }
+)
+
+it('retains Retry-After from view response headers received after a sleeping deadline', async () => {
+  let wall = Date.now()
+  const waiting = deferred()
+  const authorize = createViewMetricsAuthorizer({
+    getScope: () => ({ botId: '7', generation: 1, token: 'view-code' }),
+    fetchImpl: () => waiting.promise,
+  })
+  const pending = authorize(source(), {
+    signal: signal(),
+    deadlineAt: wall + 15000,
+    wallNow: () => wall,
+  })
+  const rejected = expect(pending).rejects.toMatchObject({ code: 'timeout', retryAfter: 90 })
+  wall += 600000
+  waiting.resolve(response(null, 429, { 'retry-after': '90' }))
+  await rejected
+})

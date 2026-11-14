@@ -28,6 +28,14 @@ export class ProviderError extends Error {
     this.retryAfter = retryAfter
   }
 }
+export function checkCollectionDeadline(
+  signal,
+  deadlineAt = Infinity,
+  wallNow = Date.now,
+  retryAfter = 0
+) {
+  if (signal?.aborted || wallNow() >= deadlineAt) throw new ProviderError('timeout', retryAfter)
+}
 export function retryAfterSeconds(value, now = Date.now()) {
   const seconds = Number(value)
   return Number.isFinite(seconds) && seconds > 0
@@ -144,7 +152,7 @@ function entries(body, config) {
   }
   return values
 }
-async function readJson(response, limit = MAX_BYTES) {
+async function readJson(response, limit = MAX_BYTES, guard = () => {}) {
   if (Number(response.headers.get('content-length')) > limit) throw new ProviderError('size')
   if (!response.body?.getReader) throw new ProviderError('format')
   const reader = response.body.getReader()
@@ -152,7 +160,9 @@ async function readJson(response, limit = MAX_BYTES) {
   let size = 0
   try {
     while (true) {
+      guard()
       const { value, done } = await reader.read()
+      guard()
       if (done) break
       size += value.byteLength
       if (size > limit) throw new ProviderError('size')
@@ -164,7 +174,9 @@ async function readJson(response, limit = MAX_BYTES) {
       merged.set(chunk, offset)
       offset += chunk.length
     }
-    return JSON.parse(new TextDecoder().decode(merged))
+    const parsed = JSON.parse(new TextDecoder().decode(merged))
+    guard()
+    return parsed
   } catch (error) {
     if (error instanceof ProviderError) throw error
     throw new ProviderError('format')
@@ -175,8 +187,17 @@ async function readJson(response, limit = MAX_BYTES) {
 export async function collectPrometheus(
   input,
   nodes,
-  { signal, bearer = '', fetchImpl = fetch, now = Date.now } = {}
+  {
+    signal,
+    bearer = '',
+    fetchImpl = fetch,
+    now = Date.now,
+    deadlineAt = Infinity,
+    wallNow = now,
+  } = {}
 ) {
+  const guard = (retryAfter = 0) => checkCollectionDeadline(signal, deadlineAt, wallNow, retryAfter)
+  guard()
   const config = validateConfig(input)
   if (/^(?:lbr_|lbk_)/.test(bearer)) throw new ProviderError('credential')
   const headers = { Accept: 'application/json' }
@@ -184,7 +205,7 @@ export async function collectPrometheus(
   const results = {}
   const evaluationTime = String(now() / 1000)
   if (config.profile === 'lockbot-v1')
-    return collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now })
+    return collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now, guard })
   // Three metrics, each with a raw sample-timestamp query: six batched queries,
   // independent of resource count, at most two requests at once.
   for (const [kind, metric] of [
@@ -194,6 +215,7 @@ export async function collectPrometheus(
   ]) {
     const raw = selector(metric, config, nodes)
     const query = async (expression) => {
+      guard()
       let response
       try {
         response = await fetchImpl(`${config.endpoint}/api/v1/query`, {
@@ -210,6 +232,7 @@ export async function collectPrometheus(
         if (signal?.aborted) throw error
         throw new ProviderError('network')
       }
+      guard(retryAfterSeconds(response.headers.get('retry-after'), now()))
       if (!response.ok) {
         const retry = retryAfterSeconds(response.headers.get('retry-after'), now())
         throw new ProviderError(
@@ -221,7 +244,7 @@ export async function collectPrometheus(
           retry
         )
       }
-      return entries(await readJson(response), config)
+      return entries(await readJson(response, MAX_BYTES, guard), config)
     }
     const [values, timestamps] = await Promise.all([query(raw), query(`timestamp(${raw})`)])
     results[kind] = { values, timestamps }
@@ -281,7 +304,8 @@ export function protocolSelector(config, nodes) {
   const nodeSelector = selector('metric', config, nodes).slice('metric{'.length, -1)
   return `{__name__=~${quote(`^(?:${PROTOCOL_METRICS.join('|')})$`)},${nodeSelector}}`
 }
-async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now }) {
+async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now, guard }) {
+  guard()
   let response
   try {
     response = await fetchImpl(`${config.endpoint}/api/v1/query`, {
@@ -302,6 +326,7 @@ async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now
     if (signal?.aborted) throw error
     throw new ProviderError('network')
   }
+  guard(retryAfterSeconds(response.headers.get('retry-after'), now()))
   if (!response.ok)
     throw new ProviderError(
       response.status === 401 || response.status === 403
@@ -311,7 +336,7 @@ async function collectLockbotV1(config, nodes, { signal, headers, fetchImpl, now
           : 'upstream',
       retryAfterSeconds(response.headers.get('retry-after'), now())
     )
-  const body = await readJson(response, 4 * MAX_BYTES)
+  const body = await readJson(response, 4 * MAX_BYTES, guard)
   if (
     body?.status !== 'success' ||
     body.data?.resultType !== 'vector' ||
