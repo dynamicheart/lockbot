@@ -190,7 +190,7 @@ def normalize_agent_label(value):
     if not isinstance(value, str) or not value.isprintable():
         raise ClientError("invalid_agent_label")
     label = unicodedata.normalize("NFC", value).strip()
-    if not 1 <= len(label) <= 64 or re.search(r"\b(?:lbr_|lbk_|lba1\.)", label):
+    if not 1 <= len(label) <= 64 or re.search(r"\b(?:lbr_|lbk_|lb[a-z][0-9]+\.)", label):
         raise ClientError("invalid_agent_label")
     return label
 
