@@ -158,7 +158,7 @@ class ServiceHistory:
 
     def _prune(self, minute):
         if minute != self.pruned_minute:
-            self.pending = {key: value for key, value in self.pending.items() if key[0] >= minute - 1}
+            self.pending = {key: value for key, value in self.pending.items() if minute - 1 <= key[0] <= minute}
             self.pruned_minute = minute
 
     def _track_bot(self, bot_id, now):

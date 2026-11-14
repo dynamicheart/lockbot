@@ -333,3 +333,12 @@ def test_failed_rollup_does_not_accumulate_temporary_files(tmp_path, monkeypatch
     assert not list((tmp_path / "hourly").glob("*.tmp"))
     # Original minute detail remains available after the failed index write.
     assert journal.query(0, 3600, 3600)["totals"]["requests"] == 1
+
+
+def test_backward_clock_changes_keep_pending_minutes_bounded(tmp_path):
+    now = [100000.0]
+    journal = ServiceHistory(tmp_path, lambda: now[0])
+    for _ in range(100):
+        event(journal)
+        now[0] -= 60
+    assert len({minute for minute, _ in journal.pending}) <= 2
