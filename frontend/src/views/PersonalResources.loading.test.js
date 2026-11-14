@@ -236,6 +236,35 @@ it('filters holdings and bookings across groups without changing summary counts'
   expect(state.statistics.map(({ value }) => value)).toEqual([3, 2, 1])
 })
 
+it('groups held cards within one resource group and sorts by the earliest card deadline', async () => {
+  const card = (node, device, expires_at) => ({ kind: 'hold', node, device, expires_at })
+  const state = await readyGroups([
+    {
+      ...confirmed,
+      group_id: 'a',
+      allocations: [
+        card('node-a', '0', 300),
+        card('node-a', '1', 100),
+        card('node-b', '0', 200),
+        { ...card('node-a', '0', 400), kind: 'reservation' },
+      ],
+    },
+    { ...confirmed, group_id: 'b', allocations: [card('node-a', '0', 250)] },
+  ])
+  state.allocationSort = 'latest'
+  const items = () => state.allocationSections[0].items
+  expect(items().map((item) => item.first.allocation.expires_at)).toEqual([250, 200, 100])
+  expect(items().map((item) => item.rows.length)).toEqual([1, 1, 2])
+  expect(state.allocationSections[1].items).toHaveLength(1)
+
+  const { key } = items()[2]
+  expect(state.expandedNodes.has(key)).toBe(false)
+  state.toggleNode(key)
+  expect(state.expandedNodes.has(key)).toBe(true)
+  state.allocationQuery = 'dev1'
+  expect(items().flatMap((item) => item.rows.map((row) => row.allocation.device))).toEqual(['1'])
+})
+
 it('uses loading placeholders initially and shows a confirmed zero after an empty response', async () => {
   let finish
   vi.stubGlobal(

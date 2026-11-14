@@ -1,5 +1,6 @@
 <template>
   <main class="resource-view">
+    <LockbotWordmark class="view-brand" />
     <section v-if="invalid" class="view-message">
       <el-icon :size="30"><Lock /></el-icon>
       <h1>{{ $t('resourceView.invalidTitle') }}</h1>
@@ -186,6 +187,7 @@ import { createViewMetricsAuthorizer } from '../utils/utilization/grants'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import LockbotWordmark from '../components/LockbotWordmark.vue'
 import ResourceParticipants from '../components/ResourceParticipants.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
@@ -386,6 +388,9 @@ function bookingTime(user, resource) {
   max-width: 1440px;
   margin: 0 auto;
   padding: 28px 24px;
+}
+.view-brand {
+  margin-bottom: 12px;
 }
 .view-header,
 .resource-heading,

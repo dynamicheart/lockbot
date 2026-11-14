@@ -51,10 +51,6 @@
   min-height: 54px;
   gap: clamp(12px, 3vw, 38px);
 }
-.personal-panel :deep(.wordmark) {
-  font-weight: 700;
-  white-space: nowrap;
-}
 .personal-panel :deep(.nav) {
   gap: clamp(10px, 2vw, 26px);
 }
@@ -415,10 +411,6 @@
   background: var(--lb-bg-header, #fff);
   box-shadow: var(--lb-shadow-header, 0 1px 4px #0001);
 }
-.personal-panel :deep(.wordmark) {
-  color: var(--lb-color-primary, #409eff);
-  text-decoration: none;
-}
 .personal-panel :deep(.panel),
 .personal-panel :deep(.group-card) {
   background: var(--lb-bg-card, #fff);
@@ -444,6 +436,36 @@
 .personal-panel :deep(.allocation-label) {
   display: none;
 }
+.personal-panel :deep(.allocation-disclosure) {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 4px;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font-weight: 600;
+}
+.personal-panel :deep(.allocation-disclosure:hover) {
+  color: var(--accent);
+}
+.personal-panel :deep(.allocation-disclosure[aria-expanded='true'] .el-icon) {
+  transform: rotate(90deg);
+}
+.personal-panel :deep(.allocation-count) {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--lb-bg-page, #f5f7fa);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.personal-panel :deep(.allocation-table .allocation-detail .allocation-name) {
+  padding-inline-start: 32px;
+}
 @media (max-width: 760px) {
   .personal-panel :deep(.allocation-table),
   .personal-panel :deep(.allocation-table tbody) {
@@ -467,6 +489,15 @@
     display: block;
     padding: 0;
     border: 0;
+  }
+  .personal-panel :deep(.allocation-table td:empty) {
+    display: none;
+  }
+  .personal-panel :deep(.allocation-table .allocation-detail) {
+    margin-inline-start: 20px;
+  }
+  .personal-panel :deep(.allocation-table .allocation-detail .allocation-name) {
+    padding-inline-start: 0;
   }
   .personal-panel :deep(.allocation-group),
   .personal-panel :deep(.allocation-label) {
