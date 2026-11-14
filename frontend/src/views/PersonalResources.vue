@@ -51,6 +51,13 @@
           <span v-if="resourceLoading && reportProgress.total" class="refresh-status" role="status">
             {{ reportProgress.done }} / {{ reportProgress.total }} 个资源群
           </span>
+          <router-link
+            v-else-if="pendingGroups && !resourceLoading && !detailPage && tab === 'mine'"
+            class="refresh-status refresh-coverage"
+            to="/me/groups"
+          >
+            {{ pendingGroups }} 个资源群未能更新
+          </router-link>
           <el-button
             :icon="Refresh"
             :loading="resourceLoading"
@@ -200,7 +207,12 @@
             <h2 class="panel-title">
               {{ section.label }}<span class="detail-count">{{ section.rows.length }}</span>
             </h2>
-            <table v-if="section.rows.length" class="allocation-table" role="table">
+            <table
+              v-if="section.rows.length"
+              class="allocation-table"
+              :class="{ 'allocation-overview': section.holdings && !detail.resource }"
+              role="table"
+            >
               <thead role="rowgroup">
                 <tr role="row">
                   <th
@@ -278,8 +290,21 @@
                         {{ item.rows.length === 1 ? row.group.label : '' }}
                       </td>
                       <td role="cell" class="allocation-name">
-                        <span
+                        <component
+                          :is="holdingPath(item) ? 'RouterLink' : 'button'"
                           v-if="
+                            section.holdings && !detail.resource && row.allocation.device == null
+                          "
+                          :to="holdingPath(item)"
+                          :type="holdingPath(item) ? undefined : 'button'"
+                          class="allocation-node-link"
+                          @click="!holdingPath(item) && openWorkbenchResource(item)"
+                        >
+                          {{ row.allocation.node ?? '未知节点' }}
+                          <el-icon aria-hidden="true"><ArrowRight /></el-icon>
+                        </component>
+                        <span
+                          v-else-if="
                             item.rows.length === 1 &&
                             (!detail.resource || row.allocation.device == null)
                           "
@@ -361,20 +386,24 @@
                         class="allocation-metrics"
                         :class="{ 'allocation-device-metrics': row.allocation.device != null }"
                       >
-                        <span aria-hidden="true" class="allocation-label">利用率</span>
-                        <slot v-if="fresh(row.group)" name="metrics" :row="row">
-                          <ResourceMetricsCell
-                            v-if="utilizationSnapshots[row.group.utilization?.connection]?.enabled"
-                            v-bind="utilizationSnapshots[row.group.utilization.connection]"
-                            :node-id="row.allocation.node"
-                            :resource-id="
-                              row.allocation.device == null
-                                ? null
-                                : `${row.allocation.node}:dev${row.allocation.device}`
-                            "
-                          />
-                          <span v-else class="scope">未提供</span>
-                        </slot>
+                        <template v-if="detail.resource || row.allocation.device != null">
+                          <span aria-hidden="true" class="allocation-label">利用率</span>
+                          <slot v-if="fresh(row.group)" name="metrics" :row="row">
+                            <ResourceMetricsCell
+                              v-if="
+                                utilizationSnapshots[row.group.utilization?.connection]?.enabled
+                              "
+                              v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                              :node-id="row.allocation.node"
+                              :resource-id="
+                                row.allocation.device == null
+                                  ? null
+                                  : `${row.allocation.node}:dev${row.allocation.device}`
+                              "
+                            />
+                            <span v-else class="scope">未提供</span>
+                          </slot>
+                        </template>
                       </td>
                     </tr>
                   </template>
@@ -436,9 +465,6 @@
             </span>
           </component>
         </div>
-        <p v-if="pendingGroups && !resourceLoading" class="resource-coverage" role="status">
-          {{ pendingGroups }} 个资源群未更新。<router-link to="/me/groups">查看资源群</router-link>
-        </p>
         <div v-if="allocationRows.length || resourcesReady" class="workbench-focus">
           <section class="panel" aria-labelledby="workbench-expiring">
             <div class="workbench-panel-heading">
@@ -1032,6 +1058,7 @@ const detailUtilizationGroups = computed(() => {
     if (selectedGroup && item.first.groupKey !== selectedGroup) continue
     if (selection.resource && item.key !== selection.resource) continue
     const row = item.first
+    if (!selection.resource && row.allocation.device == null) continue
     const connection = row.group.utilization?.connection
     if (!connection) continue
     if (!nodesByConnection.has(connection)) nodesByConnection.set(connection, new Set())

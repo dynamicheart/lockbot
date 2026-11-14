@@ -485,8 +485,37 @@
 .personal-panel :deep(.allocation-table .allocation-detail .allocation-name) {
   padding-inline-start: 32px;
 }
+@media (min-width: 761px) {
+  .personal-panel :deep(.allocation-overview th.allocation-group),
+  .personal-panel :deep(.allocation-overview th.allocation-name) {
+    width: 12%;
+  }
+  .personal-panel :deep(.allocation-overview th.allocation-task) {
+    width: 16%;
+  }
+}
 .personal-panel :deep(.allocation-time) {
   width: 165px;
+}
+.personal-panel :deep(.allocation-node-link) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--el-color-primary-dark-2, var(--accent));
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-align: start;
+  text-decoration: none;
+}
+.personal-panel :deep(.allocation-node-link:hover) {
+  text-decoration: underline;
+}
+.personal-panel :deep(.allocation-node-link:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 @media (max-width: 760px) {
   .personal-panel :deep(.allocation-table),
@@ -703,6 +732,14 @@
 .personal-panel :deep(.refresh-status) {
   color: var(--muted);
   font-size: 13px;
+}
+.personal-panel :deep(.refresh-coverage) {
+  color: var(--el-color-warning-dark-2, var(--muted));
+  text-underline-offset: 3px;
+}
+.personal-panel :deep(.refresh-coverage:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .personal-panel :deep(.workbench-stat-icon),
 .personal-panel :deep(.resource-coverage a),
