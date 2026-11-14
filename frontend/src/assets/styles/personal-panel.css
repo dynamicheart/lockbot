@@ -882,3 +882,36 @@
 .personal-panel :deep(.connection-source .connection-groups) {
   margin: 6px 0 0;
 }
+
+.personal-panel :deep(.main.credentials-page) {
+  box-sizing: border-box;
+  max-width: 1160px;
+  margin-inline: auto;
+}
+.personal-panel :deep(.credentials-page .native-connections .scope),
+.personal-panel :deep(.credentials-page .credential-access .scope) {
+  margin: 0;
+}
+.personal-panel :deep(.credentials-page .credential-overview .scope),
+.personal-panel :deep(.credentials-page .credential-identity .scope),
+.personal-panel :deep(.credentials-page .credential-access-heading .scope) {
+  margin-top: 5px;
+}
+.personal-panel :deep(.credential-access) {
+  display: grid;
+  gap: 12px;
+  margin-top: 26px;
+}
+.personal-panel :deep(.credential-access-heading) {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.personal-panel :deep(.credential-access-heading .connection-help) {
+  min-width: 0;
+  max-width: 320px;
+}
+.personal-panel :deep(.credential-access-heading summary) {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 14px;
+}
