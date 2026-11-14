@@ -435,6 +435,23 @@ class Client:
     def resources(self, context):
         return self._request(same_origin_url(self.base, context["links"]["resources"]), token=self.key)
 
+    def resource_guidance(self, reference=None):
+        if reference is not None and not re.fullmatch(r"[a-f0-9]{32}", reference):
+            raise ClientError("invalid_resource_guidance_reference")
+        context = self.context()
+        bot_id = context["bot"]["id"]
+        if type(bot_id) is not int or bot_id <= 0:
+            raise ClientError("invalid_resource_guidance_scope")
+        path = f"/api/bots/{bot_id}/resource-guidance"
+        if reference is not None:
+            path += "/" + reference
+        result = self._request(self.base + path, token=self.key)
+        if result.get("protocol") != "lockbot.resource-guidance.v1" or (
+            not isinstance(result.get("items"), list) if reference is None else result.get("id") != reference
+        ):
+            raise ClientError("invalid_resource_guidance_response")
+        return result
+
     def personal_report(self, extension):
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", extension):
             raise ClientError("invalid_report_extension")
@@ -846,6 +863,8 @@ def main(argv=None):
             command.add_argument("--agent-label", help="Optional stable name for this Agent installation")
     sub.add_parser("context")
     sub.add_parser("resources")
+    guidance = sub.add_parser("resource-guidance", help="Read deployment-owned references for current holdings")
+    guidance.add_argument("--reference")
     report = sub.add_parser("personal-report")
     report.add_argument("--extension", required=True)
     alias = sub.add_parser("alias", help="Read or edit a shared node alias")
@@ -877,6 +896,8 @@ def main(argv=None):
             result = client.context()
         elif args.action == "resources":
             result = client.resources(client.context())
+        elif args.action == "resource-guidance":
+            result = client.resource_guidance(args.reference)
         elif args.action == "personal-report":
             result = client.personal_report(args.extension)
         elif args.action == "alias":

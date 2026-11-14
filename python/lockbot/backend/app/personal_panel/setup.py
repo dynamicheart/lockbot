@@ -39,6 +39,13 @@ def mount_if_configured(app):
     provider = (
         _load_plugin(item, "lockbot_identity_provider", "create_provider") if "file" in item else NativeProvider(item)
     )
+    if "resource_guidance" in config:
+        from .guidance import Guidance, mount_agent_guidance
+
+        if type(provider) is not NativeProvider or provider.config["issuer"] != config["origin"]:
+            raise ValueError("Resource guidance requires the same-origin native identity provider")
+        provider.guidance = Guidance.configured(config["resource_guidance"])
+        mount_agent_guidance(app, provider)
     if not all(callable(getattr(provider, method, None)) for method in ("authenticate", "validate", "report")):
         raise ValueError("Invalid identity provider")
     reporters = []

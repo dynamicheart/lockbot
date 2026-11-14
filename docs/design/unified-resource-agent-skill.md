@@ -116,7 +116,7 @@ commands continue to require the native key for the target bot and do not accept
 extension group/node identifiers. Removing an extension removes discovery and
 makes its former read path unavailable.
 
-## Private operational guidance (proposed)
+## Private operational guidance
 
 Use the same `lockbot-resource-agent` installation and the same personal
 dashboard. A private deployment may add a **runbook reference** for a verified
@@ -151,6 +151,28 @@ repository. The public Skill and its ZIP never include that material.
 Acceptance should cover matching and non-matching device scopes, revoked
 bindings, omitted plugin configuration, private documentation links, and an
 unauthenticated ZIP and manifest that contain no private guidance.
+
+Configure `resource_guidance` in the private personal-panel configuration of
+a same-origin native provider. It takes `documentation_origins` (exact HTTPS
+origins) and `references`. Each reference has an opaque 32-character lowercase
+hex `id`, `revision`, `instance_id`, `bot_uuid`, `platform`, `realm`, `node`,
+`title` and `summary`. Set `device` to the exact string device ID for a card
+holding or omit it for a whole-node holding. Use the native provider's realm
+value for the approved binding. It is the compact JSON string encoding of
+`["instance", instance_id, "bot", bot_uuid]` by default, or
+`["instance", instance_id, "attested", configured_realm]` for a pinned
+`trusted_realms` entry. `operator_refs` is an optional explicit
+allowlist of native binding public IDs and still requires a live holding.
+`documentation_url`, if set, must be a URL at one of the pinned origins.
+Use a new revision when the reference changes and reload configuration through
+the deployment's normal restart procedure. Keep text and links free of secrets.
+
+Agent discovery is an authenticated GET at
+`/api/bots/{bot_id}/resource-guidance`. Append the selected ID to read its
+summary and link. Browser reports carry descriptors for current holds and use
+the current browser session to read the same reference. Both reads use fresh
+native allocation state. Remote reports and public views do not publish these
+references.
 
 ## Package and update boundary
 
