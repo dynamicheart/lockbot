@@ -13,7 +13,7 @@
   margin: 0;
 }
 .personal-panel :deep(button),
-.personal-panel :deep(input),
+.personal-panel :deep(input:not(.el-input__inner, .el-select__input, [type='checkbox'])),
 .personal-panel :deep(select) {
   font: inherit;
 }
@@ -54,7 +54,7 @@
 .personal-panel :deep(.nav) {
   gap: clamp(10px, 2vw, 26px);
 }
-.personal-panel :deep(.nav button),
+.personal-panel :deep(.nav a),
 .personal-panel :deep(.text-button) {
   border: 0;
   background: transparent;
@@ -62,8 +62,11 @@
   font-size: 13px;
   padding: 10px 0;
 }
-.personal-panel :deep(.nav button) {
+.personal-panel :deep(.nav a) {
+  display: inline-flex;
+  align-items: center;
   border-bottom: 2px solid transparent;
+  text-decoration: none;
 }
 .personal-panel :deep(.nav .active) {
   color: var(--accent);
@@ -298,7 +301,7 @@
   font-size: 13px;
   margin-bottom: 5px;
 }
-.personal-panel :deep(input),
+.personal-panel :deep(input:not(.el-input__inner, .el-select__input, [type='checkbox'])),
 .personal-panel :deep(select) {
   width: 100%;
   border: 1px solid #aebbb4;
@@ -369,7 +372,7 @@
   .personal-panel :deep(.bar-inner) {
     gap: 14px;
   }
-  .personal-panel :deep(.nav button),
+  .personal-panel :deep(.nav a),
   .personal-panel :deep(.text-button) {
     min-height: 44px;
   }
@@ -426,12 +429,25 @@
   padding: 20px;
 }
 
+.personal-panel :deep(.panel > .allocation-table) {
+  margin-top: 10px;
+}
 .personal-panel :deep(.allocation-table td) {
   vertical-align: top;
 }
 .personal-panel :deep(.allocation-metrics) {
   min-width: 210px;
-  width: 32%;
+  width: 36%;
+}
+.personal-panel :deep(.allocation-device-metrics .resource-metrics) {
+  max-width: 350px;
+}
+.personal-panel :deep(th.allocation-group),
+.personal-panel :deep(th.allocation-name) {
+  width: 16%;
+}
+.personal-panel :deep(th.allocation-task) {
+  width: 19%;
 }
 .personal-panel :deep(.allocation-label) {
   display: none;
@@ -646,8 +662,9 @@
   .personal-panel :deep(.nav) {
     grid-column: 1 / -1;
     min-width: 0;
-    overflow-x: auto;
-    white-space: nowrap;
+    flex-wrap: wrap;
+    column-gap: 20px;
+    row-gap: 0;
   }
 }
 
@@ -669,6 +686,7 @@
   border-color: var(--accent);
   background: var(--lb-bg-hover, #f0f6ff);
 }
+.personal-panel :deep(.nav a:focus-visible),
 .personal-panel :deep(a.workbench-stat:focus-visible),
 .personal-panel :deep(a.workbench-resource:focus-visible),
 .personal-panel :deep(.workbench-breadcrumb a:focus-visible) {

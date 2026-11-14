@@ -4,15 +4,14 @@
       <div class="bar-inner">
         <LockbotWordmark />
         <nav v-if="session.authenticated && !ticket" class="nav" aria-label="主导航">
-          <button
+          <router-link
             v-for="item in tabs"
-            :key="item.id"
+            :key="item.path"
+            :to="item.path"
             :class="{ active: tab === item.id }"
-            :aria-current="tab === item.id ? 'page' : undefined"
-            @click="navigateTab(item.id)"
           >
             {{ item.label }}
-          </button>
+          </router-link>
         </nav>
         <el-button
           v-if="session.authenticated && !ticket && tab === 'connections'"
@@ -35,7 +34,11 @@
           {{ detailPage === 'group' ? '资源群' : '我的占用' }}
         </router-link>
         <el-icon aria-hidden="true"><ArrowRight /></el-icon>
-        <span aria-current="page">{{ detailSectionTitle }}</span>
+        <template v-if="detail?.resource">
+          <router-link :to="`/me/${detailPage}`">{{ detailSectionTitle }}</router-link>
+          <el-icon aria-hidden="true"><ArrowRight /></el-icon>
+        </template>
+        <span aria-current="page">{{ detail?.title || detailSectionTitle }}</span>
       </nav>
       <div class="page-heading">
         <div class="workbench-heading-text">
@@ -45,13 +48,17 @@
           </p>
         </div>
         <div v-if="session.authenticated && !ticket && tab !== 'connections'" class="actions">
-          <span v-if="resourceLoading" class="refresh-status" role="status">
-            <template v-if="reportProgress.total">
-              更新中 {{ reportProgress.done }}/{{ reportProgress.total }}
-            </template>
-            <template v-else>正在更新</template>
+          <span v-if="resourceLoading && reportProgress.total" class="refresh-status" role="status">
+            {{ reportProgress.done }} / {{ reportProgress.total }} 个资源群
           </span>
-          <el-button :icon="Refresh" :loading="busy" @click="run(refresh)">刷新资源</el-button>
+          <el-button
+            :icon="Refresh"
+            :loading="resourceLoading"
+            :disabled="busy"
+            @click="run(refresh)"
+          >
+            {{ resourceLoading ? '更新中' : '刷新资源' }}
+          </el-button>
         </div>
       </div>
       <el-alert v-if="error" :title="error" type="warning" :closable="false" show-icon />
@@ -196,8 +203,15 @@
             <table v-if="section.rows.length" class="allocation-table" role="table">
               <thead role="rowgroup">
                 <tr role="row">
-                  <th v-if="!detail.groupKey" scope="col" role="columnheader">资源群</th>
-                  <th scope="col" role="columnheader">资源</th>
+                  <th
+                    v-if="!detail.groupKey"
+                    class="allocation-group"
+                    scope="col"
+                    role="columnheader"
+                  >
+                    资源群
+                  </th>
+                  <th class="allocation-name" scope="col" role="columnheader">资源</th>
                   <th v-if="section.timeLabel" scope="col" role="columnheader">
                     {{ section.timeLabel }}
                   </th>
@@ -205,7 +219,9 @@
                     本人身份
                   </th>
                   <th v-if="!section.holdings" scope="col" role="columnheader">排队位置</th>
-                  <th v-if="section.tasks" scope="col" role="columnheader">用途</th>
+                  <th v-if="section.tasks" class="allocation-task" scope="col" role="columnheader">
+                    用途
+                  </th>
                   <th v-if="section.metrics" scope="col" role="columnheader">利用率</th>
                 </tr>
               </thead>
@@ -339,7 +355,12 @@
                           }}</span>
                         </slot>
                       </td>
-                      <td v-if="section.metrics" role="cell" class="allocation-metrics">
+                      <td
+                        v-if="section.metrics"
+                        role="cell"
+                        class="allocation-metrics"
+                        :class="{ 'allocation-device-metrics': row.allocation.device != null }"
+                      >
                         <span aria-hidden="true" class="allocation-label">利用率</span>
                         <slot v-if="fresh(row.group)" name="metrics" :row="row">
                           <ResourceMetricsCell
@@ -636,9 +657,9 @@ import PersonalCredentialView from '../components/PersonalCredentialView.vue'
 import PersonalCredentialRotation from '../components/PersonalCredentialRotation.vue'
 
 const tabs = [
-  { id: 'mine', label: '我的占用' },
-  { id: 'groups', label: '资源群' },
-  { id: 'connections', label: '我的凭证' },
+  { id: 'mine', label: '我的占用', path: '/me' },
+  { id: 'groups', label: '资源群', path: '/me/groups' },
+  { id: 'connections', label: '我的凭证', path: '/me/credentials' },
 ]
 const route = useRoute()
 const router = useRouter()
@@ -659,9 +680,6 @@ const title = computed(() => {
   if (detailPage.value) return detail.value?.title || detailSectionTitle.value
   return tab.value === 'mine' ? '个人资源台' : tabs.find((item) => item.id === tab.value).label
 })
-function navigateTab(id) {
-  return router.push({ mine: '/me', groups: '/me/groups', connections: '/me/credentials' }[id])
-}
 watch(
   () => route.path,
   async () => {
@@ -1362,13 +1380,15 @@ onMounted(async () => {
   overflow-wrap: anywhere;
 }
 .workbench-heading-text .scope {
-  margin-top: 4px;
+  margin: 4px 0 0;
 }
 .workbench-breadcrumb {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 13px;
 }
@@ -1413,7 +1433,7 @@ onMounted(async () => {
   white-space: nowrap;
 }
 .resource-coverage {
-  margin-top: 10px;
+  margin-block: 10px 0;
   color: var(--muted);
   font-size: 13px;
 }
@@ -1425,9 +1445,6 @@ onMounted(async () => {
 }
 .allocation-controls-scoped {
   grid-template-columns: minmax(200px, 300px) 180px;
-}
-.allocation-controls :deep(.el-input__inner:focus-visible) {
-  outline: none;
 }
 @media (max-width: 700px) {
   .allocation-controls {
