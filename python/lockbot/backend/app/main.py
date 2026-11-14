@@ -338,6 +338,7 @@ def _migrate_identity_boundaries():
         "resource_bindings": {
             "bound_identity_revision": "INTEGER NOT NULL DEFAULT 0",
             "credential_encrypted": "TEXT",
+            "credential_generation": "INTEGER NOT NULL DEFAULT 0",
         },
     }
     for table, fields in additions.items():
@@ -510,6 +511,7 @@ async def lifespan(app: FastAPI):
     notification_budget.start()
     broadcast_worker.start()
     usage_cleanup = asyncio.create_task(usage_cleanup_loop())
+    app.state.service_history.start()
     try:
         yield
     finally:
@@ -522,6 +524,7 @@ async def lifespan(app: FastAPI):
         broadcast_worker.stop()
         backup_scheduler.stop()
         bot_manager.shutdown_all()
+        await asyncio.to_thread(app.state.service_history.stop)
 
 
 def _reset_running_bots():
@@ -690,11 +693,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from lockbot.backend.app.managed_paths import get_managed_paths
+    from lockbot.backend.app.service_history import ServiceHistory
     from lockbot.backend.app.service_traffic import ServiceTrafficMiddleware, TrafficStats
     from lockbot.backend.app.service_traffic import bot_router as bot_service_traffic_router
     from lockbot.backend.app.service_traffic import router as service_traffic_router
 
-    app.state.service_traffic = TrafficStats()
+    app.state.service_history = ServiceHistory(get_managed_paths().root / "monitor-history")
+    app.state.service_traffic = TrafficStats(history=app.state.service_history)
     from lockbot.core import command_context
 
     command_context.operation_observer = app.state.service_traffic.record_operation
