@@ -325,7 +325,7 @@ export default {
     http: 'HTTP 请求',
     operations: '资源操作',
     coverageHelp:
-      '空缺表示未知，不代表零。部分覆盖及汇总仅计算已保留的观测；P95 为估算值，资源操作与 HTTP 请求分别统计。时间统一显示 UTC。',
+      '空缺表示未知，不代表零。部分覆盖及汇总仅计算已保留的观测；P95 为估算值，资源操作与 HTTP 请求分别统计。时间显示为 UTC+08:00。',
     coverage: '完整 {complete_buckets} · 部分 {partial_buckets} · 未知 {unknown_buckets}',
     resolution: '每 {minutes} 分钟',
     unknown: '未保留数据',

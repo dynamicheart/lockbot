@@ -159,6 +159,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
+import { formatResourceTime } from '../utils/resourceTime'
 import {
   createTrafficHistoryLoader,
   historyEndpoint,
@@ -253,10 +254,7 @@ const number = (value) =>
     ? new Intl.NumberFormat(locale.value, { maximumFractionDigits: 1 }).format(value)
     : '—'
 const height = (value, max) => `${Math.min(100, (Math.max(0, Number(value) || 0) / max) * 100)}%`
-const time = (value) =>
-  value
-    ? new Date(value).toISOString().replace('T', ' ').replace('.000Z', 'Z').replace(/Z$/, ' UTC')
-    : '—'
+const time = (value) => formatResourceTime(value, locale.value)
 function tooltip(point, operations) {
   const values = !point.known
     ? [t('trafficHistory.unknown')]

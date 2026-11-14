@@ -1,3 +1,4 @@
+/* eslint-disable vue/one-component-per-file -- minimal host stubs exercise actual SFC bindings */
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Vue from 'vue'
 import { createRenderer, defineComponent, h, nextTick, reactive } from 'vue'
@@ -6,7 +7,8 @@ import { readFileSync } from 'node:fs'
 import Panel from './ServiceTrafficHistory.vue'
 import api from '../utils/api'
 vi.mock('../utils/api', () => ({ default: { get: vi.fn() } }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key, locale: { value: 'en' } }) }))
+const mocks = vi.hoisted(() => ({ locale: { value: 'en' } }))
+vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key) => key, locale: mocks.locale }) }))
 const filename = new URL('./ServiceTrafficHistory.vue', import.meta.url).pathname
 const { descriptor } = parse(readFileSync(filename, 'utf8'), { filename })
 const bindings = compileScript(descriptor, { id: 'history-test' }).bindings
@@ -69,9 +71,9 @@ function mount() {
   const root = { children: [] }
   app = renderer.createApp({ render: () => h(Panel, props) })
   app.provide(Vue.ssrContextKey, {})
-  app.config.globalProperties.$t = (key) => key
+  app.config.globalProperties.$t = (key, values) =>
+    key === 'trafficHistory.inputZone' ? values.zone : key
   for (const name of [
-    'el-radio-group',
     'el-radio-button',
     'el-button',
     'el-date-picker',
@@ -81,6 +83,24 @@ function mount() {
     'el-empty',
   ])
     app.component(name, shell)
+  app.component(
+    'ElRadioGroup',
+    defineComponent({
+      name: 'HistoryRangeStub',
+      emits: ['update:modelValue'],
+      setup:
+        (_props, { emit, slots }) =>
+        () =>
+          h('section', {}, [
+            h(
+              'button',
+              { 'data-custom': true, onClick: () => emit('update:modelValue', 'custom') },
+              'custom'
+            ),
+            slots.default?.(),
+          ]),
+    })
+  )
   app.mount(root)
   return { props, root }
 }
@@ -109,6 +129,7 @@ const payload = (requests = 0, coverage = 'complete') => ({
 })
 afterEach(() => {
   app?.unmount()
+  mocks.locale.value = 'en'
   vi.clearAllMocks()
 })
 it('renders confirmed zero as zero and unknown history as gaps, not false zeros', async () => {
@@ -144,4 +165,25 @@ it('clears old results immediately on a bot switch and never publishes a late re
   pending[0].resolve({ data: payload(444) })
   await flush()
   expect(text(root)).not.toContain('444')
+})
+
+it('shows the custom input browser timezone and clears the previous range', async () => {
+  api.get.mockResolvedValueOnce({ data: payload(12) })
+  const { root } = mount()
+  await flush()
+  all(root)
+    .find((node) => node.props?.['data-custom'])
+    .props.onClick()
+  await flush()
+  expect(text(root)).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  expect(text(root)).toContain('trafficHistory.invalidRange')
+  expect(text(root)).not.toContain('trafficHistory.metrics.requests')
+  expect(api.get).toHaveBeenCalledTimes(1)
+})
+it('uses the common Chinese UTC+8 formatter for history axes', async () => {
+  mocks.locale.value = 'zh'
+  api.get.mockResolvedValueOnce({ data: payload(1) })
+  const { root } = mount()
+  await flush()
+  expect(text(root)).toContain('2026-11-14 09:00:00 UTC+08:00')
 })
