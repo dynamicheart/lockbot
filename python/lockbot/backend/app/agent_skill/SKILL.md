@@ -126,6 +126,13 @@ only `task_category`, `agent_label`, `purpose`; choose the category from current
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.
 
+After acquiring a node or a card, use the verified resource snapshot from the helper's
+`resources` command to look for `node_access` on your current holding. It contains the
+optional administrator-configured SSH `host` and `port`; a card uses the address of its
+parent node. Recheck the snapshot before relying on the address. If the field is absent,
+ask the resource administrator for access instructions. Keep private addresses out of
+shared replies and do not guess addresses from node labels or telemetry mappings.
+
 For a shared node label, use `alias --node <node>` to read it, `--set "<label>"` to
 set or change it, and `--clear` to remove it. These are subcommands of the same helper
 with the selected private connection. MUST use the parent node on card bots, keep

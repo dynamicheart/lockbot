@@ -1,4 +1,22 @@
 export default {
+  nodeAccess: {
+    title: 'Node access',
+    open: 'Configure addresses',
+    help: 'Copy the node IDs to your Agent, ask it to map them to your machine inventory, then paste the JSON here.',
+    copyNodes: 'Copy node IDs',
+    mapping: 'Node mapping JSON',
+    review: 'Changes to save',
+    noChanges: 'The mapping matches the saved addresses.',
+    saved: 'Configured nodes',
+    validate: 'Validate mapping',
+    save: 'Save mapping',
+    remove: 'Remove',
+    removeConfirm: 'Remove the access address for node {node}?',
+    saveSuccess: 'Node mapping saved',
+    readFailed: 'Could not load node information. Close and try again.',
+    validationFailed: 'Could not validate the mapping. Check the JSON and node IDs.',
+    writeFailed: 'Could not confirm the change. Reopen to check the saved addresses.',
+  },
   auditCredentials: {
     nameRequired: 'Enter a credential name',
     botsRequired: 'Select at least one bot',

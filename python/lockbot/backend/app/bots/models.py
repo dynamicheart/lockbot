@@ -47,6 +47,8 @@ class Bot(Base):
 
     # Shared non-secret configuration; metrics are still queried directly by browsers.
     utilization_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Private host/port metadata is only projected by the owner and active-holder routes.
+    node_access_config: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

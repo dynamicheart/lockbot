@@ -304,6 +304,7 @@
                           detail.resource ||
                           !section.holdings ||
                           row.allocation.device != null ||
+                          row.allocation.node_access ||
                           row.allocation.own_task?.note ||
                           row.allocation.own_task?.agent_label
                         "
@@ -332,6 +333,10 @@
                           <span v-if="row.allocation.device != null" class="allocation-device">
                             卡 {{ row.allocation.device }}
                           </span>
+                          <details v-if="row.allocation.node_access" class="node-access-details">
+                            <summary>登录地址</summary>
+                            <code>{{ nodeAccessAddress(row.allocation.node_access) }}</code>
+                          </details>
                         </td>
                         <td v-if="section.timeLabel" role="cell" class="allocation-time">
                           <template
@@ -1259,6 +1264,9 @@ function bookingPosition(allocation) {
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
 }
+function nodeAccessAddress({ host, port }) {
+  return `${host.includes(':') ? `[${host}]` : host}:${port}`
+}
 function platformName(value) {
   return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'
 }
@@ -1582,6 +1590,16 @@ onMounted(async () => {
 <style scoped src="../assets/styles/personal-panel.css"></style>
 
 <style scoped>
+.node-access-details {
+  color: var(--lb-text-secondary);
+  margin-top: 5px;
+}
+.node-access-details summary {
+  width: fit-content;
+}
+.node-access-details code {
+  overflow-wrap: anywhere;
+}
 .workbench-heading-text {
   min-width: 0;
   overflow-wrap: anywhere;

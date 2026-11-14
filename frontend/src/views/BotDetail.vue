@@ -405,6 +405,9 @@
               datasourceConfig?.name || $t('utilization.notConfigured')
             }}</span>
           </el-descriptions-item>
+          <el-descriptions-item v-if="canEdit" :label="$t('nodeAccess.title')" :span="2">
+            <NodeAccessEditor :key="bot.id" :bot-id="bot.id" />
+          </el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -690,6 +693,7 @@ import { platformLabel } from '../utils/platformDisplay'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import BotMigrationPreflight from '../components/BotMigrationPreflight.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
+import NodeAccessEditor from '../components/NodeAccessEditor.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { sourceResources } from '../utils/utilization/display'
