@@ -302,6 +302,7 @@ export default {
     totalMetric: 'Memory total metric',
     memoryUnit: 'Memory unit',
     interval: 'Polling interval (seconds)',
+    staleAfter: 'Mark stale after (seconds)',
     boundary:
       'Browser connects directly to this source. Configure its CORS and read permissions; never enter a Lockbot key.',
     testEnable: 'Test and enable',
