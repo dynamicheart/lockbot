@@ -28,7 +28,7 @@ from lockbot.backend.app.bots.manager import (
     MayHaveExecuted,
     bot_manager,
 )
-from lockbot.backend.app.bots.migration_preflight import MigrationPreflight
+from lockbot.backend.app.bots.migration_preflight import MigrationPreflight, MigrationReview
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
     VERSION as NODE_ACCESS_VERSION,
@@ -2265,7 +2265,32 @@ def migration_preflight(
     db: Session = Depends(get_db),
 ):
     """Observe migration blockers only; never reserve or switch either channel."""
-    from lockbot.backend.app.bots.migration_preflight import observe_migration
+    from lockbot.backend.app.bots.migration_preflight import migration_review_receipt, observe_migration
 
     response.headers["Cache-Control"] = "no-store"
-    return observe_migration(db, bot_manager, bot_id, body)
+    observation = observe_migration(db, bot_manager, bot_id, body)
+    observation["review_receipt"] = migration_review_receipt(user, observation)
+    return observation
+
+
+@router.post("/{bot_id}/migration-review")
+def check_migration_review(
+    bot_id: int,
+    body: MigrationReview,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Check a previously reviewed reset scope against the current observation."""
+    from lockbot.backend.app.bots.migration_preflight import observe_migration, verify_migration_review_receipt
+
+    target = MigrationPreflight(application_id=body.application_id, chat_id=body.chat_id)
+    observation = observe_migration(db, bot_manager, bot_id, target)
+    if not verify_migration_review_receipt(body.review_receipt, user, observation):
+        raise HTTPException(
+            status_code=409,
+            detail="The migration review changed or expired. Open a new preflight.",
+            headers={"Cache-Control": "no-store"},
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return {"review_matches": True, "can_commit": False}

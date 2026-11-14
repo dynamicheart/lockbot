@@ -17,6 +17,8 @@ The response is `Cache-Control: no-store` and always includes `read_only: true`,
 
 `stored_obligations` counts the admitted live generation under its state lock. It includes expired resource records awaiting reconciliation. `reservations` includes offered reservations and `offers` is their notified subset. Agent binding counts include unexpired, unrevoked bindings for the current bot identity. Usage counts include unexpired declarations attached to those bindings. Unavailable, stopped or retiring generations leave the counts unknown. Missing inventory or unrecognized state blocks further work. The preview reports the number of effective `DURATION_WHITELIST` entries because that rule uses source-platform user IDs. It returns no principals, Agent labels, task notes or credential values. Any future cutover must recheck the observation after draining the source writer.
 
+A complete local observation also issues a review receipt valid for five minutes. The same signed-in super administrator may send its token and the original target to `POST /api/bots/{bot_id}/migration-review` to check that the scope still matches. A changed or expired receipt returns HTTP 409. The check is read-only and still returns `can_commit: false`. Keep the receipt in the current review flow.
+
 The destination checks are local observations only. An existing application/group route blocks takeover. A stored membership event with a different application/tenant blocks trust. Even a matching `present` event does not prove current membership, publication, valid credentials or a functioning receiver; these remain explicitly unverified. The endpoint neither contacts Feishu nor expands enterprise permissions.
 
 Credential work remains necessary before any future cutover:

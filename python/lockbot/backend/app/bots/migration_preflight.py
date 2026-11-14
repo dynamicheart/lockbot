@@ -6,15 +6,16 @@ This module deliberately cannot create a migration, reserve a route or change st
 import hashlib
 import hmac
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.config import JWT_SECRET
+from lockbot.backend.app.config import JWT_ALGORITHM, JWT_SECRET
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupMembership, FeishuGroupRoute
 from lockbot.backend.app.platform_applications.service import fingerprint
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
@@ -26,6 +27,11 @@ class MigrationPreflight(BaseModel):
     model_config = ConfigDict(extra="forbid")
     application_id: int = Field(gt=0)
     chat_id: str = Field(pattern=r"^oc_[A-Za-z0-9_-]+$", max_length=128)
+
+
+
+class MigrationReview(MigrationPreflight):
+    review_receipt: str = Field(min_length=1, max_length=2048)
 
 
 def _counts(state, bot_type):
@@ -78,6 +84,64 @@ def _inventory_matches(state, bot):
 def _review_digest(value):
     key = hmac.digest(JWT_SECRET.encode(), b"lockbot.migration-reset-review.v1", "sha256")
     return hmac.new(key, json.dumps(value, allow_nan=False, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+
+
+_RECEIPT_TTL = timedelta(minutes=5)
+_RECEIPT_AUDIENCE = "lockbot.migration-reset-review"
+
+
+def _receipt_key():
+    return hmac.digest(JWT_SECRET.encode(), b"lockbot.migration-reset-receipt.v1", "sha256")
+
+
+def _review_scope(user, observation):
+    return {
+        "actor": user.id,
+        "actor_version": user.effective_token_version,
+        "bot_uuid": observation["source"]["bot_uuid"],
+        "identity_revision": observation["source"]["identity_revision"],
+        "application": observation["target"]["application_id"],
+        "chat": observation["target"]["chat_id"],
+        "review": observation["review_digest"],
+    }
+
+
+def migration_review_receipt(user, observation, *, now=None):
+    """Issue a short-lived receipt for an observed reset scope."""
+    if not observation.get("review_digest"):
+        return None
+    now = now or datetime.now(timezone.utc)
+    expires = now + _RECEIPT_TTL
+    claims = {**_review_scope(user, observation), "aud": _RECEIPT_AUDIENCE, "exp": expires, "iat": now}
+    return {
+        "token": jwt.encode(claims, _receipt_key(), algorithm=JWT_ALGORITHM),
+        "expires_at": expires.isoformat(),
+    }
+
+
+def verify_migration_review_receipt(token, user, fresh_observation, *, now=None):
+    """Compare against a fresh observation after the caller has checked current authority."""
+    if not fresh_observation.get("review_digest") or not isinstance(token, str) or len(token) > 2048:
+        return False
+    try:
+        claims = jwt.decode(
+            token,
+            _receipt_key(),
+            algorithms=[JWT_ALGORITHM],
+            audience=_RECEIPT_AUDIENCE,
+            options={"require": ["iat", "exp", "aud"], "verify_iat": False, "verify_exp": False},
+        )
+        if type(claims["iat"]) is not int or type(claims["exp"]) is not int:
+            return False
+        now = (now or datetime.now(timezone.utc)).timestamp()
+        if (
+            not claims["iat"] <= now < claims["exp"]
+            or claims["exp"] - claims["iat"] != _RECEIPT_TTL.total_seconds()
+        ):
+            return False
+        return all(claims.get(key) == value for key, value in _review_scope(user, fresh_observation).items())
+    except (jwt.PyJWTError, ValueError):
+        return False
 
 
 def _reset_authorizations(db, bot, now):
