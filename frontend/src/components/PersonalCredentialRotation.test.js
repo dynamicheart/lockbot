@@ -91,6 +91,7 @@ it('previews impact without resetting and enforces typed name plus a second conf
   expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(state.credential).toBe('')
   expect(await markup()).toContain('所有 Agent 都立即失效')
+  expect(await markup()).toContain('当前占用和预约会保留')
   expect(await markup()).not.toContain(KEY)
   await state.confirm()
   state.typedGroup = connection.bot.name

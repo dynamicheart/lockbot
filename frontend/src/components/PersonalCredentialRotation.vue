@@ -17,6 +17,7 @@
         Key 和其它群授权不受影响。
       </p>
       <p>新 Key 保留原到期时间，不延长权限；当前绑定的旧面板授权将退出，需用新 Key 单独登录。</p>
+      <p>当前占用和预约会保留。</p>
       <label
         >请输入完整资源群名：{{ preview.bot.name
         }}<input v-model="typedGroup" autocomplete="off" :disabled="busy || used"
