@@ -39,7 +39,9 @@ export function historyRows(snapshot) {
   return (snapshot?.history || []).map((point) => ({
     ...point,
     known:
-      point.coverage !== 'unknown' && point.observed !== false && Number.isFinite(point.requests),
+      ['complete', 'partial'].includes(point.coverage) &&
+      point.observed === true &&
+      Number.isFinite(point.requests),
   }))
 }
 export function operationCount(point) {

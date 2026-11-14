@@ -197,7 +197,9 @@ const number = (value) =>
     : '—'
 const height = (value, max) => `${Math.min(100, (Math.max(0, Number(value) || 0) / max) * 100)}%`
 const time = (value) =>
-  value ? new Date(value).toISOString().replace('T', ' ').replace('.000Z', ' UTC') : '—'
+  value
+    ? new Date(value).toISOString().replace('T', ' ').replace('.000Z', 'Z').replace(/Z$/, ' UTC')
+    : '—'
 function tooltip(point, operations) {
   const values = !point.known
     ? [t('trafficHistory.unknown')]

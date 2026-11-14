@@ -99,3 +99,7 @@ it('invalid ranges clear data and cancel reads without requesting an empty scope
   expect(publish).toHaveBeenCalledWith({ snapshot: null, failed: false, loading: false })
   loader.dispose()
 })
+
+it('does not treat missing coverage metadata as confirmed zero', () => {
+  expect(historyRows({ history: [{ requests: 0 }] })[0].known).toBe(false)
+})
