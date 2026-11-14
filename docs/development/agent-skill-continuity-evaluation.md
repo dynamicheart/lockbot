@@ -85,18 +85,19 @@ behavior, real installed-client discovery and real browser consent.
 ## Three additional core capabilities for review
 
 Keep these as three focused cases, not a cross-product test matrix. No new model
-runs are authorized by this plan. The two executable fixtures below use the same
+runs are authorized by this plan. The three executable fixtures below use the same
 private runner/MCP convention; prepare with `skill_operations_eval.py prepare`,
-`--scenario queue` or `--scenario update`, then score the resulting private trace.
+`--scenario alias`, `queue` or `update`, then score the resulting private trace.
 They do not execute real resource commands or provide a client scheduler.
 
-- [ ] **Alias read, write and clear:** first read the actual public alias, set an
-  explicit harmless value, read back, clear with `alias <node>`, read back again.
-  **Disabled pending real API support:** current Agent `/resources` intentionally
-  omits alias (`resource_api/snapshot.py`, `ALIAS_DOC`); shared-view decoration is
-  not the Agent read contract. Do not fabricate `resources[].alias` in an eval.
-  Add the minimal real API read projection and its regression first, then enable
-  this case. Alias is a shared resource label, not a detailed Agent task note.
+- [x] **Alias read, set, change and clear, offline fixture:** use actual
+  `resources[].alias` and separate `aliases_observed_at` observation added by
+  [PR #168](https://github.com/dynamicheart/lockbot/pull/168). Read old label, set
+  `shared-test`, read it, change to `shared-next`, read it, clear with `alias <node>`,
+  read empty string. Disabled editing returns HTTP 409 / `aliases_disabled` while
+  existing labels stay readable. A dispatched HTTP 200 rejection must not pass.
+  Aliases are public node labels, not detailed task notes; readback does not prove
+  atomic lock observation, command causality or persistence across restart.
 - [x] **Queue progress and approaching expiry, offline fixture:** book is not
   ownership. The other holder releases before its displayed expiry; poll detects
   `claimable_by_you` and uses `claim_command`, then verifies own live holding and
@@ -115,5 +116,5 @@ They do not execute real resource commands or provide a client scheduler.
 
 The executable checks assert state/trace evidence, not only final-answer wording.
 Final explanation quality, scheduling claims and actual installed-client update
-behavior still require review. Alias acceptance and all model/live-client runs are
-unchecked; offline fixture completion does not close those gates.
+behavior still require review. Real-client alias acceptance and model/live-client runs remain
+unverified until their own evidence is reviewed; offline fixture completion does not close those gates.

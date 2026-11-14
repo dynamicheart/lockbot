@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from test_skill_continuity_eval import write_test_artifact
 
 DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev"
 sys.path.insert(0, str(DIRECTORY))
@@ -20,8 +21,11 @@ def case(tmp_path):
         skill = tmp_path / "skill.md"
         skill.write_text("# Fixture\n<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->")
         root = tmp_path / scenario
-        evaluation.prepare(root, skill, scenario)
-        return evaluation.Fixture(root)
+        artifact = write_test_artifact(tmp_path / (scenario + "-artifact"), skill.read_bytes())
+        evaluation.prepare(root, skill, scenario, artifact)
+        fixture = evaluation.Fixture(root)
+        fixture.call("read_file", {"path": "skills/resource/SKILL.md"})
+        return fixture
 
     return create
 
@@ -93,10 +97,27 @@ def test_previous_revision_notice_preserves_key_and_does_not_replay_release(case
     assert not evaluation.score(fixture.root, final)["checks"]["one_successful_release"]
 
 
-def test_alias_case_disabled_until_real_snapshot_read_contract_exists(case):
-    assert "alias" not in evaluation.PROMPTS
-    fixture = case("queue")
-    snapshot = request(fixture, "/api/bots/7/resources")["body"]
-    assert "alias" not in snapshot["resources"][0]
-    assert "alias" not in snapshot["supported_operations"]
-    assert request(fixture, "/api/bots/7/commands", "alias node-a wrong")["status"] == 422
+def test_alias_query_set_change_clear_have_independent_readbacks(case):
+    fixture = case("alias")
+    request(fixture, "/api/agent/context")
+    assert request(fixture, "/api/bots/7/resources")["body"]["resources"][0]["alias"] == "old-note"
+    for command in ("alias node-a shared-test", "alias node-a shared-next", "alias node-a"):
+        assert request(fixture, "/api/bots/7/commands", command)["status"] == 200
+        body = request(fixture, "/api/bots/7/resources")["body"]
+        assert body["aliases_observed_at"]
+    assert evaluation.score(fixture.root, "Shared public label cleared, not a task note.")["observable_pass"]
+
+
+def test_alias_disabled_and_http200_rejection_are_not_success(case):
+    fixture = case("alias")
+    state = fixture.state()
+    state["aliases_disabled"] = True
+    base.save_json(fixture.root / "runtime.json", state)
+    result = request(fixture, "/api/bots/7/commands", "alias node-a shared-test")
+    assert result["status"] == 409 and result["body"]["detail"]["code"] == "aliases_disabled"
+    assert request(fixture, "/api/bots/7/resources")["body"]["resources"][0]["alias"] == "old-note"
+    state.update(aliases_disabled=False, reject_alias=True)
+    base.save_json(fixture.root / "runtime.json", state)
+    assert request(fixture, "/api/bots/7/commands", "alias node-a shared-test")["status"] == 200
+    assert request(fixture, "/api/bots/7/resources")["body"]["resources"][0]["alias"] == "old-note"
+    assert not evaluation.score(fixture.root, "Done")["observable_pass"]
