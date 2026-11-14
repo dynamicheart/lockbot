@@ -96,6 +96,66 @@ it('ends resource loading and shows an error when a reporter request fails', asy
   expect(state.resourcesReady).toBe(false)
 })
 
+it('summarizes live card samples for a whole node and only held cards for a card group', async () => {
+  initialPath = '/me/holdings'
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url) =>
+      url.endsWith('/session')
+        ? response({ authenticated: true, identities: [] })
+        : response({ groups: [] })
+    )
+  )
+  const state = await mount()
+  await flush()
+  const expires_at = new Date(Date.now() + 60_000).toISOString()
+  const configuration = {
+    staleSeconds: 90,
+    nodeMapping: { whole: 'whole', partial: 'partial' },
+    deviceMapping: { 'partial:dev0': '0', 'partial:dev1': '1' },
+  }
+  state.groups = [
+    {
+      label: 'Test',
+      status: 'ok',
+      utilization: { connection: 'metric-source', configuration },
+      allocations: [
+        { kind: 'hold', node: 'whole', expires_at },
+        { kind: 'hold', node: 'partial', device: '0', expires_at },
+        { kind: 'hold', node: 'partial', device: '1', expires_at },
+      ],
+    },
+  ]
+  const card = (node, device, value, observedAt = Date.now()) => ({
+    node,
+    device,
+    metrics: { compute: { value, observedAt } },
+  })
+  state.utilizationSnapshots['metric-source'] = {
+    enabled: true,
+    config: configuration,
+    snapshot: {
+      cards: [
+        card('whole', '0', 20),
+        card('whole', '1', 60),
+        card('partial', '0', 0),
+        card('partial', '1', 20),
+        card('partial', '2', 100),
+      ],
+    },
+  }
+  expect(state.detailUtilizationGroups[0].nodes).toEqual(['partial', 'whole'])
+  const items = state.detailSections[0].items
+  const key = (node) => items.find(({ first }) => first.allocation.node === node).key
+  expect(state.cardUtilization[key('whole')]).toBe(40)
+  expect(state.cardUtilization[key('partial')]).toBe(10)
+  state.utilizationSnapshots['metric-source'].snapshot.cards[3].metrics.compute.observedAt -=
+    120_000
+  expect(state.cardUtilization[key('partial')]).toBeUndefined()
+  state.toggleNode(key('whole'))
+  expect(state.cardUtilization[key('whole')]).toBeUndefined()
+})
+
 it('separates login and report sources and excludes another identity', async () => {
   vi.stubGlobal(
     'fetch',

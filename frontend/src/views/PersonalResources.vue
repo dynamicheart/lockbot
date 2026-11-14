@@ -245,6 +245,7 @@
                     v-if="section.holdings && !detail.resource"
                     role="row"
                     class="allocation-node-summary"
+                    :class="{ 'allocation-node-open': expandedNodes.has(item.key) }"
                   >
                     <td v-if="!detail.groupKey" role="cell" class="allocation-group">
                       {{ item.first.group.label }}
@@ -262,6 +263,12 @@
                           {{ item.rows.length }} 张卡
                         </span>
                       </button>
+                      <span
+                        v-if="cardUtilization[item.key] != null"
+                        class="allocation-card-summary"
+                      >
+                        卡平均利用率 {{ cardUtilization[item.key] }}%
+                      </span>
                     </td>
                     <td role="cell" class="allocation-time">
                       <span aria-hidden="true" class="allocation-label">剩余时间</span>
@@ -729,7 +736,7 @@ import LockbotWordmark from '../components/LockbotWordmark.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import { datasourceIdentity } from '../utils/utilization/grants'
-import { ProviderError } from '../utils/utilization/prometheus'
+import { metricStatus, ProviderError, resolveCards } from '../utils/utilization/prometheus'
 import AnimatedResourceCount from '../components/AnimatedResourceCount.vue'
 import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.vue'
 import PersonalCredentialView from '../components/PersonalCredentialView.vue'
@@ -1130,7 +1137,8 @@ const detailUtilizationGroups = computed(() => {
     if (selectedGroup && item.first.groupKey !== selectedGroup) continue
     if (selection.resource && item.key !== selection.resource) continue
     const row = item.first
-    if (!selection.resource && !expandedNodes.value.has(item.key)) continue
+    if (!selection.resource && !showsUtilizationSummary(item) && !expandedNodes.value.has(item.key))
+      continue
     const connection = row.group.utilization?.connection
     if (!connection) continue
     if (!nodesByConnection.has(connection)) nodesByConnection.set(connection, new Set())
@@ -1142,6 +1150,45 @@ const detailUtilizationGroups = computed(() => {
       nodes: group.nodes.filter((node) => nodesByConnection.get(group.connection)?.has(node)),
     }))
     .filter(({ nodes }) => nodes.length)
+})
+function showsUtilizationSummary(item) {
+  return item.first.allocation.device == null || item.rows.length > 1
+}
+const cardUtilization = computed(() => {
+  const summaries = Object.create(null)
+  for (const section of detailSections.value) {
+    if (!section.holdings) continue
+    for (const item of section.items) {
+      if (!showsUtilizationSummary(item) || expandedNodes.value.has(item.key)) continue
+      const source = utilizationSnapshots.value[item.first.group.utilization?.connection]
+      if (!source?.enabled || !source.snapshot) continue
+      const wholeNode = item.first.allocation.device == null
+      const samples = new Map()
+      for (const { allocation } of item.rows) {
+        const expires = expiration(allocation.expires_at)
+        if (!Number.isFinite(expires) || expires <= clock.value) continue
+        const { node, device } = allocation
+        const cards = resolveCards(
+          source.snapshot,
+          source.config,
+          node,
+          wholeNode ? null : `${node}:dev${device}`
+        )
+        for (const card of cards) samples.set(card.device, card.metrics.compute)
+      }
+      if (!samples.size || (!wholeNode && samples.size !== item.rows.length)) continue
+      const values = [...samples.values()]
+      if (
+        values.some(
+          (sample) => metricStatus(sample, clock.value, source.config.staleSeconds) !== 'ok'
+        )
+      )
+        continue
+      const total = values.reduce((sum, sample) => sum + sample.value, 0)
+      summaries[item.key] = Math.round(total / samples.size)
+    }
+  }
+  return summaries
 })
 const statistics = computed(() => {
   const machines = knownGroups.value.reduce(
