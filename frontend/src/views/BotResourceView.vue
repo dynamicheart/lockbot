@@ -173,6 +173,7 @@
 
 <script setup>
 import { botTypeLabel } from '../utils/helpers'
+import { formatResourceTime } from '../utils/resourceTime'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -331,7 +332,7 @@ const summary = computed(() => {
     queued: resources.reduce((sum, row) => sum + (row.booking_list?.length || 0), 0),
   }
 })
-const localTime = (value) => (value ? new Date(value).toLocaleString(locale.value) : '—')
+const localTime = (value) => formatResourceTime(value, locale.value)
 const statusText = (resource) => t('resourceView.' + resourceStatus(resource))
 function duration(seconds) {
   const minutes = Math.ceil(Math.max(0, seconds) / 60)
