@@ -13,15 +13,17 @@
             {{ item.label }}
           </router-link>
         </nav>
-        <div v-if="session.authenticated && !ticket" class="workbench-actions">
+        <div v-if="!ticket" class="workbench-actions">
+          <router-link to="/bots" class="workbench-console">机器人控制台</router-link>
           <PersonalWorkbenchPlugins
+            v-if="session.authenticated"
             :inventory="session.workbench_plugins"
             :groups="groups"
             :metric-sources="utilizationGroups"
             :loading="resourceLoading"
           />
           <el-button
-            v-if="tab === 'connections'"
+            v-if="session.authenticated && tab === 'connections'"
             class="workbench-exit"
             text
             :disabled="busy"
@@ -300,14 +302,7 @@
                   >
                     <template v-for="row in item.rows" :key="row.key">
                       <tr
-                        v-if="
-                          detail.resource ||
-                          !section.holdings ||
-                          row.allocation.device != null ||
-                          row.allocation.node_access ||
-                          row.allocation.own_task?.note ||
-                          row.allocation.own_task?.agent_label
-                        "
+                        v-if="detail.resource || !section.holdings || hasHoldingDetails(row)"
                         role="row"
                         :class="{ 'allocation-detail': section.holdings && !detail.resource }"
                       >
@@ -433,7 +428,9 @@
                       v-if="
                         section.holdings &&
                         !detail.resource &&
-                        (slots.metrics || item.first.group.utilization)
+                        (slots.metrics ||
+                          item.first.group.utilization ||
+                          !item.rows.some(hasHoldingDetails))
                       "
                       class="allocation-detail"
                       role="row"
@@ -470,7 +467,9 @@
                             !utilizationSnapshots[item.first.group.utilization?.connection]?.enabled
                           "
                           class="scope"
-                          >暂无利用率数据</span
+                          >{{
+                            item.first.group.utilization ? '暂无利用率数据' : '暂无更多资源详情'
+                          }}</span
                         >
                       </td>
                     </tr>
@@ -1005,6 +1004,14 @@ function allocationItems(rows, holdings) {
       category: categories.size === 1 ? categories.values().next().value : '',
     }
   })
+}
+function hasHoldingDetails({ allocation }) {
+  return (
+    allocation.device != null ||
+    allocation.node_access ||
+    allocation.own_task?.note ||
+    allocation.own_task?.agent_label
+  )
 }
 function nodeRemaining({ deadlines }) {
   const known = deadlines.filter(Number.isFinite)

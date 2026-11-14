@@ -440,6 +440,7 @@ export default {
   },
   resourceView: {
     linkLifetime: 'Resource link lifetime',
+    linkLifetimeStatus: 'Link validity: {value}',
     inheritLifetime: 'Inherit platform',
     permanent: 'Never expires',
     lifetimeDays: '{count} days',
