@@ -13,7 +13,7 @@ import logging
 
 import requests
 
-from lockbot.core.message_adapter import MessageAdapter
+from lockbot.core.message_adapter import MessageAdapter, ReplyLink
 from lockbot.core.msg_utils import AESCipher, base64_urlsafe_decode, check_signature, extract_msg_body
 from lockbot.core.request import post_webhook
 
@@ -87,6 +87,7 @@ class InfoflowAdapter(MessageAdapter):
                 If list, each item is:
                 - str → TEXT body element
                 - tuple(label, href) → TEXT(label) + LINK(href) body elements
+                - ReplyLink → a text label followed by the native URL link
             user_ids: List of user IDs to @mention.
             group_id: Optional group chat ID (toid) for the reply target.
 
@@ -98,8 +99,8 @@ class InfoflowAdapter(MessageAdapter):
         for item in items:
             if isinstance(item, str):
                 body.append({"type": "TEXT", "content": item})
-            elif isinstance(item, tuple):
-                label, url = item
+            elif isinstance(item, (tuple, ReplyLink)):
+                label, url = (item.text + ": ", item.url) if isinstance(item, ReplyLink) else item
                 body.append({"type": "TEXT", "content": label})
                 body.append({"type": "LINK", "href": url})
                 body.append({"type": "TEXT", "content": "\n"})

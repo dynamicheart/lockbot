@@ -83,6 +83,11 @@ public memory; use the client's private credential store.
 
 For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
 alone: it contains `SKILL.md`, `scripts/lockbot_resource.py` and `installation.json`.
+One installation can serve multiple independently approved connections when its verified
+`package_version` matches a service's declared package revision. Keep each connection's
+origin, instance, bot, actor and key reference separate. Different rendered deployment
+URLs alone do not require replacing the package; old servers remain conservative.
+
 A ZIP URL does not automatically install in every client. Use its installer or verify the
 manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
 supported; the helper is the recommended fixed path, not a new server requirement.
@@ -400,7 +405,7 @@ When the user wants to view resources or queue order in a browser, use `view_url
 personal key into a browser URL. Treat `view_url` as opaque: current short links and older
 long links are compatible; do not parse or reconstruct a code from the URL. No separate web command or link-creation endpoint is needed.
 The server lazily creates one link per bot. Its lifetime comes from the bot override or
-inherited platform setting (one day by default, up to 30 days, or permanent). A null
+inherited platform setting. New installations default to permanent links. A null
 `view_expires_at` means no automatic expiry. Page refreshes never renew it. A subsequent
 authorized request replaces an expired link or applies a changed lifetime policy; an
 administrator can explicitly regenerate it to invalidate the old code. Ordinary group

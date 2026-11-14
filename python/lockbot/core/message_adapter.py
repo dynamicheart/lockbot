@@ -7,7 +7,14 @@ signature verification, payload decryption, and sending.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import ClassVar
+
+
+@dataclass(frozen=True)
+class ReplyLink:
+    text: str
+    url: str
 
 
 class MessageAdapter(ABC):
@@ -38,6 +45,7 @@ class MessageAdapter(ABC):
             content: Text content (str) or list of mixed items:
                 - str → TEXT body element
                 - tuple(str, str) → TEXT(label) + LINK(href) body elements
+                - ReplyLink → clickable text, with a URL fallback where needed
             user_ids: List of user IDs to mention/notify.
             group_id: Optional group/channel ID to send the reply to.
 

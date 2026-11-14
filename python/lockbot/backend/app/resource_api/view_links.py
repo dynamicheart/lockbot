@@ -15,7 +15,8 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from lockbot.backend.app import config
 from lockbot.backend.app.database import Base
 
-LIFETIME_SECONDS = 86400
+DEFAULT_LINK_DAYS = 0
+MAX_LINK_DAYS = 180
 # Keep the existing NOT NULL storage/signature format; API clients see null.
 PERMANENT_EXPIRY = datetime(9999, 12, 31)
 _SHORT_VIEW_CODE = re.compile(r"[A-Za-z0-9_-]{22}\Z")
@@ -59,11 +60,13 @@ def effective_lifetime_days(db, bot):
     except (TypeError, ValueError):
         overrides = {}
     override = overrides.get("RESOURCE_VIEW_LINK_DAYS") if isinstance(overrides, dict) else None
-    if isinstance(override, int) and not isinstance(override, bool) and 0 <= override <= 30:
+    if isinstance(override, int) and not isinstance(override, bool) and 0 <= override <= MAX_LINK_DAYS:
         return override
     setting = db.get(SiteSetting, "resource_view_link_days")
     raw = setting.value if setting is not None else None
-    return int(raw) if isinstance(raw, str) and raw.isascii() and raw.isdecimal() and 0 <= int(raw) <= 30 else 1
+    if isinstance(raw, str) and raw.isascii() and raw.isdecimal() and 0 <= int(raw) <= MAX_LINK_DAYS:
+        return int(raw)
+    return DEFAULT_LINK_DAYS
 
 
 def _policy_matches(window, days):

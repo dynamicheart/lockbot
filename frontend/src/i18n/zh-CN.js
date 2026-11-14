@@ -948,6 +948,13 @@ export default {
 
   // === Site Settings ===
   settings: {
+    lifetimeOneDay: '1 天',
+    lifetimeOneWeek: '7 天',
+    lifetimeOneMonth: '1 个月',
+    lifetimeThreeMonths: '3 个月',
+    lifetimeHalfYear: '半年',
+    loginSessionLifetime: '账号登录有效期',
+    loginSessionLifetimeHint: '应用于新签发的账号会话。关闭永久有效后，永久会话需要重新登录。',
     basicInformation: '基本信息',
     messagePlatforms: '消息平台',
     agentPromotionSection: 'Agent 推广',

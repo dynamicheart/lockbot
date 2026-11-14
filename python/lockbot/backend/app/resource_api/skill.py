@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import deployment_fragments
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 
@@ -43,21 +44,10 @@ def _skill_artifacts(kind, origin):
         "operator": ("op_skill", "lockbot-operator-api", "/api/op-skill"),
     }[kind]
     markdown = files("lockbot.backend.app").joinpath(f"{folder}/SKILL.md").read_bytes()
+    canonical_markdown = markdown
     if origin:
-        source = f"Deployment Skill URL: `{origin}{prefix}/SKILL.md`."
-        markdown = markdown.replace(b"<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->", source.encode("ascii"), 1)
-        endpoints = "\n".join(
-            [
-                "Deployment API addresses (use the verified context links for the bot scope):",
-                f"- Manifest: `GET {origin}{prefix}`",
-                f"- Context: `GET {origin}/api/agent/context`",
-                f"- Complete installation ZIP: `{origin}{prefix}/lockbot-resource-agent.zip`",
-                f"- Resources: `GET {origin}/api/bots/{{bot_id}}/resources`",
-                f"- Commands: `POST {origin}/api/bots/{{bot_id}}/commands`",
-                "  `bot_id` comes from this key's context; do not ask the user to guess it.",
-            ]
-        )
-        markdown = markdown.replace(b"<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->", endpoints.encode("ascii"), 1)
+        for marker, rendered in deployment_fragments(origin).items():
+            markdown = markdown.replace(marker.encode(), rendered.encode(), 1)
     extras = {}
     if kind == "agent":
         extras["scripts/lockbot_resource.py"] = (
@@ -66,8 +56,17 @@ def _skill_artifacts(kind, origin):
     version = hashlib.sha256(markdown + (b"\0" + extras["scripts/lockbot_resource.py"] if extras else b"")).hexdigest()[
         :16
     ]
+    package = {}
     if extras:
+        package = {
+            "package_format": "canonical-origin-v1",
+            "package_version": hashlib.sha256(
+                canonical_markdown + b"\0" + extras["scripts/lockbot_resource.py"]
+            ).hexdigest()[:16],
+        }
         stamp = {
+            **package,
+            "deployment_origin": origin,
             "service_id": "lockbot.resource-api",
             "api_version": "1",
             "version": version,
@@ -91,6 +90,7 @@ def _skill_artifacts(kind, origin):
                 "sha256": hashlib.sha256(installation).hexdigest(),
             },
             "version": version,
+            **package,
             "skill_url": f"{prefix}/SKILL.md",
             "download_url": f"{prefix}/{name}.zip",
             "skill_sha256": hashlib.sha256(markdown).hexdigest(),
@@ -101,25 +101,36 @@ def _skill_artifacts(kind, origin):
     )
 
 
+def package_update_status(headers, metadata):
+    reported = headers.get("x-lockbot-client-package-version", "")
+    if not re.fullmatch(r"[a-f0-9]{16}", reported) or "package_version" not in metadata:
+        return "unknown"
+    return "current" if reported == metadata["package_version"] else "update_available"
+
+
 def client_skill_notice(request):
     """A body-level bootstrap for old clients which never inspect response headers.
 
     An absent/invalid report is unknown, not proof of an outdated installation.
     This is advisory and cannot verify a client's download or loaded instructions.
     """
-    current = skill_artifacts()[2]["version"]
+    metadata = skill_artifacts()[2]
+    current = metadata["version"]
     reported = request.headers.get("X-Lockbot-Client-Skill-Version", "")
     if not re.fullmatch(r"[a-f0-9]{16}", reported):
         reported = None
     status = "unknown" if reported is None else "current" if reported == current else "update_available"
+    package_status = package_update_status(request.headers, metadata)
     return {
         "status": status,
         "current_version": current,
+        "current_package_version": metadata["package_version"],
+        "package_status": package_status,
         "reported_version": reported,
         "manifest_url": "/api/agent-skill",
         "skill_url": "/api/agent-skill/SKILL.md",
         "instructions": None
-        if status == "current"
+        if status == "current" or package_status == "current"
         else (
             "Before the next resource mutation, check the manifest on this same approved origin, "
             "load the latest Skill, and report its version in X-Lockbot-Client-Skill-Version. "

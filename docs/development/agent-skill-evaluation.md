@@ -116,8 +116,10 @@ or approval mechanism. When distributing the complete ZIP, keep the manifest and
 entry points readable and make the install instruction identify the full package. A ZIP
 does not automatically register itself with every client.
 
-See the [2026-11-14 evaluation notes](agent-skill-evaluation-2026-11-14.md) for observed
-model-specific results and unresolved behavior.
+Attach each dated evaluation matrix to the PR that changes the Skill, bound to its commit,
+Skill hash, fixture/scenario version and runner conditions. Append new results after changes;
+do not treat an old run as current coverage. [PR #157](https://github.com/dynamicheart/lockbot/pull/157)
+is one historical example. Keep this guide about the method, not a live model ranking.
 
 ## Add future cases
 

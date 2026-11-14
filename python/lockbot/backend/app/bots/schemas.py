@@ -9,6 +9,7 @@ from pydantic import BaseModel, field_validator, model_validator
 
 from lockbot.backend.app.bots.datasource import UtilizationConfig
 from lockbot.backend.app.managed_paths import protected_override_keys
+from lockbot.backend.app.resource_api.view_links import MAX_LINK_DAYS
 
 # ── config_overrides value bounds ─────────────────────────────────────────────
 _CFG_RULES: dict[str, tuple[int, int] | None] = {
@@ -47,8 +48,10 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
         errors.append("FEISHU_QUERY_PANEL must be a boolean")
     if "RESOURCE_VIEW_LINK_DAYS" in v:
         days = v["RESOURCE_VIEW_LINK_DAYS"]
-        if isinstance(days, bool) or not isinstance(days, int) or not 0 <= days <= 30:
-            errors.append("RESOURCE_VIEW_LINK_DAYS must be 0 (permanent) or 1 to 30 days; omit to inherit")
+        if isinstance(days, bool) or not isinstance(days, int) or not 0 <= days <= MAX_LINK_DAYS:
+            errors.append(
+                f"RESOURCE_VIEW_LINK_DAYS must be 0 (permanent) or 1 to {MAX_LINK_DAYS} days; omit to inherit"
+            )
     cap = v.get("MAX_RESOURCES_PER_USER", -1)
     if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):
         errors.append("MAX_RESOURCES_PER_USER must be -1 or a positive integer")

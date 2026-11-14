@@ -976,6 +976,13 @@ export default {
 
   // === Site Settings ===
   settings: {
+    lifetimeOneDay: '1 day',
+    lifetimeOneWeek: '7 days',
+    lifetimeOneMonth: '1 month',
+    lifetimeThreeMonths: '3 months',
+    lifetimeHalfYear: '6 months',
+    loginSessionLifetime: 'Account session lifetime',
+    loginSessionLifetimeHint: 'Applies to newly issued account sessions. Turning off never-expiring sessions requires those sessions to sign in again.',
     basicInformation: 'Basic information',
     messagePlatforms: 'Messaging platforms',
     agentPromotionSection: 'Agent promotion',

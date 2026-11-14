@@ -3,8 +3,10 @@
 The platform administrator sets `resource_view_link_days` in site settings. A bot
 owner may set `RESOURCE_VIEW_LINK_DAYS` in that bot's configuration overrides. A
 missing bot override inherits the platform setting; it differs from `0`, which
-explicitly selects no automatic expiry. The platform default remains one day.
-Values are `0` (permanent) or an integer from 1 through 30 days.
+explicitly selects no automatic expiry. An unset site policy defaults to permanent.
+The console offers 1, 7, 30, 90 and 180 days, plus permanent. Month labels are
+fixed day counts. A previously saved custom count remains visible. The settings
+API accepts `0` or a day count from 1 through 180.
 
 Changing the effective lifetime applies on the next authorized link retrieval
 (group query, personal Agent context, or bot-detail page). That retrieval replaces
@@ -30,3 +32,10 @@ migration. Existing finite compact and legacy links retain their formats.
 This is separate from the data-source `metrics:read` authorization. That grant
 keeps its short lifetime even when the resource webpage link is permanent. A long
 webpage lifetime cannot guarantee browser reachability, CORS or data freshness.
+
+Account login lifetime is a separate site setting. It defaults to 90 days and
+can be set to 180 days or permanent for newly issued account sessions. Finite
+sessions keep their original expiry. Switching away from permanent revokes
+permanent sessions issued under that policy. Password changes invalidate older
+account sessions. Use a finite setting when rolling back to a version without
+permanent account sessions.

@@ -14,7 +14,7 @@ from collections import OrderedDict
 
 import requests
 
-from lockbot.core.message_adapter import MessageAdapter
+from lockbot.core.message_adapter import MessageAdapter, ReplyLink
 
 API_ROOT = "https://open.feishu.cn/open-apis"
 _OPEN_ID = re.compile(r"ou_[A-Za-z0-9_-]+\Z")
@@ -458,6 +458,11 @@ class FeishuAdapter(MessageAdapter):
                         rows.append([])
                     if line:
                         rows[-1].append({"tag": "text", "text": line})
+            elif isinstance(item, ReplyLink):
+                if not item.url.startswith(("http://", "https://")):
+                    raise ValueError("Feishu links must use HTTP(S)")
+                rows[-1].append({"tag": "a", "text": item.text, "href": item.url})
+                rows.append([])
             elif isinstance(item, tuple) and len(item) == 2:
                 label, url = item
                 if not isinstance(url, str) or not url.startswith(("http://", "https://")):
