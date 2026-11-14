@@ -2,36 +2,78 @@
   <div class="personal-panel">
     <header class="bar">
       <div class="bar-inner">
-        <router-link class="wordmark" to="/">LockBot</router-link>
+        <LockbotWordmark />
         <nav v-if="session.authenticated && !ticket" class="nav" aria-label="主导航">
-          <button
+          <router-link
             v-for="item in tabs"
-            :key="item.id"
+            :key="item.path"
+            :to="item.path"
             :class="{ active: tab === item.id }"
-            :aria-current="tab === item.id ? 'page' : undefined"
-            @click="tab = item.id"
           >
             {{ item.label }}
-          </button>
+          </router-link>
         </nav>
-        <el-dropdown v-if="session.authenticated" class="account-menu" trigger="click">
-          <el-button text :disabled="busy" aria-label="账号菜单">
-            <el-icon><User /></el-icon><span class="account-label">账号</span>
-            <el-icon><ArrowDown /></el-icon>
+        <div v-if="session.authenticated && !ticket" class="workbench-actions">
+          <PersonalWorkbenchPlugins
+            :inventory="session.workbench_plugins"
+            :groups="groups"
+            :metric-sources="utilizationGroups"
+            :loading="resourceLoading"
+          />
+          <el-button
+            v-if="tab === 'connections'"
+            class="workbench-exit"
+            text
+            :disabled="busy"
+            @click="run(confirmLogout)"
+          >
+            清除此浏览器授权
           </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item @click="run(logout)">退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        </div>
       </div>
     </header>
-    <main class="main" aria-live="polite">
+    <main class="main">
+      <nav
+        v-if="detailPage && session.authenticated && !ticket"
+        class="workbench-breadcrumb"
+        aria-label="当前位置"
+      >
+        <router-link :to="detailPage === 'group' ? '/me/groups' : '/me'">
+          {{ detailPage === 'group' ? '资源群' : '我的占用' }}
+        </router-link>
+        <el-icon aria-hidden="true"><ArrowRight /></el-icon>
+        <template v-if="detail?.resource">
+          <router-link :to="`/me/${detailPage}`">{{ detailSectionTitle }}</router-link>
+          <el-icon aria-hidden="true"><ArrowRight /></el-icon>
+        </template>
+        <span aria-current="page">{{ detail?.title || detailSectionTitle }}</span>
+      </nav>
       <div class="page-heading">
-        <h1>{{ ticket ? '确认登录身份' : title }}</h1>
-        <div v-if="session.authenticated" class="actions">
-          <el-button :loading="busy" @click="run(refresh)">刷新资源</el-button>
+        <div class="workbench-heading-text">
+          <h1 ref="pageTitle" tabindex="-1">{{ ticket ? '确认登录身份' : title }}</h1>
+          <p v-if="detail?.resource && detail.groupLabel && !ticket" class="scope">
+            {{ detail.groupLabel }}
+          </p>
+        </div>
+        <div v-if="session.authenticated && !ticket && tab !== 'connections'" class="actions">
+          <span v-if="resourceLoading && reportProgress.total" class="refresh-status" role="status">
+            {{ reportProgress.done }} / {{ reportProgress.total }} 个资源群
+          </span>
+          <router-link
+            v-else-if="pendingGroups && !resourceLoading && !detailPage && tab === 'mine'"
+            class="refresh-status refresh-coverage"
+            to="/me/groups"
+          >
+            {{ pendingGroups }} 个资源群未能更新
+          </router-link>
+          <el-button
+            :icon="Refresh"
+            :loading="resourceLoading"
+            :disabled="busy"
+            @click="run(refresh)"
+          >
+            {{ resourceLoading ? '更新中' : '刷新资源' }}
+          </el-button>
         </div>
       </div>
       <el-alert v-if="error" :title="error" type="warning" :closable="false" show-icon />
@@ -87,16 +129,392 @@
         </p>
         <PersonalConnectionHandoff :authenticated="false" />
       </section>
+      <template v-else-if="detailPage">
+        <section v-if="!detail && resourceLoading" class="panel workbench-empty" role="status">
+          <el-skeleton :rows="2" animated />
+          <p class="scope">正在读取明细…</p>
+        </section>
+        <section v-else-if="!detail" class="panel workbench-empty">
+          <p>
+            {{
+              !resourcesReady || pendingGroups
+                ? '暂时无法确认这条明细，请刷新资源。'
+                : '当前没有这条资源记录。'
+            }}
+          </p>
+          <router-link :to="detailPage === 'group' ? '/me/groups' : '/me'">
+            {{ detailPage === 'group' ? '返回资源群' : '返回我的占用' }}
+          </router-link>
+        </section>
+        <template v-else>
+          <ResourceUtilization
+            v-for="{ connection, configuration, nodes, holdingsKey } in detailUtilizationGroups"
+            :key="connection"
+            :bot-id="connection"
+            :scope-key="holdingsKey"
+            :source="configuration"
+            :nodes="nodes"
+            :authorize="(source, options) => authorizeUtilization(connection, source, options)"
+            :allowed="!ticket"
+            hide-toolbar
+            @change="updateUtilizationSnapshot(connection, holdingsKey, $event)"
+          />
+          <div
+            v-if="
+              !detail?.resource &&
+              (detailSections.some((section) => section.total) || allocationQuery)
+            "
+            class="allocation-controls"
+            :class="{ 'allocation-controls-scoped': detail?.groupKey }"
+          >
+            <el-input
+              v-model="allocationQuery"
+              clearable
+              aria-label="搜索资源"
+              placeholder="搜索节点、卡号或用途"
+            />
+            <el-select
+              v-if="!detail?.groupKey"
+              v-model="allocationGroup"
+              aria-label="筛选资源群"
+              placeholder="全部资源群"
+              clearable
+            >
+              <el-option
+                v-for="group in allocationGroups"
+                :key="group.value"
+                :label="group.label"
+                :value="group.value"
+              />
+            </el-select>
+            <el-select v-model="allocationSort" aria-label="排序方式">
+              <el-option
+                v-if="detailPage !== 'reservations'"
+                label="即将到期优先"
+                value="soonest"
+              />
+              <el-option
+                v-if="detailPage !== 'reservations'"
+                label="剩余时间最长优先"
+                value="latest"
+              />
+              <el-option label="按资源群" value="group" />
+              <el-option label="按节点 / 卡号" value="resource" />
+            </el-select>
+          </div>
+          <p
+            v-if="pendingGroups && !resourceLoading && !detail.groupKey && !detail.resource"
+            class="resource-coverage"
+            role="status"
+          >
+            {{ pendingGroups }} 个资源群未更新。<router-link to="/me/groups"
+              >查看资源群</router-link
+            >
+          </p>
+          <section v-for="section in detailSections" :key="section.label" class="panel">
+            <h2 class="panel-title">
+              {{ section.label }}<span class="detail-count">{{ section.rows.length }}</span>
+            </h2>
+            <table
+              v-if="section.rows.length"
+              class="allocation-table"
+              :class="{ 'allocation-overview': section.holdings && !detail.resource }"
+              role="table"
+            >
+              <thead role="rowgroup">
+                <tr role="row">
+                  <th
+                    v-if="!detail.groupKey"
+                    class="allocation-group"
+                    scope="col"
+                    role="columnheader"
+                  >
+                    资源群
+                  </th>
+                  <th class="allocation-name" scope="col" role="columnheader">资源</th>
+                  <th v-if="section.timeLabel" scope="col" role="columnheader">
+                    {{ section.timeLabel }}
+                  </th>
+                  <th v-if="session.identities.length > 1" scope="col" role="columnheader">
+                    本人身份
+                  </th>
+                  <th v-if="!section.holdings" scope="col" role="columnheader">排队位置</th>
+                  <th v-if="section.tasks" class="allocation-task" scope="col" role="columnheader">
+                    用途
+                  </th>
+                  <th v-if="section.metrics && detail.resource" scope="col" role="columnheader">
+                    利用率
+                  </th>
+                </tr>
+              </thead>
+              <tbody role="rowgroup">
+                <template v-for="item in section.items" :key="item.key">
+                  <tr
+                    v-if="section.holdings && !detail.resource"
+                    role="row"
+                    class="allocation-node-summary"
+                    :class="{ 'allocation-node-open': expandedNodes.has(item.key) }"
+                  >
+                    <td v-if="!detail.groupKey" role="cell" class="allocation-group">
+                      {{ item.first.group.label }}
+                    </td>
+                    <td role="cell" class="allocation-name">
+                      <button
+                        class="allocation-disclosure"
+                        type="button"
+                        :aria-expanded="expandedNodes.has(item.key)"
+                        @click="toggleNode(item.key)"
+                      >
+                        <el-icon aria-hidden="true"><ArrowRight /></el-icon>
+                        <span>{{ item.first.allocation.node ?? '未知节点' }}</span>
+                        <span v-if="item.first.allocation.device != null" class="allocation-count">
+                          {{ item.rows.length }} 张卡
+                        </span>
+                      </button>
+                      <span
+                        v-if="cardUtilization[item.key] != null"
+                        class="allocation-card-summary"
+                      >
+                        卡平均利用率 {{ cardUtilization[item.key] }}%
+                      </span>
+                    </td>
+                    <td role="cell" class="allocation-time">
+                      <span aria-hidden="true" class="allocation-label">剩余时间</span>
+                      <span :title="item.deadlines.length > 1 ? '各卡到期时间不同' : undefined">
+                        {{ nodeRemaining(item) }}
+                      </span>
+                    </td>
+                    <td v-if="session.identities.length > 1" role="cell">
+                      <span aria-hidden="true" class="allocation-label">本人身份</span>
+                      {{ item.first.group.identity?.subject }}
+                    </td>
+                    <td v-if="section.tasks" role="cell">
+                      <span v-if="item.category" aria-hidden="true" class="allocation-label"
+                        >用途</span
+                      >
+                      {{ item.category }}
+                    </td>
+                  </tr>
+                  <template
+                    v-if="detail.resource || !section.holdings || expandedNodes.has(item.key)"
+                  >
+                    <template v-for="row in item.rows" :key="row.key">
+                      <tr
+                        v-if="
+                          detail.resource ||
+                          !section.holdings ||
+                          row.allocation.device != null ||
+                          row.allocation.node_access ||
+                          row.allocation.own_task?.note ||
+                          row.allocation.own_task?.agent_label
+                        "
+                        role="row"
+                        :class="{ 'allocation-detail': section.holdings && !detail.resource }"
+                      >
+                        <td v-if="!detail.groupKey" role="cell" class="allocation-group">
+                          {{ section.holdings ? '' : row.group.label }}
+                        </td>
+                        <td role="cell" class="allocation-name">
+                          <span
+                            v-if="
+                              !section.holdings ||
+                              (detail.resource && row.allocation.device == null)
+                            "
+                            class="allocation-node"
+                            >{{ row.allocation.node ?? '未知节点' }}</span
+                          >
+                          <span
+                            v-if="
+                              section.holdings && !detail.resource && row.allocation.device == null
+                            "
+                          >
+                            整机
+                          </span>
+                          <span v-if="row.allocation.device != null" class="allocation-device">
+                            卡 {{ row.allocation.device }}
+                          </span>
+                          <details v-if="row.allocation.node_access" class="node-access-details">
+                            <summary>登录地址</summary>
+                            <code>{{ nodeAccessAddress(row.allocation.node_access) }}</code>
+                          </details>
+                        </td>
+                        <td v-if="section.timeLabel" role="cell" class="allocation-time">
+                          <template
+                            v-if="detail.resource || !section.holdings || item.deadlines.length > 1"
+                          >
+                            <span aria-hidden="true" class="allocation-label">{{
+                              section.timeLabel
+                            }}</span>
+                            <time
+                              v-if="Number.isFinite(expiration(row.allocation.expires_at))"
+                              :datetime="
+                                new Date(expiration(row.allocation.expires_at)).toISOString()
+                              "
+                              :title="date(expiration(row.allocation.expires_at) / 1000)"
+                              >{{
+                                section.holdings
+                                  ? remaining(row.allocation.expires_at)
+                                  : date(row.allocation.expires_at)
+                              }}</time
+                            >
+                            <span v-else class="scope">未提供</span>
+                          </template>
+                        </td>
+                        <td v-if="session.identities.length > 1" role="cell">
+                          <template v-if="detail.resource || !section.holdings">
+                            <span aria-hidden="true" class="allocation-label">本人身份</span>
+                            {{ row.group.identity?.subject }}
+                          </template>
+                        </td>
+                        <td v-if="!section.holdings" role="cell">
+                          <span aria-hidden="true" class="allocation-label">排队位置</span>
+                          {{ bookingPosition(row.allocation) }}
+                        </td>
+                        <td v-if="section.tasks" role="cell">
+                          <span aria-hidden="true" class="allocation-label">用途</span>
+                          <slot name="task" :row="row">
+                            <el-popover
+                              v-if="
+                                row.allocation.own_task?.note ||
+                                row.allocation.own_task?.agent_label
+                              "
+                              trigger="click"
+                              placement="bottom-start"
+                              :width="280"
+                            >
+                              <template #reference>
+                                <button class="task-summary" type="button">
+                                  {{ row.allocation.own_task.category || '已登记' }}
+                                </button>
+                              </template>
+                              <div class="task-detail">
+                                <p v-if="row.allocation.own_task.note">
+                                  {{ row.allocation.own_task.note }}
+                                </p>
+                                <p v-if="row.allocation.own_task.agent_label" class="scope">
+                                  Agent · {{ row.allocation.own_task.agent_label }}
+                                </p>
+                              </div>
+                            </el-popover>
+                            <span v-else class="scope">{{
+                              row.allocation.own_task?.category ||
+                              (row.allocation.own_task === null ? '未登记' : '未提供')
+                            }}</span>
+                          </slot>
+                        </td>
+                        <td
+                          v-if="section.metrics && detail.resource"
+                          role="cell"
+                          class="allocation-metrics"
+                          :class="{ 'allocation-device-metrics': row.allocation.device != null }"
+                        >
+                          <template v-if="detail.resource || row.allocation.device != null">
+                            <span aria-hidden="true" class="allocation-label">利用率</span>
+                            <slot v-if="fresh(row.group)" name="metrics" :row="row">
+                              <ResourceMetricsCell
+                                v-if="
+                                  utilizationSnapshots[row.group.utilization?.connection]?.enabled
+                                "
+                                v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                                :node-id="row.allocation.node"
+                                :resource-id="
+                                  row.allocation.device == null
+                                    ? null
+                                    : `${row.allocation.node}:dev${row.allocation.device}`
+                                "
+                              />
+                              <span v-else class="scope">未提供</span>
+                            </slot>
+                          </template>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr
+                      v-if="
+                        section.holdings &&
+                        !detail.resource &&
+                        (slots.metrics || item.first.group.utilization)
+                      "
+                      class="allocation-detail"
+                      role="row"
+                    >
+                      <td
+                        :colspan="
+                          2 +
+                          Number(!detail.groupKey) +
+                          Number(section.tasks) +
+                          Number(session.identities.length > 1)
+                        "
+                        class="allocation-inline-metrics"
+                        role="cell"
+                      >
+                        <template v-for="row in item.rows" :key="row.key">
+                          <slot name="metrics" :row="row">
+                            <ResourceMetricsCell
+                              v-if="
+                                utilizationSnapshots[row.group.utilization?.connection]?.enabled
+                              "
+                              v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                              :node-id="row.allocation.node"
+                              :resource-id="
+                                row.allocation.device == null
+                                  ? null
+                                  : `${row.allocation.node}:dev${row.allocation.device}`
+                              "
+                            />
+                          </slot>
+                        </template>
+                        <span
+                          v-if="
+                            !slots.metrics &&
+                            !utilizationSnapshots[item.first.group.utilization?.connection]?.enabled
+                          "
+                          class="scope"
+                          >暂无利用率数据</span
+                        >
+                      </td>
+                    </tr>
+                  </template>
+                </template>
+              </tbody>
+            </table>
+            <p v-else class="empty">
+              {{
+                section.total
+                  ? '没有符合筛选条件的记录。'
+                  : resourceLoading
+                    ? '正在读取…'
+                    : detail.groupKey &&
+                        !knownGroups.some((group) => allocationGroupKey(group) === detail.groupKey)
+                      ? '暂未取得该群的资源数据。'
+                      : resourcesReady
+                        ? section.holdings
+                          ? '暂无持有资源'
+                          : '暂无预约'
+                        : '暂未取得资源数据。'
+              }}
+            </p>
+          </section>
+        </template>
+      </template>
       <template v-else-if="tab === 'mine'">
-        <p v-if="resourceLoading" class="resource-loading" role="status">
-          <template v-if="reportProgress.total">
-            正在读取资源 · {{ reportProgress.done }} / {{ reportProgress.total }} 个来源
-          </template>
-          <template v-else>{{ resourcesReady ? '正在更新资源…' : '正在读取资源…' }}</template>
-        </p>
-        <div class="stats">
-          <div v-for="item in statistics" :key="item.label" class="stat">
-            <div class="stat-label">{{ item.label }}</div>
+        <div class="workbench-stats">
+          <component
+            :is="item.value > 0 ? 'RouterLink' : 'div'"
+            v-for="item in statistics"
+            :key="item.label"
+            :to="item.value > 0 ? item.path : undefined"
+            class="workbench-stat"
+          >
+            <span class="workbench-stat-heading">
+              <el-icon class="workbench-stat-icon" aria-hidden="true"
+                ><component :is="item.icon"
+              /></el-icon>
+              <span>{{ item.label }}</span>
+              <el-icon v-if="item.value > 0" class="workbench-stat-next" aria-hidden="true"
+                ><ArrowRight
+              /></el-icon>
+            </span>
             <el-skeleton
               v-if="initialResourceLoading"
               animated
@@ -107,132 +525,133 @@
                 ><el-skeleton-item variant="text" class="stat-skeleton"
               /></template>
             </el-skeleton>
-            <div v-else-if="item.value === null" class="stat-value stat-pending">待确认</div>
-            <div v-else class="stat-value">
+            <span v-else-if="item.value === null" class="stat-value stat-pending">暂无数据</span>
+            <span v-else class="stat-value">
               <AnimatedResourceCount :value="item.value" /><span class="stat-unit">{{
                 item.unit
               }}</span>
-            </div>
-          </div>
+            </span>
+          </component>
         </div>
-        <p v-if="groups.length || resourcesReady" class="scope">
-          已确认 {{ knownGroups.length }} 个群<template v-if="pendingGroups">
-            · {{ pendingGroups }} 个群待确认</template
-          >
-        </p>
-        <el-alert
-          v-if="pendingGroups"
-          :title="`${pendingGroups} 个群的数据待确认，统计可能不完整。`"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <section v-for="section in allocationSections" :key="section.label" class="panel">
-          <h2 class="panel-title">{{ section.label }} · {{ section.rows.length }}</h2>
-          <div v-if="section.rows.length" class="table-scroll">
-            <el-table :data="section.rows" class="allocation-table">
-              <el-table-column label="资源群" min-width="160"
-                ><template #default="{ row }">{{ row.group.label }}</template></el-table-column
+        <div v-if="allocationRows.length || resourcesReady" class="workbench-focus">
+          <section class="panel" aria-labelledby="workbench-expiring">
+            <div class="workbench-panel-heading">
+              <h2 id="workbench-expiring" class="panel-title">即将到期</h2>
+              <router-link v-if="expiringItems.length > 4" to="/me/holdings">
+                全部持有
+              </router-link>
+            </div>
+            <p v-if="!expiringItems.length" class="scope">
+              {{
+                resourceLoading
+                  ? '正在检查…'
+                  : pendingGroups
+                    ? '已更新的资源暂无临期'
+                    : '暂无 30 分钟内到期的资源'
+              }}
+            </p>
+            <component
+              :is="holdingPath(item) ? 'RouterLink' : 'button'"
+              v-for="item in expiringItems.slice(0, 4)"
+              :key="item.key"
+              :to="holdingPath(item)"
+              :type="holdingPath(item) ? undefined : 'button'"
+              class="workbench-resource"
+              @click="!holdingPath(item) && openWorkbenchResource(item)"
+            >
+              <span
+                ><strong>{{ item.first.allocation.node ?? '未知节点' }}</strong
+                ><small>
+                  {{ item.first.group.label }}
+                  <template v-if="item.endingCards > 1">
+                    · {{ item.endingCards }} 张卡临期</template
+                  >
+                  <template v-else-if="item.first.allocation.device != null">
+                    · 卡 {{ item.first.allocation.device }}
+                  </template>
+                </small></span
               >
-              <el-table-column label="节点 / 卡号" min-width="160"
-                ><template #default="{ row }">
-                  <div>
-                    {{ row.allocation.node ?? '未知节点'
-                    }}{{ row.allocation.device == null ? '' : ' / 卡 ' + row.allocation.device }}
-                  </div>
-                  <details v-if="row.allocation.node_access">
-                    <summary>登录地址</summary>
-                    <code>{{ nodeAccessAddress(row.allocation.node_access) }}</code>
-                  </details>
-                </template></el-table-column
+              <span class="workbench-row-status">
+                <span class="workbench-countdown">{{
+                  remaining(item.first.allocation.expires_at)
+                }}</span>
+                <el-icon aria-hidden="true"><ArrowRight /></el-icon>
+              </span>
+            </component>
+          </section>
+          <section class="panel" aria-labelledby="workbench-bookings">
+            <div class="workbench-panel-heading">
+              <h2 id="workbench-bookings" class="panel-title">我的预约</h2>
+              <router-link v-if="recentBookings.length > 4" to="/me/reservations">
+                全部预约
+              </router-link>
+            </div>
+            <p v-if="!recentBookings.length" class="scope">
+              {{
+                resourceLoading
+                  ? '正在读取…'
+                  : pendingGroups
+                    ? '已更新的资源群暂无预约'
+                    : '暂无预约'
+              }}
+            </p>
+            <component
+              :is="row.allocation.detail_id ? 'RouterLink' : 'button'"
+              v-for="row in recentBookings.slice(0, 4)"
+              :key="row.key"
+              :to="detailPath('reservations', row.allocation.detail_id)"
+              :type="row.allocation.detail_id ? undefined : 'button'"
+              class="workbench-resource"
+              @click="!row.allocation.detail_id && openBooking(row)"
+            >
+              <span
+                ><strong
+                  >{{ row.allocation.node ?? '未知节点'
+                  }}<span v-if="row.allocation.device != null" class="allocation-device"
+                    >卡 {{ row.allocation.device }}</span
+                  ></strong
+                ><small>{{ row.group.label }}</small></span
               >
-              <el-table-column label="到期时间" min-width="175">
-                <template #default="{ row }">{{ date(row.allocation.expires_at) }}</template>
-              </el-table-column>
-              <el-table-column
-                v-if="session.identities.length > 1"
-                label="本人身份"
-                min-width="120"
-              >
-                <template #default="{ row }">{{ row.group.identity?.subject }}</template>
-              </el-table-column>
-              <el-table-column
-                v-if="section.label === '持有资源' && ($slots.task || ownTasksAvailable)"
-                label="用途"
-                min-width="125"
-              >
-                <template #default="{ row }">
-                  <slot name="task" :row="row">
-                    <el-popover
-                      v-if="row.allocation.own_task?.note || row.allocation.own_task?.agent_label"
-                      trigger="click"
-                      placement="bottom-start"
-                      :width="280"
-                    >
-                      <template #reference>
-                        <button class="task-summary" type="button">
-                          {{ row.allocation.own_task.category || '已登记' }}
-                        </button>
-                      </template>
-                      <div class="task-detail">
-                        <p v-if="row.allocation.own_task.note">
-                          {{ row.allocation.own_task.note }}
-                        </p>
-                        <p v-if="row.allocation.own_task.agent_label" class="scope">
-                          Agent · {{ row.allocation.own_task.agent_label }}
-                        </p>
-                      </div>
-                    </el-popover>
-                    <span v-else class="scope">{{
-                      row.allocation.own_task?.category ||
-                      (row.allocation.own_task === null ? '未登记' : '未提供')
-                    }}</span>
-                  </slot>
-                </template>
-              </el-table-column>
-              <el-table-column
-                v-if="$slots.metrics && section.label === '持有资源'"
-                label="利用率"
-                min-width="235"
-              >
-                <template #default="{ row }">
-                  <slot v-if="fresh(row.group)" name="metrics" :row="row" />
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-          <p v-else class="empty">
-            {{
-              resourceLoading
-                ? '正在读取…'
-                : resourcesReady
-                  ? '已确认的群中暂无记录。'
-                  : '资源信息待更新。'
-            }}
-          </p>
-        </section>
+              <span class="workbench-row-status">
+                <span>{{ bookingPosition(row.allocation) }}</span>
+                <el-icon aria-hidden="true"><ArrowRight /></el-icon>
+              </span>
+            </component>
+          </section>
+        </div>
       </template>
       <div v-else-if="tab === 'groups'" class="group-grid">
         <section v-if="initialResourceLoading" class="group-card" role="status">
           <el-skeleton :rows="2" animated />
           <p class="group-meta">正在读取资源群…</p>
         </section>
-        <section v-for="(group, index) in groups" :key="index" class="group-card">
+        <section v-for="group in groups" :key="allocationGroupKey(group)" class="group-card">
           <div class="page-heading">
             <h2>{{ group.label }}</h2>
-            <el-tag :type="fresh(group) ? 'success' : 'warning'">{{
-              fresh(group) ? '已更新' : '待确认'
-            }}</el-tag>
+            <el-tag
+              :type="fresh(group) ? 'success' : 'warning'"
+              :title="
+                Number.isFinite(expiration(group.source_at))
+                  ? '状态采集于 ' + date(group.source_at)
+                  : undefined
+              "
+              >{{ fresh(group) ? '已更新' : '暂不可用' }}</el-tag
+            >
           </div>
           <p class="group-meta">{{ identityLabel(group.identity) }}</p>
           <div v-if="fresh(group)" class="group-metrics">
             <div v-for="item in groupCounts(group)" :key="item.label">
-              <strong>{{ item.value }}</strong
-              ><span>{{ item.label }}</span>
+              <strong
+                >{{ item.value
+                }}<small v-if="item.total != null"> / {{ item.total }}</small></strong
+              >
+              <span>{{ item.label }}</span>
             </div>
           </div>
-          <p v-else class="group-meta group-pending">暂未获取已确认的占用信息</p>
-          <p class="group-meta">源数据时间 {{ date(group.source_at) }}</p>
+          <p v-else class="group-meta group-pending">本次未取得资源数据</p>
+          <el-button v-if="fresh(group)" text type="primary" @click="openGroup(group)"
+            >查看群内明细</el-button
+          >
         </section>
         <p v-if="!groups.length && !initialResourceLoading" class="empty">
           {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
@@ -243,33 +662,34 @@
           :authenticated="session.authenticated"
           :scope-key="identityScope(session.identities)"
         />
-        <details class="connection-help">
-          <summary>如何添加资源群</summary>
-          <p class="scope">
-            在持有目标群绑定的 Agent 中说“打开我的资源台”，打开链接后确认添加到当前浏览器。
-          </p>
-        </details>
         <section
           v-for="(identity, index) in session.identities"
           :key="index"
           class="group-card connection-card"
         >
           <div class="connection-heading">
-            <h2>登录身份 · {{ identity.subject }}</h2>
+            <h2>{{ identity.subject }}</h2>
             <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
           </div>
           <div
             v-for="source in identitySources(identity)"
             :key="source.kind + source.label"
-            class="connection-groups"
+            class="connection-source"
           >
-            <span class="group-meta">{{ source.label }} · 当前可见资源群</span>
-            <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
-              name
-            }}</el-tag>
-            <p v-if="source.kind !== 'identity_provider'" class="group-meta">
-              此来源仅支持资源查询，凭证请由原 Agent 管理；原生 Key 管理能力不可用。
+            <p>
+              {{
+                source.kind === 'identity_provider'
+                  ? '已连接的资源群'
+                  : source.kind === 'reporter'
+                    ? source.label
+                    : '资源群'
+              }}
             </p>
+            <div class="connection-groups">
+              <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
+                name
+              }}</el-tag>
+            </div>
           </div>
           <p v-if="!identitySources(identity).length" class="group-meta">
             {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
@@ -277,22 +697,24 @@
           <details class="connection-details">
             <summary>连接详情</summary>
             <dl>
-              <dt>服务地址</dt>
+              <dt>身份服务</dt>
               <dd>{{ identity.issuer }}</dd>
-              <dt>账号</dt>
-              <dd>{{ identity.subject }}</dd>
+              <dt>身份命名空间</dt>
+              <dd>{{ identity.realm }}</dd>
+              <dt>授权范围</dt>
+              <dd>{{ identity.scopes?.join('、') }}</dd>
             </dl>
-            <details class="connection-diagnostics">
-              <summary>诊断信息</summary>
-              <dl>
-                <dt>身份命名空间</dt>
-                <dd>{{ identity.realm }}</dd>
-                <dt>授权范围</dt>
-                <dd>{{ identity.scopes?.join('、') }}</dd>
-              </dl>
-            </details>
           </details>
         </section>
+        <details class="connection-help">
+          <summary>如何添加资源群</summary>
+          <p class="scope">
+            在已绑定目标群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
+            <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
+              >Agent 使用说明</a
+            >
+          </p>
+        </details>
         <p
           v-for="(indices, index) in session.same_person_groups || []"
           :key="index"
@@ -309,21 +731,64 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ArrowDown, User } from '@element-plus/icons-vue'
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+  shallowReactive,
+  useSlots,
+  watch,
+} from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessageBox } from 'element-plus'
+import { ArrowRight, Calendar, Cpu, Monitor, Refresh } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
+import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
+import LockbotWordmark from '../components/LockbotWordmark.vue'
+import PersonalWorkbenchPlugins from '../components/PersonalWorkbenchPlugins.vue'
+import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
+import ResourceUtilization from '../components/ResourceUtilization.vue'
+import { datasourceIdentity } from '../utils/utilization/grants'
+import { metricStatus, ProviderError, resolveCards } from '../utils/utilization/prometheus'
 import AnimatedResourceCount from '../components/AnimatedResourceCount.vue'
 import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.vue'
 import PersonalCredentialView from '../components/PersonalCredentialView.vue'
 import PersonalCredentialRotation from '../components/PersonalCredentialRotation.vue'
 
 const tabs = [
-  { id: 'mine', label: '我的占用' },
-  { id: 'groups', label: '资源群' },
-  { id: 'connections', label: '我的凭证' },
+  { id: 'mine', label: '我的占用', path: '/me' },
+  { id: 'groups', label: '资源群', path: '/me/groups' },
+  { id: 'connections', label: '我的凭证', path: '/me/credentials' },
 ]
-const tab = ref('mine')
-const title = computed(() => tabs.find((item) => item.id === tab.value).label)
+const route = useRoute()
+const router = useRouter()
+const pageTitle = ref(null)
+const detailPage = computed(() => {
+  const view = route.params.view
+  return ['holdings', 'reservations', 'group'].includes(view) ? view : null
+})
+const tab = computed(() => {
+  if (['groups', 'group'].includes(route.params.view)) return 'groups'
+  return route.params.view === 'credentials' ? 'connections' : 'mine'
+})
+const detailSectionTitle = computed(() => {
+  if (detailPage.value === 'reservations') return '预约与队列'
+  return detailPage.value === 'group' ? '群内资源' : '持有资源'
+})
+const title = computed(() => {
+  if (detailPage.value) return detail.value?.title || detailSectionTitle.value
+  return tab.value === 'mine' ? '个人资源台' : tabs.find((item) => item.id === tab.value).label
+})
+watch(
+  () => route.path,
+  async () => {
+    await nextTick()
+    pageTitle.value?.scrollIntoView({ block: 'start' })
+    pageTitle.value?.focus({ preventScroll: true })
+  }
+)
 const session = ref({ authenticated: false, identities: [] })
 const groups = ref([])
 const ticket = ref(null)
@@ -338,23 +803,415 @@ const initialResourceLoading = computed(
   () => resourceLoading.value && !resourcesReady.value && !groups.value.length
 )
 const knownGroups = computed(() => groups.value.filter(fresh))
+const slots = useSlots()
+const clock = ref(Date.now())
+let clockTimer
 const ownTasksAvailable = computed(() =>
   knownGroups.value.some((group) => entries(group).some((allocation) => 'own_task' in allocation))
 )
+const utilizationSnapshots = ref({})
+const utilizationGroups = computed(() =>
+  knownGroups.value
+    .filter((group) => group.utilization?.configuration && group.utilization.connection)
+    .map((group) => {
+      const holdings = entries(group).filter(
+        (entry) => !queued(entry) && group.utilization.configuration.nodeMapping[entry.node]
+      )
+      return {
+        ...group.utilization,
+        nodes: [...new Set(holdings.map(({ node }) => node))].sort(),
+        holdingsKey: JSON.stringify(
+          holdings
+            .map(({ node, device, expires_at }) => JSON.stringify([node, device, expires_at]))
+            .sort()
+        ),
+      }
+    })
+    .filter(({ nodes }) => nodes.length)
+)
+watch(
+  utilizationGroups,
+  (active) => {
+    const recognized = new Map(
+      active.map(({ connection, holdingsKey }) => [connection, holdingsKey])
+    )
+    for (const id of Object.keys(utilizationSnapshots.value)) {
+      if (!recognized.has(id) || recognized.get(id) !== utilizationSnapshots.value[id].holdingsKey)
+        delete utilizationSnapshots.value[id]
+    }
+  },
+  { flush: 'sync' }
+)
+function updateUtilizationSnapshot(connection, holdingsKey, snapshot) {
+  const group = utilizationGroups.value.find((item) => item.connection === connection)
+  if (group?.holdingsKey === holdingsKey) {
+    utilizationSnapshots.value[connection] = { ...snapshot, holdingsKey }
+  }
+}
+async function authorizeUtilization(connection, source, { signal }) {
+  const result = await api('utilization/' + encodeURIComponent(connection), undefined, signal)
+  if (
+    !utilizationGroups.value.some((item) => item.connection === connection) ||
+    datasourceIdentity(result.configuration) !== datasourceIdentity(source) ||
+    result.access?.scope_version !== 2 ||
+    !Array.isArray(result.access.node_ids)
+  )
+    throw new ProviderError('grant')
+  return result.access
+}
 const pendingGroups = computed(() => groups.value.length - knownGroups.value.length)
-const allocationSections = computed(() => {
-  const rows = groups.value.flatMap((group) =>
-    fresh(group) ? entries(group).map((allocation) => ({ group, allocation })) : []
+const allocationQuery = ref('')
+const allocationGroup = ref('')
+const allocationSort = ref('soonest')
+// Route selections are scoped to this page session and contain no identity data in the URL.
+const detailSelections = shallowReactive(new Map())
+let detailSelectionId = 0
+const detail = computed(() => {
+  const type = detailPage.value
+  const id = route.params.selection
+  if (!type) return null
+  if (!id) return type === 'group' ? null : { type }
+  const selection = detailSelections.get(id)
+  if (selection?.type === type) return selection
+  if (type === 'group') {
+    const group = groups.value.find((item) => item.detail_id === id)
+    return group ? groupSelection(group) : null
+  }
+  const row = allocationRows.value.find(({ allocation }) =>
+    type === 'reservations'
+      ? queued(allocation) && allocation.detail_id === id
+      : !queued(allocation) &&
+        (allocation.device == null ? allocation.detail_id : allocation.node_detail_id) === id
   )
-  const holds = rows.filter((row) => !queued(row.allocation))
-  holds.sort(
-    (left, right) =>
-      expiration(left.allocation.expires_at) - expiration(right.allocation.expires_at)
+  return row ? resourceSelection(type, row) : null
+})
+const expandedNodes = ref(new Set())
+function toggleNode(key) {
+  if (expandedNodes.value.has(key)) expandedNodes.value.delete(key)
+  else expandedNodes.value.add(key)
+}
+watch(
+  () => identityScope(session.value.identities),
+  (_current, previous) => {
+    if (previous === '[]' && !initialized.value) return
+    detailSelections.clear()
+    if (detailPage.value) router.replace(detailPage.value === 'group' ? '/me/groups' : '/me')
+    expandedNodes.value.clear()
+  },
+  { flush: 'sync' }
+)
+const allocationOrder = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+function allocationGroupKey(group) {
+  return (
+    group.detail_id || JSON.stringify([group.identity, group.source, group.group_id ?? group.label])
   )
-  return [
-    { label: '持有资源', rows: holds },
-    { label: '预约与队列', rows: rows.filter((row) => queued(row.allocation)) },
+}
+const allocationRows = computed(() =>
+  knownGroups.value.flatMap((group) => {
+    const groupKey = allocationGroupKey(group)
+    return entries(group).map((allocation, index) => ({
+      group,
+      groupKey,
+      allocation,
+      key:
+        allocation.detail_id ||
+        JSON.stringify([groupKey, allocation.kind, allocation.node, allocation.device, index]),
+    }))
+  })
+)
+watch(
+  () => JSON.stringify([detail.value?.type, detail.value?.resource, detail.value?.groupKey]),
+  () => {
+    const selection = detail.value
+    allocationGroup.value = ''
+    allocationQuery.value = ''
+    allocationSort.value = selection?.type === 'reservations' ? 'resource' : 'soonest'
+    expandedNodes.value.clear()
+  }
+)
+const allocationGroups = computed(() =>
+  [
+    ...new Map(
+      allocationRows.value.map(({ groupKey, group }) => [
+        groupKey,
+        { value: groupKey, label: group.label },
+      ])
+    ).values(),
+  ].sort((a, b) => allocationOrder.compare(a.label, b.label))
+)
+watch(allocationGroups, (options) => {
+  if (allocationGroup.value && !options.some((item) => item.value === allocationGroup.value)) {
+    allocationGroup.value = ''
+  }
+})
+function inDetailGroup(row) {
+  return !detail.value?.groupKey || row.groupKey === detail.value.groupKey
+}
+function matchesAllocation(row, query) {
+  const { group, groupKey, allocation } = row
+  if (!inDetailGroup(row) || (allocationGroup.value && groupKey !== allocationGroup.value))
+    return false
+  const device = allocation.device
+  const searchable = [
+    group.label,
+    allocation.node,
+    allocation.own_task?.category,
+    device == null ? '' : `dev${device} 卡 ${device}`,
   ]
+    .join(' ')
+    .toLocaleLowerCase()
+  return query.every((term) => searchable.includes(term))
+}
+function sortAllocations(rows, holdings) {
+  const compareResource = (a, b) =>
+    allocationOrder.compare(a.allocation.node ?? '', b.allocation.node ?? '') ||
+    allocationOrder.compare(a.allocation.device ?? '', b.allocation.device ?? '')
+  const compareGroup = (a, b) => allocationOrder.compare(a.group.label, b.group.label)
+  if (allocationSort.value === 'group')
+    return rows.sort((a, b) => compareGroup(a, b) || compareResource(a, b))
+  if (allocationSort.value === 'resource')
+    return rows.sort((a, b) => compareResource(a, b) || compareGroup(a, b))
+  if (!holdings) return rows
+  return rows.sort((a, b) => {
+    const left = expiration(a.allocation.expires_at)
+    const right = expiration(b.allocation.expires_at)
+    if (left === right) return compareGroup(a, b) || compareResource(a, b)
+    if (!Number.isFinite(left)) return 1
+    if (!Number.isFinite(right)) return -1
+    return allocationSort.value === 'latest' ? right - left : left - right
+  })
+}
+function allocationItems(rows, holdings) {
+  const items = new Map()
+  for (const row of rows) {
+    const { node, device } = row.allocation
+    const key =
+      holdings && node != null && device != null ? JSON.stringify([row.groupKey, node]) : row.key
+    if (!items.has(key)) items.set(key, { key, rows: [], first: row })
+    const item = items.get(key)
+    item.rows.push(row)
+    const earliest = expiration(item.first.allocation.expires_at)
+    const time = expiration(row.allocation.expires_at)
+    if (Number.isFinite(time) && (!Number.isFinite(earliest) || time < earliest)) item.first = row
+  }
+  const byFirst = new Map([...items.values()].map((item) => [item.first, item]))
+  return sortAllocations([...byFirst.keys()], holdings).map((first) => {
+    const item = byFirst.get(first)
+    const categories = new Set(item.rows.map((row) => row.allocation.own_task?.category || ''))
+    const deadlines = [...new Set(item.rows.map((row) => expiration(row.allocation.expires_at)))]
+    return {
+      ...item,
+      deadlines,
+      category: categories.size === 1 ? categories.values().next().value : '',
+    }
+  })
+}
+function nodeRemaining({ deadlines }) {
+  const known = deadlines.filter(Number.isFinite)
+  if (!known.length) return '未提供'
+  const first = remaining(Math.min(...known) / 1000)
+  const last = remaining(Math.max(...known) / 1000)
+  const range = first === last ? first : `${first} 至 ${last}`
+  return known.length < deadlines.length ? `${range}（部分未知）` : range
+}
+const expiringItems = computed(() =>
+  allocationItems(
+    allocationRows.value.filter(({ allocation }) => {
+      const timeLeft = expiration(allocation.expires_at) - clock.value
+      return !queued(allocation) && timeLeft > 0 && timeLeft <= 30 * 60_000
+    }),
+    true
+  )
+    .sort(
+      (a, b) =>
+        expiration(a.first.allocation.expires_at) - expiration(b.first.allocation.expires_at)
+    )
+    .map((item) => ({
+      ...item,
+      endingCards: item.rows.filter(({ allocation }) => allocation.device != null).length,
+    }))
+)
+const recentBookings = computed(() =>
+  allocationRows.value
+    .filter((row) => queued(row.allocation))
+    .sort(
+      (a, b) =>
+        allocationOrder.compare(a.group.label, b.group.label) ||
+        allocationOrder.compare(a.allocation.node ?? '', b.allocation.node ?? '') ||
+        allocationOrder.compare(a.allocation.device ?? '', b.allocation.device ?? '')
+    )
+)
+function groupSelection(group) {
+  return { type: 'group', groupKey: allocationGroupKey(group), title: group.label }
+}
+function resourceSelection(type, row) {
+  const { node, device } = row.allocation
+  const resource =
+    type === 'holdings' && node != null && device != null
+      ? JSON.stringify([row.groupKey, node])
+      : row.key
+  return { type, groupKey: row.groupKey, resource, title: node, groupLabel: row.group.label }
+}
+function detailPath(type, id) {
+  return id ? `/me/${type}/${encodeURIComponent(id)}` : undefined
+}
+function holdingPath({ first: { allocation } }) {
+  const selector = allocation.device == null ? allocation.detail_id : allocation.node_detail_id
+  return selector ? { path: '/me/holdings', query: { node: selector } } : undefined
+}
+function openDetails(selection, id) {
+  if (!id) {
+    id = String(++detailSelectionId)
+    detailSelections.set(id, selection)
+  }
+  return router.push(detailPath(selection.type, id))
+}
+function openGroup(group) {
+  return openDetails(groupSelection(group), group.detail_id)
+}
+function openBooking(row) {
+  return openDetails(resourceSelection('reservations', row), row.allocation.detail_id)
+}
+function openWorkbenchResource({ first }) {
+  const { device, detail_id: id, node_detail_id: nodeId } = first.allocation
+  let selector = device == null ? id : nodeId
+  if (!selector) {
+    selector = String(++detailSelectionId)
+    detailSelections.set(selector, resourceSelection('holdings', first))
+  }
+  return router.push({ path: '/me/holdings', query: { node: selector } })
+}
+const allocationSections = computed(() => {
+  const query = allocationQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  const holds = allocationRows.value.filter((row) => !queued(row.allocation))
+  const reservations = allocationRows.value.filter((row) => queued(row.allocation))
+  const matching = (rows, holdings) =>
+    sortAllocations(
+      rows.filter((row) => matchesAllocation(row, query)),
+      holdings
+    )
+  return [
+    {
+      label: '持有资源',
+      rows: matching(holds, true),
+      total: holds.filter(inDetailGroup).length,
+      holdings: true,
+      timeLabel: '剩余时间',
+      tasks: Boolean(slots.task || ownTasksAvailable.value),
+      metrics: Boolean(slots.metrics || utilizationGroups.value.length),
+    },
+    {
+      label: '预约与队列',
+      rows: matching(reservations, false),
+      total: reservations.filter(inDetailGroup).length,
+      timeLabel: reservations.some(({ allocation }) =>
+        Number.isFinite(expiration(allocation.expires_at))
+      )
+        ? '到期时间'
+        : '',
+    },
+  ].map((section) => ({ ...section, items: allocationItems(section.rows, section.holdings) }))
+})
+const detailSections = computed(() => {
+  const selection = detail.value
+  if (!selection) return []
+  const sections = allocationSections.value.filter(
+    (section) =>
+      selection.type === 'group' || Boolean(section.holdings) === (selection.type === 'holdings')
+  )
+  if (!selection.resource) return sections
+  return sections.map((section) => {
+    const items = section.items.filter((item) => item.key === selection.resource)
+    const rows = items.flatMap((item) => item.rows)
+    return { ...section, items, rows, total: rows.length }
+  })
+})
+const selectedHolding = computed(() => {
+  const selector = route.query.node
+  if (detailPage.value !== 'holdings' || !selector) return
+  const cached = detailSelections.get(selector)?.resource
+  return detailSections.value[0]?.items.find(({ key, first: { allocation } }) =>
+    cached
+      ? key === cached
+      : (allocation.device == null ? allocation.detail_id : allocation.node_detail_id) === selector
+  )?.key
+})
+watch(
+  selectedHolding,
+  (key) => {
+    if (key) expandedNodes.value.add(key)
+  },
+  { flush: 'post' }
+)
+
+const detailUtilizationGroups = computed(() => {
+  const selection = detail.value
+  if (
+    !selection ||
+    ticket.value ||
+    !session.value.authenticated ||
+    selection.type === 'reservations'
+  )
+    return []
+  const holdings = allocationRows.value.filter((row) => !queued(row.allocation))
+  const selectedGroup = selection.groupKey || allocationGroup.value
+  const nodesByConnection = new Map()
+  for (const item of allocationItems(holdings, true)) {
+    if (selectedGroup && item.first.groupKey !== selectedGroup) continue
+    if (selection.resource && item.key !== selection.resource) continue
+    const row = item.first
+    if (!selection.resource && !showsUtilizationSummary(item) && !expandedNodes.value.has(item.key))
+      continue
+    const connection = row.group.utilization?.connection
+    if (!connection) continue
+    if (!nodesByConnection.has(connection)) nodesByConnection.set(connection, new Set())
+    nodesByConnection.get(connection).add(row.allocation.node)
+  }
+  return utilizationGroups.value
+    .map((group) => ({
+      ...group,
+      nodes: group.nodes.filter((node) => nodesByConnection.get(group.connection)?.has(node)),
+    }))
+    .filter(({ nodes }) => nodes.length)
+})
+function showsUtilizationSummary(item) {
+  return item.first.allocation.device == null || item.rows.length > 1
+}
+const cardUtilization = computed(() => {
+  const summaries = Object.create(null)
+  for (const section of detailSections.value) {
+    if (!section.holdings) continue
+    for (const item of section.items) {
+      if (!showsUtilizationSummary(item) || expandedNodes.value.has(item.key)) continue
+      const source = utilizationSnapshots.value[item.first.group.utilization?.connection]
+      if (!source?.enabled || !source.snapshot) continue
+      const wholeNode = item.first.allocation.device == null
+      const samples = new Map()
+      for (const { allocation } of item.rows) {
+        const expires = expiration(allocation.expires_at)
+        if (!Number.isFinite(expires) || expires <= clock.value) continue
+        const { node, device } = allocation
+        const cards = resolveCards(
+          source.snapshot,
+          source.config,
+          node,
+          wholeNode ? null : `${node}:dev${device}`
+        )
+        for (const card of cards) samples.set(card.device, card.metrics.compute)
+      }
+      if (!samples.size || (!wholeNode && samples.size !== item.rows.length)) continue
+      const values = [...samples.values()]
+      if (
+        values.some(
+          (sample) => metricStatus(sample, clock.value, source.config.staleSeconds) !== 'ok'
+        )
+      )
+        continue
+      const total = values.reduce((sum, sample) => sum + sample.value, 0)
+      summaries[item.key] = Math.round(total / samples.size)
+    }
+  }
+  return summaries
 })
 const statistics = computed(() => {
   const machines = knownGroups.value.reduce(
@@ -382,11 +1239,13 @@ const statistics = computed(() => {
     0
   )
   return [
-    ['持有机器', machines, '台'],
-    ['持有卡', cards, '张'],
-    ['预约', bookings, '项'],
-  ].map(([label, value, unit]) => ({
+    ['持有机器', machines, '台', Monitor, '/me/holdings'],
+    ['持有卡', cards, '张', Cpu, '/me/holdings'],
+    ['预约', bookings, '项', Calendar, '/me/reservations'],
+  ].map(([label, value, unit, icon, path]) => ({
     label,
+    icon,
+    path,
     value:
       knownGroups.value.length || (resourcesReady.value && !groups.value.length) ? value : null,
     unit,
@@ -397,6 +1256,10 @@ function fresh(group) {
 }
 function entries(group) {
   return Array.isArray(group.allocations) ? group.allocations : []
+}
+function bookingPosition(allocation) {
+  const { position } = allocation
+  return Number.isInteger(position) && position >= 0 ? `第 ${position + 1} 位` : '已预约'
 }
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
@@ -428,19 +1291,57 @@ function identitySources(identity) {
   return [...sources.values()]
 }
 function groupCounts(group) {
+  if (!fresh(group)) return []
+  const holdings = entries(group).filter((entry) => !queued(entry))
+  const nodes = new Set(holdings.filter(({ node }) => node != null).map(({ node }) => node))
+  const cards = new Set(
+    holdings
+      .filter(({ node, device }) => node != null && device != null)
+      .map(({ node, device }) => JSON.stringify([node, device]))
+  )
+  const total = (value, owned) => (Number.isSafeInteger(value) && value >= owned ? value : null)
+  const nodeTotal = total(group.capacity?.nodes, nodes.size)
+  const cardTotal = total(group.capacity?.cards, cards.size)
   return [
-    ['持有记录', entries(group).filter((a) => !queued(a)).length],
-    ['预约记录', entries(group).filter(queued).length],
-  ].map(([label, value]) => ({ label, value: fresh(group) ? value : null }))
+    {
+      label: nodeTotal == null ? '我的机器（台）' : '机器（我的 / 全群）',
+      value: nodes.size,
+      total: nodeTotal,
+    },
+    ...(cardTotal != null || cards.size
+      ? [
+          {
+            label: cardTotal == null ? '我的卡（张）' : '卡（我的 / 全群）',
+            value: cards.size,
+            total: cardTotal,
+          },
+        ]
+      : []),
+    { label: '我的预约', value: entries(group).filter(queued).length },
+  ]
 }
 function expiration(value) {
-  const stamp = typeof value === 'number' ? value * 1000 : Date.parse(value)
+  const stamp = parseResourceTime(typeof value === 'number' ? value * 1000 : value).getTime()
   return Number.isFinite(stamp) ? stamp : Infinity
+}
+function remaining(value) {
+  const stamp = expiration(value)
+  if (!Number.isFinite(stamp)) return '未提供'
+  const milliseconds = stamp - clock.value
+  if (milliseconds <= 0) return '已到期'
+  if (milliseconds < 60_000) return '不到 1 分钟'
+  let minutes = Math.floor(milliseconds / 60_000)
+  const days = Math.floor(minutes / 1440)
+  minutes %= 1440
+  const hours = Math.floor(minutes / 60)
+  minutes %= 60
+  return [days && `${days} 天`, hours && `${hours} 小时`, !days && minutes && `${minutes} 分钟`]
+    .filter(Boolean)
+    .join(' ')
 }
 function date(value) {
   if (value == null) return '未提供'
-  const time = new Date(typeof value === 'number' ? value * 1000 : value)
-  return Number.isNaN(time.getTime()) ? '未知' : time.toLocaleString('zh-CN')
+  return formatResourceTime(typeof value === 'number' ? value * 1000 : value)
 }
 function request(path, body, signal) {
   return fetch(`/api/personal-panel/${path}`, {
@@ -633,6 +1534,25 @@ async function login(mode) {
   if (!session.value.authenticated)
     throw new Error('登录后未检测到会话，请检查浏览器 Cookie 设置。')
 }
+async function confirmLogout() {
+  try {
+    await ElMessageBox.confirm(
+      '清除后，此浏览器需要重新授权才能查看个人资源。Agent 的 Key 仍然有效。',
+      '清除此浏览器授权？',
+      {
+        cancelButtonText: '取消',
+        confirmButtonText: '清除授权',
+        confirmButtonType: 'danger',
+        type: 'warning',
+        closeOnClickModal: false,
+      }
+    )
+  } catch (action) {
+    if (action === 'cancel' || action === 'close') return
+    throw action
+  }
+  await logout()
+}
 async function logout() {
   ++refreshEpoch
   reportRequest?.abort()
@@ -656,10 +1576,12 @@ watch([pendingPanelTicket, busy, initialized], ([incoming, running, ready]) => {
   })
 })
 onUnmounted(() => {
+  clearInterval(clockTimer)
   ++refreshEpoch
   reportRequest?.abort()
 })
 onMounted(async () => {
+  clockTimer = setInterval(() => (clock.value = Date.now()), 1000)
   await run(refresh)
   initialized.value = true
 })
@@ -668,12 +1590,49 @@ onMounted(async () => {
 <style scoped src="../assets/styles/personal-panel.css"></style>
 
 <style scoped>
+.node-access-details {
+  color: var(--lb-text-secondary);
+  margin-top: 5px;
+}
+.node-access-details summary {
+  width: fit-content;
+}
+.node-access-details code {
+  overflow-wrap: anywhere;
+}
+.workbench-heading-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workbench-heading-text .scope {
+  margin: 4px 0 0;
+}
+.workbench-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 13px;
+}
+.workbench-breadcrumb a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.workbench-breadcrumb a:hover {
+  text-decoration: underline;
+}
+.page-heading h1:focus {
+  outline: none;
+}
 .stat-placeholder {
-  width: 88px;
+  width: min(88px, 100%);
   margin-top: 8px;
 }
 .stat-skeleton {
-  width: 88px;
+  width: min(88px, 100%);
   height: 32px;
 }
 .stat-value.stat-pending {
@@ -689,6 +1648,36 @@ onMounted(async () => {
   border: 0;
   padding: 0;
   color: var(--accent);
+}
+.allocation-node {
+  font-weight: 600;
+}
+.allocation-device {
+  margin-inline-start: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.resource-coverage {
+  margin-block: 10px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.allocation-controls {
+  display: grid;
+  grid-template-columns: minmax(200px, 300px) minmax(125px, 210px) 180px;
+  gap: 8px;
+  margin: 16px 0;
+}
+.allocation-controls-scoped {
+  grid-template-columns: minmax(200px, 300px) 180px;
+}
+@media (max-width: 700px) {
+  .allocation-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .allocation-controls > :first-child {
+    grid-column: 1 / -1;
+  }
 }
 .task-detail {
   overflow-wrap: anywhere;

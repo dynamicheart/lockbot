@@ -54,6 +54,7 @@ LABELS = {
     "filesystem",
     "collector",
 }
+COLLECTOR_METRICS = {"lockbot_collector_success", "lockbot_sample_timestamp_seconds"}
 
 
 class Rejected(Exception):
@@ -96,6 +97,57 @@ def validate_query(query, allowed_nodes):
     except (ValueError, TypeError):
         raise Rejected(400, "invalid_query") from None
     return names, nodes
+
+
+def grant_scope(claims):
+    def label(value):
+        return isinstance(value, str) and 1 <= len(value) <= 256
+
+    if "scope_version" not in claims and "resources" not in claims:
+        nodes = claims.get("nodes")
+        if (
+            not isinstance(nodes, list)
+            or not 1 <= len(nodes) <= 512
+            or not all(map(label, nodes))
+            or len(nodes) != len(set(nodes))
+        ):
+            raise ValueError
+        return frozenset(nodes)
+
+    resources = claims.get("resources")
+    if (
+        "nodes" in claims
+        or type(claims.get("scope_version")) is not int
+        or claims["scope_version"] != 2
+        or not isinstance(resources, dict)
+        or not 1 <= len(resources) <= 512
+    ):
+        raise ValueError
+    scope = {}
+    device_count = 0
+    for node, devices in resources.items():
+        if not label(node):
+            raise ValueError
+        if devices is not None:
+            if not isinstance(devices, list) or not devices or not all(map(label, devices)):
+                raise ValueError
+            device_count += len(devices)
+            if device_count > 512 or len(devices) != len(set(devices)):
+                raise ValueError
+        scope[node] = None if devices is None else frozenset(devices)
+    return scope
+
+
+def allowed_resource(metric, scope):
+    devices = scope[metric["node"]]
+    name = metric["__name__"]
+    if name.startswith("lockbot_accelerator_"):
+        device = metric.get("device")
+        return isinstance(device, str) and bool(device) and (devices is None or device in devices)
+    if name in COLLECTOR_METRICS:
+        collector = metric.get("collector")
+        return collector == "accelerator" or (devices is None and collector == "host")
+    return devices is None and name.startswith("lockbot_host_")
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -161,7 +213,7 @@ class Gateway:
                 issuer=issuer,
                 audience=audience,
                 leeway=15,
-                options={"require": ["iss", "sub", "aud", "iat", "exp", "nodes"]},
+                options={"require": ["iss", "sub", "aud", "iat", "exp"]},
             )
             if claims["aud"] != audience or claims["iss"] != issuer or not isinstance(claims["sub"], str):
                 raise ValueError
@@ -175,18 +227,13 @@ class Gateway:
                 raise ValueError
             if "nbf" in claims and claims["nbf"] > self.clock() + 15:
                 raise ValueError
-            nodes = claims["nodes"]
-            if (
-                not isinstance(nodes, list)
-                or not 1 <= len(nodes) <= 512
-                or any(not isinstance(node, str) or not 1 <= len(node) <= 256 for node in nodes)
-                or len(nodes) != len(set(nodes))
-            ):
+            scope = grant_scope(claims)
+            if isinstance(scope, dict) and claims["exp"] <= self.clock():
                 raise ValueError
             allowed = source.get("bots", {}).get(claims["sub"], [])
-            if not allowed or not set(nodes).issubset(allowed):
+            if not allowed or not set(scope).issubset(allowed):
                 raise Rejected(403, "datasource_scope_denied")
-            return "grant:" + issuer + ":" + claims["sub"], frozenset(nodes)
+            return "grant:" + issuer + ":" + claims["sub"], scope
         except (OSError, KeyError, ValueError, TypeError, OverflowError, RecursionError, jwt.PyJWTError):
             raise Rejected(401, "invalid_datasource_grant") from None
 
@@ -206,7 +253,7 @@ class Gateway:
                 self.budgets.popitem(last=False)
 
     def query(self, authorization, body):
-        reader, allowed_nodes = self.reader(authorization)
+        reader, scope = self.reader(authorization)
         if not isinstance(body, bytes) or len(body) > MAX_BODY:
             raise Rejected(413, "body_too_large")
         try:
@@ -226,9 +273,11 @@ class Gateway:
                 raise ValueError
         except ValueError:
             raise Rejected(400, "invalid_time") from None
-        names, nodes = validate_query(params["query"], allowed_nodes)
+        names, nodes = validate_query(params["query"], scope)
         self.budget(reader)
-        key = (reader, tuple(sorted(allowed_nodes)), params["query"], int(evaluation // 15))
+        resources = scope if isinstance(scope, dict) else None
+        scope_key = frozenset(resources.items()) if resources is not None else scope
+        key = (reader, scope_key, params["query"], int(evaluation // 15))
         with self.lock:
             cached = self.cache.get(key)
             if cached and self.clock() - cached[0] < 15:
@@ -245,7 +294,7 @@ class Gateway:
                 raw = response.read(MAX_RESPONSE + 1)
             if len(raw) > MAX_RESPONSE:
                 raise Rejected(502, "upstream_too_large")
-            result = self.filter_response(json.loads(raw), names, nodes)
+            result = self.filter_response(json.loads(raw), names, nodes, resources)
         except (OSError, ValueError, urllib.error.URLError):
             raise Rejected(502, "datasource_unavailable") from None
         with self.lock:
@@ -256,7 +305,7 @@ class Gateway:
         return result
 
     @staticmethod
-    def filter_response(body, names, nodes):
+    def filter_response(body, names, nodes, resources=None):
         if not isinstance(body, dict) or not isinstance(body.get("data"), dict):
             raise Rejected(502, "invalid_upstream_response")
         result = body["data"].get("result")
@@ -271,8 +320,12 @@ class Gateway:
             if not isinstance(item, dict) or not isinstance(item.get("metric"), dict):
                 raise Rejected(502, "invalid_upstream_response")
             metric = item["metric"]
+            if not all(isinstance(value, str) and len(value) <= 256 for value in metric.values()):
+                raise Rejected(502, "invalid_upstream_response")
             if metric.get("node") not in nodes or metric.get("__name__") not in names:
                 raise Rejected(502, "invalid_upstream_scope")
+            if resources is not None and not allowed_resource(metric, resources):
+                continue
             if not isinstance(item.get("value"), list) or len(item["value"]) != 2:
                 raise Rejected(502, "invalid_upstream_response")
             try:
@@ -281,8 +334,6 @@ class Gateway:
                     raise ValueError
                 if not isinstance(value, str) or len(value) > 64 or not math.isfinite(float(value)):
                     continue
-                if any(not isinstance(value, str) or len(value) > 256 for value in metric.values()):
-                    raise ValueError
             except (ValueError, TypeError):
                 raise Rejected(502, "invalid_upstream_response") from None
             cleaned.append(

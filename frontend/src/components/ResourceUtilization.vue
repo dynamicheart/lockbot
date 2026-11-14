@@ -1,5 +1,5 @@
 <template>
-  <section v-if="source" class="utilization-toolbar">
+  <section v-if="source && !hideToolbar" class="utilization-toolbar">
     <span>{{ $t('utilization.autoUpdate') }}</span>
     <span v-if="health.sampledAt"
       >{{ $t('utilization.sampled') }} {{ formatResourceTime(health.sampledAt, locale) }}</span
@@ -93,6 +93,7 @@ const props = defineProps({
   allowed: Boolean,
   scopeKey: { type: [String, Number], default: '' },
   deviceResources: Boolean,
+  hideToolbar: Boolean,
   authorize: { type: Function, default: null },
 })
 const emit = defineEmits(['change'])

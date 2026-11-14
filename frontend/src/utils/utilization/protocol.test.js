@@ -85,6 +85,8 @@ describe('Lockbot unified Prometheus telemetry', () => {
       'test-container-b',
     ])
     expect(card.processesTruncated).toBe(true)
+    expect(metricStatus(card.processSample, now, 660)).toBe('ok')
+    expect(metricStatus(card.processSample, now + 361000, 660)).toBe('stale')
     const host = resolveHost(result, config(), 'clusterNode')
     expect(host.cpu.value).toBe(26)
     expect(host.available.value).toBe(900)
