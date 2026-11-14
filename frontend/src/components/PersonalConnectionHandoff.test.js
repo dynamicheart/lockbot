@@ -119,6 +119,30 @@ it('copies a deployment-pinned secret-free Skill instruction only on an explicit
       referrerPolicy: 'no-referrer',
     })
 })
+it('copies only a purpose-specific request to the original Agent when native view authority is advertised', async () => {
+  const caps = capabilities()
+  caps.connection_management.credential_view = {
+    version: 1,
+    purpose: 'view_current_key',
+    requires_original_credential: true,
+    requires_matching_browser_grant: true,
+    single_use: true,
+    issue_path: '/api/personal-panel/credential-view-links',
+  }
+  fetchMock.mockImplementation(async (url) =>
+    response(url.endsWith('/capabilities') ? caps : list())
+  )
+  mount()
+  await flush()
+  expect(state.viewSupported).toBe(true)
+  expect(clipboard).not.toHaveBeenCalled()
+  await state.copyViewRequest(state.items[0])
+  const message = clipboard.mock.calls[0][0]
+  expect(message).toContain('view_current_key')
+  expect(message).toContain('Group one')
+  expect(message).toContain('不把只读登录或资源链接升级为查看票')
+  expect(message).not.toContain(SECRET)
+})
 it('projects metadata and never retains unexpected key fields in default state or DOM', async () => {
   fetchMock.mockImplementation(async (url) =>
     response(

@@ -46,7 +46,7 @@ def env(api, db_session, session_factory, tmp_path):
 def test_current_binding_metadata_uses_approved_deployment_and_never_contains_keys(env, api, db_session):
     _, agent, browser, _ = env
     caps = browser.get(PREFIX + "/capabilities").json()["connection_management"]
-    assert caps["version"] == 1 and caps["credential_disclosure_supported"] is False
+    assert caps["version"] == 1 and caps["credential_disclosure_supported"] is True
     assert caps["refresh_semantics"] == "revalidate_only"
     assert caps["skill"]["bundle_url"] == ORIGIN + "/api/agent-skill/lockbot-resource-agent.zip"
     response = browser.get(PREFIX + "/connections")
