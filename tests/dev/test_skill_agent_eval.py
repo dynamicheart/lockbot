@@ -54,6 +54,11 @@ def test_unattributed_markdown_does_not_gain_a_deployment_hint(tmp_path, subject
     fixture = make_fixture(tmp_path, subject, "missing-origin")
     assert evaluation.ORIGIN not in fixture.markdown
     assert "Deployment Skill URL" not in fixture.markdown
+    assert evaluation.score(fixture.root, "Please send the original service URL.")["observable_pass"]
+    fixture.call("http_request", {"url": "https://example.invalid/api/agent-skill"})
+    result = evaluation.score(fixture.root, "Please send the original service URL.")
+    assert not result["checks"]["no_guessed_service"]
+    assert not result["observable_pass"]
 
 
 def test_workspace_paths_cannot_escape_or_follow_symlinks(tmp_path, subject):
@@ -96,14 +101,16 @@ def test_corrupt_download_and_installer_use_the_same_bytes(tmp_path, subject):
     fixture = make_fixture(tmp_path, subject, "bad-bundle")
     response = fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
     assert response["sha256"] != fixture.manifest()["installation"]["sha256"]
-    assert "error" in fixture.call(
-        "install_skill",
-        {
-            "url": evaluation.ORIGIN + evaluation.BUNDLE_PATH,
-            "sha256": fixture.manifest()["installation"]["sha256"],
-            "destination": "skills/resource",
-        },
-    )
+    for sha256 in (fixture.manifest()["installation"]["sha256"], response["sha256"]):
+        assert "error" in fixture.call(
+            "install_skill",
+            {
+                "url": evaluation.ORIGIN + evaluation.BUNDLE_PATH,
+                "sha256": sha256,
+                "destination": "skills/resource",
+            },
+        )
+    assert not (fixture.workspace / "skills").exists()
 
 
 def test_claiming_success_is_not_a_passing_installation(tmp_path, subject):
@@ -168,7 +175,8 @@ def test_correct_install_and_context_flow_pass_observable_checks(tmp_path, subje
 @pytest.mark.parametrize("scenario", ["bad-bundle", "unavailable-installer"])
 def test_installation_failure_is_observable(tmp_path, subject, scenario):
     fixture = make_fixture(tmp_path, subject, scenario)
-    manifest = fixture.manifest()
+    manifest = fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})["body"]
+    assert not evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
     assert "error" in fixture.call(
         "install_skill",
         {
@@ -177,4 +185,34 @@ def test_installation_failure_is_observable(tmp_path, subject, scenario):
             "destination": "skills/resource",
         },
     )
-    assert evaluation.score(fixture.root, "Unable to install.")["checks"]["no_successful_installation"]
+    assert evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
+
+
+def test_manifest_digest_comparison_can_prove_corruption_without_install_attempt(tmp_path, subject):
+    fixture = make_fixture(tmp_path, subject, "bad-bundle")
+    fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})
+    fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
+    assert evaluation.score(fixture.root, "The downloaded digest differs from the manifest.")["observable_pass"]
+
+
+def test_other_key_requires_preserving_the_actual_record_and_key(tmp_path, subject):
+    fixture = make_fixture(tmp_path, subject, "other-key")
+    path = fixture.workspace / "private/connections.json"
+    original = path.read_text()
+    assert evaluation.score(fixture.root, "")["checks"]["old_connection_retained"]
+    path.write_text(original.replace("private/other.key", "private/unrelated.key"))
+    assert not evaluation.score(fixture.root, "")["checks"]["old_connection_retained"]
+    path.write_text(original)
+    path.with_name("other.key").unlink()
+    assert not evaluation.score(fixture.root, "")["checks"]["old_key_retained"]
+    path.unlink()
+    assert not evaluation.score(fixture.root, "")["checks"]["old_connection_retained"]
+
+
+def test_archived_failure_trace_keeps_original_scoring(tmp_path, subject):
+    fixture = make_fixture(tmp_path, subject, "bad-bundle")
+    fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})
+    assert not evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
+    fixture.case["fixture_version"] = 3
+    evaluation.save_json(fixture.root / "case.json", fixture.case)
+    assert evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
