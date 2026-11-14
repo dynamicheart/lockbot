@@ -96,6 +96,14 @@ it('switches platform without whole-form validation, clears credentials and vali
   const view = app._instance.setupState
   view.formRef = { clearValidate: model.clear, validate: model.validate }
   await flush()
+  expect(view.resourceViewLinkDays).toBe('inherit')
+  expect(view.configPayload().config_overrides).not.toHaveProperty('RESOURCE_VIEW_LINK_DAYS')
+  view.resourceViewLinkDays = 0
+  expect(view.configPayload().config_overrides.RESOURCE_VIEW_LINK_DAYS).toBe(0)
+  view.resourceViewLinkDays = 30
+  expect(view.configPayload().config_overrides.RESOURCE_VIEW_LINK_DAYS).toBe(30)
+  view.resourceViewLinkDays = 'inherit'
+  expect(view.configPayload().config_overrides).not.toHaveProperty('RESOURCE_VIEW_LINK_DAYS')
   view.form.webhook_url = 'https://old.example/webhook'
   view.form.token = 'fixture-token'
   view.form.aes_key = 'fixture-key'
