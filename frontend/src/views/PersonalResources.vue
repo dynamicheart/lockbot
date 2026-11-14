@@ -187,7 +187,7 @@
           class="group-card connection-card"
         >
           <div class="connection-heading">
-            <h2>{{ identity.subject }}</h2>
+            <h2>登录身份 · {{ identity.subject }}</h2>
             <el-tag type="info" size="small">{{ platformName(identity.platform) }}</el-tag>
           </div>
           <a
@@ -198,19 +198,19 @@
             rel="noopener noreferrer"
             >Agent 使用说明（SKILL.md）</a
           >
-          <div class="connection-groups">
-            <span class="group-meta">已授权资源群</span>
-            <el-tag
-              v-for="name in identityGroups(identity)"
-              :key="name"
-              type="info"
-              effect="plain"
-              >{{ name }}</el-tag
-            >
-            <span v-if="!identityGroups(identity).length" class="group-meta">{{
-              resourceLoading ? '正在读取…' : '暂无资源群信息'
-            }}</span>
+          <div
+            v-for="source in identitySources(identity)"
+            :key="source.kind + source.label"
+            class="connection-groups"
+          >
+            <span class="group-meta">{{ source.label }} · 当前可见资源群</span>
+            <el-tag v-for="name in source.groups" :key="name" type="info" effect="plain">{{
+              name
+            }}</el-tag>
           </div>
+          <p v-if="!identitySources(identity).length" class="group-meta">
+            {{ resourceLoading ? '正在读取…' : '暂无资源群信息' }}
+          </p>
           <details class="connection-details">
             <summary>连接详情</summary>
             <dl>
@@ -340,14 +340,22 @@ function platformName(value) {
 function identityLabel(identity) {
   return `${platformName(identity?.platform)} · ${identity?.subject || ''}`
 }
-function identityGroups(identity) {
-  return groups.value
-    .filter((group) =>
-      ['issuer', 'platform', 'realm', 'subject'].every(
+function identitySources(identity) {
+  const sources = new Map()
+  for (const group of groups.value) {
+    if (
+      !['issuer', 'platform', 'realm', 'subject'].every(
         (key) => group.identity?.[key] === identity[key]
       )
     )
-    .map((group) => group.label)
+      continue
+    const kind = group.source?.kind || 'unknown'
+    const label = group.source?.label || '资源来源待确认'
+    const key = JSON.stringify([kind, label])
+    if (!sources.has(key)) sources.set(key, { kind, label, groups: [] })
+    sources.get(key).groups.push(group.label)
+  }
+  return [...sources.values()]
 }
 function groupCounts(group) {
   return [

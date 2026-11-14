@@ -220,3 +220,24 @@ def create_provider(config):
         url = response.json()["login_url"]
         assert "synthetic-secret" not in url and urlsplit(url).fragment.startswith("/me?ticket=")
         assert client.post("/api/personal-panel/links", headers={"Authorization": "Bearer other"}).status_code == 401
+
+
+def test_reports_identify_their_source_without_overriding_login_identity(tmp_path):
+    class Reporter:
+        label = "共享报表"
+
+        def report(self, grant):
+            return [dict(label="External group", status="ok", allocations=[], source={"kind": "forged"})]
+
+    provider = Directory()
+    parent = FastAPI()
+    parent.mount("/me", create_panel(ORIGIN, tmp_path / "sources.db", provider, [Reporter()]))
+    browser = TestClient(parent, base_url=ORIGIN)
+    ticket = issue(TestClient(parent, base_url=ORIGIN), "b-secret")
+    assert post(browser, "login", {"ticket": ticket, "mode": "replace"}).status_code == 200
+    groups = browser.get("/me/resources").json()["groups"]
+    assert [group["source"] for group in groups] == [
+        {"kind": "identity_provider", "label": "登录服务"},
+        {"kind": "reporter", "label": "共享报表"},
+    ]
+    assert groups[0]["identity"] == groups[1]["identity"]
