@@ -604,6 +604,25 @@ def get_bot(
     return {**_mask_bot(bot, db), **view}
 
 
+@router.post("/{bot_id}/view-link/regenerate")
+def regenerate_view_link(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Explicit owner/admin action invalidates the previous read-only code only."""
+    bot = _get_user_bot(bot_id, user, db)
+    if not bot.resource_auth_enabled:
+        raise HTTPException(409, "Resource access is disabled for this bot")
+    from lockbot.backend.app.resource_api.view_links import view_link
+
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Vary"] = "Authorization"
+    return view_link(db, bot, str(request.base_url), regenerate=True)
+
+
 @router.post("/{bot_id}/utilization-access")
 @limiter.limit("30/minute")
 def metrics_access_for_configuration(

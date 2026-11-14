@@ -301,7 +301,8 @@ def test_signed_group_query_and_personal_context_share_the_same_link(client, fak
     assert state.status_code == 200 and state.json()["resources"]
 
 
-def test_persisted_window_and_concurrent_first_use_are_stable(tmp_path):
+@pytest.mark.parametrize("days", [1, 30, 0])
+def test_persisted_window_and_concurrent_first_use_are_stable(tmp_path, days):
     engine = create_engine("sqlite:///" + str(tmp_path / "views.db"), connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -312,6 +313,7 @@ def test_persisted_window_and_concurrent_first_use_are_stable(tmp_path):
                 uuid="test-stable-uuid",
                 identity_revision=0,
                 name="view",
+                config_overrides='{"RESOURCE_VIEW_LINK_DAYS":' + str(days) + "}",
                 bot_type="NODE",
                 platform="infoflow",
                 webhook_url="",
@@ -376,3 +378,128 @@ def test_signing_secret_rotation_invalidates_both_code_formats(client, api, db_s
     for auth in [headers(context), {"Authorization": "Bearer " + legacy}]:
         result = client.get(f"/api/bot-views/{api['bot_id']}/state", headers=auth)
         assert result.status_code == 403
+
+
+@pytest.fixture
+def view_super_admin_header(admin_header, db_session):
+    from lockbot.backend.app.auth.models import User
+
+    db_session.query(User).filter_by(username="adminuser").one().role = "super_admin"
+    db_session.commit()
+    return admin_header
+
+
+def test_platform_lifetime_and_bot_override_inheritance(client, api, db_session, view_super_admin_header, monkeypatch):
+    import json
+
+    clock = datetime(2030, 1, 1, 11, 23, 45)
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock)
+    original = link(client, api)
+    changed = client.put(
+        "/api/admin/settings", headers=view_super_admin_header, json={"settings": {"resource_view_link_days": "30"}}
+    )
+    assert changed.status_code == 200
+    # Public polling cannot rotate or extend an already issued link.
+    polled = client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(original))
+    assert polled.status_code == 200 and polled.json()["view_expires_at"] == original["view_expires_at"]
+    inherited = link(client, api)
+    assert inherited["view_expires_at"] == "2030-01-31T11:23:45+00:00"
+    assert inherited["view_url"] != original["view_url"]
+    assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(original)).status_code == 403
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.config_overrides = json.dumps({"RESOURCE_VIEW_LINK_DAYS": 7})
+    db_session.commit()
+    overridden = link(client, api)
+    assert overridden["view_expires_at"] == "2030-01-08T11:23:45+00:00"
+    # Other settings do not implicitly renew the current policy window.
+    assert link(client, api)["view_url"] == overridden["view_url"]
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.config_overrides = "{}"
+    db_session.commit()
+    assert link(client, api)["view_expires_at"] == inherited["view_expires_at"]
+
+
+def test_permanent_window_public_null_legacy_codes_and_explicit_regeneration(
+    client, api, db_session, view_super_admin_header, monkeypatch
+):
+    clock = datetime(2030, 1, 1, 11, 23, 45)
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock)
+    assert (
+        client.put(
+            "/api/admin/settings", headers=view_super_admin_header, json={"settings": {"resource_view_link_days": "0"}}
+        ).status_code
+        == 200
+    )
+    first = link(client, api)
+    assert first["view_expires_at"] is None
+    window = db_session.get(BotViewWindow, api["bot_id"])
+    assert window.expires_at == view_links.PERMANENT_EXPIRY
+    legacy = "lbv1." + window.nonce + "." + view_links._signature(db_session, window)
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock + timedelta(days=3650))
+    for auth in [headers(first), {"Authorization": "Bearer " + legacy}]:
+        state = client.get(f"/api/bot-views/{api['bot_id']}/state", headers=auth)
+        assert state.status_code == 200 and state.json()["view_expires_at"] is None
+    assert link(client, api)["view_url"] == first["view_url"]
+    regenerated = client.post(f"/api/bots/{api['bot_id']}/view-link/regenerate", headers=api["auth_header"])
+    assert regenerated.status_code == 200
+    assert regenerated.json()["view_expires_at"] is None
+    assert regenerated.json()["view_url"] != first["view_url"]
+    assert regenerated.headers["cache-control"] == "no-store"
+    for auth in [headers(first), {"Authorization": "Bearer " + legacy}]:
+        assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=auth).status_code == 403
+    assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(regenerated.json())).status_code == 200
+    # Link rotation is separate from personal credential rotation.
+    assert client.get("/api/agent/context", headers=api["headers"]).status_code == 200
+
+
+def test_permanent_link_can_return_to_finite_lifetime(client, api, db_session, monkeypatch):
+    clock = datetime(2030, 1, 1)
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock)
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.config_overrides = '{"RESOURCE_VIEW_LINK_DAYS":0}'
+    db_session.commit()
+    permanent = link(client, api)
+    assert permanent["view_expires_at"] is None
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.config_overrides = '{"RESOURCE_VIEW_LINK_DAYS":30}'
+    db_session.commit()
+    finite = link(client, api)
+    assert finite["view_expires_at"] == "2030-01-31T00:00:00+00:00"
+    assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(permanent)).status_code == 403
+    monkeypatch.setattr(view_links, "utcnow", lambda: clock + timedelta(days=30))
+    assert client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers(finite)).status_code == 403
+    renewed = link(client, api)
+    assert renewed["view_expires_at"] == "2030-03-02T00:00:00+00:00"
+
+
+def test_regeneration_requires_owner_or_super_admin(client, api, db_session, view_super_admin_header):
+    from backend.test_bot_authz import _register_user
+
+    initial = link(client, api)
+    outsider = _register_user(client, "view-outsider", "view-outsider@test.com", "pass123")
+    path = f"/api/bots/{api['bot_id']}/view-link/regenerate"
+    for auth, expected in [(outsider, 404), ({}, 401), (api["headers"], 401)]:
+        assert client.post(path, headers=auth).status_code == expected
+    assert link(client, api)["view_url"] == initial["view_url"]
+    assert client.post(path, headers=view_super_admin_header).status_code == 200
+    bot = db_session.get(Bot, api["bot_id"])
+    bot.resource_auth_enabled = False
+    db_session.commit()
+    assert client.post(path, headers=api["auth_header"]).status_code == 409
+
+
+@pytest.mark.parametrize("value", ["-1", "31", "1.5", "true", "", None, "１"])
+def test_platform_link_lifetime_validation(client, view_super_admin_header, value):
+    result = client.put(
+        "/api/admin/settings", headers=view_super_admin_header, json={"settings": {"resource_view_link_days": value}}
+    )
+    assert result.status_code == 422
+
+
+@pytest.mark.parametrize("value", [-1, 31, True, 1.5, "30", None])
+def test_bot_link_lifetime_validation(value):
+    from lockbot.backend.app.bots.schemas import BotUpdate
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        BotUpdate(config_overrides={"RESOURCE_VIEW_LINK_DAYS": value})
