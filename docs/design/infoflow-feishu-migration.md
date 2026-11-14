@@ -1,6 +1,6 @@
 # Infoflow → Feishu resource-bot migration
 
-Status: implementation plan following the 2026-10-31 reset decision in [#88](https://github.com/dynamicheart/lockbot/issues/88). The current implementation only observes preflight conditions.
+The design follows the 2026-10-31 reset decision in [#88](https://github.com/dynamicheart/lockbot/issues/88). The current implementation includes a default-off supervised cutover with preview, confirmation, drain, route switch, activation and pre-switch cancellation. See the [operator guide](../usage/platform-migration-preflight.md) for supported deployment configurations and the issue for remaining acceptance gates.
 
 ## Product behavior
 
