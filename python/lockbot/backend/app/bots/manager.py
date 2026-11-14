@@ -593,33 +593,27 @@ class BotManager:
         return _on_fatal_error
 
     def stop_bot(self, bot_id: int, drain_timeout: float | None = None) -> bool:
-        """
-        Stop a bot instance, draining admitted work first.
+        """Drain and stop a bot, discarding the retired generation."""
+        self.retire_bot(bot_id, drain_timeout)
+        return True
 
-        Owns the lifecycle transition for the whole stop (so a concurrent start / delete /
-        edit on another thread is refused), then: mark retiring (so nothing new is admitted),
-        cancel scheduling, wait for outstanding leases *and any in-flight fatal completion*,
-        and only then drop the instance.
+    def retire_bot(self, bot_id: int, drain_timeout: float | None = None) -> Lease:
+        """Return the exact detached generation after admission closes and all work drains.
 
-        Returns:
-            True if the stop ran.
-
-        Raises:
-            InstanceRetiring: If another lifecycle transition on a different thread owns this
-                bot. The caller should treat the bot as still transitioning and retry.
-            RuntimeError: If the bot is not running.
-            MayHaveExecuted: If admitted work (or a fatal completion) did not finish in time.
-                The bot stays retiring and is not replaced, because a worker that may still
-                persist state makes replacement unsafe.
+        A caller that needs to checkpoint the detached state must hold the reentrant
+        lifecycle transition across retirement and the checkpoint. A timed-out drain
+        leaves the generation registered and retiring and raises MayHaveExecuted.
         """
         with self.transition(bot_id):
             with self._lock:
-                in_live = bot_id in self._bots
-                in_failed = bot_id in self._failed
-                if not in_live and not in_failed:
+                instance = self._bots.get(bot_id)
+                if instance is None:
+                    instance = self._failed.get(bot_id)
+                if instance is None:
                     raise BotNotRunning(f"Bot {bot_id} is not running")
                 self._retiring.add(bot_id)
                 generation = self._generations.get(bot_id, 0)
+                health = self._health.get(bot_id)
 
             # The scheduler remove must happen with ``_lock`` released: the scheduler has its own
             # lock and must be taken after ours. The remove is scoped to this generation: if a
@@ -655,8 +649,10 @@ class BotManager:
             # Final retirement: let generation-keyed caches evict (outside the lock).
             if fire_hook:
                 self._fire_retire_hooks(bot_id, generation)
+            if not fire_hook:
+                raise InstanceRetiring(f"Bot {bot_id} generation changed during retirement")
             logger.info("Stopped bot %d", bot_id)
-            return True
+            return Lease(bot_id, instance, generation, health=health)
 
     def restart_bot(self, bot_id: int, config_dict: dict) -> int:
         """Stop then start a bot, both halves under ONE transition owner. Returns PID.
