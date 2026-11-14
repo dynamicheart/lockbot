@@ -98,6 +98,7 @@ def test_preview_is_observation_only_without_state_db_or_audit_changes(
     assert data["read_only"] and not data["can_commit"] and not data["reservation_created"]
     assert data["blockers"] == ["cutover_not_implemented"]
     assert data["stored_obligations"]["holders"] == 0
+    assert len(data["review_digest"]) == 64
     assert data["credential_changes"]["metrics"]["minimum_wait_seconds"] == 315
     assert state == original
     db_session.expire_all()
@@ -289,3 +290,45 @@ def test_reset_counts_only_live_bindings_and_unexpired_declarations(
     assert "hidden-" not in response.text
     assert db_session.query(ResourceBinding).count() == 6
     assert db_session.query(UsageDeclaration).count() == 12
+
+    original_review = response.json()["review_digest"]
+    binding = db_session.query(ResourceBinding).filter_by(public_id="fixture-current").one()
+    binding.credential_generation += 1
+    db_session.commit()
+    rotated = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=body).json()
+    assert rotated["stored_obligations"] == counts
+    assert rotated["review_digest"] != original_review
+
+
+def test_review_digest_changes_for_same_count_lease_and_identifies_target(
+    client, admin_header, db_session, setup, monkeypatch
+):
+    bot_id, app_id, target = setup
+    state = {
+        "node1": {
+            "status": "exclusive",
+            "current_users": [{"user_id": "private-owner", "start_time": 5, "duration": 100}],
+            "booking_list": [{"user_id": "private-booking", "duration": 50}],
+        }
+    }
+    live(monkeypatch, state)
+
+    def observe():
+        response = client.post(f"/api/bots/{bot_id}/migration-preflight", headers=admin_header, json=target)
+        assert response.status_code == 200
+        assert "private-" not in response.text
+        return response.json()
+
+    original = observe()
+    assert observe()["review_digest"] == original["review_digest"]
+    state["node1"]["current_users"][0]["duration"] = 200
+    renewed = observe()
+    assert renewed["stored_obligations"] == original["stored_obligations"]
+    assert renewed["configuration_digest"] == original["configuration_digest"]
+    assert renewed["review_digest"] != original["review_digest"]
+
+    db_session.get(FeishuApplication, app_id).bot_open_id = "ou_replaced"
+    db_session.commit()
+    changed_destination = observe()
+    assert changed_destination["review_digest"] != renewed["review_digest"]
+    assert changed_destination["target"] == renewed["target"]
