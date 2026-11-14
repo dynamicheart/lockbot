@@ -12,6 +12,8 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.personal_panel.router import create_panel
 from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from backend.test_personal_panel_connections import ORIGIN, PREFIX, env, login  # noqa: F401
 from backend.test_personal_panel_credential_views import issue as issue_view
@@ -178,15 +180,32 @@ def test_failed_rotation_preserves_old_key_and_cannot_replay_intent(rotation, ap
     assert credentials.credential_matches(row.credential_digest, api["headers"]["Authorization"][7:])
 
 
-def test_two_fresh_intents_cannot_cause_two_rotations(rotation, api, db_session):
+@pytest.fixture
+def independent_rotation_sessions(rotation, db_session, tmp_path, monkeypatch):
+    # The common in-memory fixture shares one DBAPI connection. Use independent
+    # connections for concurrent HTTP requests, as in the deployed service.
+    engine = create_engine(f"sqlite:///{tmp_path / 'concurrent-rotation.db'}")
+    try:
+        with engine.connect() as target:
+            db_session.connection().connection.driver_connection.backup(target.connection.driver_connection)
+        sessions = sessionmaker(bind=engine)
+        monkeypatch.setattr(rotation[0], "session_factory", sessions)
+        yield sessions
+    finally:
+        engine.dispose()
+
+
+def test_two_fresh_intents_cannot_cause_two_rotations(rotation, api, independent_rotation_sessions):
     previews = [prepare(rotation, api), prepare(rotation, api)]
     with ThreadPoolExecutor(max_workers=2) as pool:
-        codes = list(pool.map(lambda value: confirm(rotation[2], value).status_code, previews))
-    assert codes.count(200) == 1
+        responses = list(pool.map(lambda value: confirm(rotation[2], value), previews))
+    codes = [response.status_code for response in responses]
+    failures = [response.json().get("detail") for response in responses if response.status_code != 200]
+    assert codes.count(200) == 1, (codes, failures)
     assert all(code in {200, 403, 409, 410} for code in codes)
-    row = db_session.query(ResourceBinding).filter_by(external_user_id="alice").one()
-    db_session.refresh(row)
-    assert row.credential_generation == 1
+    with independent_rotation_sessions() as db:
+        row = db.query(ResourceBinding).filter_by(external_user_id="alice").one()
+        assert row.credential_generation == 1
 
 
 def test_other_browser_cannot_preview_or_confirm_a_rotation(rotation, api):
@@ -240,8 +259,6 @@ def test_cas_serializes_independent_database_writers_without_process_guards(tmp_
     from lockbot.backend.app.bots import encryption
     from lockbot.backend.app.database import Base
     from lockbot.backend.app.settings.models import SiteSetting
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
 
     monkeypatch.setattr(encryption, "_fernet", Fernet(Fernet.generate_key()))
 
