@@ -187,7 +187,20 @@ def _reset_authorizations(db, bot, now):
     return counts, revisions
 
 
-def observe_migration(db, manager, bot_id, body, *, retired=None):
+def destination_identity_digest(app, membership):
+    return _review_digest(
+        {
+            "app_id": app.app_id,
+            "tenant_key": app.tenant_key,
+            "bot_open_id": app.bot_open_id,
+            "transport": app.transport,
+            "credentials": fingerprint(app, "feishu"),
+            "membership_event": [membership.event_id, membership.event_time_ms, membership.status],
+        }
+    )
+
+
+def observe_migration(db, manager, bot_id, body, *, retired=None, checkpoint=None):
     bot = db.get(Bot, bot_id)
     if bot is None or bot.is_deleted:
         raise HTTPException(404, "Bot not found")
@@ -257,25 +270,19 @@ def observe_migration(db, manager, bot_id, body, *, retired=None):
             blockers.append("target_application_identity_unknown")
         membership = db.get(FeishuGroupMembership, (app.id, body.chat_id))
         target["membership_observation"] = membership.status if membership else "unknown"
-        target_review = {
-            "app_id": app.app_id,
-            "tenant_key": app.tenant_key,
-            "bot_open_id": app.bot_open_id,
-            "transport": app.transport,
-            "credentials": fingerprint(app, "feishu"),
-            "membership_event": (
-                [membership.event_id, membership.event_time_ms, membership.status] if membership is not None else None
-            ),
-        }
         if membership is None or membership.status != "present":
             blockers.append("target_membership_unverified")
         elif (membership.app_id, membership.tenant_key) != (app.app_id, app.tenant_key):
             blockers.append("target_membership_identity_changed")
+        else:
+            target_review = destination_identity_digest(app, membership)
     route = db.query(FeishuGroupRoute).filter_by(application_id=body.application_id, chat_id=body.chat_id).first()
     if route is not None:
         blockers.append("target_group_already_bound")
     if db.query(FeishuGroupRoute).filter_by(bot_id=bot_id).first() is not None:
         blockers.append("source_already_has_feishu_route")
+    if checkpoint is not None:
+        checkpoint["target_identity_digest"] = target_review
     # Selected configuration feeds an observation digest; no raw configuration or task data is returned.
     reviewed = {
         "uuid": bot.uuid,

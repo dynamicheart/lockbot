@@ -454,11 +454,21 @@ def test_persisted_migration_fences_manual_routes_and_startup(
 
 @pytest.mark.parametrize(
     ("retirement", "expected"),
-    [("unchanged", "drained"), ("changed", "source_changed"), ("timeout", "drained"), ("restart", "recovery_required")],
+    [
+        ("unchanged", "drained"),
+        ("switch", "drained"),
+        ("changed", "source_changed"),
+        ("timeout", "drained"),
+        ("restart", "recovery_required"),
+    ],
 )
 def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeypatch, retirement, expected):
     from lockbot.backend.app.bots.manager import MayHaveExecuted
-    from lockbot.backend.app.bots.migration_cutover import continue_source_drain, freeze_migration
+    from lockbot.backend.app.bots.migration_cutover import (
+        continue_source_drain,
+        freeze_migration,
+        switch_drained_migration,
+    )
     from lockbot.backend.app.bots.migration_journal import migration_fence, read_destination_checkpoint
     from lockbot.backend.app.bots.migration_preflight import (
         MigrationPreflight,
@@ -469,6 +479,33 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
     bot_id, _, destination = setup
     actor = db_session.query(User).filter_by(username="adminuser").one()
     config = SimpleNamespace(get_val=lambda key, default=None: default)
+    if retirement == "switch":
+        bot = db_session.get(Bot, bot_id)
+        bot.api_key = "fixture-old-op"
+        binding = ResourceBinding(
+            public_id="fixture-old-binding",
+            platform="infoflow",
+            external_user_id="fixture-owner",
+            bound_bot_id=bot_id,
+            bound_bot_uuid=bot.uuid,
+            bound_identity_revision=bot.identity_revision,
+            credential_digest="fixture-old-agent",
+        )
+        db_session.add(binding)
+        db_session.flush()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        db_session.add(
+            UsageDeclaration(
+                bot_id=bot_id,
+                binding_id=binding.id,
+                resource_id="node1",
+                purpose="fixture-purpose",
+                holding_proof="fixture-proof",
+                updated_at=now,
+                expires_at=now + timedelta(hours=1),
+            )
+        )
+        db_session.commit()
     state = {"node1": {"status": "idle", "current_users": [], "booking_list": []}}
     lease = SimpleNamespace(
         generation=1,
@@ -499,7 +536,9 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
             raise BotNotRunning()
         return lease
 
-    manager = SimpleNamespace(transition=admit, admit=admit, retire_bot=retire)
+    manager = SimpleNamespace(
+        transition=admit, admit=admit, retire_bot=retire, get_instance=lambda _: None, is_retiring=lambda _: False
+    )
     target = MigrationPreflight(**destination)
     observation = observe_migration(db_session, manager, bot_id, target)
     receipt = migration_review_receipt(actor, observation)
@@ -525,6 +564,43 @@ def test_frozen_migration_rechecks_the_retired_source(setup, db_session, monkeyp
     assert not db_session.query(FeishuGroupRoute).count()
     db_session.expunge_all()
     persisted = migration_fence(db_session, bot_id)
+    if retirement == "switch":
+        bot = db_session.get(Bot, bot_id)
+        original_uuid, original_revision, inventory = bot.uuid, bot.identity_revision, bot.cluster_configs
+        original_app = db_session.get(FeishuApplication, destination["application_id"])
+        original_app.bot_open_id = "ou_changed"
+        db_session.commit()
+
+        def verify(app, chat, drained_at):
+            assert app.app_id == "cli_fixture"
+            assert chat == "oc_fixture"
+            assert drained_at is not None
+
+        with pytest.raises(HTTPException) as stale:
+            switch_drained_migration(db_session, manager, bot_id, operation_id, actor, verify_destination=verify)
+        assert stale.value.status_code == 409
+        original_app.bot_open_id = "ou_fixture"
+        db_session.commit()
+        switched = switch_drained_migration(db_session, manager, bot_id, operation_id, actor, verify_destination=verify)
+        assert switched.phase == "switched"
+        assert read_destination_checkpoint(switched)["node1"]["status"] == "idle"
+        assert (bot.uuid, bot.identity_revision, bot.cluster_configs) == (
+            original_uuid,
+            original_revision + 1,
+            inventory,
+        )
+        assert bot.api_key is None and bot.pid is None and bot.status == "stopped"
+        assert bot.platform == "Feishu"
+        assert db_session.query(ResourceBinding).one().revoked_at is not None
+        assert db_session.query(UsageDeclaration).count() == 0
+        assert db_session.query(FeishuGroupRoute).one().chat_id == "oc_fixture"
+        assert db_session.query(AuditLog).filter_by(action="bot.migration_switch").count() == 1
+        assert (
+            switch_drained_migration(db_session, manager, bot_id, operation_id, actor, verify_destination=verify).phase
+            == "switched"
+        )
+        assert bot.identity_revision == original_revision + 1
+        return
     if expected == "drained":
         assert read_destination_checkpoint(persisted) == {
             "node1": {"status": "idle", "current_users": [], "booking_list": []}

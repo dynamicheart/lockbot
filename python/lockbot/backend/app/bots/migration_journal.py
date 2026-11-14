@@ -28,6 +28,7 @@ class BotMigration(Base):
     phase: Mapped[str] = mapped_column(String(24), default="frozen")
     drained_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     destination_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_identity_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
     destination_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
@@ -61,6 +62,7 @@ def _destination_scope(row, payload):
         "application": row.target_application_id,
         "chat": row.target_chat_id,
         "review": row.review_digest,
+        "target_identity": row.target_identity_digest,
         "payload": payload,
     }
 
@@ -77,7 +79,7 @@ def stage_destination_checkpoint(row, state):
 def read_destination_checkpoint(row):
     """Validate the persisted checkpoint before a later operation can publish it."""
     payload = row.destination_payload
-    if row.phase != "drained" or not payload or not row.destination_digest:
+    if row.phase not in {"drained", "switched"} or not payload or not row.destination_digest:
         raise ValueError("Destination checkpoint is unavailable")
     if len(payload.encode()) > MAX_STATE_FILE_BYTES or not hmac.compare_digest(
         row.destination_digest, _review_digest(_destination_scope(row, payload))
