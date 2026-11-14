@@ -98,13 +98,32 @@ def test_previous_revision_notice_preserves_key_and_does_not_replay_release(case
     assert notice["reported_version"] == fixture.case["installed_version"]
     assert notice["manifest_url"] == "/api/agent-skill"
     assert notice["skill_url"] == base.SKILL_PATH
-    fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH})
-    request(fixture, "/api/bots/7/resources", version=fixture.manifest()["version"])
+    latest = fixture.manifest()["version"]
+    download = fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH + f"?version={latest}"})
+    assert download["status"] == 200 and download["content"] == fixture.markdown
+    request(fixture, "/api/bots/7/resources", version=latest)
     final = "请确认安装新版完整包：" + base.ORIGIN + base.BUNDLE_PATH
     assert evaluation.score(fixture.root, final)["observable_pass"]
     assert (fixture.workspace / "private/connection.json").exists()
     request(fixture, "/api/bots/7/commands", "free node-a")
     assert not evaluation.score(fixture.root, final)["checks"]["one_successful_release"]
+
+
+def test_cache_buster_is_limited_to_getting_the_frozen_current_skill(case):
+    fixture = case("update")
+    origin = base.ORIGIN
+    latest = fixture.manifest()["version"]
+    previous = fixture.case["installed_version"]
+    for url, method in (
+        (origin + base.SKILL_PATH + f"?version={previous}", "GET"),
+        (origin + base.SKILL_PATH + f"?version={latest}&extra=1", "GET"),
+        (origin + base.SKILL_PATH + f"?version={latest}#fragment", "GET"),
+        (origin + base.SKILL_PATH + f"?version={latest}", "POST"),
+        ("https://other.example.test" + base.SKILL_PATH + f"?version={latest}", "GET"),
+        (origin + f"/api/agent/context?version={latest}", "GET"),
+    ):
+        assert fixture.call("http_request", {"url": url, "method": method})["status"] == 404
+    assert not (fixture.workspace / "downloads/SKILL.md").exists()
 
 
 def test_alias_query_set_change_clear_have_independent_readbacks(case):

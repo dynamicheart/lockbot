@@ -153,7 +153,15 @@ class Fixture(base.Fixture):
     def http(self, args):
         url = urlsplit(args["url"])
         method = args.get("method", "GET").upper()
-        if f"{url.scheme}://{url.netloc}" != base.ORIGIN or url.query or url.fragment:
+        if f"{url.scheme}://{url.netloc}" != base.ORIGIN or url.fragment:
+            return {"status": 404}
+        if url.query:
+            if (
+                method == "GET"
+                and url.path == base.SKILL_PATH
+                and url.query == f"version={self.manifest()['version']}"
+            ):
+                return super().http({**args, "url": base.ORIGIN + base.SKILL_PATH})
             return {"status": 404}
         headers = {name.lower(): value for name, value in args.get("headers", {}).items()}
         if url.path in ("/api/bots/7/resources", "/api/bots/7/commands"):

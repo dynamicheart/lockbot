@@ -121,6 +121,8 @@ They do not execute real resource commands or provide a client scheduler.
   prompt. The old client revision must elicit an actual HTTP `skill_update` result,
   followed by reading all latest Skill bytes before adopting its revision. Reporting
   latest after actually reading it is valid; reading just the manifest is insufficient.
+  The frozen Markdown is available at the advertised path with or without the
+  documented `?version=<current revision>` cache buster.
   The response-triggered-update case still requires old hint before the new read.
   Preserve key/connection bytes, authenticate/read back released state, ask for full
   ZIP installation confirmation, and do not replay or silently install.
