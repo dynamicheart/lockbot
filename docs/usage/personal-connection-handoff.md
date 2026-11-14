@@ -33,3 +33,10 @@
 封装、事务或比较交换失败不会自动更换旧 Key。若提交后网络中断、页面超时或关闭，重置结果可能已经生效：不要再次提交或自动轮换，应由本人通过 IM 重新确认当前绑定，再按恢复指引处理；不能拿失效原 Key 为自己续权。
 
 这些资料仅由原生身份提供方对本服务的确认绑定生成。外部资源报表的已授权群继续显示在资源查询和连接来源中，并标明“此来源仅支持资源查询，凭证请由原 Agent 管理”；本阶段不解密或转发外部来源的 Key。自定义身份提供方不会因为返回相同格式、名字或 URL 而获得原生连接／Key 权限，未提供能力时会显示管理暂不可用。旧面板 API 没有相应能力时，继续使用其原有只读界面。
+
+## Task details on held resources
+
+The personal dashboard shows the recorded task category on an active holding.
+Select the category to open the detailed note and Agent label when available.
+These fields are available for the binding that registered the task on that
+holding. External report sources may omit task details.
