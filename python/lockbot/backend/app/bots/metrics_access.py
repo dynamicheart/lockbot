@@ -23,7 +23,10 @@ def issue_metrics_access(db, bot, source=None, *, expires_at=None):
     issued = now // 30 * 30
     expiry = issued + 300
     if expires_at is not None:
-        expiry = min(expiry, int(expires_at.replace(tzinfo=timezone.utc).timestamp()))
+        # Database values are naive UTC; an already-aware value denotes its own
+        # instant and must not be relabelled as UTC (for example +08:00).
+        parent_expiry = expires_at.replace(tzinfo=timezone.utc) if expires_at.tzinfo is None else expires_at
+        expiry = min(expiry, int(parent_expiry.timestamp()))
     if expiry <= now:
         return None
     # Only source labels explicitly mapped from this bot's configured resources may be granted.
