@@ -171,7 +171,7 @@
             <thead role="rowgroup">
               <tr role="row">
                 <th scope="col" role="columnheader">资源群</th>
-                <th scope="col" role="columnheader">节点 / 卡号</th>
+                <th scope="col" role="columnheader">资源</th>
                 <th v-if="section.timeLabel" scope="col" role="columnheader">
                   {{ section.timeLabel }}
                 </th>
@@ -186,8 +186,10 @@
               <tr v-for="row in section.rows" :key="row.key" role="row">
                 <td role="cell" class="allocation-group">{{ row.group.label }}</td>
                 <td role="cell" class="allocation-name">
-                  {{ row.allocation.node ?? '未知节点'
-                  }}{{ row.allocation.device == null ? '' : ' / 卡 ' + row.allocation.device }}
+                  <span class="allocation-node">{{ row.allocation.node ?? '未知节点' }}</span>
+                  <span v-if="row.allocation.device != null" class="allocation-device">
+                    卡 {{ row.allocation.device }}
+                  </span>
                 </td>
                 <td v-if="section.timeLabel" role="cell" class="allocation-time">
                   <span aria-hidden="true" class="allocation-label">{{ section.timeLabel }}</span>
@@ -276,9 +278,15 @@
         <section v-for="(group, index) in groups" :key="index" class="group-card">
           <div class="page-heading">
             <h2>{{ group.label }}</h2>
-            <el-tag :type="fresh(group) ? 'success' : 'warning'">{{
-              fresh(group) ? '已更新' : '待确认'
-            }}</el-tag>
+            <el-tag
+              :type="fresh(group) ? 'success' : 'warning'"
+              :title="
+                Number.isFinite(expiration(group.source_at))
+                  ? '状态采集于 ' + date(group.source_at)
+                  : undefined
+              "
+              >{{ fresh(group) ? '已更新' : '待确认' }}</el-tag
+            >
           </div>
           <p class="group-meta">{{ identityLabel(group.identity) }}</p>
           <div v-if="fresh(group)" class="group-metrics">
@@ -288,7 +296,6 @@
             </div>
           </div>
           <p v-else class="group-meta group-pending">暂未获取已确认的占用信息</p>
-          <p class="group-meta">源数据时间 {{ date(group.source_at) }}</p>
         </section>
         <p v-if="!groups.length && !initialResourceLoading" class="empty">
           {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
@@ -890,6 +897,14 @@ onMounted(async () => {
   border: 0;
   padding: 0;
   color: var(--accent);
+}
+.allocation-node {
+  font-weight: 600;
+}
+.allocation-device {
+  margin-inline-start: 8px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 .allocation-controls {
   display: grid;

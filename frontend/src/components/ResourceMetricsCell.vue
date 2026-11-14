@@ -55,8 +55,9 @@
               </button>
             </template>
             <div class="process-detail">
-              <strong>{{ nodeId }} · {{ deviceName(card.device) }}</strong>
-              <p>{{ $t('utilization.processNote') }}</p>
+              <strong :title="$t('utilization.sampled') + ' · ' + sampleTime(card)">
+                {{ nodeId }} · {{ deviceName(card.device) }}
+              </strong>
               <table>
                 <thead>
                   <tr>
@@ -84,7 +85,6 @@
                 </tbody>
               </table>
               <p v-if="card.processesTruncated">{{ $t('utilization.processTruncated') }}</p>
-              <p>{{ $t('utilization.sampled') }}: {{ sampleTime(card) }}</p>
             </div>
           </el-popover>
         </div>
@@ -143,10 +143,7 @@ function memoryPercent(metrics) {
       : metricText(metrics.used)
 }
 function sampleTime(card) {
-  const times = Object.values(card.metrics)
-    .map((metric) => metric.observedAt)
-    .filter(Number.isFinite)
-  return times.length ? formatResourceTime(Math.min(...times), locale.value) : '—'
+  return formatResourceTime(card.processSample?.observedAt, locale.value)
 }
 function loadClass(card) {
   const level = loadLevel([card], props.now, props.config?.staleSeconds || 90, metricStatus)
