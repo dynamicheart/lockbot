@@ -273,6 +273,15 @@ def rotate_confirmed_credential(
         )
         if changed != 1:
             raise ValueError("Rotation authority changed")
+        _audit_binding_change(
+            db,
+            row.platform,
+            row.external_user_id,
+            db.get(Bot, row.bound_bot_id),
+            "rotate",
+            [row],
+            source="personal_panel",
+        )
         db.commit()
     except Exception:
         db.rollback()
@@ -379,7 +388,7 @@ def _handle_chat_binding(
         db.close()
 
 
-def _audit_binding_change(db, platform, external_user_id, bot, action, rows):
+def _audit_binding_change(db, platform, external_user_id, bot, action, rows, *, source="chat"):
     """Record real authorization changes in the same transaction, without secrets."""
     if not rows:
         return
@@ -392,7 +401,7 @@ def _audit_binding_change(db, platform, external_user_id, bot, action, rows):
         target_type="bot",
         target_id=bot.id,
         target_name=bot.name,
-        detail={"source": "chat", "platform": platform, "external_user_id": external_user_id},
+        detail={"source": source, "platform": platform, "external_user_id": external_user_id},
     )
 
 

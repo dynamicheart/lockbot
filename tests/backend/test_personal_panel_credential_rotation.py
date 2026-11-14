@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from lockbot.backend.app.bot_audit.models import BotAuditLog
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.personal_panel.router import create_panel
 from lockbot.backend.app.resource_auth import credentials, service
@@ -320,5 +321,9 @@ def test_cas_serializes_independent_database_writers_without_process_guards(tmp_
             assert row.credential_generation == 1
             assert credentials.recover_credential(row) == keys[0]
             assert not credentials.credential_matches(row.credential_digest, old)
+            record = db.query(BotAuditLog).filter_by(action="resource_auth.rotate").one()
+            assert (record.target_id, record.operator_username, record.operator_role) == (1, "infoflow:alice", "agent")
+            assert record.detail == '{"source": "personal_panel", "platform": "infoflow", "external_user_id": "alice"}'
+            assert old not in record.detail and keys[0] not in record.detail
     finally:
         engine.dispose()
