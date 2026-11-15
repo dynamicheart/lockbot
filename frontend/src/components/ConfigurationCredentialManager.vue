@@ -13,7 +13,7 @@
       <h2 id="configuration-credential-guide-title">
         {{ $t('configurationCredentials.empty') }}
       </h2>
-      <img src="/configuration-credential-guide.webp" alt="" width="1392" height="464" />
+      <img src="../assets/configuration-credential-guide.webp" alt="" width="1392" height="464" />
       <ol>
         <li>
           <strong>{{ $t('configurationCredentials.guideSelectTitle') }}</strong>
@@ -588,9 +588,6 @@ onBeforeUnmount(() => {
   margin: 16px auto 0;
   padding: clamp(16px, 3vw, 28px);
   text-align: center;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 10px;
-  background: var(--el-bg-color-overlay);
 }
 
 .credential-guide h2 {
