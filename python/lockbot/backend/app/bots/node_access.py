@@ -7,7 +7,8 @@ from datetime import datetime
 
 from fastapi import HTTPException, Request
 
-VERSION = 1
+SINGLE_ADDRESS_VERSION = 1
+DUAL_ADDRESS_VERSION = 2
 _MAX_IMPORT_BYTES = 256 * 1024
 _HOST_LABEL = re.compile(r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?")
 
@@ -30,14 +31,18 @@ def _unique_object(pairs):
     return result
 
 
+def _is_hostname(value):
+    labels = value.removesuffix(".").split(".")
+    return all(_HOST_LABEL.fullmatch(label) for label in labels) and not all(label.isdigit() for label in labels)
+
+
 def _host(value):
     if not isinstance(value, str) or not value or len(value) > 253 or not value.isascii() or "%" in value:
         raise ValueError("Invalid SSH host")
     try:
         return str(ipaddress.ip_address(value))
     except ValueError:
-        labels = value.removesuffix(".").split(".")
-        if all(_HOST_LABEL.fullmatch(label) for label in labels) and not all(label.isdigit() for label in labels):
+        if _is_hostname(value):
             return value.lower()
         raise ValueError("Invalid SSH host") from None
 
@@ -48,17 +53,20 @@ def parse_access_mapping(raw, allowed_nodes=None):
         not isinstance(data, dict)
         or data.keys() != {"version", "nodes"}
         or type(data["version"]) is not int
-        or data["version"] != VERSION
+        or data["version"] not in {SINGLE_ADDRESS_VERSION, DUAL_ADDRESS_VERSION}
         or not isinstance(data["nodes"], dict)
     ):
-        raise ValueError("Expected a version 1 node access mapping")
+        raise ValueError("Expected a version 1 or 2 node access mapping")
 
     nodes = {}
+    fields = {"host", "port"}
+    if data["version"] == DUAL_ADDRESS_VERSION:
+        fields.add("ipv4")
     for node, entry in data["nodes"].items():
         if not node or len(node) > 256 or (allowed_nodes is not None and node not in allowed_nodes):
             raise ValueError(f"Unknown node ID: {node[:256]!r}")
-        if not isinstance(entry, dict) or not {"host"} <= entry.keys() <= {"host", "port"}:
-            raise ValueError(f"Node {node!r} must contain only host and optional port")
+        if not isinstance(entry, dict) or not {"host"} <= entry.keys() <= fields:
+            raise ValueError(f"Invalid address fields for node {node!r}")
         port = entry.get("port", 22)
         if type(port) is not int or not 1 <= port <= 65535:
             raise ValueError(f"Invalid SSH port for node {node!r}")
@@ -66,7 +74,18 @@ def parse_access_mapping(raw, allowed_nodes=None):
             host = _host(entry["host"])
         except ValueError:
             raise ValueError(f"Invalid SSH host for node {node!r}") from None
-        nodes[node] = {"host": host, "port": port}
+        access = {"host": host, "port": port}
+        if "ipv4" in entry:
+            if not _is_hostname(host):
+                raise ValueError(f"Enter a hostname in host when setting ipv4 for node {node!r}")
+            ipv4 = entry["ipv4"]
+            if not isinstance(ipv4, str):
+                raise ValueError(f"Invalid IPv4 address for node {node!r}")
+            try:
+                access["ipv4"] = str(ipaddress.IPv4Address(ipv4))
+            except ipaddress.AddressValueError:
+                raise ValueError(f"Invalid IPv4 address for node {node!r}") from None
+        nodes[node] = access
     return nodes
 
 
@@ -97,7 +116,11 @@ def saved_node_access(bot):
 
 
 def serialize_node_access(nodes):
-    return json.dumps({"version": VERSION, "nodes": nodes}, ensure_ascii=False) if nodes else None
+    return json.dumps({"version": mapping_version(nodes), "nodes": nodes}, ensure_ascii=False) if nodes else None
+
+
+def mapping_version(nodes):
+    return DUAL_ADDRESS_VERSION if any("ipv4" in access for access in nodes.values()) else SINGLE_ADDRESS_VERSION
 
 
 def _active_holding(resource, subject, now):

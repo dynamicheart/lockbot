@@ -131,8 +131,9 @@ Keep connection/key files outside the installation. Credentials/grants are redac
 
 After acquiring a node or a card, use the verified resource snapshot from the helper's
 `resources` command to look for `node_access` on your current holding. It contains the
-optional administrator-configured SSH `host` and `port`; a card uses the address of its
-parent node. Recheck the snapshot before relying on the address. If the field is absent,
+administrator-configured SSH `host` and `port`, with a separate `ipv4` when both a hostname
+and IPv4 address were registered. A card uses the addresses of its parent node. Recheck
+the snapshot before relying on either address. If the field is absent,
 ask the resource administrator for access instructions. Keep private addresses out of
 shared replies and do not guess addresses from node labels or telemetry mappings.
 

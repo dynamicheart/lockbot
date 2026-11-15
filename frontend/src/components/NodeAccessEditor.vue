@@ -10,7 +10,8 @@
     <template v-if="inventory">
       <el-button size="small" @click="copyPrompt">{{ t('nodeAccess.copyPrompt') }}</el-button>
       <p class="format-hint">
-        {{ t('nodeAccess.inventoryFormat') }} <code>node-02,192.0.2.42,2222</code>
+        {{ t('nodeAccess.inventoryFormat') }}
+        <code>node-01,compute-01.example.test,192.0.2.41,2222</code>
       </p>
       <label class="mapping">
         {{ t('nodeAccess.mapping') }}
@@ -31,9 +32,9 @@
           <li v-for="node in [...preview.added, ...preview.changed]" :key="node">
             <strong>{{ node }}</strong>
             <template v-if="inventory.nodes[node]">
-              {{ address(inventory.nodes[node]) }} →
+              {{ formatNodeAccess(inventory.nodes[node]) }} →
             </template>
-            {{ address(preview.nodes[node]) }}
+            {{ formatNodeAccess(preview.nodes[node]) }}
           </li>
         </ul>
         <p v-if="!changed">{{ t('nodeAccess.noChanges') }}</p>
@@ -43,7 +44,7 @@
         <ul class="saved-nodes">
           <li v-for="(entry, node) in inventory.nodes" :key="node">
             <span
-              ><strong>{{ node }}</strong> {{ address(entry) }}</span
+              ><strong>{{ node }}</strong> {{ formatNodeAccess(entry) }}</span
             >
             <el-button size="small" text type="danger" :disabled="busy" @click="remove(node)">
               {{ t('nodeAccess.remove') }}
@@ -76,6 +77,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { useHelpers } from '../utils/helpers'
+import { formatNodeAccess } from '../utils/nodeAccess'
 
 const props = defineProps({ botId: { type: Number, required: true } })
 const { t } = useI18n()
@@ -96,17 +98,13 @@ const mappingOptions = {
 }
 const example = [
   '{',
-  '  "version": 1,',
+  '  "version": 2,',
   '  "nodes": {',
-  '    "node-01": { "host": "compute-01.example.test" },',
+  '    "node-01": { "host": "compute-01.example.test", "ipv4": "192.0.2.41", "port": 2222 },',
   '    "node-02": { "host": "192.0.2.42", "port": 2222 }',
   '  }',
   '}',
 ].join('\n')
-
-function address({ host, port }) {
-  return `${host.includes(':') ? `[${host}]` : host}:${port}`
-}
 
 function copyPrompt() {
   copyText(
