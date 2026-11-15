@@ -691,6 +691,9 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalPanelHandoff: {
+    includeGroups: 'Add all {count} groups from this account',
+  },
   personalOnboarding: {
     title: 'Sign in with your Agent',
     ask: 'Ask your Agent',

@@ -107,6 +107,14 @@
         </p>
         <p>本次登录账号 {{ identityLabel(ticket.identity) }}</p>
         <p class="scope">确认后才会使用本次登录链接。</p>
+        <template v-if="ticket.groups.length > 1">
+          <el-checkbox v-model="includeRecovered" :disabled="busy">
+            {{ $t('personalPanelHandoff.includeGroups', { count: ticket.groups.length }) }}
+          </el-checkbox>
+          <ul class="handoff-groups">
+            <li v-for="(group, index) in ticket.groups" :key="index">{{ group }}</li>
+          </ul>
+        </template>
         <div class="actions">
           <el-button type="primary" :loading="busy" @click="run(() => login('replace'))">{{
             session.authenticated ? '切换为本次身份' : '确认登录'
@@ -816,6 +824,7 @@ function handleCredentialAction(command) {
 }
 const ticket = ref(null)
 const combine = ref(false)
+const includeRecovered = ref(false)
 const error = ref('')
 const busy = ref(false)
 const initialized = ref(false)
@@ -1612,7 +1621,8 @@ async function refresh() {
 }
 
 async function login(mode) {
-  await api('login', { ticket: ticket.value.token, mode })
+  const account = includeRecovered.value && ticket.value.groups.length > 1
+  await api('login', { ticket: ticket.value.token, mode: account ? `${mode}_account` : mode })
   ticket.value = null
   combine.value = false
   await refresh()
@@ -1657,7 +1667,11 @@ watch([pendingPanelTicket, busy, initialized], ([incoming, running, ready]) => {
     if (!preview.identity || typeof preview.identity !== 'object')
       throw new Error('无法确认待登录身份，请重新获取链接。')
     combine.value = false
-    ticket.value = { token: incoming, identity: preview.identity }
+    const groups = Array.isArray(preview.groups)
+      ? preview.groups.filter((name) => typeof name === 'string')
+      : []
+    includeRecovered.value = groups.length > 1
+    ticket.value = { token: incoming, identity: preview.identity, groups }
   })
 })
 onUnmounted(() => {
@@ -1675,6 +1689,11 @@ onMounted(async () => {
 <style scoped src="../assets/styles/personal-panel.css"></style>
 
 <style scoped>
+.handoff-groups {
+  margin: 0 0 12px;
+  padding-inline-start: 24px;
+  overflow-wrap: anywhere;
+}
 .guidance-summary {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

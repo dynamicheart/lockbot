@@ -515,6 +515,9 @@ python3 scripts/lockbot_resource.py --connection /private/connection.json panel-
 
 Only run this command when private delivery to the verified user is authorized. Send
 its `login_url` only in that private channel and keep `home` for ordinary return visits.
+When supported, one link previews the groups recoverable from the same verified account
+on that service. The user can confirm all listed groups or only the group associated with
+the current Key. No group name or second link is needed for groups listed in the preview.
 The following protocol details are for direct API clients.
 
 First GET `/api/personal-panel/capabilities` **without credentials** on the already approved service origin.
@@ -526,6 +529,12 @@ may be used only if capabilities explicitly advertise `transport: private-http`.
 Never downgrade an approved HTTPS destination to HTTP.
 A missing/unsupported capability does not change the existing resource API or group-page
 workflow below. Never guess another host or send a credential to discover capabilities.
+
+If the native service advertises `connection_management.account_issue_path` equal to
+`/api/personal-panel/account-links`, the same verified Key can request this multi-group
+handoff at that exact path. Each other group is validated using its own recoverable
+binding. A Key from another service, an unrelated identity or an unavailable recovery
+copy cannot add that group's browser access.
 
 For ordinary return visits, share the verified fixed `home` for bookmarking; the person's
 own browser restores its session. If they ask you to open their saved panel, use the

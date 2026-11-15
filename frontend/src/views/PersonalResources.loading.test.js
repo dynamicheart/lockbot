@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { createI18n } from 'vue-i18n'
 import zhCN from '../i18n/zh-CN'
+import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import PersonalResources from './PersonalResources.vue'
 
 const renderer = createRenderer({
@@ -84,6 +85,37 @@ it('does not load protected reports for an unauthenticated session', async () =>
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(state.resourcesReady).toBe(false)
 })
+
+it.each([true, false])(
+  'previews recovered groups and submits the chosen scope (%s)',
+  async (include) => {
+    let signedIn = false
+    const identity = { issuer: 'https://test.example', subject: 'owner', platform: 'infoflow' }
+    const fetch = vi.fn(async (url) => {
+      if (url.endsWith('/preview')) return response({ identity, groups: ['开发组', '测试组'] })
+      if (url.endsWith('/login')) {
+        signedIn = true
+        return response({ authenticated: true })
+      }
+      if (url.endsWith('/session')) return response({ authenticated: signedIn, identities: [] })
+      return response({ groups: [] })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const state = await mount()
+    await flush()
+    pendingPanelTicket.value = 'simulated-browser-handoff'
+    await vi.waitFor(() => expect(state.ticket?.groups).toEqual(['开发组', '测试组']))
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/login'))).toBe(false)
+    expect(state.includeRecovered).toBe(true)
+    state.includeRecovered = include
+    await state.login('replace')
+    const [, login] = fetch.mock.calls.find(([url]) => url.endsWith('/login'))
+    expect(JSON.parse(login.body)).toEqual({
+      mode: include ? 'replace_account' : 'replace',
+      ticket: 'simulated-browser-handoff',
+    })
+  }
+)
 it('ends resource loading and shows an error when a reporter request fails', async () => {
   vi.stubGlobal(
     'fetch',

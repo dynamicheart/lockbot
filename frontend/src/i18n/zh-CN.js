@@ -668,6 +668,9 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalPanelHandoff: {
+    includeGroups: '添加此账号下的全部 {count} 个群',
+  },
   personalOnboarding: {
     title: '用 Agent 登录工作台',
     ask: '跟 Agent 说',

@@ -6,6 +6,7 @@ import json
 import threading
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import jwt
@@ -66,6 +67,71 @@ def test_pending_binding_cannot_login(panel):
     pending = service.create_binding(label="pending-agent")
     with pytest.raises(native.ProviderError):
         provider.authenticate(pending["credential"])
+
+
+@pytest.mark.parametrize(
+    "action", ["replace", "replace_account", "revoke_before_confirm", "legacy_missing", "other_realm"]
+)
+def test_one_key_previews_only_recoverable_account_groups(panel, api, db_session, tmp_path, action):
+    provider, grant = panel
+    primary = db_session.get(Bot, api["bot_id"])
+    second = Bot(
+        user_id=primary.user_id,
+        uuid="other-scope-id",
+        name="Recovered Group",
+        bot_type="NODE",
+        platform="Infoflow",
+        webhook_url="",
+        cluster_configs="{}",
+    )
+    db_session.add(second)
+    db_session.commit()
+    issued = service.create_binding(label="second-bot-agent")
+    service.handle_chat_binding(
+        platform="infoflow", external_user_id="alice", bot_id=second.id, action="bind", argument=issued["bind_code"]
+    )
+    second_grant = provider.authenticate(issued["credential"])
+    if action == "legacy_missing":
+        _binding(db_session, second_grant).credential_encrypted = None
+        db_session.commit()
+    if action == "other_realm":
+        provider.config["trusted_realms"] = {second.uuid: {"platform": "infoflow", "realm": "other-account"}}
+
+    origin = provider.config["issuer"]
+    parent = FastAPI()
+    parent.mount("/me", create_panel(origin, tmp_path / "panel.db", provider))
+    with TestClient(parent, base_url=origin) as browser:
+        assert browser.post("/me/account-links", headers={**api["headers"], "Origin": origin}).status_code == 401
+        response = browser.post("/me/account-links", headers=api["headers"])
+        assert response.status_code == 200
+        ticket = parse_qs(urlsplit(response.json()["login_url"]).fragment.split("?", 1)[1])["ticket"][0]
+        headers = {"Origin": origin}
+        response = browser.post("/me/preview", headers=headers, json={"ticket": ticket})
+        assert response.status_code == 200
+        if action in ("legacy_missing", "other_realm"):
+            assert "groups" not in response.json()
+        else:
+            assert response.json()["groups"] == [primary.name, second.name]
+        assert issued["credential"] not in response.text and second_grant["ref"] not in response.text
+        assert not browser.get("/me/session").json()["authenticated"]
+        if action == "revoke_before_confirm":
+            _binding(db_session, second_grant).revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            db_session.commit()
+            assert (
+                browser.post(
+                    "/me/login", headers=headers, json={"ticket": ticket, "mode": "replace_account"}
+                ).status_code
+                == 403
+            )
+            assert not browser.get("/me/session").json()["authenticated"]
+        mode = "replace_account" if action == "replace_account" else "replace"
+        assert browser.post("/me/login", headers=headers, json={"ticket": ticket, "mode": mode}).status_code == 200
+        identities = browser.get("/me/session").json()["identities"]
+        expected = {grant["scope"]}
+        if action == "replace_account":
+            expected.add(second_grant["scope"])
+        assert {scope for identity in identities for scope in identity["scopes"]} == expected
+        assert browser.post("/me/login", headers=headers, json={"ticket": ticket, "mode": mode}).status_code == 410
 
 
 @pytest.mark.parametrize(

@@ -986,6 +986,9 @@ class Client:
             raise ClientError("agent_access_disabled")
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
+        account_path = management.get("account_issue_path")
+        if account_path == "/api/personal-panel/account-links":
+            issue_path = account_path
         issued = self._request(self.base + issue_path, token=self.key, method="POST", readonly=False)
         login_url = issued.get("login_url")
         expires_in = issued.get("expires_in")

@@ -20,7 +20,8 @@ from backend.test_resource_api_resources import api  # noqa: F401
 
 BASE = "https://panel.example.test"
 CAPABILITIES = "/api/personal-panel/capabilities"
-ISSUE = "/api/personal-panel/links"
+ISSUE = "/api/personal-panel/account-links"
+LEGACY_ISSUE = "/api/personal-panel/links"
 HOME = BASE + "/#/me"
 
 
@@ -118,6 +119,15 @@ def test_panel_link_cli_issues_once_and_preserves_ticket_for_browser(handoff, ca
     assert browser.get("/api/personal-panel/session").json()["authenticated"]
     assert (connection.parent / "resource.key").read_text() == original
     assert ticket not in connection.read_text()
+
+
+def test_panel_link_uses_single_binding_endpoint_without_account_capability(handoff):
+    connection, opener, agent, _, _ = handoff
+    capability = agent.get(CAPABILITIES).json()["connection_management"]
+    capability.pop("account_issue_path")
+    opener.capability_change = {"connection_management": capability}
+    assert helper.Client(connection).panel_link()["home"] == HOME
+    assert opener.requests[-1][0] == LEGACY_ISSUE
 
 
 @pytest.mark.parametrize(
