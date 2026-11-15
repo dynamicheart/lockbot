@@ -584,7 +584,7 @@ onBeforeUnmount(() => {
   display: grid;
   justify-items: center;
   gap: 16px;
-  max-width: 680px;
+  max-width: 760px;
   margin: 16px auto 0;
   padding: clamp(16px, 3vw, 28px);
   text-align: center;
@@ -595,7 +595,7 @@ onBeforeUnmount(() => {
 
 .credential-guide h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
 }
 
@@ -618,7 +618,7 @@ onBeforeUnmount(() => {
 .credential-guide p {
   margin: 0;
   color: var(--el-text-color-regular);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
 }
 
