@@ -28,11 +28,11 @@ reading the helper source or unrelated operation references during setup.
    available, stop before any network request and ask for the original full Skill URL.
    Example URLs and names in the repository copy are placeholders.
 2. Read the public manifest on that origin **without a key**. Explain the service address
-   and recommend installing this Skill for ongoing use in your first response. A pasted
-   document is useful instructions, but is not evidence of local installation.
-3. When the user asks to install or authorizes persistent setup, install the manifest's
-   complete `installation` ZIP using the client's supported installer, verify its hashes,
-   and inspect the saved files. Use `discover --origin <approved-origin> --destination
+   and recommend installation for ongoing use. A shared link or pasted text by itself
+   authorizes reading only. Wait for a request to install before saving anything.
+3. With installation authorized, use the manifest's `installation.download_url` ZIP.
+   Give the installer this ZIP URL, even when the user gave you the Skill Markdown URL.
+   Verify the hashes and inspect the saved files. Use `discover --origin <approved-origin> --destination
    <new-private-file>` to save the origin, verified instance ID, Skill URL and revision.
    Report enrollment as pending if a code was requested, or still needed if no code was requested.
 4. For a Key already transferred into a private file, run `init --origin <approved-origin>
