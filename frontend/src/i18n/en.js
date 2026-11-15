@@ -37,13 +37,12 @@ export default {
   configurationCredentials: {
     title: 'Configuration credentials',
     auditTab: 'Audit credentials',
-    description: 'Example: add machine IPs and utilization to a GPU bot.',
     guideSelectTitle: 'Bot administrator',
-    guideSelect: 'Select bots and permissions, then share the credential privately with the maintenance Agent.',
+    guideSelect: 'Choose bots and permissions, then send the maintenance Agent the credential privately.',
     guideShareTitle: 'Maintenance Agent',
     guideShare: 'Register machine IPs and connect a utilization data source.',
     guideUseTitle: 'A user’s own Agent',
-    guideUse: 'Check utilization to choose a card, then use its registered IP after acquiring it.',
+    guideUse: 'Check utilization to choose a card. Once acquired, connect using its IP.',
     scopeHint:
       'Choose the bots and settings the Agent can update. Authorize newly added bots separately.',
     selectedBots: '{selected} of {total} bots selected',

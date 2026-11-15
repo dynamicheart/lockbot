@@ -1,7 +1,6 @@
 <template>
   <section ref="container" class="configuration-credentials">
     <header class="credential-toolbar">
-      <p v-if="showGuide">{{ $t('configurationCredentials.description') }}</p>
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
@@ -10,9 +9,9 @@
       </div>
     </header>
 
-    <div v-if="showGuide" class="credential-guide">
-      <figure class="credential-guide-flow">
-        <img src="/configuration-credential-guide.webp" alt="" width="1392" height="464" />
+    <figure v-if="showGuide" class="credential-guide">
+      <img src="/configuration-credential-guide.webp" alt="" width="1392" height="464" />
+      <figcaption>
         <ol>
           <li>
             <strong>{{ $t('configurationCredentials.guideSelectTitle') }}</strong>
@@ -27,8 +26,8 @@
             <p>{{ $t('configurationCredentials.guideUse') }}</p>
           </li>
         </ol>
-      </figure>
-    </div>
+      </figcaption>
+    </figure>
 
     <el-alert
       v-if="error && !showCreate && !showAction"
@@ -494,19 +493,8 @@ onBeforeUnmount(() => {
 }
 
 .credential-toolbar {
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-end;
   margin-bottom: 16px;
-  align-items: flex-start;
-}
-
-.credential-toolbar .credential-actions {
-  margin-inline-start: auto;
-}
-
-.credential-toolbar p {
-  margin: 0;
-  color: var(--el-text-color-primary);
 }
 
 .credential-actions :deep(.el-button + .el-button) {
@@ -589,36 +577,45 @@ onBeforeUnmount(() => {
 
 .credential-guide {
   max-width: 800px;
-  margin-bottom: 16px;
+  margin: 24px auto;
+  padding: clamp(12px, 3vw, 24px);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 10px;
+  background: var(--el-bg-color-overlay);
 }
 
-.credential-guide-flow {
-  margin: 12px 0;
-}
-
-.credential-guide-flow img {
+.credential-guide img {
   display: block;
   width: 100%;
   height: auto;
   border-radius: 6px;
 }
 
-.credential-guide-flow ol {
+.credential-guide ol {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px 16px;
-  margin: 0;
-  padding-inline-start: 22px;
+  gap: 12px 24px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: center;
 }
 
-.credential-guide-flow p {
+.credential-guide p {
   margin: 4px 0 0;
   color: var(--el-text-color-secondary);
+  line-height: 1.55;
 }
 
 @media (max-width: 580px) {
-  .credential-guide-flow ol {
+  .credential-guide ol {
     grid-template-columns: 1fr;
+    text-align: start;
+  }
+
+  .credential-guide li + li {
+    padding-top: 12px;
+    border-top: 1px solid var(--el-border-color-lighter);
   }
 }
 </style>
