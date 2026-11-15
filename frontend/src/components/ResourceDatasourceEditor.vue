@@ -100,17 +100,29 @@
         </section>
         <details class="advanced-settings">
           <summary>{{ $t('utilization.advancedSection') }}</summary>
-          <details class="mapping-import">
+          <details class="mapping-import" @toggle="mappingExpanded = $event.target.open">
             <summary>{{ $t('utilization.importMapping') }}</summary>
-            <el-input
-              v-model="nodeMappingText"
-              type="textarea"
-              :rows="4"
-              :placeholder="$t('utilization.nodeMapping')"
-            />
-            <el-button size="small" @click="importMapping">{{
-              $t('utilization.applyMapping')
-            }}</el-button>
+            <div v-if="mappingExpanded && settings" class="mapping-import-body">
+              <JsonMappingEditor
+                v-model="nodeMappingText"
+                :rows="4"
+                :label="$t('utilization.importMapping')"
+                :example="mappingExample"
+                :disabled="testing"
+                @update:model-value="mappingSyntaxError = false"
+              />
+              <p v-if="mappingSyntaxError" class="source-error" role="alert">
+                {{ $t('jsonEditor.invalidSyntax') }}
+              </p>
+              <div>
+                <el-button
+                  size="small"
+                  :disabled="testing || !nodeMappingText.trim()"
+                  @click="importMapping"
+                  >{{ $t('utilization.applyMapping') }}</el-button
+                >
+              </div>
+            </div>
           </details>
           <div v-if="preset === 'custom'" class="custom-metrics">
             <div class="mapping-row">
@@ -168,7 +180,7 @@
   </section>
 </template>
 <script setup>
-import { reactive, ref, watch, onBeforeUnmount } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { sourceHealth } from '../utils/utilization/display'
@@ -190,13 +202,23 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:modelValue'])
 const { t } = useI18n()
+const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const preset = ref('lockbot-v1')
 const nodeMapping = reactive({})
 const deviceMapping = reactive({})
 const validationIssues = ref([])
 const settings = ref(false)
 const draft = reactive({ ...DEFAULT_CONFIG })
-const nodeMappingText = ref('{}')
+const nodeMappingText = ref('')
+const mappingExpanded = ref(false)
+const mappingSyntaxError = ref(false)
+const mappingExample = computed(() =>
+  JSON.stringify(
+    Object.fromEntries(props.nodes.map((node) => [node, nodeMapping[node] || node])),
+    null,
+    2
+  )
+)
 const bearer = ref('')
 const configError = ref(null)
 const testing = ref(false)
@@ -221,6 +243,7 @@ async function removeSource() {
   }
 }
 function importMapping() {
+  mappingSyntaxError.value = false
   try {
     const value = JSON.parse(nodeMappingText.value)
     if (
@@ -232,8 +255,9 @@ function importMapping() {
       throw new Error()
     for (const node of props.nodes) if (Object.hasOwn(value, node)) nodeMapping[node] = value[node]
     configError.value = null
-  } catch {
-    configError.value = 'configuration'
+  } catch (error) {
+    if (error instanceof SyntaxError) mappingSyntaxError.value = true
+    else configError.value = 'configuration'
   }
 }
 function applyPreset() {
@@ -277,7 +301,8 @@ function openSettings() {
     deviceMapping[id] =
       props.modelValue?.deviceMapping?.[id] ||
       (preset.value === 'lockbot-v1' ? id.match(/:dev([0-9]+)$/)?.[1] || '' : '')
-  nodeMappingText.value = JSON.stringify(nodeMapping, null, 2)
+  nodeMappingText.value = props.modelValue ? mappingExample.value : ''
+  mappingSyntaxError.value = false
   validationIssues.value = []
   configError.value = null
   settings.value = true
@@ -484,6 +509,14 @@ onBeforeUnmount(() => {
 .mapping-import summary {
   cursor: pointer;
   margin-bottom: 8px;
+}
+.mapping-import-body {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.mapping-import-body p {
+  margin: 0;
 }
 .mapping-row {
   display: grid;

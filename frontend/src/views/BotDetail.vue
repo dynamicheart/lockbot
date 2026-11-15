@@ -397,7 +397,19 @@
               $t('migration.action')
             }}</el-button>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('utilization.configure')" :span="2">
+          <el-descriptions-item :span="2">
+            <template #label>
+              {{ $t('utilization.configure') }}
+              <el-tooltip
+                :content="$t('utilization.purpose')"
+                :trigger="['hover', 'focus']"
+                placement="top"
+              >
+                <el-icon class="help-icon" tabindex="0" :aria-label="$t('utilization.purpose')"
+                  ><QuestionFilled
+                /></el-icon>
+              </el-tooltip>
+            </template>
             <ResourceDatasourceEditor
               v-if="canEdit"
               :model-value="datasourceConfig"

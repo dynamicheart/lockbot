@@ -2,30 +2,27 @@
   <el-button size="small" @click="open">{{ t('nodeAccess.open') }}</el-button>
   <el-dialog
     v-model="visible"
+    destroy-on-close
     :title="t('nodeAccess.title')"
     width="min(620px, calc(100vw - 32px))"
   >
-    <p>{{ t('nodeAccess.help') }}</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <template v-if="inventory">
-      <el-button size="small" @click="copyPrompt">{{ t('nodeAccess.copyPrompt') }}</el-button>
-      <p class="format-hint">
-        {{ t('nodeAccess.inventoryFormat') }}
-        <code>node-01,compute-01.example.test,192.0.2.41,2222</code>
-      </p>
-      <label class="mapping">
-        {{ t('nodeAccess.mapping') }}
-        <span class="format-hint">{{ t('nodeAccess.addressFormat') }}</span>
-        <el-input
+      <div class="mapping-header">
+        <span>{{ t('nodeAccess.help') }}</span>
+        <el-button size="small" @click="copyPrompt">{{ t('nodeAccess.copyPrompt') }}</el-button>
+      </div>
+      <div class="mapping">
+        <span>{{ t('nodeAccess.mapping') }}</span>
+        <JsonMappingEditor
+          v-if="visible"
           v-model="input"
-          type="textarea"
-          :rows="7"
+          :label="t('nodeAccess.mapping')"
           :disabled="busy"
-          :maxlength="131072"
-          :placeholder="example"
-          @input="preview = null"
+          :example="example"
+          @update:model-value="onEdit"
         />
-      </label>
+      </div>
       <div v-if="preview" role="status" class="preview">
         <p>{{ t('nodeAccess.review') }}</p>
         <ul>
@@ -72,7 +69,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, defineAsyncComponent, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
@@ -80,6 +77,7 @@ import { useHelpers } from '../utils/helpers'
 import { formatNodeAccess } from '../utils/nodeAccess'
 
 const props = defineProps({ botId: { type: Number, required: true } })
+const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const { t } = useI18n()
 const { copyText } = useHelpers()
 const visible = ref(false)
@@ -142,9 +140,20 @@ function open() {
 }
 
 function validate() {
+  try {
+    JSON.parse(input.value)
+  } catch {
+    error.value = t('jsonEditor.invalidSyntax')
+    return
+  }
   return run(async () => {
     preview.value = (await api.post(`${path.value}/preview`, input.value, mappingOptions)).data
   }, 'nodeAccess.validationFailed')
+}
+
+function onEdit() {
+  preview.value = null
+  error.value = ''
 }
 
 function save() {
@@ -181,10 +190,11 @@ async function remove(node) {
   gap: 8px;
   margin-top: 16px;
 }
-.format-hint {
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  overflow-wrap: anywhere;
+.mapping-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
 }
 .preview {
   margin-top: 16px;

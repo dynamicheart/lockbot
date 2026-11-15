@@ -1,4 +1,8 @@
 export default {
+  jsonEditor: {
+    tabHint: '空白时按 Tab 填入样例',
+    invalidSyntax: 'JSON 格式有误，请检查括号、引号和逗号。',
+  },
   nodeAccess: {
     title: '节点连接',
     open: '配置登录地址',
@@ -7,14 +11,13 @@ export default {
     emptyAddresses: '暂无已登记的登录地址。',
     viewFailed: '无法读取登录地址，请重新打开重试。',
     purpose: '资源持有者可在个人资源台或通过 Agent 查看节点的 SSH 地址和端口。',
-    help: '把 Prompt 和机器清单发给 Agent，再把生成的 JSON 粘贴到这里。',
+    help: '粘贴节点映射 JSON，也可交给 Agent 生成。',
     copyPrompt: '复制 Agent Prompt',
-    inventoryFormat: '机器清单每行可提供「节点 ID、已知域名、已知 IPv4、可选端口」，例如',
     mapping: '节点映射 JSON',
-    addressFormat: 'host 填域名或 IPv4。两者都已知时，把 IPv4 填在 ipv4。port 默认 22。',
     prompt:
       '请根据我提供的机器清单，生成 LockBot 的 SSH 节点映射。\n' +
       '本资源群的节点 ID 为 {nodeIds}。机器清单每行可包含节点 ID、域名、IPv4 地址和端口。域名、IPv4 和端口未知时可留空。\n' +
+      '机器清单示例：node-01,compute-01.example.test,192.0.2.41,2222\n' +
       '严格使用上述节点 ID，只映射能唯一确认的节点。无法确认的条目请略过。\n' +
       'host 优先填已确认的域名。仅有 IPv4 时填在 host。两者都已确认时，把 IPv4 另填在 ipv4。port 仅在明确给出时填 1–65535 的整数，省略时默认 22。\n' +
       '只返回 JSON，顶层使用 version（值为 2）和 nodes。每个节点会覆盖其旧记录，更新时请带上该节点已确认的两个地址。\n' +
@@ -289,7 +292,7 @@ export default {
     nodeMatch: '节点匹配',
     targetNode: '数据源中的节点标签值',
     deviceMatch: '设备匹配（按采集器的设备编号或 UUID）',
-    importMapping: '高级：导入节点映射 JSON',
+    importMapping: '导入节点映射 JSON',
     applyMapping: '应用映射',
     checkResources: '请检查这些节点或设备',
     validationSuccess: '本浏览器验证通过：{nodes} 个节点，{cards} 张卡',
@@ -330,6 +333,8 @@ export default {
     title: '利用率',
     show: '显示利用率',
     configure: '数据源',
+    purpose: '从指标服务读取节点和卡的利用率，并显示在资源页面。',
+    networkEndpoint: '当前浏览器或代理无法连接数据源 {endpoint}，请检查网络、代理或 CORS 配置。',
     name: '名称',
     endpoint: 'Prometheus 地址',
     sourceToken: '数据源 Bearer Token（仅内存，可选）',
