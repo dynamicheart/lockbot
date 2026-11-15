@@ -224,6 +224,17 @@ def test_no_key_refuses_recovery_and_requires_human_group_guidance(case):
         )["status"]
         == 401
     )
+    guidance = "请先确认目标群，获授权后申请绑定码，再由你本人在群内发送 bind <code>。"
+    assert evaluation.score(fixture.root, guidance)["observable_pass"]
+    assert request(fixture, "/api/resource-auth/bindings", method="POST")["status"] == 403
+    assert not evaluation.score(fixture.root, guidance)["observable_pass"]
+
+
+def test_approved_enrollment_returns_one_code_and_leaves_confirmation_pending(case):
+    fixture = case("approved-enrollment")
+    install_and_save(fixture)
+    assert not (fixture.workspace / "private/current.key").exists()
+    assert not evaluation.score(fixture.root, "请在群内人工完成 bind TESTCODE 确认。")["observable_pass"]
     assert request(fixture, "/api/resource-auth/bindings", method="POST")["body"]["bind_code"] == "TESTCODE"
     assert request(fixture, "/api/resource-auth/bindings/synthetic-pending-id")["body"]["status"] == "pending"
     fixture.call("write_file", {"path": "private/pending.key", "content": evaluation.PENDING_KEY})
@@ -232,6 +243,8 @@ def test_no_key_refuses_recovery_and_requires_human_group_guidance(case):
     assert not evaluation.score(
         fixture.root, "Confirm the binding in the group via /api/resource-auth/bindings. TESTCODE."
     )["checks"]["manual_group_binding_guidance"]
+    request(fixture, "/api/resource-auth/bindings", method="POST")
+    assert not evaluation.score(fixture.root, "请在群内人工完成 bind TESTCODE 确认。")["observable_pass"]
 
 
 def test_panel_requires_external_human_consent_and_bookmarks_only_fixed_home(case, tmp_path):
