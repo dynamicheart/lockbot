@@ -737,12 +737,14 @@ def score(root, final):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["prepare", "resume", "confirm-panel", "serve", "score"])
+    parser.add_argument("action", choices=["prepare", "resume", "confirm-panel", "serve", "score", "call"])
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
+    parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")
+    parser.add_argument("--arguments", default="{}", help="JSON object for one fixture tool invocation")
     args = parser.parse_args()
     if sys.version_info < (3, 10):  # noqa: UP036 - fail before starting an eval with an unsupported CLI interpreter
         parser.error("Use Python 3.10 or newer to run the packaged Lockbot CLI.")
@@ -756,6 +758,21 @@ def main():
         continuity.human_confirm(args.root)
     elif args.action == "score":
         print(json.dumps(score(args.root, args.final_file.read_text()), ensure_ascii=False))
+    elif args.action == "call":
+        definitions = tools(args.root)
+        if args.tool is None:
+            result = definitions
+        else:
+            if args.tool not in {item["name"] for item in definitions}:
+                parser.error("Unknown tool for this fixture")
+            try:
+                arguments = json.loads(args.arguments)
+            except ValueError:
+                parser.error("Fixture arguments must be a JSON object")
+            if not isinstance(arguments, dict):
+                parser.error("Fixture arguments must be a JSON object")
+            result = Fixture(args.root).call(args.tool, arguments)
+        print(json.dumps(result, ensure_ascii=False))
     else:
         base.Fixture = Fixture
         base.tools = lambda: tools(args.root)
