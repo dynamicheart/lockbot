@@ -33,6 +33,8 @@ Prometheus 是目前适配器，不是唯一可能的数据源。现有非 Prome
 
 `access_mode: short_lived` 仅在已安装源端网关并登记该源签名信任后选择。生成器不会建立该信任。「高级配置」里的刷新间隔控制浏览器读取缓存的频率，与硬件采集间隔和最长 300 秒的授权各自独立。数据过期阈值应覆盖正常错峰周期。
 
+已有采集记录可附上可选 `node_metadata`，例如 `{"source-node-a":{"hostname":"host.example.test","ip":"192.0.2.42"}}`。生成器将已提供的字段写入私有 `node-metadata.json`。资源匹配和接入验收继续使用 `node_mapping`、`device_mapping` 和实际指标。地址缺失或变更不影响接入，生成器不解析域名或探测主机。浏览器使用的指标服务 URL 仍填 `endpoint`。
+
 ## 实际部署与检查
 
 1. 核对 Release 包 checksum，保留 manifest、安装版本和原配置；不运行未知安装脚本。

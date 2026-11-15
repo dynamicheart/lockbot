@@ -62,3 +62,25 @@ def test_cli_rejects_duplicate_json_keys_without_delivering_files(tmp_path):
     )
     assert result.returncode == 2
     assert not out.exists()
+
+
+def test_optional_addresses_are_private_and_have_no_effect_on_matching(tmp_path):
+    metadata = {
+        "unmapped-source": {"hostname": "private.example.test", "ip": "192.0.2.42"},
+        "source-a": {"hostname": "observed-by-collector", "ip": None},
+    }
+    source = {**BASE, "node_metadata": metadata}
+    assert module.generate(source) == module.generate(BASE)
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(source))
+    out = tmp_path / "handoff"
+    command = [sys.executable, str(SCRIPT), "--input", str(path), "--output-dir", str(out)]
+    assert subprocess.run(command, capture_output=True).returncode == 0
+    records = out / "node-metadata.json"
+    assert records.stat().st_mode & 0o077 == 0
+    assert json.loads(records.read_bytes()) == {
+        "unmapped-source": metadata["unmapped-source"],
+        "source-a": {"hostname": "observed-by-collector"},
+    }
+    assert json.loads((out / "utilization-config.json").read_bytes())["nodeMapping"] == BASE["node_mapping"]
+    assert "192.0.2.42" not in (out / "handoff.md").read_text()
