@@ -605,6 +605,13 @@ not its display label. Ordinary DEVICE bots retain their existing node-scoped de
 
 ### QUEUE / QUEUE_DEVICE: booking is not task completion
 
+For an immediate request such as “申请一台空闲整机”, inspect live occupancy and the
+booking list. If the matching node or card is idle and its queue is empty, send
+`lock` directly. If it is already claimable by you, use the advertised claim
+command. Use `book` for an explicit reservation or when the user accepts waiting
+for a busy or queued resource. A conflict on an immediate request calls for a
+fresh read, not an automatic reservation.
+
 If the user asks you to acquire/use a resource, do **not** finish after `book`. Booking only
 reserves a queue position. Keep monitoring `/resources` yourself; do not wait for the human
 or a group @mention to make the next API call. The `book` response's `next_step` repeats this.
@@ -614,7 +621,7 @@ for your actor. Only then start the workload. If another holder remains, keep wa
 backoff. If you cannot keep monitoring, tell the user that you are **only queued**, not holding.
 
 ```text
-POST commands: book <resource> <duration> (include Agent name and purpose)
+For an authorized reservation, POST commands: book <resource> <duration> (include Agent name and purpose)
 repeat, respecting polling intervals and Retry-After:
     GET resources
     if the resource has my verified live holding: start/continue work; leave this loop
