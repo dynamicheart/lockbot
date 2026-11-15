@@ -62,6 +62,9 @@ the CLI reports true. Then match the actual node/card IDs, allocation mode, mode
 quantity and duration. A request to find resources is read-only. Clarify ambiguous
 aliases and ask before changing a card request into a whole-machine request. Send the
 verified target once and check the resulting state.
+If the user says their turn has arrived and asks to claim a booking (“轮到了” or “领取预约”),
+read the queue first, then use `command --operation claim` when that exact resource is
+`claimable_by_you`. Omit `--duration`; the original reservation determines the lease.
 If the CLI returns `http_429` with `retry_after_seconds`, wait at least that long before
 checking resources again. Use the resulting live snapshot and the original user intent
 to decide whether a write is still appropriate.
