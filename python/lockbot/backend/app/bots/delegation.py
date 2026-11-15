@@ -7,6 +7,7 @@ import re
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
+from importlib.resources import files
 from typing import Literal
 from uuid import uuid4
 
@@ -35,6 +36,7 @@ from lockbot.backend.app.bots.router import _create_bot_for_user, _owned_bot, _v
 from lockbot.backend.app.bots.schemas import BotCreate
 from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.rate_limit import limiter
+from lockbot.backend.app.resource_api.skill import _download
 from lockbot.backend.app.resource_auth.authority import authority_guard
 
 Scope = Literal["node_access:write", "datasource:write"]
@@ -179,6 +181,11 @@ def _issuer(db, user_id, token_version, *, status=401):
     return user
 
 
+def _require_provisioning_admin(user):
+    if user.role not in {"admin", "super_admin"}:
+        _deny(403, "bot_provisioning_admin_required")
+
+
 def _can_edit(bot, issuer):
     return bool(bot and not bot.is_deleted and (bot.user_id == issuer.id or issuer.role == "super_admin"))
 
@@ -254,6 +261,8 @@ def create(
     with _guard:
         db.rollback()
         user = _issuer(db, *ident, status=403)
+        if body.scopes == ["bot:create"]:
+            _require_provisioning_admin(user)
         now = _now()
         if (
             db.query(ConfigurationCredential)
@@ -331,6 +340,8 @@ def rotate(
         row = _row(db, public_id, user)
         if row is None:
             _deny(404, "configuration_credential_not_found")
+        if json.loads(row.scopes) == ["bot:create"]:
+            _require_provisioning_admin(user)
         if row.revoked_at is not None or row.expires_at <= _now():
             _deny(409, "configuration_credential_inactive")
         pinned = json.loads(row.bots)
@@ -392,6 +403,7 @@ def _provisioning_issuer(db, request):
     row, issuer = _authenticated_credential(db, request)
     if json.loads(row.scopes) != ["bot:create"]:
         _deny(403, "configuration_scope_missing")
+    _require_provisioning_admin(issuer)
     return row, issuer
 
 
@@ -404,6 +416,13 @@ def _safe_provisioning_error(exc):
     if isinstance(exc.detail, dict) and exc.detail.get("code") == "bot_creation_result_unavailable":
         _deny(409, "bot_creation_result_unavailable")
     _deny(exc.status_code, f"bot_provisioning_rejected_{exc.status_code}")
+
+
+@router.get("/api/bot-provisioning/lockbot_provision.py", response_class=Response)
+@limiter.limit("60/minute")
+def provisioning_cli(request: Request):
+    content = files("lockbot.backend.app.bots").joinpath("lockbot_provision.py").read_bytes()
+    return _download(request, content, "text/x-python", "lockbot_provision.py")
 
 
 @router.post("/api/bot-provisioning/preview", tags=["Public API"])

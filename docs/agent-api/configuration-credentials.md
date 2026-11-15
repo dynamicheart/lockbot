@@ -6,7 +6,17 @@ Store the Key privately in the Agent's environment and send it as a Bearer token
 
 ## Delegate bot creation
 
-Choose **Create bots** as the credential purpose in the Console. The credential grants only `bot:create` and requires no existing bot selection. A Console user can create a bot they own under the site's current rules. A Feishu group route still requires a super administrator and an existing Feishu application.
+An administrator or super administrator can choose **Create bots** as the credential purpose in the Console. The credential grants only `bot:create` and requires no existing bot selection. The administrator owns the new bot. A Feishu group route requires a super administrator and an existing Feishu application.
+
+Download the standalone `lockbot_provision.py` from `/api/bot-provisioning/lockbot_provision.py` on that LockBot instance. It requires Python 3.10 or newer and uses the `LOCKBOT_PROVISIONING_KEY` environment variable. Store the proposed configuration in a private JSON file.
+
+```sh
+python3 lockbot_provision.py --service https://lockbot.example.test preview --config bot.json
+# Display the preview and wait for explicit approval before running apply.
+python3 lockbot_provision.py --service https://lockbot.example.test apply --config bot.json --receipt RECEIPT --confirm
+```
+
+The CLI resolves the returned Console path into `console_url`. The resource Agent Skill remains the entry point for querying, locking and releasing resources.
 
 1. Send the proposed bot configuration to `POST /api/bot-provisioning/preview`. Show the returned platform, name, group, type and resource count to the user. Keep submitted platform secrets out of the conversation summary.
 2. After the user's explicit approval, send `POST /api/bot-provisioning/apply` with `bot` set to the same configuration, the preview's `receipt`, and `confirmed` set to `true`. The receipt is valid for five minutes and is tied to the exact configuration and credential.

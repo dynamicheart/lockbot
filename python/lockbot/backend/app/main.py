@@ -782,7 +782,7 @@ def create_app() -> FastAPI:
         for path, methods in schema.get("paths", {}).items():
             for method, detail in methods.items():
                 if "Public API" in detail.get("tags", []):
-                    if "/configuration-access" in path:
+                    if "/configuration-access" in path or path.startswith("/api/bot-provisioning/"):
                         group, scheme = "Configuration API", "ConfigurationKey"
                     elif path.endswith(("/locked-users", "/opkick", "/kicklock")) or (
                         path.startswith("/api/bots/") and "/op/" in path

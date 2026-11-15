@@ -1,7 +1,15 @@
 <template>
   <section ref="container" class="configuration-credentials">
     <header class="credential-toolbar">
-      <p>{{ $t('configurationCredentials.description') }}</p>
+      <p>
+        {{
+          $t(
+            canProvision
+              ? 'configurationCredentials.adminDescription'
+              : 'configurationCredentials.description'
+          )
+        }}
+      </p>
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
@@ -108,7 +116,7 @@
         <el-form-item :label="$t('auditCredentials.name')">
           <el-input v-model="form.label" maxlength="64" autocomplete="off" />
         </el-form-item>
-        <el-form-item :label="$t('configurationCredentials.purpose')">
+        <el-form-item v-if="canProvision" :label="$t('configurationCredentials.purpose')">
           <el-radio-group v-model="form.purpose">
             <el-radio value="configure">{{ $t('configurationCredentials.editBots') }}</el-radio>
             <el-radio value="create">{{ $t('configurationCredentials.createBot') }}</el-radio>
@@ -222,6 +230,7 @@ import { createBotDetailScope } from '../utils/botDetailScope'
 import { useHelpers } from '../utils/helpers'
 
 const props = defineProps({
+  canProvision: Boolean,
   principalId: { type: [Number, String], default: '' },
   sessionRevision: { type: Number, default: 0 },
 })
@@ -254,7 +263,9 @@ const now = ref(Date.now())
 const canCreate = computed(
   () =>
     form.value.label.trim() &&
-    (form.value.purpose === 'create' || (form.value.bot_ids.length && form.value.scopes.length))
+    (form.value.purpose === 'create'
+      ? props.canProvision
+      : form.value.bot_ids.length && form.value.scopes.length)
 )
 const actionLabel = computed(() =>
   action.value?.type === 'rotate' ? 'configurationCredentials.rotate' : 'auditCredentials.revoke'

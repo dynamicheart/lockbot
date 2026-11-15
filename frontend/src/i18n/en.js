@@ -37,7 +37,8 @@ export default {
   configurationCredentials: {
     title: 'Configuration credentials',
     auditTab: 'Audit credentials',
-    description:
+    description: 'Allow an Agent to configure node connections and data sources for selected bots.',
+    adminDescription:
       'Allow an Agent to create bots or configure their node connections and data sources.',
     create: 'Create configuration credential',
     empty: 'No configuration credentials yet',

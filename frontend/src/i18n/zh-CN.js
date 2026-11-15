@@ -36,7 +36,8 @@ export default {
   configurationCredentials: {
     title: '配置凭证',
     auditTab: '审计凭证',
-    description: '授权 Agent 创建机器人，或维护节点连接和数据源。',
+    description: '授权 Agent 维护所选机器人的节点连接和数据源。',
+    adminDescription: '授权 Agent 创建机器人，或维护节点连接和数据源。',
     create: '创建配置凭证',
     empty: '暂无配置凭证',
     nodeAccess: '登记节点连接',
