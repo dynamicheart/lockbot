@@ -45,6 +45,7 @@ export default {
     rotate: '轮换',
     rotateConfirm: '轮换「{name}」后，旧 Key 会立即失效。',
     revokeConfirm: '撤销「{name}」后，使用此 Key 的 Agent 将无法更新配置。',
+    shownOnce: '保存配置凭证',
     saveHint: '此 Key 只显示一次。请保存后交给负责维护配置的 Agent。',
     loadFailed: '无法加载配置凭证，请刷新重试。',
   },

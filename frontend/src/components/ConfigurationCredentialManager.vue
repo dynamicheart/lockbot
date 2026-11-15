@@ -1,5 +1,5 @@
 <template>
-  <section class="configuration-credentials">
+  <section ref="container" class="configuration-credentials">
     <header class="credential-toolbar">
       <p>{{ $t('configurationCredentials.description') }}</p>
       <div class="credential-actions">
@@ -19,29 +19,53 @@
     />
 
     <el-table v-loading="loading" :data="items" :empty-text="$t('configurationCredentials.empty')">
-      <el-table-column prop="label" :label="$t('auditCredentials.name')" min-width="170" />
-      <el-table-column :label="$t('auditCredentials.bots')" min-width="180" show-overflow-tooltip>
+      <el-table-column v-if="compact" type="expand" width="38">
+        <template #default="{ row }">
+          <dl class="credential-details">
+            <dt>{{ $t('auditCredentials.bots') }}</dt>
+            <dd>{{ botNames(row).join(', ') }}</dd>
+            <dt>{{ $t('auditCredentials.expires') }}</dt>
+            <dd>{{ formatDateTime(row.expires_at) }}</dd>
+            <dt>{{ $t('configurationCredentials.lastUsed') }}</dt>
+            <dd>{{ row.last_used_at ? formatDateTime(row.last_used_at) : '—' }}</dd>
+          </dl>
+        </template>
+      </el-table-column>
+      <el-table-column :label="$t('auditCredentials.name')" :min-width="compact ? 100 : 170">
+        <template #default="{ row }">
+          <span class="credential-name">{{ row.label }}</span>
+          <div v-if="compact" class="credential-summary">
+            {{ $t(`auditCredentials.${status(row)}`) }} · {{ scopeText(row) }}
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        v-if="!compact"
+        :label="$t('auditCredentials.bots')"
+        min-width="180"
+        show-overflow-tooltip
+      >
         <template #default="{ row }">
           {{ botNames(row).join(', ') }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('auditCredentials.scope')" min-width="200">
+      <el-table-column v-if="!compact" :label="$t('auditCredentials.scope')" min-width="200">
         <template #default="{ row }">
-          {{ row.scopes.map((permission) => $t(scopeLabels[permission])).join(' · ') }}
+          {{ scopeText(row) }}
         </template>
       </el-table-column>
-      <el-table-column :label="$t('auditCredentials.expires')" width="165">
+      <el-table-column v-if="!compact" :label="$t('auditCredentials.expires')" width="165">
         <template #default="{ row }">{{ formatDateTime(row.expires_at) }}</template>
       </el-table-column>
-      <el-table-column :label="$t('configurationCredentials.lastUsed')" width="165">
+      <el-table-column v-if="!compact" :label="$t('configurationCredentials.lastUsed')" width="165">
         <template #default="{ row }">{{
           row.last_used_at ? formatDateTime(row.last_used_at) : '—'
         }}</template>
       </el-table-column>
-      <el-table-column :label="$t('auditCredentials.status')" width="100">
+      <el-table-column v-if="!compact" :label="$t('auditCredentials.status')" width="100">
         <template #default="{ row }">{{ $t(`auditCredentials.${status(row)}`) }}</template>
       </el-table-column>
-      <el-table-column :label="$t('common.actions')" width="145">
+      <el-table-column :label="$t('common.actions')" :width="compact ? 122 : 145">
         <template #default="{ row }">
           <el-button
             v-if="status(row) === 'active'"
@@ -163,7 +187,7 @@
 
     <el-dialog
       v-model="showSecret"
-      :title="$t('auditCredentials.shownOnce')"
+      :title="$t('configurationCredentials.shownOnce')"
       width="min(560px, 92vw)"
       destroy-on-close
     >
@@ -185,7 +209,8 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { createBotDetailScope } from '../utils/botDetailScope'
 import { useHelpers } from '../utils/helpers'
@@ -195,6 +220,7 @@ const props = defineProps({
   sessionRevision: { type: Number, default: 0 },
 })
 const { copyText, formatDateTime } = useHelpers()
+const { t } = useI18n()
 const scope = createBotDetailScope()
 const endpoint = '/configuration-credentials'
 const scopeLabels = {
@@ -204,6 +230,8 @@ const scopeLabels = {
 const lifetimes = [600, 3600, 86400, 604800]
 const pageSize = 50
 const defaultLifetime = 86400
+const container = ref(null)
+const compact = ref(false)
 const items = ref([])
 const bots = ref([])
 const offset = ref(0)
@@ -244,6 +272,10 @@ function botNames(row) {
     const bot = botsById.value.get(id)
     return bot ? botLabel(bot) : `#${id}`
   })
+}
+
+function scopeText(row) {
+  return row.scopes.map((permission) => t(scopeLabels[permission])).join(' · ')
 }
 
 function status(row) {
@@ -355,7 +387,19 @@ watch(
   },
   { immediate: true, flush: 'sync' }
 )
-onBeforeUnmount(scope.dispose)
+let resizeObserver
+onMounted(() => {
+  const layout = () => {
+    compact.value = container.value.clientWidth < 1125
+  }
+  layout()
+  resizeObserver = new ResizeObserver(layout)
+  resizeObserver.observe(container.value)
+})
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  scope.dispose()
+})
 </script>
 
 <style scoped>
@@ -385,5 +429,31 @@ onBeforeUnmount(scope.dispose)
 .credential-pagination {
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+.credential-name,
+.credential-details dd {
+  overflow-wrap: anywhere;
+}
+
+.credential-summary,
+.credential-details dt {
+  color: var(--el-text-color-secondary);
+}
+
+.credential-summary {
+  font-size: 0.875em;
+}
+
+.credential-details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.credential-details dd {
+  margin: 0;
 }
 </style>

@@ -46,6 +46,7 @@ export default {
     rotate: 'Rotate',
     rotateConfirm: 'Rotating “{name}” immediately invalidates its old key.',
     revokeConfirm: 'Revoking “{name}” prevents Agents using this key from updating settings.',
+    shownOnce: 'Save configuration credential',
     saveHint: 'This key is shown once. Save it for the Agent that maintains these settings.',
     loadFailed: 'Configuration credentials could not be loaded. Refresh to try again.',
   },
