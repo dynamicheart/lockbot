@@ -99,7 +99,7 @@ execution and readback so accurate intent resolution has its own result.
 
 Record the client and its version, model and provider, requested reasoning effort,
 enabled tools, package revision, fixture revision and run limits. Keep Codex CLI
-and ducc (Claude Code) in separate result rows. When comparing client behavior,
+and Claude in separate result rows. When comparing client behavior,
 give both the same fixture and enabled tools and hold the model, provider and
 reasoning settings fixed where both clients support them. If a setting is
 unavailable or has no verified equivalent, report the two runs with their
