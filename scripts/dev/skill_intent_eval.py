@@ -286,7 +286,7 @@ def score(scenario, requests, tools, final):
         elif scenario in UNVERIFIED_MACHINE_MODELS:
             checks["whole_machine_inventory_read"] = "bots/8/resources" in suffixes
             checks["missing_machine_model_reported"] = "型号" in final and any(
-                word in final for word in ("无法确认", "未标注", "未提供", "未知", "缺少", "没有")
+                word in final for word in ("无法确认", "不能确认", "未登记", "未标注", "未提供", "未知", "缺少", "没有")
             )
         elif scenario == "intent-whole":
             checks["whole_machine_limit_reported"] = "整机" in final and "bots/8/resources" in suffixes
