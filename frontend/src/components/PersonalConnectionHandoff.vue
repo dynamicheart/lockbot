@@ -1,24 +1,14 @@
 <template>
-  <section
-    v-if="authenticated || supported || loading || error"
-    class="native-connections"
-    aria-labelledby="agent-credentials"
-  >
-    <div class="connection-heading credential-overview">
-      <div>
-        <h2 id="agent-credentials">Agent 凭证</h2>
-        <p v-if="supported && authenticated && !loading && !error" class="scope">
-          {{ items.length }} 个凭证 · {{ boundGroupCount }} 个绑定群
-        </p>
-      </div>
+  <section v-if="authenticated || supported || loading || error" class="native-connections">
+    <div v-if="authenticated" class="connection-toolbar">
       <div class="credential-actions">
         <button
-          v-if="items.length > 1"
+          v-if="items.length"
           class="connection-button primary"
           :disabled="loading"
-          @click="copyAllInstructions"
+          @click="copyAllStatus"
         >
-          复制全部接入说明
+          {{ $t('personalCredentialActions.copyAllStatus') }}
         </button>
         <button v-if="authenticated" class="connection-button" :disabled="loading" @click="refresh">
           刷新状态
@@ -31,8 +21,7 @@
     <p v-if="loading" role="status" class="scope">正在检查授权…</p>
     <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
     <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
-    <p v-if="items.length" class="scope">接入说明可发给多个 Agent，内容不含 Key。</p>
-    <p v-else-if="authenticated && !error && !loading" class="scope">
+    <p v-if="!items.length && authenticated && !error && !loading" class="scope">
       暂无可管理的机器群 Key。请通过该群已绑定的 Agent 添加凭证。
     </p>
     <table v-if="items.length" class="credential-table" aria-label="Agent 凭证列表">
@@ -57,32 +46,20 @@
             <td class="credential-controls">
               <div class="credential-actions">
                 <button
+                  v-if="canViewKey(item)"
                   class="connection-button primary"
                   aria-haspopup="dialog"
-                  :aria-label="`${item.bot.name}的 Key`"
                   @click="openDetails(item, true)"
                 >
-                  查看 Key
+                  {{ $t('personalCredentialActions.requestKey') }}
                 </button>
-                <button
-                  class="connection-button"
-                  :disabled="loading"
-                  @click="copyInstructions(item)"
-                >
-                  复制接入说明
-                </button>
-                <button
-                  class="connection-button"
-                  aria-haspopup="dialog"
-                  :aria-label="`${item.bot.name}的详情`"
-                  @click="openDetails(item)"
-                >
-                  详情
+                <span v-else class="key-unavailable">{{
+                  $t('personalCredentialActions.keyUnavailable')
+                }}</span>
+                <button class="connection-button" aria-haspopup="dialog" @click="openDetails(item)">
+                  {{ $t('personalCredentialActions.agentSetup') }}
                 </button>
               </div>
-              <span v-if="feedbackTarget === item.id" class="copy-status" role="status">{{
-                feedback
-              }}</span>
             </td>
           </tr>
         </template>
@@ -92,8 +69,8 @@
       v-model="detailsOpen"
       :title="
         selectedItem
-          ? selectedItem.bot.name + (showKeyHelp ? ' · 查看 Key' : ' · 凭证详情')
-          : '凭证详情'
+          ? `${selectedItem.bot.name} · ${$t(showKeyHelp ? 'personalCredentialActions.requestKey' : 'personalCredentialActions.agentSetup')}`
+          : $t('personalCredentialActions.agentSetup')
       "
       width="min(620px, calc(100% - 24px))"
       append-to-body
@@ -102,22 +79,10 @@
       <div v-if="selectedItem" class="credential-dialog">
         <template v-for="item in [selectedItem]" :key="item.id">
           <div v-if="showKeyHelp" class="key-help">
-            <p v-if="canViewKey(item)">把查看请求发给该群的 Agent，再打开它返回的链接。</p>
-            <p v-else>请让已绑定该群的 Agent 刷新 Key。</p>
+            <p>{{ $t('personalCredentialActions.keyRequestInstructions') }}</p>
             <div class="credential-actions">
-              <button
-                v-if="canViewKey(item)"
-                class="connection-button primary"
-                @click="copyViewRequest(item)"
-              >
-                复制查看请求
-              </button>
-              <button
-                v-else-if="item.recovery_instructions || recoveryGuide"
-                class="connection-button primary"
-                @click="copyConnectionRecovery(item)"
-              >
-                复制刷新说明
+              <button class="connection-button primary" @click="copyViewRequest(item)">
+                {{ $t('personalCredentialActions.copyKeyRequest') }}
               </button>
               <span v-if="feedbackTarget === item.id + '-more'" class="copy-status" role="status">{{
                 feedback
@@ -125,72 +90,92 @@
             </div>
           </div>
           <template v-else>
-            <dl class="credential-facts">
-              <div>
-                <dt>绑定身份</dt>
-                <dd>{{ item.actor.external_user_id }} · {{ platformName(item.actor.platform) }}</dd>
-              </div>
-              <div>
-                <dt>有效期</dt>
-                <dd>{{ expiryText(item.expires_at) }}</dd>
-              </div>
-              <div>
-                <dt>服务地址</dt>
-                <dd>{{ item.service_origin }}</dd>
-              </div>
-              <div>
-                <dt>恢复状态</dt>
-                <dd>{{ healthText(item.credential_recovery_health) }}</dd>
-              </div>
-            </dl>
-            <PersonalAgentActivity v-if="item.agentActivity" :activity="item.agentActivity" />
-            <p
-              v-if="['legacy_missing', 'unreadable'].includes(item.credential_recovery_health)"
-              class="connection-warning"
-            >
-              请保留本地有效 Key，并让原 Agent 检查恢复副本。
-            </p>
             <div class="credential-actions">
               <button
-                v-if="rotationSupported"
-                class="connection-button"
+                class="connection-button primary"
                 :disabled="loading"
-                @click="copyRotationRequest(item)"
+                @click="copyInstructions(item)"
               >
-                请求重置 Key
+                {{ $t('personalCredentialActions.copyInstructions') }}
               </button>
-              <button
-                v-if="item.recovery_instructions || skill"
-                class="connection-button"
-                @click="copyConnectionRecovery(item)"
-              >
-                复制恢复指引
-              </button>
+              <span v-if="feedbackTarget === item.id" class="copy-status" role="status">{{
+                feedback
+              }}</span>
             </div>
-            <span v-if="feedbackTarget === item.id + '-more'" class="copy-status" role="status">{{
-              feedback
-            }}</span>
-            <p v-if="rotationSupported" class="scope">
-              重置后，使用此 Key 的所有 Agent 都需要更新。
-            </p>
-            <p v-if="item.skill || skill" class="scope">
-              <a :href="(item.skill || skill).bundle_url" target="_blank" rel="noopener noreferrer"
-                >下载 Skill</a
-              >
-              ·
-              <a
-                :href="(item.skill || skill).markdown_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                >SKILL.md</a
-              >
-            </p>
             <textarea
               readonly
               :value="item.instructions"
-              :aria-label="`${item.bot.name} 的无 Key 接入说明`"
+              :aria-label="$t('personalCredentialActions.agentSetup')"
             />
-            <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
+            <details class="connection-recovery">
+              <summary>{{ $t('personalCredentialActions.details') }}</summary>
+              <dl class="credential-facts">
+                <div>
+                  <dt>绑定身份</dt>
+                  <dd>
+                    {{ item.actor.external_user_id }} · {{ platformName(item.actor.platform) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt>有效期</dt>
+                  <dd>{{ expiryText(item.expires_at) }}</dd>
+                </div>
+                <div>
+                  <dt>服务地址</dt>
+                  <dd>{{ item.service_origin }}</dd>
+                </div>
+                <div>
+                  <dt>恢复状态</dt>
+                  <dd>{{ healthText(item.credential_recovery_health) }}</dd>
+                </div>
+              </dl>
+              <PersonalAgentActivity v-if="item.agentActivity" :activity="item.agentActivity" />
+              <p
+                v-if="['legacy_missing', 'unreadable'].includes(item.credential_recovery_health)"
+                class="connection-warning"
+              >
+                请保留本地有效 Key，并让原 Agent 检查恢复副本。
+              </p>
+              <div class="credential-actions">
+                <button
+                  v-if="rotationSupported"
+                  class="connection-button"
+                  :disabled="loading"
+                  @click="copyRotationRequest(item)"
+                >
+                  请求重置 Key
+                </button>
+                <button
+                  v-if="item.recovery_instructions || skill"
+                  class="connection-button"
+                  @click="copyConnectionRecovery(item)"
+                >
+                  复制恢复指引
+                </button>
+              </div>
+              <span v-if="feedbackTarget === item.id + '-more'" class="copy-status" role="status">{{
+                feedback
+              }}</span>
+              <p v-if="rotationSupported" class="scope">
+                重置后，使用此 Key 的所有 Agent 都需要更新。
+              </p>
+              <p v-if="item.skill || skill" class="scope">
+                <a
+                  :href="(item.skill || skill).bundle_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >下载 Skill</a
+                >
+                ·
+                <a
+                  :href="(item.skill || skill).markdown_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >SKILL.md</a
+                >
+              </p>
+              <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
+            </details>
           </template>
         </template>
       </div>
@@ -212,15 +197,13 @@
 
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import PersonalAgentActivity from './PersonalAgentActivity.vue'
 import { credentialAgentActivity } from '../utils/agentActivity'
 
 const props = defineProps({ authenticated: Boolean, scopeKey: { type: String, default: '' } })
+const { t } = useI18n()
 const items = ref([])
-const boundGroupCount = computed(
-  () =>
-    new Set(items.value.map(({ instance_id, bot }) => JSON.stringify([instance_id, bot.uuid]))).size
-)
 const skill = ref(null)
 const recoveryGuide = ref('')
 const supported = ref(false)
@@ -236,6 +219,7 @@ const detailsOpen = ref(false)
 const showKeyHelp = ref(false)
 const selectedItem = computed(() => items.value.find(({ id }) => id === selectedId.value))
 function openDetails(item, keyHelp = false) {
+  if (keyHelp && !canViewKey(item)) return
   selectedId.value = item.id
   showKeyHelp.value = keyHelp
   feedback.value = feedbackTarget.value = ''
@@ -543,15 +527,22 @@ function copyInstructions(item) {
   if (!props.authenticated || loading.value || !items.value.includes(item)) return
   return copy(item.instructions, undefined, item.id)
 }
-function copyAllInstructions() {
-  if (!props.authenticated || loading.value || items.value.length < 2) return
+function copyAllStatus() {
+  if (!props.authenticated || loading.value || !items.value.length) return
   const workbench = new URL('/#/me', location.origin).href
   const introduction = [
     '请安装或使用 lockbot-resource-agent Skill，为下列资源群分别保存连接。',
     '先核对服务地址、机器人和身份，逐个验证已有 Key。缺少 Key 时按对应连接的指引处理。',
     `个人资源台：${workbench}`,
   ].join('\n')
-  const instructions = items.value.map((item, index) => `${index + 1}. ${item.instructions}`)
+  const instructions = items.value.map((item, index) => {
+    const status = t(
+      canViewKey(item)
+        ? 'personalCredentialActions.keyLinkAvailable'
+        : 'personalCredentialActions.keyUnavailableStatus'
+    )
+    return [`${index + 1}. ${item.bot.name}`, status, item.instructions].join('\n')
+  })
   return copy([introduction, ...instructions].join('\n\n'), 400000, 'all')
 }
 function copyConnectionRecovery(item) {
@@ -594,19 +585,18 @@ onBeforeUnmount(() => {
 .native-connections .scope {
   margin: 0;
 }
-.credential-overview .scope,
 .credential-identity .scope {
   margin-top: 5px;
 }
-.connection-heading,
+.connection-toolbar,
 .credential-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
-.connection-heading {
-  justify-content: space-between;
+.connection-toolbar {
+  justify-content: flex-end;
 }
 .credential-table {
   width: 100%;
@@ -617,13 +607,13 @@ onBeforeUnmount(() => {
   background: var(--el-bg-color);
   overflow: hidden;
 }
-.credential-table thead {
-  background: var(--el-fill-color-light);
-  color: var(--muted);
+.credential-table thead th {
+  background: var(--el-fill-color-darker);
+  color: var(--el-text-color-primary);
   font-size: 13px;
 }
 .credential-table thead th:last-child {
-  width: 292px;
+  width: 245px;
 }
 .credential-table thead th:nth-child(2) {
   width: 32%;
@@ -644,6 +634,10 @@ onBeforeUnmount(() => {
 .credential-identity small {
   display: block;
   margin-top: 3px;
+}
+.key-unavailable {
+  color: var(--muted);
+  font-size: 13px;
 }
 .credential-dialog {
   --line: var(--el-border-color);
@@ -683,10 +677,6 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding-block: 6px;
   color: var(--muted);
-}
-.credential-controls .copy-status {
-  display: block;
-  margin-top: 4px;
 }
 @media (max-width: 580px) {
   .credential-table thead {

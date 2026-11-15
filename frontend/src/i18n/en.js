@@ -691,6 +691,19 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalCredentialActions: {
+    copyAllStatus: 'Copy all statuses',
+    agentSetup: 'Agent setup',
+    copyInstructions: 'Copy setup instructions',
+    details: 'Connection details',
+    requestKey: 'Get Key viewing link',
+    keyUnavailable: 'Key unavailable',
+    keyRequestInstructions:
+      'Send the request to the Agent for this group and open the link it returns.',
+    copyKeyRequest: 'Copy viewing request',
+    keyLinkAvailable: 'Key status: viewing link available',
+    keyUnavailableStatus: 'Key status: unavailable',
+  },
   nav: {
     apiCredentials: 'API credentials',
     myResources: 'My resources',
