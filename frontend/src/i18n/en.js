@@ -2,9 +2,20 @@ export default {
   nodeAccess: {
     title: 'Node access',
     open: 'Configure addresses',
-    help: 'Copy the node IDs to your Agent, ask it to map them to your machine inventory, then paste the JSON here.',
-    copyNodes: 'Copy node IDs',
+    purpose:
+      'Resource holders can see the node’s SSH address and port in the personal workbench or through an Agent.',
+    help: 'Send the prompt and your machine inventory to the Agent, then paste the generated JSON here.',
+    copyPrompt: 'Copy Agent prompt',
+    inventoryFormat: 'List the node ID, login address, and optional port on each line. Example',
     mapping: 'Node mapping JSON',
+    addressFormat: 'Use a hostname or IPv4 address for host. The optional port defaults to 22.',
+    prompt:
+      'Generate a LockBot SSH node mapping from my machine inventory.\n' +
+      'The group’s node IDs are {nodeIds}. Each inventory line can contain a node ID, login address, and optional port.\n' +
+      'Use only those node IDs and include only unambiguous matches. Omit uncertain entries.\n' +
+      'Use the confirmed hostname or IPv4 address for host. When the inventory specifies port, use an integer from 1 to 65535. The default is 22.\n' +
+      'Return only JSON with version and nodes at the top level. Each node takes host and optional port.\n' +
+      'This JSON shows the format. The node IDs and addresses are examples.\n{example}',
     review: 'Changes to save',
     noChanges: 'The mapping matches the saved addresses.',
     saved: 'Configured nodes',
@@ -468,6 +479,7 @@ export default {
     },
   },
   resourceView: {
+    autoRefreshHint: 'Updates every 30 seconds while this tab is visible',
     linkLifetime: 'Resource link lifetime',
     linkLifetimeStatus: 'Link validity: {value}',
     inheritLifetime: 'Inherit platform',
@@ -838,6 +850,7 @@ export default {
     confirmDelete: 'Are you sure to delete this bot?',
     clusterState: 'Cluster State',
     editConfig: 'Edit Config',
+    copyConfigHint: 'Create a new bot using this configuration as a template',
     saveWillRestart: 'Bot will auto-restart after saving',
     logsAndStats: 'Logs & statistics',
     logs: 'Logs',
