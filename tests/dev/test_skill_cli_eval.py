@@ -164,6 +164,9 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
     assert [entry["status"] for entry in connections] == ["existing", "saved"]
     assert run(fixture, "resources", group=evaluation.GROUP)["result"]["resources"]
     assert evaluation.score(fixture.root, "已查询验证群")["observable_pass"]
+    leaked = evaluation.score(fixture.root, f"已查询验证群。{evaluation.continuity.SECOND_KEY}")
+    assert not leaked["checks"]["key_not_in_reply"]
+    assert not leaked["observable_pass"]
 
 
 @pytest.mark.parametrize(
