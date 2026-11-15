@@ -46,6 +46,15 @@ def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, mon
     assert evaluation.score(fixture.root, "在资源群发送 bind 命令。")["observable_pass"]
 
 
+def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-model-whole-machine")
+    assert fixture.call("read_lockbot_skill", {"offset": 0})["error"] == "verified_package_required"
+    first = install(fixture)
+    second = fixture.call("read_lockbot_skill", {"offset": first["next_offset"]})
+    markdown = (fixture.installation / "SKILL.md").read_text()
+    assert first["content"] + second["content"] == markdown[:second["next_offset"]]
+
+
 def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "approved-enrollment")
     assert install(fixture)["installed"]
