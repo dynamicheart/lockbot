@@ -1341,14 +1341,15 @@ class Client:
         return value
 
     def install(self, destination):
+        output_path = Path(destination)
+        target = output_path.absolute()
+        if os.path.lexists(target):
+            raise ClientError("install_destination_must_be_new")
         meta = self.discover()
         archive = self._request(same_origin_url(self.base, meta["installation"]["download_url"]), binary=True)
         if hashlib.sha256(archive).hexdigest() != meta["installation"]["sha256"]:
             raise ClientError("bundle_digest_mismatch")
-        target = Path(destination)
-        if target.exists():
-            raise ClientError("install_destination_must_be_new")
-        expected = {"SKILL.md", SCRIPT_PATH, "installation.json"}
+        expected = (SCRIPT_PATH, "installation.json", "SKILL.md")
         try:
             with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
                 root = meta["installation"]["name"] + "/"
@@ -1381,13 +1382,27 @@ class Client:
             != meta["package_version"]
         ):
             raise ClientError("bundle_package_mismatch")
-        target.mkdir(parents=True, mode=0o700)
-        for name, content in contents.items():
-            path = target / name
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=target.parent, prefix=".lockbot-install-") as staging:
+                staged = Path(staging) / "bundle"
+                staged.mkdir(mode=0o700)
+                for name, content in contents.items():
+                    path = staged / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(content)
+                if os.path.lexists(target):
+                    raise ClientError("install_destination_must_be_new")
+                try:
+                    staged.rename(target)
+                except OSError as exc:
+                    if os.path.lexists(target):
+                        raise ClientError("install_destination_must_be_new") from exc
+                    raise
+        except OSError as exc:
+            raise ClientError("install_write_failed") from exc
         return {
-            "installed_to": str(target),
+            "installed_to": str(output_path),
             "version": meta["version"],
             "client_reload_required": True,
             "connection_and_enrollment_created": False,

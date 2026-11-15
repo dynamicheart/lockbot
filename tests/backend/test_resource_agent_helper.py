@@ -9,6 +9,7 @@ import sys
 import threading
 import urllib.parse
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +34,8 @@ def write_private(path, content):
 @pytest.fixture
 def case(tmp_path):
     markdown, archive, meta = skill.skill_artifacts()
+    installation_archive = skill.installation_bundle("agent")
+    assert hashlib.sha256(installation_archive).hexdigest() == meta["installation"]["sha256"]
     root = tmp_path / meta["name"]
     with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
         zipped.extractall(tmp_path)
@@ -40,6 +43,7 @@ def case(tmp_path):
         requests=[],
         manifest={
             **meta,
+            "installation": dict(meta["installation"]),
             "service_id": helper.SERVICE,
             "api_version": "1",
             "instance_id": "instance-a",
@@ -106,10 +110,10 @@ def case(tmp_path):
             elif self.path == "/api/resource-auth/bindings/" + "b" * 22:
                 body = {"binding_id": "b" * 22, "status": state.binding_status}
             elif self.path == state.manifest["installation"]["download_url"]:
-                content = skill.installation_bundle("agent")
                 self.send_response(200)
+                self.send_header("Content-Length", str(len(installation_archive)))
                 self.end_headers()
-                self.wfile.write(content)
+                self.wfile.write(installation_archive)
                 return
             elif self.path == "/api/agent/context":
                 state.context_count += 1
@@ -757,6 +761,57 @@ def test_bootstrap_refuses_digest_mismatch_without_creating_directory(case):
     with pytest.raises(helper.ClientError, match="bundle_digest_mismatch"):
         helper.Client(approved_origin=case.base).install(target)
     assert not target.exists()
+
+
+def test_install_failure_keeps_target_absent_and_allows_retry(case, monkeypatch):
+    target = case.tmp / "new-install"
+    write_bytes = Path.write_bytes
+    written = []
+
+    def fail_after_first_write(path, content):
+        assert not target.exists()
+        if written:
+            raise OSError("simulated interrupted disk write")
+        written.append(path)
+        return write_bytes(path, content)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "write_bytes", fail_after_first_write)
+        with pytest.raises(helper.ClientError, match="install_write_failed"):
+            helper.Client(approved_origin=case.base).install(target)
+    assert written and not written[0].exists()
+    assert not target.exists()
+    assert not list(case.tmp.glob(".lockbot-install-*"))
+
+    result = helper.Client(approved_origin=case.base).install(target)
+    assert result["client_reload_required"] is True
+    assert helper.installed_version(target) == result["version"]
+
+
+def test_overlapping_installs_publish_one_complete_bundle(case, monkeypatch):
+    target = case.tmp / "new-install"
+    barrier = threading.Barrier(2, timeout=5)
+    write_bytes = Path.write_bytes
+
+    def write_and_sync(path, content):
+        result = write_bytes(path, content)
+        if path.name == "installation.json":
+            barrier.wait()
+        return result
+
+    def install():
+        try:
+            return helper.Client(approved_origin=case.base).install(target)["version"]
+        except helper.ClientError as exc:
+            return exc.code
+
+    monkeypatch.setattr(Path, "write_bytes", write_and_sync)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: install(), range(2)))
+
+    assert sorted(results) == sorted([case.state.manifest["version"], "install_destination_must_be_new"])
+    assert helper.installed_version(target) == case.state.manifest["version"]
+    assert not list(case.tmp.glob(".lockbot-install-*"))
 
 
 def test_response_body_limit_is_enforced(case):

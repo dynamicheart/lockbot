@@ -131,7 +131,7 @@ The packaged helper can fetch and verify a new installation into a **new** desti
 python3 scripts/lockbot_resource.py install --origin https://resources.example.test --destination /private/new-skill
 ```
 
-It refuses an existing destination, unexpected/duplicate ZIP entries, symlinks, oversized expanded content and mismatched hashes. It does not claim to have registered/reloaded the package in the Agent client or created a connection. Use the client's update workflow for an existing Skill and preserve external connection/key files.
+It refuses an existing destination, unexpected/duplicate ZIP entries, symlinks, oversized expanded content and mismatched hashes. The complete installation becomes visible at the destination in one step. If a local write fails before publication, fix the storage or permissions and retry the same destination. After a successful install, reload the Skill using the client's workflow. Use the client's update workflow for an existing Skill and preserve external connection/key files.
 
 ## Shared node aliases
 
