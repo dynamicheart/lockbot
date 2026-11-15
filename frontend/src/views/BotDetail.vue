@@ -515,9 +515,14 @@
       <!-- Cluster State -->
       <el-card style="margin-bottom: 20px">
         <template #header>
-          <div style="display: flex; justify-content: space-between; align-items: center">
+          <div class="cluster-state-header">
             <span>{{ $t('botDetail.clusterState') }}</span>
-            <div style="display: flex; gap: 8px">
+            <div class="cluster-state-actions">
+              <NodeAccessViewer
+                v-if="canEdit && !editingState && !viewJson"
+                :key="bot.id"
+                :bot-id="bot.id"
+              />
               <el-button
                 v-if="canEdit && !editingState && !viewJson"
                 size="small"
@@ -712,6 +717,7 @@ import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import BotMigrationPreflight from '../components/BotMigrationPreflight.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
 import NodeAccessEditor from '../components/NodeAccessEditor.vue'
+import NodeAccessViewer from '../components/NodeAccessViewer.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { sourceResources } from '../utils/utilization/display'
@@ -1670,6 +1676,19 @@ function formatDate(d) {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.cluster-state-header,
+.cluster-state-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cluster-state-header {
+  justify-content: space-between;
+}
+.cluster-state-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 .json-editor {
   position: relative;
