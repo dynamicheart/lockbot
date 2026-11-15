@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createRenderer, createSSRApp, nextTick, ssrContextKey } from 'vue'
 import { renderToString } from 'vue/server-renderer'
+import { createI18n } from 'vue-i18n'
 import Handoff from './PersonalConnectionHandoff.vue'
+import zhCN from '../i18n/zh-CN.js'
 
 const ORIGIN = 'https://panel.example.test'
 const SECRET = 'lbr_SYNTHETIC_SECRET_NOT_FOR_THE_DEFAULT_PAGE'
@@ -72,8 +74,11 @@ const flush = async () => {
   }
 }
 let app, state, root, fetchMock, clipboard
+const installI18n = (view) =>
+  view.use(createI18n({ legacy: false, locale: 'zh-CN', messages: { 'zh-CN': zhCN } }))
 function mount(props = {}) {
   app = renderer.createApp(Handoff, { authenticated: true, scopeKey: 'alice-scope', ...props })
+  installI18n(app)
   app.provide(ssrContextKey, { modules: new Set() })
   app.config.warnHandler = () => {}
   root = { children: [] }
@@ -84,6 +89,7 @@ function rendered() {
   // Node-mode SFC imports use ssrRender. Render the already-loaded setup state
   // explicitly so markup assertions exercise the real template, not a stub.
   const view = createSSRApp({ ...Handoff, setup: () => state }, { authenticated: true })
+  installI18n(view)
   view.component('ElDialog', {
     inheritAttrs: false,
     props: ['modelValue'],
@@ -146,10 +152,14 @@ it('lists confirmed credentials directly and copies all connections without keys
   expect(markup).toContain('Group two')
   expect(markup).not.toContain('个绑定群')
   expect(markup).not.toContain('内容不含 Key')
-  await state.copyAllInstructions()
+  expect(markup).toContain('复制全部状态')
+  expect(markup).toContain('Agent 接入说明')
+  expect(markup).not.toContain('复制接入说明')
+  await state.copyAllStatus()
   expect(clipboard).toHaveBeenCalledTimes(1)
   const message = clipboard.mock.calls[0][0]
   expect(message).toContain(ORIGIN + '/#/me')
+  expect(message).toContain('Key 状态：需刷新')
   for (const item of [first, second, third]) expect(message).toContain(item.instructions)
   expect(message).not.toContain(SECRET)
 })
@@ -169,7 +179,7 @@ it('copies only a purpose-specific request to the original Agent when native vie
   mount()
   await flush()
   expect(state.viewSupported).toBe(true)
-  expect(await rendered()).toContain('查看 Key')
+  expect(await rendered()).toContain('获取 Key 查看链接')
   state.openDetails(state.items[0], true)
   expect(await rendered()).toContain('复制查看请求')
   expect(clipboard).not.toHaveBeenCalled()
@@ -390,7 +400,8 @@ it('validates an authenticated metadata-only service pin and copies only its sou
   mount()
   await flush()
   expect(state.items).toHaveLength(1)
-  expect(await rendered()).toContain('查看 Key')
+  expect(await rendered()).toContain('刷新 Key')
+  expect(await rendered()).toContain('复制全部状态')
   state.openDetails(state.items[0], true)
   const help = await rendered()
   expect(help).toContain('请让已绑定该群的 Agent 刷新 Key')

@@ -652,6 +652,16 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalCredentialActions: {
+    copyAllStatus: '复制全部状态',
+    agentSetup: 'Agent 接入说明',
+    copyInstructions: '复制接入说明',
+    details: '连接详情',
+    requestKey: '获取 Key 查看链接',
+    refreshKey: '刷新 Key',
+    keyLinkAvailable: 'Key 状态：可获取查看链接',
+    keyRefreshNeeded: 'Key 状态：需刷新',
+  },
   nav: {
     apiCredentials: 'API 凭证',
     myResources: '我的资源',

@@ -675,6 +675,16 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalCredentialActions: {
+    copyAllStatus: 'Copy all statuses',
+    agentSetup: 'Agent setup',
+    copyInstructions: 'Copy setup instructions',
+    details: 'Connection details',
+    requestKey: 'Get Key viewing link',
+    refreshKey: 'Refresh Key',
+    keyLinkAvailable: 'Key status: viewing link available',
+    keyRefreshNeeded: 'Key status: refresh needed',
+  },
   nav: {
     apiCredentials: 'API credentials',
     myResources: 'My resources',
