@@ -44,6 +44,19 @@ replacement grant, the same scoped query after the first 401, and reporting
 the utilization and the age of the sample. Run with the repository Python
 environment, which provides the gateway query validator.
 
+### Personal resource panel across sessions
+
+Build the `panel` artifact with `PLATFORM_URL=https://lockbot.example.test`.
+Phase 1 installs the full ZIP, creates the private connection with the supplied
+existing Key, and uses the actual `panel-link` command. Score a single issue request,
+private delivery of the returned ticket, and instructions to save the fixed home.
+After the first phase passes, run `confirm-panel CASE` as the fixture operator.
+Prepare phase 2 with `resume CASE --destination NEW_CASE`. A new session uses the
+fixed home, finds the browser's existing consent and bookmark, and reports the
+observed own holding and booking. The simulated browser never accepts a ticket
+from the evaluated Agent. This provides model behavior evidence on a synthetic
+service; use the live browser acceptance for the actual consent UI.
+
 ## Recognize lock intent and resolve the exact resources
 
 Test the Agent with natural-language requests and a verified inventory containing two

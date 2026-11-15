@@ -15,7 +15,8 @@ SPEC.loader.exec_module(evaluation)
 
 
 def prepare(tmp_path, monkeypatch, scenario):
-    monkeypatch.setenv("PLATFORM_URL", evaluation.base.ORIGIN)
+    origin = evaluation.PANEL_ORIGIN if scenario == "panel" else evaluation.base.ORIGIN
+    monkeypatch.setenv("PLATFORM_URL", origin)
     markdown, _, manifest = skill.skill_artifacts()
     artifact = tmp_path / "artifact"
     artifact.mkdir()
@@ -28,7 +29,7 @@ def prepare(tmp_path, monkeypatch, scenario):
 
 
 def install(fixture):
-    return fixture.call("install_lockbot", {"url": evaluation.base.ORIGIN + evaluation.base.BUNDLE_PATH})
+    return fixture.call("install_lockbot", {"url": fixture.origin + evaluation.base.BUNDLE_PATH})
 
 
 def run(fixture, action, **kwargs):
@@ -74,6 +75,42 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
 
     run(fixture, "enroll", group="验证群", authorized=True)
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["no_extra_writes"]
+
+
+def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "panel")
+    monkeypatch.setattr(evaluation.base, "tools", lambda: evaluation.tools(fixture.root))
+    assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= {
+        tool["name"] for tool in evaluation.base.tools()
+    }
+    assert install(fixture)["installed"]
+    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []
+    with pytest.raises(ValueError, match="confirm browser consent"):
+        evaluation.resume(fixture.root, tmp_path / "too-early")
+    result = run(fixture, "panel-link")["result"]
+    assert result == {"home": fixture.panel_home, "login_url": fixture.panel_login_url}
+    assert fixture.call("deliver_private_link", {"url": result["login_url"]})["delivered_privately"]
+    final = f"登录链接已私下发给你，请本人确认。保存固定入口 {fixture.panel_home}。"
+    grade = evaluation.score(fixture.root, final)
+    assert grade["observable_pass"], grade["checks"]
+    assert not evaluation.score(fixture.root, final + result["login_url"])["checks"]["ticket_not_in_reply"]
+
+    evaluation.continuity.human_confirm(fixture.root)
+    resumed = tmp_path / "fresh"
+    evaluation.resume(fixture.root, resumed)
+    browser = evaluation.Fixture(resumed)
+    bookmark = run(browser, "local-state")["result"]["browser_bookmarks"]
+    assert bookmark == [fixture.panel_home]
+    home = browser.call("browser_home", {"url": bookmark[0]})
+    assert home["authenticated"] and home["bookmarks"] == [fixture.panel_home]
+    assert home["own_occupancy"] == ["node-a"]
+    assert home["own_bookings"] == ["node-b"]
+    final = f"{fixture.panel_home} 已打开，持有 node-a、预约 node-b。"
+    grade = evaluation.score(resumed, final)
+    assert grade["observable_pass"], grade["checks"]
+    assert browser.call("browser_home", {"url": result["login_url"]})["error"]
+    assert not evaluation.score(resumed, final)["checks"]["browser_only_fixed_home"]
 
 
 def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tmp_path, monkeypatch):
