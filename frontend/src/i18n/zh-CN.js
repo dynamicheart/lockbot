@@ -1200,6 +1200,7 @@ export default {
       service: '服务',
       feishu_application: '飞书应用',
       audit_credential: '审计凭证',
+      configuration_credential: '配置凭证',
       platform_app: '消息应用',
     },
     detailFields: {
@@ -1250,6 +1251,10 @@ export default {
       'audit_credential.create': '创建审计凭证',
       'audit_credential.rotate': '轮换审计凭证',
       'audit_credential.revoke': '撤销审计凭证',
+      'configuration_credential.create': '创建配置凭证',
+      'configuration_credential.rotate': '轮换配置凭证',
+      'configuration_credential.revoke': '撤销配置凭证',
+      'configuration.apply': '应用机器人配置',
       'platform_application.rename': '重命名消息应用',
       'platform_application.reveal': '查看消息应用凭证',
       'platform_application.delete': '删除消息应用',

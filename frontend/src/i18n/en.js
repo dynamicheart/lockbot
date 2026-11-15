@@ -1241,6 +1241,7 @@ export default {
       service: 'Service',
       feishu_application: 'Feishu application',
       audit_credential: 'Audit credential',
+      configuration_credential: 'Configuration credential',
       platform_app: 'Messaging application',
     },
     detailFields: {
@@ -1291,6 +1292,10 @@ export default {
       'audit_credential.create': 'Create audit credential',
       'audit_credential.rotate': 'Rotate audit credential',
       'audit_credential.revoke': 'Revoke audit credential',
+      'configuration_credential.create': 'Create configuration credential',
+      'configuration_credential.rotate': 'Rotate configuration credential',
+      'configuration_credential.revoke': 'Revoke configuration credential',
+      'configuration.apply': 'Apply bot configuration',
       'platform_application.rename': 'Rename messaging application',
       'platform_application.reveal': 'Reveal messaging credentials',
       'platform_application.delete': 'Delete messaging application',

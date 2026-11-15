@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, it, expect } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import zh from '../i18n/zh-CN'
@@ -107,4 +108,22 @@ it('translates delegated audit actions and targets when switching locale', () =>
   expect(i18n.global.tm('audit.targetTypes').platform_app).toBe('Messaging application')
   expect(zh.broadcast.states.completed).toBe('已完成')
   expect(en.broadcast.states.completed).toBe('Completed')
+})
+
+it('localizes every audit code emitted by configuration delegation in both languages', () => {
+  const backend = readFileSync(
+    new URL('../../../python/lockbot/backend/app/bots/delegation.py', import.meta.url),
+    'utf8'
+  )
+  const actions = new Set(
+    [...backend.matchAll(/"(configuration(?:_credential)?\.[a-z_]+)"/g)].map((match) => match[1])
+  )
+  expect(actions.size).toBeGreaterThanOrEqual(4)
+  for (const [language, locale] of Object.entries(messages)) {
+    expect(Object.hasOwn(locale.audit.targetTypes, 'configuration_credential'), language).toBe(true)
+    for (const code of actions) {
+      expect(Object.hasOwn(locale.audit.actions, code), `${language}: ${code}`).toBe(true)
+      expect(locale.audit.actions[code]).not.toBe(code)
+    }
+  }
 })
