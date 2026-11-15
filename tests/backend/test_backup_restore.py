@@ -700,7 +700,7 @@ def test_restore_utilization_config_roundtrip_and_legacy_compatibility(
     )
 
 
-@pytest.mark.parametrize("archived_case", ["omitted", "configured", "removed", "invalid"])
+@pytest.mark.parametrize("archived_case", ["omitted", "configured", "dual_address", "removed", "invalid"])
 def test_restore_node_access_roundtrip_and_legacy_compatibility(client, auth_header, db_session, archived_case):
     from lockbot.backend.app.auth.models import User
     from lockbot.backend.app.backup.service import restore_apply
@@ -720,10 +720,12 @@ def test_restore_node_access_roundtrip_and_legacy_compatibility(client, auth_hea
     path = f"/api/bots/{created.json()['id']}/node-access"
     previous = {"host": "old-node.example.test", "port": 22}
     update = {"host": "new-node.example.test", "port": 2222}
+    dual_address = {**update, "ipv4": "192.0.2.42"}
     assert client.put(path, headers=auth_header, json={"version": 1, "nodes": {"node1": previous}}).status_code == 200
     archived = {
         "omitted": ...,
         "configured": {"version": 1, "nodes": {"node1": update}},
+        "dual_address": {"version": 2, "nodes": {"node1": dual_address}},
         "removed": None,
         "invalid": {"version": 1, "nodes": {"unknown": update}},
     }[archived_case]
@@ -743,6 +745,8 @@ def test_restore_node_access_roundtrip_and_legacy_compatibility(client, auth_hea
     else:
         assert result["restored"] == 1 and result["errors"] == []
     expected = {"node1": update} if archived_case == "configured" else {}
+    if archived_case == "dual_address":
+        expected = {"node1": dual_address}
     if archived_case in {"omitted", "invalid"}:
         expected = {"node1": previous}
     assert client.get(path, headers=auth_header).json()["nodes"] == expected

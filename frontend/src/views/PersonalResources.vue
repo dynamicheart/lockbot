@@ -454,7 +454,7 @@
                         role="cell"
                       >
                         <div v-if="holdingAddress(item)" class="node-access-details">
-                          <span>登录地址</span>
+                          <span>{{ $t('nodeAccess.loginAddress') }}</span>
                           <code>{{ holdingAddress(item) }}</code>
                         </div>
                         <div v-if="holdingGuidance(item).length" class="node-access-details">
@@ -737,6 +737,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { ArrowRight, Calendar, Cpu, Monitor, Refresh } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
+import { formatNodeAccess } from '../utils/nodeAccess'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
 import LockbotWordmark from '../components/LockbotWordmark.vue'
 import PersonalWorkbenchPlugins from '../components/PersonalWorkbenchPlugins.vue'
@@ -1025,7 +1026,7 @@ function holdingAddress({ rows }) {
     const expiry = expiration(allocation.expires_at)
     return allocation.node_access && Number.isFinite(expiry) && expiry > clock.value
   })
-  return row ? nodeAccessAddress(row.allocation.node_access) : ''
+  return row ? formatNodeAccess(row.allocation.node_access) : ''
 }
 function holdingGuidance({ rows }) {
   const references = new Map()
@@ -1344,9 +1345,6 @@ function bookingPosition(allocation) {
 }
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
-}
-function nodeAccessAddress({ host, port }) {
-  return `${host.includes(':') ? `[${host}]` : host}:${port}`
 }
 function platformName(value) {
   return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'

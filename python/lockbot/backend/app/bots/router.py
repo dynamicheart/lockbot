@@ -33,9 +33,12 @@ from lockbot.backend.app.bots.migration_journal import migration_fence
 from lockbot.backend.app.bots.migration_preflight import MigrationPreflight, MigrationReview
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
-    VERSION as NODE_ACCESS_VERSION,
+    mapping_version,
+    node_ids,
+    read_access_mapping,
+    saved_node_access,
+    serialize_node_access,
 )
-from lockbot.backend.app.bots.node_access import node_ids, read_access_mapping, saved_node_access, serialize_node_access
 from lockbot.backend.app.bots.schemas import (
     BotCreate,
     BotDetail,
@@ -1970,10 +1973,11 @@ def _require_bot_owner(bot_id: int, user: User, db: Session, action: str) -> Bot
 
 
 def _node_access_document(bot: Bot) -> dict:
+    nodes = saved_node_access(bot)
     return {
-        "version": NODE_ACCESS_VERSION,
+        "version": mapping_version(nodes),
         "node_ids": node_ids(json.loads(bot.cluster_configs)),
-        "nodes": saved_node_access(bot),
+        "nodes": nodes,
     }
 
 
@@ -1983,7 +1987,7 @@ def _node_access_preview(document: dict, nodes: dict) -> dict:
         raise HTTPException(422, f"Unknown node IDs: {', '.join(repr(node) for node in invalid[:10])}")
     current = document["nodes"]
     return {
-        "version": NODE_ACCESS_VERSION,
+        "version": mapping_version(nodes),
         "nodes": nodes,
         "added": [node for node in nodes if node not in current],
         "changed": [node for node, access in nodes.items() if node in current and current[node] != access],
@@ -2031,6 +2035,7 @@ def save_node_access(
         preview = _node_access_preview(document, nodes)
         if preview["added"] or preview["changed"]:
             document["nodes"].update(nodes)
+            document["version"] = mapping_version(document["nodes"])
             bot.node_access_config = serialize_node_access(document["nodes"])
             write_audit_log(
                 db,
