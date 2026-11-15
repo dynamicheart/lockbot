@@ -439,6 +439,17 @@ Never copy detailed Agent task notes into public metric labels or group reports.
 
 For “my resources” or a persistent personal browser entrance, this existing skill also
 supports a headless handoff from a local CLI or server; no additional skill or browser automation is needed.
+For a first visit or lost browser session, use the selected connection and let the CLI
+verify capabilities, identity, and the returned link:
+
+```sh
+python3 scripts/lockbot_resource.py --connection /private/connection.json panel-link
+```
+
+Only run this command when private delivery to the verified user is authorized. Send
+its `login_url` only in that private channel and keep `home` for ordinary return visits.
+The following protocol details are for direct API clients.
+
 First GET `/api/personal-panel/capabilities` **without credentials** on the already approved service origin.
 Use the panel only if it advertises `protocol: lockbot.personal-panel.v1`,
 `home` at the same approved origin plus `/#/me`, and `issue_path: /api/personal-panel/links`.

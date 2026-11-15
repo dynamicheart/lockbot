@@ -573,7 +573,7 @@ class Client:
         endpoint = self._enrollment_endpoint()
         self._check_installed_version()
         if self.needs_update:
-            raise ClientError("skill_update_required_before_mutation")
+            raise ClientError("update_bundle_before_mutation")
         state = {
             "approved_origin": self.base,
             "instance_id": self.manifest["instance_id"],
