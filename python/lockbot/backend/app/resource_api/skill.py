@@ -11,7 +11,6 @@ from importlib.resources import files
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.agent_skill.scripts.lockbot_resource import deployment_fragments
@@ -194,12 +193,6 @@ def _download(request, content, media_type, filename=None):
     if filename:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return Response(content=content, media_type=media_type, headers=headers)
-
-
-@router.get("/SKILL.md", response_class=RedirectResponse, include_in_schema=False)
-@limiter.limit("60/minute")
-def legacy_skill_markdown(request: Request):
-    return RedirectResponse(skill_artifacts()[2]["installation"]["download_url"], status_code=307)
 
 
 @router.get("/lockbot-agent-api.zip", response_class=Response, responses={200: {"content": {"application/zip": {}}}})

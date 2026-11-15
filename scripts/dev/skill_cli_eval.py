@@ -63,7 +63,7 @@ def prepare(root, artifact, scenario):
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
         base.save_json(case_path, {**case, "scenario": scenario})
-        path = base.SKILL_PATH if scenario == "install-from-link" else base.BUNDLE_PATH
+        path = Fixture(root).manifest()["skill_url"] if scenario == "install-from-link" else base.BUNDLE_PATH
         (root / "prompt.txt").write_text(
             FIRST_CONTACT[scenario].format(url=base.ORIGIN + path, zip_url=base.ORIGIN + base.BUNDLE_PATH)
         )
@@ -411,7 +411,10 @@ class Fixture(continuity.Fixture):
 
     def call(self, name, args):
         if name == "inspect_lockbot" and self.case["scenario"] in FIRST_CONTACT:
-            allowed = {base.ORIGIN + path for path in (base.SKILL_PATH, base.BUNDLE_PATH, "/api/agent-skill")}
+            allowed = {
+                urljoin(self.origin, path)
+                for path in (self.manifest()["skill_url"], base.BUNDLE_PATH, "/api/agent-skill")
+            }
             if args.get("url") not in allowed:
                 return self.record(name, args, {"error": "unknown_origin"})
             result = {"manifest": self.manifest(), **self.text_page(self.root / "subject.md")}

@@ -41,8 +41,7 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
         assert archive.read("lockbot-resource-agent/SKILL.md") == markdown
     assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
     legacy = client.get("/api/agent-skill/SKILL.md", follow_redirects=False)
-    assert legacy.status_code == 307 and legacy.headers["location"] == meta["skill_url"]
-    assert legacy.content == b""
+    assert legacy.status_code == 404 and "location" not in legacy.headers
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).resolve().parents[2] / "docs/agent-api/SKILL.md"
     assert source.read_bytes() == markdown

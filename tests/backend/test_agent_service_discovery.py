@@ -188,8 +188,12 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     assert after["instance_id"] == before["instance_id"]
     assert after["version"] != before["version"]
     assert context.headers["x-lockbot-skill-version"] == after["version"]
-    text = client.get(after["skill_url"], headers={"If-None-Match": '"' + before["skill_sha256"] + '"'})
-    assert text.status_code == 200 and hashlib.sha256(text.content).hexdigest() == after["skill_sha256"]
+    download = client.get(
+        after["installation"]["download_url"],
+        headers={"If-None-Match": '"' + before["installation"]["sha256"] + '"'},
+    )
+    assert download.status_code == 200
+    assert hashlib.sha256(download.content).hexdigest() == after["installation"]["sha256"]
 
 
 def test_public_schema_authenticates_context_but_not_manifest_or_downloads(client):

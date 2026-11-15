@@ -52,7 +52,7 @@ def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, mon
 
 def test_inspecting_link_does_not_authorize_installation(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "link-only")
-    inspected = fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + evaluation.base.SKILL_PATH})
+    inspected = fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + evaluation.base.BUNDLE_PATH})
     assert inspected["manifest"]["installation"]["sha256"]
     assert evaluation.score(fixture.root, "可以安装这个 Skill，方便以后使用。")["observable_pass"]
 
@@ -67,7 +67,7 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
 ):
     fixture = prepare(tmp_path, monkeypatch, scenario, instance_id)
     assert not evaluation.score(fixture.root, "已完成。")["observable_pass"]
-    path = evaluation.base.BUNDLE_PATH if scenario == "install-from-zip" else evaluation.base.SKILL_PATH
+    path = fixture.manifest()["skill_url"] if scenario == "install-from-link" else evaluation.base.BUNDLE_PATH
     assert "manifest" in fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + path})
     assert install(fixture)["installed"]
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]

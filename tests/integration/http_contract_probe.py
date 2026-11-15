@@ -116,11 +116,15 @@ def probe(output):
                     return response
 
                 skill = request("GET", "/api/agent-skill").json()
-                skill_text = request("GET", skill["skill_url"]).content
-                skill_zip = request("GET", skill["download_url"]).content
-                assert hashlib.sha256(skill_zip).hexdigest() == skill["sha256"]
+                installation = skill["installation"]
+                assert skill["skill_url"] == installation["download_url"]
+                skill_zip = request("GET", installation["download_url"]).content
+                assert hashlib.sha256(skill_zip).hexdigest() == installation["sha256"]
                 with zipfile.ZipFile(io.BytesIO(skill_zip)) as archive:
-                    assert archive.read("lockbot-agent-api/SKILL.md") == skill_text
+                    skill_text = archive.read(f"{installation['name']}/SKILL.md")
+                    assert hashlib.sha256(skill_text).hexdigest() == skill["skill_sha256"]
+                response = request("GET", "/api/agent-skill/SKILL.md", expected=404)
+                assert "location" not in response.headers
 
                 login = request(
                     "POST", "/api/auth/login", json={"username": "probe-admin", "password": settings["password"]}
@@ -217,15 +221,18 @@ def probe(output):
                 request("GET", f"/api/bots/{bot_id}/locked-users", headers={"Authorization": "Bearer " + op_key})
                 request("PUT", f"/api/bots/{bot_id}/resource-auth", headers=admin, json={"enabled": True})
                 request("POST", commands, headers=alice, json={"command": "query"})
-                request("PUT", usage + "/n1", headers=alice, json={"purpose": "temporary HTTP contract experiment"})
+                purpose = "temporary HTTP contract experiment"
+                category = "functional_testing"
+                request("PUT", usage + "/n1", headers=alice, json={"purpose": purpose, "task_category": category})
                 declaration = request("GET", usage, headers=bob).json()["items"][0]
                 assert (
                     declaration["actor"]["external_user_id"] == "synthetic-alice"
-                    and declaration["untrusted_text"] is True
+                    and declaration["task_category"] == category
+                    and "purpose" not in declaration
                 )
                 shared_resources = request("GET", resources, headers=bob).json()
                 embedded = next(r for r in shared_resources["resources"] if r["id"] == "n1")["holders"][0]["usage"]
-                assert embedded["purpose"] == declaration["purpose"]
+                assert embedded["task_category"] == category and "purpose" not in embedded
                 assert embedded["actor"]["external_user_id"] == "synthetic-alice"
                 # Restart the temporary server against the same private SQLite/state files.
                 # Both credentials and usage/statistics must survive an actual process exit.
@@ -258,12 +265,16 @@ def probe(output):
                 )
                 assert (
                     next(r for r in restored["resources"] if r["id"] == "n1")["holders"][0]["usage"]["purpose"]
-                    == declaration["purpose"]
+                    == purpose
                 )
-                assert request("GET", usage, headers=bob).json()["items"][0]["purpose"] == declaration["purpose"]
+                public_declaration = request("GET", usage, headers=bob).json()["items"][0]
+                assert public_declaration["task_category"] == category and "purpose" not in public_declaration
                 request("PUT", usage + "/n1", expected=409, headers=bob, json={"purpose": "unauthorized holder"})
                 request("POST", commands, expected=403, headers=alice, json={"command": "kickout n1"})
                 request("POST", commands, headers=alice, json={"command": "unlock n1"})
+                # A resource change permits an immediate refreshed snapshot.
+                released = request("GET", resources, headers=alice).json()
+                assert next(r for r in released["resources"] if r["id"] == "n1")["holders"] == []
                 limited = request("GET", resources, expected=429, headers=alice)
                 retry = int(limited.headers["Retry-After"])
                 assert 1 <= retry <= 15
@@ -292,7 +303,7 @@ def probe(output):
                     "shared_key_and_plain_unbind_verified": True,
                     "public_skill_zip_verified": True,
                     "embedded_purpose_verified": True,
-                    "skill_sha256": skill["sha256"],
+                    "skill_sha256": installation["sha256"],
                     "agent_access_switch_verified": True,
                     "op_key_independent_verified": True,
                     "restart_persistence_verified": ["credential", "holding", "purpose", "statistics"],
