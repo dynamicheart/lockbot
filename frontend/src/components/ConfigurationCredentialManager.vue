@@ -1,6 +1,6 @@
 <template>
   <section ref="container" class="configuration-credentials">
-    <header class="credential-toolbar">
+    <header v-if="!showGuide" class="credential-toolbar">
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
@@ -9,25 +9,30 @@
       </div>
     </header>
 
-    <figure v-if="showGuide" class="credential-guide">
+    <section v-else class="credential-guide" aria-labelledby="configuration-credential-guide-title">
+      <h2 id="configuration-credential-guide-title">
+        {{ $t('configurationCredentials.empty') }}
+      </h2>
       <img src="/configuration-credential-guide.webp" alt="" width="1392" height="464" />
-      <figcaption>
-        <ol>
-          <li>
-            <strong>{{ $t('configurationCredentials.guideSelectTitle') }}</strong>
-            <p>{{ $t('configurationCredentials.guideSelect') }}</p>
-          </li>
-          <li>
-            <strong>{{ $t('configurationCredentials.guideShareTitle') }}</strong>
-            <p>{{ $t('configurationCredentials.guideShare') }}</p>
-          </li>
-          <li>
-            <strong>{{ $t('configurationCredentials.guideUseTitle') }}</strong>
-            <p>{{ $t('configurationCredentials.guideUse') }}</p>
-          </li>
-        </ol>
-      </figcaption>
-    </figure>
+      <ol>
+        <li>
+          <strong>{{ $t('configurationCredentials.guideSelectTitle') }}</strong>
+          <p>{{ $t('configurationCredentials.guideSelect') }}</p>
+        </li>
+        <li>
+          <strong>{{ $t('configurationCredentials.guideShareTitle') }}</strong>
+          <p>{{ $t('configurationCredentials.guideShare') }}</p>
+        </li>
+        <li>
+          <strong>{{ $t('configurationCredentials.guideUseTitle') }}</strong>
+          <p>{{ $t('configurationCredentials.guideUse') }}</p>
+        </li>
+      </ol>
+      <el-button v-if="bots.length" type="primary" :disabled="busy" @click="openCreate">
+        {{ $t('configurationCredentials.create') }}
+      </el-button>
+      <p v-else>{{ $t('configurationCredentials.noEligibleBots') }}</p>
+    </section>
 
     <el-alert
       v-if="error && !showCreate && !showAction"
@@ -576,12 +581,22 @@ onBeforeUnmount(() => {
 }
 
 .credential-guide {
-  max-width: 800px;
-  margin: 24px auto;
-  padding: clamp(12px, 3vw, 24px);
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  max-width: 680px;
+  margin: 16px auto 0;
+  padding: clamp(16px, 3vw, 28px);
+  text-align: center;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
   background: var(--el-bg-color-overlay);
+}
+
+.credential-guide h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .credential-guide img {
@@ -595,16 +610,20 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px 24px;
-  margin: 12px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
-  text-align: center;
 }
 
 .credential-guide p {
-  margin: 4px 0 0;
-  color: var(--el-text-color-secondary);
+  margin: 0;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
   line-height: 1.55;
+}
+
+.credential-guide li p {
+  margin-top: 4px;
 }
 
 @media (max-width: 580px) {
