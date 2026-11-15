@@ -155,7 +155,7 @@ def test_summary_counts_only_live_task_declarations_and_updates_after_release(ap
 def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
     schema = client.get("/api/public-openapi.json").json()
     groups = {item["name"] for item in schema["tags"]}
-    assert groups == {"Agent API", "OP API", "Agent 绑定", "Skill 下载"}
+    assert groups == {"Agent API", "OP API", "Configuration API", "Agent 绑定", "Skill 下载"}
     paths = schema["paths"]
     assert paths["/api/bots/{bot_id}/commands"]["post"]["security"] == [{"AgentKey": []}]
     assert paths["/api/bots/{bot_id}/resources"]["get"]["tags"] == ["Agent API"]
@@ -164,6 +164,11 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
         assert paths[path][method]["security"] == [{"OpApiKey": []}]
     assert paths["/api/resource-auth/bindings"]["post"]["security"] == []
     assert paths["/api/agent-skill/SKILL.md"]["get"]["security"] == []
+    configuration = "/api/bots/{bot_id}/configuration-access"
+    for path, method in [(configuration, "get"), (configuration, "put"), (configuration + "/preview", "post")]:
+        assert paths[path][method]["tags"] == ["Configuration API"]
+        assert paths[path][method]["security"] == [{"ConfigurationKey": []}]
+    assert "/api/configuration-credentials" not in paths
     lifecycle = "/api/bots/{bot_id}/op/lifecycle-audit"
     assert paths[lifecycle]["get"]["tags"] == ["OP API"]
     assert paths[lifecycle]["get"]["security"] == [{"OpApiKey": []}]
@@ -172,4 +177,4 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
         assert paths[operation_path]["get"]["security"] == [{"OpApiKey": []}]
     # The public OP contract does not advertise management or delegated detailed notes.
     assert not any(("audit" in path and path != lifecycle) or "agent-activity" in path for path in paths)
-    assert set(schema["components"]["securitySchemes"]) == {"AgentKey", "OpApiKey"}
+    assert set(schema["components"]["securitySchemes"]) == {"AgentKey", "OpApiKey", "ConfigurationKey"}
