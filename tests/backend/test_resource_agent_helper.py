@@ -415,6 +415,44 @@ def test_node_access_metadata_keeps_identical_node_ids_separate_between_connecti
     assert first.node_access.path.read_bytes() == before
 
 
+def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert helper.main(["connections"]) == 0
+    assert json.loads(capsys.readouterr().out)["result"] == {"connections": [], "unavailable_count": 0}
+
+    root = tmp_path / "private/lockbot"
+    root.mkdir(mode=0o700, parents=True)
+    for folder, port in (("primary", 8155), ("recovered/test", 8002)):
+        directory = root / folder
+        directory.mkdir(mode=0o700, parents=True)
+        write_private(
+            directory / "connection.json",
+            {
+                "approved_origin": f"http://192.0.2.10:{port}",
+                "instance_id": str(port),
+                "bot_uuid": "same-bot-name",
+                "key_file": "not-present.key",
+                "extra": KEY,
+            },
+        )
+    unsafe = root / "unsafe"
+    unsafe.mkdir()
+    (unsafe / "connection.json").symlink_to(root / "primary/connection.json")
+
+    assert helper.main(["connections"]) == 0
+    output = capsys.readouterr().out
+    assert KEY not in output
+    assert "not-present.key" not in output
+    listing = json.loads(output)["result"]
+    assert listing["unavailable_count"] == 1
+    assert [row["origin"] for row in listing["connections"]] == ["http://192.0.2.10:8155", "http://192.0.2.10:8002"]
+    assert {Path(row["connection"]).parent.name for row in listing["connections"]} == {"primary", "test"}
+
+    root.chmod(0o755)
+    assert helper.main(["connections"]) == 2
+    assert "private_connection_directory_required" in capsys.readouterr().err
+
+
 def test_service_discovery_precedes_key_and_redacts_context(case):
     result = case.client.context()
     assert case.state.requests[0][0] == "/api/agent-skill"

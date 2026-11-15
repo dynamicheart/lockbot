@@ -202,6 +202,41 @@ def private_json(path):
         raise ClientError("invalid_private_json") from exc
 
 
+def listed_connections(directory):
+    """List private project connection records without opening their Key files."""
+    root = Path(directory)
+    try:
+        mode = root.lstat().st_mode
+    except FileNotFoundError:
+        return {"connections": [], "unavailable_count": 0}
+    if not stat.S_ISDIR(mode) or mode & 0o077:
+        raise ClientError("private_connection_directory_required")
+    root = root.resolve()
+    files = sorted([*root.glob("*/connection.json"), *root.glob("*/*/connection.json")])
+    connections = []
+    for path in files:
+        try:
+            if path.resolve() != path:
+                continue
+            record = private_json(path)
+            service = origin(record["approved_origin"])
+            fields = (service, record["instance_id"], record["bot_uuid"], record["key_file"])
+            if any(not isinstance(field, str) or not field for field in fields):
+                continue
+            entry = {
+                "origin": service,
+                "instance_id": record["instance_id"],
+                "bot_uuid": record["bot_uuid"],
+                "connection": str(path),
+            }
+            if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(entry.values())):
+                continue
+            connections.append(entry)
+        except (ClientError, OSError, KeyError, RuntimeError):
+            continue
+    return {"connections": connections, "unavailable_count": len(files) - len(connections)}
+
+
 def write_private(path, content, *, replace=False):
     path = Path(path)
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
@@ -1451,6 +1486,10 @@ def main(argv=None):
         command.add_argument("--enrollment-dir", required=True)
         if action == "finish-enrollment":
             command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
+    catalog = sub.add_parser("connections", help="List saved project connections without reading their Keys")
+    catalog.add_argument(
+        "--directory", default="private/lockbot", help="Private connection catalog relative to the project root"
+    )
     sub.add_parser("context")
     sub.add_parser("resources")
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
@@ -1480,6 +1519,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
     client = None
     try:
+        if args.action == "connections":
+            if args.connection:
+                raise ClientError("connection_not_used_for_listing")
+            print(
+                json.dumps({"result": listed_connections(args.directory), "update_required": False}, ensure_ascii=False)
+            )
+            return 0
         enrollment_actions = {"enroll", "enrollment-status", "finish-enrollment"}
         if args.action in enrollment_actions and args.connection:
             raise ClientError("enrollment_requires_new_connection")
