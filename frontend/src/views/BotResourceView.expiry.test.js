@@ -97,3 +97,30 @@ it('rejects missing expiry instead of treating it as a permanent link', async ()
   expect(view.invalid).toBe(true)
   expect(view.snapshot).toBeNull()
 })
+
+it('refreshes every 30 seconds while visible and immediately on return', async () => {
+  await mount(null)
+  const onVisibilityChange = document.addEventListener.mock.calls.find(
+    ([event]) => event === 'visibilitychange'
+  )[1]
+  expect(fetch).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(29_999)
+  expect(fetch).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(fetch).toHaveBeenCalledTimes(2)
+
+  document.hidden = true
+  onVisibilityChange()
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(fetch).toHaveBeenCalledTimes(2)
+
+  document.hidden = false
+  onVisibilityChange()
+  expect(fetch).toHaveBeenCalledTimes(3)
+
+  app.unmount()
+  app = null
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(fetch).toHaveBeenCalledTimes(3)
+  expect(document.removeEventListener).toHaveBeenCalledWith('visibilitychange', onVisibilityChange)
+})

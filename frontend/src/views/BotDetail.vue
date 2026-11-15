@@ -37,13 +37,19 @@
         >
           <el-icon><Edit /></el-icon> {{ $t('botDetail.editConfig') }}
         </el-button>
-        <el-button
+        <el-tooltip
           v-if="canEdit"
-          round
-          @click="$router.push({ path: '/bots/create', query: { copy_from: bot.id } })"
+          :content="$t('botDetail.copyConfigHint')"
+          :trigger="['hover', 'focus']"
+          placement="top"
         >
-          <el-icon><CopyDocument /></el-icon> {{ $t('feishu.copyConfig') }}
-        </el-button>
+          <el-button
+            round
+            @click="$router.push({ path: '/bots/create', query: { copy_from: bot.id } })"
+          >
+            <el-icon><CopyDocument /></el-icon> {{ $t('feishu.copyConfig') }}
+          </el-button>
+        </el-tooltip>
         <el-button
           v-if="canDelete"
           type="danger"
@@ -405,7 +411,19 @@
               datasourceConfig?.name || $t('utilization.notConfigured')
             }}</span>
           </el-descriptions-item>
-          <el-descriptions-item v-if="canEdit" :label="$t('nodeAccess.title')" :span="2">
+          <el-descriptions-item v-if="canEdit" :span="2">
+            <template #label>
+              {{ $t('nodeAccess.title') }}
+              <el-tooltip
+                :content="$t('nodeAccess.purpose')"
+                :trigger="['hover', 'focus']"
+                placement="top"
+              >
+                <el-icon class="help-icon" tabindex="0" :aria-label="$t('nodeAccess.purpose')">
+                  <QuestionFilled />
+                </el-icon>
+              </el-tooltip>
+            </template>
             <NodeAccessEditor :key="bot.id" :bot-id="bot.id" />
           </el-descriptions-item>
         </el-descriptions>

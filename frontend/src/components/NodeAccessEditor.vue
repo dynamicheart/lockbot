@@ -8,13 +8,17 @@
     <p>{{ t('nodeAccess.help') }}</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <template v-if="inventory">
-      <el-button size="small" @click="copyNodeIds">{{ t('nodeAccess.copyNodes') }}</el-button>
+      <el-button size="small" @click="copyPrompt">{{ t('nodeAccess.copyPrompt') }}</el-button>
+      <p class="format-hint">
+        {{ t('nodeAccess.inventoryFormat') }} <code>node-02,192.0.2.42,2222</code>
+      </p>
       <label class="mapping">
         {{ t('nodeAccess.mapping') }}
+        <span class="format-hint">{{ t('nodeAccess.addressFormat') }}</span>
         <el-input
           v-model="input"
           type="textarea"
-          :rows="6"
+          :rows="7"
           :disabled="busy"
           :maxlength="131072"
           :placeholder="example"
@@ -90,15 +94,27 @@ const mappingOptions = {
   headers: { 'Content-Type': 'application/json' },
   transformRequest: [(body) => body],
 }
-const example =
-  '{\n  "version": 1,\n  "nodes": { "node-01": { "host": "compute-01.example.test" } }\n}'
+const example = [
+  '{',
+  '  "version": 1,',
+  '  "nodes": {',
+  '    "node-01": { "host": "compute-01.example.test" },',
+  '    "node-02": { "host": "192.0.2.42", "port": 2222 }',
+  '  }',
+  '}',
+].join('\n')
 
 function address({ host, port }) {
   return `${host.includes(':') ? `[${host}]` : host}:${port}`
 }
 
-function copyNodeIds() {
-  copyText(JSON.stringify(inventory.value.node_ids, null, 2))
+function copyPrompt() {
+  copyText(
+    t('nodeAccess.prompt', {
+      nodeIds: JSON.stringify(inventory.value.node_ids),
+      example,
+    })
+  )
 }
 
 async function run(action, message) {
@@ -166,6 +182,11 @@ async function remove(node) {
   display: grid;
   gap: 8px;
   margin-top: 16px;
+}
+.format-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 .preview {
   margin-top: 16px;

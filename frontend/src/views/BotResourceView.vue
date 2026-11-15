@@ -32,9 +32,11 @@
             </span>
           </div>
         </div>
-        <el-button :icon="Refresh" :loading="loading" @click="refresh">{{
-          $t('common.refresh')
-        }}</el-button>
+        <el-tooltip :content="$t('resourceView.autoRefreshHint')" :trigger="['hover', 'focus']">
+          <el-button :icon="Refresh" :loading="loading" @click="refresh">{{
+            $t('common.refresh')
+          }}</el-button>
+        </el-tooltip>
       </header>
       <div v-if="snapshot.health === 'running'" class="resource-summary">
         <div>
@@ -204,6 +206,7 @@ import { resourceViewDeadline } from '../utils/resourceViewLifetime'
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
+const refreshIntervalMs = 30_000
 const snapshot = ref(null)
 const metrics = ref({ enabled: false, config: null, snapshot: null, error: null })
 const loading = ref(false)
@@ -317,7 +320,7 @@ const tick = setInterval(() => {
   clock.value = Date.now()
   expired()
 }, 1000)
-const poll = setInterval(refresh, 30000)
+const poll = setInterval(refresh, refreshIntervalMs)
 const visible = () => {
   if (!document.hidden && !expired()) refresh()
 }

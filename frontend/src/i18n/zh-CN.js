@@ -2,9 +2,19 @@ export default {
   nodeAccess: {
     title: '节点连接',
     open: '配置登录地址',
-    help: '复制节点 ID 给 Agent，让它根据你的机器清单生成映射，再粘贴到这里。',
-    copyNodes: '复制节点 ID',
+    purpose: '资源持有者可在个人资源台或通过 Agent 查看节点的 SSH 地址和端口。',
+    help: '把 Prompt 和机器清单发给 Agent，再把生成的 JSON 粘贴到这里。',
+    copyPrompt: '复制 Agent Prompt',
+    inventoryFormat: '机器清单每行可按「节点 ID、登录地址、可选端口」提供，例如',
     mapping: '节点映射 JSON',
+    addressFormat: 'host 填域名或 IPv4 地址。port 可省略，默认 22。',
+    prompt:
+      '请根据我提供的机器清单，生成 LockBot 的 SSH 节点映射。\n' +
+      '本资源群的节点 ID 为 {nodeIds}。机器清单每行可包含节点 ID、登录地址和可选端口。\n' +
+      '严格使用上述节点 ID，只映射能唯一确认的节点。无法确认的条目请略过。\n' +
+      'host 填机器清单确认的域名或 IPv4 地址。port 仅在明确给出时填 1–65535 的整数，省略时默认 22。\n' +
+      '只返回 JSON，使用 version 和 nodes 两个字段。每个节点只填写 host 和可选的 port。\n' +
+      '以下 JSON 仅展示格式，其中的节点 ID 和地址是示例。\n{example}',
     review: '本次变更',
     noChanges: '映射与已保存配置一致。',
     saved: '已配置的节点',
@@ -451,6 +461,7 @@ export default {
     },
   },
   resourceView: {
+    autoRefreshHint: '此标签页可见时，每 30 秒自动刷新',
     linkLifetime: '资源链接有效期',
     linkLifetimeStatus: '链接有效期：{value}',
     inheritLifetime: '继承平台',
@@ -811,6 +822,7 @@ export default {
     confirmDelete: '确定要删除这个机器人吗？',
     clusterState: '集群状态',
     editConfig: '编辑配置',
+    copyConfigHint: '以当前配置为模板创建新机器人',
     saveWillRestart: '保存后机器人将自动重启',
     logsAndStats: '日志与统计',
     logs: '日志',
