@@ -1,6 +1,8 @@
 # 飞书与如流并行接入
 
-状态：2026-10-29 更新。实现见 [PR #25](https://github.com/dynamicheart/lockbot/pull/25)，尚未合入或正式发布。测试部署已通过飞书专用代理完成 HTTP API、真实 WebSocket 握手、连接器退出后的重连握手及一次真人群内锁定/回复验收。此前本地重复接收端已停止，测试资源 bot 已从停止状态启动；应用连通和资源 bot 就绪是两项独立检查。正式服务未增加飞书接入。最新范围与未完成事项见 [Roadmap](../../ROADMAP.md) 和 [需求矩阵](requirement-coverage.md)。
+飞书企业应用和群路由已进入 3.x 发布。现行设置参见[飞书接入指南](../usage/feishu-setup.md)，各发布版本的功能和验收范围见 [3.2.0 发布记录](../releases/3.2.0.md)、[Roadmap](../../ROADMAP.md) 和 [需求矩阵](requirement-coverage.md)。
+
+2026-10-29 的设计验收记录来自 [PR #25](https://github.com/dynamicheart/lockbot/pull/25)。当时测试部署通过飞书专用代理验证了 HTTP API、WebSocket 握手、连接器退出后的重连以及一次真人群内锁定和回复。应用连通和资源机器人就绪分别验收。
 
 ## 已确定的产品模型
 

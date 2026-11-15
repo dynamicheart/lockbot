@@ -29,11 +29,11 @@
 正式镜像包含网页界面和飞书依赖。按照[部署指南](docs/agents/deployment/AGENTS.md)准备私有环境文件，配置 `JWT_SECRET` 和 `ENCRYPTION_KEY`。升级时保留原密钥和数据卷。
 
 ```bash
-docker pull ghcr.io/dynamicheart/lockbot:v3.0.0
+docker pull ghcr.io/dynamicheart/lockbot:v3.3.0
 docker run -d --name lockbot -p 8000:8000 \
   --env-file /private/path/lockbot.env \
   -v lockbot-data:/data \
-  ghcr.io/dynamicheart/lockbot:v3.0.0
+  ghcr.io/dynamicheart/lockbot:v3.3.0
 
 # 仅新安装：在交互终端创建初始超级管理员。
 docker exec -it lockbot python tools/create_super_admin.py --username admin --email admin@example.com
@@ -110,6 +110,8 @@ pytest -n auto --maxprocesses=4 --dist=loadfile
 ruff check python/ tests/
 ruff format --check python/ tests/
 ```
+
+[Agent Skill 评测](docs/development/agent-skill-evaluation.md)说明如何在隔离环境中运行模型测试。常规 CI 不调用付费模型。
 
 ## 从旧版独立部署迁移
 
