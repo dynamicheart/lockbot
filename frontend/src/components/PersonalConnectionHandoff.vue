@@ -1,16 +1,6 @@
 <template>
-  <section
-    v-if="authenticated || supported || loading || error"
-    class="native-connections"
-    aria-labelledby="agent-credentials"
-  >
-    <div class="connection-heading credential-overview">
-      <div>
-        <h2 id="agent-credentials">Agent 凭证</h2>
-        <p v-if="supported && authenticated && !loading && !error" class="scope">
-          {{ items.length }} 个凭证 · {{ boundGroupCount }} 个绑定群
-        </p>
-      </div>
+  <section v-if="authenticated || supported || loading || error" class="native-connections">
+    <div v-if="authenticated" class="connection-toolbar">
       <div class="credential-actions">
         <button
           v-if="items.length > 1"
@@ -31,8 +21,7 @@
     <p v-if="loading" role="status" class="scope">正在检查授权…</p>
     <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
     <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
-    <p v-if="items.length" class="scope">接入说明可发给多个 Agent，内容不含 Key。</p>
-    <p v-else-if="authenticated && !error && !loading" class="scope">
+    <p v-if="!items.length && authenticated && !error && !loading" class="scope">
       暂无可管理的机器群 Key。请通过该群已绑定的 Agent 添加凭证。
     </p>
     <table v-if="items.length" class="credential-table" aria-label="Agent 凭证列表">
@@ -217,10 +206,6 @@ import { credentialAgentActivity } from '../utils/agentActivity'
 
 const props = defineProps({ authenticated: Boolean, scopeKey: { type: String, default: '' } })
 const items = ref([])
-const boundGroupCount = computed(
-  () =>
-    new Set(items.value.map(({ instance_id, bot }) => JSON.stringify([instance_id, bot.uuid]))).size
-)
 const skill = ref(null)
 const recoveryGuide = ref('')
 const supported = ref(false)
@@ -594,19 +579,18 @@ onBeforeUnmount(() => {
 .native-connections .scope {
   margin: 0;
 }
-.credential-overview .scope,
 .credential-identity .scope {
   margin-top: 5px;
 }
-.connection-heading,
+.connection-toolbar,
 .credential-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
-.connection-heading {
-  justify-content: space-between;
+.connection-toolbar {
+  justify-content: flex-end;
 }
 .credential-table {
   width: 100%;

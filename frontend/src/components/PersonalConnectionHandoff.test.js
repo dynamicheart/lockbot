@@ -127,7 +127,7 @@ it('copies a deployment-pinned secret-free Skill instruction only on an explicit
     })
 })
 
-it('counts confirmed credentials and unique groups and copies all connections without keys', async () => {
+it('lists confirmed credentials directly and copies all connections without keys', async () => {
   const first = row()
   const second = row('Group two')
   second.id = 'b'.repeat(32)
@@ -142,8 +142,10 @@ it('counts confirmed credentials and unique groups and copies all connections wi
   mount()
   await flush()
   expect(state.items).toHaveLength(3)
-  expect(state.boundGroupCount).toBe(2)
-  expect(await rendered()).toContain('3 个凭证 · 2 个绑定群')
+  const markup = await rendered()
+  expect(markup).toContain('Group two')
+  expect(markup).not.toContain('个绑定群')
+  expect(markup).not.toContain('内容不含 Key')
   await state.copyAllInstructions()
   expect(clipboard).toHaveBeenCalledTimes(1)
   const message = clipboard.mock.calls[0][0]
