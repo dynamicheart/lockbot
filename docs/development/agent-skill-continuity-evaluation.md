@@ -25,6 +25,19 @@ The second process starts after the fixture operator simulates confirmation in c
 Also run `no-key` to verify the model can save the approved deployment and explain binding
 without requesting a code. The simulator cannot establish live chat or registry behavior.
 
+### First contact with the complete ZIP
+
+| Scenario | Passing behavior |
+| --- | --- |
+| `link-only` | Read the public manifest and leave the client's installation and private store untouched. |
+| `install-from-link` | Read the public manifest, verify and install its complete ZIP, then save the verified deployment metadata. |
+| `install-from-zip` | Use the supplied ZIP's service to fetch the matching manifest and save the same deployment metadata. |
+| `install-with-key` | Install the verified Skill, initialize the supplied private Key without a bot ID, then query the authenticated bot and preserve the Key. |
+
+Score actual installed bytes, the saved origin and service instance or bot binding,
+file permissions, and the request trace. These cases exercise the supplied fixture
+installer and the actual CLI. Real client skill detection and reload require separate runs.
+
 ## Recognize lock intent and resolve the exact resources
 
 Test the Agent with natural-language requests and a verified inventory containing two

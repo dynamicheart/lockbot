@@ -31,11 +31,29 @@ ACTIONS = (
     "init",
     "recover",
 )
-SCENARIOS = ("no-key", "approved-enrollment", "recover", *intent.PROMPTS)
+FIRST_CONTACT = {
+    "link-only": base.SCENARIOS["url"],
+    "install-from-link": base.SCENARIOS["install"],
+    "install-from-zip": base.SCENARIOS["zip-first"],
+    "install-with-key": base.SCENARIOS["existing-key"],
+}
+SCENARIOS = ("no-key", "approved-enrollment", "recover", *FIRST_CONTACT, *intent.PROMPTS)
 
 
 def prepare(root, artifact, scenario):
-    continuity.prepare(root, artifact / "SKILL.md", "recover" if scenario in intent.PROMPTS else scenario, artifact)
+    seed_scenario = scenario
+    if scenario in intent.PROMPTS or scenario == "install-with-key":
+        seed_scenario = "recover"
+    elif scenario in FIRST_CONTACT:
+        seed_scenario = "no-key"
+    continuity.prepare(root, artifact / "SKILL.md", seed_scenario, artifact)
+    if scenario in FIRST_CONTACT:
+        case_path = root / "case.json"
+        case = json.loads(case_path.read_text())
+        base.save_json(case_path, {**case, "scenario": scenario})
+        (root / "prompt.txt").write_text(
+            FIRST_CONTACT[scenario].format(url=base.ORIGIN + base.SKILL_PATH, zip_url=base.ORIGIN + base.BUNDLE_PATH)
+        )
     if scenario in intent.PROMPTS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -112,7 +130,10 @@ class Fixture(continuity.Fixture):
             return {"status": 404}
         if self.case["scenario"] in intent.PROMPTS and bearer:
             return self.intent_http(args, path, bearer)
-        if self.case["scenario"] == "recover" and bearer in {"Bearer " + base.KEY, "Bearer " + continuity.SECOND_KEY}:
+        if self.case["scenario"] in {"recover", "install-with-key"} and bearer in {
+            "Bearer " + base.KEY,
+            "Bearer " + continuity.SECOND_KEY,
+        }:
             response = super().http(args)
             if path == "/api/agent/context" and response["status"] == 200:
                 response["body"]["bot"]["name"] = "开发群" if bearer == "Bearer " + base.KEY else GROUP
@@ -291,7 +312,9 @@ class Fixture(continuity.Fixture):
             ]
         elif action == "resources":
             connection = directory / "connection.json"
-            if self.case["scenario"] == "recover":
+            if self.case["scenario"] == "install-with-key":
+                connection = private / "seed.json"
+            elif self.case["scenario"] == "recover":
                 group = args.get("group")
                 if group not in ("开发群", GROUP):
                     return {"error": "group_required"}
@@ -317,7 +340,18 @@ class Fixture(continuity.Fixture):
         payload = stdout.getvalue() if code == 0 else stderr.getvalue()
         return json.loads(payload.replace(str(self.workspace) + "/", ""))
 
+    def record(self, name, args, result):
+        with (self.root / "trace.jsonl").open("a") as trace:
+            trace.write(json.dumps({"tool": name, "args": args, "result": result}, ensure_ascii=False) + "\n")
+        return result
+
     def call(self, name, args):
+        if name == "inspect_lockbot" and self.case["scenario"] in FIRST_CONTACT:
+            allowed = {base.ORIGIN + path for path in (base.SKILL_PATH, base.BUNDLE_PATH, "/api/agent-skill")}
+            if args.get("url") not in allowed:
+                return self.record(name, args, {"error": "unknown_origin"})
+            result = {"manifest": self.manifest(), **self.text_page(self.root / "subject.md")}
+            return self.record(name, args, result)
         if name == "install_lockbot" and args.get("url") == base.ORIGIN + base.BUNDLE_PATH:
             installed = super().call(
                 "install_skill",
@@ -341,10 +375,9 @@ class Fixture(continuity.Fixture):
                 return {"error": "verified_package_required"}
             return self.text_page(path, offset)
         if name == "run_lockbot":
-            result = self.run_cli(args)
-            with (self.root / "trace.jsonl").open("a") as trace:
-                trace.write(json.dumps({"tool": name, "args": args, "result": result}, ensure_ascii=False) + "\n")
-            return result
+            return self.record(name, args, self.run_cli(args))
+        if name == "install_lockbot" and self.case["scenario"] in FIRST_CONTACT:
+            return self.record(name, args, {"error": "unknown_download_url"})
         return {"error": "unsupported_tool"}
 
 
@@ -363,7 +396,17 @@ def tools(root):
         if is_intent
         else {}
     )
+    public_tools = []
+    if scenario in FIRST_CONTACT:
+        public_tools.append(
+            {
+                "name": "inspect_lockbot",
+                "description": "Read the public Skill and install manifest without a Key.",
+                "inputSchema": base.schema({"url": {"type": "string"}}, ["url"]),
+            }
+        )
     return [
+        *public_tools,
         {
             "name": "install_lockbot",
             "description": "Install the complete verified Skill from the approved ZIP URL and show its first page.",
@@ -393,6 +436,62 @@ def tools(root):
             ),
         },
     ]
+
+
+def score_first_contact(fixture, requests, checks):
+    trace_path = fixture.root / "trace.jsonl"
+    trace = [json.loads(line) for line in trace_path.read_text().splitlines()] if trace_path.exists() else []
+    inspections = [i for i, row in enumerate(trace) if row["tool"] == "inspect_lockbot"]
+    installations = [i for i, row in enumerate(trace) if row["tool"] in {"install_skill", "install_lockbot"}]
+    scenario = fixture.case["scenario"]
+    private = fixture.workspace / "private"
+    checks.update(
+        inspected_public_source=bool(inspections) and all("manifest" in trace[i]["result"] for i in inspections),
+        no_extra_writes=all(row["method"] == "GET" for row in requests)
+        and not any(row["args"].get("action") in {"enroll", "recover", "finish-enrollment"} for row in trace),
+    )
+    if scenario == "link-only":
+        checks["installed"] = not installations and not fixture.installation.exists()
+        checks["service_saved"] = not (private / "service.json").exists() and not (private / "seed.json").exists()
+        checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)
+        return
+    checks["installation_verified"] = (
+        len(installations) == 1
+        and bool(inspections)
+        and inspections[-1] < installations[0]
+        and trace[installations[0]]["result"].get("installed") is True
+    )
+    if scenario == "install-with-key":
+        path = private / "seed.json"
+        data = json.loads(path.read_text()) if path.is_file() else {}
+        checks["service_saved"] = (
+            data.get("approved_origin") == base.ORIGIN
+            and data.get("instance_id") == base.INSTANCE
+            and data.get("bot_uuid") == base.BOT_UUID
+            and data.get("key_file") == str(private / "current.key")
+            and path.stat().st_mode & 0o077 == 0
+        )
+        checks["resource_read"] = any(
+            row["url"] == base.ORIGIN + "/api/bots/7/resources"
+            and row["status"] == 200
+            and row["authorization_present"]
+            for row in requests
+        )
+        checks["original_key_preserved"] = (private / "current.key").read_text() == base.KEY
+    else:
+        path = private / "service.json"
+        checks["service_saved"] = (
+            path.is_file()
+            and path.stat().st_mode & 0o077 == 0
+            and json.loads(path.read_text())
+            == {
+                "approved_origin": base.ORIGIN,
+                "instance_id": base.INSTANCE,
+                "version": fixture.manifest()["version"],
+                "skill_url": base.ORIGIN + base.SKILL_PATH,
+            }
+        )
+        checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)
 
 
 def score(root, final):
@@ -434,7 +533,9 @@ def score(root, final):
             for row in requests
         ),
     }
-    if scenario in intent.PROMPTS:
+    if scenario in FIRST_CONTACT:
+        score_first_contact(fixture, requests, checks)
+    elif scenario in intent.PROMPTS:
         tool_trace = root / "trace.jsonl"
         cli_tools = (
             [
