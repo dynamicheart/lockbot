@@ -19,22 +19,24 @@ manage several separately scoped service/bot connections.
 
 ### First-contact checklist
 
-Use this checklist for installation and binding. Read the operation references below when
-they apply to the request. Verify the complete ZIP and its installation stamp without
-reading the helper source or unrelated operation references during setup.
+**A link or pasted Skill alone is a read-only request.** Inspect the public manifest,
+explain what the Skill does and offer installation. End the turn without calling an
+installer, saving a connection, or asking for a Key. Install only when the user's
+request explicitly authorizes installation.
 
 1. Use the full URL supplied by the user, the **Deployment Skill URL** in pasted
    Markdown, or an existing approved connection that matches the request. If none is
    available, stop before any network request and ask for the original full Skill URL.
    Example URLs and names in the repository copy are placeholders.
-2. Read the public manifest on that origin **without a key**. Explain the service address
-   and recommend installation for ongoing use. A shared link or pasted text by itself
-   authorizes reading only. Wait for a request to install before saving anything.
-3. With installation authorized, use the manifest's `installation.download_url` ZIP.
-   Give the installer this ZIP URL, even when the user gave you the Skill Markdown URL.
-   Verify the hashes and inspect the saved files. Use `discover --origin <approved-origin> --destination
-   <new-private-file>` to save the origin, verified instance ID, Skill URL and revision.
-   Report enrollment as pending if a code was requested, or still needed if no code was requested.
+2. Read the public manifest on that origin without a Key. For authorized installation,
+   give the client's installer the manifest's exact `installation.download_url` ZIP.
+   If the user shared a Markdown URL, use it to find the manifest and pass the ZIP URL
+   from the manifest to the installer. Verify the complete package and installation
+   stamp without reading the helper source or unrelated operation references.
+3. Verify the saved installation, then use `discover --origin <approved-origin>
+   --destination <new-private-file>` to save the origin, verified instance ID, Skill URL
+   and revision for the authorized setup. Report enrollment as pending if a code was
+   requested, or still needed if no code was requested.
 4. For a Key already transferred into a private file, run `init --origin <approved-origin>
    --key-file <existing-private-key-file> --destination <new-private-connection-file>`.
    This verifies the existing Key and saves a connection reference. It never issues,
