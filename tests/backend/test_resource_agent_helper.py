@@ -58,6 +58,10 @@ def case(tmp_path):
         command_status=200,
         command_applies=True,
         resources_fail=False,
+        context_denied=False,
+        resource_devices=None,
+        node_access=None,
+        resource_age=0,
         retry=False,
         forbidden=False,
         version_header=None,
@@ -93,8 +97,14 @@ def case(tmp_path):
                 return
             elif self.path == "/api/agent/context":
                 state.context_count += 1
+                if state.context_denied:
+                    status = 401
                 body = {
-                    "server": {"service_id": helper.SERVICE, "instance_id": "instance-a", "api_version": "1"},
+                    "server": {
+                        "service_id": helper.SERVICE,
+                        "instance_id": state.manifest["instance_id"],
+                        "api_version": "1",
+                    },
                     "bot": {"id": 7, "uuid": state.bot_uuid, "type": state.bot_type},
                     "actor": state.actor,
                     "agent_access_enabled": True,
@@ -141,7 +151,9 @@ def case(tmp_path):
                     status = 503
                 body = {
                     "captured_at": captured.isoformat(),
-                    "age_seconds": 0,
+                    "age_seconds": state.resource_age,
+                    "bot_id": 7,
+                    "health": "running",
                     "supported_operations": ["lock", "slock", "book", "unlock"],
                     "resources": [
                         {
@@ -152,6 +164,10 @@ def case(tmp_path):
                         }
                     ],
                 }
+                if state.node_access is not None:
+                    body["resources"][0]["node_access"] = state.node_access
+                if state.resource_devices is not None:
+                    body["resources"][0]["devices"] = state.resource_devices
                 if state.aliases_supported:
                     body["supported_operations"].append("alias")
                     body["aliases_observed_at"] = captured.isoformat()
@@ -241,6 +257,102 @@ def case(tmp_path):
 
 def commands(case):
     return [row for row in case.state.requests if row[0].endswith("commands")]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")
+@pytest.mark.parametrize("devices", [False, True])
+def test_node_access_metadata_scopes_and_reconciles_current_holdings(case, devices):
+    address = {"host": "compute.example.test", "ipv4": "192.0.2.42", "port": 2222}
+    holder = {"external_user_id": "alice", "expires_at": "2030-01-01T00:02:00+00:00", "remaining_seconds": 120}
+    case.state.holding = holder
+    case.state.node_access = address
+    if devices:
+        case.state.resource_devices = [
+            {"node_access": address, "holders": [holder]},
+            {"node_access": {**address, "ipv4": "192.0.2.99"}, "holders": [{**holder, "external_user_id": "bob"}]},
+        ]
+    metadata = case.path.with_name(case.path.name + ".node-access.json")
+    old_connection = case.path.read_bytes()
+
+    def refresh():
+        client = helper.Client(case.path, root=case.root)
+        return client.resources(client.context())
+
+    refresh()
+    saved = json.loads(metadata.read_text())
+    assert (metadata.stat().st_mode & 0o777) == 0o600
+    assert saved["scope"] == {
+        field: case.connection[field] for field in ("approved_origin", "instance_id", "bot_uuid", "actor")
+    }
+    assert list(saved["nodes"]) == ["node-a"]
+    entry = saved["nodes"]["node-a"]
+    assert {key: entry[key] for key in address} == address and entry["expires_at"] == holder["expires_at"]
+    assert KEY not in metadata.read_text()
+    assert case.path.read_bytes() == old_connection and (case.tmp / "resource.key").read_text() == KEY
+
+    case.state.resource_age = 121
+    refresh()
+    assert not metadata.exists()
+    case.state.resource_age = 0
+    refresh()
+    assert json.loads(metadata.read_text())["nodes"]
+    case.state.node_access = None
+    case.state.resource_devices = None
+    refresh()
+    assert not metadata.exists()
+
+    case.state.node_access = address
+    refresh()
+    assert json.loads(metadata.read_text())["nodes"]
+    case.state.context_denied = True
+    with pytest.raises(helper.ClientError, match="http_401"):
+        refresh()
+    assert not metadata.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")
+def test_node_access_metadata_removes_release_and_discards_older_snapshot(case):
+    case.state.node_access = {"host": "compute.example.test", "port": 22}
+    case.state.holding = {"external_user_id": "alice", "expires_at": "2030-01-01T00:02:00+00:00"}
+    client = case.client
+    client.resources(client.context())
+    metadata = client.node_access
+    assert json.loads(metadata.path.read_text())["nodes"]
+    assert client.command("release", ["node-a"], [], None, {})["verified"] is True
+    assert not metadata.path.exists()
+
+    old = metadata.invalidate()
+    current = helper.NodeAccessMetadata(case.path)
+    new = current.invalidate()
+    current.save(new, {"node-a": {"host": "new.example.test", "port": 22}}, {"bot_uuid": "bot-a"})
+    metadata.save(old, {"node-a": case.state.node_access}, {"bot_uuid": "bot-a"})
+    assert json.loads(metadata.path.read_text())["nodes"]["node-a"]["host"] == "new.example.test"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")
+def test_node_access_metadata_keeps_identical_node_ids_separate_between_connections(case):
+    case.state.holding = {"external_user_id": "alice", "expires_at": "2030-01-01T00:02:00+00:00"}
+    case.state.node_access = {"host": "first.example.test", "port": 22}
+    first = case.client
+    first.resources(first.context())
+    before = first.node_access.path.read_bytes()
+
+    case.state.manifest["instance_id"] = "instance-b"
+    case.state.bot_uuid = "bot-b"
+    case.state.node_access = {"host": "second.example.test", "port": 22}
+    config = {
+        **case.connection,
+        "approved_origin": case.base.replace("127.0.0.1", "localhost"),
+        "instance_id": "instance-b",
+        "bot_uuid": "bot-b",
+    }
+    second = helper.Client(write_private(case.tmp / "another.json", config), root=case.root)
+    second.resources(second.context())
+    saved = json.loads(second.node_access.path.read_text())
+    assert saved["scope"]["approved_origin"] == config["approved_origin"]
+    assert saved["scope"]["instance_id"] == "instance-b" and saved["scope"]["bot_uuid"] == "bot-b"
+    assert saved["nodes"]["node-a"]["host"] == "second.example.test"
+    assert first.node_access.path.read_bytes() == before
 
 
 def test_service_discovery_precedes_key_and_redacts_context(case):
