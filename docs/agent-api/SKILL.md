@@ -66,6 +66,14 @@ If the CLI returns `http_429` with `retry_after_seconds`, wait at least that lon
 checking resources again. Use the resulting live snapshot and the original user intent
 to decide whether a write is still appropriate.
 
+When the user delegates the choice of group or resource, search the user's already
+authorized connections for the stated model and allocation mode. Card model is
+`devices[].dev_model`. For a whole-machine request, use only verified inventory tied
+to its node ID. A name, alias or group title containing a model is not hardware
+evidence. If the requested model cannot be verified, explain the missing data and
+do not issue a write. If the user requests an immediate allocation and no compatible
+resource is available, report that outcome before offering a booking.
+
 **MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
 files or public memory. Refer to the private credential entry when explaining a problem.
 Never try another service's key or report installation/enrollment as complete without
