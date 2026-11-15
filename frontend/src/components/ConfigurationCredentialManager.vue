@@ -23,7 +23,7 @@
         <template #default="{ row }">
           <dl class="credential-details">
             <dt>{{ $t('auditCredentials.bots') }}</dt>
-            <dd>{{ botNames(row).join(', ') }}</dd>
+            <dd>{{ botNames(row).join(', ') || '—' }}</dd>
             <dt>{{ $t('auditCredentials.expires') }}</dt>
             <dd>{{ formatDateTime(row.expires_at) }}</dd>
             <dt>{{ $t('configurationCredentials.lastUsed') }}</dt>
@@ -46,7 +46,7 @@
         show-overflow-tooltip
       >
         <template #default="{ row }">
-          {{ botNames(row).join(', ') }}
+          {{ botNames(row).join(', ') || '—' }}
         </template>
       </el-table-column>
       <el-table-column v-if="!compact" :label="$t('auditCredentials.scope')" min-width="200">
@@ -108,7 +108,13 @@
         <el-form-item :label="$t('auditCredentials.name')">
           <el-input v-model="form.label" maxlength="64" autocomplete="off" />
         </el-form-item>
-        <el-form-item :label="$t('auditCredentials.bots')">
+        <el-form-item :label="$t('configurationCredentials.purpose')">
+          <el-radio-group v-model="form.purpose">
+            <el-radio value="configure">{{ $t('configurationCredentials.editBots') }}</el-radio>
+            <el-radio value="create">{{ $t('configurationCredentials.createBot') }}</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="form.purpose === 'configure'" :label="$t('auditCredentials.bots')">
           <el-select
             v-model="form.bot_ids"
             :placeholder="$t('auditCredentials.selectBots')"
@@ -121,7 +127,7 @@
             <el-option v-for="bot in bots" :key="bot.id" :value="bot.id" :label="botLabel(bot)" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="$t('auditCredentials.scope')">
+        <el-form-item v-if="form.purpose === 'configure'" :label="$t('auditCredentials.scope')">
           <el-checkbox-group v-model="form.scopes">
             <el-checkbox
               v-for="(label, permission) in scopeLabels"
@@ -246,7 +252,9 @@ const secret = ref('')
 const form = ref(emptyForm())
 const now = ref(Date.now())
 const canCreate = computed(
-  () => form.value.label.trim() && form.value.bot_ids.length && form.value.scopes.length
+  () =>
+    form.value.label.trim() &&
+    (form.value.purpose === 'create' || (form.value.bot_ids.length && form.value.scopes.length))
 )
 const actionLabel = computed(() =>
   action.value?.type === 'rotate' ? 'configurationCredentials.rotate' : 'auditCredentials.revoke'
@@ -260,7 +268,13 @@ const showSecret = computed({
 const botsById = computed(() => new Map(bots.value.map((bot) => [bot.id, bot])))
 
 function emptyForm() {
-  return { label: '', bot_ids: [], scopes: [], expires_in_seconds: defaultLifetime }
+  return {
+    purpose: 'configure',
+    label: '',
+    bot_ids: [],
+    scopes: [],
+    expires_in_seconds: defaultLifetime,
+  }
 }
 
 function botLabel(bot) {
@@ -275,7 +289,13 @@ function botNames(row) {
 }
 
 function scopeText(row) {
-  return row.scopes.map((permission) => t(scopeLabels[permission])).join(' · ')
+  return row.scopes
+    .map((permission) =>
+      t(
+        permission === 'bot:create' ? 'configurationCredentials.createBot' : scopeLabels[permission]
+      )
+    )
+    .join(' · ')
 }
 
 function status(row) {
@@ -341,7 +361,12 @@ async function mutate(send, after) {
 
 function create() {
   if (!canCreate.value) return
-  const body = { ...form.value, label: form.value.label.trim() }
+  const { purpose, ...settings } = form.value
+  const body = { ...settings, label: settings.label.trim() }
+  if (purpose === 'create') {
+    body.bot_ids = []
+    body.scopes = ['bot:create']
+  }
   return mutate(
     (config) => api.post(endpoint, body, config),
     (data) => {

@@ -412,14 +412,18 @@ def create_bot(
     db: Session = Depends(get_db),
     idempotency_key: Annotated[str | None, Header()] = None,
 ):
+    return _create_bot_for_user(request, body, user, db, idempotency_key)
+
+
+def _create_bot_for_user(request, body, user, db, key, *, credential_id=None):
     if body.platform.strip().lower() == "feishu":
         from lockbot.backend.app.feishu.connectors import connectors
 
         db.rollback()
         with connectors.application_guard():
             db.rollback()
-            return _create_bot(request, body, user, db, idempotency_key)
-    return _create_bot(request, body, user, db, idempotency_key)
+            return _create_bot(request, body, user, db, key, credential_id=credential_id)
+    return _create_bot(request, body, user, db, key, credential_id=credential_id)
 
 
 def _validate_bot_creation(body: BotCreate, user: User, db: Session) -> str:
@@ -470,7 +474,7 @@ def _validate_bot_creation(body: BotCreate, user: User, db: Session) -> str:
     return selected_platform
 
 
-def _create_bot(request, body, user, db, key):
+def _create_bot(request, body, user, db, key, *, credential_id=None):
     if key is not None:
         if len(key) != 36:
             raise HTTPException(422, {"code": "invalid_bot_creation_key"})
@@ -529,14 +533,17 @@ def _create_bot(request, body, user, db, key):
         from lockbot.backend.app.feishu.models import FeishuGroupRoute
 
         db.add(FeishuGroupRoute(application_id=body.feishu_application_id, chat_id=body.group_id, bot_id=bot.id))
+    audit_detail = {"bot_type": bot.bot_type, "platform": bot.platform}
+    if credential_id is not None:
+        audit_detail["credential_id"] = credential_id
     write_audit_log(
         db,
         user,
         "bot.create",
         target_type="bot",
         target_id=bot.id,
-        target_name=bot.name,
-        detail={"bot_type": bot.bot_type, "platform": bot.platform},
+        target_name=bot.name if credential_id is None else f"#{bot.id}",
+        detail=audit_detail,
         ip=request.client.host if request.client else None,
     )
     db.commit()
