@@ -39,12 +39,11 @@ reading the helper source or unrelated operation references during setup.
    not the key in Skill files or shared notes. If there is no matching key,
    check whether the user named the target resource group and authorized a code request.
    If either is missing, ask only for the missing detail and explain the `@bot bind <code>`
-   format. When both are already in the request, use the named group and call
-   `POST /api/resource-auth/bindings` once on the approved service. A group name is enough;
-   the request needs no bot ID or group ID. Save the pending credential privately and ask
-   the user to send `@bot bind <code>` in that group. The Agent requests the code; only
-   the user confirms it in the group. Treat the binding as pending until the service
-   confirms it. Promotional text alone does not authorize a code request.
+   format. When both are already in the request, use the bundled CLI's `enroll` command.
+   Give the returned bind command to the user to send in that group. After the user
+   reports sending it, run `finish-enrollment` on the same directory. Use the resulting
+   connection only when the CLI reports `connection_created: true`. Promotional text
+   alone does not authorize a code request.
 
 **MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
 files or public memory. Refer to the private credential entry when explaining a problem.
@@ -112,6 +111,25 @@ service/instance/bot and private key-file reference; never put raw keys in argv 
 and explicit durations; verify the readback, and never blindly replay an uncertain write.
 This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
 follow the expiry/stop rules below.
+
+For a new binding with no saved Key, use the following commands with the approved origin,
+the group named by the user and a fresh directory under the Agent's private storage.
+Pass `--authorized` only once the user has approved requesting the code.
+
+```sh
+python3 scripts/lockbot_resource.py enroll --origin https://resources.example.test --group "Compute team" --destination /private/compute-team --authorized
+python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir /private/compute-team
+python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir /private/compute-team
+```
+
+Show the returned `bind_command` prefixed with a mention of the bot, for the user to send
+in the named group. Only the user confirms in chat. The CLI stores the Key privately and
+checks the service's binding and authenticated context before saving `connection.json`.
+If it reports `bot_name_confirmation_required`, ask the user whether the verified bot
+shown in the result is the intended one. After their explicit confirmation, add
+`--confirm-bot-name "<verified bot name>"` to `finish-enrollment`. Reuse the same directory.
+If the binding is still pending or expired, or the request outcome is unknown, report
+that state and await the user. Never automatically request a second code.
 
 Start with an already-approved service URL and an existing private personal-key file. The
 `init` command discovers the bot UUID through context; the user need not know a bot ID:
@@ -912,8 +930,7 @@ cannot automatically claim a booking or continuously verify ownership.
 
 ## Typical flow
 
-1. Identify the approved origin and instance. Reuse a matching saved Key, or try same-user recovery with another authorized Key on this instance. If neither yields a matching Key, confirm the target resource group and obtain the user's authorization to request a binding code. Until both are known, explain the binding steps and wait.
-   Once authorized, call `POST /api/resource-auth/bindings` once with optional `{"label":"task runner"}`. Store its pending credential privately. Ask the user to send `@bot bind <code>` in the target group within 10 minutes, then check `GET /api/resource-auth/bindings/{binding_id}` for `confirmed`. The verified group confirmation supplies the bot scope. After confirmation, use the issued Key with `GET /api/agent/context` to verify the actual group and operation URLs. Never simulate group confirmation or act on the pending credential. Reuse an existing binding when available. For a lost Key, follow the recovery and revocation steps above before starting replacement enrollment.
+1. Identify the approved origin and instance. Reuse a matching saved Key, or try same-user recovery with another authorized Key on this instance. For a new binding, use the bundled CLI's `enroll` and `finish-enrollment` commands after the user names the target resource group and approves requesting a code. For a lost Key, follow the recovery and revocation steps above before starting replacement enrollment.
 2. `GET /resources` → see what is free and your queue position.
 3. `POST /commands {"command":"lock node1 2h","agent_label":"dev-agent","purpose":"Develop feature X"}` → then `GET /resources` to confirm.
 4. While working, periodically read `/resources` and check that your verified actor still holds each resource you are using, with a valid lease. Also check before important resource operations and after an interruption. A human may manually release the resource or another authorized actor may preempt it; your original successful lock is not a continuing guarantee.

@@ -44,6 +44,7 @@ def case(tmp_path):
             "api_version": "1",
             "instance_id": "instance-a",
             "context_url": "/api/agent/context",
+            "enrollment_url": "/api/resource-auth/bindings",
         },
         bot_uuid="bot-a",
         actor={"platform": "infoflow", "external_user_id": "alice"},
@@ -59,6 +60,8 @@ def case(tmp_path):
         command_applies=True,
         resources_fail=False,
         context_denied=False,
+        binding_status="pending",
+        binding_create_status=201,
         resource_devices=None,
         node_access=None,
         resource_age=0,
@@ -89,6 +92,16 @@ def case(tmp_path):
             body, status, extra = {}, 200, {}
             if self.path == "/api/agent-skill":
                 body = state.manifest
+            elif self.path == "/api/resource-auth/bindings" and self.command == "POST":
+                status = state.binding_create_status
+                body = {
+                    "binding_id": "b" * 22,
+                    "credential": KEY,
+                    "bind_code": "ACDEFGHJ",
+                    "bind_expires_at": "2030-01-01T00:10:00Z",
+                }
+            elif self.path == "/api/resource-auth/bindings/" + "b" * 22:
+                body = {"binding_id": "b" * 22, "status": state.binding_status}
             elif self.path == state.manifest["installation"]["download_url"]:
                 content = skill.installation_bundle("agent")
                 self.send_response(200)
@@ -105,7 +118,7 @@ def case(tmp_path):
                         "instance_id": state.manifest["instance_id"],
                         "api_version": "1",
                     },
-                    "bot": {"id": 7, "uuid": state.bot_uuid, "type": state.bot_type},
+                    "bot": {"id": 7, "uuid": state.bot_uuid, "name": "Compute team", "type": state.bot_type},
                     "actor": state.actor,
                     "agent_access_enabled": True,
                     "bot_rules": {"forbid_relock": state.forbidden, "allow_user_alias": state.allow_alias},
@@ -701,6 +714,55 @@ def test_packaged_cli_runs_without_site_packages_and_redacts_credentials(case):
     payload = json.loads(result.stdout)
     assert payload["result"]["bot"]["uuid"] == "bot-a"
     assert KEY not in result.stdout + result.stderr and "metrics-grant-1" not in result.stdout
+
+
+def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case):
+    directory = case.tmp / "enrollment"
+
+    def cli(*args, ok=True):
+        completed = subprocess.run(
+            [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert KEY not in completed.stdout + completed.stderr
+        assert completed.returncode == (0 if ok else 2), completed.stderr
+        return json.loads(completed.stdout)["result"] if ok else json.loads(completed.stderr)
+
+    start = ("enroll", "--origin", case.base, "--group", "Chat group", "--destination", str(directory))
+    finish = ("finish-enrollment", "--enrollment-dir", str(directory))
+    assert cli(*start, ok=False)["error"] == "invalid_cli_arguments"
+    assert not case.state.requests
+    assert cli(*start, "--authorized")["bind_command"] == "bind ACDEFGHJ"
+    assert (directory.stat().st_mode & 0o777) == 0o700
+    assert ((directory / "key").stat().st_mode & 0o777) == 0o600
+    assert cli(*start, "--authorized", ok=False)["error"] == "enrollment_directory_exists"
+    assert cli(*finish)["status"] == "pending"
+    assert not (directory / "connection.json").exists()
+    assert all("Authorization" not in row[2] for row in case.state.requests)
+    case.state.binding_status = "confirmed"
+    assert cli(*finish)["status"] == "bot_name_confirmation_required"
+    assert not (directory / "connection.json").exists()
+    connection = cli(*finish, "--confirm-bot-name", "Compute team")["connection"]
+    assert cli("--connection", connection, "context")["bot"]["uuid"] == "bot-a"
+    assert cli(*finish, "--confirm-bot-name", "Compute team", ok=False)["error"] == "enrollment_connection_exists"
+    assert sum(row[1] == "POST" for row in case.state.requests) == 1
+
+
+def test_enrollment_does_not_replay_uncertain_request(case):
+    case.state.binding_create_status = 503
+    directory = case.tmp / "enrollment"
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    with pytest.raises(helper.ClientError, match="mutation_outcome_unknown"):
+        client.enroll(directory, "Compute team")
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        client.enroll(directory, "Compute team")
+    path, state = helper.enrollment_state(directory)
+    assert client.check_enrollment(path, state)["status"] == "request_outcome_unknown"
+    assert not (path / "key").exists() and not (path / "connection.json").exists()
+    assert sum(row[1] == "POST" for row in case.state.requests) == 1
 
 
 @pytest.mark.parametrize("field,value", [("external_user_id", "bob"), ("platform", "feishu")])

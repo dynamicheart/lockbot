@@ -27,6 +27,7 @@ from pathlib import Path
 SERVICE = "lockbot.resource-api"
 API_VERSION = "1"
 SCRIPT_PATH = "scripts/lockbot_resource.py"
+ENROLLMENT_PATH = "/api/resource-auth/bindings"
 MAX_BYTES = 1024 * 1024
 MAX_CALLS = 12
 METRICS = (
@@ -115,6 +116,40 @@ def private_json(path):
         return value
     except (ValueError, UnicodeError, RecursionError) as exc:
         raise ClientError("invalid_private_json") from exc
+
+
+def write_private(path, content, *, replace=False):
+    path = Path(path)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(content)
+            stream.close()
+            if replace:
+                temporary.replace(path)
+            else:
+                os.link(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
+def enrollment_group(value):
+    if (
+        not isinstance(value, str)
+        or not 0 < len(value.strip()) <= 512
+        or any(unicodedata.category(char) == "Cc" for char in value)
+        or re.search(r"\b(?:lbr_|lbk_)[A-Za-z0-9_-]{20,200}", value)
+    ):
+        raise ClientError("invalid_enrollment_group")
+    return value.strip()
+
+
+def enrollment_state(directory):
+    path = Path(directory).absolute()
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
+        raise ClientError("private_enrollment_directory_required")
+    return path, private_json(path / "enrollment.json")
 
 
 class NodeAccessMetadata:
@@ -424,11 +459,7 @@ class Client:
             return package != self.package_version
         return rendered != self.version
 
-    def _read_context(self, *, initializing=False):
-        if self.manifest is None:
-            self.discover()  # no credentials have been read or sent yet
-        if not self.config.get("instance_id") or (not initializing and not self.config.get("bot_uuid")):
-            raise ClientError("connection_identity_not_pinned")
+    def _check_installed_version(self):
         if self.version is None:
             self.version = installed_version(self.root)
             self.package_version = installed_package_version(self.root)
@@ -438,6 +469,13 @@ class Client:
             and re.fullmatch(r"[a-f0-9]{16}", str(self.manifest.get("package_version", "")))
         )
         self.needs_update |= self._version_differs(self.manifest.get("version"), self.manifest.get("package_version"))
+
+    def _read_context(self, *, initializing=False):
+        if self.manifest is None:
+            self.discover()  # no credentials have been read or sent yet
+        if not self.config.get("instance_id") or (not initializing and not self.config.get("bot_uuid")):
+            raise ClientError("connection_identity_not_pinned")
+        self._check_installed_version()
         if self.key is None:
             try:
                 self.key = private_bytes(self._file("key_file")).decode().strip()
@@ -498,14 +536,9 @@ class Client:
         if agent_label is not None:
             self.config["agent_label"] = normalize_agent_label(agent_label)
         context = self._read_context(initializing=True)
-        self.config["bot_uuid"] = context["bot"]["uuid"]
-        self.config["actor"] = {field: context["actor"][field] for field in ("platform", "external_user_id")}
         if metrics_origin is not None:
             self.config["approved_metrics_origin"] = origin(metrics_origin)
-        path = Path(destination)
-        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as stream:
-            json.dump(self.config, stream)
+        self._save_connection(context, destination)
         return {
             "connection_created": True,
             "bot": context["bot"],
@@ -513,6 +546,119 @@ class Client:
             "key_unchanged": True,
             "update_required": self.needs_update,
         }
+
+    def _save_connection(self, context, destination):
+        self.config["bot_uuid"] = context["bot"]["uuid"]
+        self.config["actor"] = {field: context["actor"][field] for field in ("platform", "external_user_id")}
+        write_private(destination, json.dumps(self.config).encode())
+
+    def _enrollment_endpoint(self):
+        manifest = self.discover()
+        endpoint = self.base + ENROLLMENT_PATH
+        if (
+            same_origin_url(self.base, manifest.get("enrollment_url")) != endpoint
+            or same_origin_url(self.base, manifest.get("context_url")) != self.base + "/api/agent/context"
+        ):
+            raise ClientError("unsupported_enrollment_endpoint")
+        return endpoint
+
+    def enroll(self, directory, group, agent_label=None):
+        if self.config:
+            raise ClientError("enrollment_requires_new_connection")
+        group = enrollment_group(group)
+        label = normalize_agent_label(agent_label) if agent_label is not None else None
+        path = Path(directory).absolute()
+        if os.path.lexists(path):
+            raise ClientError("enrollment_directory_exists")
+        endpoint = self._enrollment_endpoint()
+        self._check_installed_version()
+        if self.needs_update:
+            raise ClientError("skill_update_required_before_mutation")
+        state = {
+            "approved_origin": self.base,
+            "instance_id": self.manifest["instance_id"],
+            "target_group": group,
+            "status": "requesting",
+        }
+        if label is not None:
+            state["agent_label"] = label
+        try:
+            path.mkdir(mode=0o700)
+        except FileExistsError as exc:
+            raise ClientError("enrollment_directory_exists") from exc
+        write_private(path / "enrollment.json", json.dumps(state).encode())
+        issued = self._request(endpoint, method="POST", readonly=False)
+        binding_id = issued.get("binding_id")
+        key = issued.get("credential")
+        code = issued.get("bind_code")
+        expires_at = issued.get("bind_expires_at")
+        if (
+            not isinstance(binding_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{22}", binding_id)
+            or not isinstance(key, str)
+            or not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", key)
+            or not isinstance(code, str)
+            or not re.fullmatch(r"[ACDEFGHJKMNPQRTUVWXY2345679]{8}", code)
+            or not isinstance(expires_at, str)
+            or datetime.fromisoformat(expires_at.replace("Z", "+00:00")).utcoffset() is None
+        ):
+            raise ClientError("invalid_enrollment_response")
+        write_private(path / "key", key.encode())
+        state.update(binding_id=binding_id, status="pending", bind_expires_at=expires_at)
+        write_private(path / "enrollment.json", json.dumps(state).encode(), replace=True)
+        return {
+            "status": "pending",
+            "target_group": group,
+            "bind_command": f"bind {code}",
+            "bind_expires_at": expires_at,
+            "enrollment_dir": str(path),
+        }
+
+    def check_enrollment(self, path, state, *, finish=False, confirm_bot_name=None):
+        group = enrollment_group(state.get("target_group"))
+        instance_id = state.get("instance_id")
+        if not isinstance(instance_id, str) or not instance_id:
+            raise ClientError("invalid_enrollment_state")
+        result = {"target_group": group, "connection_created": False}
+        if state.get("status") == "requesting":
+            return {**result, "status": "request_outcome_unknown"}
+        binding_id = state.get("binding_id")
+        if (
+            state.get("status") != "pending"
+            or not isinstance(binding_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{22}", binding_id)
+        ):
+            raise ClientError("invalid_enrollment_state")
+        self.config = {
+            "approved_origin": self.base,
+            "instance_id": instance_id,
+            "key_file": "key",
+        }
+        self.connection_dir = path
+        if "agent_label" in state:
+            self.config["agent_label"] = normalize_agent_label(state["agent_label"])
+        endpoint = self._enrollment_endpoint()
+        binding = self._request(f"{endpoint}/{binding_id}")
+        status = binding.get("status")
+        if binding.get("binding_id") != binding_id or status not in ("pending", "confirmed", "expired", "revoked"):
+            raise ClientError("invalid_enrollment_status")
+        result["status"] = status
+        if status != "confirmed":
+            return result
+        context = self._read_context(initializing=True)
+        bot, actor = context["bot"], context["actor"]
+        bot_name = enrollment_group(bot.get("name"))
+        result.update(bot=bot, actor=actor, matches_target_group=bot_name == group)
+        if not finish:
+            return result
+        if bot_name != (confirm_bot_name or group):
+            return {**result, "status": "bot_name_confirmation_required"}
+        connection = path / "connection.json"
+        try:
+            self._save_connection(context, connection)
+        except FileExistsError as exc:
+            raise ClientError("enrollment_connection_exists") from exc
+        return {**result, "connection_created": True, "connection": str(connection)}
 
     def resources(self, context):
         generation = self.node_access.invalidate() if self.node_access else None
@@ -1002,6 +1148,17 @@ def main(argv=None):
             command.add_argument("--key-file", required=True, help="Existing private personal-key file, not a raw key")
             command.add_argument("--metrics-origin", help="Separately approved metrics origin, optional")
             command.add_argument("--agent-label", help="Optional stable name for this Agent installation")
+    enroll = sub.add_parser("enroll", help="Request a bind code for the user to confirm in the target group")
+    enroll.add_argument("--origin", required=True)
+    enroll.add_argument("--group", required=True, help="Target resource group named by the user")
+    enroll.add_argument("--destination", required=True, help="New private enrollment directory")
+    enroll.add_argument("--agent-label")
+    enroll.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
+    for action in ("enrollment-status", "finish-enrollment"):
+        command = sub.add_parser(action)
+        command.add_argument("--enrollment-dir", required=True)
+        if action == "finish-enrollment":
+            command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
     sub.add_parser("context")
     sub.add_parser("resources")
     guidance = sub.add_parser("resource-guidance", help="Read deployment-owned references for current holdings")
@@ -1024,15 +1181,32 @@ def main(argv=None):
     args = parser.parse_args(argv)
     client = None
     try:
-        if args.action not in {"discover", "install", "init"} and not args.connection:
+        enrollment_actions = {"enroll", "enrollment-status", "finish-enrollment"}
+        if args.action in enrollment_actions and args.connection:
+            raise ClientError("enrollment_requires_new_connection")
+        if args.action in {"enrollment-status", "finish-enrollment"}:
+            path, state = enrollment_state(args.enrollment_dir)
+            client = Client(approved_origin=state.get("approved_origin"))
+        elif args.action in {"discover", "install", "init", "enroll"} or args.connection:
+            client = Client(args.connection, approved_origin=getattr(args, "origin", None))
+        else:
             raise ClientError("private_connection_required")
-        client = Client(args.connection, approved_origin=getattr(args, "origin", None))
         if args.action == "discover":
             result = client.discover()
         elif args.action == "install":
             result = client.install(args.destination)
         elif args.action == "init":
             result = client.initialize(args.key_file, args.destination, args.metrics_origin, args.agent_label)
+        elif args.action == "enroll":
+            result = client.enroll(args.destination, args.group, args.agent_label)
+        elif args.action in {"enrollment-status", "finish-enrollment"}:
+            name = getattr(args, "confirm_bot_name", None)
+            result = client.check_enrollment(
+                path,
+                state,
+                finish=args.action == "finish-enrollment",
+                confirm_bot_name=enrollment_group(name) if name is not None else None,
+            )
         elif args.action == "context":
             result = client.context()
         elif args.action == "resources":
