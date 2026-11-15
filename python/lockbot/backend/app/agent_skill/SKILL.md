@@ -66,6 +66,9 @@ verified target once and check the resulting state.
 If the CLI reports an unknown or unconfirmed write, read current resources and report
 what you can verify. Do not submit the write again in the same request. An idle readback
 alone cannot establish that the first write never ran.
+For an existing holding, use `command --operation renew --duration <added-time>`.
+The resource list shows server command names such as `lock`, `slock` and `unlock`.
+The helper uses those to renew the current holding or release it.
 If the user says their turn has arrived and asks to claim a booking (“轮到了” or “领取预约”),
 read the queue first, then use `command --operation claim` when that exact resource is
 `claimable_by_you`. Omit `--duration`; the original reservation determines the lease.
