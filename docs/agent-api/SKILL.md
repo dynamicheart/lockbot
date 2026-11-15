@@ -28,11 +28,13 @@ request explicitly authorizes installation.
    Markdown, or an existing approved connection that matches the request. If none is
    available, stop before any network request and ask for the original full Skill URL.
    Example URLs and names in the repository copy are placeholders.
-2. Read the public manifest on that origin without a Key. For authorized installation,
-   give the client's installer the manifest's exact `installation.download_url` ZIP.
-   If the user shared a Markdown URL, use it to find the manifest and pass the ZIP URL
-   from the manifest to the installer. Verify the complete package and installation
-   stamp without reading the helper source or unrelated operation references.
+2. Read the public manifest on that origin without a Key. Before calling any installer,
+   resolve `installation.download_url` against the approved origin and check that it
+   gives the manifest's same-origin `.zip` URL. Pass that exact URL to the installer.
+   A pasted `SKILL.md` link is only for finding the manifest, including when the user
+   asks you to install and then query with an existing Key. If the manifest does not
+   advertise a valid ZIP on that origin, report the installation problem and stop.
+   Verify the complete package and installation stamp before continuing with the Key.
 3. Verify the saved installation, then use `discover --origin <approved-origin>
    --destination <new-private-file>` to save the origin, verified instance ID, Skill URL
    and revision for the authorized setup. Report enrollment as pending if a code was
