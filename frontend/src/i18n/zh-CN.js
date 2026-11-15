@@ -37,6 +37,7 @@ export default {
     title: '配置凭证',
     auditTab: '审计凭证',
     description: '用 API 凭证授权 Agent 自动补充机器人的配置，例如节点 IP、域名和利用率数据源。',
+    purpose: 'Agent 可参考利用率选择资源，锁定后用节点 IP 或域名连接机器并运行任务。',
     scopeHint: '创建时选择机器人和允许修改的配置。以后新增的机器人需要另行授权。',
     selectedBots: '已选 {selected} / {total} 个机器人',
     selectAllBots: '全选',

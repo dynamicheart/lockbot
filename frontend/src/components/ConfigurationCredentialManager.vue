@@ -3,7 +3,7 @@
     <header class="credential-toolbar">
       <div class="credential-description">
         <p>{{ $t('configurationCredentials.description') }}</p>
-        <p>{{ $t('configurationCredentials.scopeHint') }}</p>
+        <p>{{ $t('configurationCredentials.purpose') }}</p>
       </div>
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
@@ -107,6 +107,9 @@
       :title="$t('configurationCredentials.create')"
       width="min(520px, 92vw)"
     >
+      <p class="credential-field-hint credential-create-hint">
+        {{ $t('configurationCredentials.scopeHint') }}
+      </p>
       <el-form label-position="top" @submit.prevent="create">
         <el-form-item :label="$t('auditCredentials.name')">
           <el-input v-model="form.label" maxlength="64" autocomplete="off" />
@@ -503,6 +506,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 400;
   line-height: 1.5;
+}
+
+.credential-create-hint {
+  margin-bottom: 16px;
 }
 
 .credential-permissions :deep(.el-checkbox) {

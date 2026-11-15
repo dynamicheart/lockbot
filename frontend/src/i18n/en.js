@@ -39,6 +39,8 @@ export default {
     auditTab: 'Audit credentials',
     description:
       'Give an Agent an API credential to complete bot settings automatically, such as node IPs, hostnames, and utilization data sources.',
+    purpose:
+      'Agents can use utilization data to choose resources, then connect by node IP or hostname and run tasks after acquiring a lock.',
     scopeHint:
       'Choose the bots and settings the Agent can update. Authorize newly added bots separately.',
     selectedBots: '{selected} of {total} bots selected',
