@@ -854,3 +854,60 @@
 .personal-panel :deep(.credentials-page .credential-access-help .scope) {
   margin: 8px 0 0;
 }
+
+.personal-panel :deep(.panel-onboarding) {
+  max-width: 760px;
+  margin-inline: auto;
+  padding: clamp(16px, 4vw, 32px);
+}
+
+.personal-panel :deep(.panel-onboarding h2) {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+
+.personal-panel :deep(.panel-onboarding-flow) {
+  margin: 0;
+}
+
+.personal-panel :deep(.panel-onboarding-flow img) {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.personal-panel :deep(.panel-onboarding-flow ol) {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.personal-panel :deep(.panel-onboarding-flow p) {
+  margin: 5px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.personal-panel :deep(.panel-onboarding-actions) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.personal-panel :deep(.panel-onboarding-actions a) {
+  color: var(--el-color-primary);
+}
+
+@media (max-width: 540px) {
+  .personal-panel :deep(.panel-onboarding-flow ol) {
+    grid-template-columns: 1fr;
+    list-style: decimal;
+    padding-inline-start: 20px;
+  }
+}

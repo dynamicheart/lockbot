@@ -123,20 +123,33 @@
           <p class="scope">各群授权分别生效，合看不会将账号认定为同一员工。</p>
         </template>
       </section>
-      <section v-else-if="!session.authenticated" class="panel">
-        <p>
-          <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
-            >Agent 使用说明（SKILL.md）</a
-          >
-        </p>
-        <p>
-          首次使用或换设备时，在你已完成 IM 绑定的 Agent 中说“打开我的资源台”。本机 CLI 和服务器上的
-          Agent 均可使用，取得链接后在此浏览器打开并确认登录。
-        </p>
-        <p class="scope">
-          登录后，当前浏览器会保留登录状态。收藏本页，下次直接打开；会话失效时再通过已绑定的 Agent
-          登录。
-        </p>
+      <section v-else-if="!session.authenticated" class="panel panel-onboarding">
+        <h2>{{ $t('personalOnboarding.title') }}</h2>
+        <figure class="panel-onboarding-flow">
+          <img src="/workbench-onboarding.webp" alt="" width="1392" height="464" />
+          <ol>
+            <li>
+              <strong>{{ $t('personalOnboarding.ask') }}</strong>
+              <p>{{ $t('personalOnboarding.example') }}</p>
+            </li>
+            <li>
+              <strong>{{ $t('personalOnboarding.receive') }}</strong>
+              <p>{{ $t('personalOnboarding.receiveDetail') }}</p>
+            </li>
+            <li>
+              <strong>{{ $t('personalOnboarding.open') }}</strong>
+              <p>{{ $t('personalOnboarding.openDetail') }}</p>
+            </li>
+          </ol>
+        </figure>
+        <div class="panel-onboarding-actions">
+          <el-button type="primary" @click="copyOnboardingRequest">
+            {{ $t('personalOnboarding.copyRequest') }}
+          </el-button>
+          <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer">
+            {{ $t('personalOnboarding.setupHelp') }}
+          </a>
+        </div>
         <PersonalConnectionHandoff :authenticated="false" />
       </section>
       <template v-else-if="detailPage">
@@ -738,6 +751,8 @@ import { ElMessageBox } from 'element-plus'
 import { ArrowRight, Calendar, Cpu, Monitor, Refresh } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import { formatNodeAccess } from '../utils/nodeAccess'
+import { useHelpers } from '../utils/helpers'
+import { useI18n } from 'vue-i18n'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
 import LockbotWordmark from '../components/LockbotWordmark.vue'
 import PersonalWorkbenchPlugins from '../components/PersonalWorkbenchPlugins.vue'
@@ -755,6 +770,11 @@ const tabs = [
   { id: 'groups', label: '资源群', path: '/me/groups' },
   { id: 'connections', label: '我的凭证', path: '/me/credentials' },
 ]
+const { copyText } = useHelpers()
+const { t } = useI18n()
+function copyOnboardingRequest() {
+  copyText(t('personalOnboarding.request', { origin: window.location.origin }))
+}
 const route = useRoute()
 const router = useRouter()
 const pageTitle = ref(null)

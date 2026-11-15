@@ -691,6 +691,19 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalOnboarding: {
+    title: 'Sign in with your Agent',
+    ask: 'Ask your Agent',
+    example: '“Open my LockBot workbench.”',
+    receive: 'Get a sign-in link',
+    receiveDetail: 'Your Agent uses its existing connection and sends the link to you privately.',
+    open: 'Open the link and confirm',
+    openDetail: 'Confirm in your browser to open the workbench.',
+    request:
+      'Open my LockBot workbench ({origin}). Use your existing connection to create a sign-in link and send it to me privately. I will confirm in my browser.',
+    copyRequest: 'Copy request for Agent',
+    setupHelp: 'Agent setup guide',
+  },
   personalCredentialActions: {
     copyAllStatus: 'Copy all statuses',
     agentSetup: 'Agent setup',

@@ -668,6 +668,19 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalOnboarding: {
+    title: '用 Agent 登录工作台',
+    ask: '跟 Agent 说',
+    example: '“帮我打开 LockBot 工作台。”',
+    receive: '收到登录链接',
+    receiveDetail: 'Agent 用已有的连接生成链接，私下发给你。',
+    open: '打开链接并确认',
+    openDetail: '在你的浏览器里确认，即可打开工作台。',
+    request:
+      '帮我打开这个 LockBot 工作台（{origin}）。请用你已有的连接生成登录链接，私下发给我，我自己在浏览器确认。',
+    copyRequest: '复制给 Agent',
+    setupHelp: 'Agent 接入说明',
+  },
   personalCredentialActions: {
     copyAllStatus: '复制全部状态',
     agentSetup: 'Agent 接入说明',
