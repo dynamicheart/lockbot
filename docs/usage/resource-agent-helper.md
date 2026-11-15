@@ -121,9 +121,9 @@ Entries past `usable_until` are expired even if the one-shot helper is idle and 
 
 ## Version and integrity checks
 
-Before authenticated use, the helper checks its installed Markdown/script hashes and content-derived revision against its local stamp. Each invocation identifies the service without a key, pins the instance and verifies the returned bot UUID. It reads current context, follows same-origin advertised resource/command links and sends the client Skill/API version headers. Version changes from the manifest, context, response headers or body notices mark the bundle outdated. Mutations stop until the client installs and reloads the current complete bundle; read-only reconciliation remains possible when an older intact bundle is still compatible. A modified/incomplete bundle fails local integrity checks.
+Before authenticated use, the helper checks the hashes of its installed Skill, script and reference files and content-derived revision against its local stamp. Each invocation identifies the service without a key, pins the instance and verifies the returned bot UUID. It reads current context, follows same-origin advertised resource/command links and sends the client Skill/API version headers. Version changes from the manifest, context, response headers or body notices mark the bundle outdated. Mutations stop until the client installs and reloads the current complete bundle; read-only reconciliation remains possible when an older intact bundle is still compatible. A modified/incomplete bundle fails local integrity checks.
 
-The published `version` covers both rendered Markdown and script bytes. `skill_sha256` continues to hash **only the served Markdown**. Both the legacy and namespaced ZIPs retain their original roots/Markdown paths, now with real script and stamp files; each ZIP's SHA-256 covers its exact bytes. Deployment API addresses are rendered from `PLATFORM_URL`, not untrusted forwarded headers.
+The published `version` covers the rendered Skill, the helper and all reference files. `skill_sha256` continues to hash **only the served Markdown**. Both the legacy and namespaced ZIPs retain their original roots/Markdown paths, and include the helper, references and stamp; each ZIP's SHA-256 covers its exact bytes. Deployment API addresses are rendered from `PLATFORM_URL`, not untrusted forwarded headers.
 
 The packaged helper can fetch and verify a new installation into a **new** destination, without any key:
 
@@ -171,17 +171,17 @@ Tests use real bounded fake HTTP servers for redirects, identity/version checks,
 
 ## One installed package, independently approved services
 
-New manifests and complete bundles add `package_format=canonical-origin-v1` and
-`package_version`. This revision hashes the canonical Skill instructions and actual
-helper, with only the two exact builder-generated deployment locator blocks restored
-to their template markers. The installed rendered files, ZIP hashes and original
+The reference-enabled archive declares `package_format=canonical-origin-v2` and a
+`package_version` over the canonical instructions, helper and references. Only the exact
+builder-generated deployment locator is restored to its template marker. The current
+helper can also verify older `canonical-origin-v1` archives. The installed rendered files, ZIP hashes and original
 `version` checks remain intact. A pasted deployment Markdown still contains its real
 service address.
 
 An identical package from another approved deployment can serve separately stored
 connections without repeatedly replacing the installation. The helper compares package
 revisions only when both the verified local stamp and remote manifest declare this
-format. A changed instruction/helper still blocks the next mutation until an authorized
+format. A changed Skill, helper or reference still blocks the next mutation until an authorized
 update; an old stamp/server or unrecognized locator stays on conservative rendered
 revision comparison. It never substitutes the server revision for the installed one.
 

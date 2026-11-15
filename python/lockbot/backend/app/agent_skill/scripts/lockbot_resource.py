@@ -1449,6 +1449,8 @@ class Client:
         if hashlib.sha256(archive).hexdigest() != meta["installation"]["sha256"]:
             raise ClientError("bundle_digest_mismatch")
         package_format = meta.get("package_format")
+        if package_format == BUNDLE_FORMAT and "package_version" not in meta:
+            raise ClientError("bundle_package_mismatch")
         reference_paths = REFERENCE_PATHS if package_format == BUNDLE_FORMAT else ()
         expected = (SCRIPT_PATH, "installation.json", "SKILL.md", *reference_paths)
         try:

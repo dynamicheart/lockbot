@@ -141,7 +141,9 @@ def client_skill_notice(request):
         if status == "current" or package_status == "current"
         else (
             "Before the next resource mutation, check the manifest on this same approved origin, "
-            "verify and load the latest Skill. If you load the full updated instructions for this task, "
+            "verify the complete ZIP and load the latest Skill. If an old helper rejects the archive layout, "
+            "install the verified ZIP using the client's installer, reload it, and keep existing connections. "
+            "If you load the full updated instructions for this task, "
             "report that revision on the next authenticated read in X-Lockbot-Client-Skill-Version. "
             "Update an installed copy only within the user's authorized setup. Do not rebind or retry the last command."
         ),

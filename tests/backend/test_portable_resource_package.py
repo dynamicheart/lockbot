@@ -166,6 +166,14 @@ def test_changed_reference_blocks_authenticated_use(case):  # noqa: F811
     assert all("Authorization" not in request[2] for request in case.state.requests)
 
 
+def test_reference_layout_requires_portable_version_before_install(case, tmp_path):  # noqa: F811
+    case.state.manifest.pop("package_version")
+    target = tmp_path / "new-install"
+    with pytest.raises(helper.ClientError, match="bundle_package_mismatch"):
+        case.client.install(target)
+    assert not target.exists()
+
+
 def test_new_response_revision_blocks_before_write_even_after_matching_manifest(case):  # noqa: F811
     case.state.version_header = case.state.manifest["version"]
     case.state.package_header = "0" * 16
