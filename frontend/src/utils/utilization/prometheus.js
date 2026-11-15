@@ -199,7 +199,7 @@ export async function collectPrometheus(
   const guard = (retryAfter = 0) => checkCollectionDeadline(signal, deadlineAt, wallNow, retryAfter)
   guard()
   const config = validateConfig(input)
-  if (/^(?:lbr_|lbk_)/.test(bearer)) throw new ProviderError('credential')
+  if (/^(?:lbr_|lbk_|lbc1\.)/.test(bearer)) throw new ProviderError('credential')
   const headers = { Accept: 'application/json' }
   if (bearer) headers.Authorization = `Bearer ${bearer}`
   const results = {}

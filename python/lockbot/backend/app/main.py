@@ -25,6 +25,7 @@ from lockbot.backend.app.audit.delegation import router as audit_delegation_rout
 from lockbot.backend.app.audit.router import router as audit_router
 from lockbot.backend.app.auth.router import router as auth_router
 from lockbot.backend.app.backup.router import router as backup_router
+from lockbot.backend.app.bots.delegation import router as configuration_delegation_router
 from lockbot.backend.app.bots.router import router as bots_router
 from lockbot.backend.app.database import Base, SessionLocal, engine
 from lockbot.backend.app.platform_applications.router import router as platform_applications_router
@@ -753,6 +754,7 @@ def create_app() -> FastAPI:
     # Dedicated note-delegation contracts belong to administrator documentation.
     # Keep the authenticated routes unchanged, but omit them from anonymous schemas.
     app.include_router(audit_delegation_router, include_in_schema=False)
+    app.include_router(configuration_delegation_router)
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router
 
@@ -780,7 +782,9 @@ def create_app() -> FastAPI:
         for path, methods in schema.get("paths", {}).items():
             for method, detail in methods.items():
                 if "Public API" in detail.get("tags", []):
-                    if path.endswith(("/locked-users", "/opkick", "/kicklock")) or (
+                    if "/configuration-access" in path:
+                        group, scheme = "Configuration API", "ConfigurationKey"
+                    elif path.endswith(("/locked-users", "/opkick", "/kicklock")) or (
                         path.startswith("/api/bots/") and "/op/" in path
                     ):
                         group, scheme = "OP API", "OpApiKey"
@@ -845,6 +849,13 @@ def create_app() -> FastAPI:
                     ),
                 },
                 {
+                    "name": "Configuration API",
+                    "description": (
+                        "Agent 配置接口。使用 API 凭证页签发的配置凭证，"
+                        "按选定的机器人和权限读取、预览并提交节点连接或数据源配置。"
+                    ),
+                },
+                {
                     "name": "Skill 下载",
                     "description": ("公开下载入口，无需 API key。先把 skill 链接交给 Agent，再由用户完成绑定。"),
                 },
@@ -864,6 +875,12 @@ def create_app() -> FastAPI:
                         "scheme": "bearer",
                         "bearerFormat": "lbk_…",
                         "description": "机器人后台的 OP API Key，供受信任运维使用。",
+                    },
+                    "ConfigurationKey": {
+                        "type": "http",
+                        "scheme": "bearer",
+                        "bearerFormat": "lbc1.…",
+                        "description": "配置凭证，按机器人和配置权限签发。",
                     },
                 },
             },

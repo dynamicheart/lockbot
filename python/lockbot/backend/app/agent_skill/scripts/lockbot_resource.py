@@ -861,7 +861,7 @@ class Client:
                 token = private_bytes(self._file("metrics_key_file")).decode().strip()
             else:
                 raise ClientError("unsupported_metrics_authentication")
-            if token.startswith(("lbr_", "lbk_")) or token == self.key:
+            if token.startswith(("lbr_", "lbk_", "lbc1.")) or token == self.key:
                 raise ClientError("resource_key_for_metrics_refused")
             self.secrets.append(token)
             selector = "{__name__=~" + json.dumps("^(?:" + "|".join(METRICS) + ")$")
@@ -917,7 +917,7 @@ class Client:
         if isinstance(value, list):
             return [self.redacted(item) for item in value]
         if isinstance(value, str):
-            value = re.sub(r"\b(?:lbr_|lbk_)[A-Za-z0-9_-]{20,200}", "[redacted]", value)
+            value = re.sub(r"\b(?:lbr_|lbk_)[A-Za-z0-9_-]{20,200}|lbc1\.[\w-]{22}\.[\w-]{43}", "[redacted]", value)
             for secret in self.secrets:
                 value = value.replace(secret, "[redacted]")
         return value
