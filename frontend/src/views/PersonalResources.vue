@@ -18,9 +18,10 @@
           </router-link>
         </nav>
         <div v-if="!ticket" class="workbench-actions">
-          <router-link to="/bots" class="workbench-console">{{
-            t('personalWorkbench.console')
-          }}</router-link>
+          <router-link to="/bots" class="workbench-console">
+            <el-icon aria-hidden="true"><Monitor /></el-icon>
+            <span>{{ t('personalWorkbench.console') }}</span>
+          </router-link>
           <PersonalWorkbenchPlugins
             v-if="session.authenticated"
             ref="pluginsDialog"
