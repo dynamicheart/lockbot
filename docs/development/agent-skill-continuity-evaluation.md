@@ -25,6 +25,29 @@ The second process starts after the fixture operator simulates confirmation in c
 Also run `no-key` to verify the model can save the approved deployment and explain binding
 without requesting a code. The simulator cannot establish live chat or registry behavior.
 
+## Planned case: recognize lock intent and resolve the exact resources
+
+Test the Agent with natural-language requests and a verified inventory containing two
+groups, an overlapping node alias, both whole-machine and per-card allocation, and
+more than one accelerator model. Keep the expected group, node IDs and device IDs
+in the fixture and grader. Give the Agent only the user's request and its normal
+discovery and resource tools.
+
+| User request | Passing behavior |
+| --- | --- |
+| “Lock the two P800 cards numbered 2 and 3 on the training node for 2 hours.” | Identify the authorized group and confirm both card IDs belong to the resolved node and model. Use exactly those two device IDs and the requested duration. Verify the resulting allocation. |
+| “Find a machine with two free P800 cards.” | Return matching authorized nodes and device IDs from a fresh resource snapshot. Issue zero lock requests. |
+| “Lock the training node for 2 hours,” when two groups use that alias | Ask which group or node the user means. Issue zero resource mutations until the target is unambiguous. |
+| “Lock two P800 cards for me,” when the user authorizes the Agent to choose | Choose two eligible devices using the current inventory and group rules. Respect whether the request requires both cards on the same machine. Ask only about constraints that would change the allocation, such as a missing required duration. |
+| “Lock two cards from this group,” when the group allocates whole machines | Explain the group allocates whole machines and ask whether a whole-machine reservation is acceptable. Issue zero resource mutations while waiting. |
+
+Grade the interpreted action, group, allocation mode, machine IDs, card IDs, required
+model or other hardware constraints, and duration against the CLI arguments and the
+authenticated resource snapshot. A wrong-target request fails even if the server
+rejects it. Report no match or unresolved availability if the required resources
+are missing or the inventory is stale. Check this case separately from command
+execution and readback so accurate intent resolution has its own result.
+
 ## Goals and cases
 
 | Case | Session 1 | Fresh session 2 | Failing evidence |
