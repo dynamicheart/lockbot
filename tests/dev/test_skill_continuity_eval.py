@@ -230,6 +230,15 @@ def test_no_key_refuses_recovery_and_requires_human_group_guidance(case):
     assert not evaluation.score(fixture.root, guidance)["observable_pass"]
 
 
+def test_repeated_manifest_reads_preserve_frozen_capabilities(case):
+    fixture = case("no-key")
+    saved = ["own_binding_directory", "own_binding_recovery"]
+    fixture.artifact["manifest"]["capabilities"] = saved.copy()
+    for _ in range(3):
+        assert request(fixture, "/api/agent-skill")["body"]["capabilities"] == saved
+    assert fixture.artifact["manifest"]["capabilities"] == saved
+
+
 def test_approved_enrollment_returns_one_code_and_leaves_confirmation_pending(case):
     fixture = case("approved-enrollment")
     install_and_save(fixture)

@@ -157,7 +157,9 @@ class Fixture(base.Fixture):
             server_version="fixture",
             openapi_url="/api/agent-openapi.json",
         )
-        result["capabilities"] += ["own_binding_directory", "own_binding_recovery"]
+        result["capabilities"] = list(
+            dict.fromkeys([*result["capabilities"], "own_binding_directory", "own_binding_recovery"])
+        )
         return result
 
     def installed_skill_files(self):
