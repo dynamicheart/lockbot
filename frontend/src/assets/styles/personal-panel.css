@@ -840,9 +840,6 @@
   font-weight: 500;
 }
 
-.personal-panel :deep(.main.credentials-page) {
-  max-width: 1440px;
-}
 .personal-panel :deep(.credentials-page .native-connections .scope) {
   margin: 0;
 }
