@@ -104,8 +104,9 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
     assert bookmark == [fixture.panel_home]
     home = browser.call("browser_home", {"url": bookmark[0]})
     assert home["authenticated"] and home["bookmarks"] == [fixture.panel_home]
-    assert home["own_occupancy"] == ["node-a"]
-    assert home["own_bookings"] == ["node-b"]
+    resources = run(browser, "resources")["result"]["resources"]
+    assert home["own_occupancy"] == [node["id"] for node in resources if node["holders"]] == ["node-a"]
+    assert home["own_bookings"] == [node["id"] for node in resources if node["booking_list"]] == ["node-b"]
     final = f"{fixture.panel_home} 已打开，持有 node-a、预约 node-b。"
     grade = evaluation.score(resumed, final)
     assert grade["observable_pass"], grade["checks"]

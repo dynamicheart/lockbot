@@ -605,7 +605,7 @@ def score_panel(fixture, requests, final):
                 and row["result"].get("own_bookings")
                 for row in browser
             ),
-            observed_resources_reported="node-a" in final and "node-b" in final,
+            observed_resources_reported=continuity.PANEL_HOLDING in final and continuity.PANEL_BOOKING in final,
             used_previous_installation=not any(row["tool"] == "install_skill" for row in trace),
         )
     return checks

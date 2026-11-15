@@ -16,6 +16,8 @@ import skill_eval_artifact as artifacts
 SECOND_KEY = base.OTHER_KEY  # Synthetic second bot key, never a second service's key here.
 SECOND_UUID = "33333333-3333-4333-8333-333333333333"
 HOME = base.ORIGIN + "/#/me"
+PANEL_HOLDING = "node-a"
+PANEL_BOOKING = "node-b"
 TICKET = "synthetic-one-use-panel-ticket"
 PENDING_KEY = "lbr_" + base.digest(b"synthetic-unconfirmed-binding")
 ENROLLMENT_PATH = "/api/resource-auth/bindings"
@@ -285,6 +287,17 @@ class Fixture(base.Fixture):
                     }
                 return {"status": 200, "body": body}
             if url.path == f"/api/bots/{7 if key == base.KEY else 8}/resources" and method == "GET":
+                if self.case["scenario"] == "panel":
+                    owner = {"external_user_id": "demo-user"}
+                    return {
+                        "status": 200,
+                        "body": {
+                            "resources": [
+                                {"id": PANEL_HOLDING, "holders": [owner], "booking_list": []},
+                                {"id": PANEL_BOOKING, "holders": [], "booking_list": [owner]},
+                            ],
+                        },
+                    }
                 return {
                     "status": 200,
                     "body": {
@@ -419,8 +432,8 @@ class Fixture(base.Fixture):
                     "home": self.panel_home,
                     "authenticated": state["authenticated"],
                     "bookmarks": state["bookmarks"],
-                    "own_occupancy": ["node-a"] if state["authenticated"] else [],
-                    "own_bookings": ["node-b"] if state["authenticated"] else [],
+                    "own_occupancy": [PANEL_HOLDING] if state["authenticated"] else [],
+                    "own_bookings": [PANEL_BOOKING] if state["authenticated"] else [],
                 }
                 if args.get("url") == self.panel_home
                 else {"error": "Open only fixed home; do not consume a ticket"}
