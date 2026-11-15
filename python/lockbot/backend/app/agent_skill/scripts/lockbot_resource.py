@@ -4,17 +4,22 @@
 import argparse
 import hashlib
 import io
+import ipaddress
 import json
+import math
 import os
 import re
+import secrets
 import stat
 import sys
+import tempfile
 import time
 import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -112,6 +117,78 @@ def private_json(path):
         raise ClientError("invalid_private_json") from exc
 
 
+class NodeAccessMetadata:
+    """Private sidecar with compare-and-replace for overlapping helper invocations."""
+
+    def __init__(self, connection):
+        self.path = connection.with_name(connection.name + ".node-access.json")
+        self.lock_path = self.path.with_suffix(".lock")
+
+    @contextmanager
+    def _locked(self):
+        import fcntl
+
+        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        with os.fdopen(fd, "r+b") as lock:
+            info = os.fstat(lock.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.geteuid():
+                raise OSError("Private node access lock required")
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            yield lock
+
+    def _replace(self, nodes, scope):
+        data = json.dumps({"version": 1, "scope": scope, "nodes": nodes}).encode()
+        if len(data) > MAX_BYTES:
+            return
+        fd, destination = tempfile.mkstemp(prefix=".lockbot-node-access-", dir=self.path.parent)
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(data)
+            os.replace(destination, self.path)
+        finally:
+            Path(destination).unlink(missing_ok=True)
+
+    def invalidate(self):
+        generation = secrets.token_hex(16).encode()
+        try:
+            with self._locked() as lock:
+                lock.write(generation)
+                lock.truncate()
+                self.path.unlink(missing_ok=True)
+        except OSError:
+            return None  # A read-only connection directory can still run the live client.
+        return generation
+
+    def save(self, generation, nodes, scope):
+        if not generation or not nodes:
+            return
+        try:
+            with self._locked() as lock:
+                if lock.read(len(generation) + 1) == generation:
+                    self._replace(nodes, scope)
+        except OSError:
+            return
+
+
+def _node_address(value):
+    if not isinstance(value, dict):
+        return None
+    host, port = value.get("host"), value.get("port")
+    if not isinstance(host, str) or not re.fullmatch(r"[a-zA-Z0-9.:-]{1,253}", host):
+        return None
+    if type(port) is not int or not 1 <= port <= 65535:
+        return None
+    address = {"host": host, "port": port}
+    if "ipv4" in value:
+        try:
+            if not isinstance(value["ipv4"], str):
+                return None
+            address["ipv4"] = str(ipaddress.IPv4Address(value["ipv4"]))
+        except ipaddress.AddressValueError:
+            return None
+    return address
+
+
 def deployment_fragments(base):
     """Exact builder-owned locator substitutions, never arbitrary Markdown stripping."""
     return {
@@ -204,6 +281,9 @@ class Client:
         if connection and approved_origin and origin(self.config.get("approved_origin")) != self.base:
             raise ClientError("connection_origin_mismatch")
         self.connection_dir = Path(connection).resolve().parent if connection else None
+        self.node_access = (
+            NodeAccessMetadata(Path(connection).absolute()) if connection and os.name == "posix" else None
+        )
         self.root = Path(root) if root else Path(__file__).resolve().parents[1]
         self.opener = opener or urllib.request.build_opener(NoRedirect())
         self.clock, self.sleep = clock, sleep
@@ -402,6 +482,8 @@ class Client:
         return result
 
     def context(self):
+        if self.node_access:
+            self.node_access.invalidate()
         return self._read_context()
 
     def initialize(self, key_file, destination, metrics_origin=None, agent_label=None):
@@ -433,7 +515,64 @@ class Client:
         }
 
     def resources(self, context):
-        return self._request(same_origin_url(self.base, context["links"]["resources"]), token=self.key)
+        generation = self.node_access.invalidate() if self.node_access else None
+        started = self.clock()
+        snapshot = self._request(same_origin_url(self.base, context["links"]["resources"]), token=self.key)
+        if generation:
+            nodes = self._current_node_access(snapshot, context, self.clock() - started)
+            scope = {
+                "approved_origin": self.base,
+                "instance_id": self.config["instance_id"],
+                "bot_uuid": context["bot"]["uuid"],
+                "actor": {field: context["actor"][field] for field in ("platform", "external_user_id")},
+            }
+            self.node_access.save(generation, nodes, self.redacted(scope))
+        return snapshot
+
+    def _current_node_access(self, snapshot, context, elapsed):
+        if (
+            context.get("agent_access_enabled") is not True
+            or snapshot.get("health") != "running"
+            or snapshot.get("bot_id") != context["bot"]["id"]
+        ):
+            return {}
+        try:
+            age = float(snapshot["age_seconds"])
+            if not math.isfinite(age) or age < 0:
+                return {}
+            reference = self._expiry({"expires_at": snapshot["captured_at"]}) + age + elapsed
+        except (ClientError, KeyError, ValueError, TypeError, AttributeError, OverflowError):
+            return {}
+        now = time.time()
+        actor = context["actor"]["external_user_id"]
+        nodes = {}
+        inventory = snapshot.get("resources")
+        if not isinstance(inventory, list):
+            return {}
+        for node in inventory:
+            if not isinstance(node, dict):
+                continue
+            node_id = node.get("id")
+            if not isinstance(node_id, str) or not node_id or len(node_id) > 256:
+                continue
+            devices = node.get("devices", [node])
+            if not isinstance(devices, list):
+                continue
+            for unit in devices:
+                if not isinstance(unit, dict) or not isinstance(unit.get("holders"), list):
+                    continue
+                address = _node_address(unit.get("node_access"))
+                holder = self._own([holder for holder in unit["holders"] if isinstance(holder, dict)], actor)
+                if address is None or holder is None:
+                    continue
+                try:
+                    remaining = self._expiry(holder) - reference
+                except (ClientError, KeyError, ValueError, TypeError, AttributeError, OverflowError):
+                    continue
+                expires = now + remaining
+                if remaining > 0 and (node_id not in nodes or expires > nodes[node_id]["usable_until"]):
+                    nodes[node_id] = {**address, "expires_at": holder["expires_at"], "usable_until": expires}
+        return self.redacted(nodes)
 
     def resource_guidance(self, reference=None):
         if reference is not None and not re.fullmatch(r"[a-f0-9]{32}", reference):
@@ -651,6 +790,8 @@ class Client:
         # Header updates learned during the pre-read must block the subsequent write.
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
+        if self.node_access:
+            self.node_access.invalidate()
         try:
             return self._request(
                 same_origin_url(self.base, context["links"]["commands"]),

@@ -70,6 +70,12 @@ Every dispatched write is followed by a resource readback. The server currently 
 
 Timeouts, transport failures, 5xx, malformed write responses and unconfirmed readback never cause a write replay. The output reports uncertainty and `retry_mutation:false`; reconcile by reading resources first. This is a **one-shot client**, not a workload process runner, queue-wait daemon, autonomous renewal loop or guarantee that work stops at expiry. The Agent must still follow the Skill's lease-expiry, polling and workload-stop rules.
 
+### Node login metadata
+
+On POSIX, a fresh resource snapshot can populate a private `connection.json.node-access.json` file next to the selected `connection.json`. Each entry is keyed by node ID within the verified origin, service instance, bot, and holder scope. Cards share the parent node’s address. Entries contain the confirmed host, optional IPv4 address, SSH port, server lease expiration, and a conservative local `usable_until` Unix timestamp.
+
+Entries past `usable_until` are expired even if the one-shot helper is idle and the file is still present. The helper clears previous entries when it starts an authenticated read or a resource change, and writes only from a current snapshot confirming an active hold. A failed authorization, released lease, or successful snapshot omitting the address therefore clears the corresponding entries. Always use fresh authorized resources before connecting. Keep this local file private, along with any other connection metadata and the separate Key file.
+
 ## Version and integrity checks
 
 Before authenticated use, the helper checks its installed Markdown/script hashes and content-derived revision against its local stamp. Each invocation identifies the service without a key, pins the instance and verifies the returned bot UUID. It reads current context, follows same-origin advertised resource/command links and sends the client Skill/API version headers. Version changes from the manifest, context, response headers or body notices mark the bundle outdated. Mutations stop until the client installs and reloads the current complete bundle; read-only reconciliation remains possible when an older intact bundle is still compatible. A modified/incomplete bundle fails local integrity checks.
