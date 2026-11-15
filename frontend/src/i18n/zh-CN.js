@@ -6,6 +6,8 @@ export default {
     viewAddresses: '登录地址',
     emptyAddresses: '暂无已登记的登录地址。',
     viewFailed: '无法读取登录地址，请重新打开重试。',
+    sharedUnavailable: '暂时无法查看登录地址。',
+    workbenchAddress: '前往个人资源台查看登录地址',
     purpose: '资源持有者可在个人资源台或通过 Agent 查看节点的 SSH 地址和端口。',
     help: '把 Prompt 和机器清单发给 Agent，再把生成的 JSON 粘贴到这里。',
     copyPrompt: '复制 Agent Prompt',

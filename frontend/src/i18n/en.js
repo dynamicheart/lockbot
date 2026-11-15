@@ -6,6 +6,8 @@ export default {
     viewAddresses: 'Login addresses',
     emptyAddresses: 'No login addresses configured.',
     viewFailed: 'Could not load the addresses. Reopen to try again.',
+    sharedUnavailable: 'Login address unavailable.',
+    workbenchAddress: 'Find login addresses in My Resources',
     purpose:
       'Resource holders can see the node’s SSH address and port in the personal workbench or through an Agent.',
     help: 'Send the prompt and your machine inventory to the Agent, then paste the generated JSON here.',

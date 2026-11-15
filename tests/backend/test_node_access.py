@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
 from lockbot.backend.app.audit.models import AuditLog
+from lockbot.backend.app.personal_panel.router import create_panel
 
 from backend.test_personal_panel_native import panel  # noqa: F401
 from backend.test_resource_api_resources import _get, _hold, api  # noqa: F401
@@ -164,3 +166,55 @@ def test_native_browser_and_agent_project_only_held_cards(client, api, panel):
     other_grant = provider.authenticate(api["other_headers"]["Authorization"][7:])
     other_report = json.dumps(provider.report(other_grant))
     assert HOST not in other_report and address["ipv4"] not in other_report
+
+
+@pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE_DEVICE"], indirect=True)
+def test_shared_view_address_requires_share_and_exact_live_browser_holding(client, api, panel, tmp_path, monkeypatch):
+    bot, settings = _routes(api)
+    monkeypatch.setattr("lockbot.backend.app.resource_api.views.bot_manager", api["manager"])
+    provider, _ = panel
+    origin = provider.config["issuer"]
+    app = create_panel(origin, tmp_path / "shared-panel.db", provider)
+    address = {"host": HOST, "ipv4": "192.0.2.42", "port": 2222}
+    configured = {"version": 2, "nodes": {"n1": address}}
+    client.put(settings, headers=api["auth_header"], json=configured).raise_for_status()
+    view = client.get("/api/agent/context", headers=api["headers"]).json()["view_url"]
+    code = urlsplit(view).fragment.rsplit("/", 1)[1]
+    path = f"/shared-node-access/{api['bot_id']}"
+    headers = {"Origin": origin, "Authorization": f"Bearer {code}"}
+
+    def enter(browser, key_headers):
+        issued = browser.post("/links", headers=key_headers).json()
+        ticket = issued["login_url"].split("?ticket=", 1)[1]
+        browser.post(
+            "/login", headers={"Origin": origin}, json={"ticket": ticket, "mode": "replace"}
+        ).raise_for_status()
+
+    with TestClient(app, base_url=origin) as alice, TestClient(app, base_url=origin) as bob:
+        assert bob.post(path, headers=headers, json={"node_id": "n1"}).status_code == 401
+        enter(alice, api["headers"])
+        enter(bob, api["other_headers"])
+        assert alice.post(path, headers=headers, json={"node_id": ""}).json()["nodes"] == {}
+        cards = isinstance(api["bot"].state.bot_state["n1"], list)
+        targets = ["n1 dev0", "n1 dev1"] if cards else ["n1"]
+        for target in targets:
+            client.post(
+                bot + "/commands", headers=api["headers"], json={"command": f"lock {target} 3m"}
+            ).raise_for_status()
+        with_access = alice.post(path, headers=headers, json={"node_id": ""})
+        assert list(with_access.json()["nodes"]) == ["n1"] and HOST not in with_access.text
+        assert address["ipv4"] not in with_access.text
+        found = alice.post(path, headers=headers, json={"node_id": "n1"})
+        assert found.headers["Cache-Control"] == "no-store"
+        assert {key: found.json()[key] for key in address} == address
+        assert found.json()["expires_at"] == with_access.json()["nodes"]["n1"]
+        assert bob.post(path, headers=headers, json={"node_id": "n1"}).status_code == 404
+        wrong = {**headers, "Authorization": "Bearer " + "a" * 22}
+        assert alice.post(path, headers=wrong, json={"node_id": "n1"}).status_code == 403
+        shared = client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers)
+        assert shared.status_code == 200 and HOST not in shared.text and address["ipv4"] not in shared.text
+        for target in targets:
+            client.post(
+                bot + "/commands", headers=api["headers"], json={"command": f"free {target}"}
+            ).raise_for_status()
+        assert alice.post(path, headers=headers, json={"node_id": "n1"}).status_code == 404

@@ -42,6 +42,11 @@
             <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
               status(row)
             }}</el-tag>
+            <slot
+              v-if="$slots['node-details'] && firstVisibleIds.has(row.id)"
+              name="node-details"
+              :row="row"
+            />
           </div>
         </template>
       </el-table-column>
@@ -113,6 +118,11 @@
           <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
             status(row)
           }}</el-tag>
+          <slot
+            v-if="$slots['node-details'] && firstVisibleIds.has(row.id)"
+            name="node-details"
+            :row="row"
+          />
         </div>
         <ResourceParticipants
           :users="users(row.holders)"
@@ -253,6 +263,14 @@ const visibleResources = computed(() =>
     return text.includes(query)
   })
 )
+const firstVisibleIds = computed(() => {
+  const first = new Map()
+  for (const row of visibleResources.value) {
+    const node = row.metric_node_id || row.id
+    if (!first.has(node)) first.set(node, row.id)
+  }
+  return new Set(first.values())
+})
 function queueTime(user, row) {
   const position =
     user.position ??
