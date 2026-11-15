@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
 from lockbot.backend.app.audit.models import AuditLog
+from lockbot.backend.app.personal_panel.router import create_panel
 
 from backend.test_personal_panel_native import panel  # noqa: F401
 from backend.test_resource_api_resources import _get, _hold, api  # noqa: F401
@@ -70,11 +72,12 @@ def test_preview_patch_merge_and_remove_are_private(client, api, admin_header, d
         '{"version":1,"nodes":{"n1":{"host":"a","port":65536}}}',
         '{"version":1,"nodes":{"n1":{"host":"a","port":"22"}}}',
         '{"version":1,"nodes":{"n1":{"host":"a","password":"ignored"}}}',
-        '{"version":1,"nodes":{"n1":{"host":"a","ipv4":"192.0.2.42"}}}',
-        '{"version":2,"nodes":{"n1":{"host":"192.0.2.41","ipv4":"192.0.2.42"}}}',
-        '{"version":2,"nodes":{"n1":{"host":"a","ipv4":"2001:db8::1"}}}',
-        '{"version":2,"nodes":{"n1":{"host":"a","ipv4":42}}}',
-        '{"version":2,"nodes":{"n1":{"host":"a","ipv4":"192.0.2.42","ipv4":"192.0.2.43"}}}',
+        '{"version":1,"nodes":{"n1":{"host":"a","ip":"192.0.2.42"}}}',
+        '{"version":2,"nodes":{"n1":{"host":"192.0.2.41","ip":"192.0.2.42"}}}',
+        '{"version":2,"nodes":{"n1":{"host":"a","ip":"2001:db8::1"}}}',
+        '{"version":2,"nodes":{"n1":{"host":"a","ip":42}}}',
+        '{"version":2,"nodes":{"n1":{"host":"a","ipv4":"192.0.2.42"}}}',
+        '{"version":2,"nodes":{"n1":{"host":"a","ip":"192.0.2.42","ip":"192.0.2.43"}}}',
         '{"version":1,"nodes":{"n1":{"host":"a; id"}}}',
         '{"version":1,"nodes":{"n1":{"host":"https://compute.example.invalid/"}}}',
         '{"version":1,"nodes":{"n1":{"host":"admin@compute.example.invalid"}}}',
@@ -126,7 +129,7 @@ def test_dual_address_document_preserves_omitted_legacy_nodes(client, api):
     owner = api["auth_header"]
     legacy = {"host": "2001:db8::1", "port": 22}
     assert client.put(path, headers=owner, json=_mapping(n2=legacy)).status_code == 200
-    dual = {"host": HOST, "ipv4": "192.0.2.42", "port": 2222}
+    dual = {"host": HOST, "ip": "192.0.2.42", "port": 2222}
     data = {"version": 2, "nodes": {"n1": {**dual, "host": HOST.upper()}}}
     preview = client.post(path + "/preview", headers=owner, json=data).json()
     assert preview["version"] == 2 and preview["nodes"] == {"n1": dual}
@@ -142,7 +145,7 @@ def test_dual_address_document_preserves_omitted_legacy_nodes(client, api):
 @pytest.mark.parametrize("api", ["DEVICE", "QUEUE_DEVICE"], indirect=True)
 def test_native_browser_and_agent_project_only_held_cards(client, api, panel):
     _, path = _routes(api)
-    address = {"host": HOST, "ipv4": "192.0.2.42", "port": 22}
+    address = {"host": HOST, "ip": "192.0.2.42", "port": 22}
     mapping = {"version": 2, "nodes": {"n1": address}}
     assert client.put(path, headers=api["auth_header"], json=mapping).status_code == 200
     cards = api["bot"].state.bot_state["n1"]
@@ -156,11 +159,63 @@ def test_native_browser_and_agent_project_only_held_cards(client, api, panel):
     assert snapshot["devices"][0]["node_access"] == address
     assert "node_access" not in snapshot["devices"][1]
     other = _get(client, api, api["other_headers"]).text
-    assert HOST not in other and address["ipv4"] not in other
+    assert HOST not in other and address["ip"] not in other
     provider, grant = panel
     own = provider.report(grant)[0]["allocations"]
     assert own[0]["node_access"] == address
     assert all("node_access" not in row for row in own[1:])
     other_grant = provider.authenticate(api["other_headers"]["Authorization"][7:])
     other_report = json.dumps(provider.report(other_grant))
-    assert HOST not in other_report and address["ipv4"] not in other_report
+    assert HOST not in other_report and address["ip"] not in other_report
+
+
+@pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE_DEVICE"], indirect=True)
+def test_shared_view_address_requires_share_and_exact_live_browser_holding(client, api, panel, tmp_path, monkeypatch):
+    bot, settings = _routes(api)
+    monkeypatch.setattr("lockbot.backend.app.resource_api.views.bot_manager", api["manager"])
+    provider, _ = panel
+    origin = provider.config["issuer"]
+    app = create_panel(origin, tmp_path / "shared-panel.db", provider)
+    address = {"host": HOST, "ip": "192.0.2.42", "port": 2222}
+    configured = {"version": 2, "nodes": {"n1": address}}
+    client.put(settings, headers=api["auth_header"], json=configured).raise_for_status()
+    view = client.get("/api/agent/context", headers=api["headers"]).json()["view_url"]
+    code = urlsplit(view).fragment.rsplit("/", 1)[1]
+    path = f"/shared-node-access/{api['bot_id']}"
+    headers = {"Origin": origin, "Authorization": f"Bearer {code}"}
+
+    def enter(browser, key_headers):
+        issued = browser.post("/links", headers=key_headers).json()
+        ticket = issued["login_url"].split("?ticket=", 1)[1]
+        browser.post(
+            "/login", headers={"Origin": origin}, json={"ticket": ticket, "mode": "replace"}
+        ).raise_for_status()
+
+    with TestClient(app, base_url=origin) as alice, TestClient(app, base_url=origin) as bob:
+        assert bob.post(path, headers=headers, json={"node_id": "n1"}).status_code == 401
+        enter(alice, api["headers"])
+        enter(bob, api["other_headers"])
+        assert alice.post(path, headers=headers, json={"node_id": ""}).json()["nodes"] == {}
+        cards = isinstance(api["bot"].state.bot_state["n1"], list)
+        targets = ["n1 dev0", "n1 dev1"] if cards else ["n1"]
+        for target in targets:
+            client.post(
+                bot + "/commands", headers=api["headers"], json={"command": f"lock {target} 3m"}
+            ).raise_for_status()
+        with_access = alice.post(path, headers=headers, json={"node_id": ""})
+        assert list(with_access.json()["nodes"]) == ["n1"] and HOST not in with_access.text
+        assert address["ip"] not in with_access.text
+        found = alice.post(path, headers=headers, json={"node_id": "n1"})
+        assert found.headers["Cache-Control"] == "no-store"
+        assert {key: found.json()[key] for key in address} == address
+        assert found.json()["expires_at"] == with_access.json()["nodes"]["n1"]
+        assert bob.post(path, headers=headers, json={"node_id": "n1"}).status_code == 404
+        wrong = {**headers, "Authorization": "Bearer " + "a" * 22}
+        assert alice.post(path, headers=wrong, json={"node_id": "n1"}).status_code == 403
+        shared = client.get(f"/api/bot-views/{api['bot_id']}/state", headers=headers)
+        assert shared.status_code == 200 and HOST not in shared.text and address["ip"] not in shared.text
+        for target in targets:
+            client.post(
+                bot + "/commands", headers=api["headers"], json={"command": f"free {target}"}
+            ).raise_for_status()
+        assert alice.post(path, headers=headers, json={"node_id": "n1"}).status_code == 404

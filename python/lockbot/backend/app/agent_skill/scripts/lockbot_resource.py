@@ -179,11 +179,11 @@ def _node_address(value):
     if type(port) is not int or not 1 <= port <= 65535:
         return None
     address = {"host": host, "port": port}
-    if "ipv4" in value:
+    if "ip" in value:
         try:
-            if not isinstance(value["ipv4"], str):
+            if not isinstance(value["ip"], str):
                 return None
-            address["ipv4"] = str(ipaddress.IPv4Address(value["ipv4"]))
+            address["ip"] = str(ipaddress.IPv4Address(value["ip"]))
         except ipaddress.AddressValueError:
             return None
     return address

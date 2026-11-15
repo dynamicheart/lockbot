@@ -61,7 +61,7 @@ def parse_access_mapping(raw, allowed_nodes=None):
     nodes = {}
     fields = {"host", "port"}
     if data["version"] == DUAL_ADDRESS_VERSION:
-        fields.add("ipv4")
+        fields.add("ip")
     for node, entry in data["nodes"].items():
         if not node or len(node) > 256 or (allowed_nodes is not None and node not in allowed_nodes):
             raise ValueError(f"Unknown node ID: {node[:256]!r}")
@@ -75,14 +75,14 @@ def parse_access_mapping(raw, allowed_nodes=None):
         except ValueError:
             raise ValueError(f"Invalid SSH host for node {node!r}") from None
         access = {"host": host, "port": port}
-        if "ipv4" in entry:
+        if "ip" in entry:
             if not _is_hostname(host):
-                raise ValueError(f"Enter a hostname in host when setting ipv4 for node {node!r}")
-            ipv4 = entry["ipv4"]
-            if not isinstance(ipv4, str):
+                raise ValueError(f"Enter a hostname in host when setting ip for node {node!r}")
+            ip = entry["ip"]
+            if not isinstance(ip, str):
                 raise ValueError(f"Invalid IPv4 address for node {node!r}")
             try:
-                access["ipv4"] = str(ipaddress.IPv4Address(ipv4))
+                access["ip"] = str(ipaddress.IPv4Address(ip))
             except ipaddress.AddressValueError:
                 raise ValueError(f"Invalid IPv4 address for node {node!r}") from None
         nodes[node] = access
@@ -120,7 +120,7 @@ def serialize_node_access(nodes):
 
 
 def mapping_version(nodes):
-    return DUAL_ADDRESS_VERSION if any("ipv4" in access for access in nodes.values()) else SINGLE_ADDRESS_VERSION
+    return DUAL_ADDRESS_VERSION if any("ip" in access for access in nodes.values()) else SINGLE_ADDRESS_VERSION
 
 
 def _active_holding(resource, subject, now):

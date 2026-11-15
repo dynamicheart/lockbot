@@ -16,6 +16,8 @@ from anyio import CapacityLimiter, to_thread
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring, MayHaveExecuted
+
 from .credential_views import CredentialViews
 from .handoff import connection_id, connection_instructions, installation, recovery_instructions
 from .native import NativeProvider, ProviderError
@@ -640,6 +642,60 @@ def create_panel(
         if not result or sessions.grant_window(cookie) != (original, expiry) or not valid(grant):
             raise HTTPException(404)
         return result
+
+    @app.post("/shared-node-access/{bot_id}")
+    async def shared_node_access(bot_id: int, request: Request):
+        if not native_connections or provider.config.get("issuer") != origin:
+            raise HTTPException(404)
+        auth = request.headers.get("authorization", "")
+        if not auth.startswith("Bearer ") or not 8 < len(auth) <= 167:
+            raise HTTPException(403)
+        cookie = request.cookies.get(cookie_name)
+        node = (await fields(request, ["node_id"]))["node_id"]
+        if len(node) > 256:
+            raise HTTPException(400)
+
+        def read():
+            original, expiry = sessions.grant_window(cookie)
+            if not original:
+                raise HTTPException(401)
+            checked = []
+            for grant in original:
+                try:
+                    result = provider.shared_node_access(grant, bot_id, auth[7:])
+                except (ProviderError, AdmissionFull, BotNotRunning, InstanceRetiring, MayHaveExecuted):
+                    continue
+                checked.append((grant, result))
+            addresses = {}
+            matched = False
+            for grant, result in checked:
+                if not valid(grant):
+                    continue
+                matched = True
+                for name, entry in result.items():
+                    if name not in addresses or entry["expires_at"] > addresses[name]["expires_at"]:
+                        addresses[name] = entry
+            if not matched or sessions.grant_window(cookie) != (original, expiry):
+                raise HTTPException(403)
+            now = datetime.now(timezone.utc)
+            limit = datetime.fromtimestamp(expiry, timezone.utc)
+            eligible = {
+                name: min(entry["expires_at"], limit) for name, entry in addresses.items() if entry["expires_at"] > now
+            }
+            if not node:
+                return {
+                    "nodes": {name: expires.isoformat() for name, expires in eligible.items()},
+                    "server_time": now.isoformat(),
+                }
+            if node not in eligible:
+                raise HTTPException(404)
+            return {
+                **addresses[node]["address"],
+                "expires_at": eligible[node].isoformat(),
+                "server_time": now.isoformat(),
+            }
+
+        return await to_thread.run_sync(read, limiter=report_capacity)
 
     @app.get("/resource-guidance/{reference_id}")
     def resource_guidance(reference_id: str, request: Request):

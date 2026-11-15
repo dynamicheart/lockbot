@@ -7,9 +7,8 @@ export default {
     title: '节点连接',
     open: '配置登录地址',
     loginAddress: '登录地址',
-    viewAddresses: '登录地址',
-    emptyAddresses: '暂无已登记的登录地址。',
-    viewFailed: '无法读取登录地址，请重新打开重试。',
+    sharedUnavailable: '暂时无法查看登录地址。',
+    workbenchAddress: '前往个人资源台查看登录地址',
     purpose: '资源持有者可在个人资源台或通过 Agent 查看节点的 SSH 地址和端口。',
     help: '粘贴节点映射 JSON，也可交给 Agent 生成。',
     copyPrompt: '复制 Agent Prompt',
@@ -19,7 +18,7 @@ export default {
       '本资源群的节点 ID 为 {nodeIds}。机器清单每行可包含节点 ID、域名、IPv4 地址和端口。域名、IPv4 和端口未知时可留空。\n' +
       '机器清单示例：node-01,compute-01.example.test,192.0.2.41,2222\n' +
       '严格使用上述节点 ID，只映射能唯一确认的节点。无法确认的条目请略过。\n' +
-      'host 优先填已确认的域名。仅有 IPv4 时填在 host。两者都已确认时，把 IPv4 另填在 ipv4。port 仅在明确给出时填 1–65535 的整数，省略时默认 22。\n' +
+      'host 优先填已确认的域名。仅有 IPv4 时填在 host。两者都已确认时，把 IPv4 另填在 ip。port 仅在明确给出时填 1–65535 的整数，省略时默认 22。\n' +
       '只返回 JSON，顶层使用 version（值为 2）和 nodes。每个节点会覆盖其旧记录，更新时请带上该节点已确认的两个地址。\n' +
       '以下 JSON 仅展示格式，其中的节点 ID 和地址是示例。\n{example}',
     review: '本次变更',

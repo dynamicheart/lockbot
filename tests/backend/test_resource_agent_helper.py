@@ -262,14 +262,14 @@ def commands(case):
 @pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")
 @pytest.mark.parametrize("devices", [False, True])
 def test_node_access_metadata_scopes_and_reconciles_current_holdings(case, devices):
-    address = {"host": "compute.example.test", "ipv4": "192.0.2.42", "port": 2222}
+    address = {"host": "compute.example.test", "ip": "192.0.2.42", "port": 2222}
     holder = {"external_user_id": "alice", "expires_at": "2030-01-01T00:02:00+00:00", "remaining_seconds": 120}
     case.state.holding = holder
     case.state.node_access = address
     if devices:
         case.state.resource_devices = [
             {"node_access": address, "holders": [holder]},
-            {"node_access": {**address, "ipv4": "192.0.2.99"}, "holders": [{**holder, "external_user_id": "bob"}]},
+            {"node_access": {**address, "ip": "192.0.2.99"}, "holders": [{**holder, "external_user_id": "bob"}]},
         ]
     metadata = case.path.with_name(case.path.name + ".node-access.json")
     old_connection = case.path.read_bytes()

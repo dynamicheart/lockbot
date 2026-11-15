@@ -36,12 +36,19 @@
         <template #default="{ row }">
           <div class="resource-identity" :data-resource-id="row.id">
             <div class="node-identity">
-              <strong>{{ row.display_name || row.id }}</strong
-              ><span>{{ row.alias }}</span>
+              <slot name="node-name" :row="row" :first="firstVisibleIds.has(row.id)">
+                <strong>{{ row.display_name || row.id }}</strong>
+              </slot>
+              <span>{{ row.alias }}</span>
             </div>
             <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
               status(row)
             }}</el-tag>
+            <slot
+              v-if="$slots['node-details'] && firstVisibleIds.has(row.id)"
+              name="node-details"
+              :row="row"
+            />
           </div>
         </template>
       </el-table-column>
@@ -107,12 +114,19 @@
       >
         <div class="resource-identity">
           <div class="node-identity">
-            <strong>{{ row.display_name || row.id }}</strong
-            ><span>{{ row.alias }}</span>
+            <slot name="node-name" :row="row" :first="firstVisibleIds.has(row.id)">
+              <strong>{{ row.display_name || row.id }}</strong>
+            </slot>
+            <span>{{ row.alias }}</span>
           </div>
           <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
             status(row)
           }}</el-tag>
+          <slot
+            v-if="$slots['node-details'] && firstVisibleIds.has(row.id)"
+            name="node-details"
+            :row="row"
+          />
         </div>
         <ResourceParticipants
           :users="users(row.holders)"
@@ -253,6 +267,14 @@ const visibleResources = computed(() =>
     return text.includes(query)
   })
 )
+const firstVisibleIds = computed(() => {
+  const first = new Map()
+  for (const row of visibleResources.value) {
+    const node = row.metric_node_id || row.id
+    if (!first.has(node)) first.set(node, row.id)
+  }
+  return new Set(first.values())
+})
 function queueTime(user, row) {
   const position =
     user.position ??
