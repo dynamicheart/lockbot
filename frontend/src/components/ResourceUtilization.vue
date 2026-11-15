@@ -4,7 +4,10 @@
     <span v-if="health.sampledAt"
       >{{ $t('utilization.sampled') }} {{ formatResourceTime(health.sampledAt, locale) }}</span
     >
-    <span v-if="state.error" class="source-error"
+    <span v-if="unreachableEndpoint" class="source-error" role="status">{{
+      $t('utilization.networkEndpoint', { endpoint: unreachableEndpoint })
+    }}</span>
+    <span v-else-if="state.error" class="source-error"
       >{{ $t('utilization.errors.' + state.error) }} · {{ $t('utilization.contactAdmin') }}</span
     >
     <span
@@ -94,6 +97,7 @@ const props = defineProps({
   scopeKey: { type: [String, Number], default: '' },
   deviceResources: Boolean,
   hideToolbar: Boolean,
+  showEndpointOnNetworkError: Boolean,
   authorize: { type: Function, default: null },
 })
 const emit = defineEmits(['change'])
@@ -114,6 +118,14 @@ const bearer = ref('')
 const authentication = ref(false)
 let activeBearer = ''
 const state = reactive({ loading: false, snapshot: null, error: null })
+const unreachableEndpoint = computed(() =>
+  props.showEndpointOnNetworkError &&
+  props.allowed &&
+  config.value &&
+  ['network', 'timeout'].includes(state.error)
+    ? new URL(config.value.endpoint).host
+    : ''
+)
 const health = computed(() =>
   sourceHealth(state.snapshot, config.value, props.nodes, Date.now(), metricStatus)
 )
@@ -217,6 +229,7 @@ onBeforeUnmount(() => {
 }
 .source-error {
   color: var(--el-color-warning-dark-2);
+  overflow-wrap: anywhere;
 }
 </style>
 <style>

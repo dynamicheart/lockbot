@@ -79,6 +79,7 @@
         :resources="metricResourceIds"
         :allowed="!invalid && !failed && snapshot.health === 'running'"
         :device-resources="snapshot.resources.some((node) => node.devices)"
+        show-endpoint-on-network-error
         @change="metrics = $event"
       />
       <p v-if="failed" class="view-status">{{ $t('resourceView.unavailable') }}</p>

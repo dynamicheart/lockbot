@@ -1,4 +1,8 @@
 export default {
+  jsonEditor: {
+    tabHint: 'Press Tab in an empty editor to insert an example',
+    invalidSyntax: 'Invalid JSON. Check brackets, quotes, and commas.',
+  },
   nodeAccess: {
     title: 'Node access',
     open: 'Configure addresses',
@@ -10,16 +14,13 @@ export default {
     workbenchAddress: 'Find login addresses in My Resources',
     purpose:
       'Resource holders can see the node’s SSH address and port in the personal workbench or through an Agent.',
-    help: 'Send the prompt and your machine inventory to the Agent, then paste the generated JSON here.',
+    help: 'Paste the node mapping JSON or ask an Agent to generate it.',
     copyPrompt: 'Copy Agent prompt',
-    inventoryFormat:
-      'List the node ID, known hostname and IPv4 address, and optional port. Example',
     mapping: 'Node mapping JSON',
-    addressFormat:
-      'Use host for the hostname or IPv4 address. When both are known, put the IPv4 address in ipv4. The port defaults to 22.',
     prompt:
       'Generate a LockBot SSH node mapping from my machine inventory.\n' +
       'The group’s node IDs are {nodeIds}. Each inventory line can contain a node ID, hostname, IPv4 address, and port. The hostname, IPv4 address, and port may be omitted if unknown.\n' +
+      'Inventory example: node-01,compute-01.example.test,192.0.2.41,2222\n' +
       'Use only those node IDs and include only unambiguous matches. Omit uncertain entries.\n' +
       'Use the confirmed hostname for host when available. When only the IPv4 address is confirmed, use it for host. When both are confirmed, add the IPv4 address as ipv4. When the inventory specifies port, use an integer from 1 to 65535. The default is 22.\n' +
       'Return only JSON with version set to 2 and nodes at the top level. Include both verified addresses when updating a node because each row replaces the previous entry for that node.\n' +
@@ -309,7 +310,7 @@ export default {
     nodeMatch: 'Node mapping',
     targetNode: 'Node label value in the data source',
     deviceMatch: 'Device mapping (collector index or UUID)',
-    importMapping: 'Advanced: import node mapping JSON',
+    importMapping: 'Import node mapping JSON',
     applyMapping: 'Apply mapping',
     checkResources: 'Check these nodes or devices',
     validationSuccess: 'Verified in this browser: {nodes} nodes and {cards} cards',
@@ -351,6 +352,10 @@ export default {
     title: 'Utilization',
     show: 'Show utilization',
     configure: 'Data source',
+    purpose:
+      'Read node and accelerator utilization from the metrics service and show it on the resource page.',
+    networkEndpoint:
+      'This browser or proxy cannot reach the data source at {endpoint}. Check your network, proxy, or CORS settings.',
     name: 'Name',
     endpoint: 'Prometheus URL',
     sourceToken: 'Data-source Bearer token (memory only, optional)',
