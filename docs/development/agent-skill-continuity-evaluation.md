@@ -38,6 +38,12 @@ Score actual installed bytes, the saved origin and service instance or bot bindi
 file permissions, and the request trace. These cases exercise the supplied fixture
 installer and the actual CLI. Real client skill detection and reload require separate runs.
 
+The packaged `telemetry` case reuses the fixture gateway. It runs the actual
+`metrics` command after confirming the current holding. Pass requires one
+replacement grant, the same scoped query after the first 401, and reporting
+the utilization and the age of the sample. Run with the repository Python
+environment, which provides the gateway query validator.
+
 ## Recognize lock intent and resolve the exact resources
 
 Test the Agent with natural-language requests and a verified inventory containing two

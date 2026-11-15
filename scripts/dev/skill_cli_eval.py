@@ -5,11 +5,12 @@ import argparse
 import contextlib
 import io
 import json
+import re
 import runpy
 import urllib.error
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
@@ -37,7 +38,7 @@ FIRST_CONTACT = {
     "install-from-zip": base.SCENARIOS["zip-first"],
     "install-with-key": base.SCENARIOS["existing-key"],
 }
-SCENARIOS = ("no-key", "approved-enrollment", "recover", *FIRST_CONTACT, *intent.PROMPTS)
+SCENARIOS = ("no-key", "approved-enrollment", "recover", "telemetry", *FIRST_CONTACT, *intent.PROMPTS)
 
 
 def prepare(root, artifact, scenario):
@@ -126,11 +127,13 @@ class Fixture(continuity.Fixture):
         path = urlsplit(args["url"]).path
         method = args["method"]
         bearer = args["headers"].get("Authorization", "")
+        if self.case["scenario"] == "telemetry" and args["url"] == continuity.METRICS_URL:
+            return super().http(args)
         if args["url"] != base.ORIGIN + path:
             return {"status": 404}
         if self.case["scenario"] in intent.PROMPTS and bearer:
             return self.intent_http(args, path, bearer)
-        if self.case["scenario"] in {"recover", "install-with-key"} and bearer in {
+        if self.case["scenario"] in {"recover", "install-with-key", "telemetry"} and bearer in {
             "Bearer " + base.KEY,
             "Bearer " + continuity.SECOND_KEY,
         }:
@@ -223,6 +226,9 @@ class Fixture(continuity.Fixture):
         headers = dict(request.header_items())
         args = {"url": request.full_url, "method": request.method, "headers": headers}
         command = intent.command_payload(request)
+        metrics = self.case["scenario"] == "telemetry" and request.full_url == continuity.METRICS_URL
+        if metrics:
+            args["body"] = (request.data or b"").decode()
         if command is not None:
             args["command"] = command
         result = self.http(args)
@@ -235,6 +241,15 @@ class Fixture(continuity.Fixture):
                         "authorization_present": "Authorization" in headers,
                         "status": result["status"],
                         **({"command": command} if command is not None else {}),
+                        **(
+                            {
+                                "selector": parse_qs(args["body"]).get("query", [""])[0],
+                                "metrics_grant_used": headers.get("Authorization")
+                                in {"Bearer " + grant for grant in continuity.METRICS_GRANTS},
+                            }
+                            if metrics
+                            else {}
+                        ),
                     }
                 )
                 + "\n"
@@ -266,7 +281,8 @@ class Fixture(continuity.Fixture):
         if not installed:
             return {"error": "verified_package_required"}
         if action not in ACTIONS and not (
-            action in ("connections", "command") and self.case["scenario"] in intent.PROMPTS
+            (action in ("connections", "command") and self.case["scenario"] in intent.PROMPTS)
+            or (action == "metrics" and self.case["scenario"] == "telemetry")
         ):
             return {"error": "unsupported_fixture_action"}
         argv = [action]
@@ -302,6 +318,8 @@ class Fixture(continuity.Fixture):
                 "--destination",
                 str(private / "seed.json"),
             ]
+            if self.case["scenario"] == "telemetry":
+                argv += ["--metrics-origin", continuity.METRICS_ORIGIN]
         elif action == "recover":
             argv = [
                 "--connection",
@@ -310,9 +328,13 @@ class Fixture(continuity.Fixture):
                 "--destination",
                 str(private / "groups"),
             ]
+        elif action == "metrics":
+            argv = ["--connection", str(private / "seed.json"), action]
+            for node in args.get("nodes", []):
+                argv += ["--node", node]
         elif action == "resources":
             connection = directory / "connection.json"
-            if self.case["scenario"] == "install-with-key":
+            if self.case["scenario"] in {"install-with-key", "telemetry"}:
                 connection = private / "seed.json"
             elif self.case["scenario"] == "recover":
                 group = args.get("group")
@@ -396,6 +418,9 @@ def tools(root):
         if is_intent
         else {}
     )
+    if scenario == "telemetry":
+        actions = (*actions, "metrics")
+        extra["nodes"] = {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."}
     public_tools = []
     if scenario in FIRST_CONTACT:
         public_tools.append(
@@ -458,7 +483,7 @@ def score_first_contact(fixture, requests, checks):
     checks["installation_verified"] = (
         len(installations) == 1
         and bool(inspections)
-        and inspections[-1] < installations[0]
+        and inspections[0] < installations[0]
         and trace[installations[0]]["result"].get("installed") is True
     )
     if scenario == "install-with-key":
@@ -535,6 +560,32 @@ def score(root, final):
     }
     if scenario in FIRST_CONTACT:
         score_first_contact(fixture, requests, checks)
+    elif scenario == "telemetry":
+        samples = [row for row in requests if row["url"] == continuity.METRICS_URL]
+        context = base.ORIGIN + "/api/agent/context"
+        resources = base.ORIGIN + "/api/bots/7/resources"
+        checks["service_saved"] = (private / "seed.json").is_file()
+        checks["credentials_scoped"] = all(row["metrics_grant_used"] for row in samples) and all(
+            not row["authorization_present"] or row["url"] in {context, resources}
+            for row in requests
+            if row not in samples
+        )
+        checks["one_retry_with_same_selector"] = [row["status"] for row in samples] == [401, 200] and samples[0][
+            "selector"
+        ] == samples[1]["selector"]
+        if checks["one_retry_with_same_selector"]:
+            first, second = map(requests.index, samples)
+            checks["refreshed_context_and_read_holding"] = any(
+                row["url"] == context and row["status"] == 200 for row in requests[first + 1 : second]
+            ) and any(row["url"] == resources and row["status"] == 200 for row in requests[:first])
+        checks["no_resource_mutation"] = posts == samples
+        checks["reports_utilization_and_sample_age"] = (
+            bool(re.search(r"(?<!\d)42(?:\.0+)?\s*[%％]", final))
+            and "node-a" in final
+            and bool(re.search(r"(?<!\d)(?:[78]|9)(?:\.\d+)?\s*秒", final))
+            and ("样本" in final or "采样" in final)
+            and all(grant not in final for grant in continuity.METRICS_GRANTS)
+        )
     elif scenario in intent.PROMPTS:
         tool_trace = root / "trace.jsonl"
         cli_tools = (

@@ -76,6 +76,24 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["no_extra_writes"]
 
 
+def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "telemetry")
+    assert install(fixture)["installed"]
+    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "resources")["result"]["resources"][0]["holders"]
+    result = run(fixture, "metrics", nodes=["node-a"])["result"]
+    assert result["verification"] == "query_response_only"
+    samples = result["data"]["data"]["result"]
+    assert any(sample["value"][1] == "42" for sample in samples)
+    final = "node-a 的卡利用率为 42%，样本约 8 秒前采集。"
+    grade = evaluation.score(fixture.root, final)
+    assert grade["observable_pass"], grade["checks"]
+
+    assert not evaluation.score(fixture.root, "node-a 利用率 42%，现在查询。")["observable_pass"]
+    assert run(fixture, "metrics", nodes=["node-a"])["result"]
+    assert not evaluation.score(fixture.root, final)["checks"]["one_retry_with_same_selector"]
+
+
 def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "intent-model-whole-machine")
     assert fixture.call("read_lockbot_skill", {"offset": 0})["error"] == "verified_package_required"
