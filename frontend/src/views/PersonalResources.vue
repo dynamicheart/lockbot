@@ -154,12 +154,21 @@
           <el-button type="primary" @click="copyOnboardingRequest">
             {{ $t('personalOnboarding.copyRequest') }}
           </el-button>
-          <span class="panel-onboarding-install">
-            {{ $t('personalOnboarding.installHint') }}
-            <a href="/api/agent-skill/lockbot-resource-agent.zip">
+        </div>
+        <div class="panel-onboarding-install">
+          <el-icon class="panel-onboarding-install-icon" aria-hidden="true"><Box /></el-icon>
+          <div class="panel-onboarding-install-copy">
+            <strong>{{ $t('personalOnboarding.installHint') }}</strong>
+            <p>{{ $t('personalOnboarding.installDetail') }}</p>
+          </div>
+          <div class="panel-onboarding-install-actions">
+            <el-button :icon="CopyDocument" @click="copyInstallRequest">
+              {{ $t('personalOnboarding.copyInstall') }}
+            </el-button>
+            <a :href="skillPackagePath" download>
               {{ $t('personalOnboarding.installPackage') }}
             </a>
-          </span>
+          </div>
         </div>
         <PersonalConnectionHandoff :authenticated="false" />
       </section>
@@ -759,7 +768,15 @@ import {
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
-import { ArrowRight, Calendar, Cpu, Monitor, Refresh } from '@element-plus/icons-vue'
+import {
+  ArrowRight,
+  Box,
+  Calendar,
+  CopyDocument,
+  Cpu,
+  Monitor,
+  Refresh,
+} from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import { formatNodeAccess } from '../utils/nodeAccess'
 import { useHelpers } from '../utils/helpers'
@@ -783,8 +800,14 @@ const tabs = [
 ]
 const { copyText } = useHelpers()
 const { t } = useI18n()
+const skillPackagePath = '/api/agent-skill/lockbot-resource-agent.zip'
 function copyOnboardingRequest() {
   copyText(t('personalOnboarding.request', { origin: window.location.origin }))
+}
+function copyInstallRequest() {
+  copyText(
+    t('personalOnboarding.installRequest', { url: window.location.origin + skillPackagePath })
+  )
 }
 const route = useRoute()
 const router = useRouter()

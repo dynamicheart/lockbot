@@ -901,13 +901,42 @@
 }
 
 .personal-panel :deep(.panel-onboarding-install) {
-  color: var(--muted);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
   font-size: 14px;
-  line-height: 1.6;
 }
 
-.personal-panel :deep(.panel-onboarding-actions a) {
+.personal-panel :deep(.panel-onboarding-install-icon) {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  font-size: 20px;
+}
+
+.personal-panel :deep(.panel-onboarding-install-copy p) {
+  margin: 3px 0 0;
+  color: var(--muted);
+}
+
+.personal-panel :deep(.panel-onboarding-install-actions) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.personal-panel :deep(.panel-onboarding-install-actions a) {
+  color: var(--el-color-primary);
+  white-space: nowrap;
 }
 
 @media (max-width: 540px) {
@@ -915,5 +944,11 @@
     grid-template-columns: 1fr;
     list-style: decimal;
     padding-inline-start: 20px;
+  }
+  .personal-panel :deep(.panel-onboarding-install) {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .personal-panel :deep(.panel-onboarding-install-actions) {
+    grid-column: 1 / -1;
   }
 }
