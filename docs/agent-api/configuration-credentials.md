@@ -11,12 +11,14 @@ An administrator or super administrator can choose **Create bots** as the creden
 Download the standalone `lockbot_provision.py` from `/api/bot-provisioning/lockbot_provision.py` on that LockBot instance. It requires Python 3.10 or newer and uses the `LOCKBOT_PROVISIONING_KEY` environment variable. Store the proposed configuration in a private JSON file.
 
 ```sh
-python3 lockbot_provision.py --service https://lockbot.example.test preview --config bot.json
+python3 lockbot_provision.py --service https://lockbot.example.test preview --config bot.json --receipt-file review.json
+# In a new session, inspect the saved preview locally.
+python3 lockbot_provision.py --service https://lockbot.example.test review --config bot.json --receipt-file review.json
 # Display the preview and wait for explicit approval before running apply.
-python3 lockbot_provision.py --service https://lockbot.example.test apply --config bot.json --receipt RECEIPT --confirm
+python3 lockbot_provision.py --service https://lockbot.example.test apply --config bot.json --receipt-file review.json --confirm
 ```
 
-The CLI resolves the returned Console path into `console_url`. The resource Agent Skill remains the entry point for querying, locking and releasing resources.
+The receipt file is private. The `review` command shows the original summary without sending a request or displaying the receipt. If a new preview is needed, save it to a new file. The CLI resolves the returned Console path into `console_url`. The resource Agent Skill remains the entry point for querying, locking and releasing resources.
 
 1. Send the proposed bot configuration to `POST /api/bot-provisioning/preview`. Show the returned platform, name, group, type and resource count to the user. Keep submitted platform secrets out of the conversation summary.
 2. Keep the receipt from the preview you showed for approval. After the user's explicit approval, send `POST /api/bot-provisioning/apply` with the same `bot` configuration, that `receipt`, and `confirmed` set to `true`. The receipt is valid for five minutes and is tied to the exact configuration and credential. If you need a new preview, show it and obtain approval for that preview before applying.

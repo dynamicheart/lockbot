@@ -108,9 +108,11 @@ def test_downloaded_cli_previews_requires_confirmation_and_applies(client, admin
     proposed = tmp_path / "bot.json"
     proposed.write_text(json.dumps(_sample_bot("cli-created")))
     issued = credentials(client, admin_header, [], [CREATE]).raise_for_status().json()
+    requests = []
 
     class Bridge(BaseHTTPRequestHandler):
         def do_POST(self):
+            requests.append(self.path)
             result = client.post(
                 self.path,
                 content=self.rfile.read(int(self.headers["Content-Length"])),
@@ -136,14 +138,28 @@ def test_downloaded_cli_previews_requires_confirmation_and_applies(client, admin
             )
 
         try:
-            preview = json.loads(run("preview").stdout)
+            receipt_file = tmp_path / "provisioning-review.json"
+            receipt_args = ("--receipt-file", str(receipt_file))
+            preview = json.loads(run("preview", *receipt_args).stdout)
             assert preview["name"] == "cli-created"
-            args = ("--receipt", preview["receipt"])
-            assert run("apply", *args, check=False).returncode == 2
+            assert "receipt" not in preview
+            assert receipt_file.stat().st_mode & 0o077 == 0
+            receipt_setup = receipt_file.read_bytes()
+            assert run("preview", *receipt_args, check=False).returncode == 1
+            assert receipt_file.read_bytes() == receipt_setup
+            requests.clear()
+            reviewed = json.loads(run("review", *receipt_args).stdout)
+            assert reviewed == {**preview, "expired": False}
+            assert requests == []
+            mismatch = tmp_path / "changed.json"
+            mismatch.write_text(json.dumps(_sample_bot("different")))
+            assert run("apply", *receipt_args, "--config", str(mismatch), "--confirm", check=False).returncode == 1
+            assert requests == []
+            assert run("apply", *receipt_args, check=False).returncode == 2
             assert client.get("/api/bots", headers=admin_header).raise_for_status().json() == []
-            result = json.loads(run("apply", *args, "--confirm").stdout)
+            result = json.loads(run("apply", *receipt_args, "--confirm").stdout)
             assert result["console_url"] == f"{url}/bots/{result['bot_id']}"
-            assert json.loads(run("apply", *args, "--confirm").stdout) == result
+            assert json.loads(run("apply", *receipt_args, "--confirm").stdout) == result
         finally:
             server.shutdown()
             worker.join(timeout=5)
