@@ -37,21 +37,14 @@ export default {
   configurationCredentials: {
     title: 'Configuration credentials',
     auditTab: 'Audit credentials',
-    description:
-      'Bot administrators can let an Agent add node addresses and utilization data sources for selected bots.',
-    purpose:
-      'Other users can then use their Agents to choose resources and connect to machines within their own access.',
-    guide: 'How do configuration credentials work?',
-    guideSelectTitle: 'Administrators select bots and permissions',
-    guideSelect: 'Choose the bots to maintain, then select node addresses or data sources.',
-    guideShareTitle: 'Share privately with the maintenance Agent',
-    guideShare: 'The Agent uses the credential to update the permitted settings.',
-    guideUseTitle: 'Users continue with their own Agents',
-    guideUse: 'Their Agents use their own group bindings to find and request resources and use the saved details.',
-    guideNodeTitle: 'Node addresses',
-    guideNode: 'Record the IP, hostname, and port. After acquiring a resource, a user’s Agent can find the machine to connect to.',
+    description: 'Administrators delegate configuration so other users’ Agents can use it.',
+    guideSelectTitle: 'Admins select bots and permissions',
+    guideShareTitle: 'Share with the maintenance Agent',
+    guideUseTitle: 'Users keep their own Agents',
+    guideNodeTitle: 'Node address',
+    guideNode: 'Connect to the machine after acquiring a resource.',
     guideDatasourceTitle: 'Utilization data source',
-    guideDatasource: 'The workbench displays available utilization data. User Agents with access to the source can use it to choose resources.',
+    guideDatasource: 'Check utilization before choosing a resource.',
     scopeHint:
       'Choose the bots and settings the Agent can update. Authorize newly added bots separately.',
     selectedBots: '{selected} of {total} bots selected',

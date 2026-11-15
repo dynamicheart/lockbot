@@ -1,10 +1,7 @@
 <template>
   <section ref="container" class="configuration-credentials">
     <header class="credential-toolbar">
-      <div class="credential-description">
-        <p>{{ $t('configurationCredentials.description') }}</p>
-        <p>{{ $t('configurationCredentials.purpose') }}</p>
-      </div>
+      <p v-if="showGuide">{{ $t('configurationCredentials.description') }}</p>
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
@@ -13,22 +10,18 @@
       </div>
     </header>
 
-    <details class="credential-guide">
-      <summary>{{ $t('configurationCredentials.guide') }}</summary>
+    <div v-if="showGuide" class="credential-guide">
       <figure class="credential-guide-flow">
         <img src="/configuration-credential-guide.webp" alt="" width="1392" height="464" />
         <ol>
           <li>
             <strong>{{ $t('configurationCredentials.guideSelectTitle') }}</strong>
-            <p>{{ $t('configurationCredentials.guideSelect') }}</p>
           </li>
           <li>
             <strong>{{ $t('configurationCredentials.guideShareTitle') }}</strong>
-            <p>{{ $t('configurationCredentials.guideShare') }}</p>
           </li>
           <li>
             <strong>{{ $t('configurationCredentials.guideUseTitle') }}</strong>
-            <p>{{ $t('configurationCredentials.guideUse') }}</p>
           </li>
         </ol>
       </figure>
@@ -38,7 +31,7 @@
         <dt>{{ $t('configurationCredentials.guideDatasourceTitle') }}</dt>
         <dd>{{ $t('configurationCredentials.guideDatasource') }}</dd>
       </dl>
-    </details>
+    </div>
 
     <el-alert
       v-if="error && !showCreate && !showAction"
@@ -48,7 +41,12 @@
       show-icon
     />
 
-    <el-table v-loading="loading" :data="items" :empty-text="$t('configurationCredentials.empty')">
+    <el-table
+      v-if="!showGuide"
+      v-loading="loading"
+      :data="items"
+      :empty-text="$t('configurationCredentials.empty')"
+    >
       <el-table-column v-if="compact" type="expand" width="38">
         <template #default="{ row }">
           <dl class="credential-details">
@@ -296,6 +294,10 @@ const items = ref([])
 const bots = ref([])
 const offset = ref(0)
 const loading = ref(false)
+const loaded = ref(false)
+const showGuide = computed(
+  () => loaded.value && !loading.value && !error.value && offset.value === 0 && !items.value.length
+)
 const busy = ref(false)
 const error = ref('')
 const showCreate = ref(false)
@@ -373,6 +375,7 @@ async function load(nextOffset) {
     bots.value = data.bots
     form.value.bot_ids = form.value.bot_ids.filter((id) => botsById.value.has(id))
     offset.value = nextOffset
+    loaded.value = true
     now.value = Date.now()
   } catch {
     if (request.isCurrent()) error.value = 'configurationCredentials.loadFailed'
@@ -449,6 +452,7 @@ watch(
     scope.enter(principalId)
     secret.value = ''
     items.value = []
+    loaded.value = false
     bots.value = []
     offset.value = 0
     showCreate.value = false
@@ -493,19 +497,13 @@ onBeforeUnmount(() => {
   align-items: flex-start;
 }
 
-.credential-description {
-  flex: 1 1 360px;
-  display: grid;
-  gap: 4px;
-}
-
-.credential-description p:first-child {
-  color: var(--el-text-color-primary);
+.credential-toolbar .credential-actions {
+  margin-inline-start: auto;
 }
 
 .credential-toolbar p {
   margin: 0;
-  color: var(--el-text-color-secondary);
+  color: var(--el-text-color-primary);
 }
 
 .credential-actions :deep(.el-button + .el-button) {
@@ -591,12 +589,6 @@ onBeforeUnmount(() => {
   margin-bottom: 16px;
 }
 
-.credential-guide summary {
-  width: fit-content;
-  color: var(--el-color-primary);
-  cursor: pointer;
-}
-
 .credential-guide-flow {
   margin: 12px 0;
 }
@@ -616,9 +608,8 @@ onBeforeUnmount(() => {
   padding-inline-start: 22px;
 }
 
-.credential-guide-flow p,
 .credential-guide-purpose dd {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--el-text-color-secondary);
 }
 
@@ -631,10 +622,6 @@ onBeforeUnmount(() => {
 
 .credential-guide-purpose dt {
   font-weight: 600;
-}
-
-.credential-guide-purpose dd {
-  margin: 0;
 }
 
 @media (max-width: 580px) {
