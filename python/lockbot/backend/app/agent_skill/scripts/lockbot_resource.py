@@ -1195,6 +1195,8 @@ def main(argv=None):
         command.add_argument("--origin", required=True, help="Explicitly user-approved service origin")
         if action in {"install", "init"}:
             command.add_argument("--destination", required=True)
+        if action == "discover":
+            command.add_argument("--destination", help="New private file for approved service metadata")
         if action == "init":
             command.add_argument("--key-file", required=True, help="Existing private personal-key file, not a raw key")
             command.add_argument("--metrics-origin", help="Separately approved metrics origin, optional")
@@ -1249,6 +1251,14 @@ def main(argv=None):
             raise ClientError("private_connection_required")
         if args.action == "discover":
             result = client.discover()
+            if args.destination:
+                metadata = {
+                    "approved_origin": client.base,
+                    "instance_id": result["instance_id"],
+                    "version": result["version"],
+                    "skill_url": same_origin_url(client.base, result["skill_url"]),
+                }
+                write_private(args.destination, json.dumps(metadata).encode())
         elif args.action == "install":
             result = client.install(args.destination)
         elif args.action == "init":

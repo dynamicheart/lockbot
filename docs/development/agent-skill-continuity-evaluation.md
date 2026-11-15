@@ -4,6 +4,27 @@ This is a reviewable test plan and offline fixture, not a completed model, live
 browser, or installed-client acceptance report. Do not add these mechanics as
 extra steps to the ordinary user-facing Skill. No paid/model run is triggered by CI.
 
+## Packaged CLI enrollment evaluation
+
+Use `scripts/dev/skill_cli_eval.py` with locally built, trusted release artifacts.
+The evaluator verifies the installation ZIP and executes its packaged Python CLI.
+The model gets a restricted CLI tool and a fixture installer. The helper's network
+requests go through an offline transport, which records method, destination, status
+and presence of authorization without recording credential values.
+
+```sh
+python scripts/dev/skill_cli_eval.py prepare /tmp/lockbot-first \
+  --artifact /path/to/trusted-artifacts --scenario approved-enrollment
+python scripts/dev/skill_cli_eval.py score /tmp/lockbot-first --final-file /path/to/first-answer.txt
+python scripts/dev/skill_cli_eval.py resume /tmp/lockbot-first --destination /tmp/lockbot-second
+python scripts/dev/skill_cli_eval.py score /tmp/lockbot-second --final-file /path/to/second-answer.txt
+```
+
+For each model process, use only the generated `prompt.txt`, `system.txt`, and `mcp.json`.
+The second process starts after the fixture operator simulates confirmation in chat.
+Also run `no-key` to verify the model can save the approved deployment and explain binding
+without requesting a code. The simulator cannot establish live chat or registry behavior.
+
 ## Goals and cases
 
 | Case | Session 1 | Fresh session 2 | Failing evidence |
