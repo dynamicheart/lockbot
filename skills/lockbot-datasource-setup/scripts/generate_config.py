@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -12,6 +13,7 @@ FIELDS = {
     "endpoint",
     "access_mode",
     "node_mapping",
+    "node_metadata",
     "device_mapping",
     "interval_seconds",
     "stale_seconds",
@@ -35,9 +37,26 @@ def mapping(value, label):
     return {text(k, label): text(v, label) for k, v in value.items()}
 
 
+def node_metadata(value):
+    if not isinstance(value, dict):
+        return {}
+    nodes = {}
+    for label, entry in value.items():
+        if not isinstance(label, str) or not label or not label.isprintable() or not isinstance(entry, dict):
+            continue
+        addresses = {
+            key: entry[key]
+            for key in ("hostname", "ip")
+            if isinstance(entry.get(key), str) and 0 < len(entry[key]) <= 253 and entry[key].isprintable()
+        }
+        if addresses:
+            nodes[label] = addresses
+    return nodes
+
+
 def generate(source):
     if not isinstance(source, dict) or set(source) - FIELDS:
-        raise ValueError("Only documented public input fields are allowed; never include credentials")
+        raise ValueError("Only documented input fields are allowed. Keep credentials separate.")
     endpoint = text(source.get("endpoint"), "endpoint", 2048)
     url = urlsplit(endpoint)
     if (
@@ -109,7 +128,9 @@ def main():
                 result[key] = value
             return result
 
-        config = generate(json.loads(args.input.read_text(), object_pairs_hook=unique))
+        source = json.loads(args.input.read_text(), object_pairs_hook=unique)
+        config = generate(source)
+        metadata = node_metadata(source.get("node_metadata"))
         out = args.output_dir
         if out.exists() and any(out.iterdir()):
             raise ValueError("Output directory must be empty; preserve existing handoff files")
@@ -118,6 +139,11 @@ def main():
             path = out / name
             path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
             path.chmod(0o600)
+        if metadata:
+            fd = os.open(out / "node-metadata.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(metadata, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
         lines = [
             "# 数据源填写表",
             "",
@@ -163,7 +189,9 @@ def main():
         path = out / "handoff.md"
         path.write_text("\n".join(lines))
         path.chmod(0o600)
-        print("Generated utilization-config.json, node-mapping.json and handoff.md; no network or service changes.")
+        print("Generated utilization-config.json, node-mapping.json and handoff.md.")
+        if metadata:
+            print("Saved the optional addresses separately in private node-metadata.json.")
     except (OSError, ValueError, TypeError) as error:
         parser.exit(2, f"Configuration rejected: {error}\n")
 
