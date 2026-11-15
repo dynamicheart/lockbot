@@ -136,6 +136,8 @@ and IPv4 address were registered. A card uses the addresses of its parent node. 
 the snapshot before relying on either address. If the field is absent,
 ask the resource administrator for access instructions. Keep private addresses out of
 shared replies and do not guess addresses from node labels or telemetry mappings.
+The helper records currently held addresses beside the private connection on POSIX.
+Treat that file as private and use a fresh authorized snapshot before connecting.
 
 For a shared node label, use `alias --node <node>` to read it, `--set "<label>"` to
 set or change it, and `--clear` to remove it. These are subcommands of the same helper
