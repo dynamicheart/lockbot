@@ -1184,7 +1184,11 @@ const allocationSections = computed(() => {
       holdings: true,
       timeLabel: '剩余时间',
       tasks: Boolean(slots.task || ownTasksAvailable.value),
-      metrics: Boolean(slots.metrics || utilizationGroups.value.length),
+      metrics: Boolean(
+        slots.metrics ||
+        utilizationGroups.value.length ||
+        holds.some((row) => inDetailGroup(row) && hasReportedUtilization(row))
+      ),
     },
     {
       label: '预约与队列',
