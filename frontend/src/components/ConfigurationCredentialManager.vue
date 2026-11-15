@@ -16,21 +16,18 @@
         <ol>
           <li>
             <strong>{{ $t('configurationCredentials.guideSelectTitle') }}</strong>
+            <p>{{ $t('configurationCredentials.guideSelect') }}</p>
           </li>
           <li>
             <strong>{{ $t('configurationCredentials.guideShareTitle') }}</strong>
+            <p>{{ $t('configurationCredentials.guideShare') }}</p>
           </li>
           <li>
             <strong>{{ $t('configurationCredentials.guideUseTitle') }}</strong>
+            <p>{{ $t('configurationCredentials.guideUse') }}</p>
           </li>
         </ol>
       </figure>
-      <dl class="credential-guide-purpose">
-        <dt>{{ $t('configurationCredentials.guideNodeTitle') }}</dt>
-        <dd>{{ $t('configurationCredentials.guideNode') }}</dd>
-        <dt>{{ $t('configurationCredentials.guideDatasourceTitle') }}</dt>
-        <dd>{{ $t('configurationCredentials.guideDatasource') }}</dd>
-      </dl>
     </div>
 
     <el-alert
@@ -608,25 +605,13 @@ onBeforeUnmount(() => {
   padding-inline-start: 22px;
 }
 
-.credential-guide-purpose dd {
-  margin: 0;
+.credential-guide-flow p {
+  margin: 4px 0 0;
   color: var(--el-text-color-secondary);
 }
 
-.credential-guide-purpose {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 8px 12px;
-  margin: 16px 0 0;
-}
-
-.credential-guide-purpose dt {
-  font-weight: 600;
-}
-
 @media (max-width: 580px) {
-  .credential-guide-flow ol,
-  .credential-guide-purpose {
+  .credential-guide-flow ol {
     grid-template-columns: 1fr;
   }
 }
