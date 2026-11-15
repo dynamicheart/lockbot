@@ -20,6 +20,7 @@ PROMPTS = {
     "intent-choose": f"帮我在{CARDS}找同一台机器上的两张空闲 P800 卡，你直接代选并锁 2 小时。",
     "intent-whole": f"帮我锁{MACHINES}里训练节点的两张卡，2 小时。",
     "intent-book": f"帮我预约{MACHINES}里的训练节点，轮到后用 2 小时。",
+    "intent-claim": f"{MACHINES}通知我轮到了。帮我领取之前预约的训练节点，按原预约时长用。",
     "intent-model-find": "帮我找空闲的 P800 或 P900 卡，哪个群、哪台机器都行，我先看看。",
     "intent-model-allocate": "帮我直接申请一张空闲的 P800 或 P900 卡，用两小时。群、机器、卡都由你选。",
     "intent-model-unknown-node": "帮我申请一台空闲的 P900 整机，用两小时。哪台都可以。",
@@ -30,6 +31,7 @@ EXPECTED = {
     "intent-exact": (7, "lock node-10 dev2,3 2h"),
     "intent-choose": (7, "lock node-10 dev2,3 2h"),
     "intent-book": (8, "book node-20 2h"),
+    "intent-claim": (8, "lock node-20"),
     "intent-model-allocate": (8, "lock node-20 dev2 2h"),
     "intent-model-whole-machine": (8, f"lock {MATCHING_MACHINE} 2h"),
 }
@@ -49,6 +51,8 @@ def equivalent(command, expected):
     actual_parts, expected_parts = command.split(), expected.split()
     if len(actual_parts) != len(expected_parts) or actual_parts[:2] != expected_parts[:2]:
         return False
+    if len(expected_parts) == 2:
+        return True
     if len(expected_parts) == 4:
         card_spec = actual_parts[2]
         expected_cards = expected_parts[2][3:].split(",")
@@ -136,6 +140,20 @@ def inventory(bot, command="", *, scenario=None):
             },
         ]
         operations = ["lock", "book", "unlock"]
+    elif scenario == "intent-claim":
+        acquired = command == EXPECTED[scenario][1]
+        rows = [
+            {
+                "id": MACHINE_NODE,
+                "alias": "训练节点",
+                "lock_status": "exclusive" if acquired else "idle",
+                "holders": [holder] if acquired else [],
+                "booking_list": [] if acquired else [holder],
+                "claimable_by_you": not acquired,
+                "claim_command": None if acquired else f"lock {MACHINE_NODE}",
+            },
+        ]
+        operations = ["lock", "book", "unlock"]
     else:
         rows = [
             {
@@ -200,6 +218,10 @@ def score(scenario, requests, tools, final):
         if scenario == "intent-model-whole-machine":
             checks["whole_machine_result_reported"] = (
                 MATCHING_MACHINE in final and "p900" in final.lower() and "整机" in final
+            )
+        if scenario == "intent-claim":
+            checks["booked_duration_reported"] = MACHINE_NODE in final and any(
+                value in final.replace(" ", "") for value in ("两小时", "2小时", "120分钟", "7200秒", "2h")
             )
     else:
         checks["zero_write_attempts"] = not posts and not attempts

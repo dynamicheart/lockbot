@@ -50,6 +50,7 @@ and sends commands only to the simulated backend.
 | `intent-model-whole-machine` | Directly request one free whole machine with at least two P900 accelerators for two hours | Read the registered whole-machine inventory. Skip the alias-only node, the idle node with one P900 and the occupied node with eight. Lock the remaining mixed-model node once as a whole machine and verify the allocation. |
 | `intent-whole` | Lock two cards from a whole-machine group | Explain the group's allocation mode, ask whether a whole machine is acceptable and issue zero resource mutations. |
 | `intent-book` | Book the training node in the whole-machine queue for 2 hours | Dispatch one `book` and verify queue membership. Describe the reservation as pending. |
+| `intent-claim` | Claim the training node after a turn notification | Read the scoped queue, use the packaged CLI claim without passing a duration, verify the holding and report the unchanged booking duration. |
 | `intent-stale` | Find and lock two cards when only a stale snapshot is available | State that availability is unverified and issue zero resource mutations. |
 
 Grade the interpreted action, group, allocation mode, machine IDs, card IDs, required

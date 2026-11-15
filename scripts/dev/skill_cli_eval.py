@@ -343,11 +343,13 @@ class Fixture(continuity.Fixture):
 
 
 def tools(root):
-    is_intent = json.loads((root / "case.json").read_text())["scenario"] in intent.PROMPTS
+    scenario = json.loads((root / "case.json").read_text())["scenario"]
+    is_intent = scenario in intent.PROMPTS
+    operations = ["lock", "book", "claim"] if scenario == "intent-claim" else ["lock", "book"]
     actions = ("discover", "connections", "resources", "command") if is_intent else ACTIONS
     extra = (
         {
-            "operation": {"type": "string", "enum": ["lock", "book"]},
+            "operation": {"type": "string", "enum": operations},
             "nodes": {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."},
             "devices": {"type": "array", "items": {"type": "string"}, "description": "Exact card IDs as strings."},
             "duration": {"type": "string", "description": "Explicit duration such as 30m or 2h."},

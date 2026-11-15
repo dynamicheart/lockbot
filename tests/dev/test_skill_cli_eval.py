@@ -109,6 +109,7 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
         ),
         ("intent-whole", ["整机队列群"], "整机队列群只支持整机，请确认。"),
         ("intent-book", ["整机队列群"], "node-20 已预约两小时。"),
+        ("intent-claim", ["整机队列群"], "已领取 node-20，沿用原预约两小时。"),
         ("intent-stale", ["加速卡群"], "快照已过期，无法确认有两张空闲卡。"),
     ],
 )
@@ -120,6 +121,8 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
     if scenario in evaluation.intent.EXPECTED:
         if scenario == "intent-book":
             result = run(fixture, "command", group=groups[0], operation="book", nodes=["node-20"], duration="120m")
+        elif scenario == "intent-claim":
+            result = run(fixture, "command", group=groups[0], operation="claim", nodes=["node-20"])
         elif scenario == "intent-model-whole-machine":
             snapshot = run(fixture, "resources", group=groups[0])["result"]
             nodes = {node["id"]: node for node in snapshot["resources"]}
