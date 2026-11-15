@@ -937,6 +937,35 @@ export default {
     apiKeyRevoked: 'OP API Key revoked',
   },
 
+  personalWorkbench: {
+    title: 'Personal workbench',
+    navigation: 'Primary navigation',
+    myAllocations: 'My allocations',
+    resourceGroups: 'Resource groups',
+    myCredentials: 'My credentials',
+    console: 'Bot console',
+    more: 'More',
+    clearBrowser: 'Clear this browser’s access',
+    clearBrowserTitle: 'Clear this browser’s access?',
+    clearBrowserDetail:
+      'You’ll need to authorize this browser again to view personal resources. Agent keys stay valid.',
+    clearBrowserConfirm: 'Clear access',
+    plugins: {
+      title: 'Loaded plugins',
+      reporterTitle: 'External resources',
+      reporterDescription: 'Show your allocations and reservations from other LockBot services.',
+      reporterLoaded:
+        'The service has loaded {count} resource reporting plugin | The service has loaded {count} resource reporting plugins',
+      reporterNotLoaded: 'The service has no resource reporting plugins',
+      reporterVisible: 'Sources visible to this session',
+      reporterUnknown: 'No external source identified for this session',
+      loadingSources: 'Loading resource sources',
+      metricsTitle: 'Utilization sources',
+      metricsDescription: 'See node and device utilization in authorized resource details.',
+      metricsConfigured: 'A utilization source is configured for resources you hold',
+      metricsUnavailable: 'No utilization source for resources you hold',
+    },
+  },
   personalAgentActivity: {
     title: 'Agent activity',
     summary: '{count} active · past {minutes} min',
