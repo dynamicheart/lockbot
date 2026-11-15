@@ -44,8 +44,16 @@ def test_user_key_scopes_two_bots_and_rejects_stale_or_changed_proposals(client,
     issued = credentials(client, auth_header, [first, second], [NODE]).raise_for_status().json()
     key = bearer(issued["credential"])
     assert issued["shown_once"] is True
-    assert issued["credential"] not in client.get(ISSUE, headers=auth_header).text
+    listing = client.get(ISSUE, headers=auth_header).raise_for_status()
+    assert issued["credential"] not in listing.text
+    assert listing.json()["bots"] == [
+        {"id": first, "name": "first"},
+        {"id": outside, "name": "outside"},
+        {"id": second, "name": "second"},
+    ]
     assert client.get(ISSUE, headers=admin_header).json()["items"] == []
+    assert client.get(ISSUE, headers=key).status_code == 401
+    assert client.get(ISSUE).status_code == 401
     assert client.get(access(first), headers=auth_header).status_code == 401
     assert client.get(access(first), headers=bearer("lbk_" + "a" * 48)).status_code == 401
     assert client.get(access(outside), headers=key).status_code == 403
@@ -61,7 +69,7 @@ def test_user_key_scopes_two_bots_and_rejects_stale_or_changed_proposals(client,
         "configuration": {
             "version": 2,
             "nodes": {
-                "node1": {"host": "compute.example.test", "ipv4": "192.0.2.42", "port": 2222},
+                "node1": {"host": "compute.example.test", "ip": "192.0.2.42", "port": 2222},
             },
         },
     }
@@ -74,6 +82,12 @@ def test_user_key_scopes_two_bots_and_rejects_stale_or_changed_proposals(client,
     result = client.put(access(first), headers=key, json={**change, "receipt": proposal["receipt"]}).raise_for_status()
     assert result.json()["configuration"] == proposal["after"]
     assert client.put(access(first), headers=key, json={**change, "receipt": proposal["receipt"]}).status_code == 409
+
+    second_change = preview(client, second, key, change)
+    client.put(access(second), headers=key, json={**change, "receipt": second_change["receipt"]}).raise_for_status()
+    assert client.get(f"/api/bots/{second}/node-access", headers=auth_header).json()["nodes"] == {
+        "node1": {"host": "compute.example.test", "ip": "192.0.2.42", "port": 2222}
+    }
 
     old_proposal = preview(client, first, key, different)
     client.put(
@@ -133,6 +147,7 @@ def test_configuration_key_reevaluates_issuer_role_ownership_and_expiration(
     issuer = db_session.query(User).filter_by(username="adminuser").one()
     issuer.role = "super_admin"
     db_session.commit()
+    assert {"id": target, "name": "transfer"} in client.get(ISSUE, headers=admin_header).json()["bots"]
     issued = credentials(client, admin_header, [target], [NODE, SOURCE]).raise_for_status().json()
     key = bearer(issued["credential"])
     path = access(target)

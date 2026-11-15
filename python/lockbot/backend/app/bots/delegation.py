@@ -419,6 +419,14 @@ def _signature(row, bot, scope, expiry, before, after):
     return hmac.new(config.JWT_SECRET.encode(), b"bot-configuration-preview\0" + payload, hashlib.sha256).hexdigest()
 
 
+def _change_counts(before, after):
+    return {
+        "added": len(after.keys() - before.keys()),
+        "removed": len(before.keys() - after.keys()),
+        "updated": sum(before[key] != after[key] for key in before.keys() & after.keys()),
+    }
+
+
 @router.get("/api/bots/{bot_id}/configuration-access", tags=["Public API"])
 @limiter.limit("120/minute")
 def inspect_configuration(bot_id: int, request: Request, response: Response, db: Session = Depends(get_db)):
@@ -473,6 +481,11 @@ def apply(bot_id: int, request: Request, response: Response, body: ApplyChange, 
             elif changed:
                 bot.node_access_config = serialize_node_access(after["nodes"])
             row.last_used_at = _now()
+            counts = (
+                _change_counts(before["nodes"], after["nodes"])
+                if body.scope == "node_access:write"
+                else _change_counts(before or {}, after or {})
+            )
             _audit(
                 db,
                 issuer,
@@ -480,7 +493,7 @@ def apply(bot_id: int, request: Request, response: Response, body: ApplyChange, 
                 request,
                 "configuration.apply",
                 bot=bot,
-                detail={"scope": body.scope, "changed": changed},
+                detail={"scope": body.scope, **counts},
             )
             db.commit()
             return {"scope": body.scope, "changed": changed, "configuration": after}
