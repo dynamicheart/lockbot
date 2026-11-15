@@ -80,6 +80,7 @@ def probe(output):
             DATA_DIR=str(directory / "data"),
             DEV_MODE="false",
             ALLOW_REGISTER="false",
+            RESOURCE_API_TIER_DISCOVERY_SECONDS="3",
         )
         env.pop("DATABASE_URL", None)
         env.pop("LOCKBOT_SKIP_STATE_OWNERSHIP", None)
@@ -277,7 +278,7 @@ def probe(output):
                 assert next(r for r in released["resources"] if r["id"] == "n1")["holders"] == []
                 limited = request("GET", resources, expected=429, headers=alice)
                 retry = int(limited.headers["Retry-After"])
-                assert 1 <= retry <= 15
+                assert 1 <= retry <= 3
                 time.sleep(retry + 0.2)
                 snapshot = request("GET", resources, headers=alice).json()
                 assert next(r for r in snapshot["resources"] if r["id"] == "n1")["holders"] == []
@@ -288,7 +289,9 @@ def probe(output):
                     json={"envelope": {"actor": "synthetic-alice", "conversation": "test-only", "text": "unbind"}},
                 )
                 request("POST", commands, expected=401, headers=alice, json={"command": "query"})
-                stats = request("GET", f"/api/bots/{bot_id}/agent-activity", headers=admin).json()["items"]
+                stats = request(
+                    "GET", f"/api/bots/{bot_id}/agent-activity", headers=admin, params={"status": "history"}
+                ).json()["items"]
                 alice_stats = next(item for item in stats if item["external_user_id"] == "synthetic-alice")
                 assert alice_stats["limited_requests"] >= 1 and alice_stats["refused_requests"] >= 2
                 assert alice_stats["read_requests"] >= 4, "statistics must accumulate across restart"

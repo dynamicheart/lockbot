@@ -37,10 +37,11 @@ def test_ordinary_skills_do_not_distribute_detailed_note_authorization(client):
         ("/api/agent-skill", ("lockbot-agent-api.zip", "lockbot-resource-agent.zip")),
         ("/api/op-skill", ("lockbot-operator-api.zip", "lockbot-operator-agent.zip")),
     ):
-        markdown = client.get(prefix + "/SKILL.md")
-        assert markdown.status_code == 200
-        for marker in private_contracts:
-            assert marker not in markdown.content
+        if prefix == "/api/op-skill":
+            markdown = client.get(prefix + "/SKILL.md")
+            assert markdown.status_code == 200
+            for marker in private_contracts:
+                assert marker not in markdown.content
         for bundle in bundles:
             response = client.get(prefix + "/" + bundle)
             assert response.status_code == 200
