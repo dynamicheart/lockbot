@@ -204,7 +204,7 @@ def private_json(path):
 
 def connection_catalog(scope):
     if scope == "project":
-        return Path("private/lockbot")
+        return Path(".lockbot/connections")
     return Path.home() / ".config/lockbot/connections"
 
 

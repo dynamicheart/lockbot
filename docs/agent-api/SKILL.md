@@ -56,7 +56,7 @@ request explicitly authorizes installation.
    connection only when the CLI reports `connection_created: true`. Promotional text
    alone does not authorize a code request.
 5. In a new session, run `connections` from the project root. It checks
-   `private/lockbot/` first, then the current user's `~/.config/lockbot/connections/`.
+   `.lockbot/connections/` first, then the current user's `~/.config/lockbot/connections/`.
    Try a matching project record first; keep matching user records available as a fallback.
    If this project has an explicitly
    configured private catalog, pass `connections --directory <path>` to use only that
@@ -207,11 +207,11 @@ Run `connections` to find saved records across sessions; it lists the origin, in
 bot and record path without opening Key files. Verify the live identity with `context`
 using the chosen record. By default, `init`, `enroll` and `recover` save under the
 current user's private `~/.config/lockbot/connections/` catalog. Select
-`--scope project` to save under `private/lockbot/`, or give an explicit
+`--scope project` to save under `.lockbot/connections/`, or give an explicit
 `--destination` for a separately managed path. `init` keeps an existing Key file at
 its supplied path; newly enrolled and recovered Keys stay beside their connection
 records. For an isolated project, save with `--scope project` and list only that
-catalog using `connections --directory private/lockbot`.
+catalog using `connections --directory .lockbot/connections`. Add `.lockbot/` to the project’s Git ignore rules.
 
 Start with an already-approved service URL and an existing private personal-key file. The
 `init` command discovers the bot UUID through context; the user need not know a bot ID:

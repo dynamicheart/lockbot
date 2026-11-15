@@ -421,7 +421,7 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
     assert helper.main(["connections"]) == 0
     assert json.loads(capsys.readouterr().out)["result"] == {"connections": [], "unavailable_count": 0}
 
-    root = tmp_path / "private/lockbot"
+    root = tmp_path / ".lockbot/connections"
     root.mkdir(mode=0o700, parents=True)
     for folder, port in (("primary", 8155), ("recovered/test", 8002)):
         directory = root / folder
