@@ -19,6 +19,7 @@ from lockbot.backend.app.bots.node_access import attach_node_access, saved_node_
 from lockbot.backend.app.database import SessionLocal
 from lockbot.backend.app.resource_api.snapshot import build_resources
 from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES, UsageDeclaration, holding_proof
+from lockbot.backend.app.resource_api.view_links import verify_view, window_expiry
 from lockbot.backend.app.resource_auth import credentials, service
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.models import ResourceBinding
@@ -374,6 +375,63 @@ class NativeProvider:
                 expiry = min(expiry, credential_expiry)
             access = issue_metrics_access(db, bot, source, expires_at=expiry, holdings=holdings)
             return {"configuration": source, "access": access} if access else None
+
+    def shared_node_access(self, grant, bot_id, token):
+        with self.session_factory() as db:
+            binding = self._validated(db, grant)
+            if binding.bound_bot_id != bot_id or verify_view(db, db.get(Bot, bot_id), token) is None:
+                raise ProviderError("shared_view_unavailable")
+            with (
+                bot_manager.admit(bot_id, for_read=True) as lease,
+                authority_guard(bot_id, platform=binding.platform, external_user_id=binding.external_user_id),
+            ):
+                db.rollback()
+                db.expire_all()
+                row = self._validated(db, grant)
+                bot = db.get(Bot, row.bound_bot_id)
+                window = verify_view(db, bot, token) if row.bound_bot_id == bot_id else None
+                if window is None:
+                    raise ProviderError("shared_view_unavailable")
+                addresses = saved_node_access(bot)
+                if (lease.health or bot.status) != "running" or not addresses:
+                    return {}
+                captured, state = lease.bot.state_snapshot()
+                now = datetime.now(timezone.utc)
+                if not -30 <= (now - captured).total_seconds() <= 60:
+                    return {}
+                resources = build_resources(
+                    captured_at=captured,
+                    state=state,
+                    bot_type=bot.bot_type,
+                    platform=row.platform,
+                    caller_id=row.external_user_id,
+                )
+                attach_node_access(resources, addresses, row.external_user_id, now)
+                allocations, complete = _allocations(resources, row.external_user_id)
+                if not complete:
+                    return {}
+                deadline = window_expiry(window)
+                if deadline is not None:
+                    deadline = deadline.replace(tzinfo=timezone.utc)
+                if row.credential_expires_at is not None:
+                    expiry = row.credential_expires_at
+                    expiry = expiry if expiry.tzinfo else expiry.replace(tzinfo=timezone.utc)
+                    deadline = min(deadline, expiry) if deadline else expiry
+                result = {}
+                for hold in allocations:
+                    if "node_access" not in hold or not hold["expires_at"]:
+                        continue
+                    expires = datetime.fromisoformat(hold["expires_at"])
+                    expires = min(expires, deadline) if deadline else expires
+                    node = hold["node"]
+                    if node not in result or expires > result[node]["expires_at"]:
+                        result[node] = {"address": hold["node_access"], "expires_at": expires}
+                db.rollback()
+                db.expire_all()
+                self._validated(db, grant)
+                if verify_view(db, db.get(Bot, bot_id), token) is None:
+                    raise ProviderError("shared_view_unavailable")
+                return result
 
     def report(self, grant):
         with self.session_factory() as db:

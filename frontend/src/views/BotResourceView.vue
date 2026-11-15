@@ -30,6 +30,9 @@
                 })
               }}
             </span>
+            <router-link v-if="addressAuthorizationRequired" :to="{ name: 'PersonalResources' }">
+              {{ $t('nodeAccess.workbenchAddress') }}
+            </router-link>
           </div>
         </div>
         <el-tooltip :content="$t('resourceView.autoRefreshHint')" :trigger="['hover', 'focus']">
@@ -93,6 +96,15 @@
           :show-overview="false"
           quick-overview
         >
+          <template #node-details="{ row }">
+            <SharedNodeAddress
+              v-if="hasAddress(row.metric_node_id || row.id)"
+              :node="row.metric_node_id || row.id"
+              :clock="clock"
+              :revision="addressRevision"
+              :load="loadAddress"
+            />
+          </template>
           <template v-if="metrics.enabled" #metrics="{ row }">
             <ResourceMetricsCell
               v-bind="metrics"
@@ -110,9 +122,18 @@
               <el-icon><Monitor /></el-icon>{{ resource.id
               }}<span v-if="resource.alias" class="node-alias">{{ resource.alias }}</span>
             </h2>
-            <el-tag size="small" :type="isIdleResource(resource) ? 'success' : 'warning'">{{
-              statusText(resource)
-            }}</el-tag>
+            <div class="resource-heading-actions">
+              <el-tag size="small" :type="isIdleResource(resource) ? 'success' : 'warning'">{{
+                statusText(resource)
+              }}</el-tag>
+              <SharedNodeAddress
+                v-if="hasAddress(resource.id)"
+                :node="resource.id"
+                :clock="clock"
+                :revision="addressRevision"
+                :load="loadAddress"
+              />
+            </div>
           </div>
           <template v-if="resource.devices">
             <div v-for="device in resource.devices" :key="device.id" class="device-row">
@@ -201,6 +222,7 @@ import ResourceParticipants from '../components/ResourceParticipants.vue'
 import ResourceStatusList from '../components/ResourceStatusList.vue'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
+import SharedNodeAddress from '../components/SharedNodeAddress.vue'
 import { resourceStatus, isIdleResource } from '../utils/resourceAvailability'
 import { resourceViewDeadline } from '../utils/resourceViewLifetime'
 
@@ -214,6 +236,9 @@ const loading = ref(false)
 const invalid = ref(false)
 const failed = ref(false)
 const clock = ref(Date.now())
+const availableAddresses = ref(new Map())
+const addressAuthorizationRequired = ref(false)
+const addressRevision = ref(0)
 let token = ''
 let botId = ''
 let deadline = 0
@@ -244,6 +269,61 @@ function clear() {
   deadline = 0
   loading.value = false
   invalid.value = true
+  resetAddresses()
+}
+function resetAddresses() {
+  availableAddresses.value = new Map()
+  addressAuthorizationRequired.value = false
+}
+function hasAddress(node) {
+  return availableAddresses.value.get(node) > clock.value
+}
+function addressDeadline(expiresAt, serverTime, requestedAt) {
+  return requestedAt + (Date.parse(expiresAt) - Date.parse(serverTime))
+}
+function requestAddress(node, signal) {
+  return fetch(`/api/personal-panel/shared-node-access/${encodeURIComponent(botId)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ node_id: node }),
+    credentials: 'same-origin',
+    cache: 'no-store',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+    signal,
+  })
+}
+async function refreshAddresses(epoch, signal) {
+  if (snapshot.value?.health !== 'running' || !snapshot.value.resources.length) {
+    resetAddresses()
+    return
+  }
+  try {
+    const requestedAt = Date.now()
+    const response = await requestAddress('', signal)
+    const data = response.ok ? await response.json() : null
+    if (epoch !== requestEpoch || document.hidden) return
+    availableAddresses.value = new Map(
+      Object.entries(data?.nodes || {}).map(([node, expiry]) => [
+        node,
+        addressDeadline(expiry, data.server_time, requestedAt),
+      ])
+    )
+    addressAuthorizationRequired.value = response.status === 401 || response.status === 403
+    addressRevision.value++
+  } catch {
+    if (epoch === requestEpoch) resetAddresses()
+  }
+}
+async function loadAddress(node, signal) {
+  const generation = viewGeneration
+  if (!hasAddress(node) || expired()) return null
+  const requestedAt = Date.now()
+  const response = await requestAddress(node, signal)
+  if (!response.ok) return null
+  const data = await response.json()
+  if (generation !== viewGeneration || !hasAddress(node)) return null
+  return { ...data, deadline: addressDeadline(data.expires_at, data.server_time, requestedAt) }
 }
 function expired() {
   if (deadline && Date.now() >= deadline) {
@@ -292,9 +372,14 @@ async function refresh() {
         name: 'CompactBotResourceView',
         params: { id: botId, code: compact[2] },
       })
+    } else {
+      void refreshAddresses(epoch, controller.signal)
     }
   } catch (error) {
-    if (error.name !== 'AbortError' && epoch === requestEpoch) failed.value = true
+    if (error.name !== 'AbortError' && epoch === requestEpoch) {
+      failed.value = true
+      resetAddresses()
+    }
   } finally {
     if (epoch === requestEpoch) loading.value = false
   }
@@ -323,7 +408,8 @@ const tick = setInterval(() => {
 }, 1000)
 const poll = setInterval(refresh, refreshIntervalMs)
 const visible = () => {
-  if (!document.hidden && !expired()) refresh()
+  if (document.hidden) resetAddresses()
+  else if (!expired()) refresh()
 }
 document.addEventListener('visibilitychange', visible)
 onBeforeUnmount(() => {
@@ -486,6 +572,12 @@ h1 {
 }
 .resource-heading {
   margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.resource-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 h2 {
   font-size: 15px;

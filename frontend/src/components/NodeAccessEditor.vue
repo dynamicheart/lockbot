@@ -77,6 +77,7 @@ import { useHelpers } from '../utils/helpers'
 import { formatNodeAccess } from '../utils/nodeAccess'
 
 const props = defineProps({ botId: { type: Number, required: true } })
+const emit = defineEmits(['changed'])
 const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const { t } = useI18n()
 const { copyText } = useHelpers()
@@ -98,7 +99,7 @@ const example = [
   '{',
   '  "version": 2,',
   '  "nodes": {',
-  '    "node-01": { "host": "compute-01.example.test", "ipv4": "192.0.2.41", "port": 2222 },',
+  '    "node-01": { "host": "compute-01.example.test", "ip": "192.0.2.41", "port": 2222 },',
   '    "node-02": { "host": "192.0.2.42", "port": 2222 }',
   '  }',
   '}',
@@ -162,6 +163,7 @@ function save() {
     visible.value = false
     input.value = ''
     preview.value = null
+    emit('changed')
     ElMessage.success(t('nodeAccess.saveSuccess'))
   }, 'nodeAccess.writeFailed')
 }
@@ -178,6 +180,7 @@ async function remove(node) {
   }
   return run(async () => {
     await api.delete(`${path.value}/${encodeURIComponent(node)}`, requestOptions)
+    emit('changed')
     preview.value = null
     await load()
   }, 'nodeAccess.writeFailed')

@@ -1,4 +1,4 @@
-export function formatNodeAccess({ host, ipv4, port }) {
+export function formatNodeAccess({ host, ip, port }) {
   const primary = `${host.includes(':') ? `[${host}]` : host}:${port}`
-  return ipv4 ? `${primary} · ${ipv4}:${port}` : primary
+  return ip ? `${primary} · ${ip}:${port}` : primary
 }

@@ -720,7 +720,7 @@ def test_restore_node_access_roundtrip_and_legacy_compatibility(client, auth_hea
     path = f"/api/bots/{created.json()['id']}/node-access"
     previous = {"host": "old-node.example.test", "port": 22}
     update = {"host": "new-node.example.test", "port": 2222}
-    dual_address = {**update, "ipv4": "192.0.2.42"}
+    dual_address = {**update, "ip": "192.0.2.42"}
     assert client.put(path, headers=auth_header, json={"version": 1, "nodes": {"node1": previous}}).status_code == 200
     archived = {
         "omitted": ...,
