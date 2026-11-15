@@ -39,11 +39,17 @@ request explicitly authorizes installation.
    --destination <new-private-file>` to save the origin, verified instance ID, Skill URL
    and revision for the authorized setup. Report enrollment as pending if a code was
    requested, or still needed if no code was requested.
-4. For a Key already transferred into a private file, run `init --origin <approved-origin>
-   --key-file <existing-private-key-file> --destination <new-private-connection-file>`.
+4. Choose the storage location from the user's request or the project's instructions.
+   “Save the credential in this project” means run the helper from the project root
+   with `--scope project` on `init`, `enroll`, or `recover`. Use only the project's
+   catalog for a project-only setup. Otherwise let the helper save in the user catalog,
+   unless a specific private destination was requested. Choose the CLI options yourself
+   and tell the user where the connection was saved.
+   For a Key already transferred into a private file, run `init --origin <approved-origin>
+   --key-file <existing-private-key-file>` with the selected storage options.
    This verifies the existing Key and saves a connection reference. It never issues,
    resets, or rotates a Key. If the user asks to migrate other groups, run
-   `--connection <connection-file> recover --destination <new-private-directory>`.
+   `--connection <connection-file> recover` with the same storage choice.
    An existing verified connection can run `recover` directly. Users need not supply a
    bot ID. If there is no matching key,
    check whether the user named the target resource group and authorized a code request.
@@ -184,14 +190,15 @@ and report an uncertain write without repeating it.
 This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
 follow the expiry/stop rules below.
 
-For a new binding with no saved Key, use the following commands with the approved origin,
-the group named by the user and a fresh directory under the Agent's private storage.
-Pass `--authorized` only once the user has approved requesting the code.
+For a new binding with no saved Key, supply the approved origin and the group named
+by the user. Add the selected storage options to `enroll`. Pass `--authorized` only
+once the user approves requesting the code. Use the returned `enrollment_dir` for
+subsequent commands, shown below as `"$enrollment_dir"`.
 
 ```sh
-python3 scripts/lockbot_resource.py enroll --origin https://resources.example.test --group "Compute team" --destination /private/compute-team --authorized
-python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir /private/compute-team
-python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir /private/compute-team
+python3 scripts/lockbot_resource.py enroll --origin https://resources.example.test --group "Compute team" --authorized
+python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir "$enrollment_dir"
+python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir "$enrollment_dir"
 ```
 
 Show the returned `bind_command` prefixed with a mention of the bot, for the user to send
