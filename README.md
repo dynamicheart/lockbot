@@ -41,7 +41,7 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 
 Open `http://localhost:8000`. Data persists under `/data`; select the intended host port without replacing an upgrade's existing mount. Run a single process/instance per data directory.
 
-Sign in as the initial administrator, then follow the relevant platform guide to create a bot and verify one `@bot query` in your test group. Once the group responds, follow the Agent API and Skill guide to bind your own group identity. Find published images in [Releases](https://github.com/dynamicheart/lockbot/releases).
+Sign in with the generated administrator password and change it when prompted. Then follow the relevant platform guide to create a bot and verify one `@bot query` in your test group. Once the group responds, follow the Agent API and Skill guide to bind your own group identity. Find published images in [Releases](https://github.com/dynamicheart/lockbot/releases).
 
 - [Agent-assisted deployment and upgrades](docs/agents/deployment/AGENTS.md), including environment validation and a Compose template
 - [Infoflow setup guide](docs/usage/infoflow-setup.md) and [Feishu setup guide](docs/usage/feishu-setup.md) (Chinese)
