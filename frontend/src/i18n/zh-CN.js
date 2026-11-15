@@ -905,6 +905,16 @@ export default {
     apiKeyRevoked: 'OP API Key 已撤销',
   },
 
+  personalAgentActivity: {
+    title: 'Agent 活动',
+    summary: '近 {minutes} 分钟 · {count} 个活跃',
+    empty: '暂无调用记录',
+    unnamed: '未命名客户端',
+    sourceIp: '最近来源 IP {ip}',
+    lastSeen: '最后活跃',
+    ipHelp: '来源 IP 为服务端观测值，可能是代理或共享出口地址。',
+  },
+
   agentActivity: {
     summaryHelp: '授权按用户和机器人计数；多个 Agent 可共享授权。用途按当前有效的资源登记计数。',
     expandPurpose: '展开完整用途',

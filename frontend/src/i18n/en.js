@@ -937,6 +937,16 @@ export default {
     apiKeyRevoked: 'OP API Key revoked',
   },
 
+  personalAgentActivity: {
+    title: 'Agent activity',
+    summary: '{count} active · past {minutes} min',
+    empty: 'No requests recorded',
+    unnamed: 'Unnamed client',
+    sourceIp: 'Last source IP {ip}',
+    lastSeen: 'Last seen',
+    ipHelp: 'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
+  },
+
   agentActivity: {
     summaryHelp:
       'Authorizations count user–bot pairs and may be shared by Agents. Tasks count current valid resource declarations.',
