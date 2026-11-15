@@ -11,6 +11,7 @@ MODEL_SCENARIOS = ("intent-model-find", "intent-model-allocate")
 GROUP_IDS = {CARDS: 7, MACHINES: 8}
 TRAINING_NODE = "node-10"
 MACHINE_NODE = "node-20"
+MATCHING_MACHINE = "node-23"
 PROMPTS = {
     "intent-exact": f"帮我锁{CARDS}里训练节点的 2、3 号 P800 卡，使用 2 小时。",
     "intent-query": "帮我找一台还有两张空闲 P800 卡的机器，我先看看。",
@@ -21,6 +22,7 @@ PROMPTS = {
     "intent-model-find": "帮我找空闲的 P800 或 P900 卡，哪个群、哪台机器都行，我先看看。",
     "intent-model-allocate": "帮我直接申请一张空闲的 P800 或 P900 卡，用两小时。群、机器、卡都由你选。",
     "intent-model-unknown-node": "帮我申请一台空闲的 P900 整机，用两小时。哪台都可以。",
+    "intent-model-whole-machine": "帮我直接申请一台空闲的整机，要至少有两张 P900 卡，用两小时。哪个群、哪台都行。",
     "intent-stale": f"帮我在{CARDS}找一台有两张空闲 P800 的机器并锁 2 小时。",
 }
 EXPECTED = {
@@ -28,6 +30,7 @@ EXPECTED = {
     "intent-choose": (7, "lock node-10 dev2,3 2h"),
     "intent-book": (8, "book node-20 2h"),
     "intent-model-allocate": (8, "lock node-20 dev2 2h"),
+    "intent-model-whole-machine": (8, f"lock {MATCHING_MACHINE} 2h"),
 }
 
 
@@ -106,6 +109,30 @@ def inventory(bot, command="", *, scenario=None):
             {"id": "node-11", "alias": "验证节点", "devices": [device(0, "P800"), device(1, "H20")]},
         ]
         operations = ["lock", "unlock"]
+    elif scenario == "intent-model-whole-machine":
+        acquired = command == EXPECTED[scenario][1]
+        rows = [
+            {"id": MACHINE_NODE, "alias": "P900-训练节点", "lock_status": "idle", "holders": []},
+            {
+                "id": "node-21",
+                "lock_status": "idle",
+                "holders": [],
+                "accelerators": [{"model": "P900", "count": 1}, {"model": "P800", "count": 7}],
+            },
+            {
+                "id": "node-22",
+                "lock_status": "exclusive",
+                "holders": [{"external_user_id": "neighbor"}],
+                "accelerators": [{"model": "P900", "count": 8}],
+            },
+            {
+                "id": MATCHING_MACHINE,
+                "lock_status": "exclusive" if acquired else "idle",
+                "holders": [holder] if acquired else [],
+                "accelerators": [{"model": "P800", "count": 6}, {"model": "P900", "count": 2}],
+            },
+        ]
+        operations = ["lock", "book", "unlock"]
     else:
         rows = [
             {
@@ -167,6 +194,10 @@ def score(scenario, requests, tools, final):
                 for row in tools[: tools.index(attempts[0])]
             )
         )
+        if scenario == "intent-model-whole-machine":
+            checks["whole_machine_result_reported"] = (
+                MATCHING_MACHINE in final and "p900" in final.lower() and "整机" in final
+            )
     else:
         checks["zero_write_attempts"] = not posts and not attempts
         suffixes = {row["url"].split("/api/")[-1] for row in reads}

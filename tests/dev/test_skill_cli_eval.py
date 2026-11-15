@@ -93,6 +93,11 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
             ["整机队列群"],
             "node-20 空闲，但整机的型号仅有别名提示，无法确认型号。",
         ),
+        (
+            "intent-model-whole-machine",
+            ["整机队列群"],
+            "已锁定 node-23 整机两小时，含两张 P900。",
+        ),
         ("intent-whole", ["整机队列群"], "整机队列群只支持整机，请确认。"),
         ("intent-book", ["整机队列群"], "node-20 已预约两小时。"),
         ("intent-stale", ["加速卡群"], "快照已过期，无法确认有两张空闲卡。"),
@@ -106,6 +111,16 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
     if scenario in evaluation.intent.EXPECTED:
         if scenario == "intent-book":
             result = run(fixture, "command", group=groups[0], operation="book", nodes=["node-20"], duration="120m")
+        elif scenario == "intent-model-whole-machine":
+            snapshot = run(fixture, "resources", group=groups[0])["result"]
+            nodes = {node["id"]: node for node in snapshot["resources"]}
+            assert "accelerators" not in nodes["node-20"]
+            assert nodes["node-22"]["lock_status"] == "exclusive"
+            assert nodes["node-23"]["accelerators"] == [
+                {"model": "P800", "count": 6},
+                {"model": "P900", "count": 2},
+            ]
+            result = run(fixture, "command", group=groups[0], operation="lock", nodes=["node-23"], duration="120m")
         elif scenario == "intent-model-allocate":
             result = run(
                 fixture,
