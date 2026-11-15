@@ -19,7 +19,7 @@ python3 lockbot_provision.py --service https://lockbot.example.test apply --conf
 The CLI resolves the returned Console path into `console_url`. The resource Agent Skill remains the entry point for querying, locking and releasing resources.
 
 1. Send the proposed bot configuration to `POST /api/bot-provisioning/preview`. Show the returned platform, name, group, type and resource count to the user. Keep submitted platform secrets out of the conversation summary.
-2. After the user's explicit approval, send `POST /api/bot-provisioning/apply` with `bot` set to the same configuration, the preview's `receipt`, and `confirmed` set to `true`. The receipt is valid for five minutes and is tied to the exact configuration and credential.
+2. Keep the receipt from the preview you showed for approval. After the user's explicit approval, send `POST /api/bot-provisioning/apply` with the same `bot` configuration, that `receipt`, and `confirmed` set to `true`. The receipt is valid for five minutes and is tied to the exact configuration and credential. If you need a new preview, show it and obtain approval for that preview before applying.
 3. Return the `bot_id`, resolve `console_path` against the issuing LockBot origin, and report any `remaining_setup` items. `configure_infoflow_callback` means the user must add the LockBot callback in Infoflow. `check_bot_start` means the bot was saved but requires a start or quota check.
 
 After a timeout, retry the same confirmed payload and receipt within the five-minute window. If the receipt expired and the result is uncertain, ask the user to check the Console for the proposed bot before obtaining a fresh approval.
