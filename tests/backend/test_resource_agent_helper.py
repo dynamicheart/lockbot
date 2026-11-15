@@ -66,7 +66,7 @@ def case(tmp_path):
         node_access=None,
         resource_age=0,
         readback_age=None,
-        retry=False,
+        retry_after=None,
         forbidden=False,
         version_header=None,
         package_header=None,
@@ -189,9 +189,9 @@ def case(tmp_path):
                     body["supported_operations"].append("alias")
                     body["aliases_observed_at"] = captured.isoformat()
                     body["resources"][0]["alias"] = state.alias
-                if state.retry:
-                    state.retry = False
-                    status, extra = 429, {"Retry-After": "2"}
+                if state.retry_after is not None:
+                    status, extra = 429, {"Retry-After": state.retry_after}
+                    state.retry_after = None
                 if state.redirect:
                     status, extra = 302, {"Location": base + "/credential-sink"}
             elif self.path == "/api/bots/7/commands":
@@ -529,7 +529,7 @@ def test_http_200_reply_without_state_effect_is_not_success(case):
 
 def test_bounded_read_retry_and_redirect_protection(case):
     context = case.client.context()
-    case.state.retry = True
+    case.state.retry_after = "2"
     assert case.client.resources(context)["resources"]
     assert case.delays == [2]
     case.state.redirect = True
@@ -656,6 +656,21 @@ def test_write_transport_failure_is_not_retried(case):
     assert len(writes) == 1
 
 
+def test_write_freshness_excludes_time_waiting_for_rate_limit(case):
+    clock = [case.client.clock()]
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    case.client.clock = lambda: clock[0]
+    case.client.sleep = sleep
+    case.state.retry_after = "10"
+    result = case.client.command("lock", ["node-a"], [], "2m")
+
+    assert result["verified_snapshot"]["snapshot_fresh_for_write"] is True
+    assert len(commands(case)) == 1
+
+
 def test_bootstrap_refuses_digest_mismatch_without_creating_directory(case):
     case.state.manifest["installation"]["sha256"] = "0" * 64
     target = case.tmp / "bad-install"
@@ -670,8 +685,37 @@ def test_response_body_limit_is_enforced(case):
         case.client.discover()
 
 
-def test_missing_retry_after_does_not_guess_backoff():
-    assert helper.Client._retry_after("") > 30
+@pytest.mark.parametrize("header", ["", "forty seconds", "-1"])
+def test_invalid_retry_after_does_not_guess_backoff(header):
+    assert helper.Client._retry_after(header) is None
+
+
+def test_packaged_cli_returns_server_delay_without_replaying_a_write(case):
+    case.state.retry_after = "40"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--duration",
+            "2m",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert json.loads(completed.stderr) == {"error": "http_429", "retry_mutation": False, "retry_after_seconds": 40}
+    assert not commands(case)
+    assert sum(row[0].endswith("/resources") for row in case.state.requests) == 1
 
 
 def test_book_refuses_preexisting_owned_booking_without_post(case):

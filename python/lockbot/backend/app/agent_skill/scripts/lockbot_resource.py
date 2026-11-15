@@ -49,10 +49,11 @@ METRICS = (
 
 
 class ClientError(Exception):
-    def __init__(self, code, status=None, allowed_categories=None):
+    def __init__(self, code, status=None, allowed_categories=None, *, retry_after_seconds=None):
         super().__init__(code)
         self.code, self.status = code, status
         self.allowed_categories = allowed_categories
+        self.retry_after_seconds = retry_after_seconds
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -341,7 +342,18 @@ class Client:
         path = Path(value)
         return path if path.is_absolute() else self.connection_dir / path
 
-    def _request(self, url, *, token=None, method="GET", body=None, readonly=True, form=False, binary=False):
+    def _request(
+        self,
+        url,
+        *,
+        token=None,
+        method="GET",
+        body=None,
+        readonly=True,
+        form=False,
+        binary=False,
+        include_started=False,
+    ):
         for attempt in range(2 if readonly else 1):
             if self.calls >= MAX_CALLS or self.clock() >= self.deadline:
                 raise ClientError("request_budget_exhausted")
@@ -364,8 +376,9 @@ class Client:
                     raise ClientError("request_too_large")
                 headers["Content-Type"] = "application/x-www-form-urlencoded" if form else "application/json"
             request = urllib.request.Request(url, data=data, headers=headers, method=method)
+            started = self.clock()
             try:
-                with self.opener.open(request, timeout=min(10, self.deadline - self.clock())) as response:
+                with self.opener.open(request, timeout=min(10, self.deadline - started)) as response:
                     api = response.headers.get("X-Lockbot-API-Version")
                     if (api and api != API_VERSION) or response.headers.get(
                         "X-Lockbot-API-Compatibility"
@@ -408,20 +421,27 @@ class Client:
                             )
                         ):
                             self.needs_update = True
-                        return value
+                        return (value, started) if include_started else value
                     except (ValueError, UnicodeError, RecursionError) as exc:
                         raise ClientError("invalid_json_response") from exc
             except urllib.error.HTTPError as exc:
                 retry = exc.headers.get("Retry-After", "")
                 status = exc.code
                 exc.close()
-                if status == 429 and readonly and attempt == 0:
-                    delay = self._retry_after(retry)
-                    if delay <= 30 and self.clock() + delay < self.deadline:
-                        self.sleep(delay)
-                        continue
+                delay = self._retry_after(retry) if status == 429 else None
+                if (
+                    readonly
+                    and attempt == 0
+                    and delay is not None
+                    and delay <= 30
+                    and self.clock() + delay < self.deadline
+                ):
+                    self.sleep(delay)
+                    continue
                 raise ClientError(
-                    "mutation_outcome_unknown" if not readonly and status >= 500 else f"http_{status}", status
+                    "mutation_outcome_unknown" if not readonly and status >= 500 else f"http_{status}",
+                    status,
+                    retry_after_seconds=delay,
                 ) from None
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 raise ClientError("request_failed" if readonly else "mutation_outcome_unknown") from exc
@@ -435,9 +455,9 @@ class Client:
             instant = parsedate_to_datetime(value)
             if instant.tzinfo is None:
                 instant = instant.replace(tzinfo=timezone.utc)
-            return max(0, instant.timestamp() - time.time())
+            return max(0, math.ceil(instant.timestamp() - time.time()))
         except (ValueError, TypeError, AttributeError, OverflowError):
-            return 31  # No guessed retry interval or retry storm.
+            return None
 
     def discover(self):
         result = self._request(self.base + "/api/agent-skill")
@@ -745,9 +765,9 @@ class Client:
 
     def resources(self, context):
         generation = self.node_access.invalidate() if self.node_access else None
-        started = self.clock()
-        snapshot = self._request(same_origin_url(self.base, context["links"]["resources"]), token=self.key)
-        snapshot["snapshot_fresh_for_write"] = self._snapshot_fresh_for_write(snapshot, started)
+        snapshot, started = self._request(
+            same_origin_url(self.base, context["links"]["resources"]), token=self.key, include_started=True
+        )
         if generation:
             nodes = self._current_node_access(snapshot, context, self.clock() - started)
             scope = {
@@ -757,6 +777,7 @@ class Client:
                 "actor": {field: context["actor"][field] for field in ("platform", "external_user_id")},
             }
             self.node_access.save(generation, nodes, self.redacted(scope))
+        snapshot["snapshot_fresh_for_write"] = self._snapshot_fresh_for_write(snapshot, started)
         return snapshot
 
     def _current_node_access(self, snapshot, context, elapsed):
@@ -946,9 +967,8 @@ class Client:
                 raise ClientError("invalid_" + name)
         if any(isinstance(value, str) and self.key in value for value in metadata.values()):
             raise ClientError("secret_in_metadata_refused")
-        before_started = self.clock()
         before = self.resources(context)
-        self._require_fresh_snapshot(before, before_started)
+        self._require_fresh_snapshot(before)
         selected = self._selected(before, nodes, devices)
         actor = context["actor"]["external_user_id"]
         held = [self._own(item.get("holders", []), actor) for item in selected]
@@ -978,9 +998,8 @@ class Client:
             raise ClientError("command_too_large")
         result = self._post_command(context, command, metadata)
         try:
-            after_started = self.clock()
             after = self.resources(context)
-            self._require_fresh_snapshot(after, after_started)
+            self._require_fresh_snapshot(after)
             targets = self._selected(after, nodes, devices)
             if operation == "release":
                 verified = all(
@@ -1026,8 +1045,8 @@ class Client:
             and age + (self.clock() - started) <= MAX_RESOURCE_SNAPSHOT_AGE
         )
 
-    def _require_fresh_snapshot(self, snapshot, started):
-        if not self._snapshot_fresh_for_write(snapshot, started):
+    def _require_fresh_snapshot(self, snapshot):
+        if not snapshot["snapshot_fresh_for_write"]:
             raise ClientError("resource_snapshot_stale_or_unverifiable")
 
     def alias(self, node, value=None):
@@ -1406,6 +1425,8 @@ def main(argv=None):
         output = {"error": exc.code, "retry_mutation": False}
         if exc.allowed_categories is not None:
             output["allowed_categories"] = exc.allowed_categories
+        if exc.retry_after_seconds is not None:
+            output["retry_after_seconds"] = exc.retry_after_seconds
         print(json.dumps(client.redacted(output) if client else output), file=sys.stderr)
         return 2
     except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):

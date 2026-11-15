@@ -62,6 +62,9 @@ the CLI reports true. Then match the actual node/card IDs, allocation mode, mode
 quantity and duration. A request to find resources is read-only. Clarify ambiguous
 aliases and ask before changing a card request into a whole-machine request. Send the
 verified target once and check the resulting state.
+If the CLI returns `http_429` with `retry_after_seconds`, wait at least that long before
+checking resources again. Use the resulting live snapshot and the original user intent
+to decide whether a write is still appropriate.
 
 **MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
 files or public memory. Refer to the private credential entry when explaining a problem.
