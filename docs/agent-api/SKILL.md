@@ -443,8 +443,8 @@ The source sampler defaults to once every five minutes; frequent queries do not 
 underlying sample newer. Check `lockbot_collector_success` for the relevant collector.
 Use the numeric value of `lockbot_sample_timestamp_seconds` as the sample time. In
 the result pair `[timestamp, value]`, the first element is the query evaluation time.
-Query on demand,
-reuse a recent sample, respect source rate limits and do not start a busy-poll loop.
+Query on demand or poll when the task needs updates. Follow the metrics source's rate
+limits and use the sample timestamp to tell whether the data has changed.
 
 An administrator's browser connection test proves only that browser's access at that time.
 Your network path and permissions may differ; report source reachability failures separately
@@ -666,16 +666,16 @@ reserves a queue position. Keep monitoring `/resources` yourself; do not wait fo
 or a group @mention to make the next API call. The `book` response's `next_step` repeats this.
 When `resources[].claimable_by_you` (or a QUEUE_DEVICE device’s flag) is true, POST that resource's `claim_command` (e.g.
 `lock node1`) within `queue_claim_window_seconds`, then read again to verify a live holding
-for your actor. Only then start the workload. If another holder remains, keep waiting with
-backoff. If you cannot keep monitoring, tell the user that you are **only queued**, not holding.
+for your actor. Only then start the workload. If another holder remains, keep polling at a
+cadence that suits the task. If monitoring is unavailable, report the queue position.
 
 ```text
 POST commands: book <resource> <duration> (include Agent name and purpose)
-repeat, respecting polling intervals and Retry-After:
+repeat at the task's polling cadence, following server Retry-After when returned:
     GET resources
     if the resource has my verified live holding: start/continue work; leave this loop
     if claimable_by_you: POST commands with claim_command; verify holding on the next read
-    otherwise: wait according to the server's next event and polling budget
+    otherwise: continue polling using the next-event estimate as a hint
 ```
 
 An existing task registered during booking is carried forward when you claim with `lock`
@@ -686,7 +686,7 @@ without new metadata. `free <resource>` cancels your booking or releases your lo
 Each successful `GET /api/agent/context` includes `bot_rules`, read from the bot's current
 persisted configuration even when the bot is stopped. Refresh your private rule cache at
 connection/resume and before renewal, and after a policy rejection or configuration change.
-Do not fetch context alongside every resource poll: it consumes the shared read budget.
+Use `/resources` for polling and fetch context when you need refreshed connection or rule information.
 These rules can change; `/resources` and the actual command result remain authoritative.
 
 | `bot_rules` field | Meaning |
@@ -699,7 +699,7 @@ These rules can change; `/resources` and the actual command result remain author
 | `queue_claim_window_seconds` | Time to claim when it is your turn; null for non-queue types. |
 | `supported_operations`, `allow_user_alias` | Operations supported by the type and whether alias editing is enabled. A listed operation does not bypass `agent_access_enabled` or other policy checks. |
 | `request_budget.read_per_minute`, `request_budget.write_per_minute` | Actual deployed per-key read/write budgets shared by all the user's Agents. Other endpoint/IP limits can also apply. |
-| `poll_minimum_seconds.active`, `.booking`, `.discovery` | Actual deployed minimum resource-poll intervals in seconds; these override the suggested 15/30/60-second schedule below. |
+| `poll_minimum_seconds.active`, `.booking`, `.discovery` | Server-advertised polling guidance in seconds. Agents can choose an interval suited to the task. |
 | `api_max_machines_per_user` | The separate existing API machine-count ceiling, including held/booked machines; several cards on one machine count once here. A card quota does not redefine this machine limit. |
 
 `resource_policy` on `/resources` repeats the live acquisition switches and includes the
@@ -751,8 +751,8 @@ because a query failed, a queue estimate changed, or a cached record still says 
 
 Before the stop deadline, refresh context once and verify current ownership and this task's
 lease. Renew only if renewal is allowed and active work actually needs more time; never renew
-indefinitely just to retain capacity. Leave enough margin for the advertised poll floor,
-request latency, shared read/write budgets and possible `Retry-After` before the old deadline.
+indefinitely just to retain capacity. Leave enough margin for request latency and any
+server `Retry-After` before the old deadline.
 A permitted verification read after a mutation still obeys actual server retry instructions.
 
 Choose an explicit added duration: repeated lock adds time rather than setting a new total.
@@ -807,7 +807,7 @@ The examples below use placeholder resources; replace them with those returned b
   until the node is idle and you are first, then `lock node1` within
   `queue_claim_window_seconds`; without an explicit duration, the booked duration applies.
   `free node1` cancels your booking or releases your lock. Do not continue using a node
-  just because you previously booked it. Poll with backoff; no busy loops.
+  just because you previously booked it. Continue polling as needed.
 - `alias node1 <note>` changes the bot-global/public node alias only when enabled (at
   most 15 characters); `alias node1` clears it. Read the matching node's
   `resources[].alias` afterward: empty string means unset/cleared. DEVICE/QUEUE_DEVICE
@@ -921,38 +921,22 @@ report that observation and ask the user before any credential change.
 | `wrong_bot` | valid key, wrong existing bot URL (legacy HTTP 401) | GET `/api/agent/context` and use its operation links; do not bind again |
 | `may_have_executed` | admitted but outcome unknown | do NOT blindly retry; read `/resources` |
 
-## Budgets & etiquette
+## Server rate limits and polling
 
-- Per-credential budgets (defaults): reads `120/min`, writes `6/min`. Exceeding → `429 rate_limited`
-  with `Retry-After`. Poll `/resources` at a steady interval rather than busy-looping.
+Agents can poll `/resources` continuously when a task needs it. Choose the interval
+according to the task. The Skill adds no minimum interval or cap on repeated reads.
+
+- Default server budgets are `120 reads/min` and `6 writes/min` per credential. Use
+  the live `request_budget` in context for the deployed values. Agents using the same
+  Key share these budgets.
+- The advertised `poll_minimum_seconds` values are pacing suggestions. Follow the
+  server's `Retry-After` on 429 or 503, including either seconds or an HTTP date.
 - A repeated `lock` **adds** duration (not idempotent). After any mutation, read `/resources` to
   verify; never assume a `reply` means success.
 
-### Polling schedule
-
-Use one coordinated `/resources` poller per shared key where possible; distribute its
-snapshot to the user's Agents instead of starting one independent loop per task. The
-defaults below are starting points, not promises about a deployment's configured limits:
-
-| Caller state | Suggested interval | Default minimum interval |
-|---|---|---|
-| Holding a lease, first in queue, or in the claim window | 15 seconds | 10 seconds |
-| Queued behind another booker | 30 seconds | 20 seconds |
-| Discovering resources, with no holding or booking | 60 seconds | 40 seconds |
-
-Add a small positive jitter to avoid synchronized traffic. Always obey `Retry-After` on
-429/503, whether seconds or an HTTP date; never retry before it. With no retry hint on a
-transient failure, use bounded exponential backoff. Do not repeatedly retry authentication
-failures, or switch credentials to bypass a budget. Server retry hints and any advertised
-limits override these defaults. A successful mutation permits a verification read in the
-current implementation; if that read is rate-limited, wait as instructed rather than looping.
-
-Do not sleep until `next_event_at` without periodic checks: a holder may release early or
-extend their lease. Treat queue estimates as estimates and recalculate from each snapshot;
-`expires_at` is authoritative for the observed lease, not a guarantee of when you can work.
-Use the earlier of the regular check and an upcoming event as the desired next check, but
-never earlier than the server's polling floor or retry deadline. An event does not exempt
-the caller from rate limits. Observe `captured_at` / `age_seconds` before acting.
+Use `next_event_at` to help plan checks. A holder may release early or extend their lease,
+so recalculate queue estimates from each snapshot. Observe `captured_at` and `age_seconds`
+before acting, and use the observed lease's `expires_at` for its deadline.
 
 When claimable, claim within `queue_claim_window_seconds` and verify ownership; never wait
 for the predicted expiry or a human to relay a group message. While working, keep checking
@@ -975,7 +959,8 @@ cannot automatically claim a booking or continuously verify ownership.
 6. `POST /commands {"command":"unlock node1"}` when done → confirm via `GET /resources`.
 7. (human, chat) `unbind` to revoke the credential only when the user wants to revoke all their agents on this bot; do not automatically unbind at task completion.
 
-Keep checks running throughout long tasks, not only at acquisition. Honour the advertised polling interval, `next_event_at`, snapshot freshness and `Retry-After`; never busy-loop. Agents sharing a key also share its request budget, so coordinate their polling where possible.
+Keep checks running throughout long tasks. Consider `next_event_at` and snapshot freshness,
+and follow the server's `Retry-After` when it asks you to wait.
 
 ## Declare work without publishing detailed Agent task notes
 
