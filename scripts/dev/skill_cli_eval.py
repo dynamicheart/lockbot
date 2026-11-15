@@ -530,6 +530,7 @@ def score_first_contact(fixture, requests, checks):
         checks["service_saved"] = not (private / "service.json").exists() and not (private / "seed.json").exists()
         checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)
         return
+    manifest = fixture.manifest()
     checks["installation_verified"] = (
         len(installations) == 1
         and bool(inspections)
@@ -541,7 +542,7 @@ def score_first_contact(fixture, requests, checks):
         data = json.loads(path.read_text()) if path.is_file() else {}
         checks["service_saved"] = (
             data.get("approved_origin") == base.ORIGIN
-            and data.get("instance_id") == base.INSTANCE
+            and data.get("instance_id") == manifest["instance_id"]
             and data.get("bot_uuid") == base.BOT_UUID
             and data.get("key_file") == str(private / "current.key")
             and path.stat().st_mode & 0o077 == 0
@@ -561,8 +562,8 @@ def score_first_contact(fixture, requests, checks):
             and json.loads(path.read_text())
             == {
                 "approved_origin": base.ORIGIN,
-                "instance_id": base.INSTANCE,
-                "version": fixture.manifest()["version"],
+                "instance_id": manifest["instance_id"],
+                "version": manifest["version"],
                 "skill_url": base.ORIGIN + base.SKILL_PATH,
             }
         )

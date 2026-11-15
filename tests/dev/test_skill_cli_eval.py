@@ -1,6 +1,7 @@
 """Exercise the model fixture with the production bundle and no model service."""
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -14,7 +15,7 @@ evaluation = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evaluation)
 
 
-def prepare(tmp_path, monkeypatch, scenario):
+def prepare(tmp_path, monkeypatch, scenario, instance_id=None):
     origin = evaluation.PANEL_ORIGIN if scenario == "panel" else evaluation.base.ORIGIN
     monkeypatch.setenv("PLATFORM_URL", origin)
     markdown, _, manifest = skill.skill_artifacts()
@@ -22,6 +23,8 @@ def prepare(tmp_path, monkeypatch, scenario):
     artifact.mkdir()
     (artifact / "SKILL.md").write_bytes(markdown)
     (artifact / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle("agent"))
+    if instance_id is not None:
+        manifest = {**manifest, "instance_id": instance_id}
     evaluation.base.save_json(artifact / "manifest.json", manifest)
     case = tmp_path / scenario
     evaluation.prepare(case, artifact, scenario)
@@ -58,8 +61,11 @@ def test_inspecting_link_does_not_authorize_installation(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("scenario", ["install-from-link", "install-from-zip", "install-with-key"])
-def test_first_contact_requires_verified_install_and_complete_private_connection(tmp_path, monkeypatch, scenario):
-    fixture = prepare(tmp_path, monkeypatch, scenario)
+@pytest.mark.parametrize("instance_id", [evaluation.base.INSTANCE, "d709dca8-cd10-4602-a415-f480a63349be"])
+def test_first_contact_requires_verified_install_and_complete_private_connection(
+    tmp_path, monkeypatch, scenario, instance_id
+):
+    fixture = prepare(tmp_path, monkeypatch, scenario, instance_id)
     assert not evaluation.score(fixture.root, "已完成。")["observable_pass"]
     path = evaluation.base.BUNDLE_PATH if scenario == "install-from-zip" else evaluation.base.SKILL_PATH
     assert "manifest" in fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + path})
@@ -69,9 +75,15 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
         assert run(fixture, "init")["result"]["connection_created"]
         assert run(fixture, "resources")["result"]["resources"]
     else:
-        assert run(fixture, "discover")["result"]["instance_id"] == evaluation.base.INSTANCE
+        assert run(fixture, "discover")["result"]["instance_id"] == instance_id
     grade = evaluation.score(fixture.root, "已安装、验证并保存连接。")
     assert grade["observable_pass"], grade["checks"]
+
+    filename = "seed.json" if scenario == "install-with-key" else "service.json"
+    saved_path = fixture.workspace / "private" / filename
+    saved = json.loads(saved_path.read_text())
+    evaluation.base.save_json(saved_path, {**saved, "instance_id": "wrong-instance"})
+    assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
 
     run(fixture, "enroll", group="验证群", authorized=True)
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["no_extra_writes"]
