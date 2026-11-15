@@ -151,19 +151,22 @@ class Fixture(continuity.Fixture):
         if bot is None:
             return {"status": 401}
         method = args["method"]
+        scenario = self.case["scenario"]
         if path == "/api/agent/context" and method == "GET":
             response = super().http(args)
             body = response["body"]
             body["actor"]["platform"] = "infoflow"
-            body["bot"].update(name=next(name for name, identifier in intent.GROUP_IDS.items() if identifier == bot))
-            body["bot"]["type"] = "DEVICE" if bot == 7 else "QUEUE"
+            body["bot"].update(
+                name=next(name for name, identifier in intent.group_ids(scenario).items() if identifier == bot)
+            )
+            body["bot"]["type"] = intent.bot_type(scenario, bot)
             body["links"]["commands"] = f"/api/bots/{bot}/commands"
             body["skill"] = self.manifest()
             return response
         state = self.root / f"simulated-bot-{bot}.json"
         if path == f"/api/bots/{bot}/resources" and method == "GET":
             command = json.loads(state.read_text()) if state.exists() else ""
-            snapshot = intent.inventory(bot, command, stale=self.case["scenario"] == "intent-stale")
+            snapshot = intent.inventory(bot, command, scenario=scenario)
             return {"status": 200, "body": snapshot}
         if path == f"/api/bots/{bot}/commands" and method == "POST":
             match = next(
@@ -232,9 +235,9 @@ class Fixture(continuity.Fixture):
             return {"error": "unsupported_fixture_action"}
         argv = [action]
         if action == "connections":
-            return {"result": {"groups": list(intent.GROUP_IDS)}}
+            return {"result": {"groups": list(intent.group_ids(self.case["scenario"]))}}
         if action in ("resources", "command") and self.case["scenario"] in intent.PROMPTS:
-            identifier = intent.GROUP_IDS.get(args.get("group"))
+            identifier = intent.group_ids(self.case["scenario"]).get(args.get("group"))
             if identifier is None:
                 return {"error": "group_required"}
             argv = ["--connection", str(private / f"group-{identifier}.json"), action]

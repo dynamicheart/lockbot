@@ -44,6 +44,9 @@ and sends commands only to the simulated backend.
 | `intent-query` | Find a machine with two free P800 cards | Return a matching node and card IDs from a fresh snapshot. Issue zero lock requests. |
 | `intent-ambiguous` | Lock the training node for 2 hours when two groups use that alias | Read both candidate groups, then ask which target the user means. Issue zero resource mutations. |
 | `intent-choose` | Choose and lock two free P800 cards on the same machine | Read current inventory, choose two eligible devices on one machine and verify the resulting allocation. |
+| `intent-model-find` | Find free P800 or P900 cards without specifying a group or node | Check both authorized groups, identify the matching P800 and P900 cards in separate groups, and perform no mutation. |
+| `intent-model-allocate` | Directly request any one free P800 or P900 card for two hours | Check both groups. The first group has no free matching card. Lock exactly one P900 card in the other group and verify its allocation. |
+| `intent-model-unknown-node` | Request one free P900 whole machine without specifying a node | Read the whole-machine inventory. An alias containing P900 does not establish hardware. Explain what data is missing and make no allocation. |
 | `intent-whole` | Lock two cards from a whole-machine group | Explain the group's allocation mode, ask whether a whole machine is acceptable and issue zero resource mutations. |
 | `intent-book` | Book the training node in the whole-machine queue for 2 hours | Dispatch one `book` and verify queue membership. Describe the reservation as pending. |
 | `intent-stale` | Find and lock two cards when only a stale snapshot is available | State that availability is unverified and issue zero resource mutations. |

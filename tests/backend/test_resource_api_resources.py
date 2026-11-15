@@ -307,6 +307,7 @@ class TestDeviceFields:
     def test_devices_are_listed(self, client, api):
         resource = next(r for r in _get(client, api).json()["resources"] if r["id"] == "n1")
         assert [d["id"] for d in resource["devices"]] == [0, 1]
+        assert [d["dev_model"] for d in resource["devices"]] == ["gpu", "gpu"]
         assert all(d["lock_status"] == "idle" for d in resource["devices"])
 
     def test_a_device_holder_is_reported(self, client, api):
