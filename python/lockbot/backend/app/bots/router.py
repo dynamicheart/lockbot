@@ -418,7 +418,8 @@ def create_bot(
     return _create_bot(request, body, user, db)
 
 
-def _create_bot(request, body, user, db):
+def _validate_bot_creation(body: BotCreate, user: User, db: Session) -> str:
+    """Run creation checks without inserting or starting a bot."""
     if body.bot_type.upper() not in VALID_BOT_TYPES:
         raise HTTPException(status_code=422, detail=f"Invalid bot_type, must be one of {VALID_BOT_TYPES}")
 
@@ -445,14 +446,34 @@ def _create_bot(request, body, user, db):
     if exists:
         raise HTTPException(status_code=409, detail="Bot name already exists")
 
-    if body.platform.strip().lower() == "feishu":
-        body.platform = "Feishu"
+    if selected_platform == "feishu":
+        import re
+
+        from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
+
+        if user.role != "super_admin":
+            raise HTTPException(403, "A super administrator must authorize the Feishu group route")
+        if not body.group_id or not re.fullmatch(r"oc_[A-Za-z0-9_-]+", body.group_id):
+            raise HTTPException(422, "Configure exactly one Feishu group")
+        if not body.feishu_application_id or db.get(FeishuApplication, body.feishu_application_id) is None:
+            raise HTTPException(422, "Select a configured Feishu application")
+        if (
+            db.query(FeishuGroupRoute)
+            .filter_by(application_id=body.feishu_application_id, chat_id=body.group_id)
+            .first()
+        ):
+            raise HTTPException(409, "Feishu group already has a resource bot")
+    return selected_platform
+
+
+def _create_bot(request, body, user, db):
+    selected_platform = _validate_bot_creation(body, user, db)
     bot = Bot(
         uuid=str(_uuid_mod.uuid4()),
         user_id=user.id,
         name=body.name,
         bot_type=body.bot_type.upper(),
-        platform=body.platform,
+        platform="Feishu" if selected_platform == "feishu" else body.platform,
         group_id=body.group_id,
         webhook_url=encryption.encrypt(body.webhook_url),
         aes_key=encryption.encrypt(body.aes_key),
@@ -470,23 +491,9 @@ def _create_bot(request, body, user, db):
     )
     db.add(bot)
     db.flush()
-    if (body.platform or "").lower() == "feishu":
-        import re
+    if selected_platform == "feishu":
+        from lockbot.backend.app.feishu.models import FeishuGroupRoute
 
-        from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
-
-        if user.role != "super_admin":
-            raise HTTPException(403, "A super administrator must authorize the Feishu group route")
-        if not body.group_id or not re.fullmatch(r"oc_[A-Za-z0-9_-]+", body.group_id):
-            raise HTTPException(422, "Configure exactly one Feishu group")
-        if not body.feishu_application_id or db.get(FeishuApplication, body.feishu_application_id) is None:
-            raise HTTPException(422, "Select a configured Feishu application")
-        if (
-            db.query(FeishuGroupRoute)
-            .filter_by(application_id=body.feishu_application_id, chat_id=body.group_id)
-            .first()
-        ):
-            raise HTTPException(409, "Feishu group already has a resource bot")
         db.add(FeishuGroupRoute(application_id=body.feishu_application_id, chat_id=body.group_id, bot_id=bot.id))
     write_audit_log(
         db,
