@@ -41,8 +41,11 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 
 打开 `http://localhost:8000`。数据保存在 `/data`；升级沿用原端口和挂载。同一数据目录只运行一个进程实例。
 
+以初始管理员登录，按对应平台指南创建机器人，并在测试群发送一次 `@机器人 query`。收到资源回复后，可按 Agent API 与 Skill 说明绑定自己的群身份。已发布的镜像版本见 [Releases](https://github.com/dynamicheart/lockbot/releases)。
+
 - [Agent 辅助部署与升级](docs/agents/deployment/AGENTS.md)：环境检查和 Compose 模板
-- [如流与飞书配置](docs/agents/platforms/AGENTS.md)、[飞书图文指南](docs/usage/feishu-setup.md)
+- [如流接入指南](docs/usage/infoflow-setup.md)、[飞书接入指南](docs/usage/feishu-setup.md)
+- [消息平台管理](docs/agents/platforms/AGENTS.md)
 - [Agent API 与 Skill](docs/agent-api/SKILL.md)
 - [数据源接入 Skill](skills/lockbot-datasource-setup/SKILL.md)、[数据源授权说明](docs/usage/datasource-authorization.md)
 - [指标数据源插件协议 v1](docs/design/metrics-datasource-protocol.md)（设计规范，含 Prometheus / HTTP JSON 示例）
