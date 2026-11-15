@@ -23,7 +23,7 @@ _CACHE_HEADERS = {"Cache-Control": "no-store", "Vary": "Authorization"}
 
 PROTOCOL = "lockbot.personal-report.v1"
 PREFIX = "/api/personal-panel/agent/extensions/"
-_SECRET = re.compile(r"\b(?:lbr_|lbk_|lba1\.)[A-Za-z0-9_.-]+")
+_SECRET = re.compile(r"\b(?:lbr_|lbk_|lb[ac]1\.)[A-Za-z0-9_.-]+")
 _ID = re.compile(r"[a-z0-9][a-z0-9-]{0,39}\Z")
 _SCOPE_FIELDS = ("issuer", "platform", "realm", "subject", "scope", "ref")
 _MAX_GROUPS = 16

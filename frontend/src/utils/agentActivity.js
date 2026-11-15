@@ -25,7 +25,7 @@ export function credentialAgentActivity(value) {
         !label.trim() ||
         [...label].length > 64 ||
         /[\p{C}\p{Zl}\p{Zp}]/u.test(label) ||
-        /\b(?:lbr_|lbk_|lba1\.|lbv1\.|Bearer\s+)|\beyJ[\w-]+\.[\w-]+\.[\w-]+/i.test(label))
+        /\b(?:lbr_|lbk_|lb[ac]1\.|lbv1\.|Bearer\s+)|\beyJ[\w-]+\.[\w-]+\.[\w-]+/i.test(label))
     )
       continue
     const lastSeen = row?.last_seen_at

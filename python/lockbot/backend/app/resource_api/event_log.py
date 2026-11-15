@@ -17,7 +17,7 @@ BACKUPS = 9
 _write_lock = threading.Lock()
 _secrets = re.compile(
     r"/#/r/[0-9]+/[A-Za-z0-9_-]{22}|(?:lbr_|lbk_)[A-Za-z0-9_-]+|lbv1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
-    r"|lba1\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}"
+    r"|lb[ac]1\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}"
     r"|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|(?i:Bearer\s+\S+)"
 )

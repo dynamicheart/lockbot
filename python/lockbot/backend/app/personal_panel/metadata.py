@@ -15,7 +15,7 @@ FIELDS = {
     "expires_at",
     "credential_recovery_health",
 }
-SECRET = re.compile(r"\b(?:lbr_|lbk_|lba1\.)[A-Za-z0-9_.-]+")
+SECRET = re.compile(r"\b(?:lbr_|lbk_|lb[ac]1\.)[A-Za-z0-9_.-]+")
 
 
 def text(value, limit=256):

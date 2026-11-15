@@ -278,7 +278,15 @@ def credentials(
         .offset(offset)
         .limit(limit)
     )
-    return {"items": [_metadata(row) for row in rows], "limit": limit, "offset": offset}
+    bots = db.query(Bot.id, Bot.name).filter(Bot.is_deleted.is_(False)).order_by(Bot.name, Bot.id)
+    if user.role != "super_admin":
+        bots = bots.filter(Bot.user_id == user.id)
+    return {
+        "items": [_metadata(row) for row in rows],
+        "bots": [{"id": bot.id, "name": bot.name} for bot in bots],
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("/api/configuration-credentials/{public_id}/rotate")
