@@ -40,7 +40,7 @@ export default {
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
     guideShareTitle: 'Maintenance Agent',
-    guideShare: 'Register machine IPs and connect a utilization data source.',
+    guideShare: 'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
     guideUseTitle: 'A user’s own Agent',
     guideUse: 'Check utilization to choose a card. Once acquired, connect using its IP.',
     scopeHint:

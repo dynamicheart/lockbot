@@ -39,7 +39,7 @@ export default {
     guideSelectTitle: '机器人管理员',
     guideSelect: '选好授权范围，私发凭证。',
     guideShareTitle: '维护 Agent',
-    guideShare: '登记机器 IP，接入利用率数据源。',
+    guideShare: '登记机器地址，部署利用率采集程序，并将采集数据接入 LockBot。',
     guideUseTitle: '普通用户的 Agent',
     guideUse: '看利用率选卡，锁定后按 IP 登录。',
     scopeHint: '创建时选择机器人和允许修改的配置。以后新增的机器人需要另行授权。',
