@@ -63,6 +63,20 @@ rejects it. Report no match or unresolved availability if the required resources
 are missing or the inventory is stale. Check this case separately from command
 execution and readback so accurate intent resolution has its own result.
 
+## Compare clients and models
+
+Record the client and its version, model and provider, requested reasoning effort,
+enabled tools, package revision, fixture revision and run limits. Keep Codex CLI
+and ducc (Claude Code) in separate result rows. When comparing client behavior,
+give both the same fixture and enabled tools and hold the model, provider and
+reasoning settings fixed where both clients support them. If a setting is
+unavailable or has no verified equivalent, report the two runs with their
+respective settings and leave the source of differences undetermined.
+
+Keep the original results when replacing a model. Report the replacement as a
+separate run and distinguish client timeouts and tool budgets from completed
+answers that fail behavioral checks.
+
 ## Goals and cases
 
 | Case | Session 1 | Fresh session 2 | Failing evidence |

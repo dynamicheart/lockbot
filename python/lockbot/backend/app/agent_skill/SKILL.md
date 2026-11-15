@@ -23,9 +23,10 @@ Use this checklist for installation and binding. Read the operation references b
 they apply to the request. Verify the complete ZIP and its installation stamp without
 reading the helper source or unrelated operation references during setup.
 
-1. Locate the service from the shared full URL or the **Deployment Skill URL** in pasted
-   Markdown. Do not ask the user to repeat a supplied address. If neither exists, ask for
-   the original full Skill URL; example hosts are not deployment addresses.
+1. Use the full URL supplied by the user, the **Deployment Skill URL** in pasted
+   Markdown, or an existing approved connection that matches the request. If none is
+   available, stop before any network request and ask for the original full Skill URL.
+   Example URLs and names in the repository copy are placeholders.
 2. Read the public manifest on that origin **without a key**. Explain the service address
    and recommend installing this Skill for ongoing use in your first response. A pasted
    document is useful instructions, but is not evidence of local installation.
@@ -62,6 +63,9 @@ the CLI reports true. Then match the actual node/card IDs, allocation mode, mode
 quantity and duration. A request to find resources is read-only. Clarify ambiguous
 aliases and ask before changing a card request into a whole-machine request. Send the
 verified target once and check the resulting state.
+If the CLI reports an unknown or unconfirmed write, read current resources and report
+what you can verify. Do not submit the write again in the same request. An idle readback
+alone cannot establish that the first write never ran.
 If the user says their turn has arrived and asks to claim a booking (“轮到了” or “领取预约”),
 read the queue first, then use `command --operation claim` when that exact resource is
 `claimable_by_you`. Omit `--duration`; the original reservation determines the lease.
@@ -141,8 +145,10 @@ claim the helper ran. Use an existing authorized HTTP tool with the same identit
 readback checks, and report the helper limitation. Keep each connection's approved
 service/instance/bot and private key-file reference; never put raw keys in argv or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
 and explicit durations for new acquisitions, bookings and renewals. Claim an existing
-booking with `--operation claim` without a duration. Verify the readback and never
-blindly replay an uncertain write.
+booking with `--operation claim` without a duration. For an existing holding, `renew`
+uses the lock mode listed in `supported_operations` and adds the supplied duration
+to the existing expiry. For release, use `release` without a duration. Verify readback
+and report an uncertain write without repeating it.
 This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
 follow the expiry/stop rules below.
 
@@ -780,7 +786,7 @@ Choose an explicit added duration: repeated lock adds time rather than setting a
 Keep remaining time plus the increment within the caller-effective ceiling. Attempt one bounded
 renewal. Then GET `/resources` and confirm the same resource/actor/lease
 has a genuinely later `expires_at`; HTTP 200 or a reply alone does not prove renewal. If POST
-has an unknown outcome, GET first instead of blindly repeating the non-idempotent lock.
+has an unknown outcome, read resources and report what you can verify.
 Retrying a status check cannot move the old stop deadline. Adopt a new deadline only from a
 verified renewed lease, not from the requested extra duration or the POST's success status.
 
@@ -940,7 +946,7 @@ report that observation and ask the user before any credential change.
 | `credential_missing` | no Bearer key | load this origin/instance's own key |
 | `credential_invalid` | unknown, revoked, expired or foreign key, or an incorrect value in this request | verify the saved origin, instance and exact credential; reconcile prior writes with a read |
 | `wrong_bot` | valid key, wrong existing bot URL (legacy HTTP 401) | GET `/api/agent/context` and use its operation links; do not bind again |
-| `may_have_executed` | admitted but outcome unknown | do NOT blindly retry; read `/resources` |
+| `may_have_executed` | admitted but outcome unknown | read `/resources`; do not repeat the command |
 
 ## Server rate limits and polling
 

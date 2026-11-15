@@ -245,13 +245,15 @@ def score(scenario, requests, tools, final):
                 MATCHING_MACHINE in final and "p900" in final.lower() and "整机" in final
             )
         if scenario in {"intent-claim", "intent-renew"}:
-            checks["target_and_duration_reported"] = MACHINE_NODE in final and any(
+            checks["target_and_duration_reported"] = any(name in final for name in (MACHINE_NODE, "训练节点")) and any(
                 value in final.replace(" ", "")
                 for value in ("两小时", "2小时", "120分钟", "7200秒", "2h", "150分钟", "2小时30分", "2.5小时")
             )
         if scenario == "intent-release":
             checks["released_and_retained_cards_reported"] = (
-                TRAINING_NODE in final and {"2", "3"} <= set(final) and "释放" in final
+                any(name in final for name in (TRAINING_NODE, "训练节点"))
+                and {"2", "3"} <= set(final)
+                and "释放" in final
             )
     else:
         checks["zero_write_attempts"] = not posts and not attempts

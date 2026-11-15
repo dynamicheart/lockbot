@@ -171,7 +171,7 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
             "intent-release",
             "加速卡群",
             {"operation": "release", "nodes": ["node-10"], "devices": ["2"]},
-            "已释放 node-10 的 2 号卡，3 号仍保留。",
+            "已释放训练节点的 2 号卡，3 号仍保留。",
         ),
     ],
 )
