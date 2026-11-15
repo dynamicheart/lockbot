@@ -52,7 +52,7 @@ def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch)
     first = install(fixture)
     second = fixture.call("read_lockbot_skill", {"offset": first["next_offset"]})
     markdown = (fixture.installation / "SKILL.md").read_text()
-    assert first["content"] + second["content"] == markdown[:second["next_offset"]]
+    assert first["content"] + second["content"] == markdown[: second["next_offset"]]
 
 
 def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch):
