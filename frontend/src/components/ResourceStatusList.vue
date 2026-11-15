@@ -36,8 +36,10 @@
         <template #default="{ row }">
           <div class="resource-identity" :data-resource-id="row.id">
             <div class="node-identity">
-              <strong>{{ row.display_name || row.id }}</strong
-              ><span>{{ row.alias }}</span>
+              <slot name="node-name" :row="row" :first="firstVisibleIds.has(row.id)">
+                <strong>{{ row.display_name || row.id }}</strong>
+              </slot>
+              <span>{{ row.alias }}</span>
             </div>
             <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
               status(row)
@@ -112,8 +114,10 @@
       >
         <div class="resource-identity">
           <div class="node-identity">
-            <strong>{{ row.display_name || row.id }}</strong
-            ><span>{{ row.alias }}</span>
+            <slot name="node-name" :row="row" :first="firstVisibleIds.has(row.id)">
+              <strong>{{ row.display_name || row.id }}</strong>
+            </slot>
+            <span>{{ row.alias }}</span>
           </div>
           <el-tag size="small" :type="isIdleResource(row) ? 'success' : 'warning'">{{
             status(row)

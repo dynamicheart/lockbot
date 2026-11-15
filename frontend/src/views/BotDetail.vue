@@ -436,7 +436,7 @@
                 </el-icon>
               </el-tooltip>
             </template>
-            <NodeAccessEditor :key="bot.id" :bot-id="bot.id" />
+            <NodeAccessEditor :key="bot.id" :bot-id="bot.id" @changed="fetchNodeAddresses" />
           </el-descriptions-item>
         </el-descriptions>
       </el-card>
@@ -530,11 +530,6 @@
           <div class="cluster-state-header">
             <span>{{ $t('botDetail.clusterState') }}</span>
             <div class="cluster-state-actions">
-              <NodeAccessViewer
-                v-if="canEdit && !editingState && !viewJson"
-                :key="bot.id"
-                :bot-id="bot.id"
-              />
               <el-button
                 v-if="canEdit && !editingState && !viewJson"
                 size="small"
@@ -550,7 +545,7 @@
               <el-button
                 v-if="bot.status === 'running' && !editingState"
                 size="small"
-                @click="fetchState"
+                @click="refreshClusterState"
               >
                 <el-icon><Refresh /></el-icon> {{ $t('log.refresh') }}
               </el-button>
@@ -603,6 +598,19 @@
           />
 
           <ResourceStatusList v-else :resources="nodeResources" :usage="stateUsage">
+            <template v-if="canEdit && nodeAddresses.size" #node-name="{ row, first }">
+              <el-tooltip
+                v-if="first && nodeAddresses.has(row.metric_node_id || row.id)"
+                :content="formatNodeAccess(nodeAddresses.get(row.metric_node_id || row.id))"
+                :trigger="['hover', 'focus', 'click']"
+                placement="top"
+              >
+                <button type="button" class="node-name-address">
+                  <strong>{{ row.display_name || row.id }}</strong>
+                </button>
+              </el-tooltip>
+              <strong v-else>{{ row.display_name || row.id }}</strong>
+            </template>
             <template v-if="resourceMetrics.enabled" #metrics="{ row }">
               <ResourceMetricsCell
                 v-bind="resourceMetrics"
@@ -729,7 +737,7 @@ import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import BotMigrationPreflight from '../components/BotMigrationPreflight.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
 import NodeAccessEditor from '../components/NodeAccessEditor.vue'
-import NodeAccessViewer from '../components/NodeAccessViewer.vue'
+import { formatNodeAccess } from '../utils/nodeAccess'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
 import { sourceResources } from '../utils/utilization/display'
@@ -789,6 +797,7 @@ const agentMetrics = computed(() =>
 )
 
 const bot = ref(null)
+const nodeAddresses = ref(new Map())
 const displayNameScope = computed(() => {
   const current = bot.value
   const viewer = authStore.user
@@ -1359,6 +1368,28 @@ async function fetchState() {
   }
 }
 
+async function fetchNodeAddresses() {
+  if (!canEdit.value) return
+  const read = detailScope.begin('nodeAccess')
+  if (!read) return
+  try {
+    const { data } = await api.get(`/bots/${read.id}/node-access`, {
+      signal: read.signal,
+      _silent: true,
+    })
+    if (read.isCurrent() && canEdit.value) nodeAddresses.value = new Map(Object.entries(data.nodes))
+  } catch {
+    if (read.isCurrent()) nodeAddresses.value = new Map()
+  } finally {
+    read.finish()
+  }
+}
+
+function refreshClusterState() {
+  fetchState()
+  fetchNodeAddresses()
+}
+
 async function fetchCommandLogs() {
   const read = detailScope.begin('logs')
   if (!read) return
@@ -1594,6 +1625,16 @@ watch(
 )
 
 watch(
+  [canEdit, () => authStore.user?.id, () => bot.value?.id],
+  ([allowed]) => {
+    nodeAddresses.value = new Map()
+    detailScope.cancel('nodeAccess')
+    if (allowed) fetchNodeAddresses()
+  },
+  { flush: 'sync' }
+)
+
+watch(
   () => String(route.params.id || ''),
   (id) => {
     detailScope.enter(id)
@@ -1701,6 +1742,17 @@ function formatDate(d) {
 }
 .cluster-state-actions :deep(.el-button + .el-button) {
   margin-left: 0;
+}
+.node-name-address {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline dotted var(--el-text-color-placeholder);
+  text-underline-offset: 3px;
 }
 .json-editor {
   position: relative;

@@ -286,7 +286,7 @@ it('shows remaining lease time across UTC offsets and keeps queued records witho
 it.each([
   [{ host: '2001:db8::1', port: 2222 }, '[2001:db8::1]:2222'],
   [
-    { host: 'compute.example.test', ipv4: '192.0.2.42', port: 2222 },
+    { host: 'compute.example.test', ip: '192.0.2.42', port: 2222 },
     'compute.example.test:2222 · 192.0.2.42:2222',
   ],
 ])(
