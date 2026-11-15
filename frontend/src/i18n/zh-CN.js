@@ -680,7 +680,7 @@ export default {
       '帮我打开这个 LockBot 工作台（{origin}）。请用你已有的连接生成登录链接，私下发给我，我自己在浏览器确认。',
     copyRequest: '复制给 Agent',
     installHint: 'Agent 还没安装 LockBot Skill？',
-    installPackage: '下载完整安装包发给 Agent',
+    installPackage: '下载完整安装包',
   },
   personalCredentialActions: {
     copyAllStatus: '复制全部状态',
