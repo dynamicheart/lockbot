@@ -1531,19 +1531,30 @@ def main(argv=None):
     if not runtime_compatible():
         print(json.dumps({"error": "helper_requires_python_3_10_or_newer", "retry_mutation": False}), file=sys.stderr)
         return 2
-    parser = SafeParser(description=__doc__)
-    parser.add_argument("--connection", help="Private mode0600 scoped connection JSON; never a raw key")
+    parser = SafeParser(
+        description="Install the LockBot Skill, manage private connections, and query or allocate compute resources.",
+        epilog="Run SUBCOMMAND --help for its options. Start with connections, then pass --connection FILE before "
+        "context, resources, or command. Supply Key file paths only.",
+    )
+    parser.add_argument("--connection", help="Verified private connection JSON file (mode 0600)")
     sub = parser.add_subparsers(dest="action", required=True)
-    for action in ("discover", "install", "init"):
-        command = sub.add_parser(action)
+    bootstrap = {
+        "discover": "Verify an approved service and optionally save its metadata",
+        "install": "Verify and install the complete Skill ZIP in a new directory",
+        "init": "Verify an existing personal Key file and save its scoped connection",
+    }
+    for action, help_text in bootstrap.items():
+        command = sub.add_parser(action, help=help_text, description=help_text)
         command.add_argument("--origin", required=True, help="Explicitly user-approved service origin")
         if action == "install":
-            command.add_argument("--destination", required=True)
+            command.add_argument("--destination", required=True, help="New Skill installation directory")
         if action == "discover":
             command.add_argument("--destination", help="New private file for approved service metadata")
         if action == "init":
             command.add_argument("--destination", help="Explicit private connection file")
-            command.add_argument("--scope", choices=["user", "project"], default="user")
+            command.add_argument(
+                "--scope", choices=["user", "project"], default="user", help="Connection storage scope (default: user)"
+            )
             command.add_argument("--key-file", required=True, help="Existing private personal-key file, not a raw key")
             command.add_argument("--metrics-origin", help="Separately approved metrics origin, optional")
             command.add_argument("--agent-label", help="Optional stable name for this Agent installation")
@@ -1551,18 +1562,23 @@ def main(argv=None):
     enroll.add_argument("--origin", required=True)
     enroll.add_argument("--group", required=True, help="Target resource group named by the user")
     enroll.add_argument("--destination", help="Explicit new private enrollment directory")
-    enroll.add_argument("--scope", choices=["user", "project"], default="user")
-    enroll.add_argument("--agent-label")
+    enroll.add_argument(
+        "--scope", choices=["user", "project"], default="user", help="Credential storage scope (default: user)"
+    )
+    enroll.add_argument("--agent-label", help="Optional stable name for this Agent installation")
     enroll.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
-    for action in ("enrollment-status", "finish-enrollment"):
-        command = sub.add_parser(action)
-        command.add_argument("--enrollment-dir", required=True)
+    for action, help_text in (
+        ("enrollment-status", "Check a previously requested binding code"),
+        ("finish-enrollment", "Verify chat confirmation and save the scoped connection"),
+    ):
+        command = sub.add_parser(action, help=help_text, description=help_text)
+        command.add_argument("--enrollment-dir", required=True, help="Private directory returned by enroll")
         if action == "finish-enrollment":
             command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
     catalog = sub.add_parser("connections", help="List project and user connections without reading their Keys")
     catalog.add_argument("--directory", help="Read only this private connection catalog")
-    sub.add_parser("context")
-    sub.add_parser("resources")
+    sub.add_parser("context", help="Verify the selected connection's identity, bot and rules")
+    sub.add_parser("resources", help="Read the selected bot's current resources and queue")
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
     recovery.add_argument("--destination", help="Explicit new private directory for separate group connections")
     recovery.add_argument("--scope", choices=["user", "project"], default="user")
@@ -1573,21 +1589,34 @@ def main(argv=None):
     )
     guidance = sub.add_parser("resource-guidance", help="Read deployment-owned references for current holdings")
     guidance.add_argument("--reference")
-    report = sub.add_parser("personal-report")
+    report = sub.add_parser("personal-report", help="Read a granted personal report")
     report.add_argument("--extension", required=True)
     alias = sub.add_parser("alias", help="Read or edit a shared node alias")
     alias.add_argument("--node", required=True)
     edit = alias.add_mutually_exclusive_group()
     edit.add_argument("--set", dest="alias_value", metavar="LABEL")
     edit.add_argument("--clear", dest="alias_value", action="store_const", const="")
-    command = sub.add_parser("command")
+    command = sub.add_parser(
+        "command",
+        help="Allocate, book, claim, renew, or release exact resources",
+        description="Use the selected connection to send one resource operation and read back its result.",
+        epilog="Example: --connection CONNECTION command --operation lock --node node-01 --device 0 --duration 30m",
+    )
     command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "claim", "renew", "release"])
-    command.add_argument("--node", action="append", required=True)
-    command.add_argument("--device", action="append", default=[])
-    command.add_argument("--duration")
+    command.add_argument(
+        "--node", action="append", required=True, help="Exact node ID from resources. Repeat for multiple nodes."
+    )
+    command.add_argument(
+        "--device", action="append", default=[], help="Exact device ID on the selected node. Repeat for more cards."
+    )
+    command.add_argument(
+        "--duration", help="Lease for lock/book or time to add on renew, e.g. 30m. Omit for claim/release."
+    )
     command.add_argument("--metadata-file", help="Private JSON: task_category, purpose, agent_label only")
-    command = sub.add_parser("metrics")
-    command.add_argument("--node", action="append", required=True)
+    command = sub.add_parser("metrics", help="Read current utilization for exact nodes from an approved source")
+    command.add_argument(
+        "--node", action="append", required=True, help="Exact node ID from resources. Repeat as needed."
+    )
     args = parser.parse_args(argv)
     client = None
     try:

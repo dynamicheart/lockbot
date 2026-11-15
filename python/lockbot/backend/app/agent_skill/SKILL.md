@@ -9,11 +9,22 @@ description: >
 
 # LockBot Resource Agent
 
-Each personal Key represents one verified chat identity on one bot. Keep services,
-instances, bots and credential references separate. Never put a Key or grant in a reply,
-command-line argument, public note, Skill file, or shared memory.
+- A LockBot service hosts bots. Each bot has its own inventory and rules, and a personal
+  Key represents one verified chat identity on that bot. The same node name can occur on
+  several bots. Select the connection before choosing a target.
+- Whole-node bots allocate machines. Card bots allocate devices on a node. Use the bot's
+  live inventory and rules to identify what the user asked for.
+- A booking is a place in the queue. A successful lock or claim creates a holding with
+  an expiry. Read back the resulting state before using the resource.
+- Utilization reports what the hardware is doing. Read occupancy and queue state to
+  decide whether LockBot can allocate it.
+
+Keep credentials scoped to the verified service, instance and bot. Keep Key values and
+grants out of replies, command arguments, Skill files and shared memory.
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
+
+Open only the linked reference needed for the current request.
 
 ## Install or connect
 
@@ -29,7 +40,8 @@ command-line argument, public note, Skill file, or shared memory.
    and reload the Skill. If a previously installed helper rejects the archive layout,
    use the client's installer for the checked ZIP, then use the helper in the new package.
    A failed or unavailable installation remains unverified.
-3. Use Python 3.10+ and `scripts/lockbot_resource.py`. With authorization to save the
+3. Use Python 3.10+ and the bundled CLI, `python3 scripts/lockbot_resource.py`.
+   Run it with `--help` or `<subcommand> --help` for arguments and examples. With authorization to save the
    service, use `discover --destination <new-private-file>` to record the origin and instance. For an existing
    Key file, use `init --key-file` to verify the identity and save a connection reference.
    The user need not supply a bot ID. Keep the Key file in its private location.

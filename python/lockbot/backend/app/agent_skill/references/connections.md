@@ -1,4 +1,24 @@
-# Install and manage connections
+# Bundled CLI
+
+Run from the project using the bundled script's path. `--help` lists commands, and
+`<subcommand> --help` describes the arguments. Select an existing private connection
+with `--connection <file>` before the subcommand.
+
+```sh
+python3 scripts/lockbot_resource.py --help
+python3 scripts/lockbot_resource.py command --help
+python3 scripts/lockbot_resource.py connections
+python3 scripts/lockbot_resource.py --connection /private/connection.json resources
+```
+
+| Goal | Subcommand |
+| --- | --- |
+| Verify a server or install the ZIP | `discover` or `install` |
+| Set up access with an existing Key file | `init` |
+| Request a binding and finish after the user confirms | `enroll`, then `finish-enrollment` |
+| Find or verify a saved connection | `connections` or `context` |
+| Read status or use an exact resource | `resources` or `command` |
+| Open the workbench or check utilization | `panel-link` or `metrics` |
 
 ## Install the complete ZIP and use the fixed client
 

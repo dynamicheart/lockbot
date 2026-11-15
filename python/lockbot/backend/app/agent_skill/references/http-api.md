@@ -103,6 +103,119 @@ repeat at the task's polling cadence, following server Retry-After when returned
 An existing task registered during booking is carried forward when you claim with `lock`
 without new metadata. `free <resource>` cancels your booking or releases your lock.
 
+## Resource command reference
+
+Send JSON to `POST /api/bots/{bot_id}/commands` using the personal Bearer key. Obtain the
+real resource IDs, device indexes and `supported_operations` from `GET /resources` first.
+The examples below use placeholder resources; replace them with those returned by your bot.
+
+| Action | NODE | DEVICE | QUEUE |
+|---|---|---|---|
+| Exclusive lock | `lock node1 2h` | `lock node1 dev0 2h` | `lock node1 2h` |
+| Shared lock | `slock node1 30m` | `slock node1 dev0 30m` | Not supported |
+| Release own lock | `free node1` | `free node1 dev0` | `free node1` |
+| Join queue | Not supported | Not supported | `book node1 2h` |
+| Cancel own booking | Not applicable | Not applicable | `free node1` |
+| Query | `query` or bare `node1` | `query` or bare `node1` | `query` or bare `node1` |
+
+- `unlock` and `free` are aliases. Use a specific resource to avoid affecting another one
+  of the user's Agents. Bare `free` / `unlock` releases **all this user's holdings and
+  bookings on this bot**, including those used by their other Agents sharing the key.
+- NODE and QUEUE accept comma-separated resources: `lock node1,node2 30m`,
+  `free node1,node2`. DEVICE examples: `lock node1 dev0,2 30m`,
+  `lock node1 dev0-3 1h` (inclusive range), `free node1 dev0-3`.
+  Device indexes are zero-based. On DEVICE, omitting `dev...` selects every device on the
+  node: `lock node1 2h` locks all cards; `free node1` releases all your cards there.
+- Durations use lowercase `m` (minutes), `h` (hours), `d` (days), e.g. `30m`, `2h`,
+  `0.5h`, `1d`. No seconds suffix or combined `1h30m`. If omitted, the bot's configured
+  default applies. Configured maximum durations and identity caps still apply.
+- For QUEUE: `book node1 2h` reserves a queue position, **not ownership**. Read `/resources`
+  until the node is idle and you are first, then `lock node1` within
+  `queue_claim_window_seconds`; without an explicit duration, the booked duration applies.
+  `free node1` cancels your booking or releases your lock. Do not continue using a node
+  just because you previously booked it. Continue polling as needed.
+- `alias node1 <note>` changes the bot-global/public node alias only when enabled (at
+  most 15 characters); `alias node1` clears it. Read the matching node's
+  `resources[].alias` afterward: empty string means unset/cleared. DEVICE/QUEUE_DEVICE
+  expose it on the parent node, not per card. It is not a task note or Agent label;
+  use usage declarations for task purposes. `aliases_observed_at` timestamps the current
+  configuration observation separately from cached lock/queue `captured_at`; they are
+  not atomic. Readback proves neither command attribution nor successful persistence.
+  Check the real reply and actual result; HTTP 200 alone does not prove a change.
+  After uncertainty, read before considering another write. A missing field on an older
+  service means structured readback is unavailable, not that the alias was cleared.
+- `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
+  Agent keys**. Native chat/OP permissions do not imply permission through this API.
+- HTTP 200 only means the command was dispatched. Inspect `reply` and read `/resources`
+  to verify ownership or queue position. Repeating `lock` extends the lease; do not retry
+  it blindly after a timeout. Prefer structured GET `/resources` over parsing query replies.
+
+### Example: two Agents sharing one user's key
+
+Both use the same `bot_id` and saved key. Each acquires a different resource:
+
+```json
+{"command":"lock node1 2h","agent_label":"dev-agent","purpose":"Develop feature X"}
+```
+
+```json
+{"command":"lock node2 1h","agent_label":"test-agent","purpose":"Run regression tests"}
+```
+
+Successful `lock` / `slock` / `book` with either optional field automatically registers
+that resource's Agent name and purpose in the same API call. No second request is needed.
+A failed acquisition does not change the current task. Other commands (including `free`)
+do not publish these private fields in group notifications. To edit a task later without changing
+the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
+
+```json
+{"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
+```
+
+Other users see only the preset `task_category` / `public_task`; detailed Agent task notes and Agent names remain same-verified-actor/super-administrator scoped.
+Registrations are scoped to user authorization + resource, not individual Agent processes.
+On DEVICE, the current registration covers the node resource; different cards on the same
+node do **not** have independent task registrations. Do not claim that distinction exists.
+
+### Actual HTTP call
+
+Use the trusted server address supplied by the user; discover bot ID with `/api/agent/context`. Load the key privately
+from the user's credential store; never put it in URLs, logs, shared files or shell history.
+For example, after identifying the service without a credential and loading the matching `base_url` and `key` privately:
+
+```python
+import requests
+session = requests.Session()
+session.headers["Authorization"] = "Bearer " + key
+context = session.get(f"{base_url}/api/agent/context", timeout=15, allow_redirects=False)
+context.raise_for_status()
+bot_id = context.json()["bot"]["id"]
+response = session.post(
+    f"{base_url}/api/bots/{bot_id}/commands",
+    json={"command": "lock node1 2h", "agent_label": "dev-agent", "purpose": "Develop feature X"},
+    timeout=15,
+    allow_redirects=False,
+)
+response.raise_for_status()
+# Honour Retry-After / next_event_at for subsequent checks; a POST reply is not proof.
+state = session.get(f"{base_url}/api/bots/{bot_id}/resources", timeout=15, allow_redirects=False)
+state.raise_for_status()
+# Match state.json()["actor"] against the resource's holders, then use the resource.
+```
+
+## Typical flow
+
+1. Identify the approved origin and instance. Reuse a matching saved Key, or try same-user recovery with another authorized Key on this instance. For a new binding, use the bundled CLI's `enroll` and `finish-enrollment` commands after the user names the target resource group and approves requesting a code. For a lost Key, follow the recovery and revocation steps above before starting replacement enrollment.
+2. `GET /resources` → see what is free and your queue position.
+3. `POST /commands {"command":"lock node1 2h","agent_label":"dev-agent","purpose":"Develop feature X"}` → then `GET /resources` to confirm.
+4. While working, periodically read `/resources` and check that your verified actor still holds each resource you are using, with a valid lease. Also check before important resource operations and after an interruption. A human may manually release the resource or another authorized actor may preempt it; your original successful lock is not a continuing guarantee.
+5. If ownership is lost, a resource becomes idle or belongs to someone else, or your lease expires, pause your workload on that resource and reassess with the user. Do not silently continue using it, automatically preempt another user, or assume a booking means ownership. If the read fails or is stale enough to make ownership uncertain, pause resource use until it can be verified. Lockbot tracks ownership; it does not forcibly stop your workload.
+6. `POST /commands {"command":"unlock node1"}` when done → confirm via `GET /resources`.
+7. (human, chat) `unbind` to revoke the credential only when the user wants to revoke all their agents on this bot; do not automatically unbind at task completion.
+
+Keep checks running throughout long tasks. Consider `next_event_at` and snapshot freshness,
+and follow the server's `Retry-After` when it asks you to wait.
+
 ## Error codes
 
 Read `detail.code` when `detail` is an object; otherwise read the top-level `code`.
