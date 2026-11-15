@@ -101,13 +101,16 @@
             {{ $t('configurationCredentials.rotate') }}
           </el-button>
           <el-button
-            v-if="!row.revoked_at"
+            v-if="status(row) === 'active'"
             link
             type="danger"
             :disabled="busy"
             @click="openAction('revoke', row)"
           >
             {{ $t('auditCredentials.revoke') }}
+          </el-button>
+          <el-button v-else link type="danger" :disabled="busy" @click="openAction('delete', row)">
+            {{ $t('common.delete') }}
           </el-button>
         </template>
       </el-table-column>
@@ -230,7 +233,7 @@
       <template #footer>
         <el-button @click="showAction = false">{{ $t('common.cancel') }}</el-button>
         <el-button
-          :type="action?.type === 'revoke' ? 'danger' : 'primary'"
+          :type="action?.type === 'rotate' ? 'primary' : 'danger'"
           :loading="busy"
           @click="confirmAction"
         >
@@ -319,9 +322,12 @@ const canCreate = computed(
     form.value.bot_ids.every((id) => botsById.value.has(id)) &&
     form.value.scopes.length > 0
 )
-const actionLabel = computed(() =>
-  action.value?.type === 'rotate' ? 'configurationCredentials.rotate' : 'auditCredentials.revoke'
-)
+const actionLabels = {
+  rotate: 'configurationCredentials.rotate',
+  revoke: 'auditCredentials.revoke',
+  delete: 'common.delete',
+}
+const actionLabel = computed(() => actionLabels[action.value?.type] || actionLabels.revoke)
 const showSecret = computed({
   get: () => Boolean(secret.value),
   set: (visible) => {
@@ -434,7 +440,7 @@ function confirmAction() {
     (config) =>
       type === 'rotate'
         ? api.post(`${url}/rotate`, { expires_in_seconds: rotateLifetime.value }, config)
-        : api.delete(url, config),
+        : api.delete(type === 'delete' ? `${url}/record` : url, config),
     (data) => {
       showAction.value = false
       action.value = null
