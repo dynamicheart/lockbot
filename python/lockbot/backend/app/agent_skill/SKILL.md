@@ -41,16 +41,17 @@ Open only the linked reference needed for the current request.
    use the client's installer for the checked ZIP, then use the helper in the new package.
    A failed or unavailable installation remains unverified.
 3. Use Python 3.10+ and the bundled CLI, `python3 scripts/lockbot_resource.py`.
-   Run it with `--help` or `<subcommand> --help` for arguments and examples. With authorization to save the
-   service, use `discover --destination <new-private-file>` to record the origin and instance. For an existing
-   Key file, use `init --key-file` to verify the identity and save a connection reference.
-   The user need not supply a bot ID. Keep the Key file in its private location.
+   Run `--help` or `<subcommand> --help` for arguments and examples. With authorization to
+   save the service, run `discover --destination <new-private-file>`. When the user gives
+   you a Key file, run `init --key-file` first to save a verified connection, then pass
+   that connection to resource commands. A Key file alone is not a connection file.
 4. If the user asks to save a credential in this project, run from the project root and
    select `--scope project` for `init`, `enroll` or `recover`. Use only the project's
    catalog for a project-only setup. Default writes go to the system user's private
    catalog. Choose the command options yourself and report where the connection was saved.
-5. For a new connection without a Key, ask only for a missing group name or authorization
-   to request a code. Then call `enroll` once, give the user its `@bot bind <code>`
+5. A new binding needs both the group name and authorization to request a code. Ask for
+   whichever is missing. Use the user's group name as given, including short names like
+   “验证群”. Then call `enroll` once, give the user its `@bot bind <code>`
    instruction, and wait for them to send it in that group. Call `finish-enrollment`
    on the same directory after they confirm. Use the resulting connection only after
    verified success. Read the saved pending state before considering another enrollment.
@@ -71,18 +72,19 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    resource command. Label results with the service address when several sources are in play.
 2. Before a write, verify `snapshot_fresh_for_write` and match the user's intent, exact
    node or card IDs, model, quantity, duration, allocation mode and any same-node condition.
-   If the snapshot stays stale, the target is ambiguous, or required hardware metadata
-   is unknown, explain what is missing. Never use a node alias or group title as model
-   evidence. If the user delegates that choice, list the eligible authorized groups and
-   check each group's live resources before choosing among them.
+   **Stop without calling `command`** if the snapshot stays stale, the target is ambiguous,
+   or the requested hardware model cannot be verified. A node alias or group title does
+   not prove its model. If a name may refer to multiple groups or the user asks you to
+   choose, check each eligible authorized group's live resources before asking or choosing.
 3. When asked to acquire now, use `lock` for an idle match with an empty queue, even if
    `claimable_by_you` is false. Use `book` only when the user requests or accepts a
    reservation. For a claim, match a booking marked `claimable_by_you` and omit the
    duration. For a renewal, pass the time to add to the existing lease. Release only the
    exact resource, without a duration.
-4. Send the verified write once and verify the resulting resource state. When its outcome
-   is uncertain, read current resources, report what is verifiable, and do not repeat the
-   write. Honor server `Retry-After` responses when polling.
+4. Send the verified write once and verify the resulting resource state. If the CLI
+   reports an unconfirmed write, read current resources and report what is verifiable.
+   Do not try another write for that request, including by
+   changing the target or switching to HTTP. Honor server `Retry-After` when polling.
 5. Recheck ownership and expiry while using a resource. A booking is not ownership.
    Stop resource use when ownership or a valid lease cannot be verified. Read any registered
    login address from the currently held resource's `node_access`, where a card inherits

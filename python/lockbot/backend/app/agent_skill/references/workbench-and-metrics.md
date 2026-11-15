@@ -2,6 +2,12 @@
 
 ## Optional resource telemetry (best effort)
 
+Use the bundled CLI. If the provided Key has no saved connection yet, verify it with
+`init --key-file` and pass `--metrics-origin <origin>` only for the separately approved
+source. Then run `--connection <file> resources` for ownership and
+`--connection <file> metrics --node <node-id>` for utilization. The helper refreshes
+an expired grant once and reports valid percentages with `sample_age_seconds`.
+
 If authenticated context includes `utilization.configuration`, the bot administrator has
 configured a separate metrics data source. It is optional: resource acquisition never
 requires telemetry to be reachable or successful. Use its advertised endpoint, profile and
