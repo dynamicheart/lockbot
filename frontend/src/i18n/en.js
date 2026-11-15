@@ -702,7 +702,8 @@ export default {
     request:
       'Open my LockBot workbench ({origin}). Use your existing connection to create a sign-in link and send it to me privately. I will confirm in my browser.',
     copyRequest: 'Copy request for Agent',
-    setupHelp: 'Agent setup guide',
+    installHint: 'Agent missing the LockBot Skill?',
+    installPackage: 'Download the full package for your Agent',
   },
   personalCredentialActions: {
     copyAllStatus: 'Copy all statuses',

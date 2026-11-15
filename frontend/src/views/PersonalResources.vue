@@ -146,9 +146,12 @@
           <el-button type="primary" @click="copyOnboardingRequest">
             {{ $t('personalOnboarding.copyRequest') }}
           </el-button>
-          <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer">
-            {{ $t('personalOnboarding.setupHelp') }}
-          </a>
+          <span class="panel-onboarding-install">
+            {{ $t('personalOnboarding.installHint') }}
+            <a href="/api/agent-skill/lockbot-resource-agent.zip">
+              {{ $t('personalOnboarding.installPackage') }}
+            </a>
+          </span>
         </div>
         <PersonalConnectionHandoff :authenticated="false" />
       </section>

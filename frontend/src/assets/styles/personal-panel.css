@@ -900,6 +900,12 @@
   margin-top: 20px;
 }
 
+.personal-panel :deep(.panel-onboarding-install) {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .personal-panel :deep(.panel-onboarding-actions a) {
   color: var(--el-color-primary);
 }
