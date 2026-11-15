@@ -11,7 +11,7 @@ import sys
 import urllib.error
 from pathlib import Path
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
@@ -63,8 +63,9 @@ def prepare(root, artifact, scenario):
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
         base.save_json(case_path, {**case, "scenario": scenario})
+        path = base.SKILL_PATH if scenario == "install-from-link" else base.BUNDLE_PATH
         (root / "prompt.txt").write_text(
-            FIRST_CONTACT[scenario].format(url=base.ORIGIN + base.SKILL_PATH, zip_url=base.ORIGIN + base.BUNDLE_PATH)
+            FIRST_CONTACT[scenario].format(url=base.ORIGIN + path, zip_url=base.ORIGIN + base.BUNDLE_PATH)
         )
     if scenario in intent.PROMPTS:
         case_path = root / "case.json"
@@ -564,7 +565,7 @@ def score_first_contact(fixture, requests, checks):
                 "approved_origin": base.ORIGIN,
                 "instance_id": manifest["instance_id"],
                 "version": manifest["version"],
-                "skill_url": base.ORIGIN + base.SKILL_PATH,
+                "skill_url": urljoin(base.ORIGIN, manifest["skill_url"]),
             }
         )
         checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)

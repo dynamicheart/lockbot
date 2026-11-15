@@ -353,7 +353,6 @@ def test_private_guidance_requires_the_exact_active_holding_and_binding(panel, a
     assert detail.json() == browser.get(browser_url).json()
     assert detail.json()["documentation_url"] == reference["documentation_url"]
     assert detail.headers["cache-control"] == "no-store"
-    assert reference["summary"] not in client.get("/api/agent-skill/SKILL.md").text
     import io
     import zipfile
 

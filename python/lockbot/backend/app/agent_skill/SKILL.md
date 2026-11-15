@@ -15,7 +15,9 @@ manage several separately scoped service/bot connections.
 
 ## When a user shares this skill URL
 
+<div hidden>
 <!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->
+</div>
 
 ### First-contact checklist
 
@@ -24,15 +26,15 @@ explain what the Skill does and offer installation. End the turn without calling
 installer, saving a connection, or asking for a Key. Install only when the user's
 request explicitly authorizes installation.
 
-1. Use the full URL supplied by the user, the **Deployment Skill URL** in pasted
+1. Use the full URL supplied by the user, the **Complete installation ZIP** in pasted
    Markdown, or an existing approved connection that matches the request. If none is
    available, stop before any network request and ask for the original full Skill URL.
    Example URLs and names in the repository copy are placeholders.
 2. Read the public manifest on that origin without a Key. Before calling any installer,
    resolve `installation.download_url` against the approved origin and check that it
    gives the manifest's same-origin `.zip` URL. Pass that exact URL to the installer.
-   A pasted `SKILL.md` link is only for finding the manifest, including when the user
-   asks you to install and then query with an existing Key. If the manifest does not
+   Use the manifest to verify the ZIP, including when the user asks to install
+   and then query with an existing Key. If the manifest does not
    advertise a valid ZIP on that origin, report the installation problem and stop.
    Verify the complete package and installation stamp before continuing with the Key.
 3. Verify the saved installation, then use `discover --origin <approved-origin>
@@ -1175,8 +1177,8 @@ not repeatedly retried or reported as an unverified defect.
 ## Discoverability
 
 `GET /api/agent-skill` returns this skill's version, download URLs and ZIP SHA-256.
-`GET /api/agent-skill/SKILL.md` reads the instructions directly.
-`GET /api/agent-skill/lockbot-agent-api.zip` downloads the installable folder.
+`GET /api/agent-skill/lockbot-resource-agent.zip` downloads the complete Skill and
+its bundled helper. Read `SKILL.md` inside that verified archive.
 These endpoints need no API key and contain no user-specific configuration or credentials.
 Resolve all relative URLs against the user-approved origin. New clients use the namespaced `installation` bundle; the old `name`, `version`, `download_url`, ZIP root and URLs remain for existing integrations.
 

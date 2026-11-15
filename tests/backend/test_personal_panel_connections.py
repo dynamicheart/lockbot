@@ -58,7 +58,7 @@ def test_current_binding_metadata_uses_approved_deployment_and_never_contains_ke
     assert item["identity"]["issuer"] == "logical-issuer-not-a-deployment-url"
     assert item["service_origin"] == ORIGIN
     assert item["credential_recovery_health"] == "recoverable"
-    assert ORIGIN + "/api/agent-skill/SKILL.md" in item["instructions"]
+    assert "/api/agent-skill/SKILL.md" not in item["instructions"]
     assert item["bot"]["name"] in item["instructions"] and item["bot"]["uuid"] in item["instructions"]
     assert "logical-issuer-not-a-deployment-url" not in item["instructions"]
     assert response.headers["cache-control"] == "no-store"

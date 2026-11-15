@@ -11,6 +11,7 @@ from importlib.resources import files
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.agent_skill.scripts.lockbot_resource import deployment_fragments
@@ -91,7 +92,7 @@ def _skill_artifacts(kind, origin):
             },
             "version": version,
             **package,
-            "skill_url": f"{prefix}/SKILL.md",
+            "skill_url": f"{prefix}/{skill_id}.zip" if kind == "agent" else f"{prefix}/SKILL.md",
             "download_url": f"{prefix}/{name}.zip",
             "skill_sha256": hashlib.sha256(markdown).hexdigest(),
             "sha256": hashlib.sha256(bundle).hexdigest(),
@@ -128,7 +129,7 @@ def client_skill_notice(request):
         "package_status": package_status,
         "reported_version": reported,
         "manifest_url": "/api/agent-skill",
-        "skill_url": "/api/agent-skill/SKILL.md",
+        "skill_url": metadata["skill_url"],
         "instructions": None
         if status == "current" or package_status == "current"
         else (
@@ -195,11 +196,10 @@ def _download(request, content, media_type, filename=None):
     return Response(content=content, media_type=media_type, headers=headers)
 
 
-@router.get("/SKILL.md", response_class=Response, responses={200: {"content": {"text/markdown": {}}}})
+@router.get("/SKILL.md", response_class=RedirectResponse, include_in_schema=False)
 @limiter.limit("60/minute")
-def skill_markdown(request: Request):
-    """Read the same instructions contained in the downloadable ZIP."""
-    return _download(request, skill_artifacts()[0], "text/markdown")
+def legacy_skill_markdown(request: Request):
+    return RedirectResponse(skill_artifacts()[2]["installation"]["download_url"], status_code=307)
 
 
 @router.get("/lockbot-agent-api.zip", response_class=Response, responses={200: {"content": {"application/zip": {}}}})

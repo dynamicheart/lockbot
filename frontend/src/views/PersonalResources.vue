@@ -735,8 +735,11 @@
           <summary>如何添加其他机器群的 Key</summary>
           <p class="scope">
             在已绑定该群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
-            <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
-              >Agent 使用说明</a
+            <a
+              href="/api/agent-skill/lockbot-resource-agent.zip"
+              target="_blank"
+              rel="noopener noreferrer"
+              >{{ t('personalOnboarding.installPackage') }}</a
             >
           </p>
         </details>

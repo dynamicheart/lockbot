@@ -1,4 +1,6 @@
 # ruff: noqa: F811
+import io
+import zipfile
 from datetime import datetime
 
 import pytest
@@ -89,9 +91,12 @@ def test_public_command_docs_have_named_examples_and_grammar(client):
     op = client.get("/api/public-openapi.json").json()["paths"]["/api/bots/{bot_id}/commands"]["post"]
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"node_lock", "device_lock", "queue_book", "release_or_cancel"} <= examples.keys()
+    bundle = client.get("/api/agent-skill/lockbot-resource-agent.zip").content
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        instructions = archive.read("lockbot-resource-agent/SKILL.md").decode()
     for word in ["free node1", "book node1 2h", "dev0-3", "queue_claim_window_seconds"]:
         assert word in op["description"]
-        assert word in client.get("/api/agent-skill/SKILL.md").text
+        assert word in instructions
 
 
 def test_active_authorizations_paginate_without_hiding_unseen_keys(api, client, db_session):
@@ -163,7 +168,8 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
         assert paths[path][method]["tags"] == ["OP API"]
         assert paths[path][method]["security"] == [{"OpApiKey": []}]
     assert paths["/api/resource-auth/bindings"]["post"]["security"] == []
-    assert paths["/api/agent-skill/SKILL.md"]["get"]["security"] == []
+    assert "/api/agent-skill/SKILL.md" not in paths
+    assert paths["/api/agent-skill/lockbot-resource-agent.zip"]["get"]["security"] == []
     configuration = "/api/bots/{bot_id}/configuration-access"
     for path, method in [(configuration, "get"), (configuration, "put"), (configuration + "/preview", "post")]:
         assert paths[path][method]["tags"] == ["Configuration API"]

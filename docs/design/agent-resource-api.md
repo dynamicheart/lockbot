@@ -244,7 +244,7 @@ flowchart LR
 
 | 入口 | 用途 |
 |---|---|
-| `GET /api/agent-skill/SKILL.md` | Agent 可直接读取的操作说明 |
+| `GET /api/agent-skill/lockbot-resource-agent.zip` | 完整安装包，包含操作说明和 CLI |
 | `GET /api/agent-skill/lockbot-agent-api.zip` | 可安装的 skill 包 |
 | `GET /api/agent-skill` | 版本、下载地址及摘要 |
 | `GET /api/op-skill/SKILL.md` | 运维机器人的监控及释放说明 |

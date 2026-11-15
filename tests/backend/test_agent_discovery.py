@@ -21,12 +21,12 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     manifest = client.get("/api/agent-skill")
     assert manifest.status_code == 200
     meta = manifest.json()
-    markdown = client.get(meta["skill_url"])
+    installation = client.get(meta["skill_url"])
     bundle = client.get(meta["download_url"])
-    assert markdown.status_code == bundle.status_code == 200
-    assert markdown.headers["content-type"].startswith("text/markdown")
-    assert bundle.headers["content-type"] == "application/zip"
-    assert hashlib.sha256(markdown.content).hexdigest() == meta["skill_sha256"]
+    assert installation.status_code == bundle.status_code == 200
+    assert installation.headers["content-type"] == bundle.headers["content-type"] == "application/zip"
+    assert meta["skill_url"] == meta["installation"]["download_url"]
+    assert hashlib.sha256(installation.content).hexdigest() == meta["installation"]["sha256"]
     assert hashlib.sha256(bundle.content).hexdigest() == meta["sha256"]
     assert len(bundle.content) == meta["size_bytes"]
     assert meta["version"] in bundle.headers["content-disposition"]
@@ -36,10 +36,16 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
             "lockbot-agent-api/scripts/lockbot_resource.py",
             "lockbot-agent-api/installation.json",
         }
-        assert archive.read(archive.namelist()[0]) == markdown.content
+        markdown = archive.read("lockbot-agent-api/SKILL.md")
+    with zipfile.ZipFile(io.BytesIO(installation.content)) as archive:
+        assert archive.read("lockbot-resource-agent/SKILL.md") == markdown
+    assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
+    legacy = client.get("/api/agent-skill/SKILL.md", follow_redirects=False)
+    assert legacy.status_code == 307 and legacy.headers["location"] == meta["skill_url"]
+    assert legacy.content == b""
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).resolve().parents[2] / "docs/agent-api/SKILL.md"
-    assert source.read_bytes() == markdown.content
+    assert source.read_bytes() == markdown
     assert db_session.query(AuditLog).count() == before
     assert client.get(meta["download_url"], headers={"If-None-Match": bundle.headers["etag"]}).status_code == 304
     paths = client.get("/api/public-openapi.json").json()["paths"]
@@ -52,19 +58,20 @@ def test_deployment_skill_url_matches_all_distribution_paths(client, monkeypatch
     monkeypatch.setenv("PLATFORM_URL", "http://192.0.2.10:8155/")
     headers = {"X-Forwarded-Host": "untrusted.example"}
     manifest = client.get("/api/agent-skill", headers=headers).json()
-    markdown = client.get(manifest["skill_url"], headers=headers)
-    assert b"Deployment Skill URL: `http://192.0.2.10:8155/api/agent-skill/SKILL.md`" in markdown.content
-    assert b"GET http://192.0.2.10:8155/api/agent/context" in markdown.content
-    assert b"http://192.0.2.10:8155/api/agent-skill/lockbot-resource-agent.zip" in markdown.content
-    assert b"untrusted.example" not in markdown.content
+    installation = client.get(manifest["skill_url"], headers=headers)
+    with zipfile.ZipFile(io.BytesIO(installation.content)) as archive:
+        markdown = archive.read("lockbot-resource-agent/SKILL.md")
+    assert b"Complete installation ZIP: `http://192.0.2.10:8155/api/agent-skill/lockbot-resource-agent.zip`" in markdown
+    assert b"GET http://192.0.2.10:8155/api/agent/context" in markdown
+    assert b"untrusted.example" not in markdown
     assert manifest["version"] != generic["version"]
-    assert markdown.headers["x-lockbot-skill-version"] == manifest["version"]
-    assert hashlib.sha256(markdown.content).hexdigest() == manifest["skill_sha256"]
+    assert installation.headers["x-lockbot-skill-version"] == manifest["version"]
+    assert hashlib.sha256(markdown).hexdigest() == manifest["skill_sha256"]
     for artifact in (manifest, manifest["installation"]):
         bundle = client.get(artifact["download_url"]).content
         assert hashlib.sha256(bundle).hexdigest() == artifact["sha256"]
         with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-            assert archive.read(archive.namelist()[0]) == markdown.content
+            assert archive.read(archive.namelist()[0]) == markdown
 
 
 def command(client, case, text, headers=None):

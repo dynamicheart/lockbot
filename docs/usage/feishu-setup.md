@@ -99,7 +99,7 @@ Lockbot 不支持单聊资源操作，不申请 `im:message.p2p_msg:readonly`。
 
 先在已授权资源群真实 @机器人，或发送 `@机器人 query`。核对：回复回到当前群、资源集合正确、网页链接指向本站、原生 @正确，名字未查到时稳定 ID 可回退。不要把单次 HTTP 成功或 SDK 进程存在当作完整验收。
 
-长期使用时，将本站 `/api/agent-skill/SKILL.md` 链接发送给 Agent，按指引安装并保存经过核验的服务/资源/key 关系。Agent 申请绑定码后，用户在对应群 `@机器人 bind <绑定码>`；Agent 随后用个人 key 调用 context 获取 bot、规则与 API 链接，不需用户猜 bot ID，也不能混用其他服务/群的 key。
+长期使用时，将本站 `/api/agent-skill/lockbot-resource-agent.zip` 链接发送给 Agent，按指引安装并保存经过核验的服务/资源/key 关系。Agent 申请绑定码后，用户在对应群 `@机器人 bind <绑定码>`；Agent 随后用个人 key 调用 context 获取 bot、规则与 API 链接，不需用户猜 bot ID，也不能混用其他服务/群的 key。
 
 Agent 主动提交的详细备注仅本人及超级管理员可见；普通机器人管理员、普通 OP 与其他 Agent 不因管理资源获得详细备注。超级管理员需显式打开“查看 Agent 详细任务备注”，读取会记录审计；公开群与共享网页只展示允许的分类。备注不应包含密码、key 或完整提示词。
 
