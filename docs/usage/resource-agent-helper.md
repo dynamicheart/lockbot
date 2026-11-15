@@ -90,11 +90,12 @@ through the receiving Agent's private credential storage.
 python3 scripts/lockbot_resource.py --connection /private/connection.json context
 python3 scripts/lockbot_resource.py --connection /private/connection.json resources
 python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --duration 30m --metadata-file /private/task.json
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation claim --node node-a
 python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --duration 30m
 python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a
 ```
 
-Repeat `--node` for multiple explicit nodes. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments; omission cannot silently select all cards. Supported operations are `lock`, `slock`, `book`, deliberate `renew`, and `release`. Duration is explicit for acquisition, booking and renewal. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
+Repeat `--node` for operations on multiple explicit nodes. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments. Supported operations are `lock`, `slock`, `book`, `claim`, deliberate `renew`, and `release`. Duration is explicit for new acquisitions, booking and renewal. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
 
 Resource mutations require verifiably fresh snapshots before dispatch and at readback.
 The helper rejects a missing or invalid snapshot age and applies the server's five-second
@@ -104,6 +105,11 @@ sends no command. A stale readback after dispatch leaves the result unconfirmed.
 `task.json` is optional, private mode `0600`, and accepts only `task_category`, `agent_label`, `purpose`. The category must be one of the current context's public ID/label choices. A category error returns `allowed_categories` without echoing detailed notes, Agent names or keys. Do not put secrets in private notes either. All allocation policy enforcement remains server-authoritative.
 
 Every dispatched write is followed by a resource readback. The server currently provides rendered `reply`, not a structured business outcome. Therefore the output explicitly says `verification: observed_state_only` and `command_outcome: not_structured_by_server`: it proves the requested observed state, not causality or guaranteed command success. HTTP 200 and a preexisting booking do not prove this command succeeded. Concurrent Agents sharing one identity still require coordination. A future additive structured command outcome is a separate API design, not inferred by parsing translated replies here.
+
+On a queue bot, `claim` accepts exactly one eligible resource. Add one explicit
+`--device` for a card queue and omit `--duration` to keep the original booked duration.
+The helper checks a fresh, actor-scoped snapshot before using its exact claim command,
+then verifies the holding. The caller continues to schedule polls and handle deadlines.
 
 Timeouts, transport failures, 5xx, malformed write responses and unconfirmed readback never cause a write replay. The output reports uncertainty and `retry_mutation:false`; reconcile by reading resources first. This is a **one-shot client**, not a workload process runner, queue-wait daemon, autonomous renewal loop or guarantee that work stops at expiry. The Agent must still follow the Skill's lease-expiry, polling and workload-stop rules.
 

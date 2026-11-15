@@ -927,7 +927,7 @@ class Client:
             raise ClientError("update_bundle_before_mutation")
         if not context.get("agent_access_enabled"):
             raise ClientError("agent_access_disabled")
-        if operation not in {"lock", "slock", "book", "renew", "release"}:
+        if operation not in {"lock", "slock", "book", "claim", "renew", "release"}:
             raise ClientError("unsupported_operation")
         if not nodes or len(nodes) > 64 or len(set(nodes)) != len(nodes):
             raise ClientError("explicit_unique_nodes_required")
@@ -938,7 +938,12 @@ class Client:
             raise ClientError("explicit_device_selection_required")
         if any(not re.fullmatch(r"0|[1-9][0-9]{0,4}", device) for device in devices):
             raise ClientError("invalid_device")
-        if operation != "release" and (
+        if operation == "claim":
+            if context["bot"]["type"] not in {"QUEUE", "QUEUE_DEVICE"} or len(nodes) != 1 or len(devices) > 1:
+                raise ClientError("claim_requires_one_queued_resource")
+            if duration is not None:
+                raise ClientError("claim_uses_booked_duration")
+        elif operation != "release" and (
             not duration or not re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?)[smhd]", duration) or float(duration[:-1]) <= 0
         ):
             raise ClientError("explicit_positive_duration_required")
@@ -980,7 +985,7 @@ class Client:
             any(held) or any(self._own(item.get("booking_list", []), actor) for item in selected)
         ):
             raise ClientError("already_owned_or_booked_read_state_do_not_rebook")
-        wire = {"renew": "lock", "release": "unlock"}.get(operation, operation)
+        wire = {"claim": "lock", "renew": "lock", "release": "unlock"}.get(operation, operation)
         if operation == "renew":
             modes = {item.get("lock_status") for item in selected}
             if modes == {"shared"}:
@@ -992,6 +997,13 @@ class Client:
         command = wire + " " + ",".join(nodes)
         if devices:
             command += " dev" + ",".join(devices)
+        if operation == "claim":
+            item = selected[0]
+            booked = self._own(item.get("booking_list", []), actor)
+            if item.get("claimable_by_you") is not True or held[0] or not booked:
+                raise ClientError("booking_not_claimable")
+            if item.get("claim_command") != command:
+                raise ClientError("unexpected_claim_command")
         if duration:
             command += " " + duration
         if len(command) > 512:
@@ -1350,7 +1362,7 @@ def main(argv=None):
     edit.add_argument("--set", dest="alias_value", metavar="LABEL")
     edit.add_argument("--clear", dest="alias_value", action="store_const", const="")
     command = sub.add_parser("command")
-    command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "renew", "release"])
+    command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "claim", "renew", "release"])
     command.add_argument("--node", action="append", required=True)
     command.add_argument("--device", action="append", default=[])
     command.add_argument("--duration")

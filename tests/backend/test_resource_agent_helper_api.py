@@ -88,6 +88,51 @@ def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, 
     assert session.context()["actor"]["external_user_id"] == "new-agent-user"
 
 
+@pytest.mark.parametrize("api", ["QUEUE", "QUEUE_DEVICE"], indirect=True)
+def test_helper_claims_own_booking_without_overriding_duration(client, api, tmp_path, monkeypatch):
+    root = installed_bundle(tmp_path)
+    options = {"root": root, "opener": Bridge(client)}
+    key = write_private(tmp_path / "booking.key", api["headers"]["Authorization"].split(" ", 1)[1])
+    connection = tmp_path / "booking.json"
+    scope = helper.Client(approved_origin="http://testserver", **options).initialize(key, connection)
+    cards = ["0"] if scope["bot"]["type"] == "QUEUE_DEVICE" else []
+    target = "n1 dev0" if cards else "n1"
+    endpoint = f"/api/bots/{api['bot_id']}/commands"
+    assert (
+        client.post(endpoint, headers=api["other_headers"], json={"command": f"lock {target} 10m"}).status_code == 200
+    )
+    with pytest.raises(helper.ClientError, match="booking_not_claimable"):
+        helper.Client(connection, **options).command("claim", ["n1"], cards, None)
+    assert helper.Client(connection, **options).command("book", ["n1"], cards, "2m")["verified"]
+    with pytest.raises(helper.ClientError, match="booking_not_claimable"):
+        helper.Client(connection, **options).command("claim", ["n1"], cards, None)
+    assert client.post(endpoint, headers=api["other_headers"], json={"command": f"unlock {target}"}).status_code == 200
+    with pytest.raises(helper.ClientError, match="claim_uses_booked_duration"):
+        helper.Client(connection, **options).command("claim", ["n1"], cards, "1m")
+
+    session = helper.Client(connection, **options)
+    read = session.resources
+
+    def inconsistent_claim(context):
+        snapshot = read(context)
+        (item,) = session._selected(snapshot, ["n1"], cards)
+        item["claim_command"] = "lock wrong-target"
+        return snapshot
+
+    monkeypatch.setattr(session, "resources", inconsistent_claim)
+    with pytest.raises(helper.ClientError, match="unexpected_claim_command"):
+        session.command("claim", ["n1"], cards, None)
+
+    session = helper.Client(connection, **options)
+    result = session.command("claim", ["n1"], cards, None)
+    assert result["verified"]
+    (resource,) = session._selected(result["verified_snapshot"], ["n1"], cards)
+    assert len(resource["holders"]) == 1
+    assert resource["holders"][0]["external_user_id"] == ACTOR
+    assert 118 <= resource["holders"][0]["remaining_seconds"] <= 120
+    assert resource["booking_list"] == []
+
+
 def test_helper_recovers_existing_groups_from_one_private_key(client, api, db_session, tmp_path):
     def bind(name):
         created = client.post(

@@ -137,7 +137,9 @@ runtime/installer/network is available, do not install dependencies without auth
 claim the helper ran. Use an existing authorized HTTP tool with the same identity, rules and
 readback checks, and report the helper limitation. Keep each connection's approved
 service/instance/bot and private key-file reference; never put raw keys in argv or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
-and explicit durations; verify the readback, and never blindly replay an uncertain write.
+and explicit durations for new acquisitions, bookings and renewals. Claim an existing
+booking with `--operation claim` without a duration. Verify the readback and never
+blindly replay an uncertain write.
 This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
 follow the expiry/stop rules below.
 
@@ -677,9 +679,12 @@ not its display label. Ordinary DEVICE bots retain their existing node-scoped de
 If the user asks you to acquire/use a resource, do **not** finish after `book`. Booking only
 reserves a queue position. Keep monitoring `/resources` yourself; do not wait for the human
 or a group @mention to make the next API call. The `book` response's `next_step` repeats this.
-When `resources[].claimable_by_you` (or a QUEUE_DEVICE device’s flag) is true, POST that resource's `claim_command` (e.g.
-`lock node1`) within `queue_claim_window_seconds`, then read again to verify a live holding
-for your actor. Only then start the workload. If another holder remains, keep polling at a
+When `resources[].claimable_by_you` (or a QUEUE_DEVICE device’s flag) is true, run
+`command --operation claim --node <id>` within `queue_claim_window_seconds`. Include
+one exact `--device <id>` for QUEUE_DEVICE. Omit `--duration` to retain the booked
+duration. The helper rechecks eligibility, sends the exact `claim_command` and
+verifies the new holding. When using direct HTTP, POST the verified `claim_command`
+and read again to confirm the holding. Only then start the workload. If another holder remains, keep polling at a
 cadence that suits the task. If monitoring is unavailable, report the queue position.
 
 ```text
