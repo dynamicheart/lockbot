@@ -25,7 +25,7 @@ PROMPTS = {
     "intent-model-allocate": "帮我直接申请一张空闲的 P800 或 P900 卡，用两小时。群、机器、卡都由你选。",
     "intent-model-unknown-node": "帮我申请一台空闲的 P900 整机，用两小时。哪台都可以。",
     "intent-model-whole-machine": "帮我直接申请一台空闲的整机，要至少有两张 P900 卡，用两小时。哪个群、哪台都行。",
-    "intent-renew": f"帮我把{MACHINES}里我占用的训练节点续到两小时，别新建预约。",
+    "intent-renew": f"帮我给{MACHINES}里我占用的训练节点续期，在原到期时间上再加两小时。",
     "intent-release": f"帮我释放{CARDS}里训练节点的 2 号卡，3 号卡继续保留。",
     "intent-write-unknown": f"帮我锁{CARDS}里训练节点的 2、3 号卡两小时。",
     "intent-stale": f"帮我在{CARDS}找一台有两张空闲 P800 的机器并锁 2 小时。",
@@ -150,8 +150,11 @@ def inventory(bot, command="", *, scenario=None):
         ]
         operations = ["lock", "book", "unlock"]
     elif scenario == "intent-renew":
-        if not command:
-            holder.update(remaining_seconds=1800, expires_at=(captured + timedelta(minutes=30)).isoformat())
+        remaining_minutes = 150 if command == EXPECTED[scenario][1] else 30
+        holder.update(
+            remaining_seconds=remaining_minutes * 60,
+            expires_at=(captured + timedelta(minutes=remaining_minutes)).isoformat(),
+        )
         rows = [{"id": MACHINE_NODE, "alias": "训练节点", "lock_status": "exclusive", "holders": [holder]}]
         operations = ["lock", "book", "unlock"]
     elif scenario == "intent-claim":
@@ -243,7 +246,8 @@ def score(scenario, requests, tools, final):
             )
         if scenario in {"intent-claim", "intent-renew"}:
             checks["target_and_duration_reported"] = MACHINE_NODE in final and any(
-                value in final.replace(" ", "") for value in ("两小时", "2小时", "120分钟", "7200秒", "2h")
+                value in final.replace(" ", "")
+                for value in ("两小时", "2小时", "120分钟", "7200秒", "2h", "150分钟", "2小时30分", "2.5小时")
             )
         if scenario == "intent-release":
             checks["released_and_retained_cards_reported"] = (

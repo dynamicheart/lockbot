@@ -165,7 +165,7 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
             "intent-renew",
             "整机队列群",
             {"operation": "renew", "nodes": ["node-20"], "duration": "120m"},
-            "已将 node-20 续到两小时。",
+            "已在 node-20 的原到期时间上增加两小时。",
         ),
         (
             "intent-release",
@@ -186,7 +186,7 @@ def test_held_resource_operations_verify_the_exact_change(tmp_path, monkeypatch,
         assert not target["devices"][2]["holders"]
         assert target["devices"][3]["holders"][0]["external_user_id"] == "demo-user"
     else:
-        assert target["holders"][0]["remaining_seconds"] == 7200
+        assert target["holders"][0]["remaining_seconds"] == 9000
     assert evaluation.score(fixture.root, verdict)["observable_pass"]
 
 
