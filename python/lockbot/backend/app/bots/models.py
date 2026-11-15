@@ -68,6 +68,15 @@ class Bot(Base):
     )
 
 
+class BotCreationRequest(Base):
+    __tablename__ = "bot_creation_requests"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(36), primary_key=True)
+    payload_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    bot_id: Mapped[int | None] = mapped_column(ForeignKey("bots.id"))
+
+
 class BotLog(Base):
     __tablename__ = "bot_logs"
 

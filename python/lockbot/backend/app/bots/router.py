@@ -4,6 +4,7 @@ Bot CRUD + lifecycle + webhook routes.
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
 import os
@@ -11,10 +12,11 @@ import secrets
 import traceback
 import uuid as _uuid_mod
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from lockbot.backend.app.audit.service import write_audit_log
@@ -31,7 +33,7 @@ from lockbot.backend.app.bots.manager import (
 )
 from lockbot.backend.app.bots.migration_journal import migration_fence
 from lockbot.backend.app.bots.migration_preflight import MigrationPreflight, MigrationReview
-from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.bots.models import Bot, BotCreationRequest
 from lockbot.backend.app.bots.node_access import (
     mapping_version,
     node_ids,
@@ -51,6 +53,7 @@ from lockbot.backend.app.bots.schemas import (
     ResourceAuthToggle,
 )
 from lockbot.backend.app.bots.webhook_handler import handle_webhook
+from lockbot.backend.app.config import JWT_SECRET
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.managed_paths import get_managed_paths, sanitize_managed_overrides
 from lockbot.backend.app.platform_applications.service import bot_credentials, credentials_for, runtime_guard
@@ -407,6 +410,7 @@ def create_bot(
     body: BotCreate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    idempotency_key: Annotated[str | None, Header()] = None,
 ):
     if body.platform.strip().lower() == "feishu":
         from lockbot.backend.app.feishu.connectors import connectors
@@ -414,8 +418,8 @@ def create_bot(
         db.rollback()
         with connectors.application_guard():
             db.rollback()
-            return _create_bot(request, body, user, db)
-    return _create_bot(request, body, user, db)
+            return _create_bot(request, body, user, db, idempotency_key)
+    return _create_bot(request, body, user, db, idempotency_key)
 
 
 def _validate_bot_creation(body: BotCreate, user: User, db: Session) -> str:
@@ -466,7 +470,35 @@ def _validate_bot_creation(body: BotCreate, user: User, db: Session) -> str:
     return selected_platform
 
 
-def _create_bot(request, body, user, db):
+def _create_bot(request, body, user, db, key):
+    if key is not None:
+        if len(key) != 36:
+            raise HTTPException(422, {"code": "invalid_bot_creation_key"})
+        try:
+            parsed_key = _uuid_mod.UUID(key)
+        except ValueError:
+            raise HTTPException(422, {"code": "invalid_bot_creation_key"}) from None
+        if parsed_key.version != 4 or str(parsed_key) != key:
+            raise HTTPException(422, {"code": "invalid_bot_creation_key"})
+        secret = hmac.digest(JWT_SECRET.encode(), b"lockbot.bot-creation.v1", "sha256")
+        # Resource display order is significant, including the order of node keys in an object.
+        digest = hmac.digest(secret, body.model_dump_json().encode(), "sha256").hex()
+        # Claim the key before reading or writing bot state. SQLite serializes this
+        # against other writers. The claim rolls back unless creation commits.
+        claim = db.execute(
+            insert(BotCreationRequest)
+            .values(user_id=user.id, key=key, payload_digest=digest)
+            .on_conflict_do_nothing(index_elements=["user_id", "key"])
+        )
+        creation = db.get(BotCreationRequest, (user.id, key))
+        if claim.rowcount == 0:
+            if not hmac.compare_digest(creation.payload_digest, digest):
+                raise HTTPException(409, {"code": "bot_creation_payload_changed"})
+            created_bot = db.get(Bot, creation.bot_id)
+            if created_bot is None or created_bot.is_deleted or created_bot.user_id != user.id:
+                raise HTTPException(409, {"code": "bot_creation_result_unavailable"})
+            return BotOut.model_validate(created_bot)
+
     selected_platform = _validate_bot_creation(body, user, db)
     bot = Bot(
         uuid=str(_uuid_mod.uuid4()),
@@ -491,6 +523,8 @@ def _create_bot(request, body, user, db):
     )
     db.add(bot)
     db.flush()
+    if key is not None:
+        creation.bot_id = bot.id
     if selected_platform == "feishu":
         from lockbot.backend.app.feishu.models import FeishuGroupRoute
 
