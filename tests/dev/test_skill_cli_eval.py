@@ -146,6 +146,21 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
     assert grade["observable_pass"], grade["checks"]
 
 
+def test_immediate_whole_machine_request_fails_if_model_books_first(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-model-whole-machine")
+    assert install(fixture)["installed"]
+    group = "整机队列群"
+    assert run(fixture, "resources", group=group)["result"]["resources"]
+    booked = run(fixture, "command", group=group, operation="book", nodes=["node-23"], duration="2h")
+    assert booked["result"]["verified"]
+    locked = run(fixture, "command", group=group, operation="lock", nodes=["node-23"], duration="2h")
+    assert locked["result"]["verified"]
+
+    grade = evaluation.score(fixture.root, "已锁定 node-23 整机两小时，含两张 P900。")
+    assert not grade["observable_pass"]
+    assert not grade["checks"]["exactly_one_correct_cli_write"]
+
+
 def test_intent_case_fails_wrong_attempt_even_if_the_cli_refuses_it(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "intent-whole")
     assert install(fixture)["installed"]

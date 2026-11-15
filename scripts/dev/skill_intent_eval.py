@@ -12,6 +12,7 @@ GROUP_IDS = {CARDS: 7, MACHINES: 8}
 TRAINING_NODE = "node-10"
 MACHINE_NODE = "node-20"
 MATCHING_MACHINE = "node-23"
+WHOLE_MACHINE_BOOKING = f"book {MATCHING_MACHINE} 2h"
 PROMPTS = {
     "intent-exact": f"帮我锁{CARDS}里训练节点的 2、3 号 P800 卡，使用 2 小时。",
     "intent-query": "帮我找一台还有两张空闲 P800 卡的机器，我先看看。",
@@ -129,6 +130,8 @@ def inventory(bot, command="", *, scenario=None):
                 "id": MATCHING_MACHINE,
                 "lock_status": "exclusive" if acquired else "idle",
                 "holders": [holder] if acquired else [],
+                "booking_list": [holder] if command == WHOLE_MACHINE_BOOKING else [],
+                "claimable_by_you": command == WHOLE_MACHINE_BOOKING,
                 "accelerators": [{"model": "P800", "count": 6}, {"model": "P900", "count": 2}],
             },
         ]

@@ -169,6 +169,14 @@ class Fixture(continuity.Fixture):
             snapshot = intent.inventory(bot, command, scenario=scenario)
             return {"status": 200, "body": snapshot}
         if path == f"/api/bots/{bot}/commands" and method == "POST":
+            if (
+                scenario == "intent-model-whole-machine"
+                and bot == 8
+                and not state.exists()
+                and intent.equivalent(args.get("command"), intent.WHOLE_MACHINE_BOOKING)
+            ):
+                base.save_json(state, intent.WHOLE_MACHINE_BOOKING)
+                return {"status": 200, "body": {"reply": "booked"}}
             match = next(
                 (
                     expected
