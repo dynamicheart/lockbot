@@ -159,7 +159,9 @@ This implementation supports only the existing `type: prometheus`, `profile: loc
 
 A short-lived source uses the context's `metrics:read` grant. An auth failure refreshes context and retries once; the original personal key is never sent to the source. Independent authorization uses a separate private `metrics_key_file`; personal `lbr_` and OP `lbk_` keys are explicitly refused. Source origin must match the separate approval, including scheme/port. No redirects or fallback through the Lockbot server are attempted.
 
-The returned vector is marked `best_effort` and `verification: query_response_only`. A successful query is not proof of fresh/valid hardware data, resource ownership or workload progress; inspect the source's real sample timestamp/collector health and follow existing freshness rules. Unreachable, unsupported, unauthorized, oversized or malformed sources fail explicitly and do not trigger resource mutations or hardware collection. This client does not bypass CORS/network/IT policy or run SMI.
+The result is marked `best_effort` and `verification: query_response_only`. The raw vector is under `data`. The `utilization` array contains one entry per requested Lockbot node and reports CPU and cards found in the response. `sample_age_seconds` derives from the relevant collector's sample timestamp. `percent` is populated only for `ok` readings, including valid zero. Missing, failed, stale and invalid readings return `null`. A card omitted by the source does not appear in the array. Compare against known inventory before drawing conclusions about coverage. Resource ownership and workload progress require independent evidence.
+
+Unreachable, unsupported, unauthorized, oversized or malformed sources fail explicitly. The helper queries existing samples and does not trigger hardware collection or resource mutations.
 
 ## Bounded transport and validation evidence
 

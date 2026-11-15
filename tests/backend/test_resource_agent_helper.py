@@ -56,6 +56,8 @@ def case(tmp_path):
         bot_type="NODE",
         context_count=0,
         grant_fail=False,
+        metrics_rows=None,
+        metrics_status=200,
         command_status=200,
         command_applies=True,
         resources_fail=False,
@@ -217,6 +219,9 @@ def case(tmp_path):
 
                 query = urllib.parse.parse_qs(raw.decode())["query"][0]
                 validate_query(query, {"host-a"})
+                status = state.metrics_status
+                if status == 429:
+                    extra = {"Retry-After": "40"}
                 if state.grant_fail and self.headers.get("Authorization") == "Bearer metrics-grant-1":
                     status = 401
                 body = {
@@ -235,6 +240,8 @@ def case(tmp_path):
                         ],
                     },
                 }
+                if state.metrics_rows is not None:
+                    body["data"]["result"] = state.metrics_rows
             else:
                 status = 404
             self.send_response(status)
@@ -548,6 +555,79 @@ def test_metrics_refreshes_grant_once_and_never_sends_resource_key(case):
     assert case.state.context_count == 2
     query = urllib.parse.parse_qs(metrics[0][3].decode())["query"][0]
     assert "host" in query and "node=~" in query and "process_info" not in query
+
+
+@pytest.mark.parametrize(
+    "success,age,percent,status,other_status",
+    [
+        ("1", 8, "0", "ok", "missing"),
+        ("1", 100, "42", "stale", "missing"),
+        ("0", 8, "42", "failed", "failed"),
+        ("1", None, "42", "missing", "missing"),
+        ("1", 8, None, "missing", "missing"),
+        ("1", -100, "42", "invalid", "invalid"),
+        ("1", 8, "NaN", "invalid", "missing"),
+    ],
+)
+def test_metrics_reports_sample_health_without_turning_unknown_into_zero(
+    case, success, age, percent, status, other_status
+):
+    now = helper.time.time()
+
+    def sample(name, value, **labels):
+        return {"metric": {"__name__": "lockbot_" + name, "node": "host-a", **labels}, "value": [now, value]}
+
+    rows = [
+        sample("collector_success", success, collector="accelerator"),
+        sample("collector_success", "1", collector="host"),
+        sample("sample_timestamp_seconds", str(now - 1), collector="host"),
+        sample("host_cpu_utilization_percent", "15"),
+        sample("accelerator_memory_total_bytes", "8000", device="0"),
+        sample("accelerator_memory_total_bytes", "8000", device="1"),
+    ]
+    if age is not None:
+        rows.append(sample("sample_timestamp_seconds", str(now - age), collector="accelerator"))
+    if percent is not None:
+        rows.append(sample("accelerator_utilization_percent", percent, device="0"))
+    case.state.metrics_rows = rows
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "metrics",
+            "--node",
+            "node-a",
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+        timeout=15,
+    )
+    result = json.loads(completed.stdout)["result"]
+
+    assert result["data"]["data"]["result"] == rows
+    reading = result["utilization"][0]
+    assert (reading["node"], reading["source_node"]) == ("node-a", "host-a")
+    assert reading["cpu"]["percent"] == 15
+    first, second = reading["cards"]
+    assert first["status"] == status
+    assert first["percent"] == (0 if status == "ok" else None)
+    assert second["percent"] is None
+    assert second["status"] == other_status
+    if age is not None and age >= 0:
+        assert first["sample_age_seconds"] == pytest.approx(age, abs=2)
+
+
+@pytest.mark.parametrize("status,retry_after", [(429, 40), (503, None)])
+def test_metrics_preserves_source_errors_and_does_not_retry_them(case, status, retry_after):
+    case.state.metrics_status = status
+    with pytest.raises(helper.ClientError) as error:
+        case.client.metrics(["node-a"])
+    assert error.value.status == status
+    assert error.value.retry_after_seconds == retry_after
+    assert sum(row[0] == "/metrics/api/v1/query" for row in case.state.requests) == 1
 
 
 @pytest.mark.parametrize("change", ["unapproved", "unsupported", "unmapped"])

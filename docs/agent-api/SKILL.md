@@ -223,7 +223,13 @@ then use `--connection <file> metrics --node <mapped-node>`. Only the existing
 `prometheus` / `lockbot-v1` profile is supported; unsupported profiles fail explicitly.
 Queries are best effort, never imply resource ownership, and use metrics-specific credentials;
 short grants refresh through context with one auth retry. Never send personal/OP keys to a
-source. See [helper installation, private configuration and limits](https://github.com/dynamicheart/lockbot/blob/main/docs/usage/resource-agent-helper.md).
+source. Use `utilization` for the CLI's per-node CPU and reported-card readings.
+Report a percentage only when its status is `ok`, including a genuine `0`.
+`missing`, `failed`, `stale`, and `invalid` carry no usable percentage; an empty card list
+does not prove that the node has no cards. If a known card is absent, report it as missing.
+Use `sample_age_seconds` when present, and distinguish a request error from a successful
+response with missing samples. The raw gateway response remains in `data` for diagnostics.
+See [helper installation, private configuration and limits](https://github.com/dynamicheart/lockbot/blob/main/docs/usage/resource-agent-helper.md).
 
 ## Identify the service before using a saved credential
 

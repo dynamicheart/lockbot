@@ -48,6 +48,87 @@ METRICS = (
 )
 
 
+def metric_number(value):
+    if type(value) not in (str, int, float):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def utilization_sample(values, success, stamps, now, stale_seconds):
+    """Classify a utilization reading using its collector's own timestamp."""
+    stamp = stamps[0] if len(stamps) == 1 else None
+    age = max(0, now - stamp) if stamp is not None and 0 < stamp <= now + 30 else None
+    value = values[0] if len(values) == 1 else None
+    if success == [0]:
+        status = "failed"
+    elif (
+        len(success) > 1
+        or (success and success != [1])
+        or len(stamps) > 1
+        or (stamps and age is None)
+        or len(values) > 1
+        or (values and (value is None or not 0 <= value <= 100))
+    ):
+        status = "invalid"
+    elif not success or age is None or not values:
+        status = "missing"
+    elif age > stale_seconds:
+        status = "stale"
+    else:
+        status = "ok"
+    return {"status": status, "percent": value if status == "ok" else None, "sample_age_seconds": age}
+
+
+def utilization_summary(vector, mappings, now, stale_seconds):
+    collectors = {}
+    samples = {}
+    devices = {}
+    for row in vector:
+        labels = row["metric"]
+        name, node = labels["__name__"], labels["node"]
+        pair = row.get("value")
+        value = metric_number(pair[1]) if isinstance(pair, list) and len(pair) == 2 else None
+        if name in ("lockbot_sample_timestamp_seconds", "lockbot_collector_success"):
+            collector = labels.get("collector")
+            if collector in ("accelerator", "host"):
+                collectors.setdefault((node, collector, name), []).append(value)
+        elif name == "lockbot_host_cpu_utilization_percent":
+            samples.setdefault((node, "host", None), []).append(value)
+        elif name.startswith("lockbot_accelerator_"):
+            device = labels.get("device")
+            if isinstance(device, str) and device:
+                devices.setdefault(node, set()).add(device)
+                if name == "lockbot_accelerator_utilization_percent":
+                    samples.setdefault((node, "accelerator", device), []).append(value)
+
+    def reading(node, collector, device=None):
+        return utilization_sample(
+            samples.get((node, collector, device), []),
+            collectors.get((node, collector, "lockbot_collector_success"), []),
+            collectors.get((node, collector, "lockbot_sample_timestamp_seconds"), []),
+            now,
+            stale_seconds,
+        )
+
+    return [
+        {
+            "node": node,
+            "source_node": target,
+            "cpu": reading(target, "host"),
+            "cards": [
+                {"device": device, **reading(target, "accelerator", device)}
+                for device in sorted(devices.get(target, ()))
+            ],
+            "cards_status": "reported" if target in devices else reading(target, "accelerator")["status"],
+        }
+        for node, target in mappings.items()
+    ]
+
+
 class ClientError(Exception):
     def __init__(self, code, status=None, allowed_categories=None, *, retry_after_seconds=None):
         super().__init__(code)
@@ -1175,11 +1256,15 @@ class Client:
                 raise ClientError("metrics_origin_requires_approval")
             url = same_origin_url(target_origin, endpoint + "/api/v1/query")
             mapping = source.get("nodeMapping", {})
-            if not nodes or len(nodes) > 64 or set(nodes) - set(mapping):
+            if not isinstance(mapping, dict) or not nodes or len(nodes) > 64 or set(nodes) - set(mapping):
                 raise ClientError("explicit_mapped_metrics_nodes_required")
-            targets = sorted(set(mapping[node] for node in nodes))
-            if any(not isinstance(node, str) or not node or len(node) > 256 for node in targets):
+            mappings = {node: mapping[node] for node in nodes}
+            if any(not isinstance(target, str) or not target or len(target) > 256 for target in mappings.values()):
                 raise ClientError("invalid_metrics_mapping")
+            targets = sorted(set(mappings.values()))
+            stale_seconds = source.get("staleSeconds", 90)
+            if type(stale_seconds) is not int or not 30 <= stale_seconds <= 3600:
+                raise ClientError("invalid_metrics_freshness")
             if source.get("accessMode") == "short_lived":
                 access = (context.get("utilization") or {}).get("access") or {}
                 token = access.get("token")
@@ -1217,13 +1302,18 @@ class Client:
                 ):
                     raise ClientError("invalid_metrics_response")
                 for row in vector:
-                    labels = row.get("metric", {})
-                    if labels.get("node") not in targets or labels.get("__name__") not in METRICS:
+                    labels = row.get("metric") if isinstance(row, dict) else None
+                    if (
+                        not isinstance(labels, dict)
+                        or labels.get("node") not in targets
+                        or labels.get("__name__") not in METRICS
+                    ):
                         raise ClientError("metrics_scope_mismatch")
                 return {
                     "best_effort": True,
                     "verification": "query_response_only",
                     "data": data,
+                    "utilization": utilization_summary(vector, mappings, time.time(), stale_seconds),
                     "does_not_authorize_resources": True,
                 }
             except ClientError as exc:
