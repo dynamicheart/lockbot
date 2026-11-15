@@ -5,13 +5,15 @@ import io
 import json
 import urllib.error
 import zipfile
+from pathlib import Path
 
 import pytest
 from lockbot.backend.app.resource_api.skill import skill_artifacts
 from lockbot.backend.app.resource_auth import service
+from lockbot.backend.app.resource_auth.models import ResourceBinding
 
 from backend.test_resource_agent_helper import helper, write_private
-from backend.test_resource_api_resources import PLATFORM, api  # noqa: F401
+from backend.test_resource_api_resources import ACTOR, PLATFORM, api  # noqa: F401
 
 
 class Bridge:
@@ -84,3 +86,57 @@ def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, 
     assert confirmed["bot"]["id"] == api["bot_id"]
     session = helper.Client(confirmed["connection"], **options)
     assert session.context()["actor"]["external_user_id"] == "new-agent-user"
+
+
+def test_helper_recovers_existing_groups_from_one_private_key(client, api, db_session, tmp_path):
+    def bind(name):
+        created = client.post(
+            "/api/bots",
+            headers=api["auth_header"],
+            json={
+                "name": name,
+                "bot_type": "NODE",
+                "webhook_url": "https://example.invalid/hook",
+                "cluster_configs": {"n1": "test model"},
+            },
+        )
+        assert created.status_code == 201
+        identifier = created.json()["id"]
+        assert client.put(
+            f"/api/bots/{identifier}/resource-auth", headers=api["auth_header"], json={"enabled": True}
+        ).is_success
+        issued = client.post("/api/resource-auth/bindings", json={}).json()
+        service.handle_chat_binding(
+            platform=PLATFORM,
+            external_user_id=ACTOR,
+            bot_id=identifier,
+            action="bind",
+            argument=issued["bind_code"],
+        )
+        return issued
+
+    available = bind("Second group")
+    unavailable = bind("Legacy group")
+    row = db_session.query(ResourceBinding).filter_by(public_id=unavailable["binding_id"]).one()
+    row.credential_encrypted = None
+    db_session.commit()
+    options = {"root": installed_bundle(tmp_path), "opener": Bridge(client)}
+    original = api["headers"]["Authorization"].split(" ", 1)[1]
+    key_file = write_private(tmp_path / "seed.key", original)
+    seed = tmp_path / "seed.json"
+    helper.Client(approved_origin="http://testserver", **options).initialize(key_file, seed)
+    original_config = seed.read_bytes()
+    destination = tmp_path / "received"
+    migration = helper.Client(seed, **options).recover(destination)
+    entries = {entry["bot"]["name"]: entry for entry in migration["connections"]}
+    assert entries["resbot-NODE"]["status"] == "existing"
+    assert entries["Legacy group"]["status"] == "unavailable" and "connection" not in entries["Legacy group"]
+    assert entries["Second group"]["status"] == "saved"
+    received = helper.Client(entries["Second group"]["connection"], **options)
+    assert received.context()["bot"]["name"] == "Second group"
+    assert received.key == available["credential"]
+    assert Path(entries["Second group"]["connection"]).stat().st_mode & 0o077 == 0
+    assert not any(key["credential"] in json.dumps(migration) for key in (available, unavailable))
+    assert key_file.read_text() == original and seed.read_bytes() == original_config
+    with pytest.raises(helper.ClientError, match="recovery_directory_exists"):
+        helper.Client(seed, **options).recover(destination)

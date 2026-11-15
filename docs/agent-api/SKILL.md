@@ -229,13 +229,23 @@ Feishu recovery also requires the same verified application and tenant namespace
 missing namespace evidence stays bot-scoped. Equal ID strings from different
 applications do not establish the same user.
 
-When `own_binding_recovery` is advertised, POST `binding_recovery_url` (also
-`links.binding_recovery`) using the current key and no request body. This returns
-all of this principal's live per-bot credentials with their bot UUIDs. Reconcile and
-save them automatically in the client's existing private credential store; no new
-binding or routine user confirmation is needed. Never print the recovered keys or
-put them in task notes. Match approved origin, instance ID, bot UUID and verified
-identity, then check each recovered key's context before resource operations.
+When the user asks to move their existing access to another Agent, give the receiving
+Agent **one existing active Key for the approved service via its private credential
+store or a private mode-0600 file**. Use `init` to verify it and create the seed connection
+on that Agent, unless the connection already exists. Then use the fixed CLI:
+
+```sh
+python3 scripts/lockbot_resource.py --connection /private/seed.json recover --destination /private/recovered-groups
+```
+
+Keep the seed connection. Use each returned `connection` for the corresponding group;
+resource reads verify that Key's context before use. Report the group names and which
+connections were saved or unavailable, without printing any Key. Use a new private
+destination on each receiving Agent. One seed can recover other groups on the same
+service and verified identity namespace when the server has a recovery copy. A group
+whose Key was never stored for recovery needs its own existing copy. Keep each service
+separate. Direct API clients use the manifest's `binding_recovery_url`, also exposed as
+`links.binding_recovery`, with the current Key and no request body.
 
 Every group retains its own key. Recovery gives the user's Agents account-wide
 credential discovery on this instance; resource routes still require the matching

@@ -57,3 +57,13 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     assert run(resumed, "finish-enrollment")["result"]["connection_created"]
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
     assert evaluation.score(destination, "node-a")["observable_pass"]
+
+
+def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "recover")
+    assert install(fixture)["installed"]
+    assert run(fixture, "init")["result"]["connection_created"]
+    connections = run(fixture, "recover")["result"]["connections"]
+    assert [entry["status"] for entry in connections] == ["existing", "saved"]
+    assert run(fixture, "resources", group=evaluation.GROUP)["result"]["resources"]
+    assert evaluation.score(fixture.root, "已查询验证群")["observable_pass"]

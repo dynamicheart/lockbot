@@ -68,6 +68,22 @@ confirm the verified name before passing it as `--confirm-bot-name`. Use the sam
 to check an outstanding request. A failed or uncertain request is never automatically
 replayed.
 
+### Move existing group access to another Agent
+
+Privately copy one active key into the receiving Agent's mode-0600 key file. Run
+`init` with that file to create the seed connection, then run:
+
+```sh
+python3 scripts/lockbot_resource.py --connection /private/seed.json recover --destination /private/recovered-groups
+```
+
+Keep using the original seed connection for its group. The CLI saves each available
+additional group as a separate private connection and key. Subsequent commands verify
+the chosen connection against authenticated context. Recovery is restricted to the
+same verified deployment and identity namespace. Groups with no recovery copy are
+reported without a connection. Existing files and keys are preserved. Transfer keys
+through the receiving Agent's private credential storage.
+
 ## Fixed resource operations
 
 ```sh

@@ -28,6 +28,7 @@ SERVICE = "lockbot.resource-api"
 API_VERSION = "1"
 SCRIPT_PATH = "scripts/lockbot_resource.py"
 ENROLLMENT_PATH = "/api/resource-auth/bindings"
+RECOVERY_PATH = "/api/agent/bindings/recover"
 MAX_BYTES = 1024 * 1024
 MAX_CALLS = 12
 METRICS = (
@@ -551,6 +552,87 @@ class Client:
         self.config["bot_uuid"] = context["bot"]["uuid"]
         self.config["actor"] = {field: context["actor"][field] for field in ("platform", "external_user_id")}
         write_private(destination, json.dumps(self.config).encode())
+
+    def recover(self, directory):
+        path = Path(directory).absolute()
+        if os.path.lexists(path):
+            raise ClientError("recovery_directory_exists")
+        context = self.context()
+        if "own_binding_recovery" not in self.manifest.get("capabilities", ()):
+            raise ClientError("binding_recovery_unavailable")
+        endpoint = self.base + RECOVERY_PATH
+        if (
+            same_origin_url(self.base, self.manifest.get("binding_recovery_url")) != endpoint
+            or same_origin_url(self.base, context.get("links", {}).get("binding_recovery")) != endpoint
+        ):
+            raise ClientError("unsupported_binding_recovery_endpoint")
+        if self.needs_update:
+            raise ClientError("update_bundle_before_mutation")
+        try:
+            path.mkdir(mode=0o700)
+        except FileExistsError as exc:
+            raise ClientError("recovery_directory_exists") from exc
+        response = self._request(endpoint, method="POST", token=self.key, readonly=False)
+        items = self._recovery_items(response, context)
+        actor = self.config["actor"]
+        connections = []
+        for bot, key, current in items:
+            entry = {"bot": bot, "status": "existing" if current else "unavailable"}
+            if key is not None and not current:
+                target = path / bot["uuid"]
+                target.mkdir(mode=0o700)
+                write_private(target / "key", key.encode())
+                connection = {
+                    "approved_origin": self.base,
+                    "instance_id": self.config["instance_id"],
+                    "bot_uuid": bot["uuid"],
+                    "actor": actor,
+                    "key_file": "key",
+                }
+                if "agent_label" in self.config:
+                    connection["agent_label"] = self.config["agent_label"]
+                write_private(target / "connection.json", json.dumps(connection).encode())
+                entry.update(status="saved", connection=str(target / "connection.json"))
+            connections.append(entry)
+        return {"connections": connections, "key_unchanged": True}
+
+    def _recovery_items(self, response, context):
+        server, actor, bindings = response.get("server"), response.get("actor"), response.get("bindings")
+        if (
+            not isinstance(server, dict)
+            or server.get("service_id") != SERVICE
+            or server.get("api_version") != API_VERSION
+            or server.get("instance_id") != self.config["instance_id"]
+            or not isinstance(actor, dict)
+            or any(actor.get(field) != value for field, value in self.config["actor"].items())
+            or not isinstance(bindings, list)
+        ):
+            raise ClientError("binding_recovery_scope_mismatch")
+        records, seen_bots = [], set()
+        match_current = False
+        for item in bindings:
+            bot, key, current = item["bot"], item["credential"], item["current"]
+            uuid = bot.get("uuid")
+            if (
+                not isinstance(uuid, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", uuid)
+                or uuid in seen_bots
+                or type(current) is not bool
+                or current != (uuid == context["bot"]["uuid"])
+                or (key is not None and not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", key))
+            ):
+                raise ClientError("invalid_binding_recovery_result")
+            if current:
+                if key is None or not secrets.compare_digest(key, self.key):
+                    raise ClientError("binding_recovery_current_key_mismatch")
+                match_current = True
+            elif key is not None and secrets.compare_digest(key, self.key):
+                raise ClientError("binding_recovery_scope_mismatch")
+            seen_bots.add(uuid)
+            records.append(({field: bot[field] for field in ("id", "uuid", "name", "type")}, key, current))
+        if not match_current:
+            raise ClientError("binding_recovery_current_key_missing")
+        return records
 
     def _enrollment_endpoint(self):
         manifest = self.discover()
@@ -1214,6 +1296,8 @@ def main(argv=None):
             command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
     sub.add_parser("context")
     sub.add_parser("resources")
+    recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
+    recovery.add_argument("--destination", required=True, help="New private directory for separate group connections")
     sub.add_parser(
         "panel-link",
         help="Issue a single-use sign-in link for an authorized private handoff",
@@ -1277,6 +1361,8 @@ def main(argv=None):
             result = client.context()
         elif args.action == "resources":
             result = client.resources(client.context())
+        elif args.action == "recover":
+            result = client.recover(args.destination)
         elif args.action == "resource-guidance":
             result = client.resource_guidance(args.reference)
         elif args.action == "personal-report":
