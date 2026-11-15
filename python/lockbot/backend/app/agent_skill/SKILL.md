@@ -56,6 +56,10 @@ reading the helper source or unrelated operation references during setup.
    with the same directory. The installed CLI and saved files carry the service origin.
    Ask for the Skill URL only when the installed files and approved origin cannot be found.
 
+If the user asks to open a bookmarked personal resource panel after signing in, open the
+saved `/#/me` home in their authorized browser, when available. If you cannot access
+that browser, give them the verified fixed home and explain what you could observe.
+
 Before a resource write, read `resources` for the intended group. If the CLI reports
 `snapshot_fresh_for_write: false`, retry the read if appropriate. If it stays false, tell
 the user you could not verify availability from a current snapshot. Skip `command` until
@@ -514,7 +518,9 @@ A missing/unsupported capability does not change the existing resource API or gr
 workflow below. Never guess another host or send a credential to discover capabilities.
 
 For ordinary return visits, share the verified fixed `home` for bookmarking; the person's
-own browser restores its session. Only for a first visit or lost session, POST `/api/personal-panel/links`
+own browser restores its session. If they ask you to open their saved panel, use the
+authorized browser's bookmark or that fixed home and report the panel's own holdings
+and bookings. A direct API read is separate evidence. Only for a first visit or lost session, POST `/api/personal-panel/links`
 on that same approved origin using this connection's verified, privately stored `lbr_`
 credential as Bearer authorization, with no client-selected identity fields. Do not follow
 redirects. Require returned `home` to match, a positive short `expires_in`, and `login_url`
