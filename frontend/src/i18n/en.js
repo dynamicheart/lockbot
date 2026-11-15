@@ -692,7 +692,29 @@ export default {
 
   // === Sidebar / Nav ===
   personalPanelHandoff: {
+    workbench: 'Personal workbench',
+    title: 'Confirm your sign-in',
+    checkingSession: 'Checking your sign-in status…',
+    currentAccounts: 'This browser is signed in as {accounts}.',
+    incomingAccount: 'Sign in as {account}',
+    consentHint: 'Confirm to sign in with this link.',
     includeGroups: 'Add all {count} groups from this account',
+    switchAccount: 'Switch to this account',
+    confirm: 'Confirm sign-in',
+    combineConsent: 'I control these accounts and want to view them together in this browser',
+    combineConfirm: 'Confirm combined view',
+    combineHint: 'Each group keeps its own authorization. The accounts remain separate.',
+    expired:
+      'This sign-in link has expired or has already been used. Ask your linked Agent for a new link.',
+    updateFailed:
+      'Could not refresh resources or sign-in status. Refresh to retry. The binding may have expired.',
+    sessionMissing: 'No session was found after sign-in. Check your browser’s cookie settings.',
+    identityUnavailable: 'Could not verify the account for this sign-in. Ask for a new link.',
+    unknownPlatform: 'Unknown platform',
+    clearTitle: 'Clear this browser’s access?',
+    clearHint:
+      'This browser will need authorization again to view your resources. Agent Keys remain valid.',
+    clearConfirm: 'Clear access',
   },
   personalOnboarding: {
     title: 'Sign in with your Agent',

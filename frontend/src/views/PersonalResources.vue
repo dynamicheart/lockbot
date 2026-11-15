@@ -60,7 +60,9 @@
       </nav>
       <div class="page-heading">
         <div class="workbench-heading-text">
-          <h1 ref="pageTitle" tabindex="-1">{{ ticket ? '确认登录身份' : title }}</h1>
+          <h1 ref="pageTitle" tabindex="-1">
+            {{ ticket ? t('personalPanelHandoff.title') : title }}
+          </h1>
           <p v-if="detail?.resource && detail.groupLabel && !ticket" class="scope">
             {{ detail.groupLabel }}
           </p>
@@ -99,14 +101,18 @@
       />
       <section v-if="!initialized" class="panel session-loading" role="status">
         <el-skeleton :rows="2" animated />
-        <p class="scope">正在验证登录状态…</p>
+        <p class="scope">{{ t('personalPanelHandoff.checkingSession') }}</p>
       </section>
       <section v-else-if="ticket" class="panel">
         <p v-if="session.authenticated">
-          当前浏览器已登录 {{ session.identities.map(identityLabel).join('、') }}。
+          {{ t('personalPanelHandoff.currentAccounts', { accounts: browserAccounts }) }}
         </p>
-        <p>本次登录账号 {{ identityLabel(ticket.identity) }}</p>
-        <p class="scope">确认后才会使用本次登录链接。</p>
+        <p>
+          {{
+            t('personalPanelHandoff.incomingAccount', { account: identityLabel(ticket.identity) })
+          }}
+        </p>
+        <p class="scope">{{ t('personalPanelHandoff.consentHint') }}</p>
         <template v-if="ticket.groups.length > 1">
           <el-checkbox v-model="includeRecovered" :disabled="busy">
             {{ $t('personalPanelHandoff.includeGroups', { count: ticket.groups.length }) }}
@@ -117,18 +123,22 @@
         </template>
         <div class="actions">
           <el-button type="primary" :loading="busy" @click="run(() => login('replace'))">{{
-            session.authenticated ? '切换为本次身份' : '确认登录'
+            t(
+              session.authenticated
+                ? 'personalPanelHandoff.switchAccount'
+                : 'personalPanelHandoff.confirm'
+            )
           }}</el-button>
-          <el-button :disabled="busy" @click="ticket = null">取消</el-button>
+          <el-button :disabled="busy" @click="ticket = null">{{ t('common.cancel') }}</el-button>
         </div>
         <template v-if="session.authenticated">
-          <el-checkbox v-model="combine" :disabled="busy"
-            >我控制上述账号，选择仅在此浏览器合看</el-checkbox
-          >
-          <el-button v-if="combine" :loading="busy" @click="run(() => login('append'))"
-            >确认在此浏览器合看</el-button
-          >
-          <p class="scope">各群授权分别生效，合看不会将账号认定为同一员工。</p>
+          <el-checkbox v-model="combine" :disabled="busy">
+            {{ t('personalPanelHandoff.combineConsent') }}
+          </el-checkbox>
+          <el-button v-if="combine" :loading="busy" @click="run(() => login('append'))">
+            {{ t('personalPanelHandoff.combineConfirm') }}
+          </el-button>
+          <p class="scope">{{ t('personalPanelHandoff.combineHint') }}</p>
         </template>
       </section>
       <section v-else-if="!session.authenticated" class="panel panel-onboarding">
@@ -782,6 +792,7 @@ import { formatNodeAccess } from '../utils/nodeAccess'
 import { useHelpers } from '../utils/helpers'
 import { useI18n } from 'vue-i18n'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
+import { platformLabel } from '../utils/platformDisplay'
 import LockbotWordmark from '../components/LockbotWordmark.vue'
 import PersonalWorkbenchPlugins from '../components/PersonalWorkbenchPlugins.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
@@ -799,7 +810,7 @@ const tabs = [
   { id: 'connections', label: '我的凭证', path: '/me/credentials' },
 ]
 const { copyText } = useHelpers()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const skillPackagePath = '/api/agent-skill/lockbot-resource-agent.zip'
 function copyOnboardingRequest() {
   copyText(t('personalOnboarding.request', { origin: window.location.origin }))
@@ -826,7 +837,9 @@ const detailSectionTitle = computed(() => {
 })
 const title = computed(() => {
   if (detailPage.value) return detail.value?.title || detailSectionTitle.value
-  return tab.value === 'mine' ? '个人资源台' : tabs.find((item) => item.id === tab.value).label
+  return tab.value === 'mine'
+    ? t('personalPanelHandoff.workbench')
+    : tabs.find((item) => item.id === tab.value).label
 })
 watch(
   () => route.path,
@@ -837,6 +850,9 @@ watch(
   }
 )
 const session = ref({ authenticated: false, identities: [] })
+const browserAccounts = computed(() =>
+  new Intl.ListFormat(locale.value).format(session.value.identities.map(identityLabel))
+)
 const groups = ref([])
 const guidanceDialog = ref(null)
 let guidanceRead = null
@@ -1401,11 +1417,11 @@ function bookingPosition(allocation) {
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
 }
-function platformName(value) {
-  return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'
-}
 function identityLabel(identity) {
-  return `${platformName(identity?.platform)} · ${identity?.subject || ''}`
+  const platform = identity?.platform
+    ? platformLabel(identity.platform, t)
+    : t('personalPanelHandoff.unknownPlatform')
+  return `${platform} · ${identity?.subject || ''}`
 }
 function groupCounts(group) {
   if (!fresh(group)) return []
@@ -1477,9 +1493,11 @@ async function api(path, body, signal) {
   const response = await request(path, body, signal)
   if (!response.ok)
     throw new Error(
-      response.status === 410
-        ? '登录链接已过期或已使用，请回到已绑定的 Agent 重新获取。'
-        : '无法更新资源或登录状态，请稍后刷新；绑定也可能已失效。'
+      t(
+        response.status === 410
+          ? 'personalPanelHandoff.expired'
+          : 'personalPanelHandoff.updateFailed'
+      )
     )
   return response.json()
 }
@@ -1649,17 +1667,16 @@ async function login(mode) {
   ticket.value = null
   combine.value = false
   await refresh()
-  if (!session.value.authenticated)
-    throw new Error('登录后未检测到会话，请检查浏览器 Cookie 设置。')
+  if (!session.value.authenticated) throw new Error(t('personalPanelHandoff.sessionMissing'))
 }
 async function confirmLogout() {
   try {
     await ElMessageBox.confirm(
-      '清除后，此浏览器需要重新授权才能查看个人资源。Agent 的 Key 仍然有效。',
-      '清除此浏览器授权？',
+      t('personalPanelHandoff.clearHint'),
+      t('personalPanelHandoff.clearTitle'),
       {
-        cancelButtonText: '取消',
-        confirmButtonText: '清除授权',
+        cancelButtonText: t('common.cancel'),
+        confirmButtonText: t('personalPanelHandoff.clearConfirm'),
         confirmButtonType: 'danger',
         type: 'warning',
         closeOnClickModal: false,
@@ -1688,7 +1705,7 @@ watch([pendingPanelTicket, busy, initialized], ([incoming, running, ready]) => {
   void run(async () => {
     const preview = await api('preview', { ticket: incoming })
     if (!preview.identity || typeof preview.identity !== 'object')
-      throw new Error('无法确认待登录身份，请重新获取链接。')
+      throw new Error(t('personalPanelHandoff.identityUnavailable'))
     combine.value = false
     const groups = Array.isArray(preview.groups)
       ? preview.groups.filter((name) => typeof name === 'string')

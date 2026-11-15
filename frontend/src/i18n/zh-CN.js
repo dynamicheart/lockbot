@@ -669,7 +669,26 @@ export default {
 
   // === Sidebar / Nav ===
   personalPanelHandoff: {
+    workbench: '个人资源台',
+    title: '确认登录身份',
+    checkingSession: '正在验证登录状态…',
+    currentAccounts: '当前浏览器已登录 {accounts}。',
+    incomingAccount: '本次登录账号 {account}',
+    consentHint: '确认后才会使用本次登录链接。',
     includeGroups: '添加此账号下的全部 {count} 个群',
+    switchAccount: '切换为本次身份',
+    confirm: '确认登录',
+    combineConsent: '我控制上述账号，选择仅在此浏览器合看',
+    combineConfirm: '确认在此浏览器合看',
+    combineHint: '各群授权分别生效，合看不会将账号认定为同一员工。',
+    expired: '登录链接已过期或已使用，请回到已绑定的 Agent 重新获取。',
+    updateFailed: '无法更新资源或登录状态，请稍后刷新；绑定也可能已失效。',
+    sessionMissing: '登录后未检测到会话，请检查浏览器 Cookie 设置。',
+    identityUnavailable: '无法确认待登录身份，请重新获取链接。',
+    unknownPlatform: '未知平台',
+    clearTitle: '清除此浏览器授权？',
+    clearHint: '清除后，此浏览器需要重新授权才能查看个人资源。Agent 的 Key 仍然有效。',
+    clearConfirm: '清除授权',
   },
   personalOnboarding: {
     title: '用 Agent 登录工作台',
