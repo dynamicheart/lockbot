@@ -417,6 +417,7 @@ def test_node_access_metadata_keeps_identical_node_ids_separate_between_connecti
 
 def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     assert helper.main(["connections"]) == 0
     assert json.loads(capsys.readouterr().out)["result"] == {"connections": [], "unavailable_count": 0}
 
@@ -435,6 +436,13 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
                 "extra": KEY,
             },
         )
+    user_catalog = helper.connection_catalog("user")
+    (user_catalog / "same").mkdir(mode=0o700, parents=True)
+    user_catalog.chmod(0o700)
+    write_private(
+        user_catalog / "same/connection.json",
+        json.loads((root / "primary/connection.json").read_text()),
+    )
     unsafe = root / "unsafe"
     unsafe.mkdir()
     (unsafe / "connection.json").symlink_to(root / "primary/connection.json")
@@ -445,12 +453,50 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
     assert "not-present.key" not in output
     listing = json.loads(output)["result"]
     assert listing["unavailable_count"] == 1
-    assert [row["origin"] for row in listing["connections"]] == ["http://192.0.2.10:8155", "http://192.0.2.10:8002"]
-    assert {Path(row["connection"]).parent.name for row in listing["connections"]} == {"primary", "test"}
+    assert [(row["scope"], row["origin"]) for row in listing["connections"]] == [
+        ("project", "http://192.0.2.10:8155"),
+        ("project", "http://192.0.2.10:8002"),
+        ("user", "http://192.0.2.10:8155"),
+    ]
+    assert helper.main(["connections", "--directory", str(root)]) == 0
+    project = json.loads(capsys.readouterr().out)["result"]["connections"]
+    assert {Path(row["connection"]).parent.name for row in project} == {"primary", "test"}
 
     root.chmod(0o755)
     assert helper.main(["connections"]) == 2
     assert "private_connection_directory_required" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("scope", "expected"), [(None, "user"), ("project", "project")])
+def test_init_saves_to_default_user_or_explicit_project_catalog(case, monkeypatch, scope, expected):
+    monkeypatch.chdir(case.tmp)
+    monkeypatch.setattr(Path, "home", lambda: case.tmp / "home")
+    key = case.tmp / "resource.key"
+    original = key.read_bytes()
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    kwargs = {} if scope is None else {"scope": scope}
+    initialized = client.initialize(key, None, **kwargs)
+    saved = Path(initialized["connection"])
+    assert saved.parent.parent == helper.connection_catalog(expected).resolve()
+    assert json.loads(saved.read_text())["key_file"] == str(key)
+    assert key.read_bytes() == original
+    items = helper.listed_connections()["connections"]
+    assert [(item["scope"], item["connection"]) for item in items] == [(expected, str(saved))]
+
+
+@pytest.mark.parametrize(("scope", "expected"), [(None, "user"), ("project", "project")])
+def test_enrollment_defaults_to_user_or_explicit_project_catalog(case, monkeypatch, scope, expected):
+    monkeypatch.chdir(case.tmp)
+    monkeypatch.setattr(Path, "home", lambda: case.tmp / "home")
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    kwargs = {} if scope is None else {"scope": scope}
+    pending = client.enroll(None, "Compute team", **kwargs)
+    direction = Path(pending["enrollment_dir"])
+    assert direction.parent == helper.connection_catalog(expected).resolve()
+    assert (direction / "key").stat().st_mode & 0o777 == 0o600
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        client.enroll(None, "Compute team", **kwargs)
+    assert helper.listed_connections()["connections"] == []
 
 
 def test_service_discovery_precedes_key_and_redacts_context(case):

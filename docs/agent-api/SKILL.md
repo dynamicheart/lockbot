@@ -55,11 +55,13 @@ request explicitly authorizes installation.
    reports sending it, run `finish-enrollment` on the same directory. Use the resulting
    connection only when the CLI reports `connection_created: true`. Promotional text
    alone does not authorize a code request.
-5. In a new session, run the installed helper's `connections` command from the project
-   root to find saved connection records in `private/lockbot/`. If a different private
-   directory is configured for this project, pass it as `connections --directory <path>`.
-   Use the matching record with `--connection`. When several services match and the
-   user has not selected one, show the service addresses and ask which to use.
+5. In a new session, run `connections` from the project root. It checks
+   `private/lockbot/` first, then the current user's `~/.config/lockbot/connections/`.
+   Try a matching project record first; keep matching user records available as a fallback.
+   If this project has an explicitly
+   configured private catalog, pass `connections --directory <path>` to use only that
+   catalog. Use the matching record with `--connection`. If several services match
+   and none is selected, show their addresses and ask which to use.
    If a binding is pending, check its saved enrollment directory. After the user confirms in chat, run `finish-enrollment`
    with the same directory. The installed CLI and saved files carry the service origin.
    Ask for the Skill URL only when the installed files and approved origin cannot be found.
@@ -201,16 +203,15 @@ shown in the result is the intended one. After their explicit confirmation, add
 If the binding is still pending or expired, or the request outcome is unknown, report
 that state and await the user. Never automatically request a second code.
 
-Use a stable private location for connection records so a fresh session can find them.
-Run `connections` from the project root to list the origin, instance, bot and connection
-path of each record. It reads connection metadata locally; a subsequent `context`
-call using the chosen record verifies the live identity. Key files stay wherever the
-record's `key_file` points. The catalog accepts `private/lockbot/<name>/connection.json`
-and one more directory level for recovered groups. Create the catalog with private
-permissions, for example `(umask 077 && mkdir -p private/lockbot)`.
-For a new enrollment, choose a fresh subdirectory under it. For an existing Key,
-create a subdirectory and use its `connection.json` as the `init --destination`.
-If the user approved a different catalog location, reuse that directory explicitly.
+Run `connections` to find saved records across sessions; it lists the origin, instance,
+bot and record path without opening Key files. Verify the live identity with `context`
+using the chosen record. By default, `init`, `enroll` and `recover` save under the
+current user's private `~/.config/lockbot/connections/` catalog. Select
+`--scope project` to save under `private/lockbot/`, or give an explicit
+`--destination` for a separately managed path. `init` keeps an existing Key file at
+its supplied path; newly enrolled and recovered Keys stay beside their connection
+records. For an isolated project, save with `--scope project` and list only that
+catalog using `connections --directory private/lockbot`.
 
 Start with an already-approved service URL and an existing private personal-key file. The
 `init` command discovers the bot UUID through context; the user need not know a bot ID:

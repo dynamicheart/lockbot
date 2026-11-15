@@ -19,7 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -202,39 +202,55 @@ def private_json(path):
         raise ClientError("invalid_private_json") from exc
 
 
-def listed_connections(directory):
-    """List private project connection records without opening their Key files."""
-    root = Path(directory)
-    try:
-        mode = root.lstat().st_mode
-    except FileNotFoundError:
-        return {"connections": [], "unavailable_count": 0}
+def connection_catalog(scope):
+    if scope == "project":
+        return Path("private/lockbot")
+    return Path.home() / ".config/lockbot/connections"
+
+
+def new_catalog_entry(scope, name=None):
+    root = connection_catalog(scope)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    mode = root.lstat().st_mode
     if not stat.S_ISDIR(mode) or mode & 0o077:
         raise ClientError("private_connection_directory_required")
-    root = root.resolve()
-    files = sorted([*root.glob("*/connection.json"), *root.glob("*/*/connection.json")])
+    return root.resolve() / (name or secrets.token_hex(16))
+
+
+def listed_connections(directory=None):
+    """List saved connection records without opening their Key files."""
+    catalogs = (
+        [("custom", Path(directory))]
+        if directory is not None
+        else [(scope, connection_catalog(scope)) for scope in ("project", "user")]
+    )
     connections = []
-    for path in files:
+    unavailable_count = 0
+    for scope, root in catalogs:
         try:
-            if path.resolve() != path:
-                continue
-            record = private_json(path)
-            service = origin(record["approved_origin"])
-            fields = (service, record["instance_id"], record["bot_uuid"], record["key_file"])
-            if any(not isinstance(field, str) or not field for field in fields):
-                continue
-            entry = {
-                "origin": service,
-                "instance_id": record["instance_id"],
-                "bot_uuid": record["bot_uuid"],
-                "connection": str(path),
-            }
-            if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(entry.values())):
-                continue
-            connections.append(entry)
-        except (ClientError, OSError, KeyError, RuntimeError):
+            mode = root.lstat().st_mode
+        except FileNotFoundError:
             continue
-    return {"connections": connections, "unavailable_count": len(files) - len(connections)}
+        if not stat.S_ISDIR(mode) or mode & 0o077:
+            raise ClientError("private_connection_directory_required")
+        root = root.resolve()
+        paths = sorted([*root.glob("*/connection.json"), *root.glob("*/*/connection.json")])
+        for path in paths:
+            try:
+                if path.resolve() != path:
+                    raise ValueError
+                record = private_json(path)
+                service = origin(record["approved_origin"])
+                instance, bot = record["instance_id"], record["bot_uuid"]
+                if any(not isinstance(field, str) or not field for field in (instance, bot, record["key_file"])):
+                    raise ValueError
+                entry = {"origin": service, "instance_id": instance, "bot_uuid": bot, "connection": str(path)}
+                if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(entry.values())):
+                    raise ValueError
+                connections.append({**entry, "scope": scope})
+            except (ClientError, OSError, KeyError, RuntimeError, ValueError):
+                unavailable_count += 1
+    return {"connections": connections, "unavailable_count": unavailable_count}
 
 
 def write_private(path, content, *, replace=False):
@@ -662,7 +678,7 @@ class Client:
             self.node_access.invalidate()
         return self._read_context()
 
-    def initialize(self, key_file, destination, metrics_origin=None, agent_label=None):
+    def initialize(self, key_file, destination, metrics_origin=None, agent_label=None, *, scope="user"):
         if self.config or self.connection_dir is not None:
             raise ClientError("init_requires_new_connection")
         manifest = self.discover()
@@ -676,9 +692,21 @@ class Client:
         context = self._read_context(initializing=True)
         if metrics_origin is not None:
             self.config["approved_metrics_origin"] = origin(metrics_origin)
-        self._save_connection(context, destination)
+        if destination is not None:
+            self._save_connection(context, destination)
+        else:
+            directory = new_catalog_entry(scope)
+            directory.mkdir(mode=0o700)
+            destination = directory / "connection.json"
+            try:
+                self._save_connection(context, destination)
+            except BaseException:
+                with suppress(OSError):
+                    directory.rmdir()
+                raise
         return {
             "connection_created": True,
+            "connection": str(destination),
             "bot": context["bot"],
             "actor": context["actor"],
             "key_unchanged": True,
@@ -690,9 +718,9 @@ class Client:
         self.config["actor"] = {field: context["actor"][field] for field in ("platform", "external_user_id")}
         write_private(destination, json.dumps(self.config).encode())
 
-    def recover(self, directory):
-        path = Path(directory).absolute()
-        if os.path.lexists(path):
+    def recover(self, directory, *, scope="user"):
+        path = Path(directory).absolute() if directory is not None else None
+        if path is not None and os.path.lexists(path):
             raise ClientError("recovery_directory_exists")
         context = self.context()
         if "own_binding_recovery" not in self.manifest.get("capabilities", ()):
@@ -705,6 +733,8 @@ class Client:
             raise ClientError("unsupported_binding_recovery_endpoint")
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
+        if path is None:
+            path = new_catalog_entry(scope)
         try:
             path.mkdir(mode=0o700)
         except FileExistsError as exc:
@@ -781,11 +811,14 @@ class Client:
             raise ClientError("unsupported_enrollment_endpoint")
         return endpoint
 
-    def enroll(self, directory, group, agent_label=None):
+    def enroll(self, directory, group, agent_label=None, *, scope="user"):
         if self.config:
             raise ClientError("enrollment_requires_new_connection")
         group = enrollment_group(group)
         label = normalize_agent_label(agent_label) if agent_label is not None else None
+        if directory is None:
+            name = "enrollment-" + hashlib.sha256((self.base + "\0" + group).encode()).hexdigest()[:32]
+            directory = new_catalog_entry(scope, name)
         path = Path(directory).absolute()
         if os.path.lexists(path):
             raise ClientError("enrollment_directory_exists")
@@ -1467,18 +1500,21 @@ def main(argv=None):
     for action in ("discover", "install", "init"):
         command = sub.add_parser(action)
         command.add_argument("--origin", required=True, help="Explicitly user-approved service origin")
-        if action in {"install", "init"}:
+        if action == "install":
             command.add_argument("--destination", required=True)
         if action == "discover":
             command.add_argument("--destination", help="New private file for approved service metadata")
         if action == "init":
+            command.add_argument("--destination", help="Explicit private connection file")
+            command.add_argument("--scope", choices=["user", "project"], default="user")
             command.add_argument("--key-file", required=True, help="Existing private personal-key file, not a raw key")
             command.add_argument("--metrics-origin", help="Separately approved metrics origin, optional")
             command.add_argument("--agent-label", help="Optional stable name for this Agent installation")
     enroll = sub.add_parser("enroll", help="Request a bind code for the user to confirm in the target group")
     enroll.add_argument("--origin", required=True)
     enroll.add_argument("--group", required=True, help="Target resource group named by the user")
-    enroll.add_argument("--destination", required=True, help="New private enrollment directory")
+    enroll.add_argument("--destination", help="Explicit new private enrollment directory")
+    enroll.add_argument("--scope", choices=["user", "project"], default="user")
     enroll.add_argument("--agent-label")
     enroll.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
     for action in ("enrollment-status", "finish-enrollment"):
@@ -1486,14 +1522,13 @@ def main(argv=None):
         command.add_argument("--enrollment-dir", required=True)
         if action == "finish-enrollment":
             command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
-    catalog = sub.add_parser("connections", help="List saved project connections without reading their Keys")
-    catalog.add_argument(
-        "--directory", default="private/lockbot", help="Private connection catalog relative to the project root"
-    )
+    catalog = sub.add_parser("connections", help="List project and user connections without reading their Keys")
+    catalog.add_argument("--directory", help="Read only this private connection catalog")
     sub.add_parser("context")
     sub.add_parser("resources")
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
-    recovery.add_argument("--destination", required=True, help="New private directory for separate group connections")
+    recovery.add_argument("--destination", help="Explicit new private directory for separate group connections")
+    recovery.add_argument("--scope", choices=["user", "project"], default="user")
     sub.add_parser(
         "panel-link",
         help="Issue a single-use sign-in link for an authorized private handoff",
@@ -1553,9 +1588,11 @@ def main(argv=None):
         elif args.action == "install":
             result = client.install(args.destination)
         elif args.action == "init":
-            result = client.initialize(args.key_file, args.destination, args.metrics_origin, args.agent_label)
+            result = client.initialize(
+                args.key_file, args.destination, args.metrics_origin, args.agent_label, scope=args.scope
+            )
         elif args.action == "enroll":
-            result = client.enroll(args.destination, args.group, args.agent_label)
+            result = client.enroll(args.destination, args.group, args.agent_label, scope=args.scope)
         elif args.action in {"enrollment-status", "finish-enrollment"}:
             name = getattr(args, "confirm_bot_name", None)
             result = client.check_enrollment(
@@ -1569,7 +1606,7 @@ def main(argv=None):
         elif args.action == "resources":
             result = client.resources(client.context())
         elif args.action == "recover":
-            result = client.recover(args.destination)
+            result = client.recover(args.destination, scope=args.scope)
         elif args.action == "resource-guidance":
             result = client.resource_guidance(args.reference)
         elif args.action == "personal-report":

@@ -64,13 +64,17 @@ def test_helper_real_api_init_acquire_renew_release(client, api, tmp_path):
     assert saved["actor"] == scope["actor"]
 
 
-def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, tmp_path):
+@pytest.mark.parametrize("scope", ["explicit", "user", "project"])
+def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, tmp_path, monkeypatch, scope):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     root = installed_bundle(tmp_path)
     options = {"root": root, "opener": Bridge(client)}
     session = helper.Client(approved_origin="http://testserver", **options)
-    directory = tmp_path / "enrollment"
-    pending = session.enroll(directory, "resbot-NODE")
-    path, state = helper.enrollment_state(directory)
+    directory = tmp_path / "enrollment" if scope == "explicit" else None
+    options_for_scope = {"scope": "project"} if scope == "project" else {}
+    pending = session.enroll(directory, "resbot-NODE", **options_for_scope)
+    path, state = helper.enrollment_state(pending["enrollment_dir"])
     session = helper.Client(approved_origin=state["approved_origin"], **options)
     assert session.check_enrollment(path, state, finish=True)["status"] == "pending"
     service.handle_chat_binding(
@@ -84,6 +88,8 @@ def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, 
     confirmed = session.check_enrollment(path, state, finish=True)
     assert confirmed["connection_created"]
     assert confirmed["bot"]["id"] == api["bot_id"]
+    if scope != "explicit":
+        assert helper.listed_connections()["connections"][0]["connection"] == confirmed["connection"]
     session = helper.Client(confirmed["connection"], **options)
     assert session.context()["actor"]["external_user_id"] == "new-agent-user"
 
@@ -133,7 +139,11 @@ def test_helper_claims_own_booking_without_overriding_duration(client, api, tmp_
     assert resource["booking_list"] == []
 
 
-def test_helper_recovers_existing_groups_from_one_private_key(client, api, db_session, tmp_path):
+@pytest.mark.parametrize("scope", ["explicit", "user"])
+def test_helper_recovers_existing_groups_from_one_private_key(client, api, db_session, tmp_path, monkeypatch, scope):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
     def bind(name):
         created = client.post(
             "/api/bots",
@@ -171,7 +181,7 @@ def test_helper_recovers_existing_groups_from_one_private_key(client, api, db_se
     seed = tmp_path / "seed.json"
     helper.Client(approved_origin="http://testserver", **options).initialize(key_file, seed)
     original_config = seed.read_bytes()
-    destination = tmp_path / "received"
+    destination = tmp_path / "received" if scope == "explicit" else None
     migration = helper.Client(seed, **options).recover(destination)
     entries = {entry["bot"]["name"]: entry for entry in migration["connections"]}
     assert entries["resbot-NODE"]["status"] == "existing"
@@ -183,5 +193,9 @@ def test_helper_recovers_existing_groups_from_one_private_key(client, api, db_se
     assert Path(entries["Second group"]["connection"]).stat().st_mode & 0o077 == 0
     assert not any(key["credential"] in json.dumps(migration) for key in (available, unavailable))
     assert key_file.read_text() == original and seed.read_bytes() == original_config
+    if scope == "user":
+        record = Path(entries["Second group"]["connection"])
+        assert helper.listed_connections()["connections"][0]["connection"] == str(record)
+        destination = record.parent.parent
     with pytest.raises(helper.ClientError, match="recovery_directory_exists"):
         helper.Client(seed, **options).recover(destination)
