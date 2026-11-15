@@ -37,7 +37,16 @@ export default {
   configurationCredentials: {
     title: 'Configuration credentials',
     auditTab: 'Audit credentials',
-    description: 'Allow an Agent to maintain node connection or data source settings for selected bots.',
+    description:
+      'Give an Agent an API credential to complete bot settings automatically, such as node IPs, hostnames, and utilization data sources.',
+    scopeHint:
+      'Choose the bots and settings the Agent can update. Authorize newly added bots separately.',
+    selectedBots: '{selected} of {total} bots selected',
+    selectAllBots: 'Select all',
+    clearBots: 'Clear selection',
+    botLimitHint: 'Each credential can cover up to {count} bots. Select them in separate batches.',
+    nodeAccessHint: 'Allow the Agent to register node hostnames, IP addresses, and SSH ports.',
+    datasourceHint: 'Allow the Agent to set the utilization data source and its node mapping.',
     create: 'Create configuration credential',
     empty: 'No configuration credentials yet',
     nodeAccess: 'Register node connections',

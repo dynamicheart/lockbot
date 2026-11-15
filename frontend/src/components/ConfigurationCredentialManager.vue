@@ -1,7 +1,10 @@
 <template>
   <section ref="container" class="configuration-credentials">
     <header class="credential-toolbar">
-      <p>{{ $t('configurationCredentials.description') }}</p>
+      <div class="credential-description">
+        <p>{{ $t('configurationCredentials.description') }}</p>
+        <p>{{ $t('configurationCredentials.scopeHint') }}</p>
+      </div>
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
@@ -109,26 +112,52 @@
           <el-input v-model="form.label" maxlength="64" autocomplete="off" />
         </el-form-item>
         <el-form-item :label="$t('auditCredentials.bots')">
-          <el-select
-            v-model="form.bot_ids"
-            :placeholder="$t('auditCredentials.selectBots')"
-            multiple
-            filterable
-            collapse-tags
-            collapse-tags-tooltip
-            :multiple-limit="100"
-          >
-            <el-option v-for="bot in bots" :key="bot.id" :value="bot.id" :label="botLabel(bot)" />
-          </el-select>
+          <div class="credential-bot-selection">
+            <div class="credential-selection-header">
+              <span class="credential-field-hint" role="status">
+                {{
+                  $t('configurationCredentials.selectedBots', {
+                    selected: form.bot_ids.length,
+                    total: bots.length,
+                  })
+                }}
+              </span>
+              <div class="credential-actions">
+                <el-button link type="primary" :disabled="!canSelectAllBots" @click="selectAllBots">
+                  {{ $t('configurationCredentials.selectAllBots') }}
+                </el-button>
+                <el-button link :disabled="!form.bot_ids.length" @click="form.bot_ids = []">
+                  {{ $t('configurationCredentials.clearBots') }}
+                </el-button>
+              </div>
+            </div>
+            <el-select
+              v-model="form.bot_ids"
+              :placeholder="$t('auditCredentials.selectBots')"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              :multiple-limit="botLimit"
+            >
+              <el-option v-for="bot in bots" :key="bot.id" :value="bot.id" :label="botLabel(bot)" />
+            </el-select>
+            <p v-if="bots.length > botLimit" class="credential-field-hint">
+              {{ $t('configurationCredentials.botLimitHint', { count: botLimit }) }}
+            </p>
+          </div>
         </el-form-item>
         <el-form-item :label="$t('auditCredentials.scope')">
-          <el-checkbox-group v-model="form.scopes">
+          <el-checkbox-group v-model="form.scopes" class="credential-permissions">
             <el-checkbox
               v-for="(label, permission) in scopeLabels"
               :key="permission"
               :value="permission"
             >
-              {{ $t(label) }}
+              <span class="credential-permission">
+                <span>{{ $t(label) }}</span>
+                <span class="credential-field-hint">{{ $t(label + 'Hint') }}</span>
+              </span>
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
@@ -229,6 +258,7 @@ const scopeLabels = {
 }
 const lifetimes = [600, 3600, 86400, 604800]
 const pageSize = 50
+const botLimit = 100
 const defaultLifetime = 86400
 const container = ref(null)
 const compact = ref(false)
@@ -245,8 +275,20 @@ const rotateLifetime = ref(defaultLifetime)
 const secret = ref('')
 const form = ref(emptyForm())
 const now = ref(Date.now())
+const botsById = computed(() => new Map(bots.value.map((bot) => [bot.id, bot])))
+const canSelectAllBots = computed(
+  () =>
+    bots.value.length > 0 &&
+    bots.value.length <= botLimit &&
+    bots.value.some((bot) => !form.value.bot_ids.includes(bot.id))
+)
 const canCreate = computed(
-  () => form.value.label.trim() && form.value.bot_ids.length && form.value.scopes.length
+  () =>
+    form.value.label.trim() &&
+    form.value.bot_ids.length > 0 &&
+    form.value.bot_ids.length <= botLimit &&
+    form.value.bot_ids.every((id) => botsById.value.has(id)) &&
+    form.value.scopes.length > 0
 )
 const actionLabel = computed(() =>
   action.value?.type === 'rotate' ? 'configurationCredentials.rotate' : 'auditCredentials.revoke'
@@ -257,7 +299,9 @@ const showSecret = computed({
     if (!visible) secret.value = ''
   },
 })
-const botsById = computed(() => new Map(bots.value.map((bot) => [bot.id, bot])))
+function selectAllBots() {
+  if (canSelectAllBots.value) form.value.bot_ids = bots.value.map((bot) => bot.id)
+}
 
 function emptyForm() {
   return { label: '', bot_ids: [], scopes: [], expires_in_seconds: defaultLifetime }
@@ -297,6 +341,7 @@ async function load(nextOffset) {
     if (!request.isCurrent()) return
     items.value = data.items
     bots.value = data.bots
+    form.value.bot_ids = form.value.bot_ids.filter((id) => botsById.value.has(id))
     offset.value = nextOffset
     now.value = Date.now()
   } catch {
@@ -415,6 +460,17 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+  align-items: flex-start;
+}
+
+.credential-description {
+  flex: 1 1 360px;
+  display: grid;
+  gap: 4px;
+}
+
+.credential-description p:first-child {
+  color: var(--el-text-color-primary);
 }
 
 .credential-toolbar p {
@@ -424,6 +480,45 @@ onBeforeUnmount(() => {
 
 .credential-actions :deep(.el-button + .el-button) {
   margin-left: 0;
+}
+
+.credential-bot-selection,
+.credential-permissions {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+}
+
+.credential-selection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.credential-field-hint {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.credential-permissions :deep(.el-checkbox) {
+  align-items: flex-start;
+  height: auto;
+  margin: 0;
+  white-space: normal;
+}
+
+.credential-permissions :deep(.el-checkbox__input) {
+  margin-top: 3px;
+}
+
+.credential-permission {
+  display: grid;
+  gap: 2px;
 }
 
 .credential-pagination {
