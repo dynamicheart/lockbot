@@ -19,6 +19,8 @@ from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.dependencies import _bearer_token
 from lockbot.backend.app.resource_auth.http_errors import ResourceAuthenticationError
 
+from .report_utilization import utilization_fields
+
 _CACHE_HEADERS = {"Cache-Control": "no-store", "Vary": "Authorization"}
 
 PROTOCOL = "lockbot.personal-report.v1"
@@ -83,6 +85,7 @@ def _project(groups):
                     "node": _text(row["node"], 128),
                     "device": _text(row["device"], 64) if row.get("device") is not None else None,
                     "expires_at": _instant(row.get("expires_at")),
+                    **utilization_fields(row, group, now),
                 }
             )
         result.append(

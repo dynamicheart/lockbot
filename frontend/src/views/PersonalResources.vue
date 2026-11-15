@@ -412,9 +412,11 @@
                             <slot v-if="fresh(row.group)" name="metrics" :row="row">
                               <ResourceMetricsCell
                                 v-if="
+                                  row.allocation.utilization_sample ||
                                   utilizationSnapshots[row.group.utilization?.connection]?.enabled
                                 "
-                                v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                                v-bind="utilizationSnapshots[row.group.utilization?.connection]"
+                                :reported-sample="row.allocation.utilization_sample"
                                 :now="clock"
                                 :node-id="row.allocation.node"
                                 :resource-id="
@@ -437,6 +439,7 @@
                           (!detail.resource &&
                             (slots.metrics ||
                               item.first.group.utilization ||
+                              item.rows.some(hasReportedUtilization) ||
                               !item.rows.some(hasHoldingDetails))))
                       "
                       class="allocation-detail"
@@ -472,9 +475,11 @@
                           <slot name="metrics" :row="row">
                             <ResourceMetricsCell
                               v-if="
+                                row.allocation.utilization_sample ||
                                 utilizationSnapshots[row.group.utilization?.connection]?.enabled
                               "
-                              v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                              v-bind="utilizationSnapshots[row.group.utilization?.connection]"
+                              :reported-sample="row.allocation.utilization_sample"
                               :now="clock"
                               :node-id="row.allocation.node"
                               :resource-id="
@@ -491,6 +496,7 @@
                             !holdingAddress(item) &&
                             !holdingGuidance(item).length &&
                             !slots.metrics &&
+                            !item.rows.some(hasReportedUtilization) &&
                             !utilizationSnapshots[item.first.group.utilization?.connection]?.enabled
                           "
                           class="scope"
@@ -1020,6 +1026,9 @@ function allocationItems(rows, holdings) {
 }
 function hasHoldingDetails({ allocation }) {
   return allocation.device != null || allocation.own_task?.note || allocation.own_task?.agent_label
+}
+function hasReportedUtilization({ allocation }) {
+  return Boolean(allocation.utilization_sample)
 }
 function holdingAddress({ rows }) {
   const row = rows.find(({ allocation }) => {

@@ -1,7 +1,7 @@
 """Report discovery and one-extension reads are limited to the current binding."""
 
 # ruff: noqa: F811
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from lockbot.backend.app.bots.models import Bot
@@ -261,9 +261,18 @@ def test_fresh_installed_helper_reads_report_over_http(api, client, db_session, 
         provider = NativeProvider({"issuer": origin, "session_factory": session_factory})
         key = api["headers"]["Authorization"].split(" ", 1)[1]
         allowed = provider.authenticate(key)
+        reporter = Reporter()
+        captured = datetime.now(timezone.utc)
+        reporter.result[0]["source_at"] = captured.isoformat()
+        reporter.result[0]["allocations"][0]["utilization_sample"] = {
+            "compute_percent": 0,
+            "memory_percent": False,
+            "expires_at": (captured + timedelta(seconds=60)).isoformat(),
+            "other": "discard this",
+        }
         item = Extension.configured(
             {"id": "team-report", "label": "Test report", "revision": "1", "grants": [allowed]},
-            Reporter(),
+            reporter,
         )
         mount_agent_reports(client.app, origin, provider, [item])
         routes = client.app.router.routes
@@ -315,6 +324,11 @@ def test_fresh_installed_helper_reads_report_over_http(api, client, db_session, 
             report = run(helper, "--connection", connection, "personal-report", "--extension", "team-report")
             assert report["status"] == "ok"
             assert report["groups"][0]["allocations"][0]["node"] == "node1"
+            assert report["groups"][0]["allocations"][0]["utilization_sample"] == {
+                "compute_percent": 0,
+                "memory_percent": None,
+                "expires_at": (captured + timedelta(seconds=60)).isoformat(),
+            }
             assert "private_detail" not in report["groups"][0]
             assert original == (connection.read_bytes(), key_path.read_bytes())
         finally:
