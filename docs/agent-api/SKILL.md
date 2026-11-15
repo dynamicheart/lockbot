@@ -129,6 +129,12 @@ only `task_category`, `agent_label`, `purpose`; choose the category from current
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.
 
+For NODE and QUEUE resources, an operator may register accelerator inventory.
+When set, each resource's `accelerators` array lists configured models and counts.
+An absent array means unknown hardware. This is inventory for the entire machine,
+not a count of individually available cards. Match the registered model against the
+user's constraints and verify live occupancy before selecting the machine.
+
 After acquiring a node or a card, use the verified resource snapshot from the helper's
 `resources` command to look for `node_access` on your current holding. It contains the
 administrator-configured SSH `host` and `port`, with a separate `ip` when both a hostname

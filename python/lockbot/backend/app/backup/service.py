@@ -320,8 +320,9 @@ def _read_backup_bots(zf) -> list[dict]:
             )
             if "utilization_config" in columns:
                 select_cols.append("utilization_config")
-            if "node_access_config" in columns:
-                select_cols.append("node_access_config")
+            for key in ("node_access_config", "node_hardware_config"):
+                if key in columns:
+                    select_cols.append(key)
             # uuid may not exist in older backups
             if "uuid" in columns:
                 select_cols.insert(1, "uuid")
@@ -695,8 +696,23 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
                 saved_node_access,
                 serialize_node_access,
             )
+            from lockbot.backend.app.bots.node_hardware import (
+                WHOLE_MACHINE_TYPES,
+                parse_node_hardware,
+                saved_node_hardware,
+                serialize_node_hardware,
+            )
 
             allowed_nodes = set(node_ids(json.loads(cc_str)))
+            if "node_hardware_config" in bb:
+                try:
+                    raw_hardware = bb["node_hardware_config"]
+                    hardware = parse_node_hardware(raw_hardware) if raw_hardware else {}
+                    if set(hardware) - allowed_nodes or (hardware and bot_type not in WHOLE_MACHINE_TYPES):
+                        raise ValueError
+                    agent_options["node_hardware_config"] = serialize_node_hardware(hardware)
+                except (ValueError, TypeError, RecursionError):
+                    raise ValueError("Invalid archived node hardware inventory") from None
             if "node_access_config" in bb:
                 try:
                     raw_access = bb["node_access_config"]
@@ -783,6 +799,16 @@ def _restore_apply(file_bytes, password, source_secret_key, selected_uuids, curr
                                     for node, access in saved_node_access(existing).items()
                                     if node in allowed_nodes
                                 }
+                            )
+                        if "node_hardware_config" not in bb and existing.node_hardware_config:
+                            existing.node_hardware_config = serialize_node_hardware(
+                                {
+                                    node: rows
+                                    for node, rows in saved_node_hardware(existing).items()
+                                    if node in allowed_nodes
+                                }
+                                if bot_type in WHOLE_MACHINE_TYPES
+                                else {}
                             )
                         for key, value in agent_options.items():
                             setattr(existing, key, value)

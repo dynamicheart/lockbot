@@ -298,6 +298,7 @@ def observe_migration(db, manager, bot_id, body, *, retired=None, checkpoint=Non
         "rules": bot.config_overrides,
         "utilization": bot.utilization_config,
         "node_access": bot.node_access_config,
+        "node_hardware": bot.node_hardware_config,
         "owner_id": bot.user_id,
         "group_id": bot.group_id,
         "resource_auth_enabled": bot.resource_auth_enabled,

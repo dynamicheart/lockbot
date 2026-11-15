@@ -252,13 +252,15 @@ def _migrate_bots_utilization_config():
             conn.execute(text("ALTER TABLE bots ADD COLUMN utilization_config TEXT"))
 
 
-def _migrate_bots_node_access():
+def _migrate_bots_node_metadata():
     from sqlalchemy import inspect as sa_inspect
     from sqlalchemy import text
 
-    if "node_access_config" not in {c["name"] for c in sa_inspect(engine).get_columns("bots")}:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE bots ADD COLUMN node_access_config TEXT"))
+    columns = {column["name"] for column in sa_inspect(engine).get_columns("bots")}
+    for name in ("node_access_config", "node_hardware_config"):
+        if name not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(f"ALTER TABLE bots ADD COLUMN {name} TEXT"))
 
 
 def _migrate_usage_agent_label():
@@ -483,7 +485,7 @@ async def lifespan(app: FastAPI):
     _migrate_bots_resource_auth_enabled()
     _migrate_bots_agent_notifications()
     _migrate_bots_utilization_config()
-    _migrate_bots_node_access()
+    _migrate_bots_node_metadata()
     _migrate_usage_agent_label()
     _migrate_usage_task_category()
     _migrate_resource_bindings()
