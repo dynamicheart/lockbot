@@ -12,7 +12,11 @@
       </p>
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
-        <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
+        <el-button
+          type="primary"
+          :disabled="loading || busy || (!canProvision && !bots.length)"
+          @click="openCreate"
+        >
           {{ $t('configurationCredentials.create') }}
         </el-button>
       </div>
@@ -118,7 +122,9 @@
         </el-form-item>
         <el-form-item v-if="canProvision" :label="$t('configurationCredentials.purpose')">
           <el-radio-group v-model="form.purpose">
-            <el-radio value="configure">{{ $t('configurationCredentials.editBots') }}</el-radio>
+            <el-radio value="configure" :disabled="!bots.length">{{
+              $t('configurationCredentials.editBots')
+            }}</el-radio>
             <el-radio value="create">{{ $t('configurationCredentials.createBot') }}</el-radio>
           </el-radio-group>
         </el-form-item>
@@ -341,6 +347,7 @@ async function load(nextOffset) {
 function openCreate() {
   error.value = ''
   form.value = emptyForm()
+  if (props.canProvision && !bots.value.length) form.value.purpose = 'create'
   showCreate.value = true
 }
 
