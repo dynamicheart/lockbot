@@ -60,6 +60,21 @@ request explicitly authorizes installation.
    with the same directory. The installed CLI and saved files carry the service origin.
    Ask for the Skill URL only when the installed files and approved origin cannot be found.
 
+**Read-only HTTP fallback when the packaged CLI cannot run.** On the approved origin,
+GET `/api/agent-skill` without credentials and verify the saved service and instance.
+Then GET its `context_url` (`/api/agent/context`) with
+`Authorization: Bearer <personal-key>`, using the matching private `lbr_` Key.
+Send `X-Lockbot-Client-Skill-Version` with the version of the instructions you actually
+loaded, from `installation.json` for the installed copy. Verify the returned identity
+and GET the same-origin `links.resources` with the same authentication. Use those
+paths and header names as given. A Key proves its bot without a user-supplied bot ID.
+A pending update still allows you to read resources and verify the outcome of an earlier
+command. If asked to prepare an update without installing, verify the latest Markdown against
+`skill_sha256`, load it for the current task, and give the user the manifest's ZIP URL for
+confirmation. A subsequent authenticated read reports the newly loaded revision. Keep the
+installed package and Key in place until the user authorizes a change. Never replay a finished
+command to check its outcome.
+
 If the user asks to open a bookmarked personal resource panel after signing in, open the
 saved `/#/me` home in their authorized browser, when available. If you cannot access
 that browser, give them the verified fixed home and explain what you could observe.
