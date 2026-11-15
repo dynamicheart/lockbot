@@ -30,7 +30,7 @@ AGENT_ACTIVITY_RETENTION = timedelta(days=30)
 MAX_TRACKED_LABELS = 32
 _MIN_ACTIVITY_UPDATE = timedelta(seconds=30)
 _SECRET_LABEL = re.compile(
-    r"\b(?:lbr_|lbk_|lba1\.|lbv1\.|Bearer\s+)|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"\b(?:lbr_|lbk_|lb[ac]1\.|lbv1\.|Bearer\s+)|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
     r"|/#/r/[0-9]+/[A-Za-z0-9_-]{22}",
     re.IGNORECASE,
 )
