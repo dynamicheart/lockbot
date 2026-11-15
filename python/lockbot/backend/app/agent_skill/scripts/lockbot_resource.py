@@ -27,6 +27,14 @@ from pathlib import Path
 SERVICE = "lockbot.resource-api"
 API_VERSION = "1"
 SCRIPT_PATH = "scripts/lockbot_resource.py"
+BUNDLE_FORMAT = "canonical-origin-v2"
+LEGACY_BUNDLE_FORMAT = "canonical-origin-v1"
+REFERENCE_PATHS = (
+    "references/connections.md",
+    "references/http-api.md",
+    "references/resource-operations.md",
+    "references/workbench-and-metrics.md",
+)
 ENROLLMENT_PATH = "/api/resource-auth/bindings"
 RECOVERY_PATH = "/api/agent/bindings/recover"
 MAX_BYTES = 1024 * 1024
@@ -359,10 +367,9 @@ def _node_address(value):
     return address
 
 
-def deployment_fragments(base):
+def deployment_fragments(base, package_format=BUNDLE_FORMAT):
     """Exact builder-owned locator substitutions, never arbitrary Markdown stripping."""
-    return {
-        "<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->": f"Deployment Skill URL: `{base}/api/agent-skill/SKILL.md`.",
+    fragments = {
         "<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->": "\n".join(
             [
                 "Deployment API addresses (use the verified context links for the bot scope):",
@@ -375,9 +382,20 @@ def deployment_fragments(base):
             ]
         ),
     }
+    if package_format == LEGACY_BUNDLE_FORMAT:
+        fragments["<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->"] = f"Deployment Skill URL: `{base}/api/agent-skill/SKILL.md`."
+    return fragments
 
 
-def canonical_package_version(markdown, script, deployment_origin):
+def content_version(markdown, script, references=None):
+    digest = hashlib.sha256(markdown + b"\0" + script)
+    for name, content in sorted((references or {}).items()):
+        digest.update(b"\0" + name.encode() + b"\0" + hashlib.sha256(content).digest())
+    return digest.hexdigest()[:16]
+
+
+def canonical_package_version(markdown, script, deployment_origin, references=None):
+    package_format = BUNDLE_FORMAT if references else LEGACY_BUNDLE_FORMAT
     if not isinstance(deployment_origin, str):
         raise ClientError("invalid_bundle_deployment_origin")
     if deployment_origin:
@@ -386,13 +404,13 @@ def canonical_package_version(markdown, script, deployment_origin):
         origin(deployment_origin)
         if not re.fullmatch(r"https?://[A-Za-z0-9.:[\]-]+", deployment_origin):
             raise ClientError("invalid_bundle_deployment_origin")
-        for marker, rendered in deployment_fragments(deployment_origin).items():
+        for marker, rendered in deployment_fragments(deployment_origin, package_format).items():
             if markdown.count(rendered.encode()) != 1 or marker.encode() in markdown:
                 raise ClientError("unknown_bundle_locator")
             markdown = markdown.replace(rendered.encode(), marker.encode(), 1)
-    if any(markdown.count(marker.encode()) != 1 for marker in deployment_fragments("")):
+    if any(markdown.count(marker.encode()) != 1 for marker in deployment_fragments("", package_format)):
         raise ClientError("unknown_bundle_locator")
-    return hashlib.sha256(markdown + b"\0" + script).hexdigest()[:16]
+    return content_version(markdown, script, references)
 
 
 def installed_package_version(root):
@@ -401,10 +419,18 @@ def installed_package_version(root):
         stamp = json.loads((root / "installation.json").read_bytes())
         if "package_version" not in stamp:  # old complete bundles stay conservative
             return None
-        if stamp.get("package_format") != "canonical-origin-v1":
+        if stamp.get("package_format") not in (LEGACY_BUNDLE_FORMAT, BUNDLE_FORMAT):
             raise ClientError("unsupported_bundle_package_format")
+        references = (
+            {name: (root / name).read_bytes() for name in REFERENCE_PATHS}
+            if (stamp["package_format"] == BUNDLE_FORMAT)
+            else None
+        )
         package = canonical_package_version(
-            (root / "SKILL.md").read_bytes(), (root / SCRIPT_PATH).read_bytes(), stamp.get("deployment_origin")
+            (root / "SKILL.md").read_bytes(),
+            (root / SCRIPT_PATH).read_bytes(),
+            stamp.get("deployment_origin"),
+            references,
         )
         if package != stamp["package_version"]:
             raise ClientError("installed_package_modified")
@@ -418,15 +444,17 @@ def installed_version(root):
         stamp = json.loads((root / "installation.json").read_bytes())
         if stamp["service_id"] != SERVICE or stamp["api_version"] != API_VERSION:
             raise ValueError
-        for relative in ("SKILL.md", SCRIPT_PATH):
-            if hashlib.sha256((root / relative).read_bytes()).hexdigest() != stamp["files"][relative]:
+        reference_paths = REFERENCE_PATHS if stamp.get("package_format") == BUNDLE_FORMAT else ()
+        contents = {
+            relative: (root / relative).read_bytes() for relative in ("SKILL.md", SCRIPT_PATH, *reference_paths)
+        }
+        for relative, data in contents.items():
+            if hashlib.sha256(data).hexdigest() != stamp["files"][relative]:
                 raise ValueError
         if not re.fullmatch(r"[a-f0-9]{16}", stamp["version"]):
             raise ValueError
-        content_version = hashlib.sha256(
-            (root / "SKILL.md").read_bytes() + b"\0" + (root / SCRIPT_PATH).read_bytes()
-        ).hexdigest()[:16]
-        if content_version != stamp["version"]:
+        references = {name: contents[name] for name in reference_paths}
+        if content_version(contents["SKILL.md"], contents[SCRIPT_PATH], references) != stamp["version"]:
             raise ValueError
         return stamp["version"]
     except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
@@ -619,7 +647,7 @@ class Client:
             self.package_version = installed_package_version(self.root)
         self.portable_package = bool(
             self.package_version
-            and self.manifest.get("package_format") == "canonical-origin-v1"
+            and self.manifest.get("package_format") in (LEGACY_BUNDLE_FORMAT, BUNDLE_FORMAT)
             and re.fullmatch(r"[a-f0-9]{16}", str(self.manifest.get("package_version", "")))
         )
         self.needs_update |= self._version_differs(self.manifest.get("version"), self.manifest.get("package_version"))
@@ -1420,7 +1448,9 @@ class Client:
         archive = self._request(same_origin_url(self.base, meta["installation"]["download_url"]), binary=True)
         if hashlib.sha256(archive).hexdigest() != meta["installation"]["sha256"]:
             raise ClientError("bundle_digest_mismatch")
-        expected = (SCRIPT_PATH, "installation.json", "SKILL.md")
+        package_format = meta.get("package_format")
+        reference_paths = REFERENCE_PATHS if package_format == BUNDLE_FORMAT else ()
+        expected = (SCRIPT_PATH, "installation.json", "SKILL.md", *reference_paths)
         try:
             with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
                 root = meta["installation"]["name"] + "/"
@@ -1440,16 +1470,21 @@ class Client:
                     or hashlib.sha256(contents["SKILL.md"]).hexdigest() != meta["skill_sha256"]
                 ):
                     raise ClientError("bundle_metadata_mismatch")
-                for name in ("SKILL.md", SCRIPT_PATH):
+                for name in ("SKILL.md", SCRIPT_PATH, *reference_paths):
                     if hashlib.sha256(contents[name]).hexdigest() != stamp["files"][name]:
                         raise ClientError("bundle_file_digest_mismatch")
         except (ValueError, OSError, KeyError, zipfile.BadZipFile, RecursionError) as exc:
             raise ClientError("invalid_installation_bundle") from exc
         if "package_version" in meta and (
-            meta.get("package_format") != "canonical-origin-v1"
+            package_format not in (LEGACY_BUNDLE_FORMAT, BUNDLE_FORMAT)
             or stamp.get("package_format") != meta["package_format"]
             or stamp.get("package_version") != meta["package_version"]
-            or canonical_package_version(contents["SKILL.md"], contents[SCRIPT_PATH], stamp.get("deployment_origin"))
+            or canonical_package_version(
+                contents["SKILL.md"],
+                contents[SCRIPT_PATH],
+                stamp.get("deployment_origin"),
+                {name: contents[name] for name in reference_paths},
+            )
             != meta["package_version"]
         ):
             raise ClientError("bundle_package_mismatch")

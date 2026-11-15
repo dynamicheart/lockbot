@@ -70,17 +70,23 @@ PROMPTS = {
 
 
 def prepare(root, skill, scenario, artifact_directory=None):
-    base.prepare(root, skill, "bootstrap" if scenario in WITHOUT_KEY else "existing-key")
+    artifact = artifacts.load(artifact_directory) if artifact_directory is not None else None
+    source = artifact["contents"]["SKILL.md"] if artifact else None
+    base.prepare(
+        root,
+        skill,
+        "bootstrap" if scenario in WITHOUT_KEY else "existing-key",
+        source=source.decode() if source else None,
+    )
     case = json.loads((root / "case.json").read_text())
     fixture_version = 8 if scenario in WITHOUT_KEY else 7 if scenario == "telemetry" else 6
     case.update(fixture_version=fixture_version, scenario=scenario, phase=1)
     base.save_json(root / "case.json", case)
     (root / "prompt.txt").write_text(PROMPTS[scenario])
     base.save_json(root / "browser.json", {"authenticated": False, "bookmarks": [], "delivered": False})
-    if artifact_directory is not None:
-        artifact = artifacts.load(artifact_directory)
+    if artifact is not None:
         (root / "artifacts").mkdir(mode=0o700)
-        for filename in ("manifest.json", "SKILL.md", "lockbot-resource-agent.zip"):
+        for filename in ("manifest.json", "lockbot-resource-agent.zip"):
             target = root / "artifacts" / filename
             target.write_bytes((artifact_directory / filename).read_bytes())
             target.chmod(0o600)
@@ -721,7 +727,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--skill", type=Path)
     parser.add_argument("--scenario", choices=PROMPTS)
-    parser.add_argument("--artifacts", type=Path, help="Frozen manifest.json, SKILL.md and complete installation ZIP")
+    parser.add_argument("--artifacts", type=Path, help="Frozen manifest.json and complete installation ZIP")
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     args = parser.parse_args()

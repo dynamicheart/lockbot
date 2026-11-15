@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_PATHS
 from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
@@ -35,15 +36,19 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
             "lockbot-agent-api/SKILL.md",
             "lockbot-agent-api/scripts/lockbot_resource.py",
             "lockbot-agent-api/installation.json",
+            *("lockbot-agent-api/" + name for name in REFERENCE_PATHS),
         }
         markdown = archive.read("lockbot-agent-api/SKILL.md")
     with zipfile.ZipFile(io.BytesIO(installation.content)) as archive:
         assert archive.read("lockbot-resource-agent/SKILL.md") == markdown
+        for name in REFERENCE_PATHS:
+            assert f"({name})".encode() in markdown
+            assert archive.read("lockbot-resource-agent/" + name)
     assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
     legacy = client.get("/api/agent-skill/SKILL.md", follow_redirects=False)
     assert legacy.status_code == 404 and "location" not in legacy.headers
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
-    source = Path(__file__).resolve().parents[2] / "docs/agent-api/SKILL.md"
+    source = Path(__file__).resolve().parents[2] / "python/lockbot/backend/app/agent_skill/SKILL.md"
     assert source.read_bytes() == markdown
     assert db_session.query(AuditLog).count() == before
     assert client.get(meta["download_url"], headers={"If-None-Match": bundle.headers["etag"]}).status_code == 304

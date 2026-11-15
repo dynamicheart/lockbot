@@ -131,7 +131,7 @@ def case(tmp_path):
                     "bot_rules": {"forbid_relock": state.forbidden, "allow_user_alias": state.allow_alias},
                     "usage_privacy": {"public_task_categories": {"unit_testing": "Unit testing"}},
                     "links": {"resources": "/api/bots/7/resources", "commands": "/api/bots/7/commands"},
-                    "skill": meta,
+                    "skill": state.manifest,
                     "utilization": {
                         "configuration": {
                             "type": "prometheus",

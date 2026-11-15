@@ -47,16 +47,19 @@ def test_same_package_other_origin_allows_write_without_changing_pins(case):  # 
     assert request["X-Lockbot-Client-Skill-Version"] != case.state.manifest["version"]
 
 
-@pytest.mark.parametrize("changed", ["markdown", "script"])
+@pytest.mark.parametrize("changed", ["markdown", "script", "reference"])
 def test_actual_instruction_or_helper_change_blocks_mutation(case, changed):  # noqa: F811
     # Build a genuine changed server revision, rather than trusting only a rendered hash.
     canonical = (case.root / "SKILL.md").read_bytes()
     script = (case.root / helper.SCRIPT_PATH).read_bytes()
+    references = {name: (case.root / name).read_bytes() for name in helper.REFERENCE_PATHS}
     if changed == "markdown":
         canonical += b"\nChanged instruction.\n"
-    else:
+    elif changed == "script":
         script += b"\n# Changed helper\n"
-    case.state.manifest["package_version"] = hashlib.sha256(canonical + b"\0" + script).hexdigest()[:16]
+    else:
+        references[helper.REFERENCE_PATHS[0]] += b"\nChanged reference.\n"
+    case.state.manifest["package_version"] = helper.content_version(canonical, script, references)
     with pytest.raises(helper.ClientError, match="update_bundle_before_mutation"):
         case.client.command("lock", ["node-a"], [], "2m")
     assert not commands(case)
@@ -73,6 +76,9 @@ def test_legacy_without_portable_metadata_is_conservative(case, legacy):  # noqa
         stamp = json.loads(path.read_text())
         for field in ["package_version", "package_format", "deployment_origin"]:
             stamp.pop(field)
+        stamp["version"] = helper.content_version(
+            (case.root / "SKILL.md").read_bytes(), (case.root / helper.SCRIPT_PATH).read_bytes()
+        )
         path.write_text(json.dumps(stamp))
     with pytest.raises(helper.ClientError, match="update_bundle_before_mutation"):
         case.client.command("lock", ["node-a"], [], "2m")
@@ -86,12 +92,12 @@ def test_package_normalization_does_not_strip_unknown_text(case, tamper):  # noq
     stamp = json.loads(path.read_text())
     markdown = (case.root / "SKILL.md").read_bytes()
     if tamper == "locator":
-        markdown = markdown.replace(b"Deployment Skill URL:", b"Other Skill URL:")
+        markdown = markdown.replace(b"Deployment API addresses", b"Other API addresses")
     elif tamper == "extra_locator":
         markdown += (
             b"\n"
             + helper.deployment_fragments("https://installed.example.test")[
-                "<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->"
+                "<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->"
             ].encode()
         )
     elif tamper == "origin":
@@ -103,7 +109,11 @@ def test_package_normalization_does_not_strip_unknown_text(case, tamper):  # noq
     # Even if the rendered stamp is recomputed, normalization must not hide a changed instruction.
     (case.root / "SKILL.md").write_bytes(markdown)
     stamp["files"]["SKILL.md"] = hashlib.sha256(markdown).hexdigest()
-    stamp["version"] = hashlib.sha256(markdown + b"\0" + (case.root / helper.SCRIPT_PATH).read_bytes()).hexdigest()[:16]
+    stamp["version"] = helper.content_version(
+        markdown,
+        (case.root / helper.SCRIPT_PATH).read_bytes(),
+        {name: (case.root / name).read_bytes() for name in helper.REFERENCE_PATHS},
+    )
     path.write_text(json.dumps(stamp))
     with pytest.raises(helper.ClientError):
         case.client.command("lock", ["node-a"], [], "2m")
@@ -131,6 +141,10 @@ def test_matching_legacy_stamp_retains_existing_read_behavior(case):  # noqa: F8
     stamp = json.loads(path.read_text())
     for field in ["package_version", "package_format", "deployment_origin"]:
         stamp.pop(field)
+    stamp["version"] = helper.content_version(
+        (case.root / "SKILL.md").read_bytes(), (case.root / helper.SCRIPT_PATH).read_bytes()
+    )
+    case.state.manifest["version"] = stamp["version"]
     path.write_text(json.dumps(stamp))
     case.client.context()
     assert not case.client.needs_update
@@ -142,6 +156,14 @@ def test_changed_response_package_is_not_ignored_after_discovery(case):  # noqa:
     assert not case.client.needs_update
     assert case.client._version_differs(case.client.version, "0" * 16)
     assert case.client._version_differs("0" * 16, None)  # undeclared response remains conservative
+
+
+def test_changed_reference_blocks_authenticated_use(case):  # noqa: F811
+    path = case.root / helper.REFERENCE_PATHS[0]
+    path.write_bytes(path.read_bytes() + b"\nChanged reference.\n")
+    with pytest.raises(helper.ClientError, match="installed_bundle_incomplete_or_modified"):
+        case.client.context()
+    assert all("Authorization" not in request[2] for request in case.state.requests)
 
 
 def test_new_response_revision_blocks_before_write_even_after_matching_manifest(case):  # noqa: F811

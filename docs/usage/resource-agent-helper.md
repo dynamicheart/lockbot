@@ -1,6 +1,6 @@
 # Resource Agent helper and complete installation bundle
 
-The resource Skill installation ZIP now contains the Markdown, a standard-library Python client (`scripts/lockbot_resource.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-resource-agent.zip`, discovered through its public manifest. A URL alone does not install anything in every Agent client; use the client's installer or verify/extract the package, then reload the Skill. Copying only Markdown does not install the helper.
+The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_resource.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-resource-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
 
 Existing API routes, personal keys, legacy ZIP URL/root (`lockbot-agent-api`) and Markdown URL stay supported. Scripts are an additional recommended client, not a mandatory server gate for older clients. Operator bundles remain separate and do not gain this personal-key client.
 
@@ -28,7 +28,7 @@ change does not pretend to provide cross-platform ACL handling or Go/Node altern
 ## Install and initialize
 
 1. Fetch the approved service's `/api/agent-skill` **without credentials**. Verify `service_id=lockbot.resource-api`, `api_version=1`, the instance identity and namespaced installation descriptor. Follow only same-origin installation URLs and verify the exact ZIP `installation.sha256` before extraction.
-2. Install/reload the complete ZIP with the Agent client's supported workflow. `SKILL.md`, `scripts/lockbot_resource.py` and `installation.json` must all be present. A copied script or copied Markdown alone is incomplete.
+2. Install and reload the complete ZIP with the Agent client's supported workflow. Keep every version-stamped file. If an older helper rejects the new archive layout, use the client's installer for the verified ZIP and then use its new bundled helper.
 3. Keep the already approved, existing personal key in a separate private file, mode `0600`. Do not put its raw value in command arguments, shell history, Skill text or shared memory. Do not rebind or rotate a working key merely to install or update this client.
 4. Initialize a **new** private connection. The user need not supply a bot ID or UUID:
 

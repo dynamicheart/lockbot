@@ -18,10 +18,9 @@ SPEC.loader.exec_module(evaluation)
 def prepare(tmp_path, monkeypatch, scenario, instance_id=None):
     origin = evaluation.PANEL_ORIGIN if scenario == "panel" else evaluation.base.ORIGIN
     monkeypatch.setenv("PLATFORM_URL", origin)
-    markdown, _, manifest = skill.skill_artifacts()
+    _, _, manifest = skill.skill_artifacts()
     artifact = tmp_path / "artifact"
     artifact.mkdir()
-    (artifact / "SKILL.md").write_bytes(markdown)
     (artifact / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle("agent"))
     if instance_id is not None:
         manifest = {**manifest, "instance_id": instance_id}

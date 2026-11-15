@@ -86,10 +86,10 @@ def save_json(path, value):
     path.chmod(0o600)
 
 
-def prepare(root, skill, scenario):
+def prepare(root, skill, scenario, *, source=None):
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
     (root / "workspace/private").mkdir(mode=0o700, parents=True)
-    source = skill.read_text()
+    source = skill.read_text() if source is None else source
     markdown = source.replace("<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->", f"Deployment Skill URL: `{ORIGIN}{SKILL_PATH}`.")
     if scenario == "missing-origin":
         markdown = source.replace("<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->", "")

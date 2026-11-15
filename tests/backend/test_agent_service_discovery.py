@@ -12,7 +12,7 @@ import pytest
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 from lockbot.backend.app.resource_api.resources import snapshot_cache
-from lockbot.backend.app.resource_api.skill import _skill_artifacts
+from lockbot.backend.app.resource_api.skill import REFERENCE_PATHS, _skill_artifacts
 from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
@@ -52,6 +52,7 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
                 root + "/SKILL.md",
                 root + "/scripts/lockbot_resource.py",
                 root + "/installation.json",
+                *(root + "/" + name for name in REFERENCE_PATHS),
             }
             markdown = zipped.read(zipped.namelist()[0])
             assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
@@ -181,6 +182,10 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     script = markdown.parent / "scripts/lockbot_resource.py"
     script.parent.mkdir()
     script.write_bytes(files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes())
+    for relative in REFERENCE_PATHS:
+        reference = markdown.parent / relative
+        reference.parent.mkdir(exist_ok=True)
+        reference.write_bytes(files("lockbot.backend.app").joinpath("agent_skill", relative).read_bytes())
     monkeypatch.setattr("lockbot.backend.app.resource_api.skill.files", lambda package: tmp_path)
     _skill_artifacts.cache_clear()
     context = client.get("/api/agent/context", headers=api["headers"])

@@ -144,7 +144,7 @@ reuse a conversation ID in the second invocation.
 
 ```sh
 python scripts/dev/skill_continuity_eval.py prepare /private/case-1 \
-  --skill docs/agent-api/SKILL.md --scenario recover \
+  --skill python/lockbot/backend/app/agent_skill/SKILL.md --scenario recover \
   --artifacts /private/frozen-artifacts
 # Invoke the private runner with case-1's prompt/system/MCP configuration.
 python scripts/dev/skill_continuity_eval.py score /private/case-1 --final-file /private/case-1/final.txt
@@ -174,10 +174,11 @@ connection/key references and final claims. A text answer saying “installed”
 remember” is insufficient. The original key bytes must remain unchanged; new bot keys
 are private per-bot files. Never publish the one-use login link or raw credential.
 
-Continuity cases require an explicit frozen artifact directory with `manifest.json`,
-rendered `SKILL.md` and `lockbot-resource-agent.zip`. The adapter verifies ZIP/Markdown
-hashes, exactly three members (Skill, real helper path and installation stamp),
-per-file digests and the Markdown-plus-helper revision. Download, inspection and
+Continuity cases require an explicit frozen artifact directory with `manifest.json`
+and `lockbot-resource-agent.zip`. The adapter verifies ZIP/Markdown
+hashes, the exact file set for the declared layout, per-file digests and the content
+revision. The current format includes the Skill, helper, stamp and linked references.
+Download, inspection and
 installation use the same bytes. Missing helper/stamp or no artifact input is
 **blocked**, never silently treated as a successful Markdown-only installation.
 The fresh-session catalog includes the installed revision and helper path; the

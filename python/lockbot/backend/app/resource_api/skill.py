@@ -13,7 +13,13 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import deployment_fragments
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+    BUNDLE_FORMAT,
+    REFERENCE_PATHS,
+    SCRIPT_PATH,
+    content_version,
+    deployment_fragments,
+)
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 
@@ -49,20 +55,22 @@ def _skill_artifacts(kind, origin):
         for marker, rendered in deployment_fragments(origin).items():
             markdown = markdown.replace(marker.encode(), rendered.encode(), 1)
     extras = {}
+    references = {}
     if kind == "agent":
-        extras["scripts/lockbot_resource.py"] = (
-            files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes()
-        )
-    version = hashlib.sha256(markdown + (b"\0" + extras["scripts/lockbot_resource.py"] if extras else b"")).hexdigest()[
-        :16
-    ]
+        resources = files("lockbot.backend.app")
+        extras[SCRIPT_PATH] = resources.joinpath(f"{folder}/{SCRIPT_PATH}").read_bytes()
+        references = {path: resources.joinpath(f"{folder}/{path}").read_bytes() for path in REFERENCE_PATHS}
+        extras.update(references)
+    version = (
+        content_version(markdown, extras[SCRIPT_PATH], references)
+        if extras
+        else hashlib.sha256(markdown).hexdigest()[:16]
+    )
     package = {}
     if extras:
         package = {
-            "package_format": "canonical-origin-v1",
-            "package_version": hashlib.sha256(
-                canonical_markdown + b"\0" + extras["scripts/lockbot_resource.py"]
-            ).hexdigest()[:16],
+            "package_format": BUNDLE_FORMAT,
+            "package_version": content_version(canonical_markdown, extras[SCRIPT_PATH], references),
         }
         stamp = {
             **package,

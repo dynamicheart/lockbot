@@ -93,7 +93,7 @@ def test_public_command_docs_have_named_examples_and_grammar(client):
     assert {"node_lock", "device_lock", "queue_book", "release_or_cancel"} <= examples.keys()
     bundle = client.get("/api/agent-skill/lockbot-resource-agent.zip").content
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-        instructions = archive.read("lockbot-resource-agent/SKILL.md").decode()
+        instructions = "\n".join(archive.read(name).decode() for name in archive.namelist() if name.endswith(".md"))
     for word in ["free node1", "book node1 2h", "dev0-3", "queue_claim_window_seconds"]:
         assert word in op["description"]
         assert word in instructions
