@@ -193,6 +193,16 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
             ["整机队列群"],
             "已锁定 node-23 整机两小时，含两张 P900。",
         ),
+        (
+            "intent-model-p800-whole-machine",
+            ["整机队列群"],
+            "已锁定 node-23 整机两小时，含六张 P800。",
+        ),
+        (
+            "intent-model-p800-unknown-node",
+            ["整机队列群"],
+            "P800 只出现在别名，无法确认整机型号。没有发起申请。",
+        ),
         ("intent-whole", ["整机队列群"], "整机队列群只支持整机，请确认。"),
         ("intent-book", ["整机队列群"], "node-20 已预约两小时。"),
         ("intent-claim", ["整机队列群"], "已领取 node-20，沿用原预约两小时。"),
@@ -209,7 +219,7 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
             result = run(fixture, "command", group=groups[0], operation="book", nodes=["node-20"], duration="120m")
         elif scenario == "intent-claim":
             result = run(fixture, "command", group=groups[0], operation="claim", nodes=["node-20"])
-        elif scenario == "intent-model-whole-machine":
+        elif scenario in evaluation.intent.WHOLE_MACHINE_MODELS:
             snapshot = run(fixture, "resources", group=groups[0])["result"]
             nodes = {node["id"]: node for node in snapshot["resources"]}
             assert "accelerators" not in nodes["node-20"]

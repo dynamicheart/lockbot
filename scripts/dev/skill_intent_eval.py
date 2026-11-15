@@ -8,6 +8,14 @@ CARDS = "加速卡群"
 MACHINES = "整机队列群"
 ALTERNATE_CARDS = "备选加速卡群"
 MODEL_SCENARIOS = ("intent-model-find", "intent-model-allocate")
+WHOLE_MACHINE_MODELS = {
+    "intent-model-whole-machine": "P900",
+    "intent-model-p800-whole-machine": "P800",
+}
+UNVERIFIED_MACHINE_MODELS = {
+    "intent-model-unknown-node": "P900",
+    "intent-model-p800-unknown-node": "P800",
+}
 GROUP_IDS = {CARDS: 7, MACHINES: 8}
 TRAINING_NODE = "node-10"
 MACHINE_NODE = "node-20"
@@ -23,8 +31,14 @@ PROMPTS = {
     "intent-claim": f"{MACHINES}通知我轮到了。帮我领取之前预约的训练节点，按原预约时长用。",
     "intent-model-find": "帮我找空闲的 P800 或 P900 卡，哪个群、哪台机器都行，我先看看。",
     "intent-model-allocate": "帮我直接申请一张空闲的 P800 或 P900 卡，用两小时。群、机器、卡都由你选。",
-    "intent-model-unknown-node": "帮我申请一台空闲的 P900 整机，用两小时。哪台都可以。",
-    "intent-model-whole-machine": "帮我直接申请一台空闲的整机，要至少有两张 P900 卡，用两小时。哪个群、哪台都行。",
+    **{
+        scenario: f"帮我申请一台空闲的 {model} 整机，用两小时。哪台都可以。"
+        for scenario, model in UNVERIFIED_MACHINE_MODELS.items()
+    },
+    **{
+        scenario: f"帮我直接申请一台空闲的整机，要至少有两张 {model} 卡，用两小时。哪个群、哪台都行。"
+        for scenario, model in WHOLE_MACHINE_MODELS.items()
+    },
     "intent-renew": f"帮我给{MACHINES}里我占用的训练节点续期，在原到期时间上再加两小时。",
     "intent-release": f"帮我释放{CARDS}里训练节点的 2 号卡，3 号卡继续保留。",
     "intent-write-unknown": f"帮我锁{CARDS}里训练节点的 2、3 号卡两小时。",
@@ -39,7 +53,7 @@ EXPECTED = {
     "intent-release": (7, "unlock node-10 dev2"),
     "intent-write-unknown": (7, "lock node-10 dev2,3 2h"),
     "intent-model-allocate": (8, "lock node-20 dev2 2h"),
-    "intent-model-whole-machine": (8, f"lock {MATCHING_MACHINE} 2h"),
+    **{scenario: (8, f"lock {MATCHING_MACHINE} 2h") for scenario in WHOLE_MACHINE_MODELS},
 }
 
 
@@ -123,21 +137,23 @@ def inventory(bot, command="", *, scenario=None):
             {"id": "node-11", "alias": "验证节点", "devices": [device(0, "P800"), device(1, "H20")]},
         ]
         operations = ["lock", "unlock"]
-    elif scenario == "intent-model-whole-machine":
+    elif scenario in WHOLE_MACHINE_MODELS:
+        model = WHOLE_MACHINE_MODELS[scenario]
+        other_model = "P800" if model == "P900" else "P900"
         acquired = command == EXPECTED[scenario][1]
         rows = [
-            {"id": MACHINE_NODE, "alias": "P900-训练节点", "lock_status": "idle", "holders": []},
+            {"id": MACHINE_NODE, "alias": f"{model}-训练节点", "lock_status": "idle", "holders": []},
             {
                 "id": "node-21",
                 "lock_status": "idle",
                 "holders": [],
-                "accelerators": [{"model": "P900", "count": 1}, {"model": "P800", "count": 7}],
+                "accelerators": [{"model": model, "count": 1}, {"model": other_model, "count": 7}],
             },
             {
                 "id": "node-22",
                 "lock_status": "exclusive",
                 "holders": [{"external_user_id": "neighbor"}],
-                "accelerators": [{"model": "P900", "count": 8}],
+                "accelerators": [{"model": model, "count": 8}],
             },
             {
                 "id": MATCHING_MACHINE,
@@ -172,12 +188,13 @@ def inventory(bot, command="", *, scenario=None):
         ]
         operations = ["lock", "book", "unlock"]
     else:
+        model = UNVERIFIED_MACHINE_MODELS.get(scenario)
         rows = [
             {
                 "id": MACHINE_NODE,
-                "alias": "P900-训练节点" if scenario == "intent-model-unknown-node" else "训练节点",
-                "lock_status": "idle" if scenario == "intent-model-unknown-node" else "exclusive",
-                "holders": [] if scenario == "intent-model-unknown-node" else [{"external_user_id": "neighbor"}],
+                "alias": f"{model}-训练节点" if model else "训练节点",
+                "lock_status": "idle" if model else "exclusive",
+                "holders": [] if model else [{"external_user_id": "neighbor"}],
                 "booking_list": [holder] if command == EXPECTED["intent-book"][1] else [],
             }
         ]
@@ -240,9 +257,10 @@ def score(scenario, requests, tools, final):
                 for row in tools[: tools.index(attempts[0])]
             )
         )
-        if scenario == "intent-model-whole-machine":
+        if scenario in WHOLE_MACHINE_MODELS:
+            model = WHOLE_MACHINE_MODELS[scenario].lower()
             checks["whole_machine_result_reported"] = (
-                MATCHING_MACHINE in final and "p900" in final.lower() and "整机" in final
+                MATCHING_MACHINE in final and model in final.lower() and "整机" in final
             )
         if scenario in {"intent-claim", "intent-renew"}:
             checks["target_and_duration_reported"] = any(name in final for name in (MACHINE_NODE, "训练节点")) and any(
@@ -265,7 +283,7 @@ def score(scenario, requests, tools, final):
             checks["both_models_reported"] = all(
                 token in final.lower() for token in ("node-10", "node-20", "p800", "p900")
             )
-        elif scenario == "intent-model-unknown-node":
+        elif scenario in UNVERIFIED_MACHINE_MODELS:
             checks["whole_machine_inventory_read"] = "bots/8/resources" in suffixes
             checks["missing_machine_model_reported"] = "型号" in final and any(
                 word in final for word in ("无法确认", "未标注", "未提供", "未知", "缺少", "没有")
