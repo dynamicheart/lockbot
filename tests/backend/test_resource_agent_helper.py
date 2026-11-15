@@ -284,6 +284,23 @@ def test_resource_mutation_refuses_stale_or_unverifiable_inventory(case, age):
     assert not commands(case)
 
 
+@pytest.mark.parametrize(("age", "expected"), [(0, True), (6, False), (None, False)])
+def test_resource_query_reports_write_freshness_without_hiding_snapshot(case, age, expected):
+    case.state.resource_age = age
+    result = subprocess.run(
+        [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH), "--connection", str(case.path), "resources"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    snapshot = json.loads(result.stdout)["result"]
+    assert snapshot["snapshot_fresh_for_write"] is expected
+    assert snapshot["resources"][0]["id"] == "node-a"
+    assert not commands(case)
+
+
 def test_resource_mutation_does_not_claim_success_from_stale_readback(case):
     case.state.readback_age = 6
     with pytest.raises(helper.ClientError, match="mutation_not_confirmed_read_resources_do_not_replay"):

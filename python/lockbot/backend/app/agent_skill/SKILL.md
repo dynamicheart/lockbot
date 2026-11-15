@@ -55,11 +55,13 @@ reading the helper source or unrelated operation references during setup.
    with the same directory. The installed CLI and saved files carry the service origin.
    Ask for the Skill URL only when the installed files and approved origin cannot be found.
 
-Before a resource write, read `resources` for the intended group. Match the request to the
-actual node/card IDs, allocation mode, model, quantity and duration. A request to find
-resources is read-only. When a group only allocates whole machines, ask before converting
-a card request into a whole-machine request. Clarify ambiguous aliases or stale inventory
-without invoking `command`. Send the verified target once and check the resulting state.
+Before a resource write, read `resources` for the intended group. If the CLI reports
+`snapshot_fresh_for_write: false`, retry the read if appropriate. If it stays false, tell
+the user you could not verify availability from a current snapshot. Skip `command` until
+the CLI reports true. Then match the actual node/card IDs, allocation mode, model,
+quantity and duration. A request to find resources is read-only. Clarify ambiguous
+aliases and ask before changing a card request into a whole-machine request. Send the
+verified target once and check the resulting state.
 
 **MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
 files or public memory. Refer to the private credential entry when explaining a problem.

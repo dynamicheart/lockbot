@@ -747,6 +747,7 @@ class Client:
         generation = self.node_access.invalidate() if self.node_access else None
         started = self.clock()
         snapshot = self._request(same_origin_url(self.base, context["links"]["resources"]), token=self.key)
+        snapshot["snapshot_fresh_for_write"] = self._snapshot_fresh_for_write(snapshot, started)
         if generation:
             nodes = self._current_node_access(snapshot, context, self.clock() - started)
             scope = {
@@ -1017,13 +1018,16 @@ class Client:
             "job_runner": False,
         }
 
-    def _require_fresh_snapshot(self, snapshot, started):
+    def _snapshot_fresh_for_write(self, snapshot, started):
         age = snapshot.get("age_seconds")
-        if (
-            type(age) not in (float, int)
-            or not 0 <= age <= MAX_RESOURCE_SNAPSHOT_AGE
-            or age + (self.clock() - started) > MAX_RESOURCE_SNAPSHOT_AGE
-        ):
+        return (
+            type(age) in (float, int)
+            and 0 <= age <= MAX_RESOURCE_SNAPSHOT_AGE
+            and age + (self.clock() - started) <= MAX_RESOURCE_SNAPSHOT_AGE
+        )
+
+    def _require_fresh_snapshot(self, snapshot, started):
+        if not self._snapshot_fresh_for_write(snapshot, started):
             raise ClientError("resource_snapshot_stale_or_unverifiable")
 
     def alias(self, node, value=None):
