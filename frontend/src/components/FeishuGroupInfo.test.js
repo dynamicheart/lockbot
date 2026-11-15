@@ -1,7 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { createRenderer, createSSRApp, nextTick, ssrContextKey } from 'vue'
 import { renderToString } from 'vue/server-renderer'
+import { createI18n } from 'vue-i18n'
 import FeishuGroupInfo from './FeishuGroupInfo.vue'
+import en from '../i18n/en.js'
+import zhCN from '../i18n/zh-CN.js'
 import api from '../utils/api'
 vi.mock('../utils/api', () => ({ default: { get: vi.fn() } }))
 vi.mock('../utils/helpers', () => ({ useHelpers: () => ({ copyText: vi.fn() }) }))
@@ -41,6 +44,15 @@ afterEach(() => {
   app = null
   vi.clearAllMocks()
 })
+
+it.each([
+  ['zh-CN', zhCN, '@机器人'],
+  ['en', en, 'mention it in a real group message'],
+])('compiles the group setup help for %s', (locale, messages, expected) => {
+  const { t } = createI18n({ legacy: false, locale, messages: { [locale]: messages } }).global
+  expect(t('feishu.groupHelp')).toContain(expected)
+})
+
 it('isolates late names and aborts lookup on scope change and unmount', async () => {
   const requests = []
   api.get.mockImplementation(
