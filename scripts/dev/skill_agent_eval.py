@@ -18,6 +18,13 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+    BUNDLE_FORMAT,
+    LEGACY_BUNDLE_FORMAT,
+    deployment_fragments,
+)
+from skill_eval_artifact import ArtifactBlocked, load
+
 ORIGIN = "http://192.0.2.10:8155"
 OTHER = "http://192.0.2.11:8155"
 KEY = "lbr_" + hashlib.sha256(b"lockbot-public-evaluation-primary-canary").hexdigest()
@@ -86,20 +93,51 @@ def save_json(path, value):
     path.chmod(0o600)
 
 
-def prepare(root, skill, scenario, *, source=None):
+def prepare(root, skill, scenario, *, source=None, artifacts=None):
+    frozen = load(artifacts) if artifacts is not None else None
+    source = frozen["contents"]["SKILL.md"].decode() if frozen else skill.read_text() if source is None else source
+    legacy_marker = "<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->"
+    deployment_marker = "<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->"
+    fragments = deployment_fragments(ORIGIN, LEGACY_BUNDLE_FORMAT)
+    if frozen:
+        stamp = json.loads(frozen["contents"]["installation.json"])
+        if stamp.get("deployment_origin") != ORIGIN:
+            raise ArtifactBlocked("artifact_must_use_fixture_origin")
+        skill_path = BUNDLE_PATH if frozen["manifest"].get("package_format") == BUNDLE_FORMAT else SKILL_PATH
+        if frozen["manifest"].get("skill_url") != skill_path:
+            raise ArtifactBlocked("unexpected_skill_path")
+        if skill_path == BUNDLE_PATH and fragments[deployment_marker] not in source:
+            raise ArtifactBlocked("artifact_missing_fixture_origin_in_skill")
+    else:
+        skill_path = BUNDLE_PATH if deployment_marker in source and legacy_marker not in source else SKILL_PATH
+    markdown = source
+    for marker, rendered in fragments.items():
+        if scenario == "missing-origin":
+            markdown = markdown.replace(marker, "").replace(rendered, "")
+        else:
+            markdown = markdown.replace(marker, rendered)
+
     root.mkdir(mode=0o700, parents=True, exist_ok=False)
     (root / "workspace/private").mkdir(mode=0o700, parents=True)
-    source = skill.read_text() if source is None else source
-    markdown = source.replace("<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->", f"Deployment Skill URL: `{ORIGIN}{SKILL_PATH}`.")
-    if scenario == "missing-origin":
-        markdown = source.replace("<!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->", "")
+    if frozen:
+        package = root / "frozen-artifacts"
+        package.mkdir(mode=0o700)
+        save_json(package / "manifest.json", frozen["manifest"])
+        (package / "lockbot-resource-agent.zip").write_bytes(frozen["archive"])
     (root / "subject.md").write_text(markdown)
     (root / "prompt.txt").write_text(
-        SCENARIOS[scenario].format(url=ORIGIN + SKILL_PATH, zip_url=ORIGIN + BUNDLE_PATH, body=markdown)
+        SCENARIOS[scenario].format(url=ORIGIN + skill_path, zip_url=ORIGIN + BUNDLE_PATH, body=markdown)
     )
     (root / "system.txt").write_text(SYSTEM)
     save_json(
-        root / "case.json", {"fixture_version": 4, "scenario": scenario, "skill_sha256": digest(markdown.encode())}
+        root / "case.json",
+        {
+            "fixture_version": 5 if frozen else 4,
+            "scenario": scenario,
+            "skill_sha256": frozen["manifest"]["skill_sha256"] if frozen else digest(markdown.encode()),
+            "skill_path": skill_path,
+            "frozen_artifact": frozen is not None,
+        },
     )
     if scenario == "existing-key":
         key_path = root / "workspace/private/current.key"
@@ -128,7 +166,9 @@ class Fixture:
         self.case = json.loads((root / "case.json").read_text())
         self.origin = self.case.get("origin", ORIGIN)
         self.markdown = (root / "subject.md").read_text()
-        self.archive = bundle(self.markdown)
+        self.skill_path = self.case.get("skill_path", SKILL_PATH)
+        self.frozen = load(root / "frozen-artifacts") if self.case.get("frozen_artifact") else None
+        self.archive = self.frozen["archive"] if self.frozen else bundle(self.markdown)
 
     def text_page(self, path, offset=0):
         content = path.read_text()
@@ -152,22 +192,42 @@ class Fixture:
 
     def manifest(self):
         return {
-            "service_id": "lockbot.resource-api",
-            "instance_id": INSTANCE,
-            "api_version": "1",
-            "skill_id": "lockbot-resource-agent",
-            "credential_scheme": "lbr_bot_scoped",
             "version": digest(self.markdown.encode())[:16],
             "skill_sha256": digest(self.markdown.encode()),
-            "skill_url": SKILL_PATH,
-            "context_url": "/api/agent/context",
-            "enrollment_url": "/api/resource-auth/bindings",
-            "capabilities": ["credential_context", "namespaced_skill", "skill_version_headers"],
             "installation": {
                 "name": "lockbot-resource-agent",
                 "download_url": BUNDLE_PATH,
                 "sha256": digest(self.archive),
             },
+            **(self.frozen["manifest"] if self.frozen else {}),
+            "service_id": "lockbot.resource-api",
+            "instance_id": INSTANCE,
+            "api_version": "1",
+            "skill_id": "lockbot-resource-agent",
+            "credential_scheme": "lbr_bot_scoped",
+            "skill_url": self.skill_path,
+            "context_url": "/api/agent/context",
+            "enrollment_url": "/api/resource-auth/bindings",
+            "capabilities": ["credential_context", "namespaced_skill", "skill_version_headers"],
+        }
+
+    def inspect_archive(self, args):
+        # Inspect only the exact archive served by the fixture.
+        path = self.path(args["path"])
+        if path != self.workspace / "downloads/lockbot-resource-agent.zip":
+            raise ValueError("Not a fixture archive")
+        if path.read_bytes() != self.archive:
+            raise ValueError(BUNDLE_HASH_ERROR)
+        contents = self.frozen["contents"] if self.frozen else {"SKILL.md": self.markdown.encode()}
+        for name, data in contents.items():
+            target = self.path(f"downloads/package/{name}")
+            target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            target.write_bytes(data)
+        skill_file = "downloads/package/SKILL.md"
+        return {
+            "members": [f"lockbot-resource-agent/{name}" for name in sorted(contents)],
+            "skill_file": skill_file,
+            **self.text_page(self.path(skill_file)),
         }
 
     def http(self, args):
@@ -177,9 +237,11 @@ class Fixture:
         if f"{url.scheme}://{url.netloc}" != self.origin or url.query or url.fragment:
             return {"status": 404, "error": "No such fixture route"}
         if url.path == SKILL_PATH:
+            if self.skill_path != SKILL_PATH:
+                return {"status": 404, "error": "No such fixture route"}
             document = self.workspace / "downloads/SKILL.md"
             document.parent.mkdir(mode=0o700, exist_ok=True)
-            document.write_text(self.markdown)
+            document.write_bytes(self.frozen["contents"]["SKILL.md"] if self.frozen else self.markdown.encode())
             return {"status": 200, "body_file": "downloads/SKILL.md", **self.text_page(document)}
         if url.path == "/api/agent-skill":
             return {"status": 200, "body": self.manifest()}
@@ -224,21 +286,7 @@ class Fixture:
                 path.chmod(args.get("mode", 0o600) & 0o777)
                 result = {"saved": True, "path": args["path"]}
             elif name == "inspect_archive":
-                # No arbitrary extraction or execution: inspect only the generated fixture download.
-                path = self.path(args["path"])
-                if path != self.workspace / "downloads/lockbot-resource-agent.zip":
-                    raise ValueError("Not a fixture archive")
-                with zipfile.ZipFile(path) as archive:
-                    members = archive.namelist()
-                    if members != ["lockbot-resource-agent/SKILL.md"]:
-                        raise ValueError("Unexpected fixture archive members")
-                    if archive.getinfo(members[0]).file_size > 131072:
-                        raise ValueError("Archive member too large")
-                    data = archive.read(members[0])
-                target = self.workspace / "downloads/package/SKILL.md"
-                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                target.write_bytes(data)
-                result = {"members": members, "skill_file": "downloads/package/SKILL.md", **self.text_page(target)}
+                result = self.inspect_archive(args)
             elif name == "install_skill":
                 if self.case["scenario"] == "unavailable-installer":
                     raise ValueError("This client cannot install persistent skills")
@@ -248,12 +296,15 @@ class Fixture:
                     raise ValueError(BUNDLE_HASH_ERROR)
                 target = self.path(args["destination"])
                 target.mkdir(mode=0o700, parents=True, exist_ok=False)
-                # The fixture generates this single known member; never extract model-supplied archives.
-                (target / "SKILL.md").write_text(self.markdown)
+                contents = self.frozen["contents"] if self.frozen else {"SKILL.md": self.markdown.encode()}
+                for relative_path, data in contents.items():
+                    installed = target / relative_path
+                    installed.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    installed.write_bytes(data)
                 result = {
                     "installed": True,
                     "path": args["destination"],
-                    "skill_sha256": digest(self.markdown.encode()),
+                    "skill_sha256": digest(contents["SKILL.md"]),
                 }
             else:
                 raise ValueError("Unknown tool")
@@ -481,7 +532,7 @@ def score(root, final):
 
 def run(args):
     root = args.output.resolve()
-    prepare(root, args.skill.resolve(), args.scenario)
+    prepare(root, args.skill, args.scenario, artifacts=args.artifacts)
     command = json.loads(args.runner.read_text())
     if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
         raise ValueError("Runner config must be a JSON argv array")
@@ -543,7 +594,9 @@ def main():
     server = commands.add_parser("serve")
     server.add_argument("root", type=Path)
     runner = commands.add_parser("run")
-    runner.add_argument("--skill", type=Path, required=True)
+    source = runner.add_mutually_exclusive_group(required=True)
+    source.add_argument("--skill", type=Path, help="Skill source for a Markdown-only fixture")
+    source.add_argument("--artifacts", type=Path, help="Directory containing the fixture-origin manifest and ZIP")
     runner.add_argument(
         "--runner", type=Path, required=True, help="Private JSON argv array; receives a JSON request on stdin"
     )
