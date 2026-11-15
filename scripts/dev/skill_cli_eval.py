@@ -179,11 +179,16 @@ class Fixture(continuity.Fixture):
             ):
                 base.save_json(state, intent.WHOLE_MACHINE_BOOKING)
                 return {"status": 200, "body": {"reply": "booked"}}
+            if scenario == "intent-write-unknown" and bot == 7:
+                expected = intent.EXPECTED[scenario][1]
+                return {"status": 504 if intent.equivalent(args.get("command"), expected) else 409}
             match = next(
                 (
                     expected
-                    for identifier, expected in intent.EXPECTED.values()
-                    if identifier == bot and intent.equivalent(args.get("command"), expected)
+                    for case, (identifier, expected) in intent.EXPECTED.items()
+                    if (case != "intent-release" or case == scenario)
+                    and identifier == bot
+                    and intent.equivalent(args.get("command"), expected)
                 ),
                 None,
             )
@@ -346,7 +351,7 @@ class Fixture(continuity.Fixture):
 def tools(root):
     scenario = json.loads((root / "case.json").read_text())["scenario"]
     is_intent = scenario in intent.PROMPTS
-    operations = ["lock", "book", "claim"] if scenario == "intent-claim" else ["lock", "book"]
+    operations = ["lock", "book", "claim", "renew", "release"]
     actions = ("discover", "connections", "resources", "command") if is_intent else ACTIONS
     extra = (
         {

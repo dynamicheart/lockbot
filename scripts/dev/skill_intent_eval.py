@@ -25,6 +25,9 @@ PROMPTS = {
     "intent-model-allocate": "帮我直接申请一张空闲的 P800 或 P900 卡，用两小时。群、机器、卡都由你选。",
     "intent-model-unknown-node": "帮我申请一台空闲的 P900 整机，用两小时。哪台都可以。",
     "intent-model-whole-machine": "帮我直接申请一台空闲的整机，要至少有两张 P900 卡，用两小时。哪个群、哪台都行。",
+    "intent-renew": f"帮我把{MACHINES}里我占用的训练节点续到两小时，别新建预约。",
+    "intent-release": f"帮我释放{CARDS}里训练节点的 2 号卡，3 号卡继续保留。",
+    "intent-write-unknown": f"帮我锁{CARDS}里训练节点的 2、3 号卡两小时。",
     "intent-stale": f"帮我在{CARDS}找一台有两张空闲 P800 的机器并锁 2 小时。",
 }
 EXPECTED = {
@@ -32,6 +35,9 @@ EXPECTED = {
     "intent-choose": (7, "lock node-10 dev2,3 2h"),
     "intent-book": (8, "book node-20 2h"),
     "intent-claim": (8, "lock node-20"),
+    "intent-renew": (8, "lock node-20 2h"),
+    "intent-release": (7, "unlock node-10 dev2"),
+    "intent-write-unknown": (7, "lock node-10 dev2,3 2h"),
     "intent-model-allocate": (8, "lock node-20 dev2 2h"),
     "intent-model-whole-machine": (8, f"lock {MATCHING_MACHINE} 2h"),
 }
@@ -53,6 +59,8 @@ def equivalent(command, expected):
         return False
     if len(expected_parts) == 2:
         return True
+    if expected_parts[-1].startswith("dev"):
+        return actual_parts[-1] == expected_parts[-1]
     if len(expected_parts) == 4:
         card_spec = actual_parts[2]
         expected_cards = expected_parts[2][3:].split(",")
@@ -71,6 +79,7 @@ def inventory(bot, command="", *, scenario=None):
     captured = datetime.now(timezone.utc) - timedelta(seconds=age)
     expiry = (captured + timedelta(hours=2)).isoformat()
     holder = {"external_user_id": "demo-user", "remaining_seconds": 7200, "expires_at": expiry}
+    released = scenario == "intent-release" and command == EXPECTED["intent-release"][1]
 
     def device(identifier, model, *, busy=False, acquired=False):
         return {
@@ -107,8 +116,8 @@ def inventory(bot, command="", *, scenario=None):
                 "devices": [
                     device(0, "P800", busy=True),
                     device(1, "H20"),
-                    device(2, "P800", acquired=acquired),
-                    device(3, "P800", acquired=acquired),
+                    device(2, "P800", acquired=acquired or (scenario == "intent-release" and not released)),
+                    device(3, "P800", acquired=acquired or scenario == "intent-release"),
                 ],
             },
             {"id": "node-11", "alias": "验证节点", "devices": [device(0, "P800"), device(1, "H20")]},
@@ -139,6 +148,11 @@ def inventory(bot, command="", *, scenario=None):
                 "accelerators": [{"model": "P800", "count": 6}, {"model": "P900", "count": 2}],
             },
         ]
+        operations = ["lock", "book", "unlock"]
+    elif scenario == "intent-renew":
+        if not command:
+            holder.update(remaining_seconds=1800, expires_at=(captured + timedelta(minutes=30)).isoformat())
+        rows = [{"id": MACHINE_NODE, "alias": "训练节点", "lock_status": "exclusive", "holders": [holder]}]
         operations = ["lock", "book", "unlock"]
     elif scenario == "intent-claim":
         acquired = command == EXPECTED[scenario][1]
@@ -192,20 +206,28 @@ def score(scenario, requests, tools, final):
     if scenario in EXPECTED:
         bot, command = EXPECTED[scenario]
         expected_suffix = f"/api/bots/{bot}/commands"
+        unknown = scenario == "intent-write-unknown"
+        operation = {"intent-release": "release", "intent-renew": "renew", "intent-claim": "claim"}.get(scenario)
         checks["exactly_one_correct_cli_write"] = (
             len(attempts) == 1
             and len(posts) == 1
             and posts[0]["url"].endswith(expected_suffix)
             and equivalent(posts[0].get("command"), command)
-            and posts[0]["status"] == 200
+            and posts[0]["status"] == (504 if unknown else 200)
+            and (operation is None or attempts[0]["args"].get("operation") == operation)
         )
         checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and all(
-            any(row["url"].endswith(f"/api/bots/{bot}/resources") for row in part)
+            any(row["status"] == 200 and row["url"].endswith(f"/api/bots/{bot}/resources") for row in part)
             for part in (requests[: requests.index(posts[0])], requests[requests.index(posts[0]) + 1 :])
         )
-        checks["cli_reported_verified_result"] = bool(
-            attempts and attempts[-1]["result"].get("result", {}).get("verified")
-        )
+        if unknown:
+            checks["unknown_outcome_reported"] = any(
+                phrase in final for phrase in ("无法确认", "未能确认", "未确认", "结果不明", "结果未知", "不确定")
+            )
+        else:
+            checks["cli_reported_verified_result"] = bool(
+                attempts and attempts[-1]["result"].get("result", {}).get("verified")
+            )
         checks["agent_read_inventory_before_target_selection"] = bool(
             attempts
             and any(
@@ -219,9 +241,13 @@ def score(scenario, requests, tools, final):
             checks["whole_machine_result_reported"] = (
                 MATCHING_MACHINE in final and "p900" in final.lower() and "整机" in final
             )
-        if scenario == "intent-claim":
-            checks["booked_duration_reported"] = MACHINE_NODE in final and any(
+        if scenario in {"intent-claim", "intent-renew"}:
+            checks["target_and_duration_reported"] = MACHINE_NODE in final and any(
                 value in final.replace(" ", "") for value in ("两小时", "2小时", "120分钟", "7200秒", "2h")
+            )
+        if scenario == "intent-release":
+            checks["released_and_retained_cards_reported"] = (
+                TRAINING_NODE in final and {"2", "3"} <= set(final) and "释放" in final
             )
     else:
         checks["zero_write_attempts"] = not posts and not attempts

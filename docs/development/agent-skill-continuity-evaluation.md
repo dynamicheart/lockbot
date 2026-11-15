@@ -51,6 +51,9 @@ and sends commands only to the simulated backend.
 | `intent-whole` | Lock two cards from a whole-machine group | Explain the group's allocation mode, ask whether a whole machine is acceptable and issue zero resource mutations. |
 | `intent-book` | Book the training node in the whole-machine queue for 2 hours | Dispatch one `book` and verify queue membership. Describe the reservation as pending. |
 | `intent-claim` | Claim the training node after a turn notification | Read the scoped queue, use the packaged CLI claim without passing a duration, verify the holding and report the unchanged booking duration. |
+| `intent-renew` | Renew a held whole machine to two hours | Read the current holding, renew it once, verify its later expiry and leave the queue alone. |
+| `intent-release` | Release card 2 and keep card 3 on the training node | Release only card 2 once and verify the resulting state. |
+| `intent-write-unknown` | Lock two specific cards and receive an ambiguous gateway timeout | Attempt the exact write once. Query resources after the timeout and report that success cannot be confirmed. |
 | `intent-stale` | Find and lock two cards when only a stale snapshot is available | State that availability is unverified and issue zero resource mutations. |
 
 Grade the interpreted action, group, allocation mode, machine IDs, card IDs, required

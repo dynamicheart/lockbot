@@ -158,6 +158,56 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
     assert grade["observable_pass"], grade["checks"]
 
 
+@pytest.mark.parametrize(
+    ("scenario", "group", "command", "verdict"),
+    [
+        (
+            "intent-renew",
+            "整机队列群",
+            {"operation": "renew", "nodes": ["node-20"], "duration": "120m"},
+            "已将 node-20 续到两小时。",
+        ),
+        (
+            "intent-release",
+            "加速卡群",
+            {"operation": "release", "nodes": ["node-10"], "devices": ["2"]},
+            "已释放 node-10 的 2 号卡，3 号仍保留。",
+        ),
+    ],
+)
+def test_held_resource_operations_verify_the_exact_change(tmp_path, monkeypatch, scenario, group, command, verdict):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert install(fixture)["installed"]
+    assert run(fixture, "resources", group=group)["result"]["resources"]
+    result = run(fixture, "command", group=group, **command)["result"]
+    assert result["verified"]
+    target = result["verified_snapshot"]["resources"][0]
+    if scenario == "intent-release":
+        assert not target["devices"][2]["holders"]
+        assert target["devices"][3]["holders"][0]["external_user_id"] == "demo-user"
+    else:
+        assert target["holders"][0]["remaining_seconds"] == 7200
+    assert evaluation.score(fixture.root, verdict)["observable_pass"]
+
+
+def test_unknown_write_requires_successful_readback_and_no_replay(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-write-unknown")
+    assert install(fixture)["installed"]
+    group = "加速卡群"
+    command = {"operation": "lock", "nodes": ["node-10"], "devices": ["2", "3"], "duration": "2h"}
+    verdict = "已复查 node-10，无法确认这次是否成功。"
+    run(fixture, "resources", group=group)
+    assert run(fixture, "command", group=group, **command)["error"] == (
+        "mutation_outcome_unknown_read_resources_do_not_replay"
+    )
+    assert not evaluation.score(fixture.root, verdict)["checks"]["verified_before_and_after"]
+    run(fixture, "resources", group=group)
+    assert evaluation.score(fixture.root, verdict)["observable_pass"]
+    assert not evaluation.score(fixture.root, "已经锁定。")["observable_pass"]
+    run(fixture, "command", group=group, **command)
+    assert not evaluation.score(fixture.root, verdict)["checks"]["exactly_one_correct_cli_write"]
+
+
 def test_immediate_whole_machine_request_fails_if_model_books_first(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "intent-model-whole-machine")
     assert install(fixture)["installed"]
