@@ -1184,8 +1184,6 @@ export default {
 
   // === Bot Form ===
   botForm: {
-    agentAccessCreateFailed:
-      'Bot created, but Agent access could not be enabled. Retry in Edit configuration.',
     addNode: 'Add Node',
     noNodes: 'No nodes yet. Click below to add one.',
     nodeName: 'Node Name',

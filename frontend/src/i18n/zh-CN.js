@@ -1310,7 +1310,7 @@ export default {
     inputPlaceholder: '例如 lock node1 2h',
     clear: '清空',
     demoBanner: '演示模式',
-    cmdAtBot: '@机器人查询资源状态',
+    cmdAtBot: "{'@'}机器人查询资源状态",
     cmdHelp: '显示使用指南',
     cmdLock: '独占锁定资源',
     cmdLockDuration: '指定时长锁定 (d/h/m)',
