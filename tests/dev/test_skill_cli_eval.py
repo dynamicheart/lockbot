@@ -4,6 +4,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
 from lockbot.backend.app.resource_api import skill
 
 DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev"
@@ -39,6 +40,7 @@ def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, mon
     assert run(fixture, "discover")["error"] == "verified_package_required"
     assert install(fixture)["installed"]
     assert run(fixture, "discover")["result"]["instance_id"] == evaluation.base.INSTANCE
+    assert run(fixture, "discover")["result"]["instance_id"] == evaluation.base.INSTANCE
     assert run(fixture, "enroll", group=evaluation.GROUP)["error"] == "invalid_cli_arguments"
     assert fixture.binding_status() == "expired"
     assert evaluation.score(fixture.root, "在资源群发送 bind 命令。")["observable_pass"]
@@ -67,3 +69,56 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
     assert [entry["status"] for entry in connections] == ["existing", "saved"]
     assert run(fixture, "resources", group=evaluation.GROUP)["result"]["resources"]
     assert evaluation.score(fixture.root, "已查询验证群")["observable_pass"]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "groups", "verdict"),
+    [
+        ("intent-exact", ["加速卡群"], "已锁定 node-10 的 2、3 卡。"),
+        ("intent-query", ["加速卡群"], "node-10 的 2、3 号卡空闲。"),
+        ("intent-ambiguous", ["加速卡群", "整机队列群"], "你指的是哪个群？"),
+        ("intent-choose", ["加速卡群"], "已锁定 node-10 的 2、3 卡。"),
+        ("intent-whole", ["整机队列群"], "整机队列群只支持整机，请确认。"),
+        ("intent-book", ["整机队列群"], "node-20 已预约两小时。"),
+        ("intent-stale", ["加速卡群"], "快照已过期，无法确认有两张空闲卡。"),
+    ],
+)
+def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, groups, verdict):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert install(fixture)["installed"]
+    for group in groups:
+        assert run(fixture, "resources", group=group)["result"]["resources"]
+    if scenario in evaluation.intent.EXPECTED:
+        if scenario == "intent-book":
+            result = run(fixture, "command", group=groups[0], operation="book", nodes=["node-20"], duration="120m")
+        else:
+            result = run(
+                fixture,
+                "command",
+                group=groups[0],
+                operation="lock",
+                nodes=["node-10"],
+                devices=["3", "2"],
+                duration="120m",
+            )
+        assert result.get("result", {}).get("verified"), result
+    grade = evaluation.score(fixture.root, verdict)
+    assert grade["observable_pass"], grade["checks"]
+
+
+def test_intent_case_fails_wrong_attempt_even_if_the_cli_refuses_it(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-whole")
+    assert install(fixture)["installed"]
+    assert run(fixture, "resources", group="整机队列群")["result"]["resources"]
+    result = run(
+        fixture,
+        "command",
+        group="整机队列群",
+        operation="lock",
+        nodes=["node-20"],
+        devices=["2", "3"],
+        duration="2h",
+    )
+    assert result["error"] == "explicit_device_selection_required"
+    checks = evaluation.score(fixture.root, "需要你确认是否申请整机。")["checks"]
+    assert not checks["zero_write_attempts"]

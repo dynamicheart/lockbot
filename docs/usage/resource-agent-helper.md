@@ -96,6 +96,11 @@ python3 scripts/lockbot_resource.py --connection /private/connection.json comman
 
 Repeat `--node` for multiple explicit nodes. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments; omission cannot silently select all cards. Supported operations are `lock`, `slock`, `book`, deliberate `renew`, and `release`. Duration is explicit for acquisition, booking and renewal. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
 
+Resource mutations require verifiably fresh snapshots before dispatch and at readback.
+The helper rejects a missing or invalid snapshot age and applies the server's five-second
+resource-cache limit, including the time spent fetching the snapshot. A stale preflight
+sends no command. A stale readback after dispatch leaves the result unconfirmed.
+
 `task.json` is optional, private mode `0600`, and accepts only `task_category`, `agent_label`, `purpose`. The category must be one of the current context's public ID/label choices. A category error returns `allowed_categories` without echoing detailed notes, Agent names or keys. Do not put secrets in private notes either. All allocation policy enforcement remains server-authoritative.
 
 Every dispatched write is followed by a resource readback. The server currently provides rendered `reply`, not a structured business outcome. Therefore the output explicitly says `verification: observed_state_only` and `command_outcome: not_structured_by_server`: it proves the requested observed state, not causality or guaranteed command success. HTTP 200 and a preexisting booking do not prove this command succeeded. Concurrent Agents sharing one identity still require coordination. A future additive structured command outcome is a separate API design, not inferred by parsing translated replies here.

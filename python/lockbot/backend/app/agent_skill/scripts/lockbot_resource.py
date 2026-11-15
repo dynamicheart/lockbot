@@ -31,6 +31,7 @@ ENROLLMENT_PATH = "/api/resource-auth/bindings"
 RECOVERY_PATH = "/api/agent/bindings/recover"
 MAX_BYTES = 1024 * 1024
 MAX_CALLS = 12
+MAX_RESOURCE_SNAPSHOT_AGE = 5.0
 METRICS = (
     "lockbot_accelerator_utilization_percent",
     "lockbot_accelerator_memory_used_bytes",
@@ -944,7 +945,9 @@ class Client:
                 raise ClientError("invalid_" + name)
         if any(isinstance(value, str) and self.key in value for value in metadata.values()):
             raise ClientError("secret_in_metadata_refused")
+        before_started = self.clock()
         before = self.resources(context)
+        self._require_fresh_snapshot(before, before_started)
         selected = self._selected(before, nodes, devices)
         actor = context["actor"]["external_user_id"]
         held = [self._own(item.get("holders", []), actor) for item in selected]
@@ -974,7 +977,9 @@ class Client:
             raise ClientError("command_too_large")
         result = self._post_command(context, command, metadata)
         try:
+            after_started = self.clock()
             after = self.resources(context)
+            self._require_fresh_snapshot(after, after_started)
             targets = self._selected(after, nodes, devices)
             if operation == "release":
                 verified = all(
@@ -1011,6 +1016,15 @@ class Client:
             "update_required": self.needs_update,
             "job_runner": False,
         }
+
+    def _require_fresh_snapshot(self, snapshot, started):
+        age = snapshot.get("age_seconds")
+        if (
+            type(age) not in (float, int)
+            or not 0 <= age <= MAX_RESOURCE_SNAPSHOT_AGE
+            or age + (self.clock() - started) > MAX_RESOURCE_SNAPSHOT_AGE
+        ):
+            raise ClientError("resource_snapshot_stale_or_unverifiable")
 
     def alias(self, node, value=None):
         if not re.fullmatch(r"[\w-]+", node):
@@ -1342,7 +1356,11 @@ def main(argv=None):
                     "version": result["version"],
                     "skill_url": same_origin_url(client.base, result["skill_url"]),
                 }
-                write_private(args.destination, json.dumps(metadata).encode())
+                try:
+                    write_private(args.destination, json.dumps(metadata).encode())
+                except FileExistsError:
+                    if private_json(args.destination) != metadata:
+                        raise ClientError("discovery_destination_exists_with_different_metadata") from None
         elif args.action == "install":
             result = client.install(args.destination)
         elif args.action == "init":

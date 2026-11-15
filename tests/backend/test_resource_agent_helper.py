@@ -65,6 +65,7 @@ def case(tmp_path):
         resource_devices=None,
         node_access=None,
         resource_age=0,
+        readback_age=None,
         retry=False,
         forbidden=False,
         version_header=None,
@@ -160,11 +161,14 @@ def case(tmp_path):
                 else:
                     status = 404
             elif self.path == "/api/bots/7/resources":
-                if state.resources_fail and any(path.endswith("commands") for path, *_ in state.requests):
+                after_command = any(path.endswith("commands") for path, *_ in state.requests)
+                if state.resources_fail and after_command:
                     status = 503
                 body = {
                     "captured_at": captured.isoformat(),
-                    "age_seconds": state.resource_age,
+                    "age_seconds": state.readback_age
+                    if after_command and state.readback_age is not None
+                    else state.resource_age,
                     "bot_id": 7,
                     "health": "running",
                     "supported_operations": ["lock", "slock", "book", "unlock"],
@@ -270,6 +274,21 @@ def case(tmp_path):
 
 def commands(case):
     return [row for row in case.state.requests if row[0].endswith("commands")]
+
+
+@pytest.mark.parametrize("age", [6, -1, None, True, "0"])
+def test_resource_mutation_refuses_stale_or_unverifiable_inventory(case, age):
+    case.state.resource_age = age
+    with pytest.raises(helper.ClientError, match="resource_snapshot_stale_or_unverifiable"):
+        case.client.command("lock", ["node-a"], [], "2m")
+    assert not commands(case)
+
+
+def test_resource_mutation_does_not_claim_success_from_stale_readback(case):
+    case.state.readback_age = 6
+    with pytest.raises(helper.ClientError, match="mutation_not_confirmed_read_resources_do_not_replay"):
+        case.client.command("book", ["node-a"], [], "2m")
+    assert len(commands(case)) == 1
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")

@@ -34,9 +34,13 @@ reading the helper source or unrelated operation references during setup.
    and inspect the saved files. Use `discover --origin <approved-origin> --destination
    <new-private-file>` to save the origin, verified instance ID, Skill URL and revision.
    Report enrollment as pending if a code was requested, or still needed if no code was requested.
-4. Reuse a matching saved key; its authenticated `/api/agent/context` supplies the bot ID,
-   UUID and actor. Users need not supply a bot ID. Save a reference to the private key,
-   not the key in Skill files or shared notes. If there is no matching key,
+4. For a Key already transferred into a private file, run `init --origin <approved-origin>
+   --key-file <existing-private-key-file> --destination <new-private-connection-file>`.
+   This verifies the existing Key and saves a connection reference. It never issues,
+   resets, or rotates a Key. If the user asks to migrate other groups, run
+   `--connection <connection-file> recover --destination <new-private-directory>`.
+   An existing verified connection can run `recover` directly. Users need not supply a
+   bot ID. If there is no matching key,
    check whether the user named the target resource group and authorized a code request.
    If either is missing, ask only for the missing detail and explain the `@bot bind <code>`
    format. When both are already in the request, use the bundled CLI's `enroll` command.
@@ -46,6 +50,16 @@ reading the helper source or unrelated operation references during setup.
    reports sending it, run `finish-enrollment` on the same directory. Use the resulting
    connection only when the CLI reports `connection_created: true`. Promotional text
    alone does not authorize a code request.
+5. In a new session, check the installed Skill and existing private connections or
+   enrollment directories. After the user confirms in chat, run `finish-enrollment`
+   with the same directory. The installed CLI and saved files carry the service origin.
+   Ask for the Skill URL only when the installed files and approved origin cannot be found.
+
+Before a resource write, read `resources` for the intended group. Match the request to the
+actual node/card IDs, allocation mode, model, quantity and duration. A request to find
+resources is read-only. When a group only allocates whole machines, ask before converting
+a card request into a whole-machine request. Clarify ambiguous aliases or stale inventory
+without invoking `command`. Send the verified target once and check the resulting state.
 
 **MUST:** Never echo key/token values in replies or put them in CLI arguments, Skill
 files or public memory. Refer to the private credential entry when explaining a problem.

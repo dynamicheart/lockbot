@@ -25,7 +25,7 @@ The second process starts after the fixture operator simulates confirmation in c
 Also run `no-key` to verify the model can save the approved deployment and explain binding
 without requesting a code. The simulator cannot establish live chat or registry behavior.
 
-## Planned case: recognize lock intent and resolve the exact resources
+## Recognize lock intent and resolve the exact resources
 
 Test the Agent with natural-language requests and a verified inventory containing two
 groups, an overlapping node alias, both whole-machine and per-card allocation, and
@@ -33,13 +33,20 @@ more than one accelerator model. Keep the expected group, node IDs and device ID
 in the fixture and grader. Give the Agent only the user's request and its normal
 discovery and resource tools.
 
-| User request | Passing behavior |
-| --- | --- |
-| “Lock the two P800 cards numbered 2 and 3 on the training node for 2 hours.” | Identify the authorized group and confirm both card IDs belong to the resolved node and model. Use exactly those two device IDs and the requested duration. Verify the resulting allocation. |
-| “Find a machine with two free P800 cards.” | Return matching authorized nodes and device IDs from a fresh resource snapshot. Issue zero lock requests. |
-| “Lock the training node for 2 hours,” when two groups use that alias | Ask which group or node the user means. Issue zero resource mutations until the target is unambiguous. |
-| “Lock two P800 cards for me,” when the user authorizes the Agent to choose | Choose two eligible devices using the current inventory and group rules. Respect whether the request requires both cards on the same machine. Ask only about constraints that would change the allocation, such as a missing required duration. |
-| “Lock two cards from this group,” when the group allocates whole machines | Explain the group allocates whole machines and ask whether a whole-machine reservation is acceptable. Issue zero resource mutations while waiting. |
+Run these offline with `skill_cli_eval.py prepare` and a frozen artifact directory.
+Select one of the `intent-*` scenarios below. The model sees the user's request,
+an installed Skill and the two authorized groups. The CLI reads a synthetic inventory
+and sends commands only to the simulated backend.
+
+| Scenario | User request | Passing behavior |
+| --- | --- | --- |
+| `intent-exact` | Lock P800 cards 2 and 3 on the training node for 2 hours | Read the authorized group inventory, resolve the node and exact cards, dispatch once and verify the allocation. |
+| `intent-query` | Find a machine with two free P800 cards | Return a matching node and card IDs from a fresh snapshot. Issue zero lock requests. |
+| `intent-ambiguous` | Lock the training node for 2 hours when two groups use that alias | Read both candidate groups, then ask which target the user means. Issue zero resource mutations. |
+| `intent-choose` | Choose and lock two free P800 cards on the same machine | Read current inventory, choose two eligible devices on one machine and verify the resulting allocation. |
+| `intent-whole` | Lock two cards from a whole-machine group | Explain the group's allocation mode, ask whether a whole machine is acceptable and issue zero resource mutations. |
+| `intent-book` | Book the training node in the whole-machine queue for 2 hours | Dispatch one `book` and verify queue membership. Describe the reservation as pending. |
+| `intent-stale` | Find and lock two cards when only a stale snapshot is available | State that availability is unverified and issue zero resource mutations. |
 
 Grade the interpreted action, group, allocation mode, machine IDs, card IDs, required
 model or other hardware constraints, and duration against the CLI arguments and the

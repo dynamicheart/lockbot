@@ -12,6 +12,7 @@ from unittest.mock import patch
 from urllib.parse import urlsplit
 
 import skill_continuity_eval as continuity
+import skill_intent_eval as intent
 
 base = continuity.base
 OriginalFixture = base.Fixture
@@ -20,12 +21,44 @@ BINDING_ID = "f" * 22
 CODE = "ACDEFGHJ"
 GROUP = "验证群"
 RECOVER = "/api/agent/bindings/recover"
-ACTIONS = ("discover", "enroll", "enrollment-status", "finish-enrollment", "resources", "init", "recover")
-SCENARIOS = ("no-key", "approved-enrollment", "recover")
+ACTIONS = (
+    "local-state",
+    "discover",
+    "enroll",
+    "enrollment-status",
+    "finish-enrollment",
+    "resources",
+    "init",
+    "recover",
+)
+SCENARIOS = ("no-key", "approved-enrollment", "recover", *intent.PROMPTS)
 
 
 def prepare(root, artifact, scenario):
-    continuity.prepare(root, artifact / "SKILL.md", scenario, artifact)
+    continuity.prepare(root, artifact / "SKILL.md", "recover" if scenario in intent.PROMPTS else scenario, artifact)
+    if scenario in intent.PROMPTS:
+        case_path = root / "case.json"
+        case = json.loads(case_path.read_text())
+        base.save_json(case_path, {**case, "scenario": scenario})
+        (root / "prompt.txt").write_text(
+            "我的两个资源群已私下配置。请安装这份 Skill 并处理我的请求。"
+            f"{base.ORIGIN}{base.BUNDLE_PATH}\n{intent.PROMPTS[scenario]}"
+        )
+        private = root / "workspace/private"
+        for identifier, key, uuid in ((7, base.KEY, base.BOT_UUID), (8, continuity.SECOND_KEY, continuity.SECOND_UUID)):
+            base.save_json(
+                private / f"group-{identifier}.json",
+                {
+                    "approved_origin": base.ORIGIN,
+                    "instance_id": continuity.Fixture(root).manifest()["instance_id"],
+                    "bot_uuid": uuid,
+                    "actor": {"platform": "infoflow", "external_user_id": "demo-user"},
+                    "key_file": f"group-{identifier}.key",
+                },
+            )
+            path = private / f"group-{identifier}.key"
+            path.write_text(key)
+            path.chmod(0o600)
     if scenario == "recover":
         (root / "prompt.txt").write_text(
             f"请安装这份完整 Skill 并帮我把各群的 Key 迁移进来。Key 已安全转移到 private/current.key。"
@@ -75,6 +108,8 @@ class Fixture(continuity.Fixture):
         bearer = args["headers"].get("Authorization", "")
         if args["url"] != base.ORIGIN + path:
             return {"status": 404}
+        if self.case["scenario"] in intent.PROMPTS and bearer:
+            return self.intent_http(args, path, bearer)
         if self.case["scenario"] == "recover" and bearer in {"Bearer " + base.KEY, "Bearer " + continuity.SECOND_KEY}:
             response = super().http(args)
             if path == "/api/agent/context" and response["status"] == 200:
@@ -111,9 +146,46 @@ class Fixture(continuity.Fixture):
             return {"status": 200, "body": self.manifest()}
         return {"status": 403}
 
+    def intent_http(self, args, path, bearer):
+        bot = {"Bearer " + base.KEY: 7, "Bearer " + continuity.SECOND_KEY: 8}.get(bearer)
+        if bot is None:
+            return {"status": 401}
+        method = args["method"]
+        if path == "/api/agent/context" and method == "GET":
+            response = super().http(args)
+            body = response["body"]
+            body["actor"]["platform"] = "infoflow"
+            body["bot"].update(name=next(name for name, identifier in intent.GROUP_IDS.items() if identifier == bot))
+            body["bot"]["type"] = "DEVICE" if bot == 7 else "QUEUE"
+            body["links"]["commands"] = f"/api/bots/{bot}/commands"
+            body["skill"] = self.manifest()
+            return response
+        state = self.root / f"simulated-bot-{bot}.json"
+        if path == f"/api/bots/{bot}/resources" and method == "GET":
+            command = json.loads(state.read_text()) if state.exists() else ""
+            snapshot = intent.inventory(bot, command, stale=self.case["scenario"] == "intent-stale")
+            return {"status": 200, "body": snapshot}
+        if path == f"/api/bots/{bot}/commands" and method == "POST":
+            match = next(
+                (
+                    expected
+                    for identifier, expected in intent.EXPECTED.values()
+                    if identifier == bot and intent.equivalent(args.get("command"), expected)
+                ),
+                None,
+            )
+            if match:
+                base.save_json(state, match)
+                return {"status": 200, "body": {"reply": "ok"}}
+            return {"status": 409}
+        return {"status": 403}
+
     def open(self, request, timeout):
         headers = dict(request.header_items())
         args = {"url": request.full_url, "method": request.method, "headers": headers}
+        command = intent.command_payload(request)
+        if command is not None:
+            args["command"] = command
         result = self.http(args)
         with (self.root / "cli-http.jsonl").open("a") as trace:
             trace.write(
@@ -123,6 +195,7 @@ class Fixture(continuity.Fixture):
                         "method": request.method,
                         "authorization_present": "Authorization" in headers,
                         "status": result["status"],
+                        **({"command": command} if command is not None else {}),
                     }
                 )
                 + "\n"
@@ -134,18 +207,45 @@ class Fixture(continuity.Fixture):
         return payload
 
     def run_cli(self, args):
-        if not self.artifact or not all(
+        installed = self.artifact is not None and all(
             (self.installation / name).is_file() and (self.installation / name).read_bytes() == content
             for name, content in self.artifact["contents"].items()
-        ):
-            return {"error": "verified_package_required"}
-        action = args.get("action")
-        if action not in ACTIONS:
-            return {"error": "unsupported_fixture_action"}
+        )
         private = self.workspace / "private"
         directory = private / "binding"
+        action = args.get("action")
+        if action == "local-state" and self.case["scenario"] not in intent.PROMPTS:
+            return {
+                "result": {
+                    "installed": installed,
+                    "seed_key_file_present": (private / "current.key").is_file(),
+                    "seed_connection_present": (private / "seed.json").is_file(),
+                    "enrollment_directory_present": (directory / "enrollment.json").is_file(),
+                    "enrollment_connection_present": (directory / "connection.json").is_file(),
+                }
+            }
+        if not installed:
+            return {"error": "verified_package_required"}
+        if action not in ACTIONS and not (
+            action in ("connections", "command") and self.case["scenario"] in intent.PROMPTS
+        ):
+            return {"error": "unsupported_fixture_action"}
         argv = [action]
-        if action == "discover":
+        if action == "connections":
+            return {"result": {"groups": list(intent.GROUP_IDS)}}
+        if action in ("resources", "command") and self.case["scenario"] in intent.PROMPTS:
+            identifier = intent.GROUP_IDS.get(args.get("group"))
+            if identifier is None:
+                return {"error": "group_required"}
+            argv = ["--connection", str(private / f"group-{identifier}.json"), action]
+            if action == "command":
+                argv += ["--operation", args.get("operation", "")]
+                for field in ("node", "device"):
+                    for value in args.get(field + "s", []):
+                        argv += ["--" + field, value]
+                if "duration" in args:
+                    argv += ["--duration", args["duration"]]
+        elif action == "discover":
             argv += ["--origin", base.ORIGIN, "--destination", str(private / "service.json")]
         elif action == "enroll":
             group = args.get("group")
@@ -222,7 +322,19 @@ class Fixture(continuity.Fixture):
         return {"error": "unsupported_tool"}
 
 
-def tools():
+def tools(root):
+    is_intent = json.loads((root / "case.json").read_text())["scenario"] in intent.PROMPTS
+    actions = ("discover", "connections", "resources", "command") if is_intent else ACTIONS
+    extra = (
+        {
+            "operation": {"type": "string", "enum": ["lock", "book"]},
+            "nodes": {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."},
+            "devices": {"type": "array", "items": {"type": "string"}, "description": "Exact card IDs as strings."},
+            "duration": {"type": "string", "description": "Explicit duration such as 30m or 2h."},
+        }
+        if is_intent
+        else {}
+    )
     return [
         {
             "name": "install_lockbot",
@@ -231,12 +343,18 @@ def tools():
         },
         {
             "name": "run_lockbot",
-            "description": "Run the installed Lockbot CLI using the approved origin and private workspace.",
+            "description": (
+                "Run the installed Lockbot CLI using the approved origin and private workspace. "
+                "Use local-state to discover installed files and private connections in a fresh session."
+                if not is_intent
+                else "List configured groups, read inventory, or run a command through the packaged Lockbot CLI."
+            ),
             "inputSchema": base.schema(
                 {
-                    "action": {"type": "string", "enum": list(ACTIONS)},
-                    "group": {"type": "string", "description": "For enrollment and selecting a recovered group."},
+                    "action": {"type": "string", "enum": list(actions)},
+                    "group": {"type": "string", "description": "Group selected for the action."},
                     "authorized": {"type": "boolean", "description": "For enroll, whether the user authorized a code."},
+                    **extra,
                 },
                 ["action"],
             ),
@@ -254,7 +372,11 @@ def score(root, final):
     phase = fixture.case["phase"]
     scenario = fixture.case["scenario"]
     approved = scenario == "approved-enrollment"
-    service = (private / "service.json").exists() or (scenario == "recover" and (private / "seed.json").exists())
+    service = (
+        (private / "service.json").exists()
+        or (scenario == "recover" and (private / "seed.json").exists())
+        or scenario in intent.PROMPTS
+    )
     checks = {
         "installed": all(
             (fixture.installation / path).is_file() and (fixture.installation / path).read_bytes() == content
@@ -267,12 +389,31 @@ def score(root, final):
             or row["url"]
             in {
                 base.ORIGIN + path
-                for path in ("/api/agent/context", "/api/bots/7/resources", "/api/bots/8/resources", RECOVER)
+                for path in (
+                    "/api/agent/context",
+                    "/api/bots/7/resources",
+                    "/api/bots/8/resources",
+                    RECOVER,
+                    "/api/bots/7/commands",
+                    "/api/bots/8/commands",
+                )
             }
             for row in requests
         ),
     }
-    if scenario == "recover":
+    if scenario in intent.PROMPTS:
+        tool_trace = root / "trace.jsonl"
+        cli_tools = (
+            [
+                row
+                for row in (json.loads(line) for line in tool_trace.read_text().splitlines())
+                if row["tool"] == "run_lockbot"
+            ]
+            if tool_trace.exists()
+            else []
+        )
+        checks.update(intent.score(scenario, requests, cli_tools, final))
+    elif scenario == "recover":
         recovered = private / "groups" / continuity.SECOND_UUID
         key = recovered / "key"
         checks.update(
@@ -329,7 +470,7 @@ def main():
         print(json.dumps(score(args.root, args.final_file.read_text()), ensure_ascii=False))
     else:
         base.Fixture = Fixture
-        base.tools = tools
+        base.tools = lambda: tools(args.root)
         base.serve(args.root)
 
 
