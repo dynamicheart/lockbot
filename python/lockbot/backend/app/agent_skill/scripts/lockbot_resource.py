@@ -117,6 +117,29 @@ def private_json(path):
         raise ClientError("invalid_private_json") from exc
 
 
+def _local_hardware_note(note):
+    if not isinstance(note, dict) or set(note) != {"source", "accelerators"}:
+        return None
+    source, inventory = note["source"], note["accelerators"]
+    if not isinstance(source, str) or not source.strip() or len(source) > 160 or not source.isprintable():
+        return None
+    if not isinstance(inventory, list) or not inventory or len(inventory) > 32:
+        return None
+    models = set()
+    for item in inventory:
+        if not isinstance(item, dict) or set(item) - {"model", "count"}:
+            return None
+        model = item.get("model")
+        if not isinstance(model, str) or not model or model != model.strip() or len(model) > 80:
+            return None
+        if not model.isprintable() or model.casefold() in models:
+            return None
+        models.add(model.casefold())
+        if "count" in item and (type(item["count"]) is not int or item["count"] < 1):
+            return None
+    return note
+
+
 class NodeAccessMetadata:
     """Private sidecar with compare-and-replace for overlapping helper invocations."""
 
@@ -281,6 +304,9 @@ class Client:
         if connection and approved_origin and origin(self.config.get("approved_origin")) != self.base:
             raise ClientError("connection_origin_mismatch")
         self.connection_dir = Path(connection).resolve().parent if connection else None
+        self.hardware_notes = (
+            Path(connection).with_name(Path(connection).name + ".node-hardware.json") if connection else None
+        )
         self.node_access = (
             NodeAccessMetadata(Path(connection).absolute()) if connection and os.name == "posix" else None
         )
@@ -527,6 +553,34 @@ class Client:
                 "actor": {field: context["actor"][field] for field in ("platform", "external_user_id")},
             }
             self.node_access.save(generation, nodes, self.redacted(scope))
+        return snapshot
+
+    def resources_with_hardware_notes(self, context):
+        snapshot = self.resources(context)
+        bot = context["bot"]
+        if (
+            self.hardware_notes is None
+            or bot.get("type") not in {"NODE", "QUEUE"}
+            or snapshot.get("bot_id") != bot["id"]
+            or not isinstance(snapshot.get("resources"), list)
+        ):
+            return snapshot
+        try:
+            notes = private_json(self.hardware_notes)
+        except ClientError:
+            return snapshot
+        scope = {"approved_origin": self.base, "instance_id": self.config["instance_id"], "bot_uuid": bot["uuid"]}
+        entries = notes.get("nodes")
+        if type(notes.get("version")) is not int or notes["version"] != 1 or notes.get("scope") != scope:
+            return snapshot
+        if not isinstance(entries, dict):
+            return snapshot
+        for node in snapshot["resources"]:
+            if not isinstance(node, dict) or "accelerators" in node or not isinstance(node.get("id"), str):
+                continue
+            note = _local_hardware_note(entries.get(node["id"]))
+            if note is not None:
+                node["local_hardware_note"] = note
         return snapshot
 
     def _current_node_access(self, snapshot, context, elapsed):
@@ -1036,7 +1090,7 @@ def main(argv=None):
         elif args.action == "context":
             result = client.context()
         elif args.action == "resources":
-            result = client.resources(client.context())
+            result = client.resources_with_hardware_notes(client.context())
         elif args.action == "resource-guidance":
             result = client.resource_guidance(args.reference)
         elif args.action == "personal-report":

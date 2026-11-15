@@ -52,7 +52,11 @@ verified hardware only. An alias, IP address, or metrics label is not a hardware
 record.
 
 An Agent with a valid binding for the bot can read the registered model and count
-in `resources[].accelerators`. Missing entries mean unknown hardware. A NODE or
+in `resources[].accelerators`. For unregistered nodes, the Agent may keep confirmed
+models and known counts in a private `connection.json.node-hardware.json` sidecar.
+The [Skill](../agent-api/SKILL.md) documents the scope and input format. The CLI
+shows the source and inventory as `resources[].local_hardware_note` on matching
+node IDs. A NODE or
 QUEUE resource remains a whole-machine allocation even if its inventory lists
 several cards. Use the live occupancy and queue rules when deciding whether the
 known hardware can be allocated now. The inventory does not alter a lease or
