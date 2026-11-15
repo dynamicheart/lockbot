@@ -765,6 +765,57 @@ class Client:
             raise ClientError("report_extension_changed_refresh_context")
         return result
 
+    def panel_link(self):
+        """Issue one private handoff without following or consuming its browser ticket."""
+        url = urllib.parse.urlsplit(self.base)
+        transport = "https"
+        if url.scheme == "http":
+            try:
+                address = ipaddress.ip_address(url.hostname)
+            except ValueError:
+                raise ClientError("personal_panel_transport_refused") from None
+            if not any(
+                address in ipaddress.ip_network(network)
+                for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "fc00::/7", "::1/128")
+            ):
+                raise ClientError("personal_panel_transport_refused")
+            transport = "private-http"
+        home = self.base + "/#/me"
+        issue_path = "/api/personal-panel/links"
+        capability = self._request(self.base + "/api/personal-panel/capabilities")
+        management = capability.get("connection_management")
+        if (
+            capability.get("protocol") != "lockbot.personal-panel.v1"
+            or capability.get("home") != home
+            or capability.get("issue_path") != issue_path
+            or capability.get("transport") != transport
+            or not isinstance(management, dict)
+            or type(management.get("version")) is not int
+            or management["version"] != 1
+            or management.get("list_path") != "/api/personal-panel/connections"
+        ):
+            raise ClientError("native_personal_panel_unavailable")
+        context = self._read_context()
+        if context.get("agent_access_enabled") is not True:
+            raise ClientError("agent_access_disabled")
+        if self.needs_update:
+            raise ClientError("update_bundle_before_mutation")
+        issued = self._request(self.base + issue_path, token=self.key, method="POST", readonly=False)
+        login_url = issued.get("login_url")
+        expires_in = issued.get("expires_in")
+        prefix = home + "?ticket="
+        if (
+            issued.get("home") != home
+            or type(expires_in) is not int
+            or not 0 < expires_in <= 120
+            or not isinstance(login_url, str)
+            or not login_url.startswith(prefix)
+            or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", login_url[len(prefix) :])
+            or self.redacted(login_url) != login_url
+        ):
+            raise ClientError("invalid_personal_panel_link")
+        return {"home": home, "login_url": login_url}
+
     def command(self, operation, nodes, devices, duration, metadata=None):
         context = self.context()
         if self.needs_update:
@@ -1161,6 +1212,11 @@ def main(argv=None):
             command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
     sub.add_parser("context")
     sub.add_parser("resources")
+    sub.add_parser(
+        "panel-link",
+        help="Issue a single-use sign-in link for an authorized private handoff",
+        description="Run with --connection for an authorized private handoff. The recipient confirms in their browser.",
+    )
     guidance = sub.add_parser("resource-guidance", help="Read deployment-owned references for current holdings")
     guidance.add_argument("--reference")
     report = sub.add_parser("personal-report")
@@ -1215,6 +1271,8 @@ def main(argv=None):
             result = client.resource_guidance(args.reference)
         elif args.action == "personal-report":
             result = client.personal_report(args.extension)
+        elif args.action == "panel-link":
+            result = client.panel_link()
         elif args.action == "alias":
             result = client.alias(args.node, args.alias_value)
         elif args.action == "command":
