@@ -29,11 +29,11 @@ Runs as a multi-bot platform with FastAPI and a Vue.js frontend.
 The published image includes the web UI and Feishu dependencies. Prepare a private environment file with `JWT_SECRET` and `ENCRYPTION_KEY` following the [deployment guide](docs/agents/deployment/AGENTS.md). For upgrades, keep the original keys and data volume.
 
 ```bash
-docker pull ghcr.io/dynamicheart/lockbot:v3.0.0
+docker pull ghcr.io/dynamicheart/lockbot:v3.3.0
 docker run -d --name lockbot -p 8000:8000 \
   --env-file /private/path/lockbot.env \
   -v lockbot-data:/data \
-  ghcr.io/dynamicheart/lockbot:v3.0.0
+  ghcr.io/dynamicheart/lockbot:v3.3.0
 
 # New installation only: create the initial super administrator interactively.
 docker exec -it lockbot python tools/create_super_admin.py --username admin --email admin@example.com
