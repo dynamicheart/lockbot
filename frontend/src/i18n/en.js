@@ -681,9 +681,12 @@ export default {
     copyInstructions: 'Copy setup instructions',
     details: 'Connection details',
     requestKey: 'Get Key viewing link',
-    refreshKey: 'Refresh Key',
+    keyUnavailable: 'Key unavailable',
+    keyRequestInstructions:
+      'Send the request to the Agent for this group and open the link it returns.',
+    copyKeyRequest: 'Copy viewing request',
     keyLinkAvailable: 'Key status: viewing link available',
-    keyRefreshNeeded: 'Key status: refresh needed',
+    keyUnavailableStatus: 'Key status: unavailable',
   },
   nav: {
     apiCredentials: 'API credentials',

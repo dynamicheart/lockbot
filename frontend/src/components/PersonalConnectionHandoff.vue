@@ -46,12 +46,16 @@
             <td class="credential-controls">
               <div class="credential-actions">
                 <button
+                  v-if="canViewKey(item)"
                   class="connection-button primary"
                   aria-haspopup="dialog"
                   @click="openDetails(item, true)"
                 >
-                  {{ $t(keyAction(item)) }}
+                  {{ $t('personalCredentialActions.requestKey') }}
                 </button>
+                <span v-else class="key-unavailable">{{
+                  $t('personalCredentialActions.keyUnavailable')
+                }}</span>
                 <button class="connection-button" aria-haspopup="dialog" @click="openDetails(item)">
                   {{ $t('personalCredentialActions.agentSetup') }}
                 </button>
@@ -65,7 +69,7 @@
       v-model="detailsOpen"
       :title="
         selectedItem
-          ? `${selectedItem.bot.name} · ${$t(showKeyHelp ? keyAction(selectedItem) : 'personalCredentialActions.agentSetup')}`
+          ? `${selectedItem.bot.name} · ${$t(showKeyHelp ? 'personalCredentialActions.requestKey' : 'personalCredentialActions.agentSetup')}`
           : $t('personalCredentialActions.agentSetup')
       "
       width="min(620px, calc(100% - 24px))"
@@ -75,22 +79,10 @@
       <div v-if="selectedItem" class="credential-dialog">
         <template v-for="item in [selectedItem]" :key="item.id">
           <div v-if="showKeyHelp" class="key-help">
-            <p v-if="canViewKey(item)">把查看请求发给该群的 Agent，再打开它返回的链接。</p>
-            <p v-else>请让已绑定该群的 Agent 刷新 Key。</p>
+            <p>{{ $t('personalCredentialActions.keyRequestInstructions') }}</p>
             <div class="credential-actions">
-              <button
-                v-if="canViewKey(item)"
-                class="connection-button primary"
-                @click="copyViewRequest(item)"
-              >
-                复制查看请求
-              </button>
-              <button
-                v-else-if="item.recovery_instructions || recoveryGuide"
-                class="connection-button primary"
-                @click="copyConnectionRecovery(item)"
-              >
-                复制刷新说明
+              <button class="connection-button primary" @click="copyViewRequest(item)">
+                {{ $t('personalCredentialActions.copyKeyRequest') }}
               </button>
               <span v-if="feedbackTarget === item.id + '-more'" class="copy-status" role="status">{{
                 feedback
@@ -227,6 +219,7 @@ const detailsOpen = ref(false)
 const showKeyHelp = ref(false)
 const selectedItem = computed(() => items.value.find(({ id }) => id === selectedId.value))
 function openDetails(item, keyHelp = false) {
+  if (keyHelp && !canViewKey(item)) return
   selectedId.value = item.id
   showKeyHelp.value = keyHelp
   feedback.value = feedbackTarget.value = ''
@@ -475,11 +468,6 @@ async function copy(value, limit, target) {
 function canViewKey(item) {
   return viewSupported.value && item.credential_recovery_health === 'recoverable'
 }
-function keyAction(item) {
-  return canViewKey(item)
-    ? 'personalCredentialActions.requestKey'
-    : 'personalCredentialActions.refreshKey'
-}
 async function copyViewRequest(item) {
   if (!canViewKey(item) || !props.authenticated || loading.value || !items.value.includes(item))
     return
@@ -551,7 +539,7 @@ function copyAllStatus() {
     const status = t(
       canViewKey(item)
         ? 'personalCredentialActions.keyLinkAvailable'
-        : 'personalCredentialActions.keyRefreshNeeded'
+        : 'personalCredentialActions.keyUnavailableStatus'
     )
     return [`${index + 1}. ${item.bot.name}`, status, item.instructions].join('\n')
   })
@@ -619,7 +607,7 @@ onBeforeUnmount(() => {
   background: var(--el-bg-color);
   overflow: hidden;
 }
-.credential-table thead {
+.credential-table thead th {
   background: var(--el-fill-color-darker);
   color: var(--el-text-color-primary);
   font-size: 13px;
@@ -646,6 +634,10 @@ onBeforeUnmount(() => {
 .credential-identity small {
   display: block;
   margin-top: 3px;
+}
+.key-unavailable {
+  color: var(--muted);
+  font-size: 13px;
 }
 .credential-dialog {
   --line: var(--el-border-color);

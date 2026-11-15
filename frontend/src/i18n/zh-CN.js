@@ -658,9 +658,11 @@ export default {
     copyInstructions: '复制接入说明',
     details: '连接详情',
     requestKey: '获取 Key 查看链接',
-    refreshKey: '刷新 Key',
+    keyUnavailable: 'Key 暂不可查看',
+    keyRequestInstructions: '把查看请求发给该群的 Agent，再打开它返回的链接。',
+    copyKeyRequest: '复制查看请求',
     keyLinkAvailable: 'Key 状态：可获取查看链接',
-    keyRefreshNeeded: 'Key 状态：需刷新',
+    keyUnavailableStatus: 'Key 状态：暂不可查看',
   },
   nav: {
     apiCredentials: 'API 凭证',
