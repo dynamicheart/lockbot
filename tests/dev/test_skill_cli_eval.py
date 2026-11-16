@@ -59,6 +59,19 @@ def test_inspecting_link_does_not_authorize_installation(tmp_path, monkeypatch):
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["installed"]
 
 
+def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "install-with-key")
+    assert install(fixture)["installed"]
+    requests = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
+    assert [(row["url"], row["authorization_present"]) for row in requests] == [
+        (fixture.origin + "/api/agent-skill", False),
+        (fixture.origin + evaluation.base.BUNDLE_PATH, False),
+    ]
+    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "resources")["result"]["resources"]
+    assert evaluation.score(fixture.root, "已安装并查询资源。")["observable_pass"]
+
+
 @pytest.mark.parametrize("scenario", ["install-from-link", "install-from-zip", "install-with-key"])
 @pytest.mark.parametrize("instance_id", [evaluation.base.INSTANCE, "d709dca8-cd10-4602-a415-f480a63349be"])
 def test_first_contact_requires_verified_install_and_complete_private_connection(
@@ -331,6 +344,8 @@ def test_hardware_guard_refuses_unverified_or_mismatched_selections(
 def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "intent-choose")
     assert install(fixture)["installed"]
+    trace = fixture.root / "cli-http.jsonl"
+    before = trace.read_bytes()
     result = run(
         fixture,
         "command",
@@ -343,7 +358,7 @@ def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path,
         device_count=2,
     )
     assert result["error"] == "selected_device_count_does_not_match_request"
-    assert not (fixture.root / "cli-http.jsonl").exists()
+    assert trace.read_bytes() == before
 
 
 @pytest.mark.parametrize(

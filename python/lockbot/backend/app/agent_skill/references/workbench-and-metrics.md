@@ -50,7 +50,11 @@ When supported, one link previews the groups recoverable from the same verified 
 on that service. The user can confirm all listed groups or only the group associated with
 the current Key. No group name or second link is needed for groups listed in the preview.
 
-For ordinary return visits, share the fixed `home` for bookmarking. The user's own browser restores its session. Only issue a new login link when the user needs to sign in. Keep long-lived Keys out of URLs, chats and logs.
+For ordinary return visits, share the fixed `home` for bookmarking. If the user
+asks you to check their already signed-in workbench and gives you browser access,
+open only that bookmarked `home`. Report what the page shows and include the fixed
+address. The user opens and confirms any new login link in their own browser.
+Keep long-lived Keys out of URLs, chats and logs.
 
 Mint/deliver the short-lived link only when an already verified private one-to-one channel
 to the bound user is available and delivery is authorized. An authenticated private CLI

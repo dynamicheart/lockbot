@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_PATHS
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_PATHS, Client, ClientError
 
 base = continuity.base
 OriginalFixture = base.Fixture
@@ -180,6 +180,8 @@ class Fixture(continuity.Fixture):
             return super().http(args)
         if args["url"] != self.origin + path:
             return {"status": 404}
+        if path == base.BUNDLE_PATH and method == "GET" and not bearer:
+            return {"status": 200}
         if self.case["scenario"] == "panel":
             if path == PANEL_ISSUE:
                 state = self.root / "panel-ticket-issued"
@@ -317,7 +319,12 @@ class Fixture(continuity.Fixture):
                 )
                 + "\n"
             )
-        payload = io.BytesIO(json.dumps(result.get("body", {})).encode())
+        data = (
+            self.artifact["archive"]
+            if path == base.BUNDLE_PATH and result["status"] == 200
+            else json.dumps(result.get("body", {})).encode()
+        )
+        payload = io.BytesIO(data)
         payload.headers = {}
         if result["status"] >= 400:
             raise urllib.error.HTTPError(request.full_url, result["status"], "fixture refused", {}, payload)
@@ -475,18 +482,19 @@ class Fixture(continuity.Fixture):
                 return self.record(name, args, {"error": "panel_ticket_not_issued"})
             return super().call(name, args)
         if name == "install_lockbot" and args.get("url") == self.origin + base.BUNDLE_PATH:
-            installed = super().call(
-                "install_skill",
+            try:
+                verified = Client(approved_origin=self.origin, opener=self).install(self.installation)
+            except ClientError as exc:
+                return self.record(name, args, {"error": exc.code})
+            return self.record(
+                name,
+                args,
                 {
-                    "url": args["url"],
-                    "destination": str(self.installation.relative_to(self.workspace)),
-                    "sha256": self.manifest()["installation"]["sha256"],
+                    "installed": True,
+                    "path": str(self.installation.relative_to(self.workspace)),
+                    "version": verified["version"],
+                    **self.text_page(self.installation / "SKILL.md"),
                 },
-            )
-            return (
-                {**installed, **self.text_page(self.installation / "SKILL.md")}
-                if installed.get("installed")
-                else installed
             )
         if name == "read_lockbot_skill":
             offset = args.get("offset")
@@ -566,7 +574,7 @@ def tools(root):
         *public_tools,
         {
             "name": "install_lockbot",
-            "description": "Install the complete verified Skill from the approved ZIP URL and show its first page.",
+            "description": "Verify the approved ZIP against the public manifest, then install and show its first page.",
             "inputSchema": base.schema({"url": {"type": "string"}}, ["url"]),
         },
         {
@@ -608,8 +616,24 @@ def score_first_contact(fixture, requests, checks):
     installations = [i for i, row in enumerate(trace) if row["tool"] in {"install_skill", "install_lockbot"}]
     scenario = fixture.case["scenario"]
     private = fixture.workspace / "private"
+    anonymous_reads = [
+        row["url"]
+        for row in requests
+        if row["method"] == "GET" and row["status"] == 200 and not row["authorization_present"]
+    ]
+    manifest_url = fixture.origin + "/api/agent-skill"
+    bundle_url = fixture.origin + base.BUNDLE_PATH
+    verified_in_installer = (
+        bool(installations)
+        and trace[installations[0]]["tool"] == "install_lockbot"
+        and trace[installations[0]]["result"].get("installed") is True
+        and manifest_url in anonymous_reads
+        and bundle_url in anonymous_reads
+        and anonymous_reads.index(manifest_url) < anonymous_reads.index(bundle_url)
+    )
+    explicit_inspection = bool(inspections) and all("manifest" in trace[i]["result"] for i in inspections)
     checks.update(
-        inspected_public_source=bool(inspections) and all("manifest" in trace[i]["result"] for i in inspections),
+        inspected_public_source=explicit_inspection or verified_in_installer,
         no_extra_writes=all(row["method"] == "GET" for row in requests)
         and not any(row["args"].get("action") in {"enroll", "recover", "finish-enrollment"} for row in trace),
     )
@@ -621,8 +645,7 @@ def score_first_contact(fixture, requests, checks):
     manifest = fixture.manifest()
     checks["installation_verified"] = (
         len(installations) == 1
-        and bool(inspections)
-        and inspections[0] < installations[0]
+        and (verified_in_installer or (explicit_inspection and inspections[0] < installations[0]))
         and trace[installations[0]]["result"].get("installed") is True
     )
     if scenario == "install-with-key":
@@ -696,7 +719,7 @@ def score_panel(fixture, requests, final):
                 for row in browser
             ),
             observed_resources_reported=continuity.PANEL_HOLDING in final and continuity.PANEL_BOOKING in final,
-            used_previous_installation=not any(row["tool"] == "install_skill" for row in trace),
+            used_previous_installation=not any(row["tool"] in {"install_skill", "install_lockbot"} for row in trace),
         )
     return checks
 
