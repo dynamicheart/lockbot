@@ -52,7 +52,7 @@ persistence or exclude another user's concurrent update.
 
 ## Read current bot rules and manage the lease lifecycle
 
-Each successful `GET /api/agent/context` includes `bot_rules`, read from the bot's current
+The CLI's `context` includes `bot_rules`, read from the bot's current
 persisted configuration even when the bot is stopped. Refresh your private rule cache at
 connection/resume and before renewal, and after a policy rejection or configuration change.
 Use `/resources` for polling and fetch context when you need refreshed connection or rule information.
@@ -103,7 +103,7 @@ the deadline as uncertain instead of guessing extra authorized time.
 
 ### Keep a conservative local stop deadline
 
-Record a local monotonic timestamp just before each GET and after receiving it. Use the
+Record a local monotonic timestamp before and after each resource read. Use the
 verified lease's server `expires_at`, snapshot `captured_at` and `age_seconds` to estimate
 remaining time without trusting the Agent computer's UTC clock. A conservative calculation
 is `remaining = max(0, expires_at - captured_at - age_seconds - request_elapsed)` and
@@ -126,7 +126,7 @@ A permitted verification read after a mutation still obeys actual server retry i
 
 Choose an explicit added duration: repeated lock adds time rather than setting a new total.
 Keep remaining time plus the increment within the caller-effective ceiling. Attempt one bounded
-renewal. Then GET `/resources` and confirm the same resource/actor/lease
+renewal. Read the resulting snapshot and confirm the same resource/actor/lease
 has a genuinely later `expires_at`; HTTP 200 or a reply alone does not prove renewal. If POST
 has an unknown outcome, read resources and report what you can verify.
 Retrying a status check cannot move the old stop deadline. Adopt a new deadline only from a
@@ -241,10 +241,10 @@ wants no public task information at all (or explicitly send `"task_category": nu
 private URLs, exact experiments or full prompts in notes: super administrators and host
 operators with filesystem access can retain them. Prefer a short useful note and keep sensitive details locally.
 
-Example on a server advertising this policy:
+Example private file for `command --metadata-file` on a server advertising this policy:
 
 ```json
-{"command":"lock node1 30m","task_category":"operator_testing","purpose":"Validate numerical correctness across data types","agent_label":"codex-test"}
+{"task_category":"operator_testing","purpose":"Validate numerical correctness across data types","agent_label":"codex-test"}
 ```
 
 Legacy clients may continue using `purpose`; an upgraded server keeps legacy notes private
@@ -256,30 +256,7 @@ sent group messages or copies saved by other clients.
 
 Successful lock/book commands register their metadata for up to 24 hours, tied to the actual
 holding/booking. A queue claim or renewal with no metadata retains the existing valid task;
-explicit metadata replaces it. To update a task without renewing the lease:
-
-`PUT /api/agent/usage-declarations/{resource_id}`
-
-```json
-{"task_category":"performance_testing","purpose":"Compare throughput and latency","ttl_seconds":3600}
-```
-
-TTL defaults to 3600 seconds (60–86400). Declare only for resources you currently hold or
-have booked. GET `usage-declarations` and embedded resource `usage` show your private details
-and other users' public categories. Never attribute a task by machine name alone; match the
-verified actor and resource ID. `usage: null` is not proof that nobody registered a task.
-A declaration does not prove ownership or change the queue order. It disappears when the
-lease, TTL or authorization is no longer valid. DELETE your declaration to remove it.
-For task-scoped cleanup, first verify this task's actor/resource/lease and read its own
-current declaration. When context declares `usage_privacy.conditional_cleanup`, save the
-private `revision` value and send it unchanged as the `If-Match` header on DELETE.
-The server rejects changed/expired declarations or changed leases with 412. Stop and
-re-read; never retry without the precondition or delete a replacement task's declaration.
-This deletes metadata only: it does not free or renew resources. A revision is not an
-ownership proof or credential and is hidden from other users. Old servers without this
-capability require coordination; do not assume their unconditional delete is race-safe.
-Refresh an expiring declaration without repeating `lock`, which extends resource time.
-If a mutation returns `may_have_executed`, read state before retrying.
+explicit metadata replaces it. Resource snapshots show your own private details and other users' public categories. Match the verified actor and resource ID. A declaration does not prove ownership or change queue order. Do not renew a lease just to refresh task notes.
 
 ## Coordination and operational records
 

@@ -13,11 +13,8 @@ LockBot manages shared compute for chat groups. It tracks who holds each machine
 accelerator card, when the lease expires, and who is queued. A LockBot service can host
 several resource groups. Each group has its own bot, inventory, and allocation rules.
 
-This Skill uses LockBot's HTTP Resource API as your verified group identity. A personal
-`lbr_` Key identifies both you and your bot on its service. `GET /api/agent/context`
-identifies the connection, `GET /api/agent/resources` reads the inventory, and
-`POST /api/agent/commands` submits a resource operation. The bundled CLI handles these
-calls and verifies the result. Use the CLI for routine tasks.
+The bundled CLI verifies your group identity, reads the live inventory, and checks
+resource writes. A personal `lbr_` Key identifies both you and your bot on its service.
 
 Keep credentials scoped to the verified service, instance and bot. Keep Key values and
 grants out of replies, command arguments, Skill files and shared memory.
@@ -135,9 +132,7 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    labels and nested task data as private. Never replay a command to add notes.
 
 Read [resource operations and leases](references/resource-operations.md) for hardware notes,
-aliases, lease timing, polling and task metadata. If the bundled CLI cannot run, use the
-[HTTP fallback](references/http-api.md) for authorized reads and explain the CLI requirement
-for resource writes. A command that may have run must only be reconciled by reading.
+aliases, lease timing, polling and task metadata.
 
 ## Workbench and utilization
 

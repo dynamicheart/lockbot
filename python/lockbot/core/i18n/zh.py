@@ -20,6 +20,16 @@ MESSAGES = {
     "notify.api_agent_label": "\nAgent：{label}",
     "help.agent_skill": "Agent 使用：",
     "help.agent_lock_hint": "让 Agent 安装 Skill：{url}",
+    "public_docs.agent_api_intro": "使用在群内完成绑定的个人 Agent Key，操作该群中属于你自己的资源。",
+    "public_docs.resource_queries": "查询资源先用 `GET /api/agent/context` 核对绑定，再展开 "
+    "`GET /api/agent/resources` 查看查询示例。",
+    "public_docs.resource_query_example": (
+        "### 用个人 Agent Key 查询资源\n\n"
+        "`LOCKBOT_ORIGIN` 填已确认的服务地址，从私有凭证存储加载 `LOCKBOT_AGENT_KEY`。"
+        "第一条请求返回 Key 绑定的身份和群，核对后再发第二条请求，读取该群的资源、占用和队列。"
+        "两条请求使用同一个 Key。\n\n"
+        "{commands}"
+    ),
     # ── Duration formatting ──
     "duration.days": "{value} 天",
     "duration.hours": "{value} 小时",

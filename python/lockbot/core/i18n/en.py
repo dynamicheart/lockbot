@@ -23,6 +23,16 @@ MESSAGES = {
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
     "help.agent_lock_hint": "Install this Skill with your Agent: {url}",
+    "public_docs.agent_api_intro": "Use a personal Agent Key bound in a group to operate your resources in that group.",
+    "public_docs.resource_queries": "To query resources, start with `GET /api/agent/context`, "
+    "then open `GET /api/agent/resources` for the query example.",
+    "public_docs.resource_query_example": (
+        "### Query using a personal Agent Key\n\n"
+        "Set `LOCKBOT_ORIGIN` to the approved service address and load `LOCKBOT_AGENT_KEY` from private storage. "
+        "The first request returns the identity and group for that Key. Verify them before running the second request. "
+        "The response lists resources, holders and queues for that group. Both requests use the same Key.\n\n"
+        "{commands}"
+    ),
     # ── Duration formatting ──
     "duration.days": "{value} days",
     "duration.hours": "{value} hours",

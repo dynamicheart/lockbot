@@ -36,20 +36,7 @@ A ZIP URL does not automatically install in every client. Use its installer or v
 manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
 supported; the helper is the recommended fixed path, not a new server requirement.
 
-**MUST when the helper is available:** first confirm a Python 3.10+ interpreter and a
-complete installed bundle, then use it for supported calls. `python3` below is an example;
-`python` or Windows `py -3` may be candidates, but verify their actual version. If no suitable
-runtime/installer/network is available, do not install dependencies without authorization or
-claim the helper ran. Use the [HTTP fallback](http-api.md) for authorized reads. Explain
-that resource writes require the CLI. Keep each connection's approved
-service/instance/bot and private key-file reference; never put raw keys in argv or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
-and explicit durations for new acquisitions, bookings and renewals. Claim an existing
-booking with `--operation claim` without a duration. For an existing holding, `renew`
-uses the lock mode listed in `supported_operations` and adds the supplied duration
-to the existing expiry. For release, use `release` without a duration. Verify readback
-and report an uncertain write without repeating it.
-This one-shot helper is **not** a workload runner or automatic renewal loop: continue to
-follow the expiry/stop rules below.
+Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
 For a new binding with no saved Key, supply the approved origin and the group named
 by the user. Add the selected storage options to `enroll`. Pass `--authorized` only
@@ -120,45 +107,13 @@ that it belongs here. Another Lockbot implementation can have a different authen
 protocol and permission scope. Check the advertised service identity and API version;
 never transfer credentials or assumptions such as one token authorizing every bot.
 
-1. Start with the server/skill URL explicitly supplied or approved by the user. Without
-   a trusted server address, ask for that address once; never guess a host or bot ID.
-2. **Without Authorization**, GET `/api/agent-skill` on that origin. Check `service_id`,
-   `instance_id`, `api_version`, and `skill_id`. Do not follow a redirect to another origin.
-3. For persistent setup, install/update `installation.download_url` as **lockbot-resource-agent**,
-   beside other Lockbot skills. Keep their files and credentials intact. Verify the ZIP SHA-256
-   and `skill_sha256` from this same trusted origin. Legacy download URLs stay supported.
-4. Find saved credentials for the **trusted origin + instance_id**; use a known bot UUID
-   to narrow matching records. A newly confirmed key needs no bot ID or UUID to call context;
-   save its returned bot UUID alongside the key afterwards. Never use a single global
-   `LOCKBOT_TOKEN`, generic "lockbot token" memory, or another platform's
-   JWT. If an existing record has no service attribution, ask which service it belongs to;
-   do not test it against different servers.
-5. With a matching saved `lbr_` key, GET `/api/agent/context`. It supplies the bot ID, UUID,
-   name/type, verified actor and relative operation URLs. Verify the returned instance ID
-   against the saved record; use `links` on the same approved origin. Humans do not need
-   to know or enter `bot_id`. This context works while the bot is stopped; when access is
-   disabled it returns `agent_access_enabled: false`, so pause rather than bind again.
-
-Do not send any key to a service just to identify the service. A public service identifier
-prevents accidental protocol confusion; it does not authenticate a malicious host. The
-user-approved origin (and HTTPS where available) remains the credential destination boundary.
-The server cannot erase an Agent's earlier memories: keep the scope explicit in its private
-configuration and use this namespaced skill for requests to this implementation.
+Run `discover --origin <approved-service>` before setting up a connection. Use `init` for an existing Key or `enroll` to start a new binding with the user's approval. In later sessions, run `connections` from the project and use `context` with the selected private connection. The CLI verifies the service, instance and Key's group. Ask for the address if it is missing and for the intended service if several match. Keep credentials scoped to the approved service and verified group.
 
 ## Keep credentials and resource assignments scoped
 
 ### Discover your existing bindings before enrolling again
 
-After verifying the saved key with `/api/agent/context`, check the manifest for
-`own_binding_directory` and follow `bindings_url` (also exposed as `links.bindings`
-in context). `GET /api/agent/bindings` with that key lists current, unexpired bindings
-for its exact verified platform/user **on this service instance only**. It returns
-bot IDs/UUIDs/names, non-secret binding IDs, whether each is the current binding,
-expiry and whether Agent access is enabled. Deleted/replaced bots and revoked or
-expired bindings are excluded. A stopped bot can still have a valid binding.
-Feishu recovery also requires the same verified application and tenant namespace;
-missing namespace evidence stays bot-scoped. Equal ID strings from different
-applications do not establish the same user.
+Run `recover` with a verified seed connection to find other current bindings. On Feishu, recovery requires the same verified application and tenant. Equal user IDs from different applications do not establish the same identity.
 
 When the user asks to move their existing access to another Agent, give the receiving
 Agent **one existing active Key for the approved service via its private credential
@@ -174,9 +129,7 @@ resource reads verify that Key's context before use. Report the group names and 
 connections were saved or unavailable, without printing any Key. Use a new private
 destination on each receiving Agent. One seed can recover other groups on the same
 service and verified identity namespace when the server has a recovery copy. A group
-whose Key was never stored for recovery needs its own existing copy. Keep each service
-separate. Direct API clients use the manifest's `binding_recovery_url`, also exposed as
-`links.binding_recovery`, with the current Key and no request body.
+whose Key was never stored for recovery needs its own existing copy. Keep each service separate.
 
 Every group retains its own key. Recovery gives the user's Agents account-wide
 credential discovery on this instance; resource routes still require the matching
@@ -189,12 +142,7 @@ advertises `credential_recovery_health`, context reports only the current key's 
 (copy cannot be verified, including an unavailable service encryption key). This is
 recovery health, not credential validity; context never exposes another bot's state.
 
-For each distinct saved key on the approved instance with a missing/unreadable copy:
-POST recovery once using that exact key and no body; find the `current: true` entry;
-privately compare its returned key with the original; then GET context again and
-verify the same instance/bot/user and `recoverable` state. Keep the exact key value
-and existing private-store reference. Reconcile each bot separately. If the field is
-absent on an older service, keep the existing capability/context flow.
+If another group has no recoverable copy, keep the existing Key and run `recover` with that group's verified connection if you have it. Check that the original Key, group and actor are unchanged.
 
 Preserve an existing valid local key when a recovery entry has `credential: null` /
 `credential_recoverable: false`: the historical copy is missing or unreadable, not
@@ -271,46 +219,4 @@ resources on resume. Ask for the service or group when multiple records match.
 
 ## Version checks and compatible updates
 
-The manifest separates `server_version`, stable `api_version`, and the opaque content-based
-skill `version` (plus full `skill_sha256`). Compare skill revisions for **equality**, not as
-ordered semantic versions. Check the manifest at task start and after reconnecting. Personal
-API responses also include `X-Lockbot-Service-ID`, `X-Lockbot-API-Version`,
-`X-Lockbot-Server-Version`, and `X-Lockbot-Skill-Version`. Check these on **every API response,
-including errors**, not only context. Also send `X-Lockbot-Client-API-Version: 1`.
-`X-Lockbot-Skill-Update` is `unknown`, `current` or `update_available`;
-`X-Lockbot-API-Compatibility` is `unknown`, `current` or `incompatible`.
-`X-Lockbot-Skill-URL` is the same-origin update path. A mismatch must cause a manifest check,
-verified Skill download and reload before the next mutation; incompatible API versions must
-pause mutations. Never replay a completed command merely because its response announces an
-update. Propagate the actually loaded revisions and this check to delegated/background clients.
-
-If the skill revision changes, re-fetch the manifest and this skill from the same trusted
-origin before the next resource mutation. Use a cache-busting `?version=<revision>` or a
-no-cache request, verify its SHA-256, and reload it without replacing another platform's
-skill. An unknown API major version means stop mutations and request compatible instructions;
-a server version change within API 1 does not itself require a new key or new binding.
-Never renew/revoke credentials merely to update a skill.
-For authenticated API calls, send `X-Lockbot-Client-Skill-Version: <loaded skill version>`.
-Use the revision of the instructions actually loaded for this task, not a newer manifest
-which you have not read. The downloaded Markdown and the installed package can have
-different revisions. If you verified and read the full newer Markdown into this task,
-send that revision on the next authenticated read, even while installation awaits approval.
-A helper running from the old package still reports its own installed revision. Do not
-override the helper's headers or claim that briefly loading Markdown updated the installed
-package. Context, resource and command responses include `skill_update` in
-the JSON body: `unknown` means no usable client version was reported; `update_available`
-means it differs; `current` means the reported revision matches. These are equality checks,
-not proof of successful local installation. Follow same-origin `manifest_url` / `skill_url`
-and read the latest instructions before the next mutation when an update is needed. A
-notice after a command does not mean that command failed: verify its state and never replay
-it merely to update the Skill. Old clients may need the user to share the latest Skill URL
-once because their installed copy contains no update rule or hook.
-
-The API advertises updates; the Agent client performs the download and reload. A server
-cannot automatically install a skill in a client that does not support it. Keep checking the
-manifest at task start even if that client loaded an older installed copy.
-
-Older 2.10.0 servers lack context discovery and the new identity fields. Their existing
-bot-scoped APIs and keys still work with a previously approved bot configuration. If that
-configuration is missing, explain that the server needs the discovery update, or ask for
-its bot ID once as a legacy fallback. Never scan IDs or fall back to another platform's API.
+Use the bundled CLI for version and compatibility checks. When it reports `update_required`, you can still read resources and reconcile earlier writes. Before a new write, verify the complete ZIP on the same approved service, install it with the client's installer when authorized, then reload the Skill. Keep existing private connections and Keys. Do not rebind or repeat a command because the package changed. If the service is incompatible, tell the user and pause writes until a compatible package or service is available.

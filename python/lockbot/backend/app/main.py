@@ -8,7 +8,7 @@ import os
 import sys
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import models to register them with Base.metadata
@@ -779,10 +779,15 @@ def create_app() -> FastAPI:
 
     # ── Integration API docs: personal Agent, operator, enrollment and downloads ──
     @app.get("/api/public-openapi.json", include_in_schema=False)
-    def public_openapi():
+    def public_openapi(request: Request):
         import json as _json
         import re as _re
 
+        from lockbot.core.i18n import t
+
+        preferred_language = request.headers.get("accept-language", "")
+        preferred_language = preferred_language.split(",", 1)[0].split(";", 1)[0].strip().lower()
+        lang = "en" if preferred_language == "en" or preferred_language.startswith("en-") else "zh"
         schema = _json.loads(_json.dumps(app.openapi()))
         public_paths = {}
         for path, methods in schema.get("paths", {}).items():
@@ -802,6 +807,14 @@ def create_app() -> FastAPI:
                         group, scheme = "Agent API", "AgentKey"
                     detail["tags"] = [group]
                     detail["security"] = [{scheme: []}] if scheme else []
+                    if path == "/api/agent/resources" and method == "get":
+                        commands = (
+                            "```sh\n"
+                            'curl -H "Authorization: Bearer $LOCKBOT_AGENT_KEY" "$LOCKBOT_ORIGIN/api/agent/context"\n'
+                            'curl -H "Authorization: Bearer $LOCKBOT_AGENT_KEY" "$LOCKBOT_ORIGIN/api/agent/resources"\n'
+                            "```"
+                        )
+                        detail["description"] = t("public_docs.resource_query_example", lang=lang, commands=commands)
                     public_paths.setdefault(path, {})[method] = detail
 
         # Include EVERY schema reachable from the public paths by following ``$ref`` transitively,
@@ -835,10 +848,9 @@ def create_app() -> FastAPI:
             "tags": [
                 {
                     "name": "Agent API",
-                    "description": (
-                        "个人资源操作：Authorization: Bearer lbr_…"
-                        "。身份由用户在群中绑定确认，只操作本人资源；不支持强制释放他人资源。"
-                    ),
+                    "description": t("public_docs.agent_api_intro", lang=lang)
+                    + "\n\n"
+                    + t("public_docs.resource_queries", lang=lang),
                 },
                 {
                     "name": "Agent 绑定",

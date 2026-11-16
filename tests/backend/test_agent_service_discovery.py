@@ -209,6 +209,21 @@ def test_public_schema_authenticates_context_but_not_manifest_or_downloads(clien
     assert "AgentContextResponse" in json.dumps(paths["/api/agent/context"])
 
 
+@pytest.mark.parametrize(
+    ("language", "heading"),
+    [("zh-CN", "用个人 Agent Key 查询资源"), ("en-US,en;q=0.9", "Query using a personal Agent Key")],
+)
+def test_public_docs_explain_context_then_read_only_resource_query(client, language, heading):
+    schema = client.get("/api/public-openapi.json", headers={"Accept-Language": language}).raise_for_status().json()
+    context = schema["paths"]["/api/agent/context"]["get"]
+    resources = schema["paths"]["/api/agent/resources"]["get"]
+    assert context["security"] == resources["security"] == [{"AgentKey": []}]
+    assert heading in resources["description"]
+    example = resources["description"].split("```sh\n", 1)[1]
+    assert example.index("/api/agent/context") < example.index("/api/agent/resources")
+    assert example.count("Authorization: Bearer $LOCKBOT_AGENT_KEY") == 2
+
+
 def test_new_context_uses_the_shared_credential_read_budget(client, api, monkeypatch):
     from lockbot.backend.app.resource_api.traffic import credential_budget
 

@@ -321,7 +321,7 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     reference = "references/http-api.md"
     inspected = fixture.call("inspect_archive", {"path": path, "member": reference})
     assert "lockbot-resource-agent/" + reference in inspected["members"]
-    assert inspected["content"].startswith("# Direct HTTP fallback\n")
+    assert inspected["content"].startswith("# Resource operations\n")
     assert inspected["archive_sha256"] == manifest["installation"]["sha256"]
     qualified_member = "lockbot-resource-agent/" + reference
     assert fixture.call("inspect_archive", {"path": path, "member": qualified_member}) == inspected
