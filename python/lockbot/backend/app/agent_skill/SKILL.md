@@ -44,12 +44,16 @@ stop after `resources`. Use `command --help` for all arguments.
 
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
+- **Claim a booking:** use `command --operation claim --node <id>` when the user's
+  booking is claimable. Add `--device` for a queued card. The booking sets the duration.
 - **Cards together:** put every requested card on that node in one command, repeating
   `--device`. Pass `--device-count` when the user specifies a quantity. If the whole
   selection cannot be made, report the shortfall before sending a write.
 - **Whole node:** omit `--device`. If the user specifies a model, pass `--model` in
   either mode. Use `--minimum-model-count` for a whole-node hardware minimum.
   An alias does not establish the model. Stop if the model, target or freshness is unknown.
+- **Named group:** keep the selection in that group. If the user requests cards in a
+  whole-node group, explain the mismatch and ask before switching group or allocation mode.
 - **Unconfirmed write:** read the current resources and report the result. Do not send
   another write for the same request.
 

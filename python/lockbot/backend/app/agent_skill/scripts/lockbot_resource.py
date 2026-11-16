@@ -1284,8 +1284,11 @@ class Client:
         held = [self._own(item.get("holders", []), actor) for item in selected]
         if operation == "renew" and (not all(held) or context.get("bot_rules", {}).get("forbid_relock")):
             raise ClientError("renewal_not_allowed_or_not_owned")
-        if operation in {"lock", "slock"} and any(held):
-            raise ClientError("already_owned_use_explicit_renew")
+        if operation in {"lock", "slock"}:
+            if any(held):
+                raise ClientError("already_owned_use_explicit_renew")
+            if any(item.get("claimable_by_you") is True for item in selected):
+                raise ClientError("booking_claimable_use_explicit_claim")
         if operation == "book" and (
             any(held) or any(self._own(item.get("booking_list", []), actor) for item in selected)
         ):

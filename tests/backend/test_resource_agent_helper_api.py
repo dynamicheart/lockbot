@@ -117,6 +117,15 @@ def test_helper_claims_own_booking_without_overriding_duration(client, api, tmp_
         helper.Client(connection, **options).command("claim", ["n1"], cards, "1m")
 
     session = helper.Client(connection, **options)
+
+    def unexpected_write(*args):
+        pytest.fail("A lock must not send a request for a claimable booking")
+
+    monkeypatch.setattr(session, "_post_command", unexpected_write)
+    with pytest.raises(helper.ClientError, match="booking_claimable_use_explicit_claim"):
+        session.command("lock", ["n1"], cards, "1m")
+
+    session = helper.Client(connection, **options)
     read = session.resources
 
     def inconsistent_claim(context):

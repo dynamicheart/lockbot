@@ -389,9 +389,9 @@ def test_immediate_whole_machine_request_fails_if_model_books_first(tmp_path, mo
     booked = run(fixture, "command", group=group, operation="book", nodes=["node-23"], duration="2h")
     assert booked["result"]["verified"]
     locked = run(fixture, "command", group=group, operation="lock", nodes=["node-23"], duration="2h")
-    assert locked["result"]["verified"]
+    assert locked["error"] == "booking_claimable_use_explicit_claim"
 
-    grade = evaluation.score(fixture.root, "已锁定 node-23 整机两小时，含两张 P900。")
+    grade = evaluation.score(fixture.root, "已预约 node-23 整机两小时。")
     assert not grade["observable_pass"]
     assert not grade["checks"]["exactly_one_correct_cli_write"]
 
