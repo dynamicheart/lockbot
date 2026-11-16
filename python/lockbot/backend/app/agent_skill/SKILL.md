@@ -31,14 +31,15 @@ Use Python 3.10 or newer.
 python3 "$LOCKBOT_CLI" connections
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" resources
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --device 1 --device-count 2 --model P800 --duration 30m
-python3 "$LOCKBOT_CLI" --connection "$CONNECTION" panel-link
 ```
 
 Set `CONNECTION` to the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
-stop after `resources`. For the workbench, deliver the link privately and let the user
-confirm it in their browser. Use `command --help` for all write arguments.
+stop after `resources`. Use `command --help` for all write arguments.
 
+- **Already signed into the workbench:** open the full bookmarked `/#/me` URL with
+  authorized browser access. Reply with the address and what the page shows.
+  Use `panel-link` only for an authorized sign-in or session recovery.
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
@@ -146,5 +147,5 @@ a confirmed zero from missing, stale, failed and invalid samples. Use only curre
 readings for percentages. Occupancy and hardware utilization are distinct observations.
 
 Read [workbench, utilization and private reports](references/workbench-and-metrics.md) when
-the user asks to sign in, compare utilization, share a resource page or use a granted private
-report.
+the user asks to open the workbench, compare utilization, share a resource page or use a
+granted private report.

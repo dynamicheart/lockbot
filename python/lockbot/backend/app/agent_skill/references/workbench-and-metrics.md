@@ -35,10 +35,14 @@ Never copy detailed Agent task notes into public metric labels or group reports.
 
 ## Open the optional personal resource panel
 
-For “my resources” or a persistent personal browser entrance, this existing skill also
-supports a headless handoff from a local CLI or server; no additional skill or browser automation is needed.
-For a first visit or lost browser session, use the selected connection and let the CLI
-verify capabilities, identity, and the returned link:
+For a user who is already signed in, use the full saved workbench URL, including its
+service origin and `/#/me`, with the browser access they authorized. The `home` field
+contains the URL. Once the page opens, report the requested holdings and bookings
+with that fixed address. If browser access is unavailable, ask the user to open the
+bookmarked address themselves.
+
+For an authorized first sign-in or recovery of a lost session, use the selected
+connection. The CLI verifies capabilities, identity, and the returned link:
 
 ```sh
 python3 "$LOCKBOT_CLI" --connection /private/connection.json panel-link
@@ -49,12 +53,6 @@ its `login_url` only in that private channel and keep `home` for ordinary return
 When supported, one link previews the groups recoverable from the same verified account
 on that service. The user can confirm all listed groups or only the group associated with
 the current Key. No group name or second link is needed for groups listed in the preview.
-
-For ordinary return visits, share the fixed `home` for bookmarking. If the user
-asks you to check their already signed-in workbench and gives you browser access,
-open only that bookmarked `home`. Report what the page shows and include the fixed
-address. The user opens and confirms any new login link in their own browser.
-Keep long-lived Keys out of URLs, chats and logs.
 
 Mint/deliver the short-lived link only when an already verified private one-to-one channel
 to the bound user is available and delivery is authorized. An authenticated private CLI
