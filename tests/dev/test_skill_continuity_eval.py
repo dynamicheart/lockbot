@@ -185,7 +185,11 @@ def test_recovery_directory_has_existing_api_shape_and_uses_per_bot_keys(case):
     assert [row["bot"]["id"] for row in recovered["bindings"]] == [7, 8]
     assert request(fixture, "/api/bots/8/resources", base.KEY)["status"] != 200
     for row in recovered["bindings"]:
-        request(fixture, "/api/agent/context", row["credential"])
+        context = request(fixture, "/api/agent/context", row["credential"])["body"]
+        assert context["links"]["resources"] == "/api/agent/resources"
+        canonical = request(fixture, context["links"]["resources"], row["credential"])
+        legacy = request(fixture, f"/api/bots/{row['bot']['id']}/resources", row["credential"])
+        assert canonical == legacy and canonical["status"] == 200
         fixture.call("write_file", {"path": f"private/bot-{row['bot']['id']}.key", "content": row["credential"]})
     assert evaluation.score(fixture.root, "Both connections restored without binding.")["observable_pass"]
     assert (fixture.workspace / "private/current.key").read_text() == base.KEY

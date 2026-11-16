@@ -179,12 +179,13 @@ class Fixture(base.Fixture):
                 return super().http({**args, "url": self.origin + url.path})
             return {"status": 404}
         headers = {name.lower(): value for name, value in args.get("headers", {}).items()}
-        if url.path in ("/api/bots/7/resources", "/api/bots/7/commands"):
+        path = base.bot_resource_path(url.path, 7)
+        if path in ("/api/bots/7/resources", "/api/bots/7/commands"):
             if headers.get("authorization") != "Bearer " + base.KEY:
                 return {"status": 401}
             state = self.state()
             scenario = self.case["scenario"]
-            if url.path.endswith("/commands") and method == "POST":
+            if path.endswith("/commands") and method == "POST":
                 command = args.get("body", {}).get("command")
                 allowed = {
                     "alias": ("alias node-a shared-test", "alias node-a shared-next", "alias node-a"),
@@ -401,6 +402,7 @@ def update_evidence(fixture, trace):
                 in (
                     fixture.origin + "/api/agent/context",
                     fixture.origin + "/api/bots/7/resources",
+                    fixture.origin + base.RESOURCE_LINKS["resources"],
                 )
                 and headers.get("authorization") == "Bearer " + base.KEY
                 and headers.get("x-lockbot-client-skill-version") == version
@@ -458,7 +460,8 @@ def update_evidence(fixture, trace):
 def score(root, final):
     fixture = Fixture(root)
     state = fixture.state()
-    trace = [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
+    trace_path = root / "trace.jsonl"
+    trace = [json.loads(line) for line in trace_path.read_text().splitlines()] if trace_path.exists() else []
     requests = [row for row in trace if row["tool"] == "http_request"]
     snapshots = [
         row["result"]["body"]
@@ -506,14 +509,16 @@ def score(root, final):
             retry_after_respected=sum(row["result"].get("status") == 429 for row in requests) <= 1,
         )
         if fixture.case.get("fixture_version", 1) >= 9:
-            resource_url = fixture.origin + "/api/bots/7/resources"
+            resource_urls = tuple(
+                fixture.origin + path for path in ("/api/bots/7/resources", base.RESOURCE_LINKS["resources"])
+            )
             elapsed, retry_at = 0, None
             observed_backoff, resumed, waited = False, False, True
             for row in trace:
                 result = row["result"]
                 if row["tool"] == "wait_seconds" and result.get("synthetic_clock_only"):
                     elapsed += row["args"]["seconds"]
-                elif row["tool"] == "http_request" and row["args"].get("url") == resource_url:
+                elif row["tool"] == "http_request" and row["args"].get("url") in resource_urls:
                     if retry_at is not None and elapsed < retry_at:
                         waited = False
                     if result.get("status") == 429:

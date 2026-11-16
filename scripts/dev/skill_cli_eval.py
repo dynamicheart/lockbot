@@ -36,6 +36,11 @@ ACTIONS = (
     "init",
     "recover",
 )
+RESOURCE_BOTS = {
+    "Bearer " + base.KEY: 7,
+    "Bearer " + continuity.SECOND_KEY: 8,
+    "Bearer " + continuity.PENDING_KEY: 7,
+}
 FIRST_CONTACT = {
     "link-only": base.SCENARIOS["url"],
     "install-from-link": base.SCENARIOS["install"],
@@ -205,16 +210,17 @@ class Fixture(continuity.Fixture):
                 response["body"]["bot"]["name"] = GROUP
                 response["body"]["skill"] = self.manifest()
                 return response
-            if path == "/api/bots/7/resources":
+            if base.bot_resource_path(path, 7) == "/api/bots/7/resources":
                 return {"status": 200, "body": {"resources": [{"id": "node-a", "holders": []}]}}
         if path == "/api/agent-skill" and method == "GET" and not bearer:
             return {"status": 200, "body": self.manifest()}
         return {"status": 403}
 
     def intent_http(self, args, path, bearer):
-        bot = {"Bearer " + base.KEY: 7, "Bearer " + continuity.SECOND_KEY: 8}.get(bearer)
-        if bot is None:
+        bot = RESOURCE_BOTS.get(bearer)
+        if bot is None or bearer == "Bearer " + continuity.PENDING_KEY:
             return {"status": 401}
+        path = base.bot_resource_path(path, bot)
         method = args["method"]
         scenario = self.case["scenario"]
         if path == "/api/agent/context" and method == "GET":
@@ -225,7 +231,6 @@ class Fixture(continuity.Fixture):
                 name=next(name for name, identifier in intent.group_ids(scenario).items() if identifier == bot)
             )
             body["bot"]["type"] = intent.bot_type(scenario, bot)
-            body["links"]["commands"] = f"/api/bots/{bot}/commands"
             body["skill"] = self.manifest()
             return response
         state = self.root / f"simulated-bot-{bot}.json"
@@ -271,6 +276,9 @@ class Fixture(continuity.Fixture):
         if command is not None:
             args["command"] = command
         result = self.http(args)
+        bot = RESOURCE_BOTS.get(headers.get("Authorization"))
+        path = urlsplit(request.full_url).path
+        canonical = path in base.RESOURCE_LINKS.values()
         with (self.root / "cli-http.jsonl").open("a") as trace:
             trace.write(
                 json.dumps(
@@ -279,6 +287,7 @@ class Fixture(continuity.Fixture):
                         "method": request.method,
                         "authorization_present": "Authorization" in headers,
                         "status": result["status"],
+                        **({"resource_bot": bot} if canonical and bot is not None else {}),
                         **({"command": command} if command is not None else {}),
                         **(
                             {
@@ -633,6 +642,10 @@ def score(root, final):
     enrollment = private / "binding"
     trace = root / "cli-http.jsonl"
     requests = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
+    for row in requests:
+        parsed = urlsplit(row["url"])
+        if row.get("resource_bot") is not None:
+            row["url"] = parsed._replace(path=base.bot_resource_path(parsed.path, row["resource_bot"])).geturl()
     posts = [row for row in requests if row["method"] == "POST"]
     phase = fixture.case["phase"]
     scenario = fixture.case["scenario"]

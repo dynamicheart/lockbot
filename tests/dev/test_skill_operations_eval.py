@@ -71,27 +71,26 @@ def read_current_skill(fixture, path):
     return "".join(pages)
 
 
-def test_queue_detects_early_release_respects_throttle_and_checks_own_expiry(case):
+@pytest.mark.parametrize("prefix", ["/api/agent", "/api/bots/7"])
+def test_queue_detects_early_release_respects_throttle_and_checks_own_expiry(case, prefix):
     fixture = case("queue")
+    commands, resources = f"{prefix}/commands", f"{prefix}/resources"
     request(fixture, "/api/agent/context")
-    request(fixture, "/api/bots/7/commands", "book node-a 1m")
-    first = request(fixture, "/api/bots/7/resources")["body"]
+    request(fixture, commands, "book node-a 1m")
+    first = request(fixture, resources)["body"]
     assert first["resources"][0]["holders"][0]["remaining_seconds"] == 120
     fixture.call("wait_seconds", {"seconds": 15})
-    request(fixture, "/api/bots/7/resources")
+    request(fixture, resources)
     fixture.call("wait_seconds", {"seconds": 15})
-    throttled = request(fixture, "/api/bots/7/resources")
+    throttled = request(fixture, resources)
     assert throttled["status"] == 429 and throttled["headers"]["Retry-After"] == "20"
     fixture.call("wait_seconds", {"seconds": 20})
-    available = request(fixture, "/api/bots/7/resources")["body"]["resources"][0]
+    available = request(fixture, resources)["body"]["resources"][0]
     assert available["claimable_by_you"] and not available["holders"]
-    request(fixture, "/api/bots/7/commands", available["claim_command"])
-    assert (
-        request(fixture, "/api/bots/7/resources")["body"]["resources"][0]["holders"][0]["external_user_id"]
-        == "demo-user"
-    )
+    request(fixture, commands, available["claim_command"])
+    assert request(fixture, resources)["body"]["resources"][0]["holders"][0]["external_user_id"] == "demo-user"
     fixture.call("wait_seconds", {"seconds": 45})
-    own = request(fixture, "/api/bots/7/resources")["body"]["resources"][0]
+    own = request(fixture, resources)["body"]["resources"][0]
     assert own["holders"][0]["remaining_seconds"] == 15
     assert evaluation.score(fixture.root, "Own verified holding; 15 seconds remain. No timer installed.")[
         "observable_pass"

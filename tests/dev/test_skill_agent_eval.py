@@ -209,7 +209,8 @@ def test_credential_does_not_discover_manifest_and_keys_do_not_leak(tmp_path, su
     assert not result["checks"]["private_file_permissions"]
 
 
-def test_correct_install_and_context_flow_pass_observable_checks(tmp_path, subject):
+@pytest.mark.parametrize("resource_path", ["/api/agent/resources", "/api/bots/7/resources"])
+def test_correct_install_and_context_flow_pass_observable_checks(tmp_path, subject, resource_path):
     fixture = make_fixture(tmp_path, subject, "existing-key")
     manifest = fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})["body"]
     fixture.call(
@@ -220,13 +221,14 @@ def test_correct_install_and_context_flow_pass_observable_checks(tmp_path, subje
             "destination": "skills/resource",
         },
     )
-    fixture.call(
+    context = fixture.call(
         "http_request",
         {"url": evaluation.ORIGIN + "/api/agent/context", "headers": {"Authorization": "Bearer " + evaluation.KEY}},
     )
+    assert context["body"]["links"]["resources"] == "/api/agent/resources"
     fixture.call(
         "http_request",
-        {"url": evaluation.ORIGIN + "/api/bots/7/resources", "headers": {"Authorization": "Bearer " + evaluation.KEY}},
+        {"url": evaluation.ORIGIN + resource_path, "headers": {"Authorization": "Bearer " + evaluation.KEY}},
     )
     fixture.call(
         "write_file",
