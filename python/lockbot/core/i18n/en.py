@@ -23,6 +23,17 @@ MESSAGES = {
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
     "help.agent_lock_hint": "Install this Skill with your Agent: {url}",
+    "public_docs.title": "LockBot API documentation",
+    "public_docs.schema": "Combined OpenAPI schema",
+    "public_docs.agent.title": "Agent API",
+    "public_docs.agent.description": "Bind an Agent, then use its personal Key to query and manage your resources.",
+    "public_docs.op.title": "Operator API",
+    "public_docs.op.description": "Use a bot's OP Key to query resource occupancy and perform administrative releases.",
+    "public_docs.op.download": "Anyone can download the operator Skill. API calls require the bot's OP Key.",
+    "public_docs.configuration.title": "Configuration API",
+    "public_docs.configuration.description": (
+        "Use a configuration credential to register node addresses and configure utilization sources."
+    ),
     # ── Duration formatting ──
     "duration.days": "{value} days",
     "duration.hours": "{value} hours",
