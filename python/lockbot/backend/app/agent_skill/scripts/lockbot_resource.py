@@ -2135,7 +2135,10 @@ def main(argv=None):
             if args.connection:
                 raise ClientError("connection_not_used_for_listing")
             print(
-                json.dumps({"result": listed_connections(args.directory), "update_required": False}, ensure_ascii=False)
+                json.dumps(
+                    {"result": listed_connections(args.directory), "update_required": False},
+                    ensure_ascii=os.name == "nt",
+                )
             )
             return 0
         enrollment_actions = {"enroll", "key-challenge", "enrollment-status", "finish-enrollment"}
@@ -2211,7 +2214,10 @@ def main(argv=None):
         else:
             result = client.metrics(args.node)
         print(
-            json.dumps(client.redacted({"result": result, "update_required": client.needs_update}), ensure_ascii=False)
+            json.dumps(
+                client.redacted({"result": result, "update_required": client.needs_update}),
+                ensure_ascii=os.name == "nt",
+            )
         )
         return 0
     except ClientError as exc:

@@ -46,7 +46,7 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                     {
                         "binding_id": enrollment_id,
                         "credential": fixture_key,
-                        "bind_code": "ABCDEFGH",
+                        "bind_code": "ACDEFGHJ",
                         "bind_expires_at": "2030-01-01T00:00:00Z",
                     },
                 )
@@ -74,7 +74,7 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                     {
                         "server": manifest,
                         "skill": manifest,
-                        "bot": {"id": 1, "uuid": "runtime-bot", "name": "Runtime fixture", "type": "NODE"},
+                        "bot": {"id": 1, "uuid": "runtime-bot", "name": "运行环境测例", "type": "NODE"},
                         "actor": {"platform": "infoflow", "external_user_id": "fixture-user"},
                         "agent_access_enabled": True,
                         "links": {"resources": "/api/agent/resources"},
@@ -131,24 +131,25 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             assert requests == [("/api/agent-skill", False), (metadata["installation"]["download_url"], False)]
 
             script = destination / "scripts/lockbot_resource.py"
+            pending = cli(script, "enroll", "--origin", origin, "--scope", "project", "--authorized")
+            assert pending["status"] == "pending"
+            directory = pending["enrollment_dir"]
+            initial = cli(script, "finish-enrollment", "--enrollment-dir", directory)
+            assert initial["status"] == "pending" and not initial["connection_created"]
+            binding_confirmed = True
+            finished = cli(script, "finish-enrollment", "--enrollment-dir", directory)
+            assert finished["bot"]["name"] == "运行环境测例"
+            listed = cli(script, "connections", "--directory", ".lockbot/connections")
+            assert listed["connections"][0]["connection"] == finished["connection"]
+            checked = cli(script, "--connection", finished["connection"], "resources")
+            assert checked["resources"][0]["id"] == "runtime-node"
+
             key = tmp_path / "fixture.key"
             key.write_text(fixture_key)
             key.chmod(0o600)
             before = len(requests)
             initialize = ("init", "--origin", origin, "--scope", "project", "--key-file", str(key))
             if os.name == "nt":
-                pending = cli(script, "enroll", "--origin", origin, "--scope", "project", "--authorized")
-                assert pending["status"] == "pending"
-                directory = pending["enrollment_dir"]
-                initial = cli(script, "finish-enrollment", "--enrollment-dir", directory)
-                assert initial["status"] == "pending" and not initial["connection_created"]
-                binding_confirmed = True
-                initialized = cli(script, "finish-enrollment", "--enrollment-dir", directory)
-                listed = cli(script, "connections", "--directory", ".lockbot/connections")
-                assert listed["connections"][0]["connection"] == initialized["connection"]
-                checked = cli(script, "--connection", initialized["connection"], "resources")
-                assert checked["resources"][0]["id"] == "runtime-node"
-
                 # Introduce an actual grant to Everyone on a synthetic file only.
                 subprocess.run(
                     ["icacls", str(key), "/grant", "*S-1-1-0:(R)"], capture_output=True, timeout=10, check=True
