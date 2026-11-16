@@ -39,8 +39,6 @@ MESSAGES = {
     ),
     "public_docs.agent_download.title": "Agent Skill download",
     "public_docs.agent_download.description": "Download the complete Agent Skill without a credential.",
-    "public_docs.op_download.title": "Operator Skill download",
-    "public_docs.op_download.description": "Download is public. Operator API calls require the bot's OP Key.",
     "public_docs.agent.credential": "The personal Agent Key activated through binding in the bot's group.",
     "public_docs.op.credential": "The bot's OP Key issued in its console for trusted operators.",
     "public_docs.configuration.credential": "A configuration credential issued for selected bots and permissions.",

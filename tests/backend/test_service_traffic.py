@@ -72,7 +72,6 @@ def test_parallel_requests_do_not_lose_counts():
         ("/api/bots/1/op/resources", "operator"),
         ("/api/bots/1/opkick", "operator"),
         ("/api/bots/1/kicklock", "operator"),
-        ("/api/op-skill/SKILL.md", "operator"),
         ("/api/resource-auth/bindings", "enrollment"),
         ("/api/bots/webhook/1", "webhook"),
         ("/api/bot-views/1/state", "resource_view"),

@@ -32,8 +32,6 @@ MESSAGES = {
     "public_docs.binding.description": "申请绑定码后，在十分钟内到机器人所在群确认，即可使用个人 Key。",
     "public_docs.agent_download.title": "下载 Agent Skill",
     "public_docs.agent_download.description": "无需凭证即可下载完整的 Agent Skill。",
-    "public_docs.op_download.title": "下载运维 Skill",
-    "public_docs.op_download.description": "无需凭证即可下载运维 Skill。实际调用运维接口需要机器人的 OP Key。",
     "public_docs.agent.credential": "在机器人所在群确认绑定后启用的个人 Agent Key。",
     "public_docs.op.credential": "在机器人控制台签发、供受信任运维人员使用的 OP Key。",
     "public_docs.configuration.credential": "按所选机器人和配置权限签发的配置凭证。",

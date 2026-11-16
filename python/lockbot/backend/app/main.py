@@ -36,7 +36,6 @@ from lockbot.backend.app.platform_applications.router import router as platform_
 from lockbot.backend.app.resource_api.activity import install_activity_middleware
 from lockbot.backend.app.resource_api.activity import router as activity_router
 from lockbot.backend.app.resource_api.commands import router as resource_commands_router
-from lockbot.backend.app.resource_api.op_skill import router as op_skill_router
 from lockbot.backend.app.resource_api.operator import router as operator_router
 from lockbot.backend.app.resource_api.resources import router as resources_router
 from lockbot.backend.app.resource_api.skill import router as skill_router
@@ -769,7 +768,6 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(activity_router)
     app.include_router(skill_router)
-    app.include_router(op_skill_router)
     app.include_router(operator_router)
     from lockbot.backend.app.resource_api.views import router as view_router
 
@@ -801,7 +799,7 @@ def create_app() -> FastAPI:
                 "Agent 绑定": "binding",
                 "OP API": "op",
                 "Configuration API": "configuration",
-                "Skill 下载": f"{scope}_download",
+                "Skill 下载": "agent_download",
             }
             if scope is not None
             else {}
@@ -824,9 +822,8 @@ def create_app() -> FastAPI:
                         section, group, scheme = "op", "OP API", "OpApiKey"
                     elif path.startswith("/api/resource-auth/"):
                         section, group, scheme = "agent", "Agent 绑定", None
-                    elif path.startswith(("/api/agent-skill", "/api/op-skill")):
-                        section = "op" if path.startswith("/api/op-skill") else "agent"
-                        group, scheme = "Skill 下载", None
+                    elif path.startswith("/api/agent-skill"):
+                        section, group, scheme = "agent", "Skill 下载", None
                     else:
                         section, group, scheme = "agent", "Agent API", "AgentKey"
                     if scope is not None and section != scope:

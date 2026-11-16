@@ -4,6 +4,7 @@ Use this guide when the user asks you to deploy Lockbot or configure messaging p
 
 - [Deployment, upgrades and recovery](deployment/AGENTS.md)
 - [Infoflow and Feishu onboarding](platforms/AGENTS.md)
+- [Maintenance](#maintenance)
 - [Deployment example](../examples/lockbot-deployment/compose.yaml)
 
 First identify the selected service, version, environment and user-authorized task. Keep local tests, integration services and formal deployments separate. Never infer permission to alter another installation from a similarly named bot or an existing Agent key.
@@ -11,3 +12,10 @@ First identify the selected service, version, environment and user-authorized ta
 Keep credentials in the user's approved secret store or a private local file outside Git. Never paste full `docker inspect` output, environment files, tokens, contact data or raw private task histories into a chat, issue or PR. Record sanitized validation outcomes and retain private evidence locally.
 
 Agent assistance is practical for preparing configuration, running preflight, executing an authorized deployment, checking health and guiding platform setup. It cannot approve an enterprise application on behalf of a company administrator or guarantee third-party permissions/network access. Distinguish generated configuration, validated configuration, running service and real message acceptance.
+
+## Maintenance
+
+- [Datasource setup and validation](../usage/datasource-setup.md) covers connecting an existing source, deploying a utilization collector and checking browser access. It includes the local configuration generator.
+- [Operator API](../usage/operator-api.md) covers operational queries and authorized release. Use the approved deployment's `/api/public-docs/op` for its current contract.
+
+Use the datasource's own read-only access for metrics and the target bot's OP key for operator calls.

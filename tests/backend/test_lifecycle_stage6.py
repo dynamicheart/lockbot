@@ -51,8 +51,7 @@ def test_public_doc_sections_partition_operations_and_authorization(client):
             }
             assert operation["security"] in ([], [{key: []}])
             if not operation["security"]:
-                prefix = ("/api/agent-skill", "/api/resource-auth/") if scope == "agent" else ("/api/op-skill",)
-                assert scope != "configuration" and path.startswith(prefix)
+                assert scope == "agent" and path.startswith(("/api/agent-skill", "/api/resource-auth/"))
         refs = set(re.findall(r'"#/components/schemas/([^"/]+)"', json.dumps(schema)))
         assert refs <= schema["components"]["schemas"].keys()
     assert seen == {(path, method) for path, methods in combined["paths"].items() for method in methods}
@@ -62,7 +61,7 @@ def test_public_doc_sections_partition_operations_and_authorization(client):
 def test_public_doc_sections_localize_group_names_and_credentials(client):
     scopes = (
         ("agent", "AgentKey", "Bind an Agent", "Agent 绑定", "activated through binding", "确认绑定"),
-        ("op", "OpApiKey", "Operator Skill download", "下载运维 Skill", "trusted operators", "受信任运维"),
+        ("op", "OpApiKey", "Operator API", "OP 运维 API", "trusted operators", "受信任运维"),
         ("configuration", "ConfigurationKey", "Configuration API", "机器人配置 API", "permissions", "配置权限"),
     )
     for scope, key, english_tag, chinese_tag, english_credential, chinese_credential in scopes:
