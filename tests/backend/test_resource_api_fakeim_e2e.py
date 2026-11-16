@@ -207,6 +207,12 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
                     assert client.get("/api/agent/context", headers=old_auth).status_code == 200
 
                 resp = _confirm_via_webhook(client, bot_id, code).raise_for_status()
+                if purpose == "reset":
+                    assert client.get("/api/agent/context", headers=old_auth).status_code == 401
+                    status = cli("enrollment-status", *finish[1:])
+                    assert status["chat_action"] == "reset_applied"
+                    assert status["next_command"] == list(finish)
+                    assert not (directory / "key").exists()
                 finished = cli(*finish)
                 assert finished["connection_created"]
                 assert finished.get("outcome") == ("created" if creates_key else None)

@@ -1094,7 +1094,12 @@ class Client:
         if purpose == "recover" and response.get("outcome") == "created":
             result["outcome"] = "created"
         self.secrets.append(key)
+        if purpose == "reset":
+            result["chat_action"] = "reset_applied"
         if not finish:
+            if purpose == "reset":
+                result["next_command"] = ["finish-enrollment", "--enrollment-dir", str(path)]
+                result["next_step"] = "The group already applied the reset. Finish to save the result locally."
             return result
         key_path = path / "key"
         try:

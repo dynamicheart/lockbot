@@ -52,8 +52,8 @@ Only use `key-challenge --purpose reset` after the user explicitly chooses to
 invalidate the old Key and is aware that other Agents sharing it will need the
 replacement. Both paths use `bind` in chat. The server distinguishes `REC-` and
 `RST-` codes. Sending `bind RST-…` in the robot's group applies the reset.
-When `enrollment-status` reports `confirmed`, pass the saved directory to
-`finish-enrollment --enrollment-dir`. It retrieves the current Key and saves the connection locally.
+When `enrollment-status` reports `chat_action: reset_applied`, use its
+`next_command` to retrieve the current Key and save the connection locally.
 The user's group confirmation already authorized the reset.
 If a recovery code expired, request a new recovery code only
 with the user's approval. An unavailable recovery result never starts a reset.

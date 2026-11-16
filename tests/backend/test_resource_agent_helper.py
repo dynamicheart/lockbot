@@ -1258,9 +1258,19 @@ def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, pur
     pending = cli("connections", "--directory", str(directory))["pending_enrollments"]
     assert pending[0]["purpose"] == (purpose or "recover") and pending[0]["target_group"] is None
     finish = ("finish-enrollment", "--enrollment-dir", pending[0]["enrollment_dir"])
-    assert cli(*finish)["status"] == "pending"
+    waiting = cli(*finish)
+    assert waiting["status"] == "pending"
+    assert "chat_action" not in waiting and "next_command" not in waiting
     assert not (directory / "key").exists()
     case.state.binding_status = "confirmed"
+    status = cli("enrollment-status", *finish[1:])
+    assert status["status"] == "confirmed" and not status["connection_created"]
+    if purpose == "reset":
+        assert status["chat_action"] == "reset_applied"
+        assert status["next_command"] == list(finish)
+    else:
+        assert "chat_action" not in status and "next_command" not in status
+    assert not (directory / "key").exists()
     assert cli(*finish)["connection_created"]
     assert cli(*finish)["connection_created"]
     assert (directory / "key").read_text() == KEY
