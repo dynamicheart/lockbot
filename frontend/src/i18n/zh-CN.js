@@ -226,7 +226,7 @@ export default {
     infoflowLabel: '如流 / Infoflow',
     feishuLabel: '飞书 / Feishu',
     groupHelp:
-      '先将此应用的机器人加入资源群，再在群内真实 @机器人，获取当前 Chat ID 和绑定指引；把 oc_… 标识复制到这里。保存时仍会校验应用与群关联。',
+      "先将此应用的机器人加入资源群，再在群内真实 {'@'}机器人，获取当前 Chat ID 和绑定指引。把 oc_… 标识复制到这里，保存时会校验应用与群关联。",
 
     groupCached: '缓存名称',
     retryGroup: '重试',
@@ -1362,7 +1362,7 @@ export default {
     inputPlaceholder: '例如 lock node1 2h',
     clear: '清空',
     demoBanner: '演示模式',
-    cmdAtBot: '@机器人查询资源状态',
+    cmdAtBot: "{'@'}机器人查询资源状态",
     cmdHelp: '显示使用指南',
     cmdLock: '独占锁定资源',
     cmdLockDuration: '指定时长锁定 (d/h/m)',
