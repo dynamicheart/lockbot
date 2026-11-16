@@ -4,6 +4,28 @@ In the LockBot Console, open **API credentials** and create a configuration cred
 
 Store the Key privately in the Agent's environment and send it as a Bearer token to the LockBot instance that issued it. Keep the data source's authorization separate. Use the Console to rotate or revoke the Key. After ownership or bot identity changes, create a credential for the current bot.
 
+## Delegate bot creation
+
+An administrator or super administrator can choose **Create bots** as the credential purpose in the Console. The credential grants only `bot:create` and requires no existing bot selection. The administrator owns the new bot. A Feishu group route requires a super administrator and an existing Feishu application.
+
+Download the standalone `lockbot_provision.py` from `/api/bot-provisioning/lockbot_provision.py` on that LockBot instance. It requires Python 3.10 or newer and uses the `LOCKBOT_PROVISIONING_KEY` environment variable. Store the proposed configuration in a private JSON file.
+
+```sh
+python3 lockbot_provision.py --service https://lockbot.example.test preview --config bot.json --receipt-file review.json
+# In a new session, inspect the saved preview locally.
+python3 lockbot_provision.py --service https://lockbot.example.test review --config bot.json --receipt-file review.json
+# Display the preview and wait for explicit approval before running apply.
+python3 lockbot_provision.py --service https://lockbot.example.test apply --config bot.json --receipt-file review.json --confirm
+```
+
+The receipt file is private. The `review` command shows the original summary without sending a request or displaying the receipt. If a new preview is needed, save it to a new file. The CLI resolves the returned Console path into `console_url`. The resource Agent Skill remains the entry point for querying, locking and releasing resources.
+
+1. Send the proposed bot configuration to `POST /api/bot-provisioning/preview`. Show the returned platform, name, group, type and resource count to the user. Keep submitted platform secrets out of the conversation summary.
+2. Keep the receipt from the preview you showed for approval. After the user's explicit approval, send `POST /api/bot-provisioning/apply` with the same `bot` configuration, that `receipt`, and `confirmed` set to `true`. The receipt is valid for five minutes and is tied to the exact configuration and credential. If you need a new preview, show it and obtain approval for that preview before applying.
+3. Return the `bot_id`, resolve `console_path` against the issuing LockBot origin, and report any `remaining_setup` items. `configure_infoflow_callback` means the user must add the LockBot callback in Infoflow. `check_bot_start` means the bot was saved but requires a start or quota check.
+
+After a timeout, retry the same confirmed payload and receipt within the five-minute window. If the receipt expired and the result is uncertain, ask the user to check the Console for the proposed bot before obtaining a fresh approval.
+
 ## Review and apply a change
 
 1. Call `GET /api/bots/{bot_id}/configuration-access` for the authoritative `node_ids`, `device_ids`, granted scopes, and accessible current configuration.

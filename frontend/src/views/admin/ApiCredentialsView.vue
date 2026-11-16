@@ -7,6 +7,7 @@
     </el-tabs>
     <ConfigurationCredentialManager
       v-if="activeTab === 'configuration'"
+      :can-provision="authStore.isAdmin"
       :principal-id="authStore.user?.id"
       :session-revision="sessionRevision"
     />
@@ -29,7 +30,7 @@ const authStore = useAuthStore()
 const sessionRevision = ref(0)
 const activeTab = ref('configuration')
 watch(
-  () => [authStore.user?.id, authStore.token, authStore.isSuperAdmin],
+  () => [authStore.user?.id, authStore.token, authStore.user?.role],
   () => {
     sessionRevision.value += 1
     activeTab.value = 'configuration'

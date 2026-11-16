@@ -7,12 +7,14 @@ import re
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
+from importlib.resources import files
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationError, field_validator, model_validator
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -30,16 +32,20 @@ from lockbot.backend.app.bots.node_access import (
     saved_node_access,
     serialize_node_access,
 )
-from lockbot.backend.app.bots.router import _owned_bot
+from lockbot.backend.app.bots.router import _create_bot_for_user, _owned_bot, _validate_bot_creation
+from lockbot.backend.app.bots.schemas import BotCreate
 from lockbot.backend.app.database import Base, get_db
 from lockbot.backend.app.rate_limit import limiter
+from lockbot.backend.app.resource_api.skill import _download
 from lockbot.backend.app.resource_auth.authority import authority_guard
 
 Scope = Literal["node_access:write", "datasource:write"]
+ProvisioningScope = Literal["bot:create"]
 MAX_TTL = 7 * 86400
 MAX_CONFIGURATION_BYTES = 256 * 1024
 _TOKEN = re.compile(r"lbc1\.([A-Za-z0-9_-]{22})\.[A-Za-z0-9_-]{43}")
 _PREVIEW = re.compile(r"([0-9]{1,12})\.([0-9a-f]{64})")
+_PROVISIONING_PREVIEW = re.compile(r"([0-9a-f-]{36})\.([0-9]{1,12})\.([0-9a-f]{64})")
 _guard = threading.RLock()
 
 
@@ -94,8 +100,17 @@ class Lifetime(BaseModel):
 
 class CreateCredential(Lifetime):
     label: str = Field(min_length=1, max_length=64)
-    bot_ids: list[StrictInt] = Field(min_length=1, max_length=100)
-    scopes: list[Scope] = Field(min_length=1, max_length=2)
+    bot_ids: list[StrictInt] = Field(max_length=100)
+    scopes: list[Scope | ProvisioningScope] = Field(min_length=1, max_length=2)
+
+    @model_validator(mode="after")
+    def separate_creation_scope(self):
+        if "bot:create" in self.scopes:
+            if self.bot_ids or self.scopes != ["bot:create"]:
+                raise ValueError("Bot creation requires a separate credential")
+        elif not self.bot_ids:
+            raise ValueError("Select at least one bot")
+        return self
 
     @field_validator("label")
     @classmethod
@@ -131,6 +146,17 @@ class ApplyChange(PreviewChange):
     receipt: str = Field(max_length=80)
 
 
+class ProvisionedBot(BotCreate):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ApplyProvisioning(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    bot: ProvisionedBot
+    receipt: str = Field(max_length=114)
+    confirmed: Literal[True]
+
+
 def _now():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -153,6 +179,11 @@ def _issuer(db, user_id, token_version, *, status=401):
     ):
         _deny(status, "configuration_issuer_unavailable")
     return user
+
+
+def _require_provisioning_admin(user):
+    if user.role not in {"admin", "super_admin"}:
+        _deny(403, "bot_provisioning_admin_required")
 
 
 def _can_edit(bot, issuer):
@@ -230,6 +261,8 @@ def create(
     with _guard:
         db.rollback()
         user = _issuer(db, *ident, status=403)
+        if body.scopes == ["bot:create"]:
+            _require_provisioning_admin(user)
         now = _now()
         if (
             db.query(ConfigurationCredential)
@@ -307,6 +340,8 @@ def rotate(
         row = _row(db, public_id, user)
         if row is None:
             _deny(404, "configuration_credential_not_found")
+        if json.loads(row.scopes) == ["bot:create"]:
+            _require_provisioning_admin(user)
         if row.revoked_at is not None or row.expires_at <= _now():
             _deny(409, "configuration_credential_inactive")
         pinned = json.loads(row.bots)
@@ -337,7 +372,7 @@ def revoke(public_id: str, request: Request, user: User = Depends(get_current_us
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
-def _authorized(db, request, bot_id, scope=None):
+def _authenticated_credential(db, request):
     bearer = request.headers.get("Authorization", "")
     token = bearer[7:] if bearer.startswith("Bearer ") else ""
     match = _TOKEN.fullmatch(token) if len(token) == 71 else None
@@ -350,6 +385,11 @@ def _authorized(db, request, bot_id, scope=None):
     ):
         _deny(401, "configuration_credential_invalid")
     issuer = _issuer(db, row.issuer_id, row.issuer_token_version)
+    return row, issuer
+
+
+def _authorized(db, request, bot_id, scope=None):
+    row, issuer = _authenticated_credential(db, request)
     bot = db.get(Bot, bot_id)
     if not _can_edit(bot, issuer) or _pin(bot) not in json.loads(row.bots):
         _deny(403, "configuration_bot_permission")
@@ -357,6 +397,93 @@ def _authorized(db, request, bot_id, scope=None):
     if scope is not None and scope not in scopes:
         _deny(403, "configuration_scope_missing")
     return row, issuer, bot, scopes
+
+
+def _provisioning_issuer(db, request):
+    row, issuer = _authenticated_credential(db, request)
+    if json.loads(row.scopes) != ["bot:create"]:
+        _deny(403, "configuration_scope_missing")
+    _require_provisioning_admin(issuer)
+    return row, issuer
+
+
+def _provisioning_signature(row, bot, key, expires_at):
+    data = json.dumps([row.digest, key, expires_at, bot.model_dump_json()]).encode()
+    return hmac.digest(config.JWT_SECRET.encode(), b"bot-provisioning-preview\0" + data, "sha256").hex()
+
+
+def _safe_provisioning_error(exc):
+    if isinstance(exc.detail, dict) and exc.detail.get("code") == "bot_creation_result_unavailable":
+        _deny(409, "bot_creation_result_unavailable")
+    _deny(exc.status_code, f"bot_provisioning_rejected_{exc.status_code}")
+
+
+@router.get("/api/bot-provisioning/lockbot_provision.py", response_class=Response)
+@limiter.limit("60/minute")
+def provisioning_cli(request: Request):
+    content = files("lockbot.backend.app.bots").joinpath("lockbot_provision.py").read_bytes()
+    return _download(request, content, "text/x-python", "lockbot_provision.py")
+
+
+@router.post("/api/bot-provisioning/preview", tags=["Public API"])
+@limiter.limit("60/minute")
+def preview_provisioning(request: Request, response: Response, bot: ProvisionedBot, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    with _guard:
+        row, issuer = _provisioning_issuer(db, request)
+        if bot.platform.strip().lower() not in {"infoflow", "feishu"}:
+            _deny(422, "bot_provisioning_platform_invalid")
+        try:
+            platform = _validate_bot_creation(bot, issuer, db)
+        except HTTPException as exc:
+            _safe_provisioning_error(exc)
+        key = str(uuid4())
+        expires_at = int(datetime.now(timezone.utc).timestamp()) + 300
+        receipt = f"{key}.{expires_at}.{_provisioning_signature(row, bot, key, expires_at)}"
+        row.last_used_at = _now()
+        db.commit()
+        return {
+            "receipt": receipt,
+            "expires_at": expires_at,
+            "name": bot.name,
+            "bot_type": bot.bot_type.upper(),
+            "platform": platform,
+            "group_id": bot.group_id,
+            "resource_nodes": len(bot.cluster_configs),
+            "has_datasource": bot.utilization_config is not None,
+        }
+
+
+@router.post("/api/bot-provisioning/apply", status_code=201, tags=["Public API"])
+@limiter.limit("30/minute")
+def apply_provisioning(request: Request, response: Response, body: ApplyProvisioning, db: Session = Depends(get_db)):
+    response.headers["Cache-Control"] = "no-store"
+    with _guard:
+        row, issuer = _provisioning_issuer(db, request)
+        match = _PROVISIONING_PREVIEW.fullmatch(body.receipt)
+        if (
+            match is None
+            or int(match[2]) <= datetime.now(timezone.utc).timestamp()
+            or not hmac.compare_digest(match[3], _provisioning_signature(row, body.bot, match[1], int(match[2])))
+        ):
+            _deny(409, "bot_provisioning_preview_stale")
+        try:
+            bot = _create_bot_for_user(request, body.bot, issuer, db, match[1], credential_id=row.public_id)
+        except HTTPException as exc:
+            _safe_provisioning_error(exc)
+        row.last_used_at = _now()
+        db.commit()
+        remaining_setup = []
+        if bot.platform.strip().lower() == "infoflow":
+            remaining_setup.append("configure_infoflow_callback")
+        if bot.status != "running":
+            remaining_setup.append("check_bot_start")
+        return {
+            "bot_id": bot.id,
+            "console_path": f"/#/bots/{bot.id}",
+            "status": bot.status,
+            "remaining_setup": remaining_setup,
+        }
 
 
 def _inventory(bot):
