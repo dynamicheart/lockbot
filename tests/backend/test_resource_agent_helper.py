@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -1167,6 +1168,30 @@ def test_packaged_cli_runs_without_site_packages_and_redacts_credentials(case):
     payload = json.loads(result.stdout)
     assert payload["result"]["bot"]["uuid"] == "bot-a"
     assert KEY not in result.stdout + result.stderr and "metrics-grant-1" not in result.stdout
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires POSIX named pipes")
+def test_packaged_cli_rejects_a_connection_pipe_without_waiting(case):
+    catalog = case.tmp / "private-catalog"
+    catalog.mkdir(mode=0o700)
+    fifo = catalog / "connection.json"
+    os.mkfifo(fifo, 0o600)
+    cli = [sys.executable, "-I", "-S", str(case.root / helper.SCRIPT_PATH)]
+
+    listed = subprocess.run(
+        [*cli, "connections", "--directory", str(catalog)], capture_output=True, text=True, timeout=5, check=True
+    )
+    assert json.loads(listed.stdout)["result"] == {
+        "connections": [],
+        "pending_enrollments": [],
+        "unavailable_count": 1,
+    }
+    selected = subprocess.run(
+        [*cli, "--connection", str(fifo), "context"], capture_output=True, text=True, timeout=5, check=False
+    )
+    assert selected.returncode == 2
+    assert json.loads(selected.stderr)["error"] == "private_file_permissions_or_size"
+    assert not case.state.requests
 
 
 @pytest.mark.parametrize("group", ["Chat group", None])

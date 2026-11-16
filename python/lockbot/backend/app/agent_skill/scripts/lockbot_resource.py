@@ -189,8 +189,9 @@ def same_origin_url(base, link):
 def private_bytes(path):
     path = Path(path)
     try:
-        # Do not follow a swapped/symlinked credential file.
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        # Check the opened file without following symlinks or waiting on a pipe.
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+        descriptor = os.open(path, flags)
         with os.fdopen(descriptor, "rb") as stream:
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 16384:
