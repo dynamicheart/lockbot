@@ -49,6 +49,8 @@ Before exposing the proposed chat recovery and reset flows, verify the following
 On deployments advertising `chat_credential_challenges`, issue a code with
 `key-challenge --origin <approved-origin> --authorized`. For a user-approved reset
 add `--purpose reset`. After the user confirms, run `finish-enrollment --enrollment-dir <path>`.
+The service applies the reset during group confirmation. The finish command retrieves
+the result and saves the connection locally.
 The result is available through the issuing service until the code deadline.
 The binding generation must still match. A service restart clears outstanding
 codes and receipts. After an unavailable reset result, use fresh recovery proof

@@ -88,8 +88,8 @@ stop after `resources`. Use `command --help` for all write arguments.
    sharing it need the replacement. Only then add `--purpose reset`. A failed recovery
    stops at reporting the result. Give the user the `@bot bind <code>` instruction to send in
    the group they want to connect. The verified chat confirmation identifies the bot.
-   After the user confirms, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`
-   with the saved directory returned when the code was issued.
+   After chat confirmation, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`.
+   The group already applied any reset. This step checks and saves its result.
 6. In a new session run `connections` from the project root. Prefer the matching record
    in `.lockbot/connections/` before `~/.config/lockbot/connections/`. For project-only
    lookup use `connections --directory .lockbot/connections`. To resume a binding,
