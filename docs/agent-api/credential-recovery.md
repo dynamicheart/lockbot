@@ -5,7 +5,7 @@ verified IM principal for discovering and recovering that principal's other live
 keys on the same service instance. Usernames supplied in a request cannot select
 another identity. Feishu bindings are grouped only when their verified routes identify the same application and tenant; missing route or tenant evidence stays bot-scoped. Resource operations still require the destination group's key.
 
-## Proposed recovery and reset experience
+## Recovery and reset through chat
 
 The user identifies the service when the Agent has no approved connection. The
 user selects the robot by sending a one-time command in its existing group.
@@ -20,7 +20,10 @@ scopes independent, including private upstream providers.
 | Reset a lost or compromised Key | Explain that Agents sharing this Key will need an update. With explicit reset authorization, issue a reset challenge. The user sends its reset command in the robot's group. | Atomically invalidate the old Key and issue its replacement for the authenticated sender and bot. Retain other bindings, leases and bookings. |
 | Connect for the first time | Issue a normal bind code. The user sends it to the robot in the group they want to connect. | Save the verified new binding and report the robot name for reference. |
 
-Recovery and reset need separate challenge purposes and confirmation commands.
+A missing Key defaults to recovery. After the user explicitly authorizes reset, the
+Agent can request a reset code. Both use `@bot bind <code>` in the chosen group.
+Recovery codes start with `REC-` and reset codes with `RST-`. The purpose is
+stored at issuance and the chat reply names the confirmed action.
 A normal bind or recovery confirmation cannot authorize reset. Return credential
 material only to the initiating Agent through proof of possession of the original
 private challenge secret. Chat replies acknowledge the action without sending
@@ -42,10 +45,13 @@ Before exposing the proposed chat recovery and reset flows, verify the following
   state. A lost or uncertain reset response requires fresh proof and state
   reconciliation before considering another reset.
 
-The existing authenticated recovery flow below already works. The chat-only
-recovery and explicit chat reset described here are planned. On deployments
-with the existing browser rotation feature, keep its current confirmation flow
-until chat reset is implemented and verified.
+On deployments advertising `chat_credential_challenges`, issue a code with
+`key-challenge --origin <approved-origin> --authorized`. For a user-approved reset
+add `--purpose reset`. After the user confirms, run `finish-enrollment --enrollment-dir <path>`.
+The result is available through the issuing service until the code deadline.
+The binding generation must still match. A service restart clears outstanding
+codes and receipts. After an unavailable reset result, use fresh recovery proof
+to retrieve the current Key before considering another reset.
 
 ## Credential authority
 
@@ -109,14 +115,13 @@ suspected, explain the supported human-confirmed flow before proposing revocatio
 Routine releases, Skill updates, new Agent installation and missing recovery material
 alone are not reasons to reset. Recovery itself never rotates or re-enrolls.
 
-Ask for explicit user confirmation identifying the service, bot and affected scope.
+Ask for explicit user authorization identifying the service and explaining the affected scope. The user selects the bot through chat confirmation.
 All Agents sharing the revoked group key lose access and need private configuration
 with the replacement key. The verified human can use chat `bindings` and
 `unbind <short-id>` in that bot's group to revoke their own binding, then confirm
 a fresh `bind <code>`. The authorized owner can instead revoke all personal resource
 bindings for the bot through the existing management flow; that broader action must
-be explicitly identified. There is no routine Agent reset endpoint, and `lbk_`
-operator API-key reset is a separate credential type.
+be explicitly identified. The chat reset challenge requires a verified chat confirmation. The `lbk_` operator API key has its own separate reset flow.
 
 Credential revocation does not itself release, migrate or recreate existing locks
 or queues. Explain those resource consequences separately and obtain authorization

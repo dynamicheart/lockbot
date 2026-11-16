@@ -53,6 +53,7 @@ def server_metadata(request: Request, db: Session) -> dict:
         "capabilities": [
             "credential_context",
             "credential_recovery_health",
+            "chat_credential_challenges",
             "own_binding_directory",
             "own_binding_recovery",
             "namespaced_skill",

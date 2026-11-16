@@ -693,3 +693,88 @@ class TestChatAuthorizationAudit:
             _confirm(chat_hook, issued, bot_id)
         assert db_session.query(AuditLog).filter_by(action="resource_auth.bind").count() == 0
         assert db_session.query(ResourceBinding).filter_by(public_id=issued["binding_id"]).count() == 0
+
+
+def test_chat_key_recovery_defaults_to_original_and_reset_requires_its_own_code(
+    client, chat_hook, issued, bot_id, auth_header
+):
+    base = "/api/resource-auth/credential-challenges"
+    assert _confirm(chat_hook, issued, bot_id)
+    other_bot = (
+        client.post(
+            "/api/bots",
+            headers=auth_header,
+            json={
+                "name": "other-group",
+                "bot_type": "NODE",
+                "webhook_url": "https://example.invalid/other",
+                "cluster_configs": {"n1": "m1"},
+            },
+        )
+        .raise_for_status()
+        .json()["id"]
+    )
+    client.put(f"/api/bots/{other_bot}/resource-auth", headers=auth_header, json={"enabled": True}).raise_for_status()
+    other = client.post("/api/resource-auth/bindings").raise_for_status().json()
+    _confirm(chat_hook, other, other_bot)
+    old = issued["credential"]
+    recovery = client.post(base).raise_for_status().json()
+    reset = client.post(base, json={"purpose": "reset"}).raise_for_status().json()
+    assert recovery["bind_code"].startswith("REC-")
+    assert reset["bind_code"].startswith("RST-")
+    url = f"{base}/{recovery['challenge_id']}"
+    assert client.get(url).status_code == 404
+    assert client.get(url, headers=_auth(reset["proof"])).status_code == 404
+    assert client.get(url, headers=_auth(recovery["proof"])).json() == {"status": "pending"}
+
+    forged = recovery["bind_code"].replace("REC-", "RST-", 1)
+    chat_hook("bind", forged, bot_id=bot_id)
+    assert client.get("/api/agent/context", headers=_auth(old)).status_code == 200
+
+    reply = chat_hook("bind", recovery["bind_code"], bot_id=bot_id)
+    assert old not in reply and "找回" in reply
+    response = client.get(url, headers=_auth(recovery["proof"]))
+    assert response.json() == {"status": "confirmed", "credential": old}
+    assert response.headers["cache-control"] == "no-store"
+
+    reply = chat_hook("bind", reset["bind_code"], bot_id=bot_id)
+    assert "重置" in reply and old not in reply
+    reset_url = f"{base}/{reset['challenge_id']}"
+    result = client.get(reset_url, headers=_auth(reset["proof"])).json()
+    new = result["credential"]
+    assert result["status"] == "confirmed" and new != old and new not in reply
+    assert client.get("/api/agent/context", headers=_auth(old)).status_code == 401
+    assert client.get("/api/agent/context", headers=_auth(new)).status_code == 200
+    assert client.get("/api/agent/context", headers=_auth(other["credential"])).status_code == 200
+    assert client.get(url, headers=_auth(recovery["proof"])).json() == {"status": "unavailable"}
+    chat_hook("bind", reset["bind_code"], bot_id=bot_id)
+    assert client.get(reset_url, headers=_auth(reset["proof"])).json() == result
+
+
+def test_chat_recovery_of_digest_only_key_leaves_it_active(client, chat_hook, issued, bot_id, db_session):
+    _confirm(chat_hook, issued, bot_id)
+    row = db_session.query(ResourceBinding).one()
+    row.credential_encrypted = None
+    db_session.commit()
+
+    base = "/api/resource-auth/credential-challenges"
+    request = client.post(base).raise_for_status().json()
+    chat_hook("bind", request["bind_code"], bot_id=bot_id)
+    assert client.get(f"{base}/{request['challenge_id']}", headers=_auth(request["proof"])).json() == {
+        "status": "unavailable",
+    }
+    assert client.get("/api/agent/context", headers=_auth(issued["credential"])).status_code == 200
+
+
+def test_chat_confirmation_result_expires(client, chat_hook, issued, bot_id, monkeypatch):
+    from lockbot.backend.app.resource_auth import pending
+
+    _confirm(chat_hook, issued, bot_id)
+    base = "/api/resource-auth/credential-challenges"
+    request = client.post(base).raise_for_status().json()
+    chat_hook("bind", request["bind_code"], bot_id=bot_id)
+    expiry = datetime.fromisoformat(request["bind_expires_at"].replace("Z", "+00:00"))
+    monkeypatch.setattr(pending, "_utcnow", lambda: expiry + timedelta(seconds=1))
+    response = client.get(f"{base}/{request['challenge_id']}", headers=_auth(request["proof"]))
+    assert response.status_code == 404
+    assert issued["credential"] not in response.text

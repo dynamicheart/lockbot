@@ -36,6 +36,7 @@ REFERENCE_PATHS = (
     "references/workbench-and-metrics.md",
 )
 ENROLLMENT_PATH = "/api/resource-auth/bindings"
+CREDENTIAL_CHALLENGE_PATH = "/api/resource-auth/credential-challenges"
 RECOVERY_PATH = "/api/agent/bindings/recover"
 MAX_BYTES = 1024 * 1024
 MAX_CALLS = 12
@@ -325,6 +326,11 @@ def pending_enrollment_record(directory):
         "enrollment_dir": str(path),
         "status": "request_outcome_unknown" if status == "requesting" else status,
     }
+    purpose = state.get("purpose", "bind")
+    if purpose not in ("bind", "recover", "reset"):
+        raise ValueError
+    if purpose != "bind":
+        entry["purpose"] = purpose
     if status == "pending":
         binding = state["binding_id"]
         if not isinstance(binding, str) or not re.fullmatch(r"[A-Za-z0-9_-]{22}", binding):
@@ -335,7 +341,7 @@ def pending_enrollment_record(directory):
         entry["bind_expires_at"] = expiry
     elif status != "requesting":
         raise ValueError
-    if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(value for value in entry.values() if value is not None)):
+    if re.search(r"\b(?:lbr_|lbp_|lbk_|lbc1\.)", " ".join(value for value in entry.values() if value is not None)):
         raise ValueError
     return entry
 
@@ -909,13 +915,14 @@ class Client:
             raise ClientError("unsupported_enrollment_endpoint")
         return endpoint
 
-    def enroll(self, directory, group=None, agent_label=None, *, scope="user"):
+    def enroll(self, directory, group=None, agent_label=None, *, scope="user", purpose="bind"):
         if self.config:
             raise ClientError("enrollment_requires_new_connection")
         group = enrollment_group(group) if group is not None else None
         label = normalize_agent_label(agent_label) if agent_label is not None else None
         if directory is None:
-            name = "enrollment-" + hashlib.sha256((self.base + "\0" + (group or "")).encode()).hexdigest()[:32]
+            target = (group or "") if purpose == "bind" else "\0" + purpose
+            name = "enrollment-" + hashlib.sha256((self.base + "\0" + target).encode()).hexdigest()[:32]
             directory = new_catalog_entry(scope, name)
             if group is None:
                 sequence = 1
@@ -925,7 +932,7 @@ class Client:
         path = Path(directory).absolute()
         if os.path.lexists(path):
             raise ClientError("enrollment_directory_exists")
-        endpoint = self._enrollment_endpoint()
+        endpoint = self._enrollment_endpoint() if purpose == "bind" else self._credential_challenge_endpoint()
         self._check_installed_version()
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
@@ -935,6 +942,8 @@ class Client:
             "target_group": group,
             "status": "requesting",
         }
+        if purpose != "bind":
+            state["purpose"] = purpose
         if label is not None:
             state["agent_label"] = label
         try:
@@ -942,27 +951,34 @@ class Client:
         except FileExistsError as exc:
             raise ClientError("enrollment_directory_exists") from exc
         write_private(path / "enrollment.json", json.dumps(state).encode())
-        issued = self._request(endpoint, method="POST", readonly=False)
-        binding_id = issued.get("binding_id")
-        key = issued.get("credential")
+        if purpose == "bind":
+            issued = self._request(endpoint, method="POST", readonly=False)
+            binding_id, secret, prefix = issued.get("binding_id"), issued.get("credential"), ""
+            secret_pattern, secret_file = r"lbr_[A-Za-z0-9_-]{20,200}", "key"
+        else:
+            issued = self._request(endpoint, method="POST", body={"purpose": purpose}, readonly=False)
+            binding_id, secret = issued.get("challenge_id"), issued.get("proof")
+            prefix = {"recover": "REC-", "reset": "RST-"}[purpose]
+            secret_pattern, secret_file = r"lbp_[A-Za-z0-9_-]{20,200}", "proof"
         code = issued.get("bind_code")
         expires_at = issued.get("bind_expires_at")
         if (
             not isinstance(binding_id, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{22}", binding_id)
-            or not isinstance(key, str)
-            or not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", key)
+            or not isinstance(secret, str)
+            or not re.fullmatch(secret_pattern, secret)
             or not isinstance(code, str)
-            or not re.fullmatch(r"[ACDEFGHJKMNPQRTUVWXY2345679]{8}", code)
+            or not re.fullmatch(prefix + r"[ACDEFGHJKMNPQRTUVWXY2345679]{8}", code)
             or not isinstance(expires_at, str)
             or datetime.fromisoformat(expires_at.replace("Z", "+00:00")).utcoffset() is None
         ):
             raise ClientError("invalid_enrollment_response")
-        write_private(path / "key", key.encode())
+        write_private(path / secret_file, secret.encode())
         state.update(binding_id=binding_id, status="pending", bind_expires_at=expires_at)
         write_private(path / "enrollment.json", json.dumps(state).encode(), replace=True)
         return {
             "status": "pending",
+            "purpose": purpose,
             "target_group": group,
             "bind_command": f"bind {code}",
             "bind_expires_at": expires_at,
@@ -996,6 +1012,11 @@ class Client:
         self.connection_dir = path
         if "agent_label" in state:
             self.config["agent_label"] = normalize_agent_label(state["agent_label"])
+        purpose = state.get("purpose", "bind")
+        if purpose in ("recover", "reset"):
+            return self._check_credential_challenge(path, binding_id, purpose, finish=finish)
+        if purpose != "bind":
+            raise ClientError("invalid_enrollment_state")
         endpoint = self._enrollment_endpoint()
         binding = self._request(f"{endpoint}/{binding_id}")
         status = binding.get("status")
@@ -1021,6 +1042,47 @@ class Client:
         except FileExistsError as exc:
             raise ClientError("enrollment_connection_exists") from exc
         return {**result, "connection_created": True, "connection": str(connection)}
+
+    def _credential_challenge_endpoint(self):
+        if "chat_credential_challenges" not in self.discover().get("capabilities", ()):
+            raise ClientError("chat_credential_challenges_unavailable")
+        return self.base + CREDENTIAL_CHALLENGE_PATH
+
+    def _check_credential_challenge(self, path, binding_id, purpose, *, finish):
+        endpoint = self._credential_challenge_endpoint()
+        proof = private_bytes(path / "proof").decode()
+        if not re.fullmatch(r"lbp_[A-Za-z0-9_-]{20,200}", proof):
+            raise ClientError("invalid_challenge_proof")
+        self.secrets.append(proof)
+        response = self._request(f"{endpoint}/{binding_id}", token=proof)
+        status = response.get("status")
+        result = {"purpose": purpose, "status": status, "connection_created": False}
+        if status in ("pending", "unavailable"):
+            return result
+        key = response.get("credential")
+        if status != "confirmed" or not isinstance(key, str) or not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", key):
+            raise ClientError("invalid_credential_challenge_result")
+        self.secrets.append(key)
+        if not finish:
+            return result
+        key_path = path / "key"
+        try:
+            write_private(key_path, key.encode())
+        except FileExistsError:
+            if not secrets.compare_digest(private_bytes(key_path), key.encode()):
+                raise ClientError("challenge_key_file_conflict") from None
+        context = self._read_context(initializing=True)
+        connection = path / "connection.json"
+        if not connection.exists():
+            self._save_connection(context, connection)
+        else:
+            if private_json(connection) != {
+                **self.config,
+                "bot_uuid": context["bot"]["uuid"],
+                "actor": {field: context["actor"][field] for field in ("platform", "external_user_id")},
+            }:
+                raise ClientError("enrollment_connection_exists")
+        return {**result, "connection_created": True, "connection": str(connection), "bot": context["bot"]}
 
     def resources(self, context):
         generation = self.node_access.invalidate() if self.node_access else None
@@ -1587,7 +1649,7 @@ class Client:
             return {
                 self.redacted(key): (
                     "[redacted]"
-                    if key.lower() in {"credential", "token", "secret", "api_key", "authorization"}
+                    if key.lower() in {"credential", "token", "secret", "api_key", "authorization", "proof"}
                     else self.redacted(item)
                 )
                 for key, item in value.items()
@@ -1595,7 +1657,7 @@ class Client:
         if isinstance(value, list):
             return [self.redacted(item) for item in value]
         if isinstance(value, str):
-            value = re.sub(r"\b(?:lbr_|lbk_)[A-Za-z0-9_-]{20,200}|lbc1\.[\w-]{22}\.[\w-]{43}", "[redacted]", value)
+            value = re.sub(r"\b(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,200}|lbc1\.[\w-]{22}\.[\w-]{43}", "[redacted]", value)
             for secret in self.secrets:
                 value = value.replace(secret, "[redacted]")
         return value
@@ -1728,6 +1790,14 @@ def main(argv=None):
     )
     enroll.add_argument("--agent-label", help="Optional stable name for this Agent installation")
     enroll.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
+    challenge = sub.add_parser(
+        "key-challenge", help="Request a chat code to recover or explicitly reset a personal Key"
+    )
+    challenge.add_argument("--origin", required=True)
+    challenge.add_argument("--purpose", choices=["recover", "reset"], default="recover")
+    challenge.add_argument("--destination", help="Explicit new private challenge directory")
+    challenge.add_argument("--scope", choices=["user", "project"], default="user")
+    challenge.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
     for action, help_text in (
         ("enrollment-status", "Check a previously requested binding code"),
         ("finish-enrollment", "Verify chat confirmation and save the scoped connection"),
@@ -1799,13 +1869,13 @@ def main(argv=None):
                 json.dumps({"result": listed_connections(args.directory), "update_required": False}, ensure_ascii=False)
             )
             return 0
-        enrollment_actions = {"enroll", "enrollment-status", "finish-enrollment"}
+        enrollment_actions = {"enroll", "key-challenge", "enrollment-status", "finish-enrollment"}
         if args.action in enrollment_actions and args.connection:
             raise ClientError("enrollment_requires_new_connection")
         if args.action in {"enrollment-status", "finish-enrollment"}:
             path, state = enrollment_state(args.enrollment_dir)
             client = Client(approved_origin=state.get("approved_origin"))
-        elif args.action in {"discover", "install", "init", "enroll"} or args.connection:
+        elif args.action in {"discover", "install", "init", "enroll", "key-challenge"} or args.connection:
             client = Client(args.connection, approved_origin=getattr(args, "origin", None))
         else:
             raise ClientError("private_connection_required")
@@ -1831,6 +1901,8 @@ def main(argv=None):
             )
         elif args.action == "enroll":
             result = client.enroll(args.destination, args.group, args.agent_label, scope=args.scope)
+        elif args.action == "key-challenge":
+            result = client.enroll(args.destination, scope=args.scope, purpose=args.purpose)
         elif args.action in {"enrollment-status", "finish-enrollment"}:
             name = getattr(args, "confirm_bot_name", None)
             result = client.check_enrollment(

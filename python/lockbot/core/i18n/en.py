@@ -237,6 +237,9 @@ MESSAGES = {
         "✅[Agent authorized]\n\nYour Agents share the saved key.\n\n"
         "View authorization: bindings\nRevoke authorization: unbind"
     ),
+    "binding.challenge_unavailable": "No current Key is available. Return to your Agent.",
+    "binding.challenge_recover_confirmed": "Key recovery confirmed. Return to the Agent that requested the code.",
+    "binding.challenge_reset_confirmed": "Key reset confirmed. The old Key is invalid. Return to your Agent.",
     "binding.already_bound": (
         "ℹ️[Already authorized]\n\nYou already authorized bot ID: {bot_id}. Your A"
         "gents should share the saved key. This new key was not activated."

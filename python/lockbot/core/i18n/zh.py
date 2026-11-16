@@ -218,6 +218,9 @@ MESSAGES = {
     "binding.confirmed": (
         "✅【Agent授权成功】\n\n同一人的多个 Agent 请共用已保存的 key。\n\n查看授权：bindings\n撤销授权：unbind"
     ),
+    "binding.challenge_unavailable": "此请求没有可用的有效 Key。请回到发起请求的 Agent 查看下一步。",
+    "binding.challenge_recover_confirmed": "已确认找回 Key。请回到发起请求的 Agent。",
+    "binding.challenge_reset_confirmed": "已确认重置 Key，旧 Key 已失效。请回到发起请求的 Agent。",
     "binding.already_bound": (
         "ℹ️【已有Agent授权】\n\n你已授权机器人 ID：{bot_id}，请让自己的 Agent 共用已保存的 key。此次新 key 未激活"
         "。\n\n需要更换 key 时，请先发送 unbind，再重新绑定。"

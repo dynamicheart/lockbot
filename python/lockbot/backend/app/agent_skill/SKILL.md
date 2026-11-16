@@ -81,12 +81,15 @@ stop after `resources`. Use `command --help` for all write arguments.
    catalog. Choose the command options yourself and report where the connection was saved.
 5. To restore access, first look for an existing connection or personal Key on the
    approved service. Use it to recover other eligible groups without asking for names.
-   If no valid Key is available, request one bind code with the user's authorization.
-   Run `enroll --origin "$ORIGIN" --authorized`. Include `--group` only when the user
-   names an intended group. Give the user the `@bot bind <code>` instruction to send in
+   If the user already bound but has no valid local Key, use
+   `key-challenge --origin "$ORIGIN" --authorized` to recover via chat. Reset requires
+   an explicit request to invalidate the old Key and acknowledgement that other Agents
+   sharing it need the replacement. Only then add `--purpose reset`. A failed recovery
+   stops at reporting the result. For a first binding use `enroll --origin "$ORIGIN" --authorized`.
+   Include `--group` only for enrollment when the user names an intended group. Give the user the `@bot bind <code>` instruction to send in
    the group they want to connect. The verified chat confirmation identifies the bot.
    After the user confirms, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`
-   with the saved directory returned by `enroll`.
+   with the saved directory returned when the code was issued.
 6. In a new session run `connections` from the project root. Prefer the matching record
    in `.lockbot/connections/` before `~/.config/lockbot/connections/`. For project-only
    lookup use `connections --directory .lockbot/connections`. To resume a binding,

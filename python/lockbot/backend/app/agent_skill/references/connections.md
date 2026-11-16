@@ -38,6 +38,20 @@ supported; the helper is the recommended fixed path, not a new server requiremen
 
 Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
+If the user already bound and has no valid saved Key, run
+`key-challenge --origin "$ORIGIN" --authorized` for chat-confirmed recovery on a
+server that advertises `chat_credential_challenges`. Give the user the returned
+`@bot bind <code>` instruction. The user chooses the robot by sending it in its
+group. No group name or ID is needed. Use the saved `enrollment_dir` with
+`finish-enrollment` to verify and save the recovered connection after confirmation.
+
+Only use `key-challenge --purpose reset` after the user explicitly chooses to
+invalidate the old Key and is aware that other Agents sharing it will need the
+replacement. Both paths use `bind` in chat. The server distinguishes `REC-` and
+`RST-` codes. An unavailable recovery result never starts a reset. If a reset
+result expired or went missing, use fresh recovery proof to reconcile it before
+considering another reset.
+
 For a new binding with no saved Key, supply the approved origin. If the user names
 a group, pass that name with `--group` to check it against the confirmed bot. Add the selected storage options to `enroll`. Pass `--authorized` only
 once the user approves requesting the code. Use the returned `enrollment_dir` for

@@ -171,6 +171,7 @@ def public_skill_manifest(kind, request, response, db):
     if kind == "operator":
         identity["credential_scheme"] = "lbk_bot_scoped"
         identity["capabilities"].remove("credential_context")
+        identity["capabilities"].remove("chat_credential_challenges")
         identity["capabilities"].remove("resource_view_link")
         identity["capabilities"].extend(
             ["public_agent_operation_history", "allocator_lease_history", "allocator_lifecycle_audit_v2"]

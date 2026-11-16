@@ -110,6 +110,19 @@ def case(tmp_path):
                 }
             elif self.path == "/api/resource-auth/bindings/" + "b" * 22:
                 body = {"binding_id": "b" * 22, "status": state.binding_status}
+            elif self.path == helper.CREDENTIAL_CHALLENGE_PATH and self.command == "POST":
+                purpose = json.loads(raw)["purpose"]
+                body = {
+                    "challenge_id": "c" * 22,
+                    "proof": "lbp_" + "C" * 43,
+                    "bind_code": ("REC-" if purpose == "recover" else "RST-") + "ACDEFGHJ",
+                    "bind_expires_at": "2030-01-01T00:10:00Z",
+                }
+            elif self.path == helper.CREDENTIAL_CHALLENGE_PATH + "/" + "c" * 22:
+                assert self.headers.get("Authorization") == "Bearer lbp_" + "C" * 43
+                body = {"status": state.binding_status}
+                if state.binding_status == "confirmed":
+                    body["credential"] = KEY
             elif self.path == state.manifest["installation"]["download_url"]:
                 self.send_response(200)
                 self.send_header("Content-Length", str(len(installation_archive)))
@@ -1215,6 +1228,43 @@ def test_unnamed_enrollment_reuses_pending_slot_and_allows_another_after_confirm
     second = client.enroll(None, scope="project")
     assert second["enrollment_dir"] != first["enrollment_dir"]
     assert sum(row[1] == "POST" for row in case.state.requests) == 2
+
+
+@pytest.mark.parametrize("purpose", [None, "reset"])
+def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, purpose):
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
+    directory = case.tmp / "challenge"
+    start = ("key-challenge", "--origin", case.base, "--destination", str(directory), "--authorized")
+    if purpose is not None:
+        start += ("--purpose", purpose)
+
+    def cli(*args):
+        completed = subprocess.run(
+            [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        assert KEY not in completed.stdout + completed.stderr and "lbp_" not in completed.stdout + completed.stderr
+        return json.loads(completed.stdout)["result"]
+
+    issued = cli(*start)
+    assert issued["target_group"] is None and issued["purpose"] == (purpose or "recover")
+    assert issued["bind_command"].startswith("bind RST-" if purpose == "reset" else "bind REC-")
+    assert (directory / "proof").stat().st_mode & 0o777 == 0o600
+    pending = cli("connections", "--directory", str(directory))["pending_enrollments"]
+    assert pending[0]["purpose"] == (purpose or "recover") and pending[0]["target_group"] is None
+    finish = ("finish-enrollment", "--enrollment-dir", pending[0]["enrollment_dir"])
+    assert cli(*finish)["status"] == "pending"
+    assert not (directory / "key").exists()
+    case.state.binding_status = "confirmed"
+    assert cli(*finish)["connection_created"]
+    assert cli(*finish)["connection_created"]
+    assert (directory / "key").read_text() == KEY
+    assert cli("--connection", str(directory / "connection.json"), "context")["bot"]["uuid"] == "bot-a"
+    posts = [json.loads(body) for path, method, _, body in case.state.requests if method == "POST"]
+    assert posts == [{"purpose": purpose or "recover"}]
 
 
 def test_enrollment_does_not_replay_uncertain_request(case):
