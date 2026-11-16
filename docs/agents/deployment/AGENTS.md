@@ -2,7 +2,7 @@
 
 ## Establish the deployment identity
 
-Obtain the target host/platform, new install versus upgrade, selected published image, existing container/service name, published port, data mount, original encryption/JWT configuration and backup location. Ask only for missing facts; reuse approved deployment records without exposing their contents. Do not ask users to send secrets in chat.
+Obtain the target host/platform, new install versus upgrade, selected published image, existing container/service name, published port, data mount, original encryption/JWT configuration and backup location. If the request could refer to multiple instances, ask which one to check before requesting private paths or running checks. Ask only for missing facts; reuse approved deployment records without exposing their contents. Do not ask users to send secrets in chat.
 
 Lockbot requires a long-running **single process** with a persistent `/data` directory. SQLite, resource state, keys and rotating evidence files are not disposable container storage. Do not configure multiple Uvicorn workers, replicas or overlapping old/new receivers against one data store. Feishu's WebSocket receiver and resource timers must survive ordinary requests; an HTTP health response alone does not prove either works.
 
