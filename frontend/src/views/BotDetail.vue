@@ -358,7 +358,7 @@
                 effect="light"
                 :width="300"
                 raw-content
-                :content="`${$t('botDetail.apiKeyHelp')}<br><a href='/api/public-docs' target='_blank' style='color:var(--el-color-primary)'>${$t('botDetail.apiKeyDocsLink')}</a>`"
+                :content="`${$t('botDetail.apiKeyHelp')}<br><a href='/api/public-docs/op' target='_blank' style='color:var(--el-color-primary)'>${$t('botDetail.apiKeyDocsLink')}</a>`"
               >
                 <el-icon class="help-icon"><QuestionFilled /></el-icon>
               </el-tooltip>

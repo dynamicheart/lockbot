@@ -56,15 +56,6 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
             markdown = zipped.read(zipped.namelist()[0])
             assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
             assert b"name: lockbot-resource-agent" in markdown
-    operator = client.get("/api/op-skill").json()
-    assert operator["instance_id"] == meta["instance_id"]
-    assert operator["credential_scheme"] == "lbk_bot_scoped"
-    assert "credential_context" not in operator["capabilities"]
-    assert "context_url" not in operator and "enrollment_url" not in operator
-    assert operator["name"] == "lockbot-operator-api"
-    assert operator["skill_id"] == "lockbot-operator-agent"
-    with zipfile.ZipFile(io.BytesIO(client.get(operator["installation"]["download_url"]).content)) as zipped:
-        assert zipped.namelist() == ["lockbot-operator-agent/SKILL.md"]
 
 
 @pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE"], indirect=True)

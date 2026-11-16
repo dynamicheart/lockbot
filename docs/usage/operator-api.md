@@ -3,15 +3,10 @@ name: lockbot-operator-agent
 description: Monitor Lockbot resource holders and perform explicitly authorized operator releases through OP API. For trusted operations bots, not ordinary user Agents or machine execution.
 ---
 
-# Lockbot operator API
+# LockBot operator API
 
-This is the **lockbot-operator-agent** skill for
-`service_id: lockbot.resource-api`, not another Lockbot implementation.
-Without credentials, read `/api/op-skill` on the user-approved origin first. Verify the
-service/API identity and use its namespaced `installation` bundle; check the skill content
-revision at task start and on changes in `X-Lockbot-Skill-Version`. Keep each OP key scoped
-to its origin, instance ID and bot; never reuse a generic remembered Lockbot JWT or token.
-Do not overwrite another platform's skill or credential store. Legacy OP routes remain supported.
+Open `/api/public-docs/op` on the approved LockBot deployment for the current
+endpoint and request reference. Keep each OP key scoped to its origin and bot.
 
 Use the trusted base URL and bot ID supplied by the administrator. Obtain an **OP API Key**
 (`lbk_…`) from that bot's administrator and keep it in a private credential store. Send it
@@ -53,7 +48,7 @@ separate for each monitored bot; they do not grant platform-wide discovery or ad
 
 ## Public Agent API operation history
 
-When the OP manifest advertises `public_agent_operation_history`, use
+For public operation history, use
 `GET /api/bots/{bot_id}/op/history?limit=25` with this bot's OP key. It is read-only;
 the key still has its pre-existing release authority, not a newly restricted read-only scope.
 The endpoint works for stopped bots and never inherits the issuing administrator's private
@@ -88,9 +83,9 @@ never sends messages. Publish any summary only to a user-approved destination af
 the actual report. If the capability or endpoint is absent, report unsupported history;
 never fall back to raw management logs or ask for a broader private credential.
 
-## Verified allocation lifecycle (when advertised)
+## Verified allocation lifecycle
 
-If the manifest advertises `allocator_lease_history`, read
+Read
 `GET /api/bots/{bot_id}/op/lease-history` with this same bot OP key. Follow the bounded
 cursor pages (1–100 items, 1 MiB scan/request, 30 reads/minute), respect `Retry-After`, and
 restart collection on 409. This is a separate allocator-commit stream, not the Agent
@@ -114,9 +109,9 @@ separate from exclusive time and physical utilization. Do not turn requests, wai
 claim windows or node counts into allocated card-hours. The script never sends messages;
 publication still requires an explicit destination and content authorization.
 
-## Frozen lifecycle export (V2, when advertised)
+## Frozen lifecycle export (V2)
 
-When the manifest advertises `allocator_lifecycle_audit_v2`, use
+Use
 `GET /api/bots/{bot_id}/op/lifecycle-audit` with the same current bot OP key.
 Supply `start` and `end` together as UTC Unix seconds (at most seven days,
 `(start, end]`), optionally an exact `resource` and `limit` 1–100. Follow non-null
