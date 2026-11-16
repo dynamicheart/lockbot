@@ -17,7 +17,7 @@ command to check its outcome.
 
 ## Authentication
 
-- Credential form: `Bearer lbr_...`. Resource operations are scoped to a single `bot_id`;
+- Credential form: `Bearer lbr_...`. The Key determines the resource group;
   same-user binding discovery/recovery is instance-wide. It acts as the IM user who
   enrolled it. You cannot choose or spoof the identity — it is fixed at enrollment.
 - **Enrollment is chat-only.** A human runs `bind <code>` in the bot's IM group to confirm a
@@ -33,14 +33,14 @@ command to check its outcome.
 
 ## Endpoints
 
-### GET `/api/bots/{bot_id}/resources` — the authoritative read
+### GET `/api/agent/resources` — the authoritative read
 There is **no push delivery** (no callback/stream/subscription). Poll this to learn state.
 Returns: `health`, `resources` (holders with absolute `expires_at` + relative `remaining_seconds`),
 `command_examples` (valid examples for this specific bot type), `captured_at`, `age_seconds` (>0 means served from a ≤5s cache — correct relative values by it or
 prefer `expires_at`), `supported_operations`, your `actor`, and a per-caller `next_event_at` /
 `next_event_kind`. Queue bots also include `queue_claim_window_seconds` and your queue position.
 
-### POST `/api/bots/{bot_id}/commands` — one allowlisted mutation
+### POST `/api/agent/commands` — one allowlisted mutation
 Body: `{"command":"lock node1 2h","agent_label":"build-agent","purpose":"Develop feature X"}`.
 `agent_label` (1–64 characters) and `purpose` (1–512 characters) are optional, single-line
 private text; group notifications never publish these fields on servers advertising `usage_privacy`. Successful `lock` / `slock` / `book` also saves
@@ -105,7 +105,7 @@ without new metadata. `free <resource>` cancels your booking or releases your lo
 
 ## Resource command reference
 
-Send JSON to `POST /api/bots/{bot_id}/commands` using the personal Bearer key. Obtain the
+Send JSON to `POST /api/agent/commands` using the personal Bearer key. Obtain the
 real resource IDs, device indexes and `supported_operations` from `GET /resources` first.
 The examples below use placeholder resources; replace them with those returned by your bot.
 
@@ -152,7 +152,7 @@ The examples below use placeholder resources; replace them with those returned b
 
 ### Example: two Agents sharing one user's key
 
-Both use the same `bot_id` and saved key. Each acquires a different resource:
+Both use the same saved key for the resource group. Each acquires a different resource:
 
 ```json
 {"command":"lock node1 2h","agent_label":"dev-agent","purpose":"Develop feature X"}
@@ -166,7 +166,7 @@ Successful `lock` / `slock` / `book` with either optional field automatically re
 that resource's Agent name and purpose in the same API call. No second request is needed.
 A failed acquisition does not change the current task. Other commands (including `free`)
 do not publish these private fields in group notifications. To edit a task later without changing
-the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
+the lease, optionally call `PUT /api/agent/usage-declarations/node1`:
 
 ```json
 {"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
@@ -179,7 +179,8 @@ node do **not** have independent task registrations. Do not claim that distincti
 
 ### Actual HTTP call
 
-Use the trusted server address supplied by the user; discover bot ID with `/api/agent/context`. Load the key privately
+Use the trusted service address and verify the identity and resource group with
+`/api/agent/context`. Load the Key privately
 from the user's credential store; never put it in URLs, logs, shared files or shell history.
 For example, after identifying the service without a credential and loading the matching `base_url` and `key` privately:
 
@@ -189,16 +190,15 @@ session = requests.Session()
 session.headers["Authorization"] = "Bearer " + key
 context = session.get(f"{base_url}/api/agent/context", timeout=15, allow_redirects=False)
 context.raise_for_status()
-bot_id = context.json()["bot"]["id"]
 response = session.post(
-    f"{base_url}/api/bots/{bot_id}/commands",
+    f"{base_url}/api/agent/commands",
     json={"command": "lock node1 2h", "agent_label": "dev-agent", "purpose": "Develop feature X"},
     timeout=15,
     allow_redirects=False,
 )
 response.raise_for_status()
 # Honour Retry-After / next_event_at for subsequent checks; a POST reply is not proof.
-state = session.get(f"{base_url}/api/bots/{bot_id}/resources", timeout=15, allow_redirects=False)
+state = session.get(f"{base_url}/api/agent/resources", timeout=15, allow_redirects=False)
 state.raise_for_status()
 # Match state.json()["actor"] against the resource's holders, then use the resource.
 ```

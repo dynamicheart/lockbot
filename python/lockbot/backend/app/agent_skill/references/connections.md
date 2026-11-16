@@ -1,14 +1,15 @@
 # Bundled CLI
 
-Run from the project using the bundled script's path. `--help` lists commands, and
+From the project directory, set `LOCKBOT_CLI` to the absolute path of the bundled
+`scripts/lockbot_resource.py` beside the installed `SKILL.md`. `--help` lists commands, and
 `<subcommand> --help` describes the arguments. Select an existing private connection
 with `--connection <file>` before the subcommand.
 
 ```sh
-python3 scripts/lockbot_resource.py --help
-python3 scripts/lockbot_resource.py command --help
-python3 scripts/lockbot_resource.py connections
-python3 scripts/lockbot_resource.py --connection /private/connection.json resources
+python3 "$LOCKBOT_CLI" --help
+python3 "$LOCKBOT_CLI" command --help
+python3 "$LOCKBOT_CLI" connections
+python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
 ```
 
 | Goal | Subcommand |
@@ -56,9 +57,9 @@ once the user approves requesting the code. Use the returned `enrollment_dir` fo
 subsequent commands, shown below as `"$enrollment_dir"`.
 
 ```sh
-python3 scripts/lockbot_resource.py enroll --origin https://resources.example.test --group "Compute team" --authorized
-python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir "$enrollment_dir"
-python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir "$enrollment_dir"
+python3 "$LOCKBOT_CLI" enroll --origin https://resources.example.test --group "Compute team" --authorized
+python3 "$LOCKBOT_CLI" enrollment-status --enrollment-dir "$enrollment_dir"
+python3 "$LOCKBOT_CLI" finish-enrollment --enrollment-dir "$enrollment_dir"
 ```
 
 Show the returned `bind_command` prefixed with a mention of the bot, for the user to send
@@ -84,12 +85,12 @@ Start with an already-approved service URL and an existing private personal-key 
 `init` command discovers the bot UUID through context; the user need not know a bot ID:
 
 ```sh
-python3 scripts/lockbot_resource.py init --origin <approved-origin> --key-file /private/resource.key --destination /private/connection.json
-python3 scripts/lockbot_resource.py --connection /private/connection.json context
-python3 scripts/lockbot_resource.py --connection /private/connection.json resources
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --duration 30m --metadata-file /private/task.json
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --duration 30m
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a
+python3 "$LOCKBOT_CLI" init --origin <approved-origin> --key-file /private/resource.key --destination /private/connection.json
+python3 "$LOCKBOT_CLI" --connection /private/connection.json context
+python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
+python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation lock --node node-a --duration 30m --metadata-file /private/task.json
+python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation renew --node node-a --duration 30m
+python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation release --node node-a
 ```
 
 Give each Agent installation a stable, recognizable label when you want to track its recent activity.
@@ -98,7 +99,9 @@ connection JSON without changing its Key. The helper sends it as a UTF-8 percent
 `X-Lockbot-Agent-Label` header on authenticated Lockbot requests. Use a short name with
 at most 64 characters and keep secrets out of it. Requests without a label continue to work.
 
-For card bots add explicit `--device 0` (repeat for more cards). Private `task.json` accepts
+For card bots add explicit `--device 0` (repeat for more cards on that node). For the
+same set of device IDs on every selected node, pass `--same-devices-on-all-nodes`. For
+different sets, run separate commands per node. Private `task.json` accepts
 only `task_category`, `agent_label`, `purpose`; choose the category from current context.
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.
@@ -158,7 +161,7 @@ store or a private mode-0600 file**. Use `init` to verify it and create the seed
 on that Agent, unless the connection already exists. Then use the fixed CLI:
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/seed.json recover --destination /private/recovered-groups
+python3 "$LOCKBOT_CLI" --connection /private/seed.json recover --destination /private/recovered-groups
 ```
 
 Keep the seed connection. Use each returned `connection` for the corresponding group;

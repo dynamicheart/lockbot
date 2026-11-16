@@ -319,6 +319,41 @@ def test_resource_mutation_does_not_claim_success_from_stale_readback(case):
     assert len(commands(case)) == 1
 
 
+def test_packaged_command_rejects_ambiguous_multi_node_card_selection(case):
+    case.state.bot_type = "DEVICE"
+    project = case.tmp / "project"
+    project.mkdir()
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--node",
+            "node-b",
+            "--device",
+            "0",
+            "--device",
+            "1",
+            "--duration",
+            "30m",
+        ],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "multi_node_device_selection_requires_explicit_same_devices" in result.stderr
+    assert not commands(case)
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")
 @pytest.mark.parametrize("devices", [False, True])
 def test_node_access_metadata_scopes_and_reconciles_current_holdings(case, devices):

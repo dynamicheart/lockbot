@@ -83,7 +83,7 @@ For a first visit or lost browser session, use the selected connection and let t
 verify capabilities, identity, and the returned link:
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/connection.json panel-link
+python3 "$LOCKBOT_CLI" --connection /private/connection.json panel-link
 ```
 
 Only run this command when private delivery to the verified user is authorized. Send

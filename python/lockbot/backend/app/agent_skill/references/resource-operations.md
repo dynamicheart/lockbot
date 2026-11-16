@@ -253,7 +253,7 @@ Successful lock/book commands register their metadata for up to 24 hours, tied t
 holding/booking. A queue claim or renewal with no metadata retains the existing valid task;
 explicit metadata replaces it. To update a task without renewing the lease:
 
-`PUT /api/bots/{bot_id}/usage-declarations/{resource_id}`
+`PUT /api/agent/usage-declarations/{resource_id}`
 
 ```json
 {"task_category":"performance_testing","purpose":"Compare throughput and latency","ttl_seconds":3600}

@@ -9,22 +9,39 @@ description: >
 
 # LockBot Resource Agent
 
-- A LockBot service hosts bots. Each bot has its own inventory and rules, and a personal
-  Key represents one verified chat identity on that bot. The same node name can occur on
-  several bots. Select the connection before choosing a target.
-- Whole-node bots allocate machines. Card bots allocate devices on a node. Use the bot's
-  live inventory and rules to identify what the user asked for.
-- A booking is a place in the queue. A successful lock or claim creates a holding with
-  an expiry. Read back the resulting state before using the resource.
-- Utilization reports what the hardware is doing. Read occupancy and queue state to
-  decide whether LockBot can allocate it.
+LockBot manages shared compute for chat groups. It tracks who holds each machine or
+accelerator card, when the lease expires, and who is queued. A LockBot service can host
+several resource groups. Each group has its own bot, inventory, and allocation rules.
+
+This Skill uses LockBot's HTTP Resource API as your verified group identity. A personal
+`lbr_` Key identifies both you and your bot on its service. `GET /api/agent/context`
+identifies the connection, `GET /api/agent/resources` reads the inventory, and
+`POST /api/agent/commands` submits a resource operation. The bundled CLI handles these
+calls and verifies the result. Use the CLI for routine tasks.
 
 Keep credentials scoped to the verified service, instance and bot. Keep Key values and
 grants out of replies, command arguments, Skill files and shared memory.
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-Open only the linked reference needed for the current request.
+## Quick start with a saved connection
+
+Set `LOCKBOT_CLI` to the absolute path of `scripts/lockbot_resource.py` beside this
+`SKILL.md`. Run from the project directory so project-scoped connections can be found.
+Use Python 3.10 or newer.
+
+```sh
+python3 "$LOCKBOT_CLI" connections
+python3 "$LOCKBOT_CLI" --connection "$CONNECTION" context
+python3 "$LOCKBOT_CLI" --connection "$CONNECTION" resources
+python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --duration 30m
+python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation release --node node-01 --device 0
+```
+
+Set `CONNECTION` to the matching private file listed by `connections`. Replace the
+example node and device with the exact IDs from the inventory. Omit `--device` on
+whole-node bots. For renewal, use `--operation renew` and the time to add. Use
+`command --help` for all arguments. For a status question, stop after `resources`.
 
 ## Install or connect
 
@@ -40,21 +57,26 @@ Open only the linked reference needed for the current request.
    and reload the Skill. If a previously installed helper rejects the archive layout,
    use the client's installer for the checked ZIP, then use the helper in the new package.
    A failed or unavailable installation remains unverified.
-3. Use Python 3.10+ and the bundled CLI, `python3 scripts/lockbot_resource.py`.
+3. Use Python 3.10+ and the bundled CLI. Resolve `scripts/lockbot_resource.py`
+   relative to this `SKILL.md` and run it by absolute path from the project directory.
    Run `--help` or `<subcommand> --help` for arguments and examples. With authorization to
    save the service, run `discover --destination <new-private-file>`. When the user gives
    you a Key file, run `init --key-file` first to save a verified connection, then pass
-   that connection to resource commands. A Key file alone is not a connection file.
+   that connection to resource commands. The service resolves the bot from the Key.
 4. If the user asks to save a credential in this project, run from the project root and
    select `--scope project` for `init`, `enroll` or `recover`. Use only the project's
    catalog for a project-only setup. Default writes go to the system user's private
    catalog. Choose the command options yourself and report where the connection was saved.
-5. A new binding needs both the group name and authorization to request a code. Ask for
-   whichever is missing. Use the user's group name as given, including short names like
+5. If the user asks to connect a named resource group, use their request to start one
+   enrollment. Ask only for missing information or authorization. Use the group name
+   as given, including short names like
    “验证群”. Then call `enroll` once, give the user its `@bot bind <code>`
    instruction, and wait for them to send it in that group. Call `finish-enrollment`
    on the same directory after they confirm. Use the resulting connection only after
    verified success. Read the saved pending state before considering another enrollment.
+   With a verified service address, run `enroll --origin "$ORIGIN" --group "$GROUP" --authorized`.
+   After the user confirms, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`
+   with the saved directory returned by `enroll`.
 6. In a new session run `connections` from the project root. Prefer the matching record
    in `.lockbot/connections/` before `~/.config/lockbot/connections/`. For project-only
    lookup use `connections --directory .lockbot/connections`. If multiple services match
@@ -78,9 +100,12 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    choose, check each eligible authorized group's live resources before asking or choosing.
 3. When asked to acquire now, use `lock` for an idle match with an empty queue, even if
    `claimable_by_you` is false. Use `book` only when the user requests or accepts a
-   reservation. For a claim, match a booking marked `claimable_by_you` and omit the
+   reservation. A booking is a queue position. A lock or claim creates a lease.
+   For a claim, match a booking marked `claimable_by_you` and omit the
    duration. For a renewal, pass the time to add to the existing lease. Release only the
    exact resource, without a duration.
+   For card selections with different device IDs on different nodes, run a separate
+   command for each node. Stop if any write is unconfirmed.
 4. Send the verified write once and verify the resulting resource state. If the CLI
    reports an unconfirmed write, read current resources and report what is verifiable.
    Do not try another write for that request, including by

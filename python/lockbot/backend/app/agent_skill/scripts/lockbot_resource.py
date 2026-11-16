@@ -376,9 +376,8 @@ def deployment_fragments(base, package_format=BUNDLE_FORMAT):
                 f"- Manifest: `GET {base}/api/agent-skill`",
                 f"- Context: `GET {base}/api/agent/context`",
                 f"- Complete installation ZIP: `{base}/api/agent-skill/lockbot-resource-agent.zip`",
-                f"- Resources: `GET {base}/api/bots/{{bot_id}}/resources`",
-                f"- Commands: `POST {base}/api/bots/{{bot_id}}/commands`",
-                "  `bot_id` comes from this key's context; do not ask the user to guess it.",
+                "- Read resources and send commands using the same-origin links returned by context.",
+                "  The personal Key identifies its bot.",
             ]
         ),
     }
@@ -1101,7 +1100,9 @@ class Client:
             raise ClientError("invalid_personal_panel_link")
         return {"home": home, "login_url": login_url}
 
-    def command(self, operation, nodes, devices, duration, metadata=None):
+    def command(self, operation, nodes, devices, duration, metadata=None, *, same_devices_on_all_nodes=False):
+        if devices and len(nodes) > 1 and not same_devices_on_all_nodes:
+            raise ClientError("multi_node_device_selection_requires_explicit_same_devices")
         context = self.context()
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
@@ -1610,6 +1611,11 @@ def main(argv=None):
         "--device", action="append", default=[], help="Exact device ID on the selected node. Repeat for more cards."
     )
     command.add_argument(
+        "--same-devices-on-all-nodes",
+        action="store_true",
+        help="Apply all listed device IDs to every selected node. Use separate commands for different IDs per node.",
+    )
+    command.add_argument(
         "--duration", help="Lease for lock/book or time to add on renew, e.g. 30m. Omit for claim/release."
     )
     command.add_argument("--metadata-file", help="Private JSON: task_category, purpose, agent_label only")
@@ -1683,7 +1689,14 @@ def main(argv=None):
             result = client.alias(args.node, args.alias_value)
         elif args.action == "command":
             metadata = private_json(args.metadata_file) if args.metadata_file else {}
-            result = client.command(args.operation, args.node, args.device, args.duration, metadata)
+            result = client.command(
+                args.operation,
+                args.node,
+                args.device,
+                args.duration,
+                metadata,
+                same_devices_on_all_nodes=args.same_devices_on_all_nodes,
+            )
         else:
             result = client.metrics(args.node)
         print(
