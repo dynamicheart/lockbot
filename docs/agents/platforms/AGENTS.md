@@ -6,6 +6,8 @@ Keep the enterprise application, resource bot and resource group distinct. Use t
 
 An Agent can explain fields, open approved consoles, prepare configuration, check an existing application's granted scopes, guide the user through approval, and test a specifically authorized group. Enterprise login/MFA, terms, administrative approval, secret entry and permission grants remain governed by the host's action/confirmation rules. Never approve the application as another person, bypass review or request a broader directory range to make a test pass.
 
+In a read-only review, describe configuration and testing steps as a plan. Checking whether a bot or receiver is running is read-only. Starting or restarting it, saving configuration, and sending test messages require authorization for those actions.
+
 Normal resource-bot settings preserve the selected messaging platform. Test deployments that explicitly enable the supervised [Infoflow migration workflow](../../usage/platform-migration-preflight.md) can switch the same bot after a super administrator confirms the live-state reset. The target must be an approved, independently verified Feishu group. The migration retains resource configuration and historical records and requires destination re-enrollment. On deployments without the supervised workflow, a configuration copy can prepare a new bot with neutral resource settings. Start it only after the original writer is retired.
 
 ## Infoflow / 如流
