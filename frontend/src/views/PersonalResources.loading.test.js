@@ -2,6 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { createRenderer, nextTick, ssrContextKey } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
+import { createI18n } from 'vue-i18n'
+import zhCN from '../i18n/zh-CN'
 import PersonalResources from './PersonalResources.vue'
 
 const renderer = createRenderer({
@@ -39,6 +41,7 @@ function mount() {
     routes: [{ path: '/me/:view?/:selection?', component: { render: () => null } }],
   })
   app.use(router)
+  app.use(createI18n({ legacy: false, locale: 'zh-CN', messages: { 'zh-CN': zhCN } }))
   app.provide(ssrContextKey, {})
   if (initialPath) return router.replace(initialPath).then(mountView)
   return mountView()
