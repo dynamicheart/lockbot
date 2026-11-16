@@ -751,6 +751,16 @@ def test_chat_key_recovery_defaults_to_original_and_reset_requires_its_own_code(
     assert client.get(reset_url, headers=_auth(reset["proof"])).json() == result
 
 
+def test_chat_reset_without_active_key_does_not_create_one(client, chat_hook, bot_id, db_session):
+    base = "/api/resource-auth/credential-challenges"
+    request = client.post(base, json={"purpose": "reset"}).raise_for_status().json()
+    chat_hook("bind", request["bind_code"], bot_id=bot_id)
+    assert client.get(f"{base}/{request['challenge_id']}", headers=_auth(request["proof"])).json() == {
+        "status": "unavailable",
+    }
+    assert db_session.query(ResourceBinding).count() == 0
+
+
 def test_chat_recovery_of_digest_only_key_leaves_it_active(client, chat_hook, issued, bot_id, db_session):
     _confirm(chat_hook, issued, bot_id)
     row = db_session.query(ResourceBinding).one()

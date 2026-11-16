@@ -238,6 +238,7 @@ MESSAGES = {
         "View authorization: bindings\nRevoke authorization: unbind"
     ),
     "binding.challenge_unavailable": "No current Key is available. Return to your Agent.",
+    "binding.challenge_created": "A personal Key was created. Return to the Agent that requested the code.",
     "binding.challenge_recover_confirmed": "Key recovery confirmed. Return to the Agent that requested the code.",
     "binding.challenge_reset_confirmed": "Key reset confirmed. The old Key is invalid. Return to your Agent.",
     "binding.already_bound": (

@@ -473,6 +473,11 @@ def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str
     try:
         previous = _own_bindings(db, platform, external_user_id, bot.id)
         current = [row for row in previous if _binding_is_current(row, bot, now)]
+        if record.purpose == "recover" and not current:
+            key = credentials.generate_credential()
+            row = _create_chat_binding(db, bot, previous, platform, external_user_id, now, record, key=key)
+            receipt = CredentialReceipt(bot.id, row.public_id, row.credential_generation, created=True)
+            return t("binding.challenge_created", lang=lang), token, receipt
         if record.purpose != "bind":
             reply, receipt = _confirm_credential_challenge(db, bot, lang, record, current)
             return reply, token, receipt
@@ -480,31 +485,7 @@ def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str
             # Never rotate an existing shared credential as a side effect of another
             # Agent's enrollment. Consume this code; its credential remains inert.
             return t("binding.already_bound", lang=lang, bot_id=bot.id), token, None
-        for old in previous:
-            old.revoked_at = _naive_utc(now)
-        db.flush()
-        row = ResourceBinding(
-            public_id=record.binding_id,
-            platform=platform,
-            external_user_id=external_user_id,
-            bound_bot_id=bot.id,
-            bound_bot_uuid=bot.uuid or "",
-            bound_identity_revision=bot.identity_revision,
-            credential_digest=record.credential_digest,
-            credential_encrypted=record.credential_encrypted,
-            label=record.label,
-            issued_at=_naive_utc(now),
-            credential_expires_at=_credential_expiry(now),
-        )
-        db.add(row)
-        db.flush()
-        _audit_binding_change(db, platform, external_user_id, bot, "bind", [row])
-        logger.info(
-            "Resource binding confirmed: platform=%s bot=%s binding=%s",
-            platform,
-            bot.id,
-            credentials.short_id(record.binding_id),
-        )
+        _create_chat_binding(db, bot, previous, platform, external_user_id, now, record)
         reply = t(
             "binding.confirmed",
             lang=lang,
@@ -517,6 +498,38 @@ def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str
         pending_store.restore(token)
         raise
     return reply, token, None
+
+
+def _create_chat_binding(db, bot, previous, platform, external_user_id, now, record, *, key=None):
+    for old in previous:
+        old.revoked_at = _naive_utc(now)
+    db.flush()
+    binding_id = credentials.generate_public_id() if key is not None else record.binding_id
+    row = ResourceBinding(
+        public_id=binding_id,
+        platform=platform,
+        external_user_id=external_user_id,
+        bound_bot_id=bot.id,
+        bound_bot_uuid=bot.uuid or "",
+        bound_identity_revision=bot.identity_revision,
+        credential_digest=credentials.digest_credential(key) if key is not None else record.credential_digest,
+        credential_encrypted=(
+            credentials.seal_credential(binding_id, key) if key is not None else record.credential_encrypted
+        ),
+        label=record.label,
+        issued_at=_naive_utc(now),
+        credential_expires_at=_credential_expiry(now),
+    )
+    db.add(row)
+    db.flush()
+    _audit_binding_change(db, platform, external_user_id, bot, "bind", [row])
+    logger.info(
+        "Resource binding confirmed: platform=%s bot=%s binding=%s",
+        platform,
+        bot.id,
+        credentials.short_id(row.public_id),
+    )
+    return row
 
 
 def _confirm_credential_challenge(db, bot, lang, record, current):
@@ -582,7 +595,10 @@ def credential_challenge_result(db: Session, challenge_id: str, proof: str) -> d
         key = credentials.recover_credential(row)
         if key is None:
             return {"status": "unavailable"}
-        return {"status": "confirmed", "credential": key}
+        result = {"status": "confirmed", "credential": key}
+        if receipt.created:
+            result["outcome"] = "created"
+        return result
 
 
 def _binding_is_current(row, bot, now) -> bool:

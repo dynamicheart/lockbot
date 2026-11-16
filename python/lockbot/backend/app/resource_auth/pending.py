@@ -52,6 +52,7 @@ class CredentialReceipt:
     bot_id: int
     binding_id: str | None
     generation: int | None
+    created: bool = False
 
 
 @dataclass(frozen=True)

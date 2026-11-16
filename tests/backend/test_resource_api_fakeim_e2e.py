@@ -148,16 +148,10 @@ def _all_sinks(resp, bot, tmp_path, bot_id, caplog, db_session):
     return [resp.text, _command_log(tmp_path, bot_id), caplog.text, json.dumps(bot.adapter.sent), audit]
 
 
-def test_published_cli_recovers_then_resets_through_the_same_bind_command(client, fakeim_api, tmp_path, monkeypatch):
+def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command(
+    client, fakeim_api, tmp_path, monkeypatch
+):
     bot_id, bot = fakeim_api["bot_id"], fakeim_api["bot"]
-    original = client.post("/api/resource-auth/bindings").raise_for_status().json()
-    _confirm_via_webhook(client, bot_id, original["bind_code"]).raise_for_status()
-    old_key = original["credential"]
-    old_auth = {"Authorization": f"Bearer {old_key}"}
-    client.post(f"/api/bots/{bot_id}/commands", headers=old_auth, json={"command": "lock n1 1h"}).raise_for_status()
-    assert [user["user_id"] for user in bot.state.bot_state["n1"]["current_users"]] == [ACTOR]
-    original_state = client.get(f"/api/bots/{bot_id}/resources", headers=old_auth).raise_for_status().json()
-    original_holder = next(resource for resource in original_state["resources"] if resource["id"] == "n1")["holders"][0]
 
     installation = client.get("/api/agent-skill").raise_for_status().json()["installation"]
     bundle = client.get(installation["download_url"]).raise_for_status().content
@@ -195,7 +189,10 @@ def test_published_cli_recovers_then_resets_through_the_same_bind_command(client
                 time.sleep(0.05)
             assert server.started
 
-            for purpose, prefix, extra in [("recover", "REC-", ()), ("reset", "RST-", ("--purpose", "reset"))]:
+            old_key = None
+            old_auth = None
+            for creates_key, extra in [(True, ()), (False, ()), (False, ("--purpose", "reset"))]:
+                purpose, prefix = ("reset", "RST-") if extra else ("recover", "REC-")
                 issued = cli("key-challenge", "--origin", origin, "--authorized", "--scope", "project", *extra)
                 assert issued["purpose"] == purpose and issued["target_group"] is None
                 command, code = issued["bind_command"].split()
@@ -206,20 +203,35 @@ def test_published_cli_recovers_then_resets_through_the_same_bind_command(client
                 finish = ("finish-enrollment", "--enrollment-dir", str(directory))
                 assert cli(*finish)["status"] == "pending"
                 assert not (directory / "key").exists()
-                assert client.get("/api/agent/context", headers=old_auth).status_code == 200
+                if old_auth is not None:
+                    assert client.get("/api/agent/context", headers=old_auth).status_code == 200
 
                 resp = _confirm_via_webhook(client, bot_id, code).raise_for_status()
-                assert cli(*finish)["connection_created"]
+                finished = cli(*finish)
+                assert finished["connection_created"]
+                assert finished.get("outcome") == ("created" if creates_key else None)
                 key = (directory / "key").read_text()
-                assert (key == old_key) == (purpose == "recover")
-                assert all(secret not in resp.text + json.dumps(bot.adapter.sent) for secret in (key, old_key, code))
+                assert key not in resp.text + json.dumps(bot.adapter.sent)
+                assert code not in resp.text + json.dumps(bot.adapter.sent)
                 assert (directory / "key").stat().st_mode & 0o777 == 0o600
                 connection = ("--connection", str(directory / "connection.json"))
                 context = cli(*connection, "context")
                 assert context["bot"]["id"] == bot_id and context["actor"]["external_user_id"] == ACTOR
+                if creates_key:
+                    old_key = key
+                    old_auth = {"Authorization": f"Bearer {old_key}"}
+                    client.post(
+                        f"/api/bots/{bot_id}/commands", headers=old_auth, json={"command": "lock n1 1h"}
+                    ).raise_for_status()
+                else:
+                    assert (key == old_key) == (purpose == "recover")
                 snapshot = cli(*connection, "resources")
                 holder = next(resource for resource in snapshot["resources"] if resource["id"] == "n1")["holders"][0]
-                assert holder["external_user_id"] == ACTOR and holder["expires_at"] == original_holder["expires_at"]
+                assert holder["external_user_id"] == ACTOR
+                if creates_key:
+                    original_expiry = holder["expires_at"]
+                else:
+                    assert holder["expires_at"] == original_expiry
 
             assert client.get("/api/agent/context", headers=old_auth).status_code == 401
         finally:

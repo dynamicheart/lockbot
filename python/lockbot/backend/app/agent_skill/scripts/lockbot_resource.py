@@ -1062,6 +1062,8 @@ class Client:
         key = response.get("credential")
         if status != "confirmed" or not isinstance(key, str) or not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", key):
             raise ClientError("invalid_credential_challenge_result")
+        if purpose == "recover" and response.get("outcome") == "created":
+            result["outcome"] = "created"
         self.secrets.append(key)
         if not finish:
             return result

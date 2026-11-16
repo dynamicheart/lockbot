@@ -95,6 +95,7 @@ class CredentialChallengeCreated(BaseModel):
 class CredentialChallengeResult(BaseModel):
     status: Literal["pending", "confirmed", "unavailable"]
     credential: str | None = None
+    outcome: Literal["created"] | None = None
 
 
 _CHALLENGE_HEADERS = {"Cache-Control": "no-store", "Vary": "Authorization"}
