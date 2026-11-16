@@ -731,7 +731,7 @@ export default {
     installDetail: 'Send the install request to your Agent.',
     copyInstall: 'Copy install request',
     installPackage: 'Download ZIP',
-    installRequest: 'Install the LockBot Skill from this complete package and verify the installation.\n{url}',
+    installRequest: 'Use this manifest to verify the ZIP, install the LockBot Skill, and confirm installation.\n{url}',
   },
   personalCredentialActions: {
     copyAllStatus: 'Copy all statuses',

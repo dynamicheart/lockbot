@@ -820,7 +820,7 @@ function copyOnboardingRequest() {
 }
 function copyInstallRequest() {
   copyText(
-    t('personalOnboarding.installRequest', { url: window.location.origin + skillPackagePath })
+    t('personalOnboarding.installRequest', { url: window.location.origin + '/api/agent-skill' })
   )
 }
 const route = useRoute()

@@ -311,7 +311,7 @@ def _agent_skill_url(bot_id, expected_uuid):
         parsed = urlsplit(base)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             return ""
-        return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill/lockbot-resource-agent.zip"
+        return base.split("#", 1)[0].rstrip("/") + "/api/agent-skill"
 
 
 def _personal_panel_url(bot_id, expected_uuid):

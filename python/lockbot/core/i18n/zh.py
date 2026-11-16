@@ -19,7 +19,7 @@ MESSAGES = {
     "notify.api_purpose": "\n备注：{purpose}",
     "notify.api_agent_label": "\nAgent：{label}",
     "help.agent_skill": "Agent 使用：",
-    "help.agent_lock_hint": "让 Agent 安装 Skill：{url}",
+    "help.agent_lock_hint": "LockBot Skill 安装清单：{url}",
     "public_docs.agent_api_intro": "使用在群内完成绑定的个人 Agent Key，操作该群中属于你自己的资源。",
     "public_docs.resource_queries": "查询资源先用 `GET /api/agent/context` 核对绑定，再展开 "
     "`GET /api/agent/resources` 查看查询示例。",
@@ -206,7 +206,7 @@ MESSAGES = {
     "alias.clear_ok": "✅ 已清除 {node_key} 的备注\n\n",
     "alias.disabled": "该机器人未开启用户自助设置备注功能",
     # ── Identity binding (agent API enrollment) ──
-    "binding.agent_usage_hint": "Agent 使用：{url}\n把安装包链接发给你的 Agent，读取并安装后协助完成绑定。",
+    "binding.agent_usage_hint": "LockBot Skill 安装清单：{url}\n首次使用时，明确请你的 Agent 校验安装包并安装。",
     "binding.unavailable": ("❌【Agent授权不可用】\n\n当前机器人暂不支持 Agent 授权。"),
     "binding.failed": ("❌【Agent授权失败】\n\n授权命令处理失败，请稍后重试。"),
     "binding.enrollment_disabled": ("❌【Agent访问未开启】\n\n当前机器人未允许 Agent 访问，请联系管理人开启。"),

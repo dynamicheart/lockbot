@@ -70,22 +70,21 @@ verifies the complete Skill without a Key and requires a new destination. Reload
 Skill list or start a fresh Codex session from the project to discover it. An existing
 installation should use the client's update workflow.
 
-### First binding without an existing key
+### Connect without a usable local Key
 
 ```sh
-python3 scripts/lockbot_resource.py enroll --origin https://resources.example.test --destination /private/compute-team --authorized
+python3 scripts/lockbot_resource.py key-challenge --origin https://resources.example.test --destination /private/compute-team --authorized
 python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir /private/compute-team
 python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir /private/compute-team
 ```
 
-Use a new private directory and request the code once the user authorizes it. The user
-sends the returned bind command to the bot in the chosen group. The CLI keeps the pending
-key in the private directory and writes a scoped connection after the service verifies the
-binding. Pass `--group` only when the user names an intended group. If that name differs from
-the authenticated bot name, have the user
-confirm the verified name before passing it as `--confirm-bot-name`. Use the same directory
-to check an outstanding request. A failed or uncertain request is never automatically
-replayed.
+Request the code after the user authorizes it. They send the returned bind command
+to the bot in the group they want to connect. The CLI keeps the pending proof in
+the private directory and saves the Key and verified connection after confirmation.
+If there is no active Key, the same confirmation creates one. If an active Key
+cannot be recovered, it stays valid. Use the same directory to check an outstanding
+request after starting a new session. For first-time binding on older servers
+without the challenge capability, use `enroll`.
 
 ### Move existing group access to another Agent
 

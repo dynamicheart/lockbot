@@ -22,7 +22,7 @@ MESSAGES = {
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
-    "help.agent_lock_hint": "Install this Skill with your Agent: {url}",
+    "help.agent_lock_hint": "LockBot Skill installation manifest: {url}",
     "public_docs.agent_api_intro": "Use a personal Agent Key bound in a group to operate your resources in that group.",
     "public_docs.resource_queries": "To query resources, start with `GET /api/agent/context`, "
     "then open `GET /api/agent/resources` for the query example.",
@@ -220,7 +220,7 @@ MESSAGES = {
     "alias.disabled": "User alias command is not enabled for this bot",
     # ── Identity binding (agent API enrollment) ──
     "binding.agent_usage_hint": (
-        "Agent usage: {url}\nSend this bundle link to your Agent to read, install, and help with binding."
+        "LockBot Skill installation manifest: {url}\nOn first use, ask your Agent to verify and install the bundle."
     ),
     "binding.unavailable": ("❌[Agent authorization unavailable]\n\nAgent authorization is unavailable on this bot."),
     "binding.failed": ("❌[Agent authorization failed]\n\nCould not process this command. Please try again later."),

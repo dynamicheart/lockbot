@@ -435,7 +435,7 @@ def _with_agent_usage_hint(db, bot, lang, reply):
     return (
         reply
         + "\n\n"
-        + t("binding.agent_usage_hint", lang=lang, url=base + "/api/agent-skill/lockbot-resource-agent.zip")
+        + t("binding.agent_usage_hint", lang=lang, url=base + "/api/agent-skill")
     )
 
 

@@ -22,8 +22,8 @@ def test_binding_noop_hints_use_trusted_site_url_and_saved_gate(action, argument
     db_session.merge(SiteSetting(key="platform_url", value="https://trusted.example"))
     db_session.commit()
     text = chat_hook(action, argument, bot_id=bot_id)
-    assert "https://trusted.example/api/agent-skill/lockbot-resource-agent.zip" in text
-    assert ("把安装包链接发给你的 Agent" if lang == "zh" else "Send this bundle link") in text
+    assert "https://trusted.example/api/agent-skill\n" in text
+    assert ("明确请你的 Agent" if lang == "zh" else "ask your Agent to verify") in text
     row.resource_auth_enabled = False
     db_session.commit()
     assert "https://trusted.example" not in chat_hook(action, argument, bot_id=bot_id)

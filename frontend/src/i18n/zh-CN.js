@@ -705,7 +705,7 @@ export default {
     installDetail: '把安装指令发给你的 Agent。',
     copyInstall: '复制安装指令',
     installPackage: '下载 ZIP',
-    installRequest: '请从这个完整安装包安装 LockBot Skill，并验证安装结果。\n{url}',
+    installRequest: '请按清单验证 ZIP，安装 LockBot Skill，并确认安装成功。\n{url}',
   },
   personalCredentialActions: {
     copyAllStatus: '复制全部状态',
