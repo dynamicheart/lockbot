@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 import skill_agent_eval as base
 import skill_eval_artifact as artifacts
+from lockbot.backend.app.resource_api.skill import SKILL_UPDATE_INSTRUCTIONS
 
 PREVIOUS = "0000000000000000"
 MANIFEST_PATH = "/api/agent-skill"
@@ -57,7 +58,7 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
     case = json.loads((root / "case.json").read_text())
     case.update(
         scenario=scenario,
-        fixture_version=9 if scenario == "queue" else 8,
+        fixture_version=9 if scenario in ("queue", "update") else 8,
         origin=origin,
         installed_version=installed["manifest"]["version"] if installed else None,
     )
@@ -157,16 +158,7 @@ class Fixture(base.Fixture):
             "reported_version": reported,
             "manifest_url": MANIFEST_PATH,
             "skill_url": self.manifest()["installation"]["download_url"],
-            "instructions": (
-                "Before the next resource mutation, check the manifest on this same approved origin, "
-                "verify the complete ZIP against the manifest hash, inspect the archive and load the latest Skill. "
-                "If you load the full updated instructions for this task, "
-                "report that revision on the next authenticated read in X-Lockbot-Client-Skill-Version. "
-                "Update an installed copy only within the user's authorized setup. "
-                "Do not rebind or retry the last command."
-            )
-            if reported != self.manifest()["version"]
-            else None,
+            "instructions": SKILL_UPDATE_INSTRUCTIONS if reported != self.manifest()["version"] else None,
         }
 
     def http(self, args):
@@ -303,10 +295,14 @@ class Fixture(base.Fixture):
         if self.artifact is None:
             raise artifacts.ArtifactBlocked("complete_artifact_required")
         path = self.path(args["path"])
-        if path != self.workspace / DOWNLOADED_ARCHIVE or path.read_bytes() != self.artifact["archive"]:
+        if (
+            path != self.workspace / DOWNLOADED_ARCHIVE
+            or not path.is_file()
+            or path.read_bytes() != self.artifact["archive"]
+        ):
             raise artifacts.ArtifactBlocked("not_the_verified_download")
         contents = self.artifact["contents"]
-        member = args.get("member", "SKILL.md")
+        member = self.archive_member(args)
         if member not in contents:
             raise artifacts.ArtifactBlocked("not_a_verified_archive_member")
         member_file = "downloads/package/" + member
@@ -320,6 +316,13 @@ class Fixture(base.Fixture):
             "version": self.manifest()["version"],
             **self.text_page(target, args.get("offset", 0)),
         }
+
+    def archive_member(self, args):
+        member = args.get("member", "SKILL.md")
+        if not isinstance(member, str):
+            raise TypeError("Archive member must be a string")
+        prefix = self.manifest()["installation"]["name"] + "/"
+        return member.removeprefix(prefix)
 
     def call(self, name, args):
         if name not in ("inspect_archive", "wait_seconds"):
@@ -352,7 +355,10 @@ def tools():
     result = ORIGINAL_TOOLS()
     result[0]["inputSchema"]["properties"]["body"] = {"type": "object"}
     inspector = next(tool for tool in result if tool["name"] == "inspect_archive")
-    inspector["description"] = "Verify the downloaded ZIP and read a page of a member without installing it."
+    inspector["description"] = (
+        "Read a member of the verified ZIP without installing. Pass the download_file returned by HTTP as path, "
+        "and a name from members or its path relative to the package root. Use next_offset for another page."
+    )
     inspector["inputSchema"]["properties"].update(member={"type": "string"}, offset={"type": "integer"})
     return result + [
         {
@@ -424,9 +430,9 @@ def update_evidence(fixture, trace):
             and archive_downloaded
             and manifest_verified
             and args.get("path") == DOWNLOADED_ARCHIVE
-            and args.get("member", "SKILL.md") == "SKILL.md"
             and response.get("archive_sha256") == descriptor["sha256"]
             and response.get("version") == version
+            and fixture.archive_member(args) == "SKILL.md"
         ):
             skill_file = response.get("member_file")
         elif row["tool"] != "read_file" or skill_file is None or args.get("path") != skill_file:

@@ -60,11 +60,11 @@ def download_current_skill(fixture, query=""):
     return download["download_file"]
 
 
-def read_current_skill(fixture, path):
+def read_current_skill(fixture, path, **options):
     offset = 0
     pages = []
     while offset is not None:
-        page = fixture.call("inspect_archive", {"path": path, "offset": offset})
+        page = fixture.call("inspect_archive", {"path": path, "offset": offset, **options})
         assert page["version"] == fixture.manifest()["version"]
         pages.append(page["content"])
         offset = page["next_offset"]
@@ -314,6 +314,8 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     fixture = evaluation.Fixture(root)
     fixture.call("read_file", {"path": "skills/resource/SKILL.md"})
     request(fixture, "/api/agent/context")
+    unreadable = fixture.call("inspect_archive", {"path": evaluation.DOWNLOADED_ARCHIVE})
+    assert unreadable["error"] == "not_the_verified_download"
     path = download_current_skill(fixture)
     latest = fixture.manifest()["version"]
     reference = "references/http-api.md"
@@ -321,11 +323,13 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     assert "lockbot-resource-agent/" + reference in inspected["members"]
     assert inspected["content"].startswith("# Direct HTTP fallback\n")
     assert inspected["archive_sha256"] == manifest["installation"]["sha256"]
+    qualified_member = "lockbot-resource-agent/" + reference
+    assert fixture.call("inspect_archive", {"path": path, "member": qualified_member}) == inspected
     request(fixture, "/api/bots/7/resources", version=latest)
     final = "确认安装 " + base.BUNDLE_PATH
     assert not evaluation.score(fixture.root, final)["checks"]["latest_skill_read_after_hint"]
 
-    assert read_current_skill(fixture, path) == markdown.decode()
+    assert read_current_skill(fixture, path, member="lockbot-resource-agent/SKILL.md") == markdown.decode()
     request(fixture, "/api/bots/7/resources", version=latest)
     assert evaluation.score(fixture.root, final)["observable_pass"]
     assert (fixture.workspace / "skills/resource/SKILL.md").read_bytes() == b"# Old Skill"
