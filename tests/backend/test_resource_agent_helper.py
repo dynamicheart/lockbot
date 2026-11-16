@@ -1255,9 +1255,16 @@ def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, pur
     assert issued["target_group"] is None and issued["purpose"] == (purpose or "recover")
     assert issued["bind_command"].startswith("bind RST-" if purpose == "reset" else "bind REC-")
     assert (directory / "proof").stat().st_mode & 0o777 == 0o600
+    prior_requests = list(case.state.requests)
     pending = cli("connections", "--directory", str(directory))["pending_enrollments"]
+    assert case.state.requests == prior_requests
     assert pending[0]["purpose"] == (purpose or "recover") and pending[0]["target_group"] is None
     finish = ("finish-enrollment", "--enrollment-dir", pending[0]["enrollment_dir"])
+    if purpose == "reset":
+        assert pending[0]["status_source"] == "local"
+        assert pending[0]["next_command"] == ["enrollment-status", *finish[1:]]
+    else:
+        assert "next_command" not in pending[0]
     waiting = cli(*finish)
     assert waiting["status"] == "pending"
     assert "chat_action" not in waiting and "next_command" not in waiting
