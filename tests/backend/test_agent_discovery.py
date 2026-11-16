@@ -42,8 +42,9 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     with zipfile.ZipFile(io.BytesIO(installation.content)) as archive:
         assert archive.read("lockbot-resource-agent/SKILL.md") == markdown
         for name in REFERENCE_PATHS:
-            assert f"({name})".encode() in markdown
             assert archive.read("lockbot-resource-agent/" + name)
+            linked = f"({name})".encode() in markdown
+            assert linked == (name != "references/http-api.md")
     assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
     legacy = client.get("/api/agent-skill/SKILL.md", follow_redirects=False)
     assert legacy.status_code == 404 and "location" not in legacy.headers
