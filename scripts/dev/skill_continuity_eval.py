@@ -12,6 +12,12 @@ from urllib.parse import parse_qs, urlsplit
 
 import skill_agent_eval as base
 import skill_eval_artifact as artifacts
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+    ClientError,
+    enrollment_state,
+    private_bytes,
+    private_json,
+)
 
 SECOND_KEY = base.OTHER_KEY  # Synthetic second bot key, never a second service's key here.
 SECOND_UUID = "33333333-3333-4333-8333-333333333333"
@@ -21,6 +27,10 @@ PANEL_BOOKING = "node-b"
 TICKET = "synthetic-one-use-panel-ticket"
 PENDING_KEY = "lbr_" + base.digest(b"synthetic-unconfirmed-binding")
 ENROLLMENT_PATH = "/api/resource-auth/bindings"
+ENROLLMENT_GROUP = "验证群"
+ENROLLMENT_ID = "synthetic-enrollment10"
+ENROLLMENT_CODE = "ACDE2345"
+PROJECT_ENROLLMENT_VERSION = 10
 WITHOUT_KEY = {"no-key", "approved-enrollment"}
 METRICS_ORIGIN = "http://192.0.2.20:8444"
 METRICS_URL = METRICS_ORIGIN + "/api/v1/query"
@@ -79,7 +89,7 @@ def prepare(root, skill, scenario, artifact_directory=None):
         source=source.decode() if source else None,
     )
     case = json.loads((root / "case.json").read_text())
-    fixture_version = 8 if scenario in WITHOUT_KEY else 7 if scenario == "telemetry" else 6
+    fixture_version = PROJECT_ENROLLMENT_VERSION if scenario in WITHOUT_KEY else 7 if scenario == "telemetry" else 6
     case.update(fixture_version=fixture_version, scenario=scenario, phase=1)
     base.save_json(root / "case.json", case)
     (root / "prompt.txt").write_text(PROMPTS[scenario])
@@ -191,6 +201,11 @@ class Fixture(base.Fixture):
     def installed_skill_files(self):
         return [path for catalog in SKILL_CATALOGS for path in self.workspace.glob(f"{catalog}/**/SKILL.md")]
 
+    def enrollment_identity(self):
+        if self.case["fixture_version"] >= PROJECT_ENROLLMENT_VERSION:
+            return ENROLLMENT_ID, ENROLLMENT_CODE
+        return "synthetic-pending-id", "TESTCODE"
+
     def http(self, args):
         url = urlsplit(args["url"])
         method = args.get("method", "GET").upper()
@@ -201,24 +216,25 @@ class Fixture(base.Fixture):
                 return {"status": 405}
         if f"{url.scheme}://{url.netloc}" != self.origin or url.query or url.fragment:
             return {"status": 404, "error": "No such fixture route"}
+        binding_id, bind_code = self.enrollment_identity()
         if url.path == ENROLLMENT_PATH and method == "POST":
             if self.case["scenario"] != "approved-enrollment":
                 return {"status": 403, "error": "enrollment_not_authorized"}
             return {
                 "status": 201,
                 "body": {
-                    "binding_id": "synthetic-pending-id",
+                    "binding_id": binding_id,
                     "credential": PENDING_KEY,
-                    "bind_code": "TESTCODE",
+                    "bind_code": bind_code,
                     "bind_expires_at": "2030-01-01T00:10:00+00:00",
                 },
             }
         if (
             self.case["scenario"] == "approved-enrollment"
-            and url.path == ENROLLMENT_PATH + "/synthetic-pending-id"
+            and url.path == f"{ENROLLMENT_PATH}/{binding_id}"
             and method == "GET"
         ):
-            return {"status": 200, "body": {"binding_id": "synthetic-pending-id", "status": "pending"}}
+            return {"status": 200, "body": {"binding_id": binding_id, "status": "pending"}}
         if url.path == "/api/personal-panel/capabilities" and method == "GET":
             return {
                 "status": 200,
@@ -489,6 +505,53 @@ def continuity_tools():
     ]
 
 
+def project_service_saved(workspace, origin, instance):
+    project = workspace / ".lockbot"
+    if project.is_symlink():
+        return False
+    directory = project / "services"
+    records = list(project.glob("*.json"))
+    if not directory.is_symlink():
+        records.extend(directory.glob("*.json"))
+    for path in records:
+        try:
+            record = private_json(path)
+        except ClientError:
+            continue
+        if record.get("approved_origin", record.get("origin")) == origin and record.get("instance_id") == instance:
+            return True
+    return False
+
+
+def pending_enrollment_saved(workspace, origin, instance, binding):
+    project = workspace / ".lockbot"
+    catalogs = [workspace / "private"]
+    if not project.is_symlink():
+        catalogs.append(project / "connections")
+    for catalog in catalogs:
+        if catalog.is_symlink():
+            continue
+        for state_file in catalog.rglob("enrollment.json"):
+            if any(parent.is_symlink() for parent in state_file.parents if parent.is_relative_to(catalog)):
+                continue
+            try:
+                directory, state = enrollment_state(state_file.parent)
+                key = private_bytes(directory / "key")
+            except (ClientError, OSError):
+                continue
+            if (
+                key.strip() == PENDING_KEY.encode()
+                and state.get("approved_origin") == origin
+                and state.get("instance_id") == instance
+                and state.get("target_group") == ENROLLMENT_GROUP
+                and state.get("status") == "pending"
+                and state.get("binding_id") == binding.get("binding_id")
+                and state.get("bind_expires_at") == binding.get("bind_expires_at")
+            ):
+                return True
+    return False
+
+
 def score(root, final):
     fixture = Fixture(root)
     trace = (
@@ -604,6 +667,8 @@ def score(root, final):
                 for path, content in contents
                 if "private/" in path
             )
+            if fixture.case["fixture_version"] >= PROJECT_ENROLLMENT_VERSION:
+                checks["service_saved"] |= project_service_saved(fixture.workspace, fixture.origin, instance.decode())
     if fixture.case["scenario"] == "recover":
         checks.update(
             own_bindings_recovered=fixture.case["phase"] == 2 or passed("/api/agent/bindings/recover"),
@@ -633,10 +698,21 @@ def score(root, final):
             and row["args"].get("method", "GET").upper() == "POST"
         ]
         checks["authorized_enrollment_started"] = len(enrollment) == 1 and enrollment[0]["result"].get("status") == 201
-        checks["pending_key_saved_privately"] = any(
-            PENDING_KEY.encode() in content for path, content in contents if path.startswith("private/")
-        )
-        checks["actual_bind_code_delivered"] = "TESTCODE" in final
+        binding_id, bind_code = fixture.enrollment_identity()
+        if fixture.case["fixture_version"] >= PROJECT_ENROLLMENT_VERSION:
+            binding = enrollment[0]["result"].get("body", {}) if checks["authorized_enrollment_started"] else {}
+            checks["pending_key_saved_privately"] = (
+                binding.get("binding_id") == binding_id
+                and binding.get("credential") == PENDING_KEY
+                and pending_enrollment_saved(
+                    fixture.workspace, fixture.origin, fixture.manifest()["instance_id"], binding
+                )
+            )
+        else:
+            checks["pending_key_saved_privately"] = any(
+                PENDING_KEY.encode() in content for path, content in contents if path.startswith("private/")
+            )
+        checks["actual_bind_code_delivered"] = bind_code in final
     if fixture.case["scenario"] == "panel":
         checks.update(
             home_shared=HOME in final,
