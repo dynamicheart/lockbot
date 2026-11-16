@@ -93,6 +93,8 @@ Workbench localization was merged in [#255](https://github.com/dynamicheart/lock
 
 [Public API documentation and unified maintenance guidance](https://github.com/dynamicheart/lockbot/pull/260) were merged. The administration guide links to the operator API and datasource generator.
 
+[Deployment preflight guidance](https://github.com/dynamicheart/lockbot/pull/263) was merged after official Codex and Claude exercised the workflow with synthetic inputs. The guide requires an actual helper result and keeps the private configuration file out of tool transcripts.
+
 ### Open reviews
 
 | Scope | Source | Evidence still needed |
