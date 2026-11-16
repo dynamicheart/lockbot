@@ -85,17 +85,19 @@ Eight models reran the three Key workflows with the exact hosted 8002 ZIP and si
 - [ ] Verify a fresh utilization sample and raw device/process scope on an authorized holding using the shared 8002 browser. A separate gateway using the real collector returned 20 whole-node process rows and five rows within each of two individual card grants. The shared gateway rejected the 8002 browser origin, and the authorized external report had no live holding during its separate check. [#180](https://github.com/dynamicheart/lockbot/issues/180), [#259](https://github.com/dynamicheart/lockbot/pull/259).
 - [ ] Complete cross-machine private credential transfer and private registry distribution. The portable candidate was packaged and verified locally. Registry installation and upload require the user's explicit approval after the manual walkthrough. [#164](https://github.com/dynamicheart/lockbot/issues/164).
 
+Configuration credential controls and the audit tab restriction were merged in [#253](https://github.com/dynamicheart/lockbot/pull/253). The authorization tests covered listing, issuance, rotation and revocation for ordinary users and administrators.
+
 ### Open reviews
 
 | Scope | Source | Evidence still needed |
 | --- | --- | --- |
 | CLI-first resource Skill and browser handoff | [#250](https://github.com/dynamicheart/lockbot/pull/250) | Real-account walkthrough and release review |
-| Credential selection and workbench localization | [#253](https://github.com/dynamicheart/lockbot/pull/253), [#255](https://github.com/dynamicheart/lockbot/pull/255) | Both current heads passed CI. Focused verification passed 50 backend credential tests, three frontend role-rendering tests and 32 workbench tests. The audit credential API rejects a current ordinary user or administrator for listing, issuance, rotation and revocation. An anonymous list on 8002 returns 401. |
+| Workbench localization | [#255](https://github.com/dynamicheart/lockbot/pull/255) | Recheck required CI against current main. Focused verification passed 32 workbench tests. |
 | Illustrated first-run setup | [#254](https://github.com/dynamicheart/lockbot/pull/254) | Authorized Infoflow setup screenshot and a clean-install group walkthrough. Earlier live Feishu command delivery used the configured 8002 receiver. |
 | Whole-machine accelerator inventory | [#257](https://github.com/dynamicheart/lockbot/pull/257) | Live Agent selection. Synthetic models and backend tests covered known versus unknown hardware, and identical node IDs in separate groups. |
 | Delegated bot provisioning | [#258](https://github.com/dynamicheart/lockbot/pull/258) | Live Feishu onboarding through the standalone CLI. Local authorization, route conflict, replay and auditing passed. |
 | Scoped reporter utilization | [#259](https://github.com/dynamicheart/lockbot/pull/259) | Authorized live sample described above. The narrow-screen layout update passed local Chrome checks. |
-| Public API reference by credential | [#260](https://github.com/dynamicheart/lockbot/pull/260) | The current head passed all six CI checks and four targeted tests. Chrome on 8002 rendered 15 Agent, 11 operator, and five configuration operations in both Chinese and English. Each authorization dialog showed only its own credential type. The keyed Agent query example also passed. |
+| Public API reference and maintenance guidance | [#260](https://github.com/dynamicheart/lockbot/pull/260) | The candidate removes the operator and datasource setup Skills. The administration guide links to the existing operator API and the datasource generator. 146 targeted tests passed. Recheck required CI against current main before merging. |
 
 ## Unified resource Skill follow-up
 
