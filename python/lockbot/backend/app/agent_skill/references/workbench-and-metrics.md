@@ -48,22 +48,20 @@ connection. The CLI verifies capabilities, identity, and the returned link:
 python3 "$LOCKBOT_CLI" --connection /private/connection.json panel-link
 ```
 
-Only run this command when private delivery to the verified user is authorized. Send
-its `login_url` only in that private channel and keep `home` for ordinary return visits.
-When supported, one link previews the groups recoverable from the same verified account
-on that service. The user can confirm all listed groups or only the group associated with
-the current Key. No group name or second link is needed for groups listed in the preview.
+Run this command once in a verified private one-to-one session with the bound user
+and their authorization to receive the link. That can include an authenticated private
+CLI or server-Agent session where the caller is proven to own the binding. If private
+delivery is unavailable, give the fixed workbench address and direct the user to a
+verified private chat.
 
-Mint/deliver the short-lived link only when an already verified private one-to-one channel
-to the bound user is available and delivery is authorized. An authenticated private CLI
-or server-Agent session may provide that channel when the caller is proven to own the binding.
-A shared host, machine login,
-nickname, email or active Agent chat alone does not establish that recipient. Otherwise,
-provide only `home` and direct the person to their own Agent in a verified private chat.
-Treat the login
-link as a one-use secret: do not open, prefetch, probe, persist or publish it, and do not
-start issuance retries. The user opens it in their own browser, verifies the displayed
-platform/namespace/account and explicitly confirms login; a preview does not log in.
+After success, use the exact `result.login_url` as the link target in your private
+reply. It includes a `ticket` fragment parameter. Ask the user to open it in their
+browser and confirm the displayed account. The `result.home` field is the bookmark
+for return visits after sign-in. Keep the one-use link out of browser tools, files,
+logs and shared messages. If issuance fails, report the error without retrying.
+
+When supported, the browser previews the groups recoverable from the verified account.
+The user can confirm all listed groups or only the group associated with the current Key.
 A later handoff replaces the browser identity after confirmation by default. Combining
 identities requires the user's explicit browser-only consent after seeing both identities;
 it never proves they are one enterprise person. The panel is read-only; stale/unreachable

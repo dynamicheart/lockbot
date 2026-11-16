@@ -39,7 +39,9 @@ stop after `resources`. Use `command --help` for all write arguments.
 
 - **Already signed into the workbench:** open the full bookmarked `/#/me` URL with
   authorized browser access. Reply with the address and what the page shows.
-  Use `panel-link` only for an authorized sign-in or session recovery.
+- **Needs to sign into the workbench:** use `panel-link` after verifying private
+  delivery is authorized, then give the user the returned `result.login_url` in that
+  private reply. The user opens and confirms it. Use `result.home` for return visits.
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
