@@ -2,7 +2,7 @@
 
 The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_resource.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-resource-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
 
-Existing API routes, personal keys, legacy ZIP URL/root (`lockbot-agent-api`) and Markdown URL stay supported. Scripts are an additional recommended client, not a mandatory server gate for older clients. Operator bundles remain separate and do not gain this personal-key client.
+Existing API routes, personal keys and the legacy ZIP URL/root (`lockbot-agent-api`) remain supported. The public manifest points to the complete installation ZIP, which includes `SKILL.md`. Operator bundles remain separate and use operator credentials.
 
 ## Client runtime availability
 
@@ -51,6 +51,24 @@ A connection has this shape:
 ```
 
 The metrics origin is optional and must be separately approved; `init --metrics-origin <origin>` saves that approval. An Agent may maintain multiple such connections, each referencing its own scoped key. A key authorizes one verified user/bot; an Agent is not restricted to one connection. Keep these private files outside the installation so a Skill update cannot remove them.
+
+### Codex project install
+
+If Codex can download the verified ZIP but its workspace sandbox refuses writes to `.agents`,
+finish the install in your own terminal. From the archive you already checked against
+`installation.sha256`, extract `scripts/lockbot_resource.py` to a temporary location.
+Use that verified helper from the project root:
+
+```sh
+python3 -I -S /path/to/verified/lockbot_resource.py install \
+  --origin https://resources.example.test \
+  --destination "$PWD/.agents/skills/lockbot-resource-agent"
+```
+
+Replace the example origin with the same approved service. The installer fetches and
+verifies the complete Skill without a Key and requires a new destination. Reload the
+Skill list or start a fresh Codex session from the project to discover it. An existing
+installation should use the client's update workflow.
 
 ### First binding without an existing key
 
