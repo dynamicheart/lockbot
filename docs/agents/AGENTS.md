@@ -11,6 +11,8 @@ First identify the selected service, version, environment and user-authorized ta
 
 Keep credentials in the user's approved secret store or a private local file outside Git. Never paste full `docker inspect` output, environment files, tokens, contact data or raw private task histories into a chat, issue or PR. Record sanitized validation outcomes and retain private evidence locally.
 
+When an operator supplies a secret-bearing file for deployment preflight, pass its path to the [deployment helper](deployment/AGENTS.md#prepare-configuration-without-deploying). Do not open the file in a reading tool or print it in a terminal. If the helper cannot run, report the blocker and leave its checks unverified.
+
 Agent assistance is practical for preparing configuration, running preflight, executing an authorized deployment, checking health and guiding platform setup. It cannot approve an enterprise application on behalf of a company administrator or guarantee third-party permissions/network access. Distinguish generated configuration, validated configuration, running service and real message acceptance.
 
 ## Maintenance

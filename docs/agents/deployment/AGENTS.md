@@ -2,7 +2,7 @@
 
 ## Establish the deployment identity
 
-Obtain the target host/platform, new install versus upgrade, selected published image, existing container/service name, published port, data mount, original encryption/JWT configuration and backup location. Ask only for missing facts; reuse approved deployment records without exposing their contents. Do not ask users to send secrets in chat.
+Obtain the target host/platform, new install versus upgrade, selected published image, existing container/service name, published port, data mount, original encryption/JWT configuration and backup location. If the request could refer to multiple instances, ask which one to check before requesting private paths or running checks. Ask only for missing facts; reuse approved deployment records without exposing their contents. Do not ask users to send secrets in chat.
 
 Lockbot requires a long-running **single process** with a persistent `/data` directory. SQLite, resource state, keys and rotating evidence files are not disposable container storage. Do not configure multiple Uvicorn workers, replicas or overlapping old/new receivers against one data store. Feishu's WebSocket receiver and resource timers must survive ordinary requests; an HTTP health response alone does not prove either works.
 
@@ -30,6 +30,10 @@ origin of the reverse proxy when applicable. Include the scheme and published po
 Compose passes this value to the service. A direct `docker run` can pass it through
 `--env-file` or `-e PLATFORM_URL=...`. The Agent Skill embeds the full download URL from
 this deployment value so it survives copying the Markdown.
+
+When the user asks you to run a read-only preflight and provides the paths, run the matching helper below first. Report the checks and limits from the JSON it actually returned, along with the process exit status. If the helper did not run or did not return a report, say what blocked it and leave those checks unverified. Reading the guide or checking that the files exist does not verify the deployment.
+
+Pass the private environment file by path to the helper. Keep its contents out of file-reading tools, shell output and transcripts. If the helper is blocked, leave the configuration checks unverified and ask the operator to run the same command locally and share only the redacted JSON report and exit status.
 
 The environment file accepts plain `KEY=VALUE` lines, not executable shell. Generate secrets using a trusted local runtime, then validate:
 
