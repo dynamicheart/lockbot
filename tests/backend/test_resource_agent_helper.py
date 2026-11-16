@@ -90,7 +90,7 @@ def case(tmp_path):
             if self.path == "/api/agent-skill":
                 body = state.manifest
             elif self.path == state.manifest["installation"]["download_url"]:
-                content = skill.installation_bundle("agent")
+                content = skill.installation_bundle()
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(content)

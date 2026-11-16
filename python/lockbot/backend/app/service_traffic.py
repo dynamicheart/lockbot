@@ -64,7 +64,7 @@ def source_for(path):
         return "webhook"
     if path.startswith("/api/resource-auth/"):
         return "enrollment"
-    if path.startswith("/api/op-skill") or _OPERATOR.match(path):
+    if _OPERATOR.match(path):
         return "operator"
     if path.startswith(("/api/agent/", "/api/agent-skill")) or _RESOURCE.match(path):
         return "agent"

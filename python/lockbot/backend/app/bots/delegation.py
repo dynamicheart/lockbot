@@ -85,6 +85,7 @@ class ConfigurationCredential(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 class Lifetime(BaseModel):
@@ -209,10 +210,12 @@ def _audit(db, user, row, request, action, *, bot=None, detail=None):
     )
 
 
-def _row(db, public_id, issuer=None):
+def _row(db, public_id, issuer=None, *, include_deleted=False):
     query = db.query(ConfigurationCredential).filter_by(public_id=public_id)
     if issuer is not None:
         query = query.filter_by(issuer_id=issuer.id)
+    if not include_deleted:
+        query = query.filter(ConfigurationCredential.deleted_at.is_(None))
     return query.one_or_none()
 
 
@@ -235,6 +238,7 @@ def create(
             db.query(ConfigurationCredential)
             .filter(
                 ConfigurationCredential.issuer_id == user.id,
+                ConfigurationCredential.deleted_at.is_(None),
                 ConfigurationCredential.revoked_at.is_(None),
                 ConfigurationCredential.expires_at > now,
             )
@@ -273,7 +277,7 @@ def credentials(
     _issuer(db, user.id, user.effective_token_version, status=403)
     rows = (
         db.query(ConfigurationCredential)
-        .filter_by(issuer_id=user.id)
+        .filter_by(issuer_id=user.id, deleted_at=None)
         .order_by(ConfigurationCredential.id.desc())
         .offset(offset)
         .limit(limit)
@@ -333,6 +337,27 @@ def revoke(public_id: str, request: Request, user: User = Depends(get_current_us
         if row.revoked_at is None:
             row.revoked_at = _now()
             _audit(db, user, row, request, "configuration_credential.revoke")
+            db.commit()
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.delete("/api/configuration-credentials/{public_id}/record", status_code=204)
+def delete_record(
+    public_id: str, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)
+):
+    ident = (user.id, user.effective_token_version)
+    with _guard:
+        db.rollback()
+        user = _issuer(db, *ident, status=403)
+        row = _row(db, public_id, user, include_deleted=True)
+        if row is None:
+            _deny(404, "configuration_credential_not_found")
+        now = _now()
+        if row.revoked_at is None and row.expires_at > now:
+            _deny(409, "configuration_credential_active")
+        if row.deleted_at is None:
+            row.deleted_at = now
+            _audit(db, user, row, request, "configuration_credential.delete")
             db.commit()
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 

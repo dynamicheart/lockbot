@@ -1,36 +1,42 @@
 <template>
   <el-button v-if="showTrigger" aria-haspopup="dialog" @click="visible = true">
-    已加载插件
+    {{ t('personalWorkbench.plugins.title') }}
   </el-button>
   <el-dialog
     v-model="visible"
-    title="已加载插件"
+    :title="t('personalWorkbench.plugins.title')"
     width="min(460px, calc(100vw - 32px))"
     append-to-body
   >
     <dl class="plugins">
       <div class="plugin">
-        <dt>外部资源接入</dt>
-        <dd>将其他 LockBot 的个人占用和预约汇总到当前工作台。</dd>
+        <dt>{{ t('personalWorkbench.plugins.reporterTitle') }}</dt>
+        <dd>{{ t('personalWorkbench.plugins.reporterDescription') }}</dd>
         <dd class="plugin-status">{{ reporterStatus }}</dd>
-        <dd v-if="reporterNames.length" class="plugin-names">{{ reporterNames.join('、') }}</dd>
+        <dd v-if="reporterNames.length" class="plugin-names">
+          {{ namesFormat.format(reporterNames) }}
+        </dd>
       </div>
       <div class="plugin">
-        <dt>利用率数据源</dt>
-        <dd>在已授权的资源明细里查看节点和设备的利用率。</dd>
+        <dt>{{ t('personalWorkbench.plugins.metricsTitle') }}</dt>
+        <dd>{{ t('personalWorkbench.plugins.metricsDescription') }}</dd>
         <dd class="plugin-status">{{ metricsStatus }}</dd>
-        <dd v-if="metricsNames.length" class="plugin-names">{{ metricsNames.join('、') }}</dd>
+        <dd v-if="metricsNames.length" class="plugin-names">
+          {{ namesFormat.format(metricsNames) }}
+        </dd>
       </div>
     </dl>
     <template #footer>
-      <el-button @click="visible = false">关闭</el-button>
+      <el-button @click="visible = false">{{ t('common.close') }}</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
+const { t, locale } = useI18n()
 const props = defineProps({
   showTrigger: { type: Boolean, default: true },
   inventory: { type: Object, default: null },
@@ -39,6 +45,7 @@ const props = defineProps({
   loading: Boolean,
 })
 const visible = ref(false)
+const namesFormat = computed(() => new Intl.ListFormat(locale.value))
 defineExpose({ open: () => (visible.value = true) })
 const uniqueNames = (names) => [
   ...new Set(names.filter((name) => typeof name === 'string' && name.trim())),
@@ -55,17 +62,22 @@ const metricsNames = computed(() =>
 )
 const reporterStatus = computed(() => {
   const count = props.inventory?.resource_reporters
-  if (Number.isSafeInteger(count) && count > 0) return `服务已加载 ${count} 个资源报表插件`
-  if (count === 0) return '服务未加载资源报表插件'
-  if (reporterNames.value.length) return '当前可见的资源来源'
-  return props.loading ? '正在读取资源来源' : '本次未识别到外部资源来源'
+  if (Number.isSafeInteger(count) && count > 0)
+    return t('personalWorkbench.plugins.reporterLoaded', count)
+  if (count === 0) return t('personalWorkbench.plugins.reporterNotLoaded')
+  if (reporterNames.value.length) return t('personalWorkbench.plugins.reporterVisible')
+  return t(
+    props.loading
+      ? 'personalWorkbench.plugins.loadingSources'
+      : 'personalWorkbench.plugins.reporterUnknown'
+  )
 })
 const metricsStatus = computed(() =>
   props.metricSources.length
-    ? '当前持有资源已配置数据源'
+    ? t('personalWorkbench.plugins.metricsConfigured')
     : props.loading
-      ? '正在读取资源来源'
-      : '当前持有资源暂无可用数据源'
+      ? t('personalWorkbench.plugins.loadingSources')
+      : t('personalWorkbench.plugins.metricsUnavailable')
 )
 </script>
 

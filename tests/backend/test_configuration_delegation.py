@@ -2,9 +2,13 @@
 
 from datetime import timedelta
 
+import pytest
+from lockbot.backend.app import main
+from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.delegation import ConfigurationCredential, _now
 from lockbot.backend.app.bots.models import Bot
+from sqlalchemy import create_engine, text
 
 from backend.test_bots import _sample_bot
 
@@ -31,6 +35,55 @@ def access(bot_id):
 
 def preview(client, bot_id, headers, data):
     return client.post(access(bot_id) + "/preview", headers=headers, json=data).raise_for_status().json()
+
+
+def test_existing_credentials_survive_the_additive_deletion_migration(monkeypatch):
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE configuration_credentials (id INTEGER PRIMARY KEY, public_id TEXT)"))
+            conn.execute(text("INSERT INTO configuration_credentials VALUES (1, 'existing')"))
+        monkeypatch.setattr(main, "engine", engine)
+        main._migrate_configuration_credential_deletion()
+        main._migrate_configuration_credential_deletion()
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT public_id, deleted_at FROM configuration_credentials")).one() == (
+                "existing",
+                None,
+            )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("state", ["revoked", "expired"])
+def test_only_issuer_can_delete_inactive_record_without_erasing_audit(
+    client, auth_header, admin_header, db_session, state
+):
+    first = bot(client, auth_header, "cleanup target")
+    issued = credentials(client, auth_header, [first], [NODE]).raise_for_status().json()
+    url = f"{ISSUE}/{issued['id']}"
+    assert client.delete(url + "/record", headers=auth_header).status_code == 409
+    if state == "revoked":
+        assert client.delete(url, headers=auth_header).status_code == 204
+    else:
+        row = db_session.query(ConfigurationCredential).filter_by(public_id=issued["id"]).one()
+        row.expires_at = _now() - timedelta(seconds=1)
+        db_session.commit()
+    assert client.delete(url + "/record", headers=admin_header).status_code == 404
+    for _ in range(2):
+        assert client.delete(url + "/record", headers=auth_header).status_code == 204
+    assert client.get(ISSUE, headers=auth_header).raise_for_status().json()["items"] == []
+    assert client.get(access(first), headers=bearer(issued["credential"])).status_code == 401
+    db_session.expire_all()
+    row = db_session.query(ConfigurationCredential).filter_by(public_id=issued["id"]).one()
+    assert row.deleted_at is not None
+    events = db_session.query(AuditLog).filter_by(target_name=issued["id"]).order_by(AuditLog.id).all()
+    assert [event.action for event in events] == [
+        "configuration_credential.create",
+        *(["configuration_credential.revoke"] if state == "revoked" else []),
+        "configuration_credential.delete",
+    ]
+    assert all(issued["credential"] not in (event.detail or "") for event in events)
 
 
 def test_user_key_scopes_two_bots_and_rejects_stale_or_changed_proposals(client, auth_header, admin_header):
