@@ -277,6 +277,33 @@ export default {
 
     applications: 'Feishu applications',
     add: 'Add application',
+    scan: {
+      title: 'Scan to connect',
+      review:
+        'Create an app in Feishu. Check the enterprise and permissions on the confirmation page.',
+      generate: 'Get QR code',
+      qrAlt: 'Scan with Feishu to confirm app creation',
+      openFeishu: 'Open Feishu confirmation',
+      import: 'Add to LockBot',
+      startFailed: 'Could not start Feishu registration. Try again or add an existing application.',
+      statusFailed: 'Could not read the registration status. Refresh to continue.',
+      importFailed:
+        'Could not add the application. Confirm that the app is published and bot access is enabled.',
+      states: {
+        starting: 'Preparing Feishu confirmation…',
+        waiting:
+          'Scan with Feishu or open the link. Confirm the intended enterprise before continuing.',
+        confirmed:
+          'Feishu confirmed the application. Add it after checking publication and access.',
+        importing: 'Checking application access…',
+        imported:
+          'Application added. Connect the receiver, then link an approved resource group separately.',
+        denied: 'The Feishu confirmation was declined.',
+        expired: 'The confirmation expired. Close this dialog and start again.',
+        failed:
+          'Registration could not finish. Check Feishu for an existing application before trying again.',
+      },
+    },
     name: 'Application name',
     transport: 'Receiving mode',
     websocket: 'WebSocket',
