@@ -4,8 +4,9 @@
 from urllib.parse import urlsplit
 
 import pytest
+from lockbot.backend.app.resource_auth import service
 
-from backend.test_resource_api_resources import _get, api  # noqa: F401
+from backend.test_resource_api_resources import ACTOR, PLATFORM, _get, _hold, api  # noqa: F401
 
 HARDWARE = [{"model": "P900", "count": 2}, {"model": "P800", "count": 6}]
 
@@ -46,6 +47,64 @@ def test_scoped_whole_machine_inventory(client, api, admin_header):
     assert client.patch(path, headers=owner, json=mapping(n1=[])).json()["nodes"] == {
         "n2": [{"model": "P800", "count": 4}]
     }
+
+
+def test_matching_node_ids_keep_inventory_and_availability_separate_across_bots(client, api, tmp_path):
+    owner = api["auth_header"]
+    first = f"/api/bots/{api['bot_id']}"
+    cluster = {"n1": "same-node"}
+    created = client.post(
+        "/api/bots",
+        headers=owner,
+        json={
+            "name": "second-resource-group",
+            "bot_type": "QUEUE",
+            "webhook_url": "https://example.invalid/hook",
+            "cluster_configs": cluster,
+        },
+    ).raise_for_status()
+    second_id = created.json()["id"]
+    second = f"/api/bots/{second_id}"
+    client.put(second + "/resource-auth", headers=owner, json={"enabled": True}).raise_for_status()
+    issued = client.post("/api/resource-auth/bindings", json={"label": "second"}).raise_for_status().json()
+    service.handle_chat_binding(
+        platform=PLATFORM, external_user_id=ACTOR, bot_id=second_id, action="bind", argument=issued["bind_code"]
+    )
+    second_headers = {"Authorization": f"Bearer {issued['credential']}"}
+    api["manager"].start_bot(
+        second_id,
+        {
+            "BOT_TYPE": "QUEUE",
+            "BOT_ID": second_id,
+            "BOT_NAME": "second-resource-group",
+            "DATA_DIR": str(tmp_path / "bots"),
+            "CLUSTER_CONFIGS": cluster,
+        },
+    )
+    p800 = [{"model": "P800", "count": 8}]
+    p900 = [{"model": "P900", "count": 4}]
+    client.patch(first + "/node-hardware", headers=owner, json=mapping(n1=p800)).raise_for_status()
+    client.patch(second + "/node-hardware", headers=owner, json=mapping(n1=p900)).raise_for_status()
+    _hold(api, "n1", ACTOR)
+
+    first_snapshot = _get(client, api).raise_for_status().json()
+    second_snapshot = client.get(second + "/resources", headers=second_headers).raise_for_status().json()
+    first_node = next(node for node in first_snapshot["resources"] if node["id"] == "n1")
+    (second_node,) = second_snapshot["resources"]
+    assert (first_node["accelerators"], first_node["lock_status"]) == (p800, "exclusive")
+    assert (second_node["id"], second_node["accelerators"], second_node["lock_status"]) == ("n1", p900, "idle")
+    assert client.get(second + "/resources", headers=api["headers"]).status_code == 401
+    assert client.get(first + "/resources", headers=second_headers).status_code == 401
+
+    client.patch(first + "/node-hardware", headers=owner, json=mapping(n1=[])).raise_for_status()
+    first_after = _get(client, api).raise_for_status().json()
+    first_node_after = next(node for node in first_after["resources"] if node["id"] == "n1")
+    assert "accelerators" not in first_node_after
+    assert first_node_after["holders"] == first_node["holders"]
+    (second_node_after,) = (
+        client.get(second + "/resources", headers=second_headers).raise_for_status().json()["resources"]
+    )
+    assert second_node_after["accelerators"] == p900
 
 
 @pytest.mark.parametrize(
