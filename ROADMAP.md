@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-11-14. [Issue #139](https://github.com/dynamicheart/lockbot/issues/139) tracks current follow-up delivery; #27 records the accepted release baseline. This page separates outstanding work from delivered features and retained historical evidence. An open issue does not necessarily mean its implementation is missing.
+Updated 2026-11-16. [Issue #139](https://github.com/dynamicheart/lockbot/issues/139) tracks current follow-up delivery; #27 records the accepted release baseline. This page separates outstanding work from delivered features and retained historical evidence. An open issue does not necessarily mean its implementation is missing.
 
 ## Accepted release baseline
 
@@ -50,19 +50,19 @@ Future status changes belong in [issue #139](https://github.com/dynamicheart/loc
 
 ### Integrated test preview
 
-On 2026-11-14 the test service was updated to integration commit `98b8a03ee2a349c1e26ba5c44b95565c0db4f18d`, followed by the static-only connection layout update `cd890a4`. Backend verification passed 2,684 tests with 7 skips. Frontend verification passed 352 tests in UTC, lint and production build. Deployment checks preserved existing accounts, ownership, credential authority and personal-panel browser sessions. The live index matches the updated build. Chrome verified the scoped connection row before the layout update was deployed. Visual and clipboard verification on the updated page remain open.
+On 2026-11-14 the test service was updated to integration commit `98b8a03ee2a349c1e26ba5c44b95565c0db4f18d`, followed by the static-only connection layout update `cd890a4`. Backend verification passed 2,684 tests with 7 skips. Frontend verification passed 352 tests in UTC, lint and production build. Deployment checks preserved existing accounts, ownership, credential authority and personal-panel browser sessions. At that point, the served index matched the updated build. Chrome verified the scoped connection row before the layout update. Later preview checks are recorded in [#139](https://github.com/dynamicheart/lockbot/issues/139).
 
 | Requirement | Source and tracking | Test preview | Formal rollout |
 | --- | --- | --- | --- |
 | Inherited resource-link lifetime, preset durations or permanent, bot override and regeneration | #137; #145 and #177 merged | Installed; lifetime choices and existing links checked | Pending |
 | Compact shared resource table and subdued empty queue labels in shared/admin views | #140 and #152 merged | Installed; administrator resource table checked | Pending |
-| Datasource protocol, setup Skill and reproducible authorization/configuration guidance | #144 and #149 merged; #147 tracks further acceptance | Installed; template, mapping fields and guide links checked | Pending |
+| Datasource protocol, setup Skill and reproducible authorization/configuration guidance | #144 and #149 merged; #147 closed | Installed; the browser queried an independent signed test gateway using the setup handoff | Pending |
 | Bounded JSONL service history and scoped historical UI | #146; #150, #148 and #185 merged | Installed; history API, no-store, time ranges and unknown coverage checked | Pending |
-| Continuous metrics grants and expiry recovery | #151; #162 merged | Installed; deadline/cancellation/renewal regressions passed; no new live aging claim | Pending |
+| Continuous metrics grants and expiry recovery | #151; #162 merged | Installed; 8002 issued scoped grants backed by an authorized test collector. Real workload acceptance remains below | Pending |
 | Complete Skill ZIP, scoped helper and concise promotion | #153; #158 and #161 merged | Installed; actual ZIP has Skill, helper and installation stamp, with actual deployment origin | Pending |
 | Legacy key health and recovery guidance without automatic rotation | #156; #159 merged | Installed; existing keys retained | Pending |
 | Independent administrator API credential page and compact issuance dialog | #155; #166 merged | Installed; real page/dialog checked without issuing a credential | Pending |
-| Agent alias readback with its separate observation time | #167; #168 and #188 merged | API installed and checked; the bundled CLI read/write helper still needs deployed-package acceptance | Pending |
+| Agent alias readback with its separate observation time | #167; #168 and #188 merged | The 8002 ZIP passed alias read, set, change, clear and readback against a matching isolated API | Pending |
 | Viewer timezone for resource deadlines and monitoring | #171 merged | Installed; browser timezone governs display and lease arithmetic uses the UTC instant | Pending |
 | Scoped connection metadata, copyable Agent handoff and compact layout | #164; #172, #174 and #176 merged | Installed; the existing browser session showed an authorized native connection and the external report groups | Pending |
 | One-time native key viewing with fresh original-key proof | #164; #173 merged | Installed; native behavior covered with test credentials. The preview's remote provider exposes connection metadata only | Pending |
@@ -72,29 +72,48 @@ Do not backfill pre-installation historical gaps with zero traffic. The [metrics
 
 The earlier integration preview at `0a05c45` verified the #177 resource-link and account-session choices. Authenticated settings checks confirmed a permanent default for unset resource-link policies and a 90-day account-session default. The update preserved active bindings and browser sessions.
 
-### Remaining Agent and personal-workspace work
+### Workbench and CLI acceptance
 
-- [ ] **One user-facing resource Skill:** #164 and the design in #165 retain `lockbot-resource-agent` as the sole user entry. Multiple services/groups use scoped connection/key references. Deployment-specific private adapters and registry details stay outside the public repository. #165 specifies the versioned discovery and read contract. #178 covers portable packages across approved services. #179 covers the restricted read bridge. Real loopback HTTP verified ZIP installation, a fresh helper process, four synthetic groups through a configured adapter, denial for a different binding, and unknown results after simulated upstream revocation. The current preview uses a remote identity provider, so the native Agent report endpoint is disabled there. A fresh Codex CLI process discovered the verified Skill package installed in an isolated project. The protected merges for #178 and #179 are complete. Shared-deployment browser handoff and private registry distribution remain open.
-- [ ] **Fresh Agent and operational acceptance:** #154 and #163 track installation persistence, correct key recovery, personal-dashboard handoff/bookmark, alias read/write/clear, early-release polling, expiry and previous-Skill update behavior. Offline fixture checks, model observations, native-client installation and actual browser consent must be reported separately. Model results belong to the exact Skill/PR snapshot, not a permanent leaderboard.
-- [ ] **Progressive personal resources and task context:** #180 tracks the merged staged resource counts and My Credentials tab in #181, the original-binding task projection in #182 and scoped utilization in #183. Actual loopback HTTP delivered a fast group before a delayed source and suppressed further batches after revocation. The 8002 integration build includes the stream. A separate preview with fictional data passed wide and narrow checks for the overview, dedicated detail pages, deep-link refresh, booking rank and the resource-page refresh icon. The detail and utilization changes merged in #183. Native utilization acceptance with a real configured source on the shared test service remains open.
-- [ ] **Personal workspace connection management:** #172/#174/#176 implement scoped status and copyable Skill/service/bot/identity instructions. Refresh rechecks current authorization. Loopback Chrome acceptance verified copying the connection handoff with the correct approved service origin and no key. #248 is deployed to the shared test service. The current credential table was verified at wide and narrow widths with test connection responses. The next onboarding and header changes still require design review.
-- [ ] **Explicit key inspection/copy:** #173 implements short-lived authorization and explicit consent for the exact verified native binding. Loopback Chrome with a fictional native binding verified that same-tab opening reaches explicit consent, reveals the unchanged original key and clears it on close. The navigation fix is in #183. Legacy digest-only bindings require a valid original key for the same-value recovery flow in #156.
-- [ ] **Separately confirmed key replacement:** #175 requires fresh original-key proof, the exact bot/identity scope, an impact preview, a typed group name and explicit second confirmation. Loopback Chrome with a fictional native binding verified both confirmations, rejection of the old key, acceptance of the new key and an independent binding, and clearing the displayed key on close. The same-tab fix is in #183 and concurrent fixture isolation merged in #190.
+The combined 8002 candidate passed real browser consent with one authorized native group and four external read-only groups. Reload restored the fixed workbench entry. Only the native connection appeared under My Credentials. The real reporter had no current personal holding, so this run could not verify utilization on a held resource. An isolated native fixture separately verified two-group selection, exact scope, and the one-key handoff. [Preview evidence in #139](https://github.com/dynamicheart/lockbot/issues/139), [scoped report acceptance in #164](https://github.com/dynamicheart/lockbot/issues/164).
+
+The last verified CLI-first deployment on 8002 served portable Skill revision `4751a14ff82fc001` and deployment-rendered revision `ca8bd3984a8f30ca`. Verified the hosted seven-entry ZIP, all 21 frontend files, and fresh installation and discovery. Existing bindings and browser sessions were preserved, and the Feishu receiver reconnected. A fresh Codex CLI process using this ZIP found its project-scoped test connection and read verified context and resources from an isolated service. It made no writes and left the Key and connection files intact. [CLI candidate and test results](https://github.com/dynamicheart/lockbot/pull/250), [Agent acceptance #154](https://github.com/dynamicheart/lockbot/issues/154), [alias acceptance #167](https://github.com/dynamicheart/lockbot/issues/167).
+
+Eight models reran the three Key workflows with the exact hosted 8002 ZIP and simulated chat confirmation. Recovery passed 6/8, first creation 6/8 and explicit reset 4/8. The other eight cases timed out. [Chinese regression matrix](https://github.com/dynamicheart/lockbot/pull/250).
+
+Candidate `b6ee352fd7f1cfc9` keeps only CLI references in the ZIP. In isolated tests, official Codex passed 4 hardware matching, 6 queue and write safety, and 3 multi-service selection scenarios. Claude passed 2 of 6 multi-service runs with a supported Python interpreter. The other 4 timed out. These tests used the bundled CLI with synthetic services and credentials. [Candidate results](https://github.com/dynamicheart/lockbot/pull/250).
+
+- [ ] Complete the manual 8002 walkthrough. Review the first-contact wording, install the hosted ZIP, bind in the test group, query from a fresh Agent session, then open the private sign-in link and confirm in the browser. Refresh the fixed workbench entry to verify it stays signed in. [#250](https://github.com/dynamicheart/lockbot/pull/250), [#139](https://github.com/dynamicheart/lockbot/issues/139).
+- [ ] Use one real 8002 Key to recover multiple native connections for the same verified identity. The isolated bind flow recovered the original Key when active and issued a Key when none was active. An explicit reset used its own confirmation and invalidated the old Key. Complete live inspection and replacement with an authorized test binding. [#250](https://github.com/dynamicheart/lockbot/pull/250), [#173](https://github.com/dynamicheart/lockbot/pull/173), [#175](https://github.com/dynamicheart/lockbot/pull/175).
+- [ ] Verify a fresh utilization sample and raw device/process scope on an authorized holding using the shared 8002 browser. A separate gateway using the real collector returned 20 whole-node process rows and five rows within each of two individual card grants. The shared gateway rejected the 8002 browser origin, and the authorized external report had no live holding during its separate check. [#180](https://github.com/dynamicheart/lockbot/issues/180), [#259](https://github.com/dynamicheart/lockbot/pull/259).
+- [ ] Complete cross-machine private credential transfer and private registry distribution. The portable candidate was packaged and verified locally. Registry installation and upload require the user's explicit approval after the manual walkthrough. [#164](https://github.com/dynamicheart/lockbot/issues/164).
+
+Configuration credential controls and the audit tab restriction were merged in [#253](https://github.com/dynamicheart/lockbot/pull/253). The authorization tests covered listing, issuance, rotation and revocation for ordinary users and administrators.
+
+Workbench localization was merged in [#255](https://github.com/dynamicheart/lockbot/pull/255) after all six required checks passed on the updated branch.
+
+[Public API documentation and unified maintenance guidance](https://github.com/dynamicheart/lockbot/pull/260) were merged. The administration guide links to the operator API and datasource generator.
+
+[Deployment preflight guidance](https://github.com/dynamicheart/lockbot/pull/263) was merged after official Codex and Claude exercised the workflow with synthetic inputs. The guide requires an actual helper result and keeps the private configuration file out of tool transcripts.
+
+### Open reviews
+
+| Scope | Source | Evidence still needed |
+| --- | --- | --- |
+| CLI-first resource Skill and browser handoff | [#250](https://github.com/dynamicheart/lockbot/pull/250) | Real-account walkthrough and release review |
+| Illustrated first-run setup | [#251](https://github.com/dynamicheart/lockbot/issues/251) | Authorized Infoflow setup screenshot and a clean-install group walkthrough. The initial illustrated guidance was merged in [#254](https://github.com/dynamicheart/lockbot/pull/254). |
+| Whole-machine accelerator inventory | [#257](https://github.com/dynamicheart/lockbot/pull/257) | Live Agent selection. Synthetic models and backend tests covered known versus unknown hardware, and identical node IDs in separate groups. |
+| Feishu application onboarding | [#121](https://github.com/dynamicheart/lockbot/issues/121) | Design for Site Settings, available to LockBot super administrators. The pinned Python SDK supports device-flow app registration. Verify creation in an authorized test enterprise and bind one test chat after publication and receiver checks. The standalone CLI draft [#258](https://github.com/dynamicheart/lockbot/pull/258) stays out of the merge queue. |
+| Scoped reporter utilization | [#259](https://github.com/dynamicheart/lockbot/pull/259) | Authorized live sample described above. The narrow-screen layout update passed local Chrome checks. |
+| Repository Agent workflows | [#262](https://github.com/dynamicheart/lockbot/issues/262) | Complete cross-client discovery, execution and authorization coverage. Local runs exercised deployment preflight, Infoflow configuration, Feishu routing and hosting review. |
 
 ## Unified resource Skill follow-up
 
-[#164](https://github.com/dynamicheart/lockbot/issues/164) keeps one `lockbot-resource-agent` package for native connections and the optional personal dashboard. A private registry is a distribution channel for that same package. Private deployment adapters stay outside the public Skill. See the [design and current/proposed boundary](docs/design/unified-resource-agent-skill.md).
-
-- [x] Inventory existing deployment-side identity provider, read-only reporters and advisory identity-directory hooks.
-- [x] Define authenticated, caller-scoped extension discovery and report reads in #165. Runtime implementation is in #179.
-- [x] Separate portable package integrity from per-service rendered revisions and privately stored connection metadata in #178.
-- [ ] Extend the existing Skill/helper only for explicitly supported protocols; preserve per-instance/per-bot key scope and read-only limits.
-- [ ] Validate native multi-service connections, private distribution, optional reporter isolation and independent fresh sessions before rollout.
+[#164](https://github.com/dynamicheart/lockbot/issues/164) keeps one `lockbot-resource-agent` package for native connections and the optional personal dashboard. The public package supports scoped extension discovery, caller-authorized report reads, and portable integrity checks. The implementation and configuration of private adapters remain outside the public repository. The isolated multi-service regression exercised distinct origins, instances, groups, and credential references with independent fresh sessions. The real-account and distribution items are tracked above. [Design and protocol boundaries](docs/design/unified-resource-agent-skill.md).
 
 ## Explicitly deferred
 
 - [#88 Infoflow → Feishu migration](https://github.com/dynamicheart/lockbot/issues/88): next-release work. The user chose to clear runtime state while preserving resource configuration and immutable history; carrying active locks, queues or paired cross-platform user identities is not the accepted scope. Read-only preflight is delivered; cutover execution is unmerged. Preserve the existing draft branches rather than reintroducing the discarded active-carry design.
-- [#120 transport/allocator separation](https://github.com/dynamicheart/lockbot/issues/120) and [#121 CLI/SDK-assisted onboarding](https://github.com/dynamicheart/lockbot/issues/121) are future evaluations, not unfinished 3.2.0 release gates.
+- [#120 transport/allocator separation](https://github.com/dynamicheart/lockbot/issues/120) remains a future evaluation.
 - H20/bastion VPN or IT network integration was explicitly deferred. Broader hardware/workload benchmarks and arbitrary external-client adoption are not established by the existing tests.
 - Inter-Agent contact registration remains an undecided product idea; it is not an implicit task-note feature.
 
