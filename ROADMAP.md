@@ -96,7 +96,7 @@ Workbench localization was merged in [#255](https://github.com/dynamicheart/lock
 | CLI-first resource Skill and browser handoff | [#250](https://github.com/dynamicheart/lockbot/pull/250) | Real-account walkthrough and release review |
 | Illustrated first-run setup | [#254](https://github.com/dynamicheart/lockbot/pull/254) | Authorized Infoflow setup screenshot and a clean-install group walkthrough. Earlier live Feishu command delivery used the configured 8002 receiver. |
 | Whole-machine accelerator inventory | [#257](https://github.com/dynamicheart/lockbot/pull/257) | Live Agent selection. Synthetic models and backend tests covered known versus unknown hardware, and identical node IDs in separate groups. |
-| Delegated bot provisioning | [#258](https://github.com/dynamicheart/lockbot/pull/258) | Live Feishu onboarding through the standalone CLI. Local authorization, route conflict, replay and auditing passed. |
+| Feishu application onboarding | [#121](https://github.com/dynamicheart/lockbot/issues/121) | Design for Site Settings, available to LockBot super administrators. The pinned Python SDK supports device-flow app registration. Verify creation in an authorized test enterprise and bind one test chat after publication and receiver checks. The standalone CLI draft [#258](https://github.com/dynamicheart/lockbot/pull/258) stays out of the merge queue. |
 | Scoped reporter utilization | [#259](https://github.com/dynamicheart/lockbot/pull/259) | Authorized live sample described above. The narrow-screen layout update passed local Chrome checks. |
 | Public API reference and maintenance guidance | [#260](https://github.com/dynamicheart/lockbot/pull/260) | The candidate removes the operator and datasource setup Skills. The administration guide links to the existing operator API and the datasource generator. 146 targeted tests passed. Recheck required CI against current main before merging. |
 
@@ -107,7 +107,7 @@ Workbench localization was merged in [#255](https://github.com/dynamicheart/lock
 ## Explicitly deferred
 
 - [#88 Infoflow → Feishu migration](https://github.com/dynamicheart/lockbot/issues/88): next-release work. The user chose to clear runtime state while preserving resource configuration and immutable history; carrying active locks, queues or paired cross-platform user identities is not the accepted scope. Read-only preflight is delivered; cutover execution is unmerged. Preserve the existing draft branches rather than reintroducing the discarded active-carry design.
-- [#120 transport/allocator separation](https://github.com/dynamicheart/lockbot/issues/120) and [#121 CLI/SDK-assisted onboarding](https://github.com/dynamicheart/lockbot/issues/121) are future evaluations, not unfinished 3.2.0 release gates.
+- [#120 transport/allocator separation](https://github.com/dynamicheart/lockbot/issues/120) remains a future evaluation.
 - H20/bastion VPN or IT network integration was explicitly deferred. Broader hardware/workload benchmarks and arbitrary external-client adoption are not established by the existing tests.
 - Inter-Agent contact registration remains an undecided product idea; it is not an implicit task-note feature.
 
