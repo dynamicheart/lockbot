@@ -69,6 +69,7 @@ def case(tmp_path):
         binding_status="pending",
         binding_create_status=201,
         resource_devices=None,
+        accelerators=None,
         node_access=None,
         resource_age=0,
         readback_age=None,
@@ -191,6 +192,8 @@ def case(tmp_path):
                     body["resources"][0]["node_access"] = state.node_access
                 if state.resource_devices is not None:
                     body["resources"][0]["devices"] = state.resource_devices
+                if state.accelerators is not None:
+                    body["resources"][0]["accelerators"] = state.accelerators
                 if state.aliases_supported:
                     body["supported_operations"].append("alias")
                     body["aliases_observed_at"] = captured.isoformat()
@@ -352,6 +355,61 @@ def test_packaged_command_rejects_ambiguous_multi_node_card_selection(case):
     assert result.returncode != 0
     assert "multi_node_device_selection_requires_explicit_same_devices" in result.stderr
     assert not commands(case)
+
+
+def test_local_whole_machine_hardware_is_scoped_fallback_metadata(case, monkeypatch, capsys):
+    note = {
+        "source": "Operator inventory",
+        "accelerators": [{"model": "P900", "count": 2}, {"model": "P800"}],
+    }
+    scope = {key: case.connection[key] for key in ("approved_origin", "instance_id", "bot_uuid")}
+    notes = {"version": 1, "scope": scope, "nodes": {"node-a": note, "node-other": note}}
+    path = case.tmp / "connection.json.node-hardware.json"
+    write_private(path, notes)
+    original_client = helper.Client
+    monkeypatch.setattr(helper, "Client", lambda *args, **kwargs: original_client(*args, root=case.root, **kwargs))
+
+    def read_row():
+        assert helper.main(["--connection", str(case.path), "resources"]) == 0
+        rows = json.loads(capsys.readouterr().out)["result"]["resources"]
+        assert [row["id"] for row in rows] == ["node-a"]
+        return rows[0]
+
+    row = read_row()
+    assert row["local_hardware_note"] == note
+    assert row["lock_status"] == "idle" and "accelerators" not in row
+    case.state.accelerators = [{"model": "P800", "count": 8}]
+    row = read_row()
+    assert row["accelerators"] == case.state.accelerators and "local_hardware_note" not in row
+    case.state.accelerators = None
+    path.chmod(0o644)
+    assert "local_hardware_note" not in read_row()
+    write_private(path, {**notes, "scope": {**scope, "bot_uuid": "other-bot"}})
+    assert "local_hardware_note" not in read_row()
+    invalid = {**note, "accelerators": [{"model": "P900", "count": True}]}
+    write_private(path, {**notes, "nodes": {"node-a": invalid}})
+    assert "local_hardware_note" not in read_row()
+    write_private(path, notes)
+    case.state.bot_type = "DEVICE"
+    assert "local_hardware_note" not in read_row()
+    assert not commands(case)
+
+
+def test_hardware_guard_prefers_registered_inventory_to_verified_local_notes(case):
+    notes = {
+        "version": 1,
+        "scope": {key: case.connection[key] for key in ("approved_origin", "instance_id", "bot_uuid")},
+        "nodes": {"node-a": {"source": "Owner inventory", "accelerators": [{"model": "P800", "count": 2}]}},
+    }
+    write_private(case.path.with_name(case.path.name + ".node-hardware.json"), notes)
+    case.state.accelerators = [{"model": "P900", "count": 2}]
+    with pytest.raises(helper.ClientError, match="selected_resource_model_unverified_or_insufficient"):
+        case.client.command("lock", ["node-a"], [], "2m", model="p800", minimum_model_count=2)
+    assert not commands(case)
+    case.state.accelerators = None
+    result = case.client.command("lock", ["node-a"], [], "2m", model="p800", minimum_model_count=2)
+    assert result["verified"]
+    assert len(commands(case)) == 1
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")

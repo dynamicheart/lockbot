@@ -242,7 +242,16 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
                 {"model": "P800", "count": 6},
                 {"model": "P900", "count": 2},
             ]
-            result = run(fixture, "command", group=groups[0], operation="lock", nodes=["node-23"], duration="120m")
+            result = run(
+                fixture,
+                "command",
+                group=groups[0],
+                operation="lock",
+                nodes=["node-23"],
+                duration="120m",
+                model=evaluation.intent.WHOLE_MACHINE_MODELS[scenario],
+                minimum_model_count=2,
+            )
         elif scenario == "intent-model-allocate":
             result = run(
                 fixture,
@@ -252,6 +261,7 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
                 nodes=["node-20"],
                 devices=["2"],
                 duration="120m",
+                model="P900",
             )
         else:
             result = run(
@@ -262,10 +272,41 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
                 nodes=["node-10"],
                 devices=["3", "2"],
                 duration="120m",
+                model="P800",
             )
         assert result.get("result", {}).get("verified"), result
     grade = evaluation.score(fixture.root, verdict)
     assert grade["observable_pass"], grade["checks"]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "group", "node", "model", "minimum", "devices"),
+    [
+        ("intent-model-p800-unknown-node", "整机队列群", "node-20", "P800", None, []),
+        ("intent-model-p800-whole-machine", "整机队列群", "node-21", "P800", 2, []),
+        ("intent-exact", "加速卡群", "node-10", "P800", None, ["1", "2"]),
+    ],
+)
+def test_hardware_guard_refuses_unverified_or_mismatched_selections(
+    tmp_path, monkeypatch, scenario, group, node, model, minimum, devices
+):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert install(fixture)["installed"]
+    extra = {"minimum_model_count": minimum} if minimum is not None else {}
+    result = run(
+        fixture,
+        "command",
+        group=group,
+        operation="lock",
+        nodes=[node],
+        devices=devices,
+        duration="2h",
+        model=model,
+        **extra,
+    )
+    assert result["error"] == "selected_resource_model_unverified_or_insufficient"
+    requests = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
+    assert not any(row["method"] == "POST" for row in requests)
 
 
 @pytest.mark.parametrize(

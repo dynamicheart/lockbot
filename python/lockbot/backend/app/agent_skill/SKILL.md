@@ -34,13 +34,15 @@ Use Python 3.10 or newer.
 python3 "$LOCKBOT_CLI" connections
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" context
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" resources
-python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --duration 30m
+python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --model P800 --duration 30m
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation release --node node-01 --device 0
 ```
 
 Set `CONNECTION` to the matching private file listed by `connections`. Replace the
 example node and device with the exact IDs from the inventory. Omit `--device` on
-whole-node bots. For renewal, use `--operation renew` and the time to add. Use
+whole-node bots. Include `--model` when the user specifies a model. For a whole-node
+request with a minimum count, include `--minimum-model-count` too. For renewal, use
+`--operation renew` and the time to add. Use
 `command --help` for all arguments. For a status question, stop after `resources`.
 
 ## Install or connect
@@ -96,7 +98,8 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    node or card IDs, model, quantity, duration, allocation mode and any same-node condition.
    **Stop without calling `command`** if the snapshot stays stale, the target is ambiguous,
    or the requested hardware model cannot be verified. A node alias or group title does
-   not prove its model. If a name may refer to multiple groups or the user asks you to
+   not prove its model. Pass `--model` so the CLI rechecks the chosen hardware before writing.
+   If a name may refer to multiple groups or the user asks you to
    choose, check each eligible authorized group's live resources before asking or choosing.
 3. When asked to acquire now, use `lock` for an idle match with an empty queue, even if
    `claimable_by_you` is false. Use `book` only when the user requests or accepts a

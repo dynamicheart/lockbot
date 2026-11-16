@@ -7,8 +7,11 @@ When set, each resource's `accelerators` array lists configured models and count
 An absent array means unknown hardware. This is inventory for the entire machine,
 not a count of individually available cards. Match the registered model against the
 user's constraints and verify live occupancy before selecting the machine.
+Pass the user's required model as `command --model P800`. For a whole machine that must
+have at least two P800 accelerators, also pass `--minimum-model-count 2`. The CLI rechecks
+the exact selected machine or cards against its fresh read before sending the request.
 
-If the server omits `accelerators` and the helper supports `local_hardware_note`, you may keep a private hardware note for a
+If the server omits `accelerators`, you may keep a private, local hardware note for a
 known node using user-confirmed information or a trusted machine inventory the user
 provides. Save `connection.json.node-hardware.json` next to that connection, with mode
 `0600`, outside the Skill installation. Use the verified origin, instance, bot UUID

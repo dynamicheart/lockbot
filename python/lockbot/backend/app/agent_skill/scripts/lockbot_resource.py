@@ -295,6 +295,29 @@ def enrollment_state(directory):
     return path, private_json(path / "enrollment.json")
 
 
+def _local_hardware_note(note):
+    if not isinstance(note, dict) or set(note) != {"source", "accelerators"}:
+        return None
+    source, inventory = note["source"], note["accelerators"]
+    if not isinstance(source, str) or not source.strip() or len(source) > 160 or not source.isprintable():
+        return None
+    if not isinstance(inventory, list) or not inventory or len(inventory) > 32:
+        return None
+    models = set()
+    for item in inventory:
+        if not isinstance(item, dict) or set(item) - {"model", "count"}:
+            return None
+        model = item.get("model")
+        if not isinstance(model, str) or not model or model != model.strip() or len(model) > 80:
+            return None
+        if not model.isprintable() or model.casefold() in models:
+            return None
+        models.add(model.casefold())
+        if "count" in item and (type(item["count"]) is not int or item["count"] < 1):
+            return None
+    return note
+
+
 class NodeAccessMetadata:
     """Private sidecar with compare-and-replace for overlapping helper invocations."""
 
@@ -478,6 +501,9 @@ class Client:
         if connection and approved_origin and origin(self.config.get("approved_origin")) != self.base:
             raise ClientError("connection_origin_mismatch")
         self.connection_dir = Path(connection).resolve().parent if connection else None
+        self.hardware_notes = (
+            Path(connection).with_name(Path(connection).name + ".node-hardware.json") if connection else None
+        )
         self.node_access = (
             NodeAccessMetadata(Path(connection).absolute()) if connection and os.name == "posix" else None
         )
@@ -956,6 +982,34 @@ class Client:
         snapshot["snapshot_fresh_for_write"] = self._snapshot_fresh_for_write(snapshot, started)
         return snapshot
 
+    def resources_with_hardware_notes(self, context):
+        snapshot = self.resources(context)
+        bot = context["bot"]
+        if (
+            self.hardware_notes is None
+            or bot.get("type") not in {"NODE", "QUEUE"}
+            or snapshot.get("bot_id") != bot["id"]
+            or not isinstance(snapshot.get("resources"), list)
+        ):
+            return snapshot
+        try:
+            notes = private_json(self.hardware_notes)
+        except ClientError:
+            return snapshot
+        scope = {"approved_origin": self.base, "instance_id": self.config["instance_id"], "bot_uuid": bot["uuid"]}
+        entries = notes.get("nodes")
+        if type(notes.get("version")) is not int or notes["version"] != 1 or notes.get("scope") != scope:
+            return snapshot
+        if not isinstance(entries, dict):
+            return snapshot
+        for node in snapshot["resources"]:
+            if not isinstance(node, dict) or "accelerators" in node or not isinstance(node.get("id"), str):
+                continue
+            note = _local_hardware_note(entries.get(node["id"]))
+            if note is not None:
+                node["local_hardware_note"] = note
+        return snapshot
+
     def _current_node_access(self, snapshot, context, elapsed):
         if (
             context.get("agent_access_enabled") is not True
@@ -1100,9 +1154,26 @@ class Client:
             raise ClientError("invalid_personal_panel_link")
         return {"home": home, "login_url": login_url}
 
-    def command(self, operation, nodes, devices, duration, metadata=None, *, same_devices_on_all_nodes=False):
+    def command(
+        self,
+        operation,
+        nodes,
+        devices,
+        duration,
+        metadata=None,
+        *,
+        same_devices_on_all_nodes=False,
+        model=None,
+        minimum_model_count=None,
+    ):
         if devices and len(nodes) > 1 and not same_devices_on_all_nodes:
             raise ClientError("multi_node_device_selection_requires_explicit_same_devices")
+        if model is not None and (not isinstance(model, str) or not model.strip() or not model.isprintable()):
+            raise ClientError("invalid_accelerator_model")
+        if minimum_model_count is not None and (
+            model is None or devices or type(minimum_model_count) is not int or minimum_model_count < 1
+        ):
+            raise ClientError("minimum_model_count_requires_whole_node_and_model")
         context = self.context()
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
@@ -1153,9 +1224,13 @@ class Client:
                 raise ClientError("invalid_" + name)
         if any(isinstance(value, str) and self.key in value for value in metadata.values()):
             raise ClientError("secret_in_metadata_refused")
-        before = self.resources(context)
+        before = self.resources_with_hardware_notes(context) if model is not None else self.resources(context)
         self._require_fresh_snapshot(before)
         selected = self._selected(before, nodes, devices)
+        if model is not None and not all(
+            self._matches_model(item, model.strip().casefold(), card_bot, minimum_model_count) for item in selected
+        ):
+            raise ClientError("selected_resource_model_unverified_or_insufficient")
         actor = context["actor"]["external_user_id"]
         held = [self._own(item.get("holders", []), actor) for item in selected]
         if operation == "renew" and (not all(held) or context.get("bot_rules", {}).get("forbid_relock")):
@@ -1324,6 +1399,23 @@ class Client:
         if value.tzinfo is None:
             raise ClientError("expiry_offset_required")
         return value.timestamp()
+
+    @staticmethod
+    def _matches_model(item, model, card_bot, minimum_count):
+        def is_match(value):
+            return isinstance(value, str) and value.strip().casefold() == model
+
+        if card_bot:
+            return is_match(item.get("dev_model"))
+        note = item.get("local_hardware_note")
+        fallback = note.get("accelerators") if isinstance(note, dict) else None
+        inventory = item.get("accelerators", fallback)
+        return isinstance(inventory, list) and any(
+            isinstance(row, dict)
+            and is_match(row.get("model"))
+            and (minimum_count is None or (type(row.get("count")) is int and row["count"] >= minimum_count))
+            for row in inventory
+        )
 
     @staticmethod
     def _selected(snapshot, nodes, devices):
@@ -1615,6 +1707,10 @@ def main(argv=None):
         action="store_true",
         help="Apply all listed device IDs to every selected node. Use separate commands for different IDs per node.",
     )
+    command.add_argument("--model", help="Check that every selected node or card has this accelerator model.")
+    command.add_argument(
+        "--minimum-model-count", type=int, help="Require this many accelerators of --model on each selected whole node."
+    )
     command.add_argument(
         "--duration", help="Lease for lock/book or time to add on renew, e.g. 30m. Omit for claim/release."
     )
@@ -1676,7 +1772,7 @@ def main(argv=None):
         elif args.action == "context":
             result = client.context()
         elif args.action == "resources":
-            result = client.resources(client.context())
+            result = client.resources_with_hardware_notes(client.context())
         elif args.action == "recover":
             result = client.recover(args.destination, scope=args.scope)
         elif args.action == "resource-guidance":
@@ -1696,6 +1792,8 @@ def main(argv=None):
                 args.duration,
                 metadata,
                 same_devices_on_all_nodes=args.same_devices_on_all_nodes,
+                model=args.model,
+                minimum_model_count=args.minimum_model_count,
             )
         else:
             result = client.metrics(args.node)

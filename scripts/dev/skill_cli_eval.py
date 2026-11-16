@@ -76,7 +76,11 @@ def prepare(root, artifact, scenario):
     if scenario in intent.PROMPTS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
-        base.save_json(case_path, {**case, "scenario": scenario})
+        helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
+        base.save_json(
+            case_path,
+            {**case, "scenario": scenario, "model_constraint": b'"--minimum-model-count"' in helper},
+        )
         (root / "prompt.txt").write_text(
             "我的两个资源群已私下配置。请安装这份 Skill 并处理我的请求。"
             f"{base.ORIGIN}{base.BUNDLE_PATH}\n{intent.PROMPTS[scenario]}"
@@ -344,12 +348,18 @@ class Fixture(continuity.Fixture):
                 return {"error": "group_required"}
             argv = ["--connection", str(private / f"group-{identifier}.json"), action]
             if action == "command":
+                if ("model" in args or "minimum_model_count" in args) and not self.case.get("model_constraint"):
+                    return {"error": "unsupported_model_constraint"}
                 argv += ["--operation", args.get("operation", "")]
                 for field in ("node", "device"):
                     for value in args.get(field + "s", []):
                         argv += ["--" + field, value]
                 if "duration" in args:
                     argv += ["--duration", args["duration"]]
+                if "model" in args:
+                    argv += ["--model", args["model"]]
+                if "minimum_model_count" in args:
+                    argv += ["--minimum-model-count", str(args["minimum_model_count"])]
         elif action == "discover":
             argv += ["--origin", self.origin, "--destination", str(private / "service.json")]
         elif action == "enroll":
@@ -466,7 +476,8 @@ class Fixture(continuity.Fixture):
 
 
 def tools(root):
-    scenario = json.loads((root / "case.json").read_text())["scenario"]
+    case = json.loads((root / "case.json").read_text())
+    scenario = case["scenario"]
     is_intent = scenario in intent.PROMPTS
     operations = ["lock", "book", "claim", "renew", "release"]
     actions = ("discover", "connections", "resources", "command") if is_intent else ACTIONS
@@ -480,6 +491,15 @@ def tools(root):
         if is_intent
         else {}
     )
+    if is_intent and case.get("model_constraint"):
+        extra.update(
+            model={"type": "string", "description": "User-requested accelerator model to verify before writing."},
+            minimum_model_count={
+                "type": "integer",
+                "minimum": 1,
+                "description": "Minimum matching accelerators on each selected whole node, when requested.",
+            },
+        )
     if scenario == "telemetry":
         actions = (*actions, "metrics")
         extra["nodes"] = {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."}
