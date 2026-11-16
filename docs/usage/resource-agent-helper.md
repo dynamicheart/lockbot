@@ -25,6 +25,40 @@ or using an explicit destination, use a local private directory and verify the s
 Use the normal project or user scope for automatic private directory creation. On macOS and Linux the
 helper continues to use POSIX permissions.
 
+## Register accelerator inventory for whole machines
+
+In a NODE or QUEUE bot's configuration, open **Node hardware → Register hardware**.
+Copy the Agent prompt with the current node IDs and provide an approved machine
+inventory. Paste the generated mapping, review the changes, and save:
+
+```json
+{
+  "version": 1,
+  "nodes": {
+    "node-01": [
+      {"model": "P900", "count": 2},
+      {"model": "P800", "count": 6}
+    ]
+  }
+}
+```
+
+The selected bot's owner or a super administrator can also preview the mapping with
+`POST /api/bots/{id}/node-hardware/preview` and save it with
+`PATCH /api/bots/{id}/node-hardware` using the Console session. Omitted nodes retain
+their existing records. Set a node to an empty list to remove its record. Record
+verified hardware only. An alias, IP address, or metrics label is not a hardware
+record.
+
+An Agent with a valid binding for the bot can read the registered model and count
+in `resources[].accelerators`. For unregistered nodes, the Agent may keep confirmed
+models and known counts in a private `connection.json.node-hardware.json` sidecar.
+The [hardware reference](../../python/lockbot/backend/app/agent_skill/references/resource-operations.md#hardware-matching-node-addresses-and-aliases)
+describes the scope and input format. The CLI shows these notes under
+`resources[].local_hardware_note` when the node IDs match. NODE and QUEUE bots
+allocate whole machines. Use the live occupancy and queue rules when deciding
+whether the known hardware can be allocated now.
+
 ## Install and initialize
 
 1. Fetch the approved service's `/api/agent-skill` **without credentials**. Verify `service_id=lockbot.resource-api`, `api_version=1`, the instance identity and namespaced installation descriptor. Follow only same-origin installation URLs and verify the exact ZIP `installation.sha256` before extraction.

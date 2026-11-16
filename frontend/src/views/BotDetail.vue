@@ -438,6 +438,13 @@
             </template>
             <NodeAccessEditor :key="bot.id" :bot-id="bot.id" @changed="fetchNodeAddresses" />
           </el-descriptions-item>
+          <el-descriptions-item
+            v-if="canEdit && ['NODE', 'QUEUE'].includes(botType)"
+            :span="2"
+            :label="$t('nodeHardware.title')"
+          >
+            <NodeHardwareEditor :key="bot.id" :bot-id="bot.id" />
+          </el-descriptions-item>
         </el-descriptions>
       </el-card>
 
@@ -737,6 +744,7 @@ import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import BotMigrationPreflight from '../components/BotMigrationPreflight.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
 import NodeAccessEditor from '../components/NodeAccessEditor.vue'
+import NodeHardwareEditor from '../components/NodeHardwareEditor.vue'
 import { formatNodeAccess } from '../utils/nodeAccess'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'

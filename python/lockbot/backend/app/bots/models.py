@@ -49,6 +49,8 @@ class Bot(Base):
     utilization_config: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Private host/port metadata is only projected by the owner and active-holder routes.
     node_access_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Optional administrator-confirmed accelerator inventory for whole-machine resources.
+    node_hardware_config: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

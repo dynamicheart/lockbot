@@ -39,6 +39,12 @@ from lockbot.backend.app.bots.node_access import (
     saved_node_access,
     serialize_node_access,
 )
+from lockbot.backend.app.bots.node_hardware import (
+    WHOLE_MACHINE_TYPES,
+    read_node_hardware,
+    saved_node_hardware,
+    serialize_node_hardware,
+)
 from lockbot.backend.app.bots.schemas import (
     BotCreate,
     BotDetail,
@@ -736,6 +742,11 @@ def update_bot(
                     new_nodes = set(node_ids(cc_for_storage))
                     bot.node_access_config = serialize_node_access(
                         {node: access for node, access in saved_node_access(bot).items() if node in new_nodes}
+                    )
+                if bot.node_hardware_config:
+                    new_nodes = set(node_ids(cc_for_storage))
+                    bot.node_hardware_config = serialize_node_hardware(
+                        {node: rows for node, rows in saved_node_hardware(bot).items() if node in new_nodes}
                     )
                 old_configs = json.loads(bot.cluster_configs) if bot.cluster_configs else None
                 if isinstance(cc_for_storage, dict):
@@ -1993,6 +2004,83 @@ def _node_access_preview(document: dict, nodes: dict) -> dict:
         "changed": [node for node, access in nodes.items() if node in current and current[node] != access],
         "unchanged": [node for node, access in nodes.items() if current.get(node) == access],
     }
+
+
+def _node_hardware_document(bot: Bot):
+    if bot.bot_type not in WHOLE_MACHINE_TYPES:
+        raise HTTPException(409, detail="node_hardware_requires_whole_machine")
+    return {
+        "version": 1,
+        "node_ids": node_ids(json.loads(bot.cluster_configs)),
+        "nodes": saved_node_hardware(bot),
+    }
+
+
+@router.get("/{bot_id}/node-hardware")
+def get_node_hardware(
+    bot_id: int,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bot = _require_bot_owner(bot_id, user, db, "view node hardware settings")
+    response.headers["Cache-Control"] = "no-store"
+    return _node_hardware_document(bot)
+
+
+def _node_hardware_updates(document, updates):
+    if set(updates) - set(document["node_ids"]):
+        raise HTTPException(422, detail="node_hardware_unknown_node")
+    return {node: rows for node, rows in updates.items() if document["nodes"].get(node, []) != rows}
+
+
+@router.post("/{bot_id}/node-hardware/preview")
+def preview_node_hardware(
+    bot_id: int,
+    response: Response,
+    user: User = Depends(get_current_user),
+    updates: dict = Depends(read_node_hardware),
+    db: Session = Depends(get_db),
+):
+    bot = _require_bot_owner(bot_id, user, db, "view node hardware settings")
+    response.headers["Cache-Control"] = "no-store"
+    return {"changes": _node_hardware_updates(_node_hardware_document(bot), updates)}
+
+
+@router.patch("/{bot_id}/node-hardware")
+def update_node_hardware(
+    bot_id: int,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    updates: dict = Depends(read_node_hardware),
+    db: Session = Depends(get_db),
+):
+    _require_bot_owner(bot_id, user, db, "change node hardware settings")
+    with _owned_bot(bot_id, user, db) as bot, authority_guard(bot_id):
+        document = _node_hardware_document(bot)
+        changed = _node_hardware_updates(document, updates)
+        if changed:
+            current = document["nodes"]
+            for node, rows in changed.items():
+                if rows:
+                    current[node] = rows
+                else:
+                    current.pop(node, None)
+            bot.node_hardware_config = serialize_node_hardware(current)
+            write_audit_log(
+                db,
+                user,
+                "bot.update",
+                target_type="bot",
+                target_id=bot.id,
+                target_name=bot.name,
+                detail={"node_hardware": {"changed_nodes": len(changed)}},
+                ip=request.client.host if request.client else None,
+            )
+            db.commit()
+        response.headers["Cache-Control"] = "no-store"
+        return document
 
 
 @router.get("/{bot_id}/node-access")
