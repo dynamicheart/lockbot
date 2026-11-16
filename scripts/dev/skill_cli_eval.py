@@ -89,6 +89,7 @@ def prepare(root, artifact, scenario):
                 "scenario": scenario,
                 "model_constraint": b'"--minimum-model-count"' in helper,
                 "device_count_constraint": b'"--device-count"' in helper,
+                "group_constraint": b"selected_connection_does_not_match_requested_group" in helper,
             },
         )
         (root / "prompt.txt").write_text(
@@ -359,6 +360,10 @@ class Fixture(continuity.Fixture):
                 return {"error": "group_required"}
             argv = ["--connection", str(private / f"group-{identifier}.json"), action]
             if action == "command":
+                if "requested_group" in args:
+                    if not self.case.get("group_constraint"):
+                        return {"error": "unsupported_group_constraint"}
+                    argv += ["--group", args["requested_group"]]
                 if ("model" in args or "minimum_model_count" in args) and not self.case.get("model_constraint"):
                     return {"error": "unsupported_model_constraint"}
                 if "device_count" in args:
@@ -534,6 +539,11 @@ def tools(root):
             "type": "integer",
             "minimum": 1,
             "description": "Exact number of requested cards to select together in one command.",
+        }
+    if is_intent and case.get("group_constraint"):
+        extra["requested_group"] = {
+            "type": "string",
+            "description": "The original group named by the user. The CLI verifies it against the selected connection.",
         }
     if scenario == "telemetry":
         actions = (*actions, "metrics")

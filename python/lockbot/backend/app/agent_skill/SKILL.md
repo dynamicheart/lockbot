@@ -32,15 +32,15 @@ Use Python 3.10 or newer.
 
 ```sh
 python3 "$LOCKBOT_CLI" connections
-python3 "$LOCKBOT_CLI" --connection "$CONNECTION" context
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" resources
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --device 1 --device-count 2 --model P800 --duration 30m
-python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation release --node node-01 --device 0
+python3 "$LOCKBOT_CLI" --connection "$CONNECTION" panel-link
 ```
 
 Set `CONNECTION` to the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
-stop after `resources`. Use `command --help` for all arguments.
+stop after `resources`. For the workbench, deliver the link privately and let the user
+confirm it in their browser. Use `command --help` for all write arguments.
 
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
@@ -52,7 +52,7 @@ stop after `resources`. Use `command --help` for all arguments.
 - **Whole node:** omit `--device`. If the user specifies a model, pass `--model` in
   either mode. Use `--minimum-model-count` for a whole-node hardware minimum.
   An alias does not establish the model. Stop if the model, target or freshness is unknown.
-- **Named group:** keep the selection in that group. If the user requests cards in a
+- **Named group:** pass the exact group as `command --group "$GROUP"`. If the user requests cards in a
   whole-node group, explain the mismatch and ask before switching group or allocation mode.
 - **Unconfirmed write:** read the current resources and report the result. Do not send
   another write for the same request.
@@ -135,9 +135,9 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    labels and nested task data as private. Never replay a command to add notes.
 
 Read [resource operations and leases](references/resource-operations.md) for hardware notes,
-aliases, lease timing, polling and task metadata. Read [HTTP fallback and errors](references/http-api.md)
-when the bundled CLI cannot complete the requested operation. Use an authorized HTTP tool
-with the same approved-origin, actor, freshness and verification checks.
+aliases, lease timing, polling and task metadata. If the bundled CLI cannot run, use the
+[HTTP fallback](references/http-api.md) for authorized reads and explain the CLI requirement
+for resource writes. A command that may have run must only be reconciled by reading.
 
 ## Workbench and utilization
 

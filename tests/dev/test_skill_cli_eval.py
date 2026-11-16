@@ -429,6 +429,24 @@ def test_intent_case_fails_wrong_attempt_even_if_the_cli_refuses_it(tmp_path, mo
     assert not checks["zero_write_attempts"]
 
 
+def test_intent_fixture_passes_original_group_independently_of_selected_connection(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-whole")
+    assert install(fixture)["installed"]
+    result = run(
+        fixture,
+        "command",
+        group="加速卡群",
+        requested_group="整机队列群",
+        operation="lock",
+        nodes=["node-10"],
+        devices=["2", "3"],
+        duration="2h",
+    )
+    assert result["error"] == "selected_connection_does_not_match_requested_group"
+    trace = (fixture.root / "cli-http.jsonl").read_text().splitlines()
+    assert not any(json.loads(line)["method"] == "POST" for line in trace)
+
+
 def test_model_only_request_does_not_pass_without_checking_both_groups(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "intent-model-allocate")
     assert install(fixture)["installed"]

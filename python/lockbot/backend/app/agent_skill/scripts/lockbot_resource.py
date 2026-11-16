@@ -1210,6 +1210,7 @@ class Client:
         device_count=None,
         model=None,
         minimum_model_count=None,
+        group=None,
     ):
         if devices and len(nodes) > 1 and not same_devices_on_all_nodes:
             raise ClientError("multi_node_device_selection_requires_explicit_same_devices")
@@ -1224,6 +1225,8 @@ class Client:
         ):
             raise ClientError("minimum_model_count_requires_whole_node_and_model")
         context = self.context()
+        if group is not None and context["bot"]["name"] != group:
+            raise ClientError("selected_connection_does_not_match_requested_group")
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
         if not context.get("agent_access_enabled"):
@@ -1761,6 +1764,7 @@ def main(argv=None):
     )
     command.add_argument("--device-count", type=int, help="Require exactly this many selected cards in this command.")
     command.add_argument("--model", help="Check that every selected node or card has this accelerator model.")
+    command.add_argument("--group", help="Require the connection to match the exact group named by the user.")
     command.add_argument(
         "--minimum-model-count", type=int, help="Require this many accelerators of --model on each selected whole node."
     )
@@ -1848,6 +1852,7 @@ def main(argv=None):
                 device_count=args.device_count,
                 model=args.model,
                 minimum_model_count=args.minimum_model_count,
+                group=args.group,
             )
         else:
             result = client.metrics(args.node)

@@ -322,6 +322,36 @@ def test_resource_mutation_does_not_claim_success_from_stale_readback(case):
     assert len(commands(case)) == 1
 
 
+def test_packaged_command_checks_the_user_named_group_before_writing(case):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--group",
+            "Another team",
+            "--duration",
+            "2m",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stderr)["error"] == "selected_connection_does_not_match_requested_group"
+    assert not commands(case)
+    assert not any(path.endswith("/resources") for path, *_ in case.state.requests)
+    assert case.client.command("lock", ["node-a"], [], "2m", group="Compute team")["verified"]
+
+
 def test_packaged_command_rejects_ambiguous_multi_node_card_selection(case):
     case.state.bot_type = "DEVICE"
     project = case.tmp / "project"

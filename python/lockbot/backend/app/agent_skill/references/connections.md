@@ -40,8 +40,8 @@ supported; the helper is the recommended fixed path, not a new server requiremen
 complete installed bundle, then use it for supported calls. `python3` below is an example;
 `python` or Windows `py -3` may be candidates, but verify their actual version. If no suitable
 runtime/installer/network is available, do not install dependencies without authorization or
-claim the helper ran. Use an existing authorized HTTP tool with the same identity, rules and
-readback checks, and report the helper limitation. Keep each connection's approved
+claim the helper ran. Use the [HTTP fallback](http-api.md) for authorized reads. Explain
+that resource writes require the CLI. Keep each connection's approved
 service/instance/bot and private key-file reference; never put raw keys in argv or Skill text. Install/reload a changed bundle before mutation. Supply exact nodes/cards
 and explicit durations for new acquisitions, bookings and renewals. Claim an existing
 booking with `--operation claim` without a duration. For an existing holding, `renew`
@@ -259,55 +259,15 @@ Agents share each group key but track their own tasks separately:
   the result. Avoid bare `free`/`unlock`, which affects the user's other Agents too. Retain
   the shared key; do not unbind it merely because one task has finished.
 
-### Store the relationship; choose your own format
+### Resume from a saved connection
 
-Reuse the Agent's existing private credential/configuration store. Do not require the
-user to install a new memory system or maintain a particular JSON file. Each saved
-connection needs a friendly name, approved origin, verified instance/bot/user identity,
-and the reference to its securely stored key. Keep the last verified skill revision too.
-No resource directory needs to be stored permanently: discover it from the live API.
+Use `connections` from the current project. Load the existing verified connection
+for the intended service, group and actor. Use `init`, `enroll` or `recover` to create
+connection records in the CLI's private catalog. Save each service and group's Key
+separately. Keep connection and Key files out of Git and shared notes.
 
-If no suitable store exists, this optional flat JSON example is sufficient:
-
-```json
-{
-  "schema_version": 1,
-  "connections": [
-    {
-      "label": "Development group",
-      "origin": "https://service-a.example.invalid",
-      "instance_id": "<server.instance_id>",
-      "bot_uuid": "<bot.uuid>",
-      "bot_id": 1,
-      "actor": {"platform": "Infoflow", "external_user_id": "<actor.external_user_id>"},
-      "credential_ref": "<private-store reference for bot A>",
-      "skill_revision": "<verified revision>"
-    },
-    {
-      "label": "Testing group",
-      "origin": "https://service-a.example.invalid",
-      "instance_id": "<server.instance_id>",
-      "bot_uuid": "<another bot.uuid>",
-      "bot_id": 2,
-      "actor": {"platform": "Infoflow", "external_user_id": "<actor.external_user_id>"},
-      "credential_ref": "<private-store reference for bot B>",
-      "skill_revision": "<verified revision>"
-    }
-  ]
-}
-```
-
-`schema_version` versions this optional local format, not the server API or Skill.
-Populate identities from confirmed context; the numeric bot ID and friendly name alone
-are not enough to identify a credential scope. Both bots may contain `node1`: select the
-bot connection first, then load its key. Another service gets a separate connection.
-`credential_ref` is a reference, never a raw key; no particular credential-store product
-or URI syntax is required. Keep configuration private and out of Git and shared notes.
-
-Track task allocations separately as described above; update only the current task's
-records after verified changes, coordinating concurrent writers to avoid lost updates.
-On resume, recheck context and live resources. Do not move a key after a redirect, origin
-change or instance replacement, and do not try other connections' keys after a failure.
+Keep task-allocation records separate from credentials. Recheck context and live
+resources on resume. Ask for the service or group when multiple records match.
 
 ## Version checks and compatible updates
 
