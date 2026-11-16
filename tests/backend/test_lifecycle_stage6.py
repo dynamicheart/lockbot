@@ -80,6 +80,28 @@ def test_public_doc_sections_localize_group_names_and_credentials(client):
             assert description in schema["components"]["securitySchemes"][key]["description"]
 
 
+def test_provisioning_operations_use_only_configuration_credentials(client):
+    paths = ("/api/bot-provisioning/preview", "/api/bot-provisioning/apply")
+
+    def provision():
+        return {}
+
+    # Exercise these routes even when the separate provisioning feature has not been merged.
+    registered = client.app.openapi()["paths"]
+    for path in paths:
+        if path not in registered:
+            client.app.add_api_route(path, provision, methods=["POST"], tags=["Public API"])
+    client.app.openapi_schema = None
+
+    for scope in ("agent", "op", "configuration"):
+        schema = client.get("/api/public-openapi.json", params={"scope": scope}).raise_for_status().json()
+        for path in paths:
+            if scope == "configuration":
+                assert schema["paths"][path]["post"]["security"] == [{"ConfigurationKey": []}]
+            else:
+                assert path not in schema["paths"]
+
+
 def test_public_schema_uses_detailed_notes_wording_without_removing_personal_fields(client):
     for url in ("/api/public-openapi.json", "/openapi.json"):
         doc = client.get(url).json()
