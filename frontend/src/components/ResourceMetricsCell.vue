@@ -1,6 +1,21 @@
 <template>
-  <div v-if="enabled" class="resource-metrics">
-    <span v-if="error" class="is-muted" :title="$t('utilization.contactAdmin')">{{
+  <div v-if="enabled || reportedSample" class="resource-metrics">
+    <template v-if="reportedSample">
+      <span v-if="reportedExpired" class="is-muted">{{ $t('utilization.stale') }}</span>
+      <div v-else class="reported-values">
+        <span v-if="resourceId" class="device-name">{{
+          deviceName(resourceId.split(':dev').at(-1))
+        }}</span>
+        <span
+          >{{ $t('utilization.compute') }}
+          {{ reportedPercent(reportedSample.compute_percent) }}</span
+        >
+        <span
+          >{{ $t('utilization.memory') }} {{ reportedPercent(reportedSample.memory_percent) }}</span
+        >
+      </div>
+    </template>
+    <span v-else-if="error" class="is-muted" :title="$t('utilization.contactAdmin')">{{
       $t('utilization.unavailable')
     }}</span>
     <template v-else>
@@ -96,18 +111,29 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { loadLevel } from '../utils/utilization/display'
-import { formatResourceTime } from '../utils/resourceTime'
+import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
 import { metricStatus, resolveCards, resolveHost } from '../utils/utilization/prometheus'
 const props = defineProps({
   enabled: Boolean,
   config: { type: Object, default: null },
   snapshot: { type: Object, default: null },
+  reportedSample: { type: Object, default: null },
   error: { type: String, default: null },
   nodeId: { type: String, required: true },
   resourceId: { type: String, default: null },
   now: { type: Number, default: Date.now },
 })
 const { t, locale } = useI18n()
+const reportedExpired = computed(
+  () => !(parseResourceTime(props.reportedSample?.expires_at) > props.now)
+)
+function reportedPercent(value) {
+  return Number.isFinite(value)
+    ? new Intl.NumberFormat(locale.value, { style: 'percent', maximumFractionDigits: 1 }).format(
+        value / 100
+      )
+    : t('utilization.unavailable')
+}
 const cards = computed(() =>
   resolveCards(props.snapshot, props.config, props.nodeId, props.resourceId)
 )
@@ -177,6 +203,15 @@ function loadClass(card) {
   grid-template-columns: 36px 34px minmax(0, 1fr);
   align-items: baseline;
   gap: 5px;
+}
+.reported-values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.reported-values > span {
+  white-space: nowrap;
 }
 .card-unavailable {
   grid-column: 2 / -1;

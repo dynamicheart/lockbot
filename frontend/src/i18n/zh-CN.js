@@ -377,6 +377,7 @@ export default {
 
     invalid: '数据异常',
     title: '利用率',
+    cardAverage: '卡平均利用率 {percent}%',
     show: '显示利用率',
     configure: '数据源',
     purpose: '从指标服务读取节点和卡的利用率，并显示在资源页面。',

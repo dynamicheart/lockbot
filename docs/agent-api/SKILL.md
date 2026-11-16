@@ -497,6 +497,10 @@ is absent or unfamiliar, use the existing native or browser workflow.
 These reports show only your authorized allocations. Treat unknown or stale
 reports as incomplete and never infer that a resource is free. Reported
 resources confer no command authority.
+An allocation may include `utilization_sample` with `compute_percent` and
+`memory_percent`. Interpret each number as a percentage, with 0 a valid
+reading and null an unavailable metric. Use the group's `source_at` as its
+sample time. Check the sample's `expires_at` before reporting current usage.
 
 ## Optional resource guidance
 

@@ -1,5 +1,6 @@
 """The agent has no browser. Only the human browser receives a persistent session."""
 
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -369,3 +370,43 @@ def test_third_party_reports_cannot_supply_owner_task_details(env):
         assert "own_task" not in response.text
         assert "untrusted aftermarket note" not in response.text
         assert "utilization" not in response.text
+
+
+def test_reporter_samples_are_scoped_and_expire_in_both_browser_endpoints(env):
+    directory, agent, browser = env
+    snapshot = directory.report
+    now = datetime.now(timezone.utc)
+    deadline = (now + timedelta(seconds=45)).isoformat()
+
+    def report(grant):
+        groups = snapshot(grant)
+        group = groups[0]
+        group["source_at"] = now.isoformat()
+        group["allocations"][0]["utilization_sample"] = {
+            "compute_percent": 0,
+            "memory_percent": None,
+            "expires_at": deadline,
+            "raw": "discard sample payload",
+        }
+        group["allocations"] += [
+            {
+                "kind": "reservation",
+                "node": "queued",
+                "utilization_sample": group["allocations"][0]["utilization_sample"],
+            },
+            {
+                "kind": "hold",
+                "node": "expired-sample",
+                "utilization_sample": {"expires_at": (now - timedelta(seconds=1)).isoformat()},
+            },
+        ]
+        return groups
+
+    directory.report = report
+    assert post(browser, "login", {"ticket": issue(agent, "a-secret"), "mode": "replace"}).status_code == 200
+    for path in ("resources", "resources-stream"):
+        response = browser.get("/me/" + path)
+        assert response.status_code == 200
+        assert response.text.count('"utilization_sample"') == 1
+        assert '"compute_percent"' in response.text and '"memory_percent"' in response.text
+        assert "discard sample payload" not in response.text
