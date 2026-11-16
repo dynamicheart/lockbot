@@ -19,9 +19,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from functools import lru_cache
 from pathlib import Path
 
 SERVICE = "lockbot.resource-api"
@@ -186,15 +187,224 @@ def same_origin_url(base, link):
     return target
 
 
+class WindowsPrivateFiles:
+    """Handle-based ACL checks and protected creation on a local Windows volume."""
+
+    _ADMINISTRATORS = "S-1-5-32-544"
+    _SYSTEM = "S-1-5-18"
+    _READ = 0x80000000
+    _WRITE = 0x40000000
+    _READ_CONTROL = 0x20000
+    _OPEN_EXISTING = 3
+    _CREATE_NEW = 1
+    _DISK = 1
+    _DIRECTORY = 0x10
+    _REPARSE_POINT = 0x400
+    _OPEN_REPARSE_POINT = 0x00200000
+    _BACKUP_SEMANTICS = 0x02000000
+    _PERSISTENT_ACLS = 8
+
+    def __init__(self):
+        import ctypes as c
+        import msvcrt
+        from ctypes import wintypes as w
+
+        self.c, self.msvcrt = c, msvcrt
+        kernel = c.WinDLL("kernel32", use_last_error=True)
+        security = c.WinDLL("advapi32", use_last_error=True)
+        address, handle, word, material = c.c_void_p, w.HANDLE, w.DWORD, w.LPCWSTR
+        self.address, self.word = address, word
+        pointer, pointer_word = c.POINTER(address), c.POINTER(word)
+
+        def bind(library, name, result, *arguments):
+            operation = getattr(library, name)
+            operation.restype = result
+            operation.argtypes = arguments
+            return operation
+
+        self.close = bind(kernel, "CloseHandle", w.BOOL, handle)
+        self.free = bind(kernel, "LocalFree", address, address)
+        self.open = bind(kernel, "CreateFileW", handle, material, word, word, address, word, word, handle)
+        self.make_directory = bind(kernel, "CreateDirectoryW", w.BOOL, material, address)
+        self.drive_type = bind(kernel, "GetDriveTypeW", w.UINT, material)
+        self.file_type = bind(kernel, "GetFileType", word, handle)
+        self.attributes = bind(kernel, "GetFileInformationByHandleEx", w.BOOL, handle, c.c_int, address, word)
+        self.volume = bind(
+            kernel,
+            "GetVolumeInformationByHandleW",
+            w.BOOL,
+            handle,
+            w.LPWSTR,
+            word,
+            pointer_word,
+            pointer_word,
+            pointer_word,
+            w.LPWSTR,
+            word,
+        )
+        self.get_security = bind(security, "GetSecurityInfo", word, handle, c.c_int, word, *[pointer] * 5)
+        self.acl_info = bind(security, "GetAclInformation", w.BOOL, address, address, word, c.c_int)
+        self.get_ace = bind(security, "GetAce", w.BOOL, address, word, pointer)
+        self.convert_sid = bind(security, "ConvertSidToStringSidW", w.BOOL, address, pointer)
+        self.convert_descriptor = bind(
+            security,
+            "ConvertStringSecurityDescriptorToSecurityDescriptorW",
+            w.BOOL,
+            material,
+            word,
+            pointer,
+            pointer_word,
+        )
+
+        class SecurityAttributes(c.Structure):
+            _fields_ = [("size", word), ("descriptor", address), ("inherit_handle", w.BOOL)]
+
+        self.SecurityAttributes = SecurityAttributes
+        get_process = bind(kernel, "GetCurrentProcess", handle)
+        open_token = bind(security, "OpenProcessToken", w.BOOL, handle, word, c.POINTER(handle))
+        token_info = bind(security, "GetTokenInformation", w.BOOL, handle, c.c_int, address, word, pointer_word)
+        token, size = handle(), word()
+        if not open_token(get_process(), 8, c.byref(token)):  # TOKEN_QUERY
+            raise c.WinError(c.get_last_error())
+        try:
+            token_info(token, 1, None, 0, c.byref(size))  # TokenUser
+            buffer = c.create_string_buffer(size.value)
+            if not token_info(token, 1, buffer, size, c.byref(size)):
+                raise c.WinError(c.get_last_error())
+            self.user = self._sid(c.cast(buffer, pointer).contents)
+        finally:
+            self.close(token)
+        self.allowed = {self.user, self._ADMINISTRATORS, self._SYSTEM}
+
+    def _sid(self, sid):
+        text = self.address()
+        if not sid or not self.convert_sid(sid, self.c.byref(text)):
+            raise ClientError("windows_private_acl_unavailable")
+        try:
+            return self.c.wstring_at(text)
+        finally:
+            self.free(text)
+
+    def _local_path(self, path):
+        path = Path(path).absolute()
+        # Exclude network and device namespaces, and alternate data streams.
+        if (
+            not re.fullmatch(r"[A-Za-z]:", path.drive)
+            or ":" in str(path)[2:]
+            or self.drive_type(path.anchor) not in (2, 3)  # removable or fixed local drive
+        ):
+            raise ClientError("windows_private_local_path_required")
+        return str(path)
+
+    def _validate(self, handle, *, directory):
+        c = self.c
+        attributes = (self.word * 2)()
+        flags = self.word()
+        if (
+            self.file_type(handle) != self._DISK
+            or not self.attributes(handle, 9, attributes, c.sizeof(attributes))  # FileAttributeTagInfo
+            or attributes[0] & self._REPARSE_POINT
+            or bool(attributes[0] & self._DIRECTORY) != directory
+            or not self.volume(handle, None, 0, None, None, c.byref(flags), None, 0)
+            or not flags.value & self._PERSISTENT_ACLS
+        ):
+            raise ClientError("windows_private_acl_unavailable")
+        owner, acl, descriptor = self.address(), self.address(), self.address()
+        # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION.
+        error = self.get_security(handle, 1, 5, c.byref(owner), None, c.byref(acl), None, c.byref(descriptor))
+        try:
+            if error or not acl or self._sid(owner) not in self.allowed:
+                raise ClientError("windows_private_acl_required")
+            sizes = (self.word * 3)()
+            if not self.acl_info(acl, sizes, c.sizeof(sizes), 2):  # AclSizeInformation
+                raise ClientError("windows_private_acl_required")
+            for index in range(sizes[0]):
+                ace = self.address()
+                if not self.get_ace(acl, index, c.byref(ace)):
+                    raise ClientError("windows_private_acl_required")
+                kind = c.c_ubyte.from_address(ace.value).value
+                if kind == 1:  # ACCESS_DENIED_ACE_TYPE
+                    continue
+                if kind != 0 or self._sid(ace.value + 8) not in self.allowed:  # ACCESS_ALLOWED_ACE_TYPE
+                    raise ClientError("windows_private_acl_required")
+        finally:
+            if descriptor:
+                self.free(descriptor)
+
+    @contextmanager
+    def _descriptor(self, directory):
+        inheritance = "OICI" if directory else ""
+        sddl = "D:P" + "".join(f"(A;{inheritance};FA;;;{sid})" for sid in sorted(self.allowed))
+        descriptor = self.address()
+        if not self.convert_descriptor(sddl, 1, self.c.byref(descriptor), None):
+            raise self.c.WinError(self.c.get_last_error())
+        try:
+            attrs = self.SecurityAttributes(self.c.sizeof(self.SecurityAttributes), descriptor, False)
+            yield self.c.byref(attrs)
+        finally:
+            self.free(descriptor)
+
+    def _open_handle(self, path, *, directory=False, create=False, descriptor=None):
+        handle = self.open(
+            self._local_path(path),
+            (self._WRITE if create else self._READ) | self._READ_CONTROL,
+            1,
+            descriptor,
+            self._CREATE_NEW if create else self._OPEN_EXISTING,
+            self._OPEN_REPARSE_POINT | (self._BACKUP_SEMANTICS if directory else 0),
+            None,
+        )
+        if handle == self.address(-1).value or handle is None:
+            raise self.c.WinError(self.c.get_last_error())
+        try:
+            self._validate(handle, directory=directory)
+        except BaseException:
+            self.close(handle)
+            raise
+        return handle
+
+    def validate_directory(self, path):
+        self.close(self._open_handle(path, directory=True))
+
+    def mkdir(self, path, *, parents=False, exist_ok=False):
+        if parents:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        with self._descriptor(True) as descriptor:
+            if not self.make_directory(self._local_path(path), descriptor):
+                error = self.c.get_last_error()
+                if error != 183 or not exist_ok:  # ERROR_ALREADY_EXISTS
+                    raise self.c.WinError(error)
+        self.validate_directory(path)
+
+    def open_fd(self, path, *, create=False):
+        if create:
+            with self._descriptor(False) as descriptor:
+                handle = self._open_handle(path, create=True, descriptor=descriptor)
+        else:
+            handle = self._open_handle(path)
+        try:
+            mode = os.O_WRONLY if create else os.O_RDONLY
+            return self.msvcrt.open_osfhandle(handle, mode | os.O_BINARY)
+        except BaseException:
+            self.close(handle)
+            raise
+
+
+@lru_cache(maxsize=1)
+def windows_private_files():
+    return WindowsPrivateFiles()
+
+
 def private_bytes(path):
     path = Path(path)
     try:
         # Check the opened file without following symlinks or waiting on a pipe.
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        descriptor = os.open(path, flags)
+        windows = os.name == "nt"
+        descriptor = windows_private_files().open_fd(path) if windows else os.open(path, flags)
         with os.fdopen(descriptor, "rb") as stream:
             info = os.fstat(stream.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > 16384:
+            if not stat.S_ISREG(info.st_mode) or (not windows and info.st_mode & 0o077) or info.st_size > 16384:
                 raise ClientError("private_file_permissions_or_size")
             return stream.read(16385)
     except OSError as exc:
@@ -217,12 +427,26 @@ def connection_catalog(scope):
     return Path.home() / ".config/lockbot/connections"
 
 
+def private_directory(path, error):
+    if os.name == "nt":
+        windows_private_files().validate_directory(path)
+        return
+    mode = path.lstat().st_mode
+    if not stat.S_ISDIR(mode) or mode & 0o077:
+        raise ClientError(error)
+
+
+def make_private_directory(path, *, parents=False, exist_ok=False):
+    if os.name == "nt":
+        windows_private_files().mkdir(path, parents=parents, exist_ok=exist_ok)
+    else:
+        path.mkdir(mode=0o700, parents=parents, exist_ok=exist_ok)
+
+
 def new_catalog_entry(scope, name=None):
     root = connection_catalog(scope)
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    mode = root.lstat().st_mode
-    if not stat.S_ISDIR(mode) or mode & 0o077:
-        raise ClientError("private_connection_directory_required")
+    make_private_directory(root, parents=True, exist_ok=True)
+    private_directory(root, "private_connection_directory_required")
     return root.resolve() / (name or secrets.token_hex(16))
 
 
@@ -238,11 +462,9 @@ def listed_connections(directory=None):
     unavailable_count = 0
     for scope, root in catalogs:
         try:
-            mode = root.lstat().st_mode
+            private_directory(root, "private_connection_directory_required")
         except FileNotFoundError:
             continue
-        if not stat.S_ISDIR(mode) or mode & 0o077:
-            raise ClientError("private_connection_directory_required")
         root = root.resolve()
         paths = catalog_records(root, "connection.json")
         completed = set()
@@ -280,16 +502,25 @@ def catalog_records(root, filename):
 
 def write_private(path, content, *, replace=False):
     path = Path(path)
-    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as stream:
-        temporary = Path(stream.name)
-        try:
-            stream.write(content)
-            stream.close()
-            if replace:
-                temporary.replace(path)
+    temporary = None
+    try:
+        with ExitStack() as streams:
+            if os.name == "nt":
+                storage = windows_private_files()
+                storage.validate_directory(path.parent)
+                target = path.parent / (".lockbot-" + secrets.token_hex(16))
+                stream = streams.enter_context(os.fdopen(storage.open_fd(target, create=True), "wb"))
+                temporary = target
             else:
-                os.link(temporary, path)
-        finally:
+                stream = streams.enter_context(tempfile.NamedTemporaryFile(dir=path.parent, delete=False))
+                temporary = Path(stream.name)
+            stream.write(content)
+        if replace:
+            temporary.replace(path)
+        else:
+            os.link(temporary, path)
+    finally:
+        if temporary is not None:
             temporary.unlink(missing_ok=True)
 
 
@@ -306,9 +537,7 @@ def enrollment_group(value):
 
 def enrollment_state(directory):
     path = Path(directory).absolute()
-    info = path.lstat()
-    if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
-        raise ClientError("private_enrollment_directory_required")
+    private_directory(path, "private_enrollment_directory_required")
     return path, private_json(path / "enrollment.json")
 
 
@@ -814,7 +1043,7 @@ class Client:
             self._save_connection(context, destination)
         else:
             directory = new_catalog_entry(scope)
-            directory.mkdir(mode=0o700)
+            make_private_directory(directory)
             destination = directory / "connection.json"
             try:
                 self._save_connection(context, destination)
@@ -854,7 +1083,7 @@ class Client:
         if path is None:
             path = new_catalog_entry(scope)
         try:
-            path.mkdir(mode=0o700)
+            make_private_directory(path)
         except FileExistsError as exc:
             raise ClientError("recovery_directory_exists") from exc
         response = self._request(endpoint, method="POST", token=self.key, readonly=False)
@@ -865,7 +1094,7 @@ class Client:
             entry = {"bot": bot, "status": "existing" if current else "unavailable"}
             if key is not None and not current:
                 target = path / bot["uuid"]
-                target.mkdir(mode=0o700)
+                make_private_directory(target)
                 write_private(target / "key", key.encode())
                 connection = {
                     "approved_origin": self.base,
@@ -968,7 +1197,7 @@ class Client:
         if label is not None:
             state["agent_label"] = label
         try:
-            path.mkdir(mode=0o700)
+            make_private_directory(path)
         except FileExistsError as exc:
             raise ClientError("enrollment_directory_exists") from exc
         write_private(path / "enrollment.json", json.dumps(state).encode())
@@ -1902,9 +2131,6 @@ def main(argv=None):
     args = parser.parse_args(argv)
     client = None
     try:
-        public_only = args.action == "install" or (args.action == "discover" and not args.destination)
-        if os.name == "nt" and not public_only:
-            raise ClientError("windows_private_acl_unavailable")
         if args.action == "connections":
             if args.connection:
                 raise ClientError("connection_not_used_for_listing")

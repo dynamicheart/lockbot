@@ -26,8 +26,11 @@ def test_portable_package_and_private_key_boundary(tmp_path):
         "api_version": "1",
         "instance_id": "runtime-fixture",
         "context_url": "/api/agent/context",
+        "enrollment_url": "/api/resource-auth/bindings",
     }
     fixture_key = "lbr_" + "runtimefixture" * 3
+    enrollment_id = "x" * 22
+    binding_confirmed = False
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -35,8 +38,20 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             pass
 
         def do_POST(self):
-            requests.append((self.path, bool(self.headers.get("Authorization"))))
-            self.send_error(405)
+            authorization = bool(self.headers.get("Authorization"))
+            requests.append((self.path, authorization))
+            if self.path == manifest["enrollment_url"] and not authorization:
+                self.respond(
+                    201,
+                    {
+                        "binding_id": enrollment_id,
+                        "credential": fixture_key,
+                        "bind_code": "ABCDEFGH",
+                        "bind_expires_at": "2030-01-01T00:00:00Z",
+                    },
+                )
+            else:
+                self.send_error(405)
 
         def do_GET(self):
             authorization = self.headers.get("Authorization")
@@ -45,6 +60,14 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                 status, body = 200, manifest
             elif self.path == metadata["installation"]["download_url"] and not authorization:
                 status, body = 200, archive
+            elif self.path == manifest["enrollment_url"] + "/" + enrollment_id and not authorization:
+                status, body = (
+                    200,
+                    {
+                        "binding_id": enrollment_id,
+                        "status": "confirmed" if binding_confirmed else "pending",
+                    },
+                )
             elif self.path == "/api/agent/context" and authorization == "Bearer " + fixture_key:
                 status, body = (
                     200,
@@ -69,6 +92,9 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                 )
             else:
                 status, body = 403, {}
+            self.respond(status, body)
+
+        def respond(self, status, body):
             data = body if isinstance(body, bytes) else json.dumps(body).encode()
             self.send_response(status)
             self.send_header("Content-Length", str(len(data)))
@@ -111,23 +137,26 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             before = len(requests)
             initialize = ("init", "--origin", origin, "--scope", "project", "--key-file", str(key))
             if os.name == "nt":
-                # chmod cannot establish a private Windows DACL. Refuse before transmitting the Key.
-                private_target = tmp_path / "private-destination"
-                for command in (
-                    initialize,
-                    ("connections",),
-                    ("discover", "--origin", origin, "--destination", str(private_target)),
-                    ("enroll", "--origin", origin, "--destination", str(private_target), "--authorized"),
-                    ("key-challenge", "--origin", origin, "--destination", str(private_target), "--authorized"),
-                    ("finish-enrollment", "--enrollment-dir", str(private_target)),
-                    ("--connection", str(private_target), "recover"),
-                ):
-                    assert cli(script, *command, code=2)["error"] == "windows_private_acl_unavailable"
-                assert requests[before:] == []
-                assert not private_target.exists()
-                assert not (tmp_path / ".lockbot/connections").exists()
-                assert cli(script, "discover", "--origin", origin)["instance_id"] == manifest["instance_id"]
-                print(f"{version} Windows: ZIP installed, private enrollment and Key use refused before IO")
+                pending = cli(script, "enroll", "--origin", origin, "--scope", "project", "--authorized")
+                assert pending["status"] == "pending"
+                directory = pending["enrollment_dir"]
+                initial = cli(script, "finish-enrollment", "--enrollment-dir", directory)
+                assert initial["status"] == "pending" and not initial["connection_created"]
+                binding_confirmed = True
+                initialized = cli(script, "finish-enrollment", "--enrollment-dir", directory)
+                listed = cli(script, "connections", "--directory", ".lockbot/connections")
+                assert listed["connections"][0]["connection"] == initialized["connection"]
+                checked = cli(script, "--connection", initialized["connection"], "resources")
+                assert checked["resources"][0]["id"] == "runtime-node"
+
+                # Introduce an actual grant to Everyone on a synthetic file only.
+                subprocess.run(
+                    ["icacls", str(key), "/grant", "*S-1-1-0:(R)"], capture_output=True, timeout=10, check=True
+                )
+                before = len(requests)
+                assert cli(script, *initialize, code=2)["error"] == "windows_private_acl_required"
+                assert requests[before:] == [("/api/agent-skill", False)]
+                print(f"{version} Windows: ZIP installed, binding resumed, and broad ACL refused")
             else:
                 initialized = cli(script, *initialize)
                 checked = cli(script, "--connection", initialized["connection"], "resources")

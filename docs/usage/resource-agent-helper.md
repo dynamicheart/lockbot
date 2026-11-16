@@ -19,10 +19,11 @@ HTTP API remains available through an already authorized HTTP tool/credential st
 the same service/instance/context/rules/readback and no-replay procedure. Installing Markdown
 or downloading a ZIP does not prove the script can execute.
 
-The Windows runner covers ZIP installation with `py -3`. Native Windows can also read the public
-service manifest. Commands that save service metadata, bind or recover Keys, or use a saved connection
-return `windows_private_acl_unavailable` before network or private-file access. Those commands require
-Windows ACL support. The macOS and Linux checks exercise valid private files and authenticated reads.
+Native Windows uses `py -3` and local drives with persistent ACLs. Newly created private directories and
+files grant access only to the current account, SYSTEM, and local Administrators. When importing a Key
+or using an explicit destination, use a local private directory and verify the same ACL restrictions.
+Use the normal project or user scope for automatic private directory creation. On macOS and Linux the
+helper continues to use POSIX permissions.
 
 ## Install and initialize
 
