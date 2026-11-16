@@ -25,6 +25,43 @@ installer, unavailable networking and other Agent runtimes remain explicit accep
 Private files are refused when this helper cannot verify its permission constraint; this
 change does not pretend to provide cross-platform ACL handling or Go/Node alternatives.
 
+
+## Register accelerator inventory for whole machines
+
+In a NODE or QUEUE bot's configuration, open **Node hardware → Register hardware**.
+Copy the Agent prompt with the current node IDs and provide an approved machine
+inventory. Paste the generated mapping, review the changes, and save:
+
+```json
+{
+  "version": 1,
+  "nodes": {
+    "node-01": [
+      {"model": "P900", "count": 2},
+      {"model": "P800", "count": 6}
+    ]
+  }
+}
+```
+
+The selected bot's owner or a super administrator can also preview the mapping with
+`POST /api/bots/{id}/node-hardware/preview` and save it with
+`PATCH /api/bots/{id}/node-hardware` using the Console session. Omitted nodes retain
+their existing records. Set a node to an empty list to remove its record. Record
+verified hardware only. An alias, IP address, or metrics label is not a hardware
+record.
+
+An Agent with a valid binding for the bot can read the registered model and count
+in `resources[].accelerators`. For unregistered nodes, the Agent may keep confirmed
+models and known counts in a private `connection.json.node-hardware.json` sidecar.
+The [Skill](../agent-api/SKILL.md) documents the scope and input format. The CLI
+shows the source and inventory as `resources[].local_hardware_note` on matching
+node IDs. A NODE or
+QUEUE resource remains a whole-machine allocation even if its inventory lists
+several cards. Use the live occupancy and queue rules when deciding whether the
+known hardware can be allocated now. The inventory does not alter a lease or
+provide an SSH address.
+
 ## Install and initialize
 
 1. Fetch the approved service's `/api/agent-skill` **without credentials**. Verify `service_id=lockbot.resource-api`, `api_version=1`, the instance identity and namespaced installation descriptor. Follow only same-origin installation URLs and verify the exact ZIP `installation.sha256` before extraction.

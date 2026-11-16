@@ -35,6 +35,7 @@ from lockbot.backend.app.bots.manager import (
 )
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import attach_node_access, saved_node_access
+from lockbot.backend.app.bots.node_hardware import saved_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
@@ -249,6 +250,10 @@ def get_resources(
         platform=platform,
         caller_id=actor.external_user_id,
     )
+    hardware = saved_node_hardware(bot_row)
+    for node in resources:
+        if node["id"] in hardware:
+            node["accelerators"] = hardware[node["id"]]
     attach_node_aliases(resources, aliases)
     attach_node_access(resources, access, actor.external_user_id, datetime.now(timezone.utc))
     response.headers["Cache-Control"] = "no-store"

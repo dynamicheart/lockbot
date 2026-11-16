@@ -13,6 +13,13 @@ A LockBot bot guards shared resources (GPU cards, cluster nodes, or queue slots)
 each personal credential acts as **one verified IM identity on one bot**. One Agent may
 manage several separately scoped service/bot connections.
 
+For a request to acquire available hardware now, resolve the model and count from
+the current resource list, or a confirmed private inventory note when the server lacks
+hardware metadata. On a queue bot, issue `lock` for an idle match with an empty
+`booking_list`, even when `claimable_by_you` is false. That flag describes an existing
+booking, not permission to lock an idle resource. Use `book` when the user requests or
+accepts a reservation.
+
 ## When a user shares this skill URL
 
 <!-- LOCKBOT_DEPLOYMENT_SKILL_URL -->
@@ -128,6 +135,32 @@ For card bots add explicit `--device 0` (repeat for more cards). Private `task.j
 only `task_category`, `agent_label`, `purpose`; choose the category from current context.
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.
+
+For NODE and QUEUE resources, an operator may register accelerator inventory.
+When set, each resource's `accelerators` array lists configured models and counts.
+An absent array means unknown hardware. This is inventory for the entire machine,
+not a count of individually available cards. Match the registered model against the
+user's constraints and verify live occupancy before selecting the machine.
+
+If the server omits `accelerators`, you may keep a private, local hardware note for a
+known node using user-confirmed information or a trusted machine inventory the user
+provides. Save `connection.json.node-hardware.json` next to that connection, with mode
+`0600`, outside the Skill installation. Use the verified origin, instance, bot UUID
+and exact node IDs. Example shape:
+
+```json
+{
+  "version": 1,
+  "scope": {"approved_origin": "https://resources.example.test", "instance_id": "instance-id", "bot_uuid": "bot-uuid"},
+  "nodes": {"node-01": {"source": "Owner inventory, 2026-11-15", "accelerators": [{"model": "P900", "count": 2}]}}
+}
+```
+
+Omit `count` if it is unknown. The helper's `resources` output surfaces matching
+notes as `local_hardware_note` only where the server has no registered inventory.
+Confirmed local notes can inform model matching; identify their source in the reply.
+Ask before relying on conflicting or uncertain inventory and never infer a card
+model from a node name. Occupancy, queue order and permission still come from the live service.
 
 After acquiring a node or a card, use the verified resource snapshot from the helper's
 `resources` command to look for `node_access` on your current holding. It contains the
@@ -603,6 +636,15 @@ not its display label. Ordinary DEVICE bots retain their existing node-scoped de
 
 ### QUEUE / QUEUE_DEVICE: booking is not task completion
 
+For an immediate request such as “申请一台空闲整机”, inspect live occupancy and the
+booking list. If the matching node or card is idle and its queue is empty, send
+`lock` directly. If it is already claimable by you, use the advertised claim
+command. `claimable_by_you: false` only means there is no booking you can claim;
+an idle resource with an empty `booking_list` still supports direct `lock`.
+Use `book` for an explicit reservation or when the user accepts waiting
+for a busy or queued resource. A conflict on an immediate request calls for a
+fresh read, not an automatic reservation.
+
 If the user asks you to acquire/use a resource, do **not** finish after `book`. Booking only
 reserves a queue position. Keep monitoring `/resources` yourself; do not wait for the human
 or a group @mention to make the next API call. The `book` response's `next_step` repeats this.
@@ -612,7 +654,7 @@ for your actor. Only then start the workload. If another holder remains, keep wa
 backoff. If you cannot keep monitoring, tell the user that you are **only queued**, not holding.
 
 ```text
-POST commands: book <resource> <duration> (include Agent name and purpose)
+For an authorized reservation, POST commands: book <resource> <duration> (include Agent name and purpose)
 repeat, respecting polling intervals and Retry-After:
     GET resources
     if the resource has my verified live holding: start/continue work; leave this loop
