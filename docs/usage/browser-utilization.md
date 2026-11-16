@@ -135,4 +135,4 @@ Multiple isolated sources must not share an HMAC signing secret. Configure the d
 
 ## 交给 Agent 配置
 
-提供已批准机器范围、Lockbot 服务地址和目标 bot/资源，让 Agent 使用 [数据源接入 Skill](../../skills/lockbot-datasource-setup/SKILL.md) 核验环境、生成可复制字段和映射、执行已授权接入并报告验证范围。当前支持的真实适配器与未实现的新协议须分开判断。凭证不包含在可分享配置内；授权机制见 [数据源授权说明](datasource-authorization.md)。
+提供已批准机器范围、Lockbot 服务地址和目标 bot/资源，让 Agent 使用 [Agent 维护说明（AGENTS.md）](../agents/AGENTS.md#maintenance) 核验环境、生成可复制字段和映射、执行已授权接入并报告验证范围。当前支持的真实适配器与未实现的新协议须分开判断。凭证不包含在可分享配置内；授权机制见 [数据源授权说明](datasource-authorization.md)。

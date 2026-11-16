@@ -37,7 +37,7 @@
       >
       <a
         class="setup-guide agent-setup-guide"
-        href="https://github.com/dynamicheart/lockbot/blob/main/skills/lockbot-datasource-setup/SKILL.md"
+        href="https://github.com/dynamicheart/lockbot/blob/main/docs/agents/AGENTS.md#maintenance"
         target="_blank"
         rel="noopener noreferrer"
         >{{ $t('utilization.agentSetupGuide') }}</a

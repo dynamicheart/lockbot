@@ -17,3 +17,7 @@ The empty creation dialog was canceled and confirmed hidden. Capture did not cre
 Permission names and menu locations are observations of the official UI. Approval and availability still depend on each enterprise. The guide distinguishes core resource commands from optional name/group-display capabilities, and API-call permission from field permission.
 
 The 2026-10-30 follow-up reviewed all six existing clips and captured only the robot capability card from the authorized test enterprise. No Configure/Add button was clicked. The version-management page was inspected read-only; no version was created, permission changed, publication/approval submitted or message sent. A release-entry image is not a record of a new approval, and the repository does not contain a version form, member-range selection or approval-flow screenshot. The guide lists these remaining evidence boundaries explicitly. No corporate-enterprise configuration was accessed.
+
+## LockBot console examples
+
+On 2026-11-15, a local LockBot frontend was rendered with synthetic API responses for two additional crops. `lockbot-applications.png` shows the applications table with a synthetic receiver state. `lockbot-group-route.png` shows the creation form with a fictional enterprise application selected and an empty Chat ID field. These images contain no real credentials, groups, or identities. A real receiver handshake and message test were outside this capture.

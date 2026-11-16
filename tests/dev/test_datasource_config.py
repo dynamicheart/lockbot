@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "skills/lockbot-datasource-setup/scripts/generate_config.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "scripts/datasource/generate_config.py"
 spec = importlib.util.spec_from_file_location("datasource_handoff", SCRIPT)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)

@@ -10,6 +10,8 @@ Normal resource-bot settings preserve the selected messaging platform. Test depl
 
 ## Infoflow / 如流
 
+The [illustrated Infoflow guide](../../usage/infoflow-setup.md) shows the LockBot form, the callback handoff, and the first test query.
+
 1. Have the authorized administrator create or select the group robot in Infoflow, enable receiving messages, and obtain its Webhook URL, Token and AES key through that platform's settings. Store them privately; do not substitute Feishu credentials.
 2. Create the corresponding resource bot in Lockbot, choose `Infoflow`, configure nodes/devices and enter its platform credentials. Review renewal/cap/privacy settings before starting it.
 3. Use the callback URL displayed by **that created bot** in Lockbot, normally `/api/bots/webhook/{bot_id}`, in Infoflow's receiving-message settings. Do not copy another bot's callback or assume an ID from an old service.
@@ -17,7 +19,7 @@ Normal resource-bot settings preserve the selected messaging platform. Test depl
 
 ## Feishu / 飞书
 
-Follow the [Feishu integration guide](../../usage/feishu.md) when present in the selected release. The current integration model uses one enterprise self-built application for multiple resource groups, each explicitly mapped to an independent resource bot. Super administrators manage the application and authorize group routes; ordinary bot administration does not grant access to other people's private Agent notes.
+Follow the [illustrated Feishu guide](../../usage/feishu-setup.md) for the initial setup and consult the [integration guide](../../usage/feishu.md) for deployment details. The current integration model uses one enterprise self-built application for multiple resource groups, each explicitly mapped to an independent resource bot. Super administrators manage the application and authorize group routes; ordinary bot administration does not grant access to other people's private Agent notes.
 
 1. In Feishu Open Platform, select the correct enterprise and create/select a self-built app. Add bot capability. Obtain App ID and App Secret from **Credentials and Basic Information**; an arbitrary Lockbot application name is only a management label. Never display a plaintext secret in screenshots.
 2. Configure the intended app availability and data scopes. Use the following application-identity scopes for the complete group-management experience:

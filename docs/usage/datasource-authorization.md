@@ -68,7 +68,7 @@ Agent 直接 HTTP 查询不受浏览器 CORS 限制，但仍需要同样的授�
 
 ## 接入和排查入口
 
-- 把 [数据源接入 Skill](../../skills/lockbot-datasource-setup/SKILL.md) 发给负责配置的 Agent，提供批准的机器范围、Lockbot 地址和目标资源；不在聊天粘贴密钥。
+- 把 [Agent 维护说明（AGENTS.md）](../agents/AGENTS.md#maintenance) 发给负责配置的 Agent，提供批准的机器范围、Lockbot 地址和目标资源；不在聊天粘贴密钥。
 - [可复制配置与浏览器验证](browser-utilization.md)、[产出包和签名配置](telemetry-deployment.md)。
 - [完整技术授权边界](../design/telemetry-authorization.md)，包含多源 signer、容量限制、撤销和升级语义。
 
