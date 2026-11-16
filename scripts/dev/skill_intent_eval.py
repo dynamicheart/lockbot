@@ -1,6 +1,7 @@
 """Synthetic inventory and command readback for packaged-CLI intent tests."""
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -278,7 +279,18 @@ def score(scenario, requests, tools, final):
         suffixes = {row["url"].split("/api/")[-1] for row in reads}
         if scenario == "intent-ambiguous":
             checks["both_candidate_groups_examined"] = resource_paths <= suffixes
-            checks["asks_which_target"] = any(word in final for word in ("哪个", "哪一", "确认", "选择"))
+            explicit_question = re.search(
+                r"哪(?:个|一个|一台|台)[^。！？!?]{0,8}(?:群|节点|机器|资源)[^。！？!?\n]{0,16}[？?]", final
+            )
+            both_targets = all(name in final for name in (CARDS, MACHINES)) or all(
+                node in final for node in (TRAINING_NODE, MACHINE_NODE)
+            )
+            choice = re.search(
+                r"(?:请|麻烦|需要[你您])[^\n。！？!?]{0,10}(?:选|确认)"
+                r"|[你您](?:想|要|希望)[^。！？!?]+还是[^。！？!?]+[？?]",
+                final,
+            )
+            checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
         elif scenario == "intent-model-find":
             checks["both_models_reported"] = all(
                 token in final.lower() for token in ("node-10", "node-20", "p800", "p900")

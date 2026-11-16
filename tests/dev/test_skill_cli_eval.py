@@ -284,6 +284,21 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
 
 
 @pytest.mark.parametrize(
+    ("reply", "asks"),
+    [
+        ("你指的是哪个群？", True),
+        ("整机队列群的 node-20 已有人用。加速卡群的 node-10 按卡分配。请选一个方案。", True),
+        ("node-20 是整机，node-10 可锁卡。您要排队预约整机，还是改锁空闲卡？", True),
+        ("已确认整机队列群和加速卡群都有训练节点。", False),
+        ("我已经决定用哪个群了。", False),
+        ("请确认。", False),
+    ],
+)
+def test_ambiguous_target_accepts_explicit_options_without_keyword(reply, asks):
+    assert evaluation.intent.score("intent-ambiguous", [], [], reply)["asks_which_target"] is asks
+
+
+@pytest.mark.parametrize(
     ("scenario", "group", "node", "model", "minimum", "devices"),
     [
         ("intent-model-p800-unknown-node", "整机队列群", "node-20", "P800", None, []),
