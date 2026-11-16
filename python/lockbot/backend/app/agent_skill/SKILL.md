@@ -23,17 +23,17 @@ grants out of replies, command arguments, Skill files and shared memory.
 
 ## Quick start with a saved connection
 
-Set `LOCKBOT_CLI` to the absolute path of `scripts/lockbot_resource.py` beside this
-`SKILL.md`. Run from the project directory so project-scoped connections can be found.
-Use Python 3.10 or newer.
+Use Python 3.10 or newer. Run from the project root. Substitute the actual absolute path
+of `scripts/lockbot_resource.py` beside this `SKILL.md` and run each CLI command directly.
+Pass literal paths so a client's command allowlist can match the invocation.
 
 ```sh
-python3 "$LOCKBOT_CLI" connections
-python3 "$LOCKBOT_CLI" --connection "$CONNECTION" resources
-python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --device 1 --device-count 2 --model P800 --duration 30m
+python3 "/path/to/skill/scripts/lockbot_resource.py" connections
+python3 "/path/to/skill/scripts/lockbot_resource.py" --connection "/path/to/connection.json" resources
+python3 "/path/to/skill/scripts/lockbot_resource.py" --connection "/path/to/connection.json" command --operation lock --node node-01 --device 0 --device 1 --device-count 2 --model P800 --duration 30m
 ```
 
-Set `CONNECTION` to the matching private file listed by `connections`. Replace the
+Use the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
 stop after `resources`. Use `command --help` for all write arguments.
 
@@ -76,7 +76,7 @@ stop after `resources`. Use `command --help` for all write arguments.
    you a Key file, run `init --key-file` first to save a verified connection, then pass
    that connection to resource commands. The service resolves the bot from the Key.
 4. If the user asks to save a credential in this project, run from the project root and
-   select `--scope project` for `init`, `enroll` or `recover`. Use only the project's
+   select `--scope project` for `init`, `key-challenge`, `enroll` or `recover`. Use only the project's
    catalog for a project-only setup. Default writes go to the system user's private
    catalog. Choose the command options yourself and report where the connection was saved.
 5. To restore access, first look for an existing connection or personal Key on the

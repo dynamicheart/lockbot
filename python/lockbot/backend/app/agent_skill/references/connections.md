@@ -1,7 +1,9 @@
 # Bundled CLI
 
-From the project directory, set `LOCKBOT_CLI` to the absolute path of the bundled
-`scripts/lockbot_resource.py` beside the installed `SKILL.md`. `--help` lists commands, and
+From the project directory, invoke the bundled `scripts/lockbot_resource.py` beside the
+installed `SKILL.md` directly. In examples, replace `$LOCKBOT_CLI` with the script's
+absolute path and substitute the actual connection or enrollment paths before running.
+`--help` lists commands, and
 `<subcommand> --help` describes the arguments. Select an existing private connection
 with `--connection <file>` before the subcommand.
 
@@ -16,7 +18,7 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
 | --- | --- |
 | Verify a server or install the ZIP | `discover` or `install` |
 | Set up access with an existing Key file | `init` |
-| Request a binding and finish after the user confirms | `enroll`, then `finish-enrollment` |
+| Request a binding and finish after the user confirms | `key-challenge`, then `finish-enrollment` |
 | Find or verify a saved connection | `connections` or `context` |
 | Read status or use an exact resource | `resources` or `command` |
 | Open the workbench or check utilization | `panel-link` or `metrics` |
