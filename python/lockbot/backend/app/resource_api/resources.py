@@ -51,12 +51,18 @@ from lockbot.backend.app.resource_api.snapshot import (
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
 from lockbot.backend.app.resource_auth.authority import authority_guard
-from lockbot.backend.app.resource_auth.dependencies import ResourceActor, require_resource_actor, reverify_actor
+from lockbot.backend.app.resource_auth.dependencies import (
+    ResourceActor,
+    require_agent_resource_actor,
+    require_resource_actor,
+    reverify_actor,
+)
 from lockbot.core.platforms.registry import normalize_platform_name
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
+agent_router = APIRouter(prefix="/api/agent", tags=["Public API"])
 
 #: Chosen together with the minimum poll interval. A compliant agent polling at its tier's
 #: interval mostly hits the cache, so sustained polling costs roughly one locked deep copy
@@ -175,7 +181,7 @@ snapshot_cache = _SnapshotCache()
 bot_manager.register_retire_hook(lambda bot_id, generation: snapshot_cache.invalidate_generation(bot_id, generation))
 
 
-@router.get("/{bot_id}/resources")
+@router.get("/{bot_id}/resources", deprecated=True)
 @limiter.limit("120/minute")
 def get_resources(
     bot_id: int,
@@ -342,3 +348,14 @@ def _command_examples(bot_type, resources, supported):
         "alias": f"alias {key} note",
     }
     return {name: examples[name] for name in supported if name in examples}
+
+
+@agent_router.get("/resources")
+def get_agent_resources(
+    request: Request,
+    response: Response,
+    actor: ResourceActor = Depends(require_agent_resource_actor),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Read the resource snapshot for the bot bound to this personal key."""
+    return get_resources(bot_id=actor.bot_id, request=request, response=response, actor=actor, db=db)

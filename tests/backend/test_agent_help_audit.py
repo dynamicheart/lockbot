@@ -88,7 +88,7 @@ def test_documented_lock_free_and_queue_examples_change_actual_state(api, client
 
 
 def test_public_command_docs_have_named_examples_and_grammar(client):
-    op = client.get("/api/public-openapi.json").json()["paths"]["/api/bots/{bot_id}/commands"]["post"]
+    op = client.get("/api/public-openapi.json").json()["paths"]["/api/agent/commands"]["post"]
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"node_lock", "device_lock", "queue_book", "release_or_cancel"} <= examples.keys()
     bundle = client.get("/api/agent-skill/lockbot-resource-agent.zip").content
@@ -162,8 +162,8 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
     groups = {item["name"] for item in schema["tags"]}
     assert groups == {"Agent API", "OP API", "Configuration API", "Agent 绑定", "Skill 下载"}
     paths = schema["paths"]
-    assert paths["/api/bots/{bot_id}/commands"]["post"]["security"] == [{"AgentKey": []}]
-    assert paths["/api/bots/{bot_id}/resources"]["get"]["tags"] == ["Agent API"]
+    assert paths["/api/agent/commands"]["post"]["security"] == [{"AgentKey": []}]
+    assert paths["/api/agent/resources"]["get"]["tags"] == ["Agent API"]
     for path, method in [("/api/bots/{bot_id}/opkick", "post"), ("/api/bots/{bot_id}/locked-users", "get")]:
         assert paths[path][method]["tags"] == ["OP API"]
         assert paths[path][method]["security"] == [{"OpApiKey": []}]

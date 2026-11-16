@@ -95,6 +95,14 @@ def attribute_resource_actor(request: Request, db: Session, row: ResourceBinding
     return actor
 
 
+def require_agent_resource_actor(request: Request, db: Session = Depends(get_db)) -> ResourceActor:
+    """Resolve the target exclusively from the personal key, then apply normal authorization."""
+    row = service.authenticate_for_any_bot(db, token=_bearer_token(request))
+    if row is None:
+        raise ResourceAuthenticationError("Invalid credential", "credential_invalid")
+    return require_resource_actor(bot_id=row.bound_bot_id, request=request, db=db)
+
+
 def _agent_access_disabled() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

@@ -31,11 +31,14 @@ from lockbot.backend.app.database import Base, SessionLocal, engine
 from lockbot.backend.app.platform_applications.router import router as platform_applications_router
 from lockbot.backend.app.resource_api.activity import install_activity_middleware
 from lockbot.backend.app.resource_api.activity import router as activity_router
+from lockbot.backend.app.resource_api.commands import agent_router as agent_commands_router
 from lockbot.backend.app.resource_api.commands import router as resource_commands_router
 from lockbot.backend.app.resource_api.op_skill import router as op_skill_router
 from lockbot.backend.app.resource_api.operator import router as operator_router
+from lockbot.backend.app.resource_api.resources import agent_router as agent_resources_router
 from lockbot.backend.app.resource_api.resources import router as resources_router
 from lockbot.backend.app.resource_api.skill import router as skill_router
+from lockbot.backend.app.resource_api.usage import agent_router as agent_usage_router
 from lockbot.backend.app.resource_api.usage import router as usage_router
 from lockbot.backend.app.resource_auth.router import router as resource_auth_router
 from lockbot.backend.app.settings.router import router as settings_router
@@ -760,6 +763,9 @@ def create_app() -> FastAPI:
 
     app.include_router(discovery_router)
     app.include_router(resource_auth_router)
+    app.include_router(agent_resources_router)
+    app.include_router(agent_commands_router)
+    app.include_router(agent_usage_router)
     app.include_router(resource_commands_router)
     app.include_router(resources_router)
     app.include_router(usage_router)
@@ -781,7 +787,7 @@ def create_app() -> FastAPI:
         public_paths = {}
         for path, methods in schema.get("paths", {}).items():
             for method, detail in methods.items():
-                if "Public API" in detail.get("tags", []):
+                if "Public API" in detail.get("tags", []) and not detail.get("deprecated", False):
                     if "/configuration-access" in path:
                         group, scheme = "Configuration API", "ConfigurationKey"
                     elif path.endswith(("/locked-users", "/opkick", "/kicklock")) or (

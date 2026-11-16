@@ -228,9 +228,9 @@ def _context_payload(request, response, db, row):
         "links": {
             "bindings": "/api/agent/bindings",
             "binding_recovery": "/api/agent/bindings/recover",
-            "resources": f"/api/bots/{bot.id}/resources",
-            "commands": f"/api/bots/{bot.id}/commands",
-            "usage_declarations": f"/api/bots/{bot.id}/usage-declarations",
+            "resources": "/api/agent/resources",
+            "commands": "/api/agent/commands",
+            "usage_declarations": "/api/agent/usage-declarations",
             "skill_manifest": "/api/agent-skill",
         },
         "skill": skill_artifacts()[2],

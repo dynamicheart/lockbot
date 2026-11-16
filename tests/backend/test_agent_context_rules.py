@@ -43,7 +43,7 @@ def test_rules_use_core_defaults_and_type_operations(client, api):
     )
     assert not {"take", "kickout", "kicklock"} & set(rules["supported_operations"])
     assert rules["allow_user_alias"] is False
-    assert result["links"]["resources"] == f"/api/bots/{api['bot_id']}/resources"
+    assert result["links"]["resources"] == "/api/agent/resources"
 
 
 def test_next_context_refreshes_retained_orm_identity_from_db(client, api, db_session, session_factory, monkeypatch):

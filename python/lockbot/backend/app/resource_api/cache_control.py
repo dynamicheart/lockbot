@@ -4,7 +4,7 @@ import re
 
 from starlette.datastructures import MutableHeaders
 
-_RESOURCE_PATH = re.compile(r"^/api/bots/[^/]+/(?:op/)?resources/?$")
+_RESOURCE_PATH = re.compile(r"^/api/(?:agent/resources|bots/[^/]+/(?:op/)?resources)/?$")
 
 
 class ResourceSnapshotCacheMiddleware:

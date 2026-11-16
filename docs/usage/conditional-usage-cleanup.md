@@ -4,7 +4,7 @@ Use this flow only after the user authorizes removing this task's declaration. M
 
 1. Authenticate `/api/agent/context` on the approved service using this connection's personal key. Check `usage_privacy.conditional_cleanup`; do not assume an old server supports it.
 2. Read the current resource and your own declaration. Match the task's saved actor, exact resource ID and lease evidence. A declaration revision alone does not establish ownership.
-3. Save the declaration's private `revision`, a quoted opaque comparison value. Send that exact value as `If-Match` on `DELETE /api/bots/{bot_id}/usage-declarations/{resource_id}` using the same connection and personal key.
+3. Save the declaration's private `revision`, a quoted opaque comparison value. Send that exact value as `If-Match` on `DELETE /api/agent/usage-declarations/{resource_id}` using the same connection and personal key.
 4. HTTP 200 with `{"deleted":true}` means this metadata row was removed. The resource lock and queue remain unchanged. HTTP 412 means the declaration is missing, expired, replaced, or no longer belongs to that live lease: stop and inspect current state. Never fall back to an unconditional delete.
 
 The server authenticates and rechecks the actor, serializes with the existing authority guard, compares the current declaration and live hold/booking, and includes the observed row contents/version in the SQL delete predicate. Another process replacing the row cannot turn a stale conditional request into deletion of its replacement. A revision cannot authorize another actor or bot. It is omitted from public resource/declaration views; ordinary OP and bot-administrator projections do not gain access.
