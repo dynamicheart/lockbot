@@ -317,10 +317,11 @@ def pending_enrollment_record(directory):
     if not isinstance(instance, str) or not instance:
         raise ValueError
     status = state["status"]
+    group = state["target_group"]
     entry = {
         "origin": origin(state["approved_origin"]),
         "instance_id": instance,
-        "target_group": enrollment_group(state["target_group"]),
+        "target_group": enrollment_group(group) if group is not None else None,
         "enrollment_dir": str(path),
         "status": "request_outcome_unknown" if status == "requesting" else status,
     }
@@ -334,7 +335,7 @@ def pending_enrollment_record(directory):
         entry["bind_expires_at"] = expiry
     elif status != "requesting":
         raise ValueError
-    if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(entry.values())):
+    if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(value for value in entry.values() if value is not None)):
         raise ValueError
     return entry
 
@@ -908,14 +909,19 @@ class Client:
             raise ClientError("unsupported_enrollment_endpoint")
         return endpoint
 
-    def enroll(self, directory, group, agent_label=None, *, scope="user"):
+    def enroll(self, directory, group=None, agent_label=None, *, scope="user"):
         if self.config:
             raise ClientError("enrollment_requires_new_connection")
-        group = enrollment_group(group)
+        group = enrollment_group(group) if group is not None else None
         label = normalize_agent_label(agent_label) if agent_label is not None else None
         if directory is None:
-            name = "enrollment-" + hashlib.sha256((self.base + "\0" + group).encode()).hexdigest()[:32]
+            name = "enrollment-" + hashlib.sha256((self.base + "\0" + (group or "")).encode()).hexdigest()[:32]
             directory = new_catalog_entry(scope, name)
+            if group is None:
+                sequence = 1
+                while not directory.is_symlink() and (directory / "connection.json").is_file():
+                    sequence += 1
+                    directory = directory.with_name(f"{name}-{sequence}")
         path = Path(directory).absolute()
         if os.path.lexists(path):
             raise ClientError("enrollment_directory_exists")
@@ -964,7 +970,11 @@ class Client:
         }
 
     def check_enrollment(self, path, state, *, finish=False, confirm_bot_name=None):
-        group = enrollment_group(state.get("target_group"))
+        if "target_group" not in state:
+            raise ClientError("invalid_enrollment_state")
+        group = state["target_group"]
+        if group is not None:
+            group = enrollment_group(group)
         instance_id = state.get("instance_id")
         if not isinstance(instance_id, str) or not instance_id:
             raise ClientError("invalid_enrollment_state")
@@ -997,10 +1007,13 @@ class Client:
         context = self._read_context(initializing=True)
         bot, actor = context["bot"], context["actor"]
         bot_name = enrollment_group(bot.get("name"))
-        result.update(bot=bot, actor=actor, matches_target_group=bot_name == group)
+        result.update(bot=bot, actor=actor)
+        if group is not None:
+            result["matches_target_group"] = bot_name == group
         if not finish:
             return result
-        if bot_name != (confirm_bot_name or group):
+        expected_bot_name = confirm_bot_name or group
+        if expected_bot_name is not None and bot_name != expected_bot_name:
             return {**result, "status": "bot_name_confirmation_required"}
         connection = path / "connection.json"
         try:
@@ -1708,7 +1721,7 @@ def main(argv=None):
             command.add_argument("--agent-label", help="Optional stable name for this Agent installation")
     enroll = sub.add_parser("enroll", help="Request a bind code for the user to confirm in the target group")
     enroll.add_argument("--origin", required=True)
-    enroll.add_argument("--group", required=True, help="Target resource group named by the user")
+    enroll.add_argument("--group", help="Optional group explicitly named by the user")
     enroll.add_argument("--destination", help="Explicit new private enrollment directory")
     enroll.add_argument(
         "--scope", choices=["user", "project"], default="user", help="Credential storage scope (default: user)"

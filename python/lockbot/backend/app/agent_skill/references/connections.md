@@ -38,19 +38,19 @@ supported; the helper is the recommended fixed path, not a new server requiremen
 
 Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
-For a new binding with no saved Key, supply the approved origin and the group named
-by the user. Add the selected storage options to `enroll`. Pass `--authorized` only
+For a new binding with no saved Key, supply the approved origin. If the user names
+a group, pass that name with `--group` to check it against the confirmed bot. Add the selected storage options to `enroll`. Pass `--authorized` only
 once the user approves requesting the code. Use the returned `enrollment_dir` for
 subsequent commands, shown below as `"$enrollment_dir"`.
 
 ```sh
-python3 "$LOCKBOT_CLI" enroll --origin https://resources.example.test --group "Compute team" --authorized
+python3 "$LOCKBOT_CLI" enroll --origin https://resources.example.test --authorized
 python3 "$LOCKBOT_CLI" enrollment-status --enrollment-dir "$enrollment_dir"
 python3 "$LOCKBOT_CLI" finish-enrollment --enrollment-dir "$enrollment_dir"
 ```
 
 Show the returned `bind_command` prefixed with a mention of the bot, for the user to send
-in the named group. Only the user confirms in chat. The CLI stores the Key privately and
+in the group they want to connect. Only the user confirms in chat. The CLI stores the Key privately and
 checks the service's binding and authenticated context before saving `connection.json`.
 If it reports `bot_name_confirmation_required`, ask the user whether the verified bot
 shown in the result is the intended one. After their explicit confirmation, add

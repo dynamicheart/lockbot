@@ -392,10 +392,11 @@ class Fixture(continuity.Fixture):
         elif action == "discover":
             argv += ["--origin", self.origin, "--destination", str(private / "service.json")]
         elif action == "enroll":
-            group = args.get("group")
-            if not isinstance(group, str):
-                return {"error": "group_required"}
-            argv += ["--origin", self.origin, "--group", group, "--destination", str(directory)]
+            argv += ["--origin", self.origin, "--destination", str(directory)]
+            if (group := args.get("group")) is not None:
+                if not isinstance(group, str):
+                    return {"error": "invalid_group"}
+                argv += ["--group", group]
             if args.get("authorized") is True:
                 argv += ["--authorized"]
         elif action == "init":

@@ -73,7 +73,7 @@ installation should use the client's update workflow.
 ### First binding without an existing key
 
 ```sh
-python3 scripts/lockbot_resource.py enroll --origin https://resources.example.test --group "Compute team" --destination /private/compute-team --authorized
+python3 scripts/lockbot_resource.py enroll --origin https://resources.example.test --destination /private/compute-team --authorized
 python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir /private/compute-team
 python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir /private/compute-team
 ```
@@ -81,7 +81,8 @@ python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir /private/
 Use a new private directory and request the code once the user authorizes it. The user
 sends the returned bind command to the bot in the chosen group. The CLI keeps the pending
 key in the private directory and writes a scoped connection after the service verifies the
-binding. If the chat group label differs from the authenticated bot name, have the user
+binding. Pass `--group` only when the user names an intended group. If that name differs from
+the authenticated bot name, have the user
 confirm the verified name before passing it as `--confirm-bot-name`. Use the same directory
 to check an outstanding request. A failed or uncertain request is never automatically
 replayed.

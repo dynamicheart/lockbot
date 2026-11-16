@@ -79,14 +79,12 @@ stop after `resources`. Use `command --help` for all write arguments.
    select `--scope project` for `init`, `enroll` or `recover`. Use only the project's
    catalog for a project-only setup. Default writes go to the system user's private
    catalog. Choose the command options yourself and report where the connection was saved.
-5. If the user asks to connect a named resource group, use their request to start one
-   enrollment. Ask only for missing information or authorization. Use the group name
-   as given, including short names like
-   “验证群”. Then call `enroll` once, give the user its `@bot bind <code>`
-   instruction, and wait for them to send it in that group. Call `finish-enrollment`
-   on the same directory after they confirm. Use the resulting connection only after
-   verified success. Read the saved pending state before considering another enrollment.
-   With a verified service address, run `enroll --origin "$ORIGIN" --group "$GROUP" --authorized`.
+5. To restore access, first look for an existing connection or personal Key on the
+   approved service. Use it to recover other eligible groups without asking for names.
+   If no valid Key is available, request one bind code with the user's authorization.
+   Run `enroll --origin "$ORIGIN" --authorized`. Include `--group` only when the user
+   names an intended group. Give the user the `@bot bind <code>` instruction to send in
+   the group they want to connect. The verified chat confirmation identifies the bot.
    After the user confirms, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`
    with the saved directory returned by `enroll`.
 6. In a new session run `connections` from the project root. Prefer the matching record

@@ -1154,7 +1154,8 @@ def test_packaged_cli_runs_without_site_packages_and_redacts_credentials(case):
     assert KEY not in result.stdout + result.stderr and "metrics-grant-1" not in result.stdout
 
 
-def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case):
+@pytest.mark.parametrize("group", ["Chat group", None])
+def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case, group):
     catalog = case.tmp / "private-catalog"
     catalog.mkdir(mode=0o700)
     directory = catalog / "enrollment"
@@ -1171,7 +1172,9 @@ def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case):
         assert completed.returncode == (0 if ok else 2), completed.stderr
         return json.loads(completed.stdout)["result"] if ok else json.loads(completed.stderr)
 
-    start = ("enroll", "--origin", case.base, "--group", "Chat group", "--destination", str(directory))
+    start = ("enroll", "--origin", case.base, "--destination", str(directory))
+    if group is not None:
+        start += ("--group", group)
     assert cli(*start, ok=False)["error"] == "invalid_cli_arguments"
     assert not case.state.requests
     assert cli(*start, "--authorized")["bind_command"] == "bind ACDEFGHJ"
@@ -1180,21 +1183,38 @@ def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case):
     assert cli(*start, "--authorized", ok=False)["error"] == "enrollment_directory_exists"
     listing = cli("connections", "--directory", str(catalog))
     pending = listing["pending_enrollments"][0]
-    assert pending["target_group"] == "Chat group" and pending["status"] == "pending"
+    assert pending["target_group"] == group and pending["status"] == "pending"
     assert "binding_id" not in pending and "bind_command" not in pending
     finish = ("finish-enrollment", "--enrollment-dir", pending["enrollment_dir"])
     assert cli(*finish)["status"] == "pending"
     assert not (directory / "connection.json").exists()
     assert all("Authorization" not in row[2] for row in case.state.requests)
     case.state.binding_status = "confirmed"
-    assert cli(*finish)["status"] == "bot_name_confirmation_required"
-    assert not (directory / "connection.json").exists()
-    connection = cli(*finish, "--confirm-bot-name", "Compute team")["connection"]
+    if group is not None:
+        assert cli(*finish)["status"] == "bot_name_confirmation_required"
+        assert not (directory / "connection.json").exists()
+        finish += ("--confirm-bot-name", "Compute team")
+    connection = cli(*finish)["connection"]
     listing = cli("connections", "--directory", pending["enrollment_dir"])
     assert listing["pending_enrollments"] == [] and listing["connections"][0]["connection"] == connection
     assert cli("--connection", connection, "context")["bot"]["uuid"] == "bot-a"
-    assert cli(*finish, "--confirm-bot-name", "Compute team", ok=False)["error"] == "enrollment_connection_exists"
+    assert cli(*finish, ok=False)["error"] == "enrollment_connection_exists"
     assert sum(row[1] == "POST" for row in case.state.requests) == 1
+
+
+def test_unnamed_enrollment_reuses_pending_slot_and_allows_another_after_confirmation(case, monkeypatch):
+    monkeypatch.chdir(case.tmp)
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    first = client.enroll(None, scope="project")
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        client.enroll(None, scope="project")
+    case.state.binding_status = "confirmed"
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    assert client.check_enrollment(*helper.enrollment_state(first["enrollment_dir"]), finish=True)["connection_created"]
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    second = client.enroll(None, scope="project")
+    assert second["enrollment_dir"] != first["enrollment_dir"]
+    assert sum(row[1] == "POST" for row in case.state.requests) == 2
 
 
 def test_enrollment_does_not_replay_uncertain_request(case):
