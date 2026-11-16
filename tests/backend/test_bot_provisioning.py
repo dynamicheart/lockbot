@@ -10,6 +10,7 @@ from threading import Thread
 from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute
 
 from backend.test_bots import _sample_bot
 from backend.test_configuration_delegation import ISSUE, NODE, access, bearer, credentials
@@ -91,6 +92,65 @@ def test_provisioning_role_is_rechecked_when_applying(client, admin_header, db_s
     assert db_session.query(Bot).count() == 0
     rotate = client.post(f"{ISSUE}/{grant['id']}/rotate", headers=admin_header, json={})
     assert rotate.status_code == 403
+
+
+def test_feishu_provisioning_requires_super_admin_and_claims_exactly_one_group(client, admin_header, db_session):
+    owner = db_session.query(User).filter_by(username="adminuser").one()
+    application = FeishuApplication(
+        app_id="cli_provisioning_test",
+        name="Provisioning test",
+        tenant_key="test_tenant",
+        bot_open_id="ou_test_bot",
+        app_secret="",
+        verification_token="",
+    )
+    db_session.add(application)
+    db_session.commit()
+    issued = credentials(client, admin_header, [], [CREATE]).raise_for_status().json()
+    key = bearer(issued["credential"])
+    proposed = {
+        "name": "delegated-feishu",
+        "bot_type": "QUEUE",
+        "platform": "Feishu",
+        "feishu_application_id": application.id,
+        "group_id": "oc_provisioning_test",
+        "webhook_url": "",
+        "cluster_configs": ["node1"],
+    }
+    preview_url = PROVISION + "/preview"
+    apply_url = PROVISION + "/apply"
+    assert client.post(preview_url, headers=key, json=proposed).status_code == 403
+
+    owner.role = "super_admin"
+    db_session.commit()
+    preview = client.post(preview_url, headers=key, json=proposed).raise_for_status().json()
+    assert preview["platform"] == "feishu"
+    assert preview["group_id"] == proposed["group_id"]
+    competing = {**proposed, "name": "competing-feishu"}
+    competing_preview = client.post(preview_url, headers=key, json=competing).raise_for_status().json()
+    assert db_session.query(Bot).count() == db_session.query(FeishuGroupRoute).count() == 0
+
+    body = {"bot": proposed, "receipt": preview["receipt"], "confirmed": True}
+    created = client.post(apply_url, headers=key, json=body)
+    replay = client.post(apply_url, headers=key, json=body)
+    assert created.status_code == replay.status_code == 201
+    assert created.json() == replay.json()
+    conflict = client.post(
+        apply_url, headers=key, json={"bot": competing, "receipt": competing_preview["receipt"], "confirmed": True}
+    )
+    assert conflict.status_code == 409
+    assert client.post(preview_url, headers=key, json=competing).status_code == 409
+
+    result = created.json()
+    assert result["console_path"] == f"/bots/{result['bot_id']}"
+    assert "configure_infoflow_callback" not in result["remaining_setup"]
+    bot = db_session.query(Bot).one()
+    route = db_session.query(FeishuGroupRoute).one()
+    assert (bot.id, bot.platform, bot.user_id) == (result["bot_id"], "Feishu", owner.id)
+    assert (route.application_id, route.chat_id, route.bot_id) == (application.id, proposed["group_id"], bot.id)
+    audit = db_session.query(AuditLog).filter_by(action="bot.create").one()
+    assert (audit.operator_id, audit.target_id) == (owner.id, bot.id)
+    assert json.loads(audit.detail) == {"platform": "Feishu", "bot_type": "QUEUE", "credential_id": issued["id"]}
 
 
 def test_cli_is_separately_downloadable_and_provisioning_is_documented_as_configuration_api(client):
