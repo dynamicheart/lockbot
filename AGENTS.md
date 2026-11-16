@@ -1,6 +1,6 @@
 # Repository contribution guidelines
 
-For user-authorized deployment or messaging-platform setup, also read [Agent administration guidance](docs/agents/AGENTS.md). These contribution rules continue to apply to repository changes.
+For deployment, messaging-platform setup, utilization datasource configuration, or OP API work, start with [Agent administration guidance](docs/agents/AGENTS.md) and follow the linked task guide. These contribution rules continue to apply to repository changes.
 
 ## Language
 

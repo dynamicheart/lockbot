@@ -1,6 +1,6 @@
 # Agent-assisted Lockbot administration
 
-Use this guide when the user asks you to deploy Lockbot or configure messaging platforms. It complements the repository's contribution rules; it does not authorize production changes, messages or external permissions by itself.
+Use this guide for deployment, messaging platforms, utilization datasources, and OP API work. Follow the matching guide before running tools. The user's request determines the authorized scope.
 
 - [Deployment, upgrades and recovery](deployment/AGENTS.md)
 - [Infoflow and Feishu onboarding](platforms/AGENTS.md)
