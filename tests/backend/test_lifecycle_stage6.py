@@ -42,9 +42,13 @@ def test_public_doc_sections_partition_operations_and_authorization(client):
         operations = {(path, method) for path, methods in schema["paths"].items() for method in methods}
         assert operations and not seen & operations
         seen.update(operations)
+        tags = {tag["name"] for tag in schema["tags"]}
         for path, method in operations:
             operation = schema["paths"][path][method]
-            assert operation == combined["paths"][path][method]
+            assert set(operation["tags"]) <= tags
+            assert {k: v for k, v in operation.items() if k != "tags"} == {
+                k: v for k, v in combined["paths"][path][method].items() if k != "tags"
+            }
             assert operation["security"] in ([], [{key: []}])
             if not operation["security"]:
                 prefix = ("/api/agent-skill", "/api/resource-auth/") if scope == "agent" else ("/api/op-skill",)
@@ -53,6 +57,27 @@ def test_public_doc_sections_partition_operations_and_authorization(client):
         assert refs <= schema["components"]["schemas"].keys()
     assert seen == {(path, method) for path, methods in combined["paths"].items() for method in methods}
     assert client.get("/api/public-docs/unknown").status_code == 404
+
+
+def test_public_doc_sections_localize_group_names_and_credentials(client):
+    scopes = (
+        ("agent", "AgentKey", "Bind an Agent", "Agent 绑定", "activated through binding", "确认绑定"),
+        ("op", "OpApiKey", "Operator Skill download", "下载运维 Skill", "trusted operators", "受信任运维"),
+        ("configuration", "ConfigurationKey", "Configuration API", "机器人配置 API", "permissions", "配置权限"),
+    )
+    for scope, key, english_tag, chinese_tag, english_credential, chinese_credential in scopes:
+        for lang, tag, description in (
+            ("en", english_tag, english_credential),
+            ("zh", chinese_tag, chinese_credential),
+        ):
+            headers = {"Accept-Language": lang}
+            page = client.get(f"/api/public-docs/{scope}", headers=headers).raise_for_status()
+            response = client.get(f"/api/public-openapi.json?scope={scope}", headers=headers).raise_for_status()
+            assert page.headers["content-language"] == response.headers["content-language"] == lang
+            assert "Accept-Language" in page.headers["vary"] and "Accept-Language" in response.headers["vary"]
+            schema = response.json()
+            assert tag in {section["name"] for section in schema["tags"]}
+            assert description in schema["components"]["securitySchemes"][key]["description"]
 
 
 def test_public_schema_uses_detailed_notes_wording_without_removing_personal_fields(client):

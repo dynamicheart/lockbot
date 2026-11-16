@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager, suppress
 from html import escape
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
@@ -782,14 +782,33 @@ def create_app() -> FastAPI:
         language = request.headers.get("accept-language", "").split(",", 1)[0].split(";", 1)[0].strip().lower()
         return "en" if language == "en" or language.startswith("en-") else "zh"
 
+    def localized_doc_headers(lang: str):
+        return {"Content-Language": lang, "Vary": "Accept-Language"}
+
     @app.get("/api/public-openapi.json", include_in_schema=False)
-    def public_openapi(request: Request, scope: Literal["agent", "op", "configuration"] | None = None):
+    def public_openapi(
+        request: Request, response: Response, scope: Literal["agent", "op", "configuration"] | None = None
+    ):
         import json as _json
         import re as _re
 
         from lockbot.core.i18n import t
 
         lang = public_docs_language(request)
+        localized_groups = (
+            {
+                "Agent API": "agent",
+                "Agent 绑定": "binding",
+                "OP API": "op",
+                "Configuration API": "configuration",
+                "Skill 下载": f"{scope}_download",
+            }
+            if scope is not None
+            else {}
+        )
+        localized_titles = {
+            name: t(f"public_docs.{group}.title", lang=lang) for name, group in localized_groups.items()
+        }
         schema = _json.loads(_json.dumps(app.openapi()))
         public_paths = {}
         used_schemes = set()
@@ -815,7 +834,7 @@ def create_app() -> FastAPI:
                     used_tags.add(group)
                     if scheme:
                         used_schemes.add(scheme)
-                    detail["tags"] = [group]
+                    detail["tags"] = [localized_titles.get(group, group)]
                     detail["security"] = [{scheme: []}] if scheme else []
                     public_paths.setdefault(path, {})[method] = detail
 
@@ -907,15 +926,21 @@ def create_app() -> FastAPI:
             },
         }
         if scope is not None:
+            response.headers.update(localized_doc_headers(lang))
             document["info"]["title"] = t(f"public_docs.{scope}.title", lang=lang)
             document["info"]["description"] = t(f"public_docs.{scope}.description", lang=lang)
-            document["tags"] = [tag for tag in document["tags"] if tag["name"] in used_tags]
-            if scope == "op":
-                for tag in document["tags"]:
-                    if tag["name"] == "Skill 下载":
-                        tag["description"] = t("public_docs.op.download", lang=lang)
+            document["tags"] = [
+                {
+                    "name": localized_titles[name],
+                    "description": t(f"public_docs.{localized_groups[name]}.description", lang=lang),
+                }
+                for name in localized_groups
+                if name in used_tags
+            ]
             document["components"]["securitySchemes"] = {
-                name: value for name, value in document["components"]["securitySchemes"].items() if name in used_schemes
+                name: {**value, "description": t(f"public_docs.{scope}.credential", lang=lang)}
+                for name, value in document["components"]["securitySchemes"].items()
+                if name in used_schemes
             }
         return document
 
@@ -937,7 +962,8 @@ def create_app() -> FastAPI:
             "<style>body{font:16px/1.55 system-ui,sans-serif;margin:0 auto;padding:2rem 1rem;max-width:42rem}"
             "li{margin-block:1.25rem}li p{margin:.25rem 0}a{font-weight:600}</style></head>"
             f"<body><main><h1>{title}</h1><ul>{''.join(entries)}</ul>"
-            f'<a href="/api/public-openapi.json">{schema_label}</a></main></body></html>'
+            f'<a href="/api/public-openapi.json">{schema_label}</a></main></body></html>',
+            headers=localized_doc_headers(lang),
         )
 
     @app.get("/api/public-docs/{scope}", include_in_schema=False)
@@ -946,11 +972,14 @@ def create_app() -> FastAPI:
 
         if scope not in public_doc_sections:
             raise HTTPException(status_code=404)
-        return get_swagger_ui_html(
+        lang = public_docs_language(request)
+        page = get_swagger_ui_html(
             openapi_url=f"/api/public-openapi.json?scope={scope}",
-            title=t(f"public_docs.{scope}.title", lang=public_docs_language(request)),
+            title=t(f"public_docs.{scope}.title", lang=lang),
             swagger_ui_parameters={"defaultModelsExpandDepth": -1},
         )
+        page.headers.update(localized_doc_headers(lang))
+        return page
 
     from lockbot.backend.app.personal_panel.setup import mount_if_configured
 
