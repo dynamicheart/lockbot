@@ -332,5 +332,7 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     assert read_current_skill(fixture, path, member="lockbot-resource-agent/SKILL.md") == markdown.decode()
     request(fixture, "/api/bots/7/resources", version=latest)
     assert evaluation.score(fixture.root, final)["observable_pass"]
+    assert evaluation.score(fixture.root, f"是否授权安装已核验的 {path}？")["observable_pass"]
+    assert not evaluation.score(fixture.root, f"已确认下载包 {path}。")["checks"]["update_package_guidance"]
     assert (fixture.workspace / "skills/resource/SKILL.md").read_bytes() == b"# Old Skill"
     assert not (fixture.workspace / "skills/resource/references").exists()
