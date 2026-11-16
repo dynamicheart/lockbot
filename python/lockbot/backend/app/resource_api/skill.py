@@ -56,52 +56,40 @@ def _deployment_origin():
     return f"{url.scheme}://{url.netloc}"
 
 
-def skill_artifacts(kind="agent"):
-    return _skill_artifacts(kind, _deployment_origin() if kind == "agent" else "")
+def skill_artifacts():
+    return _skill_artifacts(_deployment_origin())
 
 
 @lru_cache(maxsize=4)
-def _skill_artifacts(kind, origin):
-    folder, name, prefix = {
-        "agent": ("agent_skill", "lockbot-agent-api", "/api/agent-skill"),
-        "operator": ("op_skill", "lockbot-operator-api", "/api/op-skill"),
-    }[kind]
+def _skill_artifacts(origin):
+    folder, name, prefix = "agent_skill", "lockbot-agent-api", "/api/agent-skill"
     markdown = files("lockbot.backend.app").joinpath(f"{folder}/SKILL.md").read_bytes()
     canonical_markdown = markdown
     if origin:
         for marker, rendered in deployment_fragments(origin).items():
             markdown = markdown.replace(marker.encode(), rendered.encode(), 1)
-    extras = {}
-    references = {}
-    if kind == "agent":
-        resources = files("lockbot.backend.app")
-        extras[SCRIPT_PATH] = resources.joinpath(f"{folder}/{SCRIPT_PATH}").read_bytes()
-        references = {path: resources.joinpath(f"{folder}/{path}").read_bytes() for path in REFERENCE_PATHS}
-        extras.update(references)
-    version = (
-        content_version(markdown, extras[SCRIPT_PATH], references)
-        if extras
-        else hashlib.sha256(markdown).hexdigest()[:16]
-    )
-    package = {}
-    if extras:
-        package = {
-            "package_format": BUNDLE_FORMAT,
-            "package_version": content_version(canonical_markdown, extras[SCRIPT_PATH], references),
-        }
-        stamp = {
-            **package,
-            "deployment_origin": origin,
-            "service_id": "lockbot.resource-api",
-            "api_version": "1",
-            "version": version,
-            "files": {
-                path: hashlib.sha256(content).hexdigest() for path, content in {"SKILL.md": markdown, **extras}.items()
-            },
-        }
-        extras["installation.json"] = json.dumps(stamp, sort_keys=True, separators=(",", ":")).encode()
+    resources = files("lockbot.backend.app")
+    script = resources.joinpath(f"{folder}/{SCRIPT_PATH}").read_bytes()
+    references = {path: resources.joinpath(f"{folder}/{path}").read_bytes() for path in REFERENCE_PATHS}
+    extras = {SCRIPT_PATH: script, **references}
+    version = content_version(markdown, script, references)
+    package = {
+        "package_format": BUNDLE_FORMAT,
+        "package_version": content_version(canonical_markdown, script, references),
+    }
+    stamp = {
+        **package,
+        "deployment_origin": origin,
+        "service_id": "lockbot.resource-api",
+        "api_version": "1",
+        "version": version,
+        "files": {
+            path: hashlib.sha256(content).hexdigest() for path, content in {"SKILL.md": markdown, **extras}.items()
+        },
+    }
+    extras["installation.json"] = json.dumps(stamp, sort_keys=True, separators=(",", ":")).encode()
     bundle = _zip_skill(markdown, name, extras)
-    skill_id = {"agent": "lockbot-resource-agent", "operator": "lockbot-operator-agent"}[kind]
+    skill_id = "lockbot-resource-agent"
     installation = _zip_skill(markdown, skill_id, extras)
     return (
         markdown,
@@ -117,7 +105,7 @@ def _skill_artifacts(kind, origin):
             },
             "version": version,
             **package,
-            "skill_url": f"{prefix}/{skill_id}.zip" if kind == "agent" else f"{prefix}/SKILL.md",
+            "skill_url": f"{prefix}/{skill_id}.zip",
             "download_url": f"{prefix}/{name}.zip",
             "skill_sha256": hashlib.sha256(markdown).hexdigest(),
             "sha256": hashlib.sha256(bundle).hexdigest(),
@@ -170,28 +158,15 @@ def _zip_skill(markdown, name, extras=None):
     return output.getvalue()
 
 
-def public_skill_manifest(kind, request, response, db):
+def public_skill_manifest(request, response, db):
     from lockbot.backend.app.resource_api.discovery import server_metadata
 
     response.headers["Cache-Control"] = "no-store"
-    identity = server_metadata(request, db)
-    if kind == "operator":
-        identity["credential_scheme"] = "lbk_bot_scoped"
-        identity["capabilities"].remove("credential_context")
-        identity["capabilities"].remove("chat_credential_challenges")
-        identity["capabilities"].remove("resource_view_link")
-        identity["capabilities"].extend(
-            ["public_agent_operation_history", "allocator_lease_history", "allocator_lifecycle_audit_v2"]
-        )
-        identity["lifecycle_audit_path_template"] = "/api/bots/{bot_id}/op/lifecycle-audit"
-        identity["op_history_path_template"] = "/api/bots/{bot_id}/op/history"
-        identity.pop("context_url")
-        identity.pop("enrollment_url")
-    return {**skill_artifacts(kind)[2], **identity}
+    return {**skill_artifacts()[2], **server_metadata(request, db)}
 
 
-def installation_bundle(kind):
-    markdown, bundle, meta = skill_artifacts(kind)
+def installation_bundle():
+    markdown, bundle, meta = skill_artifacts()
     with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
         prefix = meta["name"] + "/"
         extras = {path[len(prefix) :]: archive.read(path) for path in archive.namelist() if path != prefix + "SKILL.md"}
@@ -202,7 +177,7 @@ def installation_bundle(kind):
 @limiter.limit("60/minute")
 def skill_manifest(request: Request, response: Response, db: Session = Depends(get_db)):
     """Discover the skill version, relative URLs and ZIP SHA-256; no API key required."""
-    return public_skill_manifest("agent", request, response, db)
+    return public_skill_manifest(request, response, db)
 
 
 def _download(request, content, media_type, filename=None):
@@ -227,4 +202,4 @@ def skill_zip(request: Request):
 @limiter.limit("60/minute")
 def namespaced_skill_zip(request: Request):
     """Install alongside other Lockbot implementations without replacing their skill."""
-    return _download(request, installation_bundle("agent"), "application/zip", "lockbot-resource-agent.zip")
+    return _download(request, installation_bundle(), "application/zip", "lockbot-resource-agent.zip")

@@ -89,7 +89,7 @@ def run_matrix(tmp_path, monkeypatch, scenario, *models, timeout=15):
     artifacts.mkdir()
     manifest = skill.skill_artifacts()[2]
     (artifacts / "manifest.json").write_text(json.dumps(manifest))
-    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle("agent"))
+    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
     adapter = tmp_path / "adapter.py"
     adapter.write_text(ADAPTER)
     runner = tmp_path / "runner.json"

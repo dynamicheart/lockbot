@@ -33,6 +33,25 @@ MESSAGES = {
         "The response lists resources, holders and queues for that group. Both requests use the same Key.\n\n"
         "{commands}"
     ),
+    "public_docs.title": "LockBot API documentation",
+    "public_docs.schema": "Combined OpenAPI schema",
+    "public_docs.agent.title": "Agent API",
+    "public_docs.agent.description": "Bind an Agent, then use its personal Key to query and manage your resources.",
+    "public_docs.op.title": "Operator API",
+    "public_docs.op.description": "Use a bot's OP Key to query resource occupancy and perform administrative releases.",
+    "public_docs.configuration.title": "Configuration API",
+    "public_docs.configuration.description": (
+        "Use a configuration credential to register node addresses and configure utilization sources."
+    ),
+    "public_docs.binding.title": "Bind an Agent",
+    "public_docs.binding.description": (
+        "Request a binding code and confirm it in the bot's group within ten minutes to activate the personal Key."
+    ),
+    "public_docs.agent_download.title": "Agent Skill download",
+    "public_docs.agent_download.description": "Download the complete Agent Skill without a credential.",
+    "public_docs.agent.credential": "The personal Agent Key activated through binding in the bot's group.",
+    "public_docs.op.credential": "The bot's OP Key issued in its console for trusted operators.",
+    "public_docs.configuration.credential": "A configuration credential issued for selected bots and permissions.",
     # ── Duration formatting ──
     "duration.days": "{value} days",
     "duration.hours": "{value} hours",

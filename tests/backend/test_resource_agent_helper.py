@@ -34,7 +34,7 @@ def write_private(path, content):
 @pytest.fixture
 def case(tmp_path):
     markdown, archive, meta = skill.skill_artifacts()
-    installation_archive = skill.installation_bundle("agent")
+    installation_archive = skill.installation_bundle()
     assert hashlib.sha256(installation_archive).hexdigest() == meta["installation"]["sha256"]
     root = tmp_path / meta["name"]
     with zipfile.ZipFile(io.BytesIO(archive)) as zipped:

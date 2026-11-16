@@ -435,7 +435,7 @@ def test_production_builder_complete_package_is_accepted_when_available(tmp_path
     directory.mkdir()
     (directory / "SKILL.md").write_bytes(markdown)
     (directory / "manifest.json").write_text(json.dumps(manifest))
-    (directory / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle("agent"))
+    (directory / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
     root = tmp_path / "production-case"
     evaluation.prepare(root, directory / "SKILL.md", "recover", directory)
     fixture = evaluation.Fixture(root)
@@ -446,7 +446,7 @@ def test_production_builder_complete_package_is_accepted_when_available(tmp_path
     second = evaluation.Fixture(destination)
     second.call("discover_local_state", {})
     assert evaluation.score(destination, "Awaiting further checks")["checks"]["complete_package_persisted"]
-    assert fixture.archive == skill.installation_bundle("agent")
+    assert fixture.archive == skill.installation_bundle()
 
 
 def test_rehashed_markdown_only_zip_is_still_blocked(case):

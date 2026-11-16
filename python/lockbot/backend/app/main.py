@@ -7,9 +7,13 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager, suppress
+from html import escape
+from typing import Literal
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 
 # Import models to register them with Base.metadata
 import lockbot.backend.app.audit.models  # noqa: F401
@@ -33,7 +37,6 @@ from lockbot.backend.app.resource_api.activity import install_activity_middlewar
 from lockbot.backend.app.resource_api.activity import router as activity_router
 from lockbot.backend.app.resource_api.commands import agent_router as agent_commands_router
 from lockbot.backend.app.resource_api.commands import router as resource_commands_router
-from lockbot.backend.app.resource_api.op_skill import router as op_skill_router
 from lockbot.backend.app.resource_api.operator import router as operator_router
 from lockbot.backend.app.resource_api.resources import agent_router as agent_resources_router
 from lockbot.backend.app.resource_api.resources import router as resources_router
@@ -264,6 +267,15 @@ def _migrate_bots_node_access():
             conn.execute(text("ALTER TABLE bots ADD COLUMN node_access_config TEXT"))
 
 
+def _migrate_configuration_credential_deletion():
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
+
+    if "deleted_at" not in {c["name"] for c in sa_inspect(engine).get_columns("configuration_credentials")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE configuration_credentials ADD COLUMN deleted_at DATETIME"))
+
+
 def _migrate_usage_agent_label():
     """Separate a per-resource Agent declaration from the shared authorization label."""
     from sqlalchemy import inspect as sa_inspect
@@ -487,6 +499,7 @@ async def lifespan(app: FastAPI):
     _migrate_bots_agent_notifications()
     _migrate_bots_utilization_config()
     _migrate_bots_node_access()
+    _migrate_configuration_credential_deletion()
     _migrate_usage_agent_label()
     _migrate_usage_task_category()
     _migrate_resource_bindings()
@@ -771,41 +784,70 @@ def create_app() -> FastAPI:
     app.include_router(usage_router)
     app.include_router(activity_router)
     app.include_router(skill_router)
-    app.include_router(op_skill_router)
     app.include_router(operator_router)
     from lockbot.backend.app.resource_api.views import router as view_router
 
     app.include_router(view_router)
 
     # ── Integration API docs: personal Agent, operator, enrollment and downloads ──
+    public_doc_sections = ("agent", "op", "configuration")
+
+    def public_docs_language(request: Request):
+        language = request.headers.get("accept-language", "").split(",", 1)[0].split(";", 1)[0].strip().lower()
+        return "en" if language == "en" or language.startswith("en-") else "zh"
+
+    def localized_doc_headers(lang: str):
+        return {"Content-Language": lang, "Vary": "Accept-Language"}
+
     @app.get("/api/public-openapi.json", include_in_schema=False)
-    def public_openapi(request: Request):
+    def public_openapi(
+        request: Request, response: Response, scope: Literal["agent", "op", "configuration"] | None = None
+    ):
         import json as _json
         import re as _re
 
         from lockbot.core.i18n import t
 
-        preferred_language = request.headers.get("accept-language", "")
-        preferred_language = preferred_language.split(",", 1)[0].split(";", 1)[0].strip().lower()
-        lang = "en" if preferred_language == "en" or preferred_language.startswith("en-") else "zh"
+        lang = public_docs_language(request)
+        localized_groups = (
+            {
+                "Agent API": "agent",
+                "Agent 绑定": "binding",
+                "OP API": "op",
+                "Configuration API": "configuration",
+                "Skill 下载": "agent_download",
+            }
+            if scope is not None
+            else {}
+        )
+        localized_titles = {
+            name: t(f"public_docs.{group}.title", lang=lang) for name, group in localized_groups.items()
+        }
         schema = _json.loads(_json.dumps(app.openapi()))
         public_paths = {}
+        used_schemes = set()
+        used_tags = set()
         for path, methods in schema.get("paths", {}).items():
             for method, detail in methods.items():
                 if "Public API" in detail.get("tags", []) and not detail.get("deprecated", False):
-                    if "/configuration-access" in path:
-                        group, scheme = "Configuration API", "ConfigurationKey"
+                    if "/configuration-access" in path or path.startswith("/api/bot-provisioning/"):
+                        section, group, scheme = "configuration", "Configuration API", "ConfigurationKey"
                     elif path.endswith(("/locked-users", "/opkick", "/kicklock")) or (
                         path.startswith("/api/bots/") and "/op/" in path
                     ):
-                        group, scheme = "OP API", "OpApiKey"
+                        section, group, scheme = "op", "OP API", "OpApiKey"
                     elif path.startswith("/api/resource-auth/"):
-                        group, scheme = "Agent 绑定", None
-                    elif path.startswith(("/api/agent-skill", "/api/op-skill")):
-                        group, scheme = "Skill 下载", None
+                        section, group, scheme = "agent", "Agent 绑定", None
+                    elif path.startswith("/api/agent-skill"):
+                        section, group, scheme = "agent", "Skill 下载", None
                     else:
-                        group, scheme = "Agent API", "AgentKey"
-                    detail["tags"] = [group]
+                        section, group, scheme = "agent", "Agent API", "AgentKey"
+                    if scope is not None and section != scope:
+                        continue
+                    used_tags.add(group)
+                    if scheme:
+                        used_schemes.add(scheme)
+                    detail["tags"] = [localized_titles.get(group, group)]
                     detail["security"] = [{scheme: []}] if scheme else []
                     if path == "/api/agent/resources" and method == "get":
                         commands = (
@@ -836,7 +878,7 @@ def create_app() -> FastAPI:
                     needed.add(ref)
                     pending.append(ref)
         public_schemas = {name: all_schemas[name] for name in sorted(needed) if name in all_schemas}
-        return {
+        document = {
             "openapi": schema["openapi"],
             "info": {
                 "title": "LockBot API",
@@ -903,17 +945,64 @@ def create_app() -> FastAPI:
                 },
             },
         }
+        if scope is not None:
+            response.headers.update(localized_doc_headers(lang))
+            document["info"]["title"] = t(f"public_docs.{scope}.title", lang=lang)
+            document["info"]["description"] = t(f"public_docs.{scope}.description", lang=lang)
+            document["tags"] = [
+                {
+                    "name": localized_titles[name],
+                    "description": (
+                        t(f"public_docs.{localized_groups[name]}.description", lang=lang)
+                        + ("\n\n" + t("public_docs.resource_queries", lang=lang) if name == "Agent API" else "")
+                    ),
+                }
+                for name in localized_groups
+                if name in used_tags
+            ]
+            document["components"]["securitySchemes"] = {
+                name: {**value, "description": t(f"public_docs.{scope}.credential", lang=lang)}
+                for name, value in document["components"]["securitySchemes"].items()
+                if name in used_schemes
+            }
+        return document
 
     @app.get("/api/public-docs", include_in_schema=False)
-    def public_docs():
-        from fastapi.responses import HTMLResponse
+    def public_docs(request: Request):
+        from lockbot.core.i18n import t
 
-        return HTMLResponse("""<!DOCTYPE html><html><head><title>LockBot API</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-</head><body><div id="swagger-ui"></div>
-<script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-<script>SwaggerUIBundle({url:"/api/public-openapi.json",dom_id:"#swagger-ui",defaultModelsExpandDepth:-1})</script>
-</body></html>""")
+        lang = public_docs_language(request)
+        title = escape(t("public_docs.title", lang=lang))
+        entries = []
+        for scope in public_doc_sections:
+            label = escape(t(f"public_docs.{scope}.title", lang=lang))
+            description = escape(t(f"public_docs.{scope}.description", lang=lang))
+            entries.append(f'<li><a href="/api/public-docs/{scope}">{label}</a><p>{description}</p></li>')
+        schema_label = escape(t("public_docs.schema", lang=lang))
+        return HTMLResponse(
+            f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title>'
+            "<style>body{font:16px/1.55 system-ui,sans-serif;margin:0 auto;padding:2rem 1rem;max-width:42rem}"
+            "li{margin-block:1.25rem}li p{margin:.25rem 0}a{font-weight:600}</style></head>"
+            f"<body><main><h1>{title}</h1><ul>{''.join(entries)}</ul>"
+            f'<a href="/api/public-openapi.json">{schema_label}</a></main></body></html>',
+            headers=localized_doc_headers(lang),
+        )
+
+    @app.get("/api/public-docs/{scope}", include_in_schema=False)
+    def public_docs_section(request: Request, scope: str):
+        from lockbot.core.i18n import t
+
+        if scope not in public_doc_sections:
+            raise HTTPException(status_code=404)
+        lang = public_docs_language(request)
+        page = get_swagger_ui_html(
+            openapi_url=f"/api/public-openapi.json?scope={scope}",
+            title=t(f"public_docs.{scope}.title", lang=lang),
+            swagger_ui_parameters={"defaultModelsExpandDepth": -1},
+        )
+        page.headers.update(localized_doc_headers(lang))
+        return page
 
     from lockbot.backend.app.personal_panel.setup import mount_if_configured
 

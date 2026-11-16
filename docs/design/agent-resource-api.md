@@ -247,8 +247,7 @@ flowchart LR
 | `GET /api/agent-skill/lockbot-resource-agent.zip` | 完整安装包，包含操作说明和 CLI |
 | `GET /api/agent-skill/lockbot-agent-api.zip` | 可安装的 skill 包 |
 | `GET /api/agent-skill` | 版本、下载地址及摘要 |
-| `GET /api/op-skill/SKILL.md` | 运维机器人的监控及释放说明 |
-| `GET /api/op-skill/lockbot-operator-api.zip` | 运维 skill 包 |
+| `GET /api/public-docs/op` | OP 运维接口文档 |
 
 skill 包不包含任何用户凭据。skill、OpenAPI 和此设计应共同描述：绑定、按类型发现能力、一次调用登记用途、排队后主动领取、核实归属、定期检查、释放及失败退避。
 
@@ -289,7 +288,7 @@ skill 包不包含任何用户凭据。skill、OpenAPI 和此设计应共同描�
 
 `opkick` 按用户释放；新增的 `POST /api/bots/{bot_id}/kicklock` 仅支持 QUEUE，按明确给出的
 资源 ID 清空当前持有者并保留预约。必须提供原因，操作写入平台审计。超时后先查询，不能盲目
-重试：资源可能已经交给新持有者。完整接入步骤见 [运维 skill](../op-api/SKILL.md)。
+重试：资源可能已经交给新持有者。完整接入步骤见 [OP 运维接口](../usage/operator-api.md)。
 
 站点设置中的“群广播”仅供超级管理员使用。先编辑内容、选择最近活跃范围（1、7 或 30 天），
 预览目标群，再确认发送。可选“@全体成员”，默认关闭。发送范围来自经过平台验证的群消息，

@@ -15,16 +15,13 @@ class AgentVersionMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
-        applies = scope["type"] == "http" and (
-            _PATH.fullmatch(path) or path.startswith(("/api/agent-skill", "/api/op-skill"))
-        )
+        applies = scope["type"] == "http" and (_PATH.fullmatch(path) or path.startswith("/api/agent-skill"))
         if not applies:
             return await self.app(scope, receive, send)
 
         async def send_metadata(message):
             if message["type"] == "http.response.start":
-                kind = "operator" if path.startswith("/api/op-skill") else "agent"
-                manifest = skill_artifacts(kind)[2]
+                manifest = skill_artifacts()[2]
                 reported = Headers(scope=scope)
                 revision = reported.get("x-lockbot-client-skill-version", "")
                 api_version = reported.get("x-lockbot-client-api-version", "")

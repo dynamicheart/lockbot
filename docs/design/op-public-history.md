@@ -4,7 +4,7 @@
 
 ## 接口与权限
 
-`GET /api/bots/{bot_id}/op/history` 使用该 bot 专用 OP key。`/api/op-skill` 的 `public_agent_operation_history` 能力和 `op_history_path_template` 用于发现。服务端在读取前、返回前分别刷新 bot 并校验 key，轮转或撤销期间失效即拒绝；个人 Agent key、后台 JWT 和其他 bot 的 OP key 不通用。生成 key 的人即使是超级管理员，OP 响应仍固定使用 `read_history(private=False)`。
+`GET /api/bots/{bot_id}/op/history` 使用该 bot 专用 OP key。当前部署的 `/api/public-docs/op` 提供接口参考。服务端在读取前、返回前分别刷新 bot 并校验 key，轮转或撤销期间失效即拒绝；个人 Agent key、后台 JWT 和其他 bot 的 OP key 不通用。生成 key 的人即使是超级管理员，OP 响应仍固定使用 `read_history(private=False)`。
 
 这是一个只读接口；既有 OP key 本身仍同时拥有已授权的强制释放能力，没有新增独立的只读凭证类型。历史读取不改变锁、队列、运行状态，也不要求机器人进程正在运行。
 

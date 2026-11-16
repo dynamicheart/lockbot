@@ -30,6 +30,21 @@ MESSAGES = {
         "两条请求使用同一个 Key。\n\n"
         "{commands}"
     ),
+    "public_docs.title": "LockBot API 文档",
+    "public_docs.schema": "完整 OpenAPI 定义",
+    "public_docs.agent.title": "Agent API",
+    "public_docs.agent.description": "绑定 Agent 后，使用个人 Key 查询资源、申请或释放自己的资源。",
+    "public_docs.op.title": "OP 运维 API",
+    "public_docs.op.description": "用机器人的 OP Key 查询占用或强制释放资源。",
+    "public_docs.configuration.title": "机器人配置 API",
+    "public_docs.configuration.description": "用配置凭证登记节点地址、接入利用率数据源。",
+    "public_docs.binding.title": "Agent 绑定",
+    "public_docs.binding.description": "申请绑定码后，在十分钟内到机器人所在群确认，即可使用个人 Key。",
+    "public_docs.agent_download.title": "下载 Agent Skill",
+    "public_docs.agent_download.description": "无需凭证即可下载完整的 Agent Skill。",
+    "public_docs.agent.credential": "在机器人所在群确认绑定后启用的个人 Agent Key。",
+    "public_docs.op.credential": "在机器人控制台签发、供受信任运维人员使用的 OP Key。",
+    "public_docs.configuration.credential": "按所选机器人和配置权限签发的配置凭证。",
     # ── Duration formatting ──
     "duration.days": "{value} 天",
     "duration.hours": "{value} 小时",

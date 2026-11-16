@@ -3,7 +3,11 @@
     <header class="bar">
       <div class="bar-inner">
         <LockbotWordmark />
-        <nav v-if="session.authenticated && !ticket" class="nav" aria-label="主导航">
+        <nav
+          v-if="session.authenticated && !ticket"
+          class="nav"
+          :aria-label="t('personalWorkbench.navigation')"
+        >
           <router-link
             v-for="item in tabs"
             :key="item.path"
@@ -14,7 +18,10 @@
           </router-link>
         </nav>
         <div v-if="!ticket" class="workbench-actions">
-          <router-link to="/bots" class="workbench-console">机器人控制台</router-link>
+          <router-link to="/bots" class="workbench-console">
+            <el-icon aria-hidden="true"><Monitor /></el-icon>
+            <span>{{ t('personalWorkbench.console') }}</span>
+          </router-link>
           <PersonalWorkbenchPlugins
             v-if="session.authenticated"
             ref="pluginsDialog"
@@ -29,12 +36,14 @@
             trigger="click"
             @command="handleCredentialAction"
           >
-            <el-button>更多</el-button>
+            <el-button>{{ t('personalWorkbench.more') }}</el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="plugins">已加载插件</el-dropdown-item>
+                <el-dropdown-item command="plugins">{{
+                  t('personalWorkbench.plugins.title')
+                }}</el-dropdown-item>
                 <el-dropdown-item divided command="clear" :disabled="busy">
-                  清除此浏览器授权
+                  {{ t('personalWorkbench.clearBrowser') }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -780,6 +789,7 @@ import {
   watch,
 } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import {
   ArrowRight,
@@ -793,7 +803,6 @@ import {
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import { formatNodeAccess } from '../utils/nodeAccess'
 import { useHelpers } from '../utils/helpers'
-import { useI18n } from 'vue-i18n'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
 import { platformLabel } from '../utils/platformDisplay'
 import LockbotWordmark from '../components/LockbotWordmark.vue'
@@ -807,11 +816,6 @@ import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.v
 import PersonalCredentialView from '../components/PersonalCredentialView.vue'
 import PersonalCredentialRotation from '../components/PersonalCredentialRotation.vue'
 
-const tabs = [
-  { id: 'mine', label: '我的占用', path: '/me' },
-  { id: 'groups', label: '资源群', path: '/me/groups' },
-  { id: 'connections', label: '我的凭证', path: '/me/credentials' },
-]
 const { copyText } = useHelpers()
 const { t, locale } = useI18n()
 const skillPackagePath = '/api/agent-skill/lockbot-resource-agent.zip'
@@ -823,6 +827,11 @@ function copyInstallRequest() {
     t('personalOnboarding.installRequest', { url: window.location.origin + '/api/agent-skill' })
   )
 }
+const tabs = computed(() => [
+  { id: 'mine', label: t('personalWorkbench.myAllocations'), path: '/me' },
+  { id: 'groups', label: t('personalWorkbench.resourceGroups'), path: '/me/groups' },
+  { id: 'connections', label: t('personalWorkbench.myCredentials'), path: '/me/credentials' },
+])
 const route = useRoute()
 const router = useRouter()
 const pageTitle = ref(null)
@@ -841,8 +850,8 @@ const detailSectionTitle = computed(() => {
 const title = computed(() => {
   if (detailPage.value) return detail.value?.title || detailSectionTitle.value
   return tab.value === 'mine'
-    ? t('personalPanelHandoff.workbench')
-    : tabs.find((item) => item.id === tab.value).label
+    ? t('personalWorkbench.title')
+    : tabs.value.find((item) => item.id === tab.value).label
 })
 watch(
   () => route.path,
@@ -1675,11 +1684,11 @@ async function login(mode) {
 async function confirmLogout() {
   try {
     await ElMessageBox.confirm(
-      t('personalPanelHandoff.clearHint'),
-      t('personalPanelHandoff.clearTitle'),
+      t('personalWorkbench.clearBrowserDetail'),
+      t('personalWorkbench.clearBrowserTitle'),
       {
         cancelButtonText: t('common.cancel'),
-        confirmButtonText: t('personalPanelHandoff.clearConfirm'),
+        confirmButtonText: t('personalWorkbench.clearBrowserConfirm'),
         confirmButtonType: 'danger',
         type: 'warning',
         closeOnClickModal: false,

@@ -305,7 +305,7 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     current.mkdir()
     markdown, _, manifest = skill.skill_artifacts()
     (current / "manifest.json").write_text(json.dumps(manifest))
-    (current / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle("agent"))
+    (current / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
     previous = write_test_artifact(tmp_path / "previous", b"# Old Skill")
     source = tmp_path / "source.md"
     source.write_bytes(markdown)

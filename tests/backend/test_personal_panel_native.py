@@ -358,7 +358,7 @@ def test_private_guidance_requires_the_exact_active_holding_and_binding(panel, a
 
     from lockbot.backend.app.resource_api import skill
 
-    with zipfile.ZipFile(io.BytesIO(skill.installation_bundle("agent"))) as archive:
+    with zipfile.ZipFile(io.BytesIO(skill.installation_bundle())) as archive:
         assert all(reference["summary"].encode() not in archive.read(name) for name in archive.namelist())
     assert reference["title"] not in client.get("/api/agent-skill").text
     assert not any("resource-guidance" in path for path in parent.openapi()["paths"])

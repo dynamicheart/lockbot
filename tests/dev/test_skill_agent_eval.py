@@ -60,7 +60,7 @@ def frozen_package(tmp_path, monkeypatch):
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
     (artifacts / "manifest.json").write_text(json.dumps(skill.skill_artifacts()[2]))
-    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle("agent"))
+    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
     return artifacts
 
 
