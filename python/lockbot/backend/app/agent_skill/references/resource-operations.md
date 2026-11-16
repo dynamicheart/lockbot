@@ -10,6 +10,8 @@ user's constraints and verify live occupancy before selecting the machine.
 Pass the user's required model as `command --model P800`. For a whole machine that must
 have at least two P800 accelerators, also pass `--minimum-model-count 2`. The CLI rechecks
 the exact selected machine or cards against its fresh read before sending the request.
+To acquire two cards on the same node, repeat `--device` in one `lock` command and use
+`--device-count 2`. A request with only one selected card fails before contacting the service.
 
 If the server omits `accelerators`, you may keep a private, local hardware note for a
 known node using user-confirmed information or a trusted machine inventory the user

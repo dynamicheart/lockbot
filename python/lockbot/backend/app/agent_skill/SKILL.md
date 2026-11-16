@@ -34,16 +34,24 @@ Use Python 3.10 or newer.
 python3 "$LOCKBOT_CLI" connections
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" context
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" resources
-python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --model P800 --duration 30m
+python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation lock --node node-01 --device 0 --device 1 --device-count 2 --model P800 --duration 30m
 python3 "$LOCKBOT_CLI" --connection "$CONNECTION" command --operation release --node node-01 --device 0
 ```
 
 Set `CONNECTION` to the matching private file listed by `connections`. Replace the
-example node and device with the exact IDs from the inventory. Omit `--device` on
-whole-node bots. Include `--model` when the user specifies a model. For a whole-node
-request with a minimum count, include `--minimum-model-count` too. For renewal, use
-`--operation renew` and the time to add. Use
-`command --help` for all arguments. For a status question, stop after `resources`.
+example node and cards with the exact IDs from the inventory. For a status question,
+stop after `resources`. Use `command --help` for all arguments.
+
+- **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
+  report what is unavailable. Use `book` only when the user requests or accepts a queue.
+- **Cards together:** put every requested card on that node in one command, repeating
+  `--device`. Pass `--device-count` when the user specifies a quantity. If the whole
+  selection cannot be made, report the shortfall before sending a write.
+- **Whole node:** omit `--device`. If the user specifies a model, pass `--model` in
+  either mode. Use `--minimum-model-count` for a whole-node hardware minimum.
+  An alias does not establish the model. Stop if the model, target or freshness is unknown.
+- **Unconfirmed write:** read the current resources and report the result. Do not send
+  another write for the same request.
 
 ## Install or connect
 
@@ -104,9 +112,8 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    not prove its model. Pass `--model` so the CLI rechecks the chosen hardware before writing.
    If a name may refer to multiple groups or the user asks you to
    choose, check each eligible authorized group's live resources before asking or choosing.
-3. When asked to acquire now, use `lock` for an idle match with an empty queue, even if
-   `claimable_by_you` is false. Use `book` only when the user requests or accepts a
-   reservation. A booking is a queue position. A lock or claim creates a lease.
+3. An idle match with an empty queue supports `lock` even if `claimable_by_you` is false.
+   A booking is a queue position. A lock or claim creates a lease.
    For a claim, match a booking marked `claimable_by_you` and omit the
    duration. For a renewal, pass the time to add to the existing lease. Release only the
    exact resource, without a duration.

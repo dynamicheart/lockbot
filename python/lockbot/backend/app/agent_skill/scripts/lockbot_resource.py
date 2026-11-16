@@ -1207,11 +1207,16 @@ class Client:
         metadata=None,
         *,
         same_devices_on_all_nodes=False,
+        device_count=None,
         model=None,
         minimum_model_count=None,
     ):
         if devices and len(nodes) > 1 and not same_devices_on_all_nodes:
             raise ClientError("multi_node_device_selection_requires_explicit_same_devices")
+        if device_count is not None and (
+            type(device_count) is not int or device_count < 1 or len(nodes) * len(devices) != device_count
+        ):
+            raise ClientError("selected_device_count_does_not_match_request")
         if model is not None and (not isinstance(model, str) or not model.strip() or not model.isprintable()):
             raise ClientError("invalid_accelerator_model")
         if minimum_model_count is not None and (
@@ -1751,6 +1756,7 @@ def main(argv=None):
         action="store_true",
         help="Apply all listed device IDs to every selected node. Use separate commands for different IDs per node.",
     )
+    command.add_argument("--device-count", type=int, help="Require exactly this many selected cards in this command.")
     command.add_argument("--model", help="Check that every selected node or card has this accelerator model.")
     command.add_argument(
         "--minimum-model-count", type=int, help="Require this many accelerators of --model on each selected whole node."
@@ -1836,6 +1842,7 @@ def main(argv=None):
                 args.duration,
                 metadata,
                 same_devices_on_all_nodes=args.same_devices_on_all_nodes,
+                device_count=args.device_count,
                 model=args.model,
                 minimum_model_count=args.minimum_model_count,
             )

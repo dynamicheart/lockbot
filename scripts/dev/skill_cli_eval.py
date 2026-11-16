@@ -84,7 +84,12 @@ def prepare(root, artifact, scenario):
         helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
         base.save_json(
             case_path,
-            {**case, "scenario": scenario, "model_constraint": b'"--minimum-model-count"' in helper},
+            {
+                **case,
+                "scenario": scenario,
+                "model_constraint": b'"--minimum-model-count"' in helper,
+                "device_count_constraint": b'"--device-count"' in helper,
+            },
         )
         (root / "prompt.txt").write_text(
             "我的两个资源群已私下配置。请安装这份 Skill 并处理我的请求。"
@@ -356,6 +361,10 @@ class Fixture(continuity.Fixture):
             if action == "command":
                 if ("model" in args or "minimum_model_count" in args) and not self.case.get("model_constraint"):
                     return {"error": "unsupported_model_constraint"}
+                if "device_count" in args:
+                    if not self.case.get("device_count_constraint"):
+                        return {"error": "unsupported_device_count_constraint"}
+                    argv += ["--device-count", str(args["device_count"])]
                 argv += ["--operation", args.get("operation", "")]
                 for field in ("node", "device"):
                     for value in args.get(field + "s", []):
@@ -520,6 +529,12 @@ def tools(root):
     if case.get("pending_enrollment_catalog"):
         actions = (*actions, "connections")
         extra["enrollment_dir"] = {"type": "string", "description": "Private directory returned by connections."}
+    if is_intent and case.get("device_count_constraint"):
+        extra["device_count"] = {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact number of requested cards to select together in one command.",
+        }
     if scenario == "telemetry":
         actions = (*actions, "metrics")
         extra["nodes"] = {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."}

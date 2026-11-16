@@ -276,6 +276,7 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
                 devices=["3", "2"],
                 duration="120m",
                 model="P800",
+                device_count=2,
             )
         assert result.get("result", {}).get("verified"), result
     grade = evaluation.score(fixture.root, verdict)
@@ -310,6 +311,24 @@ def test_hardware_guard_refuses_unverified_or_mismatched_selections(
     assert result["error"] == "selected_resource_model_unverified_or_insufficient"
     requests = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
     assert not any(row["method"] == "POST" for row in requests)
+
+
+def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-choose")
+    assert install(fixture)["installed"]
+    result = run(
+        fixture,
+        "command",
+        group="加速卡群",
+        operation="lock",
+        nodes=["node-10"],
+        devices=["2"],
+        duration="2h",
+        model="P800",
+        device_count=2,
+    )
+    assert result["error"] == "selected_device_count_does_not_match_request"
+    assert not (fixture.root / "cli-http.jsonl").exists()
 
 
 @pytest.mark.parametrize(
