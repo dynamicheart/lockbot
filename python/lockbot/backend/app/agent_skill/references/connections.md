@@ -42,9 +42,9 @@ Run the installed helper with Python 3.10 or newer. Use `--help` to find command
 
 If the user has no valid saved Key, run
 `key-challenge --origin "$ORIGIN" --authorized` for chat confirmation on a
-server that advertises `chat_credential_challenges`. Give the user the returned
-`@bot bind <code>` instruction. The user chooses the robot by sending it in its
-group. No group name or ID is needed. Use the saved `enrollment_dir` with
+server that advertises `chat_credential_challenges`. Relay the CLI's `user_instruction`
+in the user's language and preserve the exact `bind_command`. The user sends it from their
+own chat account by @mentioning the robot in its group. Use the saved `enrollment_dir` with
 `finish-enrollment` to verify and save the connection after confirmation. If no
 Key is active for that user and bot, the same confirmation creates one and
 reports `outcome: created`. If an active Key cannot be recovered, report that
@@ -76,8 +76,8 @@ python3 "$LOCKBOT_CLI" enrollment-status --enrollment-dir "$enrollment_dir"
 python3 "$LOCKBOT_CLI" finish-enrollment --enrollment-dir "$enrollment_dir"
 ```
 
-Show the returned `bind_command` prefixed with a mention of the bot, for the user to send
-in the group they want to connect. Only the user confirms in chat. The CLI stores the Key privately and
+Relay `user_instruction` with the exact `bind_command` for the user's @mention in the target group.
+The CLI stores the Key privately and
 checks the service's binding and authenticated context before saving `connection.json`.
 If it reports `bot_name_confirmation_required`, ask the user whether the verified bot
 shown in the result is the intended one. After their explicit confirmation, add

@@ -1234,11 +1234,16 @@ class Client:
         write_private(path / secret_file, secret.encode())
         state.update(binding_id=binding_id, status="pending", bind_expires_at=expires_at)
         write_private(path / "enrollment.json", json.dumps(state).encode(), replace=True)
+        bind_command = f"bind {code}"
         return {
             "status": "pending",
             "purpose": purpose,
             "target_group": group,
-            "bind_command": f"bind {code}",
+            "bind_command": bind_command,
+            "user_instruction": (
+                f"In the group you want to connect, use your own chat account to @mention the LockBot robot "
+                f"and send `{bind_command}`."
+            ),
             "bind_expires_at": expires_at,
             "enrollment_dir": str(path),
         }
