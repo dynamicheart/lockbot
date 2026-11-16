@@ -1300,6 +1300,7 @@ def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, pur
     if purpose == "reset":
         assert status["chat_action"] == "reset_applied"
         assert status["next_command"] == list(finish)
+        assert "run next_command now" in status["next_step"]
     else:
         assert "chat_action" not in status and "next_command" not in status
     assert not (directory / "key").exists()

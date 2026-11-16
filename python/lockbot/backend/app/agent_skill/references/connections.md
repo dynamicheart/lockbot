@@ -56,9 +56,9 @@ replacement. Both paths use `bind` in chat. The server distinguishes `REC-` and
 `RST-` codes. Sending `bind RST-…` in the robot's group applies the reset.
 The local `pending` entry in `connections` does not show the current server
 status. Use its `next_command` to check whether the group already applied the reset.
-When `enrollment-status` reports `chat_action: reset_applied`, use its
-`next_command` to retrieve the current Key and save the connection locally.
-The user's group confirmation already authorized the reset.
+When `enrollment-status` reports `chat_action: reset_applied` and the user asks
+to continue, run its `next_command` to verify and save the current Key locally.
+The verified group confirmation already authorized and applied the reset.
 If a recovery code expired, request a new recovery code only
 with the user's approval. An unavailable recovery result never starts a reset.
 If a reset result expired or went missing, use fresh recovery proof to

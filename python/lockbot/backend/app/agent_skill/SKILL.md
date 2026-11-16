@@ -83,13 +83,15 @@ stop after `resources`. Use `command --help` for all write arguments.
    approved service. Use it to recover other eligible groups without asking for names.
    With no valid local Key, use `key-challenge --origin "$ORIGIN" --authorized`.
    Group confirmation restores the original Key or creates one if none is active.
-   Reset requires
-   an explicit request to invalidate the old Key and acknowledgement that other Agents
-   sharing it need the replacement. Only then add `--purpose reset`. A failed recovery
+   Before issuing a reset code, get an explicit request to invalidate the old Key and
+   acknowledgement that other Agents sharing it need the replacement. Only then add
+   `--purpose reset`. A failed recovery
    stops at reporting the result. Give the user the `@bot bind <code>` instruction to send in
    the group they want to connect. The verified chat confirmation identifies the bot.
    After chat confirmation, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`.
-   The group already applied any reset. This step checks and saves its result.
+   A confirmed reset has already taken effect. If the user asks to continue in a new
+   session, their request and `chat_action: reset_applied` authorize saving the result.
+   Run `finish-enrollment` directly without asking them to confirm the reset again.
 6. In a new session run `connections` from the project root. Prefer the matching record
    in `.lockbot/connections/` before `~/.config/lockbot/connections/`. For project-only
    lookup use `connections --directory .lockbot/connections`. To resume a binding,

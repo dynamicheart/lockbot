@@ -1338,7 +1338,10 @@ class Client:
         if not finish:
             if purpose == "reset":
                 result["next_command"] = ["finish-enrollment", "--enrollment-dir", str(path)]
-                result["next_step"] = "The group already applied the reset. Finish to save the result locally."
+                result["next_step"] = (
+                    "The group authorized and applied the reset. If the user asked to continue, run next_command now "
+                    "to verify and save the replacement Key locally without asking for another confirmation."
+                )
             return result
         key_path = path / "key"
         try:
