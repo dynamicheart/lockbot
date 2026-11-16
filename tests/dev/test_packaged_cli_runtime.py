@@ -11,10 +11,12 @@ from io import BytesIO
 from threading import Thread
 from zipfile import ZipFile
 
+import pytest
 from lockbot.backend.app.resource_api import skill
 
 
-def test_portable_package_and_private_key_boundary(tmp_path):
+@pytest.mark.parametrize("scenario", ["legacy", "recover", "create", "reset"])
+def test_portable_package_and_private_key_boundary(tmp_path, scenario):
     launcher = ["py", "-3"] if os.name == "nt" else [sys.executable]
     version = subprocess.check_output([*launcher, "--version"], text=True, timeout=10).strip()
     _, _, metadata = skill.skill_artifacts()
@@ -28,11 +30,17 @@ def test_portable_package_and_private_key_boundary(tmp_path):
         "context_url": "/api/agent/context",
         "enrollment_url": "/api/resource-auth/bindings",
     }
+    challenge_path = "/api/resource-auth/credential-challenges"
+    if scenario != "legacy":
+        manifest["capabilities"] = ["chat_credential_challenges"]
+    purpose = "reset" if scenario == "reset" else "recover"
     fixture_key = "lbr_" + "runtimefixture" * 3
+    proof = "lbp_" + "runtimeproof" * 3
     enrollment_id = "x" * 22
     binding_confirmed = False
     holder = None
     commands = []
+    challenge_requests = []
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -43,7 +51,18 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             nonlocal holder
             authorization = self.headers.get("Authorization")
             requests.append((self.path, bool(authorization)))
-            if self.path == manifest["enrollment_url"] and not authorization:
+            if self.path == challenge_path and scenario != "legacy" and not authorization:
+                challenge_requests.append(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+                self.respond(
+                    201,
+                    {
+                        "challenge_id": enrollment_id,
+                        "proof": proof,
+                        "bind_code": "RST-ACDEFGHJ" if purpose == "reset" else "REC-ACDEFGHJ",
+                        "bind_expires_at": "2030-01-01T00:00:00Z",
+                    },
+                )
+            elif self.path == manifest["enrollment_url"] and scenario == "legacy" and not authorization:
                 self.respond(
                     201,
                     {
@@ -75,6 +94,12 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                 status, body = 200, manifest
             elif self.path == metadata["installation"]["download_url"] and not authorization:
                 status, body = 200, archive
+            elif self.path == f"{challenge_path}/{enrollment_id}" and authorization == "Bearer " + proof:
+                status, body = 200, {"status": "pending"}
+                if binding_confirmed:
+                    body = {"status": "confirmed", "credential": fixture_key}
+                    if scenario == "create":
+                        body["outcome"] = "created"
             elif self.path == manifest["enrollment_url"] + "/" + enrollment_id and not authorization:
                 status, body = (
                     200,
@@ -145,6 +170,7 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                     timeout=15,
                 )
                 assert fixture_key not in result.stdout + result.stderr
+                assert proof not in result.stdout + result.stderr
                 assert result.returncode == code, result.stderr
                 return json.loads(result.stderr) if code else json.loads(result.stdout)["result"]
 
@@ -154,14 +180,25 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             assert requests == [("/api/agent-skill", False), (metadata["installation"]["download_url"], False)]
 
             script = destination / "scripts/lockbot_resource.py"
-            pending = cli(script, "enroll", "--origin", origin, "--scope", "project", "--authorized")
+            start = "enroll" if scenario == "legacy" else "key-challenge"
+            args = ("--purpose", "reset") if scenario == "reset" else ()
+            pending = cli(script, start, "--origin", origin, "--scope", "project", "--authorized", *args)
             assert pending["status"] == "pending"
+            assert pending["target_group"] is None
             directory = pending["enrollment_dir"]
             initial = cli(script, "finish-enrollment", "--enrollment-dir", directory)
             assert initial["status"] == "pending" and not initial["connection_created"]
+            if scenario != "legacy":
+                assert pending["purpose"] == purpose
+                assert pending["bind_command"] == ("bind RST-ACDEFGHJ" if purpose == "reset" else "bind REC-ACDEFGHJ")
+                assert not (tmp_path / directory / "key").exists()
             binding_confirmed = True
             finished = cli(script, "finish-enrollment", "--enrollment-dir", directory)
+            assert finished["connection_created"]
             assert finished["bot"]["name"] == "运行环境测例"
+            assert (finished.get("outcome") == "created") == (scenario == "create")
+            assert (finished.get("chat_action") == "reset_applied") == (scenario == "reset")
+            assert challenge_requests == ([] if scenario == "legacy" else [{"purpose": purpose}])
             listed = cli(script, "connections", "--directory", ".lockbot/connections")
             assert listed["connections"][0]["connection"] == finished["connection"]
             checked = cli(script, "--connection", finished["connection"], "resources")
@@ -194,7 +231,9 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                 before = len(requests)
                 assert cli(script, *initialize, code=2)["error"] == "windows_private_acl_required"
                 assert requests[before:] == [("/api/agent-skill", False)]
-                print(f"{version} Windows: ZIP installed, binding resumed, lock verified, and broad ACL refused")
+                print(
+                    f"{version} Windows ({scenario}): ZIP installed, binding resumed, lock verified, broad ACL refused"
+                )
             else:
                 initialized = cli(script, *initialize)
                 checked = cli(script, "--connection", initialized["connection"], "resources")
@@ -206,7 +245,7 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                     ("/api/agent/context", True),
                     ("/api/agent/resources", True),
                 ]
-                print(f"{version} POSIX: ZIP installed, binding resumed, and lock verified")
+                print(f"{version} POSIX ({scenario}): ZIP installed, binding resumed, and lock verified")
         finally:
             server.shutdown()
             thread.join(timeout=2)
