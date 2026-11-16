@@ -93,7 +93,7 @@ The CLI-first preview serves portable Skill revision `4751a14ff82fc001` and depl
 | Whole-machine accelerator inventory | [#257](https://github.com/dynamicheart/lockbot/pull/257) | Live Agent selection. Synthetic models and backend tests covered known versus unknown hardware, and identical node IDs in separate groups. |
 | Delegated bot provisioning | [#258](https://github.com/dynamicheart/lockbot/pull/258) | Live Feishu onboarding through the standalone CLI. Local authorization, route conflict, replay and auditing passed. |
 | Scoped reporter utilization | [#259](https://github.com/dynamicheart/lockbot/pull/259) | Authorized live sample described above. The narrow-screen layout update passed local Chrome checks. |
-| Public API reference by credential | [#260](https://github.com/dynamicheart/lockbot/pull/260) | Source review. The integrated pages and keyed Agent query example passed on 8002. |
+| Public API reference by credential | [#260](https://github.com/dynamicheart/lockbot/pull/260) | The current head passed all six CI checks and four targeted tests. Chrome on 8002 rendered 15 Agent, 11 operator, and five configuration operations in both Chinese and English. Each authorization dialog showed only its own credential type. The keyed Agent query example also passed. |
 
 ## Unified resource Skill follow-up
 
