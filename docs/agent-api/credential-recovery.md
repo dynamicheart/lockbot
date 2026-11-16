@@ -5,6 +5,48 @@ verified IM principal for discovering and recovering that principal's other live
 keys on the same service instance. Usernames supplied in a request cannot select
 another identity. Feishu bindings are grouped only when their verified routes identify the same application and tenant; missing route or tenant evidence stays bot-scoped. Resource operations still require the destination group's key.
 
+## Proposed recovery and reset experience
+
+The user identifies the service when the Agent has no approved connection. The
+user selects the robot by sending a one-time command in its existing group.
+Group names, group IDs and bot IDs are never required as user inputs. The chat
+event supplies the verified sender and bot. Keep service and platform identity
+scopes independent, including private upstream providers.
+
+| User intent | Agent and user steps | Expected result |
+| --- | --- | --- |
+| Use or migrate existing access | Find a saved connection or a privately supplied Key. Verify it, then recover eligible stored Keys on that instance. | Reuse the same Keys and save each verified connection. Skip chat confirmation when an existing Key already provides proof. |
+| Find my Key when no valid copy is available locally | Issue one recovery challenge on the approved service. Ask the user to send its recovery command to the robot in the group they want to reconnect. | After chat confirmation, the initiating Agent retrieves the original Key if a verified encrypted copy is available. If the copy is missing or unreadable, explain that reset is a separate choice. |
+| Reset a lost or compromised Key | Explain that Agents sharing this Key will need an update. With explicit reset authorization, issue a reset challenge. The user sends its reset command in the robot's group. | Atomically invalidate the old Key and issue its replacement for the authenticated sender and bot. Retain other bindings, leases and bookings. |
+| Connect for the first time | Issue a normal bind code. The user sends it to the robot in the group they want to connect. | Save the verified new binding and report the robot name for reference. |
+
+Recovery and reset need separate challenge purposes and confirmation commands.
+A normal bind or recovery confirmation cannot authorize reset. Return credential
+material only to the initiating Agent through proof of possession of the original
+private challenge secret. Chat replies acknowledge the action without sending
+the Key. The code and public challenge ID alone grant no API credential access.
+Store the result privately and verify its live context before use. P800 renewal
+continues to use its own issuer and shared credential.
+
+Before exposing the proposed chat recovery and reset flows, verify the following:
+
+- A fresh Agent with no local Key can recover the same value after chat proof.
+  The existing Agent still authenticates. A missing ciphertext never rotates the
+  Key, and the newly issued enrollment credential remains inert.
+- An explicitly confirmed reset invalidates the original credential, keeps the
+  verified identity and resource state, and leaves another bot's Key valid.
+- Expired, mismatched-purpose, replayed and concurrently used codes do not
+  disclose values or reset credentials twice. Changing bot authority or revoking
+  the selected binding before retrieval prevents credential delivery.
+- A connection can resume after a new Agent session using its private challenge
+  state. A lost or uncertain reset response requires fresh proof and state
+  reconciliation before considering another reset.
+
+The existing authenticated recovery flow below already works. The chat-only
+recovery and explicit chat reset described here are planned. On deployments
+with the existing browser rotation feature, keep its current confirmation flow
+until chat reset is implemented and verified.
+
 ## Credential authority
 
 A holder of one live personal key can recover the same principal's stored keys
