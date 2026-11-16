@@ -67,6 +67,7 @@ def case(tmp_path):
         resources_fail=False,
         context_denied=False,
         binding_status="pending",
+        challenge_read_status=200,
         binding_create_status=201,
         resource_devices=None,
         accelerators=None,
@@ -120,6 +121,7 @@ def case(tmp_path):
                 }
             elif self.path == helper.CREDENTIAL_CHALLENGE_PATH + "/" + "c" * 22:
                 assert self.headers.get("Authorization") == "Bearer lbp_" + "C" * 43
+                status = state.challenge_read_status
                 body = {"status": state.binding_status}
                 if state.binding_status == "confirmed":
                     body["credential"] = KEY
@@ -1265,6 +1267,31 @@ def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, pur
     assert cli("--connection", str(directory / "connection.json"), "context")["bot"]["uuid"] == "bot-a"
     posts = [json.loads(body) for path, method, _, body in case.state.requests if method == "POST"]
     assert posts == [{"purpose": purpose or "recover"}]
+
+
+def test_expired_recovery_can_restart_in_project_without_reusing_proof(case, monkeypatch):
+    monkeypatch.chdir(case.tmp)
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
+    first = helper.Client(approved_origin=case.base, root=case.root).enroll(None, scope="project", purpose="recover")
+    directory, pending = helper.enrollment_state(first["enrollment_dir"])
+    case.state.challenge_read_status = 404
+    status = helper.Client(approved_origin=case.base, root=case.root).check_enrollment(directory, pending)
+    assert status["status"] == "unavailable"
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        helper.Client(approved_origin=case.base, root=case.root).enroll(None, scope="project", purpose="recover")
+    assert len([row for row in case.state.requests if row[1] == "POST"]) == 1
+
+    pending["bind_expires_at"] = "2000-01-01T00:00:00Z"
+    write_private(directory / "enrollment.json", pending)
+    proof = (directory / "proof").read_bytes()
+    status = helper.Client(approved_origin=case.base, root=case.root).check_enrollment(directory, pending, finish=True)
+    assert status["status"] == "expired" and not status["connection_created"]
+    assert helper.pending_enrollment_record(directory)["status"] == "expired"
+    second = helper.Client(approved_origin=case.base, root=case.root).enroll(None, scope="project", purpose="recover")
+    assert second["enrollment_dir"] != first["enrollment_dir"]
+    assert (directory / "proof").read_bytes() == proof
+    assert not (directory / "key").exists()
+    assert len([row for row in case.state.requests if row[1] == "POST"]) == 2
 
 
 def test_enrollment_does_not_replay_uncertain_request(case):

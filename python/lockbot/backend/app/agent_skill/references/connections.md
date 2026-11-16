@@ -51,9 +51,10 @@ result and keep it valid.
 Only use `key-challenge --purpose reset` after the user explicitly chooses to
 invalidate the old Key and is aware that other Agents sharing it will need the
 replacement. Both paths use `bind` in chat. The server distinguishes `REC-` and
-`RST-` codes. An unavailable recovery result never starts a reset. If a reset
-result expired or went missing, use fresh recovery proof to reconcile it before
-considering another reset.
+`RST-` codes. If a recovery code expired, request a new recovery code only
+with the user's approval. An unavailable recovery result never starts a reset.
+If a reset result expired or went missing, use fresh recovery proof to
+reconcile it before considering another reset.
 
 For a first binding on an older service without the challenge capability, use
 `enroll` with the approved origin. If the user names

@@ -312,6 +312,15 @@ def enrollment_state(directory):
     return path, private_json(path / "enrollment.json")
 
 
+def enrollment_deadline(value):
+    if not isinstance(value, str):
+        raise ValueError
+    deadline = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if deadline.utcoffset() is None:
+        raise ValueError
+    return deadline
+
+
 def pending_enrollment_record(directory):
     path, state = enrollment_state(directory)
     instance = state["instance_id"]
@@ -336,9 +345,10 @@ def pending_enrollment_record(directory):
         if not isinstance(binding, str) or not re.fullmatch(r"[A-Za-z0-9_-]{22}", binding):
             raise ValueError
         expiry = state["bind_expires_at"]
-        if not isinstance(expiry, str) or datetime.fromisoformat(expiry.replace("Z", "+00:00")).utcoffset() is None:
-            raise ValueError
+        deadline = enrollment_deadline(expiry)
         entry["bind_expires_at"] = expiry
+        if purpose != "bind" and deadline <= datetime.now(timezone.utc):
+            entry["status"] = "expired"
     elif status != "requesting":
         raise ValueError
     if re.search(r"\b(?:lbr_|lbp_|lbk_|lbc1\.)", " ".join(value for value in entry.values() if value is not None)):
@@ -926,7 +936,14 @@ class Client:
             directory = new_catalog_entry(scope, name)
             if group is None:
                 sequence = 1
-                while not directory.is_symlink() and (directory / "connection.json").is_file():
+                while not directory.is_symlink() and directory.is_dir():
+                    if not (directory / "connection.json").is_file():
+                        try:
+                            previous = pending_enrollment_record(directory)
+                        except (ClientError, OSError, KeyError, ValueError):
+                            break
+                        if purpose == "bind" or previous.get("purpose") != purpose or previous["status"] != "expired":
+                            break
                     sequence += 1
                     directory = directory.with_name(f"{name}-{sequence}")
         path = Path(directory).absolute()
@@ -962,6 +979,10 @@ class Client:
             secret_pattern, secret_file = r"lbp_[A-Za-z0-9_-]{20,200}", "proof"
         code = issued.get("bind_code")
         expires_at = issued.get("bind_expires_at")
+        try:
+            enrollment_deadline(expires_at)
+        except ValueError:
+            raise ClientError("invalid_enrollment_response") from None
         if (
             not isinstance(binding_id, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{22}", binding_id)
@@ -969,8 +990,6 @@ class Client:
             or not re.fullmatch(secret_pattern, secret)
             or not isinstance(code, str)
             or not re.fullmatch(prefix + r"[ACDEFGHJKMNPQRTUVWXY2345679]{8}", code)
-            or not isinstance(expires_at, str)
-            or datetime.fromisoformat(expires_at.replace("Z", "+00:00")).utcoffset() is None
         ):
             raise ClientError("invalid_enrollment_response")
         write_private(path / secret_file, secret.encode())
@@ -1014,7 +1033,11 @@ class Client:
             self.config["agent_label"] = normalize_agent_label(state["agent_label"])
         purpose = state.get("purpose", "bind")
         if purpose in ("recover", "reset"):
-            return self._check_credential_challenge(path, binding_id, purpose, finish=finish)
+            try:
+                deadline = enrollment_deadline(state.get("bind_expires_at"))
+            except ValueError:
+                raise ClientError("invalid_enrollment_state") from None
+            return self._check_credential_challenge(path, binding_id, purpose, deadline, finish=finish)
         if purpose != "bind":
             raise ClientError("invalid_enrollment_state")
         endpoint = self._enrollment_endpoint()
@@ -1048,13 +1071,19 @@ class Client:
             raise ClientError("chat_credential_challenges_unavailable")
         return self.base + CREDENTIAL_CHALLENGE_PATH
 
-    def _check_credential_challenge(self, path, binding_id, purpose, *, finish):
+    def _check_credential_challenge(self, path, binding_id, purpose, deadline, *, finish):
         endpoint = self._credential_challenge_endpoint()
         proof = private_bytes(path / "proof").decode()
         if not re.fullmatch(r"lbp_[A-Za-z0-9_-]{20,200}", proof):
             raise ClientError("invalid_challenge_proof")
         self.secrets.append(proof)
-        response = self._request(f"{endpoint}/{binding_id}", token=proof)
+        try:
+            response = self._request(f"{endpoint}/{binding_id}", token=proof)
+        except ClientError as exc:
+            if exc.status != 404:
+                raise
+            status = "expired" if deadline <= datetime.now(timezone.utc) else "unavailable"
+            return {"purpose": purpose, "status": status, "connection_created": False}
         status = response.get("status")
         result = {"purpose": purpose, "status": status, "connection_created": False}
         if status in ("pending", "unavailable"):
