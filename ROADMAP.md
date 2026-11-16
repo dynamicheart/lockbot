@@ -76,9 +76,11 @@ The earlier integration preview at `0a05c45` verified the #177 resource-link and
 
 The combined 8002 candidate passed real browser consent with one authorized native group and four external read-only groups. Reload restored the fixed workbench entry. Only the native connection appeared under My Credentials. The real reporter had no current personal holding, so this run could not verify utilization on a held resource. An isolated native fixture separately verified two-group selection, exact scope, and the one-key handoff. [Preview evidence in #139](https://github.com/dynamicheart/lockbot/issues/139), [scoped report acceptance in #164](https://github.com/dynamicheart/lockbot/issues/164).
 
-The CLI-first preview serves portable Skill revision `4751a14ff82fc001` and deployment-rendered revision `ca8bd3984a8f30ca`. Verified the hosted seven-entry ZIP, all 21 frontend files, and fresh installation and discovery. Existing bindings and browser sessions were preserved, and the Feishu receiver reconnected. A fresh Codex CLI process using this ZIP found its project-scoped test connection and read verified context and resources from an isolated service. It made no writes and left the Key and connection files intact. [CLI candidate and test results](https://github.com/dynamicheart/lockbot/pull/250), [Agent acceptance #154](https://github.com/dynamicheart/lockbot/issues/154), [alias acceptance #167](https://github.com/dynamicheart/lockbot/issues/167).
+The last verified CLI-first deployment on 8002 served portable Skill revision `4751a14ff82fc001` and deployment-rendered revision `ca8bd3984a8f30ca`. Verified the hosted seven-entry ZIP, all 21 frontend files, and fresh installation and discovery. Existing bindings and browser sessions were preserved, and the Feishu receiver reconnected. A fresh Codex CLI process using this ZIP found its project-scoped test connection and read verified context and resources from an isolated service. It made no writes and left the Key and connection files intact. [CLI candidate and test results](https://github.com/dynamicheart/lockbot/pull/250), [Agent acceptance #154](https://github.com/dynamicheart/lockbot/issues/154), [alias acceptance #167](https://github.com/dynamicheart/lockbot/issues/167).
 
 Eight models reran the three Key workflows with the exact hosted 8002 ZIP and simulated chat confirmation. Recovery passed 6/8, first creation 6/8 and explicit reset 4/8. The other eight cases timed out. [Chinese regression matrix](https://github.com/dynamicheart/lockbot/pull/250).
+
+Candidate `b6ee352fd7f1cfc9` keeps only CLI references in the ZIP. In isolated tests, official Codex passed 4 hardware matching, 6 queue and write safety, and 3 multi-service selection scenarios. Claude passed 2 of 6 multi-service runs with a supported Python interpreter. The other 4 timed out. These tests used the bundled CLI with synthetic services and credentials. [Candidate results](https://github.com/dynamicheart/lockbot/pull/250).
 
 - [ ] Complete the manual 8002 walkthrough. Review the first-contact wording, install the hosted ZIP, bind in the test group, query from a fresh Agent session, then open the private sign-in link and confirm in the browser. Refresh the fixed workbench entry to verify it stays signed in. [#250](https://github.com/dynamicheart/lockbot/pull/250), [#139](https://github.com/dynamicheart/lockbot/issues/139).
 - [ ] Use one real 8002 Key to recover multiple native connections for the same verified identity. The isolated bind flow recovered the original Key when active and issued a Key when none was active. An explicit reset used its own confirmation and invalidated the old Key. Complete live inspection and replacement with an authorized test binding. [#250](https://github.com/dynamicheart/lockbot/pull/250), [#173](https://github.com/dynamicheart/lockbot/pull/173), [#175](https://github.com/dynamicheart/lockbot/pull/175).
@@ -89,16 +91,18 @@ Configuration credential controls and the audit tab restriction were merged in [
 
 Workbench localization was merged in [#255](https://github.com/dynamicheart/lockbot/pull/255) after all six required checks passed on the updated branch.
 
+[Public API documentation and unified maintenance guidance](https://github.com/dynamicheart/lockbot/pull/260) were merged. The administration guide links to the operator API and datasource generator.
+
 ### Open reviews
 
 | Scope | Source | Evidence still needed |
 | --- | --- | --- |
 | CLI-first resource Skill and browser handoff | [#250](https://github.com/dynamicheart/lockbot/pull/250) | Real-account walkthrough and release review |
-| Illustrated first-run setup | [#254](https://github.com/dynamicheart/lockbot/pull/254) | Authorized Infoflow setup screenshot and a clean-install group walkthrough. Earlier live Feishu command delivery used the configured 8002 receiver. |
+| Illustrated first-run setup | [#251](https://github.com/dynamicheart/lockbot/issues/251) | Authorized Infoflow setup screenshot and a clean-install group walkthrough. The initial illustrated guidance was merged in [#254](https://github.com/dynamicheart/lockbot/pull/254). |
 | Whole-machine accelerator inventory | [#257](https://github.com/dynamicheart/lockbot/pull/257) | Live Agent selection. Synthetic models and backend tests covered known versus unknown hardware, and identical node IDs in separate groups. |
 | Feishu application onboarding | [#121](https://github.com/dynamicheart/lockbot/issues/121) | Design for Site Settings, available to LockBot super administrators. The pinned Python SDK supports device-flow app registration. Verify creation in an authorized test enterprise and bind one test chat after publication and receiver checks. The standalone CLI draft [#258](https://github.com/dynamicheart/lockbot/pull/258) stays out of the merge queue. |
 | Scoped reporter utilization | [#259](https://github.com/dynamicheart/lockbot/pull/259) | Authorized live sample described above. The narrow-screen layout update passed local Chrome checks. |
-| Public API reference and maintenance guidance | [#260](https://github.com/dynamicheart/lockbot/pull/260) | The candidate removes the operator and datasource setup Skills. The administration guide links to the existing operator API and the datasource generator. 146 targeted tests passed. Recheck required CI against current main before merging. |
+| Repository Agent workflows | [#262](https://github.com/dynamicheart/lockbot/issues/262) | Complete cross-client discovery, execution and authorization coverage. Local runs exercised deployment preflight, Infoflow configuration, Feishu routing and hosting review. |
 
 ## Unified resource Skill follow-up
 
