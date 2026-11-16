@@ -46,7 +46,7 @@ docker exec -it lockbot python tools/create_super_admin.py --username admin --em
 - [Agent 辅助部署与升级](docs/agents/deployment/AGENTS.md)：环境检查和 Compose 模板
 - [如流接入指南](docs/usage/infoflow-setup.md)、[飞书接入指南](docs/usage/feishu-setup.md)
 - [消息平台管理](docs/agents/platforms/AGENTS.md)
-- [Agent API 与 Skill](docs/agent-api/SKILL.md)
+- [Agent Skill 安装与使用](docs/usage/resource-agent-helper.md)
 - [数据源接入 Skill](skills/lockbot-datasource-setup/SKILL.md)、[数据源授权说明](docs/usage/datasource-authorization.md)
 - [指标数据源插件协议 v1](docs/design/metrics-datasource-protocol.md)（设计规范，含 Prometheus / HTTP JSON 示例）
 - [独立利用率服务部署](docs/usage/telemetry-deployment.md)、[网页利用率](docs/usage/browser-utilization.md)

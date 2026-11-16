@@ -46,7 +46,7 @@ Sign in with the generated administrator password and change it when prompted. T
 - [Agent-assisted deployment and upgrades](docs/agents/deployment/AGENTS.md), including environment validation and a Compose template
 - [Infoflow setup guide](docs/usage/infoflow-setup.md) and [Feishu setup guide](docs/usage/feishu-setup.md) (Chinese)
 - [Messaging-platform administration](docs/agents/platforms/AGENTS.md)
-- [Agent API and Skill](docs/agent-api/SKILL.md)
+- [Install and use the Agent Skill](docs/usage/resource-agent-helper.md)
 - [Agent-assisted datasource setup Skill](skills/lockbot-datasource-setup/SKILL.md) and [datasource authorization explained](docs/usage/datasource-authorization.md)
 - [Vendor-neutral metrics plugin protocol v1](docs/design/metrics-datasource-protocol.md) (design contract; Prometheus and HTTP JSON examples)
 - [Independent telemetry deployment](docs/usage/telemetry-deployment.md) and [browser utilization](docs/usage/browser-utilization.md)
