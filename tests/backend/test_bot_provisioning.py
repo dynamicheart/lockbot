@@ -37,7 +37,7 @@ def test_provisioning_preview_and_confirmed_apply_are_separate(client, admin_hea
     assert created.status_code == replay.status_code == 201
     assert created.json() == replay.json()
     result = created.json()
-    assert result["console_path"] == f"/bots/{result['bot_id']}"
+    assert result["console_path"] == f"/#/bots/{result['bot_id']}"
     assert "configure_infoflow_callback" in result["remaining_setup"]
     assert client.get(access(result["bot_id"]), headers=key).status_code == 403
     rows = db_session.query(AuditLog).filter_by(action="bot.create").all()
@@ -142,7 +142,7 @@ def test_feishu_provisioning_requires_super_admin_and_claims_exactly_one_group(c
     assert client.post(preview_url, headers=key, json=competing).status_code == 409
 
     result = created.json()
-    assert result["console_path"] == f"/bots/{result['bot_id']}"
+    assert result["console_path"] == f"/#/bots/{result['bot_id']}"
     assert "configure_infoflow_callback" not in result["remaining_setup"]
     bot = db_session.query(Bot).one()
     route = db_session.query(FeishuGroupRoute).one()
@@ -218,7 +218,7 @@ def test_downloaded_cli_previews_requires_confirmation_and_applies(client, admin
             assert run("apply", *receipt_args, check=False).returncode == 2
             assert client.get("/api/bots", headers=admin_header).raise_for_status().json() == []
             result = json.loads(run("apply", *receipt_args, "--confirm").stdout)
-            assert result["console_url"] == f"{url}/bots/{result['bot_id']}"
+            assert result["console_url"] == f"{url}/#/bots/{result['bot_id']}"
             assert json.loads(run("apply", *receipt_args, "--confirm").stdout) == result
         finally:
             server.shutdown()

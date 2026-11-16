@@ -480,7 +480,7 @@ def apply_provisioning(request: Request, response: Response, body: ApplyProvisio
             remaining_setup.append("check_bot_start")
         return {
             "bot_id": bot.id,
-            "console_path": f"/bots/{bot.id}",
+            "console_path": f"/#/bots/{bot.id}",
             "status": bot.status,
             "remaining_setup": remaining_setup,
         }

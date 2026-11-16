@@ -90,7 +90,7 @@ def run(args):
         result.pop("receipt")
     if args.command == "apply":
         path = result["console_path"]
-        if not re.fullmatch(r"/bots/[1-9][0-9]*", path):
+        if not re.fullmatch(r"/#/bots/[1-9][0-9]*", path):
             raise ValueError("invalid_console_path")
         result["console_url"] = service + path
     return result
