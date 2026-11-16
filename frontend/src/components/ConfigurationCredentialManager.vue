@@ -1,7 +1,6 @@
 <template>
   <section ref="container" class="configuration-credentials">
-    <header class="credential-toolbar">
-      <p>{{ $t('configurationCredentials.description') }}</p>
+    <header v-if="!showGuide" class="credential-toolbar">
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
         <el-button type="primary" :disabled="!bots.length || busy" @click="openCreate">
@@ -9,6 +8,31 @@
         </el-button>
       </div>
     </header>
+
+    <section v-else class="credential-guide" aria-labelledby="configuration-credential-guide-title">
+      <h2 id="configuration-credential-guide-title">
+        {{ $t('configurationCredentials.empty') }}
+      </h2>
+      <img src="../assets/configuration-credential-guide.webp" alt="" width="1392" height="464" />
+      <ol>
+        <li>
+          <strong>{{ $t('configurationCredentials.guideSelectTitle') }}</strong>
+          <p>{{ $t('configurationCredentials.guideSelect') }}</p>
+        </li>
+        <li>
+          <strong>{{ $t('configurationCredentials.guideShareTitle') }}</strong>
+          <p>{{ $t('configurationCredentials.guideShare') }}</p>
+        </li>
+        <li>
+          <strong>{{ $t('configurationCredentials.guideUseTitle') }}</strong>
+          <p>{{ $t('configurationCredentials.guideUse') }}</p>
+        </li>
+      </ol>
+      <el-button v-if="bots.length" type="primary" :disabled="busy" @click="openCreate">
+        {{ $t('configurationCredentials.create') }}
+      </el-button>
+      <p v-else>{{ $t('configurationCredentials.noEligibleBots') }}</p>
+    </section>
 
     <el-alert
       v-if="error && !showCreate && !showAction"
@@ -18,7 +42,12 @@
       show-icon
     />
 
-    <el-table v-loading="loading" :data="items" :empty-text="$t('configurationCredentials.empty')">
+    <el-table
+      v-if="!showGuide"
+      v-loading="loading"
+      :data="items"
+      :empty-text="$t('configurationCredentials.empty')"
+    >
       <el-table-column v-if="compact" type="expand" width="38">
         <template #default="{ row }">
           <dl class="credential-details">
@@ -76,13 +105,16 @@
             {{ $t('configurationCredentials.rotate') }}
           </el-button>
           <el-button
-            v-if="!row.revoked_at"
+            v-if="status(row) === 'active'"
             link
             type="danger"
             :disabled="busy"
             @click="openAction('revoke', row)"
           >
             {{ $t('auditCredentials.revoke') }}
+          </el-button>
+          <el-button v-else link type="danger" :disabled="busy" @click="openAction('delete', row)">
+            {{ $t('common.delete') }}
           </el-button>
         </template>
       </el-table-column>
@@ -104,31 +136,60 @@
       :title="$t('configurationCredentials.create')"
       width="min(520px, 92vw)"
     >
+      <p class="credential-field-hint credential-create-hint">
+        {{ $t('configurationCredentials.scopeHint') }}
+      </p>
       <el-form label-position="top" @submit.prevent="create">
         <el-form-item :label="$t('auditCredentials.name')">
           <el-input v-model="form.label" maxlength="64" autocomplete="off" />
         </el-form-item>
         <el-form-item :label="$t('auditCredentials.bots')">
-          <el-select
-            v-model="form.bot_ids"
-            :placeholder="$t('auditCredentials.selectBots')"
-            multiple
-            filterable
-            collapse-tags
-            collapse-tags-tooltip
-            :multiple-limit="100"
-          >
-            <el-option v-for="bot in bots" :key="bot.id" :value="bot.id" :label="botLabel(bot)" />
-          </el-select>
+          <div class="credential-bot-selection">
+            <div class="credential-selection-header">
+              <span class="credential-field-hint" role="status">
+                {{
+                  $t('configurationCredentials.selectedBots', {
+                    selected: form.bot_ids.length,
+                    total: bots.length,
+                  })
+                }}
+              </span>
+              <div class="credential-actions">
+                <el-button link type="primary" :disabled="!canSelectAllBots" @click="selectAllBots">
+                  {{ $t('configurationCredentials.selectAllBots') }}
+                </el-button>
+                <el-button link :disabled="!form.bot_ids.length" @click="form.bot_ids = []">
+                  {{ $t('configurationCredentials.clearBots') }}
+                </el-button>
+              </div>
+            </div>
+            <el-select
+              v-model="form.bot_ids"
+              :placeholder="$t('auditCredentials.selectBots')"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              :multiple-limit="botLimit"
+            >
+              <el-option v-for="bot in bots" :key="bot.id" :value="bot.id" :label="botLabel(bot)" />
+            </el-select>
+            <p v-if="bots.length > botLimit" class="credential-field-hint">
+              {{ $t('configurationCredentials.botLimitHint', { count: botLimit }) }}
+            </p>
+          </div>
         </el-form-item>
         <el-form-item :label="$t('auditCredentials.scope')">
-          <el-checkbox-group v-model="form.scopes">
+          <el-checkbox-group v-model="form.scopes" class="credential-permissions">
             <el-checkbox
               v-for="(label, permission) in scopeLabels"
               :key="permission"
               :value="permission"
             >
-              {{ $t(label) }}
+              <span class="credential-permission">
+                <span>{{ $t(label) }}</span>
+                <span class="credential-field-hint">{{ $t(label + 'Hint') }}</span>
+              </span>
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
@@ -176,7 +237,7 @@
       <template #footer>
         <el-button @click="showAction = false">{{ $t('common.cancel') }}</el-button>
         <el-button
-          :type="action?.type === 'revoke' ? 'danger' : 'primary'"
+          :type="action?.type === 'rotate' ? 'primary' : 'danger'"
           :loading="busy"
           @click="confirmAction"
         >
@@ -229,6 +290,7 @@ const scopeLabels = {
 }
 const lifetimes = [600, 3600, 86400, 604800]
 const pageSize = 50
+const botLimit = 100
 const defaultLifetime = 86400
 const container = ref(null)
 const compact = ref(false)
@@ -236,6 +298,10 @@ const items = ref([])
 const bots = ref([])
 const offset = ref(0)
 const loading = ref(false)
+const loaded = ref(false)
+const showGuide = computed(
+  () => loaded.value && !loading.value && !error.value && offset.value === 0 && !items.value.length
+)
 const busy = ref(false)
 const error = ref('')
 const showCreate = ref(false)
@@ -245,19 +311,36 @@ const rotateLifetime = ref(defaultLifetime)
 const secret = ref('')
 const form = ref(emptyForm())
 const now = ref(Date.now())
+const botsById = computed(() => new Map(bots.value.map((bot) => [bot.id, bot])))
+const canSelectAllBots = computed(
+  () =>
+    bots.value.length > 0 &&
+    bots.value.length <= botLimit &&
+    bots.value.some((bot) => !form.value.bot_ids.includes(bot.id))
+)
 const canCreate = computed(
-  () => form.value.label.trim() && form.value.bot_ids.length && form.value.scopes.length
+  () =>
+    form.value.label.trim() &&
+    form.value.bot_ids.length > 0 &&
+    form.value.bot_ids.length <= botLimit &&
+    form.value.bot_ids.every((id) => botsById.value.has(id)) &&
+    form.value.scopes.length > 0
 )
-const actionLabel = computed(() =>
-  action.value?.type === 'rotate' ? 'configurationCredentials.rotate' : 'auditCredentials.revoke'
-)
+const actionLabels = {
+  rotate: 'configurationCredentials.rotate',
+  revoke: 'auditCredentials.revoke',
+  delete: 'common.delete',
+}
+const actionLabel = computed(() => actionLabels[action.value?.type] || actionLabels.revoke)
 const showSecret = computed({
   get: () => Boolean(secret.value),
   set: (visible) => {
     if (!visible) secret.value = ''
   },
 })
-const botsById = computed(() => new Map(bots.value.map((bot) => [bot.id, bot])))
+function selectAllBots() {
+  if (canSelectAllBots.value) form.value.bot_ids = bots.value.map((bot) => bot.id)
+}
 
 function emptyForm() {
   return { label: '', bot_ids: [], scopes: [], expires_in_seconds: defaultLifetime }
@@ -297,7 +380,9 @@ async function load(nextOffset) {
     if (!request.isCurrent()) return
     items.value = data.items
     bots.value = data.bots
+    form.value.bot_ids = form.value.bot_ids.filter((id) => botsById.value.has(id))
     offset.value = nextOffset
+    loaded.value = true
     now.value = Date.now()
   } catch {
     if (request.isCurrent()) error.value = 'configurationCredentials.loadFailed'
@@ -359,7 +444,7 @@ function confirmAction() {
     (config) =>
       type === 'rotate'
         ? api.post(`${url}/rotate`, { expires_in_seconds: rotateLifetime.value }, config)
-        : api.delete(url, config),
+        : api.delete(type === 'delete' ? `${url}/record` : url, config),
     (data) => {
       showAction.value = false
       action.value = null
@@ -374,6 +459,7 @@ watch(
     scope.enter(principalId)
     secret.value = ''
     items.value = []
+    loaded.value = false
     bots.value = []
     offset.value = 0
     showCreate.value = false
@@ -412,18 +498,55 @@ onBeforeUnmount(() => {
 }
 
 .credential-toolbar {
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-end;
   margin-bottom: 16px;
-}
-
-.credential-toolbar p {
-  margin: 0;
-  color: var(--el-text-color-secondary);
 }
 
 .credential-actions :deep(.el-button + .el-button) {
   margin-left: 0;
+}
+
+.credential-bot-selection,
+.credential-permissions {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+}
+
+.credential-selection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.credential-field-hint {
+  margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.credential-create-hint {
+  margin-bottom: 16px;
+}
+
+.credential-permissions :deep(.el-checkbox) {
+  align-items: flex-start;
+  height: auto;
+  margin: 0;
+  white-space: normal;
+}
+
+.credential-permissions :deep(.el-checkbox__input) {
+  margin-top: 3px;
+}
+
+.credential-permission {
+  display: grid;
+  gap: 2px;
 }
 
 .credential-pagination {
@@ -455,5 +578,60 @@ onBeforeUnmount(() => {
 
 .credential-details dd {
   margin: 0;
+}
+
+.credential-guide {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  max-width: 760px;
+  margin: 16px auto 0;
+  padding: clamp(16px, 3vw, 28px);
+  text-align: center;
+}
+
+.credential-guide h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.credential-guide img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.credential-guide ol {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.credential-guide p {
+  margin: 0;
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.credential-guide li p {
+  margin-top: 4px;
+}
+
+@media (max-width: 580px) {
+  .credential-guide ol {
+    grid-template-columns: 1fr;
+    text-align: start;
+  }
+
+  .credential-guide li + li {
+    padding-top: 12px;
+    border-top: 1px solid var(--el-border-color-lighter);
+  }
 }
 </style>

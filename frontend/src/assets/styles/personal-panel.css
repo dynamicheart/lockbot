@@ -648,15 +648,34 @@
   flex-shrink: 0;
 }
 .personal-panel :deep(.workbench-console) {
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-bg-color-overlay);
+  color: var(--el-text-color-regular);
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
   text-decoration: none;
   white-space: nowrap;
 }
-.personal-panel :deep(.workbench-console:hover) {
-  color: var(--accent);
-  text-decoration: underline;
+
+.personal-panel :deep(.workbench-console .el-icon) {
+  font-size: 15px;
 }
+
+.personal-panel :deep(.workbench-console:hover),
+.personal-panel :deep(.workbench-console:focus-visible) {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+
 @media (max-width: 540px) {
   .personal-panel :deep(.bar-inner) {
     display: grid;

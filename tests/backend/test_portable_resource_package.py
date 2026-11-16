@@ -13,7 +13,7 @@ from backend.test_resource_agent_helper import case, commands, helper  # noqa: F
 
 
 def extract(root, origin):
-    _, archive, metadata = skill._skill_artifacts("agent", origin)
+    _, archive, metadata = skill._skill_artifacts(origin)
     with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
         for name in zipped.namelist():
             path = root / name.split("/", 1)[1]

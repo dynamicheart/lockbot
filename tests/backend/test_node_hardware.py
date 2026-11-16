@@ -4,7 +4,9 @@
 from urllib.parse import urlsplit
 
 import pytest
+from lockbot.backend.app import main
 from lockbot.backend.app.resource_auth import service
+from sqlalchemy import create_engine, inspect, text
 
 from backend.test_resource_api_resources import ACTOR, PLATFORM, _get, _hold, api  # noqa: F401
 
@@ -13,6 +15,26 @@ HARDWARE = [{"model": "P900", "count": 2}, {"model": "P800", "count": 6}]
 
 def mapping(**nodes):
     return {"version": 1, "nodes": nodes}
+
+
+def test_startup_migrations_preserve_existing_node_access(monkeypatch):
+    engine = create_engine("sqlite://")
+    monkeypatch.setattr(main, "engine", engine)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE bots (id INTEGER PRIMARY KEY, node_access_config TEXT)"))
+        conn.execute(text("INSERT INTO bots VALUES (1, :config)"), {"config": '{"version":1}'})
+        conn.execute(text("CREATE TABLE configuration_credentials (id INTEGER PRIMARY KEY)"))
+
+    for _ in range(2):
+        main._migrate_bots_node_metadata()
+        main._migrate_configuration_credential_deletion()
+
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT node_access_config, node_hardware_config FROM bots")).one() == (
+            '{"version":1}',
+            None,
+        )
+    assert "deleted_at" in {column["name"] for column in inspect(engine).get_columns("configuration_credentials")}
 
 
 @pytest.mark.parametrize("api", ["NODE", "QUEUE"], indirect=True)
