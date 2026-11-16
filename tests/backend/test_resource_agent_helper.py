@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -60,6 +61,7 @@ def case(tmp_path):
         resources_fail=False,
         context_denied=False,
         resource_devices=None,
+        accelerators=None,
         node_access=None,
         resource_age=0,
         retry=False,
@@ -168,6 +170,8 @@ def case(tmp_path):
                     body["resources"][0]["node_access"] = state.node_access
                 if state.resource_devices is not None:
                     body["resources"][0]["devices"] = state.resource_devices
+                if state.accelerators is not None:
+                    body["resources"][0]["accelerators"] = state.accelerators
                 if state.aliases_supported:
                     body["supported_operations"].append("alias")
                     body["aliases_observed_at"] = captured.isoformat()
@@ -257,6 +261,48 @@ def case(tmp_path):
 
 def commands(case):
     return [row for row in case.state.requests if row[0].endswith("commands")]
+
+
+def test_local_whole_machine_hardware_is_scoped_fallback_metadata(case, monkeypatch, capsys):
+    note = {
+        "source": "Operator inventory",
+        "accelerators": [{"model": "P900", "count": 2}, {"model": "P800"}],
+    }
+    scope = {key: case.connection[key] for key in ("approved_origin", "instance_id", "bot_uuid")}
+    notes = {"version": 1, "scope": scope, "nodes": {"node-a": note, "node-other": note}}
+    path = case.tmp / "connection.json.node-hardware.json"
+    write_private(path, notes)
+    original_client = helper.Client
+    monkeypatch.setattr(helper, "Client", lambda *args, **kwargs: original_client(*args, root=case.root, **kwargs))
+
+    def read_row():
+        assert helper.main(["--connection", str(case.path), "resources"]) == 0
+        rows = json.loads(capsys.readouterr().out)["result"]["resources"]
+        assert [row["id"] for row in rows] == ["node-a"]
+        return rows[0]
+
+    row = read_row()
+    assert row["local_hardware_note"] == note
+    assert row["lock_status"] == "idle" and "accelerators" not in row
+    case.state.accelerators = [{"model": "P800", "count": 8}]
+    row = read_row()
+    assert row["accelerators"] == case.state.accelerators and "local_hardware_note" not in row
+    case.state.accelerators = None
+    path.chmod(0o644)
+    assert "local_hardware_note" not in read_row()
+    write_private(path, {**notes, "scope": {**scope, "bot_uuid": "other-bot"}})
+    assert "local_hardware_note" not in read_row()
+    invalid = {**note, "accelerators": [{"model": "P900", "count": True}]}
+    write_private(path, {**notes, "nodes": {"node-a": invalid}})
+    assert "local_hardware_note" not in read_row()
+    path.unlink()
+    path.mkdir()
+    assert "local_hardware_note" not in read_row()
+    path.rmdir()
+    write_private(path, notes)
+    case.state.bot_type = "DEVICE"
+    assert "local_hardware_note" not in read_row()
+    assert not commands(case)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")
@@ -535,6 +581,22 @@ def test_request_and_private_file_budgets(case):
     case.path.chmod(0o644)
     with pytest.raises(helper.ClientError, match="permissions"):
         helper.Client(case.path)
+
+
+@pytest.mark.skipif(not hasattr(os, "O_NONBLOCK"), reason="Requires non-blocking file open")
+def test_private_metadata_checks_file_type_without_a_blocking_open(tmp_path, monkeypatch):
+    path = tmp_path / "private-note"
+    path.mkdir()
+    open_file = os.open
+
+    def check_flags(candidate, flags):
+        assert candidate == path
+        assert flags & os.O_NONBLOCK
+        return open_file(candidate, flags)
+
+    monkeypatch.setattr(helper.os, "open", check_flags)
+    with pytest.raises(helper.ClientError, match="private_file_"):
+        helper.private_bytes(path)
 
 
 def test_cli_argument_error_does_not_echo_pasted_key(capsys):
