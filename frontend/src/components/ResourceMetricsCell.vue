@@ -2,7 +2,7 @@
   <div v-if="enabled || reportedSample" class="resource-metrics">
     <template v-if="reportedSample">
       <span v-if="reportedExpired" class="is-muted">{{ $t('utilization.stale') }}</span>
-      <div v-else class="card-values">
+      <div v-else class="reported-values">
         <span v-if="resourceId" class="device-name">{{
           deviceName(resourceId.split(':dev').at(-1))
         }}</span>
@@ -203,6 +203,15 @@ function loadClass(card) {
   grid-template-columns: 36px 34px minmax(0, 1fr);
   align-items: baseline;
   gap: 5px;
+}
+.reported-values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.reported-values > span {
+  white-space: nowrap;
 }
 .card-unavailable {
   grid-column: 2 / -1;
