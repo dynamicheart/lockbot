@@ -155,7 +155,6 @@ def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch)
 def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "approved-enrollment")
     assert install(fixture)["installed"]
-    run(fixture, "discover")
     issued = run(fixture, "enroll", group=evaluation.GROUP, authorized=True)["result"]
     assert run(fixture, "finish-enrollment")["result"]["status"] == "pending"
     assert evaluation.score(fixture.root, f"在{evaluation.GROUP}发送 {issued['bind_command']}")["observable_pass"]

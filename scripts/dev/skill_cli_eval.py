@@ -690,8 +690,18 @@ def score(root, final):
     phase = fixture.case["phase"]
     scenario = fixture.case["scenario"]
     approved = scenario == "approved-enrollment"
+    pending_service_saved = False
+    state_path = enrollment / "enrollment.json"
+    if approved and fixture.case.get("pending_enrollment_catalog") and state_path.is_file():
+        state = json.loads(state_path.read_text())
+        pending_service_saved = (
+            state_path.stat().st_mode & 0o077 == 0
+            and state.get("approved_origin") == fixture.origin
+            and state.get("instance_id") == fixture.manifest()["instance_id"]
+        )
     service = (
         (private / "service.json").exists()
+        or pending_service_saved
         or (scenario == "recover" and (private / "seed.json").exists())
         or scenario in intent.PROMPTS
     )
