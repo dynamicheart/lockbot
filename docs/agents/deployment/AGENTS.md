@@ -33,6 +33,8 @@ this deployment value so it survives copying the Markdown.
 
 When the user asks you to run a read-only preflight and provides the paths, run the matching helper below first. Report the checks and limits from the JSON it actually returned, along with the process exit status. If the helper did not run or did not return a report, say what blocked it and leave those checks unverified. Reading the guide or checking that the files exist does not verify the deployment.
 
+Pass the private environment file by path to the helper. Keep its contents out of file-reading tools, shell output and transcripts. If the helper is blocked, leave the configuration checks unverified and ask the operator to run the same command locally and share only the redacted JSON report and exit status.
+
 The environment file accepts plain `KEY=VALUE` lines, not executable shell. Generate secrets using a trusted local runtime, then validate:
 
 ```sh
