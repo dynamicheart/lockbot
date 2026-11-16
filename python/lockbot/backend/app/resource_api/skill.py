@@ -24,6 +24,12 @@ from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/agent-skill", tags=["Public API"])
+INSTALLATION_INSTRUCTIONS = (
+    "A shared manifest or ZIP link is not an installation request. If the user only shared a link, "
+    "explain what the Skill does and wait for an explicit request before downloading the ZIP, "
+    "writing files, or binding an account. For an authorized installation, verify the same-origin ZIP "
+    "against installation.sha256, install the complete bundle, and confirm the result."
+)
 SKILL_UPDATE_INSTRUCTIONS = (
     "Verify any prior command with an authenticated resource read. Do not replay the command. "
     "On the same approved origin, fetch manifest_url and its installation.download_url without credentials. "
@@ -107,6 +113,7 @@ def _skill_artifacts(kind, origin):
                 "name": skill_id,
                 "download_url": f"{prefix}/{skill_id}.zip",
                 "sha256": hashlib.sha256(installation).hexdigest(),
+                "instructions": INSTALLATION_INSTRUCTIONS,
             },
             "version": version,
             **package,

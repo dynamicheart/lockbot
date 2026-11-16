@@ -27,6 +27,7 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     assert installation.status_code == bundle.status_code == 200
     assert installation.headers["content-type"] == bundle.headers["content-type"] == "application/zip"
     assert meta["skill_url"] == meta["installation"]["download_url"]
+    assert "wait for an explicit request before downloading" in meta["installation"]["instructions"]
     assert hashlib.sha256(installation.content).hexdigest() == meta["installation"]["sha256"]
     assert hashlib.sha256(bundle.content).hexdigest() == meta["sha256"]
     assert len(bundle.content) == meta["size_bytes"]

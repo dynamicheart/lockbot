@@ -51,12 +51,15 @@ def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, mon
 
 def test_inspecting_link_does_not_authorize_installation(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "link-only")
-    inspected = fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + evaluation.base.BUNDLE_PATH})
+    url = evaluation.base.ORIGIN + "/api/agent-skill"
+    assert (fixture.root / "prompt.txt").read_text() == url
+    inspected = fixture.call("inspect_lockbot", {"url": url})
     assert inspected["manifest"]["installation"]["sha256"]
     assert evaluation.score(fixture.root, "可以安装这个 Skill，方便以后使用。")["observable_pass"]
 
-    assert install(fixture)["installed"]
-    assert not evaluation.score(fixture.root, "已安装。")["checks"]["installed"]
+    assert fixture.call("install_lockbot", {"url": url})["installed"]
+    checks = evaluation.score(fixture.root, "已安装。")["checks"]
+    assert not checks["installed"] and not checks["no_bundle_download"]
 
 
 def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path, monkeypatch):
@@ -79,7 +82,7 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
 ):
     fixture = prepare(tmp_path, monkeypatch, scenario, instance_id)
     assert not evaluation.score(fixture.root, "已完成。")["observable_pass"]
-    path = fixture.manifest()["skill_url"] if scenario == "install-from-link" else evaluation.base.BUNDLE_PATH
+    path = "/api/agent-skill" if scenario == "install-from-link" else evaluation.base.BUNDLE_PATH
     assert "manifest" in fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + path})
     assert install(fixture)["installed"]
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
