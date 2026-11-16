@@ -253,7 +253,7 @@
                     用途
                   </th>
                   <th v-if="section.metrics && detail.resource" scope="col" role="columnheader">
-                    利用率
+                    {{ $t('utilization.title') }}
                   </th>
                 </tr>
               </thead>
@@ -285,7 +285,7 @@
                         v-if="cardUtilization[item.key] != null"
                         class="allocation-card-summary"
                       >
-                        卡平均利用率 {{ cardUtilization[item.key] }}%
+                        {{ $t('utilization.cardAverage', { percent: cardUtilization[item.key] }) }}
                       </span>
                     </td>
                     <td role="cell" class="allocation-time">
@@ -408,7 +408,9 @@
                           :class="{ 'allocation-device-metrics': row.allocation.device != null }"
                         >
                           <template v-if="detail.resource || row.allocation.device != null">
-                            <span aria-hidden="true" class="allocation-label">利用率</span>
+                            <span aria-hidden="true" class="allocation-label">{{
+                              $t('utilization.title')
+                            }}</span>
                             <slot v-if="fresh(row.group)" name="metrics" :row="row">
                               <ResourceMetricsCell
                                 v-if="
@@ -425,7 +427,7 @@
                                     : `${row.allocation.node}:dev${row.allocation.device}`
                                 "
                               />
-                              <span v-else class="scope">未提供</span>
+                              <span v-else class="scope">{{ $t('utilization.unavailable') }}</span>
                             </slot>
                           </template>
                         </td>
@@ -501,7 +503,9 @@
                           "
                           class="scope"
                           >{{
-                            item.first.group.utilization ? '暂无利用率数据' : '暂无更多资源详情'
+                            item.first.group.utilization
+                              ? $t('utilization.stale')
+                              : '暂无更多资源详情'
                           }}</span
                         >
                       </td>

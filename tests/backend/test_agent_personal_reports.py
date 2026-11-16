@@ -330,6 +330,14 @@ def test_fresh_installed_helper_reads_report_over_http(api, client, db_session, 
                 "expires_at": (captured + timedelta(seconds=60)).isoformat(),
             }
             assert "private_detail" not in report["groups"][0]
+
+            sample = reporter.result[0]["allocations"][0]["utilization_sample"]
+            sample["expires_at"] = (captured - timedelta(seconds=1)).isoformat()
+            report = run(helper, "--connection", connection, "personal-report", "--extension", "team-report")
+            assert report["status"] == "ok"
+            allocation = report["groups"][0]["allocations"][0]
+            assert allocation["node"] == "node1"
+            assert "utilization_sample" not in allocation
             assert original == (connection.read_bytes(), key_path.read_bytes())
         finally:
             server.should_exit = True
