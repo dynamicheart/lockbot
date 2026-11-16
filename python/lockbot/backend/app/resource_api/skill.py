@@ -27,8 +27,10 @@ router = APIRouter(prefix="/api/agent-skill", tags=["Public API"])
 INSTALLATION_INSTRUCTIONS = (
     "A shared manifest or ZIP link is not an installation request. If the user only shared a link, "
     "explain what the Skill does and wait for an explicit request before downloading the ZIP, "
-    "writing files, or binding an account. For an authorized installation, verify the same-origin ZIP "
-    "against installation.sha256 and install it with the client's supported installer or Skill directory. "
+    "writing files, or binding an account. For an authorized installation, download the same-origin ZIP once "
+    "to a writable location in the requested scope and verify it against installation.sha256. Stop if the "
+    "checksum does not match. Reuse the verified local ZIP for inspection, the client's installer and any "
+    "manual installation step instead of fetching it again. "
     "Verify the installed files and whether the client loads the Skill. If the supported location is protected, "
     "report the installation as blocked and give the client-specific manual step. An unpacked copy elsewhere "
     "does not count as installed. If the user also authorized saving the service, run the verified bundled CLI "
