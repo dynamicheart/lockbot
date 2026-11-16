@@ -246,6 +246,7 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
         ("intent-book", ["整机队列群"], "node-20 已预约两小时。"),
         ("intent-claim", ["整机队列群"], "已领取 node-20，沿用原预约两小时。"),
         ("intent-stale", ["加速卡群"], "快照已过期，无法确认有两张空闲卡。"),
+        ("intent-stale", ["加速卡群"], "复查后，资源快照仍滞后 10 分钟。这次未提交锁卡。"),
     ],
 )
 def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, groups, verdict):
