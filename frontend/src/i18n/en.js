@@ -37,15 +37,30 @@ export default {
   configurationCredentials: {
     title: 'Configuration credentials',
     auditTab: 'Audit credentials',
-    description: 'Allow an Agent to maintain node connection or data source settings for selected bots.',
+    guideSelectTitle: 'Bot administrator',
+    guideSelect: 'Choose the bots and permissions, then share the credential privately.',
+    guideShareTitle: 'Maintenance Agent',
+    guideShare: 'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
+    guideUseTitle: 'A user’s own Agent',
+    guideUse: 'Check utilization to choose a card. Once acquired, connect using its IP.',
+    scopeHint:
+      'Choose the bots and settings the Agent can update. Authorize newly added bots separately.',
+    selectedBots: '{selected} of {total} bots selected',
+    selectAllBots: 'Select all',
+    clearBots: 'Clear selection',
+    botLimitHint: 'Each credential can cover up to {count} bots. Select them in separate batches.',
+    nodeAccessHint: 'Allow the Agent to register node hostnames, IP addresses, and SSH ports.',
+    datasourceHint: 'Allow the Agent to set the utilization data source and its node mapping.',
     create: 'Create configuration credential',
     empty: 'No configuration credentials yet',
+    noEligibleBots: 'You can create a credential once you have a bot to manage.',
     nodeAccess: 'Register node connections',
     datasource: 'Configure data sources',
     lastUsed: 'Last used',
     rotate: 'Rotate',
     rotateConfirm: 'Rotating “{name}” immediately invalidates its old key.',
     revokeConfirm: 'Revoking “{name}” prevents Agents using this key from updating settings.',
+    deleteConfirm: 'Remove “{name}” from the list? Its history remains in the audit log.',
     shownOnce: 'Save configuration credential',
     saveHint: 'This key is shown once. Save it for the Agent that maintains these settings.',
     loadFailed: 'Configuration credentials could not be loaded. Refresh to try again.',
@@ -57,7 +72,7 @@ export default {
     previous: 'Previous',
     next: 'Next',
     title: 'Credential management',
-    scopeHint: 'Read Agent detailed task notes for selected bots only.',
+    scopeHint: 'Super administrators can issue audit credentials for read-only access to detailed Agent task notes on selected bots.',
     name: 'Name',
     bots: 'Permitted bots',
     lifetime: 'Lifetime',
@@ -937,6 +952,45 @@ export default {
     apiKeyRevoked: 'OP API Key revoked',
   },
 
+  personalWorkbench: {
+    title: 'Personal workbench',
+    navigation: 'Primary navigation',
+    myAllocations: 'My allocations',
+    resourceGroups: 'Resource groups',
+    myCredentials: 'My credentials',
+    console: 'Bot console',
+    more: 'More',
+    clearBrowser: 'Clear this browser’s access',
+    clearBrowserTitle: 'Clear this browser’s access?',
+    clearBrowserDetail:
+      'You’ll need to authorize this browser again to view personal resources. Agent keys stay valid.',
+    clearBrowserConfirm: 'Clear access',
+    plugins: {
+      title: 'Loaded plugins',
+      reporterTitle: 'External resources',
+      reporterDescription: 'Show your allocations and reservations from other LockBot services.',
+      reporterLoaded:
+        'The service has loaded {count} resource reporting plugin | The service has loaded {count} resource reporting plugins',
+      reporterNotLoaded: 'The service has no resource reporting plugins',
+      reporterVisible: 'Sources visible to this session',
+      reporterUnknown: 'No external source identified for this session',
+      loadingSources: 'Loading resource sources',
+      metricsTitle: 'Utilization sources',
+      metricsDescription: 'See node and device utilization in authorized resource details.',
+      metricsConfigured: 'A utilization source is configured for resources you hold',
+      metricsUnavailable: 'No utilization source for resources you hold',
+    },
+  },
+  personalAgentActivity: {
+    title: 'Agent activity',
+    summary: '{count} active · past {minutes} min',
+    empty: 'No requests recorded',
+    unnamed: 'Unnamed client',
+    sourceIp: 'Last source IP {ip}',
+    lastSeen: 'Last seen',
+    ipHelp: 'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
+  },
+
   agentActivity: {
     summaryHelp:
       'Authorizations count user–bot pairs and may be shared by Agents. Tasks count current valid resource declarations.',
@@ -1184,8 +1238,6 @@ export default {
 
   // === Bot Form ===
   botForm: {
-    agentAccessCreateFailed:
-      'Bot created, but Agent access could not be enabled. Retry in Edit configuration.',
     addNode: 'Add Node',
     noNodes: 'No nodes yet. Click below to add one.',
     nodeName: 'Node Name',
@@ -1295,6 +1347,7 @@ export default {
       'configuration_credential.create': 'Create configuration credential',
       'configuration_credential.rotate': 'Rotate configuration credential',
       'configuration_credential.revoke': 'Revoke configuration credential',
+      'configuration_credential.delete': 'Delete configuration credential',
       'configuration.apply': 'Apply bot configuration',
       'platform_application.rename': 'Rename messaging application',
       'platform_application.reveal': 'Reveal messaging credentials',
