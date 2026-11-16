@@ -87,12 +87,13 @@ Eight models reran the three Key workflows with the exact hosted 8002 ZIP and si
 
 Configuration credential controls and the audit tab restriction were merged in [#253](https://github.com/dynamicheart/lockbot/pull/253). The authorization tests covered listing, issuance, rotation and revocation for ordinary users and administrators.
 
+Workbench localization was merged in [#255](https://github.com/dynamicheart/lockbot/pull/255) after all six required checks passed on the updated branch.
+
 ### Open reviews
 
 | Scope | Source | Evidence still needed |
 | --- | --- | --- |
 | CLI-first resource Skill and browser handoff | [#250](https://github.com/dynamicheart/lockbot/pull/250) | Real-account walkthrough and release review |
-| Workbench localization | [#255](https://github.com/dynamicheart/lockbot/pull/255) | Recheck required CI against current main. Focused verification passed 32 workbench tests. |
 | Illustrated first-run setup | [#254](https://github.com/dynamicheart/lockbot/pull/254) | Authorized Infoflow setup screenshot and a clean-install group walkthrough. Earlier live Feishu command delivery used the configured 8002 receiver. |
 | Whole-machine accelerator inventory | [#257](https://github.com/dynamicheart/lockbot/pull/257) | Live Agent selection. Synthetic models and backend tests covered known versus unknown hardware, and identical node IDs in separate groups. |
 | Delegated bot provisioning | [#258](https://github.com/dynamicheart/lockbot/pull/258) | Live Feishu onboarding through the standalone CLI. Local authorization, route conflict, replay and auditing passed. |
