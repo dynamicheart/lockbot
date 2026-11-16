@@ -525,6 +525,7 @@ async def lifespan(app: FastAPI):
     _reset_running_bots()
 
     from lockbot.backend.app.feishu.connectors import connectors
+    from lockbot.backend.app.feishu.registration import registrations
 
     connectors.start(factory=SessionLocal)
 
@@ -546,6 +547,7 @@ async def lifespan(app: FastAPI):
         usage_cleanup.cancel()
         with suppress(asyncio.CancelledError):
             await usage_cleanup
+        registrations.close()
         await asyncio.to_thread(connectors.stop)
         logger.info("Shutting down all bots…")
         notification_budget.stop()
