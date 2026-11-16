@@ -318,10 +318,10 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     assert unreadable["error"] == "not_the_verified_download"
     path = download_current_skill(fixture)
     latest = fixture.manifest()["version"]
-    reference = "references/http-api.md"
+    reference = "references/resource-operations.md"
     inspected = fixture.call("inspect_archive", {"path": path, "member": reference})
     assert "lockbot-resource-agent/" + reference in inspected["members"]
-    assert inspected["content"].startswith("# Resource operations\n")
+    assert inspected["content"].startswith("# Resource operations and leases\n")
     assert inspected["archive_sha256"] == manifest["installation"]["sha256"]
     qualified_member = "lockbot-resource-agent/" + reference
     assert fixture.call("inspect_archive", {"path": path, "member": qualified_member}) == inspected

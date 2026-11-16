@@ -31,7 +31,6 @@ BUNDLE_FORMAT = "canonical-origin-v2"
 LEGACY_BUNDLE_FORMAT = "canonical-origin-v1"
 REFERENCE_PATHS = (
     "references/connections.md",
-    "references/http-api.md",
     "references/resource-operations.md",
     "references/workbench-and-metrics.md",
 )
