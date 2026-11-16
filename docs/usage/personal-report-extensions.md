@@ -21,6 +21,16 @@ optional offset-bearing `source_at`, and `allocations`. Each allocation
 contains `kind` (`hold` or `reservation`), `node`, optional `device` and
 optional offset-bearing `expires_at`. Reports older than 5 minutes, or more
 than 30 seconds ahead of the server clock, are treated as unknown.
+
+For a confirmed hold, the reporter can attach a `utilization_sample` with
+`compute_percent`, `memory_percent`, and an offset-bearing `expires_at`.
+Supply the group's `source_at` and include only measurements for that
+caller's held machine or card. Use percentages from 0 to 100 and use
+`null` for a missing value. Set the sample deadline from the upstream
+measurement's freshness, even if the group was fetched more recently. The
+browser and Agent report discard expired samples and cap the deadline at
+five minutes after `source_at` and at the hold's expiry when present.
+
 Give the adapter its own upstream deadlines. The server budgets at most
 four concurrent calls and waits up to five seconds per request. A timed-out
 call continues to occupy its slot until the adapter returns.

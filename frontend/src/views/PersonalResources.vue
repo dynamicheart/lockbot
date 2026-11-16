@@ -305,7 +305,7 @@
                     用途
                   </th>
                   <th v-if="section.metrics && detail.resource" scope="col" role="columnheader">
-                    利用率
+                    {{ $t('utilization.title') }}
                   </th>
                 </tr>
               </thead>
@@ -337,7 +337,7 @@
                         v-if="cardUtilization[item.key] != null"
                         class="allocation-card-summary"
                       >
-                        卡平均利用率 {{ cardUtilization[item.key] }}%
+                        {{ $t('utilization.cardAverage', { percent: cardUtilization[item.key] }) }}
                       </span>
                     </td>
                     <td role="cell" class="allocation-time">
@@ -460,13 +460,17 @@
                           :class="{ 'allocation-device-metrics': row.allocation.device != null }"
                         >
                           <template v-if="detail.resource || row.allocation.device != null">
-                            <span aria-hidden="true" class="allocation-label">利用率</span>
+                            <span aria-hidden="true" class="allocation-label">{{
+                              $t('utilization.title')
+                            }}</span>
                             <slot v-if="fresh(row.group)" name="metrics" :row="row">
                               <ResourceMetricsCell
                                 v-if="
+                                  row.allocation.utilization_sample ||
                                   utilizationSnapshots[row.group.utilization?.connection]?.enabled
                                 "
-                                v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                                v-bind="utilizationSnapshots[row.group.utilization?.connection]"
+                                :reported-sample="row.allocation.utilization_sample"
                                 :now="clock"
                                 :node-id="row.allocation.node"
                                 :resource-id="
@@ -475,7 +479,7 @@
                                     : `${row.allocation.node}:dev${row.allocation.device}`
                                 "
                               />
-                              <span v-else class="scope">未提供</span>
+                              <span v-else class="scope">{{ $t('utilization.unavailable') }}</span>
                             </slot>
                           </template>
                         </td>
@@ -489,6 +493,7 @@
                           (!detail.resource &&
                             (slots.metrics ||
                               item.first.group.utilization ||
+                              item.rows.some(hasReportedUtilization) ||
                               !item.rows.some(hasHoldingDetails))))
                       "
                       class="allocation-detail"
@@ -524,9 +529,11 @@
                           <slot name="metrics" :row="row">
                             <ResourceMetricsCell
                               v-if="
+                                row.allocation.utilization_sample ||
                                 utilizationSnapshots[row.group.utilization?.connection]?.enabled
                               "
-                              v-bind="utilizationSnapshots[row.group.utilization.connection]"
+                              v-bind="utilizationSnapshots[row.group.utilization?.connection]"
+                              :reported-sample="row.allocation.utilization_sample"
                               :now="clock"
                               :node-id="row.allocation.node"
                               :resource-id="
@@ -543,11 +550,14 @@
                             !holdingAddress(item) &&
                             !holdingGuidance(item).length &&
                             !slots.metrics &&
+                            !item.rows.some(hasReportedUtilization) &&
                             !utilizationSnapshots[item.first.group.utilization?.connection]?.enabled
                           "
                           class="scope"
                           >{{
-                            item.first.group.utilization ? '暂无利用率数据' : '暂无更多资源详情'
+                            item.first.group.utilization
+                              ? $t('utilization.stale')
+                              : '暂无更多资源详情'
                           }}</span
                         >
                       </td>
@@ -1104,6 +1114,9 @@ function allocationItems(rows, holdings) {
 function hasHoldingDetails({ allocation }) {
   return allocation.device != null || allocation.own_task?.note || allocation.own_task?.agent_label
 }
+function hasReportedUtilization({ allocation }) {
+  return Boolean(allocation.utilization_sample)
+}
 function holdingAddress({ rows }) {
   const row = rows.find(({ allocation }) => {
     const expiry = expiration(allocation.expires_at)
@@ -1258,7 +1271,11 @@ const allocationSections = computed(() => {
       holdings: true,
       timeLabel: '剩余时间',
       tasks: Boolean(slots.task || ownTasksAvailable.value),
-      metrics: Boolean(slots.metrics || utilizationGroups.value.length),
+      metrics: Boolean(
+        slots.metrics ||
+        utilizationGroups.value.length ||
+        holds.some((row) => inDetailGroup(row) && hasReportedUtilization(row))
+      ),
     },
     {
       label: '预约与队列',

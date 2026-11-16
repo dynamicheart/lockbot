@@ -395,6 +395,7 @@ export default {
 
     invalid: 'Invalid sample',
     title: 'Utilization',
+    cardAverage: 'Average card utilization {percent}%',
     show: 'Show utilization',
     configure: 'Data source',
     purpose:
