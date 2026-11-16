@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -294,6 +295,10 @@ def test_local_whole_machine_hardware_is_scoped_fallback_metadata(case, monkeypa
     invalid = {**note, "accelerators": [{"model": "P900", "count": True}]}
     write_private(path, {**notes, "nodes": {"node-a": invalid}})
     assert "local_hardware_note" not in read_row()
+    path.unlink()
+    path.mkdir()
+    assert "local_hardware_note" not in read_row()
+    path.rmdir()
     write_private(path, notes)
     case.state.bot_type = "DEVICE"
     assert "local_hardware_note" not in read_row()
@@ -576,6 +581,22 @@ def test_request_and_private_file_budgets(case):
     case.path.chmod(0o644)
     with pytest.raises(helper.ClientError, match="permissions"):
         helper.Client(case.path)
+
+
+@pytest.mark.skipif(not hasattr(os, "O_NONBLOCK"), reason="Requires non-blocking file open")
+def test_private_metadata_checks_file_type_without_a_blocking_open(tmp_path, monkeypatch):
+    path = tmp_path / "private-note"
+    path.mkdir()
+    open_file = os.open
+
+    def check_flags(candidate, flags):
+        assert candidate == path
+        assert flags & os.O_NONBLOCK
+        return open_file(candidate, flags)
+
+    monkeypatch.setattr(helper.os, "open", check_flags)
+    with pytest.raises(helper.ClientError, match="private_file_"):
+        helper.private_bytes(path)
 
 
 def test_cli_argument_error_does_not_echo_pasted_key(capsys):
