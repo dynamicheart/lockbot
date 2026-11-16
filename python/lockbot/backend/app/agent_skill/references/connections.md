@@ -142,7 +142,8 @@ Run `recover` with a verified seed connection to find other current bindings. On
 
 When the user asks to move their existing access to another Agent, give the receiving
 Agent **one existing active Key for the approved service via its private credential
-store or a private mode-0600 file**. Use `init` to verify it and create the seed connection
+store or a private file**. Use mode `0600` on POSIX, or a local Windows file whose ACL grants
+access only to your account, SYSTEM, and local Administrators. Use `init` to verify it and create the seed connection
 on that Agent, unless the connection already exists. Then use the fixed CLI:
 
 ```sh

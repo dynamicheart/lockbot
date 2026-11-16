@@ -228,6 +228,7 @@ class WindowsPrivateFiles:
         self.make_directory = bind(kernel, "CreateDirectoryW", w.BOOL, material, address)
         self.drive_type = bind(kernel, "GetDriveTypeW", w.UINT, material)
         self.file_type = bind(kernel, "GetFileType", word, handle)
+        self.final_path = bind(kernel, "GetFinalPathNameByHandleW", word, handle, w.LPWSTR, word, word)
         self.attributes = bind(kernel, "GetFileInformationByHandleEx", w.BOOL, handle, c.c_int, address, word)
         self.volume = bind(
             kernel,
@@ -309,6 +310,11 @@ class WindowsPrivateFiles:
             or not flags.value & self._PERSISTENT_ACLS
         ):
             raise ClientError("windows_private_acl_unavailable")
+        resolved = c.create_unicode_buffer(32768)
+        length = self.final_path(handle, resolved, len(resolved), 0)
+        if not 0 < length < len(resolved) or not resolved.value.startswith("\\\\?\\"):
+            raise ClientError("windows_private_local_path_required")
+        self._local_path(resolved.value[4:])
         owner, acl, descriptor = self.address(), self.address(), self.address()
         # SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION.
         error = self.get_security(handle, 1, 5, c.byref(owner), None, c.byref(acl), None, c.byref(descriptor))
@@ -2028,7 +2034,9 @@ def main(argv=None):
         epilog="Run SUBCOMMAND --help for its options. Start with connections, then pass --connection FILE before "
         "context, resources, or command. Supply Key file paths only.",
     )
-    parser.add_argument("--connection", help="Verified private connection JSON file (mode 0600)")
+    parser.add_argument(
+        "--connection", help="Verified private connection JSON file (POSIX 0600 or Windows private ACL)"
+    )
     sub = parser.add_subparsers(dest="action", required=True)
     bootstrap = {
         "discover": "Verify an approved service and optionally save its metadata",

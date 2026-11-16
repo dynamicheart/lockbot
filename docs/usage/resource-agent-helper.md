@@ -29,14 +29,14 @@ helper continues to use POSIX permissions.
 
 1. Fetch the approved service's `/api/agent-skill` **without credentials**. Verify `service_id=lockbot.resource-api`, `api_version=1`, the instance identity and namespaced installation descriptor. Follow only same-origin installation URLs and verify the exact ZIP `installation.sha256` before extraction.
 2. Install and reload the complete ZIP with the Agent client's supported workflow. Keep every version-stamped file. If an older helper rejects the new archive layout, use the client's installer for the verified ZIP and then use its new bundled helper.
-3. Keep the already approved, existing personal key in a separate private file, mode `0600`. Do not put its raw value in command arguments, shell history, Skill text or shared memory. Do not rebind or rotate a working key merely to install or update this client.
+3. Keep the approved personal Key in a separate private file with POSIX mode `0600` or the Windows ACL described above. Keep the raw value out of command arguments, shell history, Skill text and shared memory. Reuse the existing Key when installing or updating the client.
 4. Initialize a **new** private connection. The user need not supply a bot ID or UUID:
 
 ```sh
 python3 scripts/lockbot_resource.py init --origin https://resources.example.test --key-file /private/resource.key --destination /private/connection.json
 ```
 
-`init` first checks the credential-free manifest, then sends the key only to that approved service's advertised context endpoint. It discovers the bound bot UUID and writes a mode-0600 connection containing approved origin, instance ID, bot UUID and the key-file reference. It does not change the key, enroll another bot, recover unrelated credentials or overwrite an existing connection. Reuse the original key file when upgrading. If context authentication fails, investigate the intended service and binding; do not try the key against arbitrary hosts.
+`init` first checks the credential-free manifest, then sends the Key only to that approved service's advertised context endpoint. It discovers the bound bot UUID and writes a private connection containing approved origin, instance ID, bot UUID and the Key file reference. Reuse the original Key file when upgrading. If context authentication fails, investigate the intended service and binding.
 
 A connection has this shape:
 
@@ -88,7 +88,7 @@ without the challenge capability, use `enroll`.
 
 ### Move existing group access to another Agent
 
-Privately copy one active key into the receiving Agent's mode-0600 key file. Run
+Privately copy one active Key into a file protected as described above on the receiving Agent. Run
 `init` with that file to create the seed connection, then run:
 
 ```sh
@@ -120,7 +120,7 @@ The helper rejects a missing or invalid snapshot age and applies the server's fi
 resource-cache limit, including the time spent fetching the snapshot. A stale preflight
 sends no command. A stale readback after dispatch leaves the result unconfirmed.
 
-`task.json` is optional, private mode `0600`, and accepts only `task_category`, `agent_label`, `purpose`. The category must be one of the current context's public ID/label choices. A category error returns `allowed_categories` without echoing detailed notes, Agent names or keys. Do not put secrets in private notes either. All allocation policy enforcement remains server-authoritative.
+`task.json` is optional, uses the same private-file restrictions, and accepts only `task_category`, `agent_label`, `purpose`. The category must be one of the current context's public ID/label choices. A category error returns `allowed_categories` without echoing detailed notes, Agent names or Keys. Keep secrets out of private notes. Resource policy is enforced by the service.
 
 Every dispatched write is followed by a resource readback. The server currently provides rendered `reply`, not a structured business outcome. Therefore the output explicitly says `verification: observed_state_only` and `command_outcome: not_structured_by_server`: it proves the requested observed state, not causality or guaranteed command success. HTTP 200 and a preexisting booking do not prove this command succeeded. Concurrent Agents sharing one identity still require coordination. A future additive structured command outcome is a separate API design, not inferred by parsing translated replies here.
 

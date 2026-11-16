@@ -5,7 +5,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import BytesIO
 from threading import Thread
@@ -31,6 +31,8 @@ def test_portable_package_and_private_key_boundary(tmp_path):
     fixture_key = "lbr_" + "runtimefixture" * 3
     enrollment_id = "x" * 22
     binding_confirmed = False
+    holder = None
+    commands = []
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -38,8 +40,9 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             pass
 
         def do_POST(self):
-            authorization = bool(self.headers.get("Authorization"))
-            requests.append((self.path, authorization))
+            nonlocal holder
+            authorization = self.headers.get("Authorization")
+            requests.append((self.path, bool(authorization)))
             if self.path == manifest["enrollment_url"] and not authorization:
                 self.respond(
                     201,
@@ -50,6 +53,18 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                         "bind_expires_at": "2030-01-01T00:00:00Z",
                     },
                 )
+            elif self.path == "/api/agent/commands" and authorization == "Bearer " + fixture_key:
+                command = json.loads(self.rfile.read(int(self.headers["Content-Length"])))["command"]
+                if command != "lock runtime-node 2m" or holder:
+                    self.send_error(409)
+                    return
+                commands.append(command)
+                holder = {
+                    "external_user_id": "fixture-user",
+                    "remaining_seconds": 120,
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat(),
+                }
+                self.respond(200, {"reply": "Fixture lock recorded"})
             else:
                 self.send_error(405)
 
@@ -77,7 +92,7 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                         "bot": {"id": 1, "uuid": "runtime-bot", "name": "运行环境测例", "type": "NODE"},
                         "actor": {"platform": "infoflow", "external_user_id": "fixture-user"},
                         "agent_access_enabled": True,
-                        "links": {"resources": "/api/agent/resources"},
+                        "links": {"resources": "/api/agent/resources", "commands": "/api/agent/commands"},
                     },
                 )
             elif self.path == "/api/agent/resources" and authorization == "Bearer " + fixture_key:
@@ -87,7 +102,15 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                         "bot_type": "NODE",
                         "captured_at": datetime.now(timezone.utc).isoformat(),
                         "age_seconds": 0,
-                        "resources": [{"id": "runtime-node", "holders": []}],
+                        "supported_operations": ["lock"],
+                        "resources": [
+                            {
+                                "id": "runtime-node",
+                                "lock_status": "exclusive" if holder else "idle",
+                                "holders": [holder] if holder else [],
+                                "booking_list": [],
+                            }
+                        ],
                     },
                 )
             else:
@@ -143,6 +166,20 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             assert listed["connections"][0]["connection"] == finished["connection"]
             checked = cli(script, "--connection", finished["connection"], "resources")
             assert checked["resources"][0]["id"] == "runtime-node"
+            operation = cli(
+                script,
+                "--connection",
+                finished["connection"],
+                "command",
+                "--operation",
+                "lock",
+                "--node",
+                "runtime-node",
+                "--duration",
+                "2m",
+            )
+            assert operation["verified"] and commands == ["lock runtime-node 2m"]
+            assert operation["verified_snapshot"]["resources"][0]["holders"][0]["external_user_id"] == "fixture-user"
 
             key = tmp_path / "fixture.key"
             key.write_text(fixture_key)
@@ -157,7 +194,7 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                 before = len(requests)
                 assert cli(script, *initialize, code=2)["error"] == "windows_private_acl_required"
                 assert requests[before:] == [("/api/agent-skill", False)]
-                print(f"{version} Windows: ZIP installed, binding resumed, and broad ACL refused")
+                print(f"{version} Windows: ZIP installed, binding resumed, lock verified, and broad ACL refused")
             else:
                 initialized = cli(script, *initialize)
                 checked = cli(script, "--connection", initialized["connection"], "resources")
@@ -169,7 +206,7 @@ def test_portable_package_and_private_key_boundary(tmp_path):
                     ("/api/agent/context", True),
                     ("/api/agent/resources", True),
                 ]
-                print(f"{version} POSIX: ZIP installed and a new process queried with the saved Key")
+                print(f"{version} POSIX: ZIP installed, binding resumed, and lock verified")
         finally:
             server.shutdown()
             thread.join(timeout=2)

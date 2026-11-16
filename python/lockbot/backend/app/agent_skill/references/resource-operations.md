@@ -15,8 +15,9 @@ To acquire two cards on the same node, repeat `--device` in one `lock` command a
 
 If the server omits `accelerators`, you may keep a private, local hardware note for a
 known node using user-confirmed information or a trusted machine inventory the user
-provides. Save `connection.json.node-hardware.json` next to that connection, with mode
-`0600`, outside the Skill installation. Use the verified origin, instance, bot UUID
+provides. Save `connection.json.node-hardware.json` next to that connection, outside
+the Skill installation, with POSIX mode `0600` or the same private Windows ACL as the connection.
+Use the verified origin, instance, bot UUID
 and exact node IDs. Example shape:
 
 ```json
