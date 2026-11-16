@@ -1,6 +1,6 @@
 # Agent-assisted Lockbot administration
 
-Use this guide when the user asks you to deploy Lockbot or configure messaging platforms. It complements the repository's contribution rules; it does not authorize production changes, messages or external permissions by itself.
+Use this guide for deployment, messaging platforms, utilization datasources, and OP API work. Follow the matching guide before running tools. The user's request determines the authorized scope.
 
 - [Deployment, upgrades and recovery](deployment/AGENTS.md)
 - [Infoflow and Feishu onboarding](platforms/AGENTS.md)
@@ -18,6 +18,6 @@ Agent assistance is practical for preparing configuration, running preflight, ex
 ## Maintenance
 
 - [Datasource setup and validation](../usage/datasource-setup.md) covers connecting an existing source, deploying a utilization collector and checking browser access. It includes the local configuration generator.
-- [Operator API](../usage/operator-api.md) covers operational queries and authorized release. Use the approved deployment's `/api/public-docs/op` for its current contract.
+- [OP monitoring and authorized release](../usage/operator-api.md#monitor) covers current holders. Use the Monitor section for current state and the separate history endpoints for past activity. Check `/api/public-docs/op` on the approved deployment for its current contract.
 
 Use the datasource's own read-only access for metrics and the target bot's OP key for operator calls.
