@@ -120,6 +120,12 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
     assert grade["observable_pass"], grade["checks"]
     assert not evaluation.score(fixture.root, final + result["login_url"])["checks"]["ticket_not_in_reply"]
 
+    english_reply = f"Open the private link in your browser to confirm login, then bookmark {fixture.panel_home}."
+    english_grade = evaluation.score(fixture.root, english_reply)
+    assert english_grade["observable_pass"], english_grade["checks"]
+    stale_reply = f"Your browser confirmation is complete. Bookmark {fixture.panel_home}."
+    assert not evaluation.score(fixture.root, stale_reply)["checks"]["pending_human_confirmation"]
+
     evaluation.continuity.human_confirm(fixture.root)
     resumed = tmp_path / "fresh"
     evaluation.resume(fixture.root, resumed)
