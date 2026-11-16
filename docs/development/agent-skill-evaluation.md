@@ -154,10 +154,10 @@ Provide an explicit instruction as well as the deployment link, for example:
 > Save this service address locally and keep each service/bot key in the private credential
 > store. Do not enroll or request resources yet.
 
-This is a suggested user request, not an instruction to bypass the client's installation
-or approval mechanism. When distributing the complete ZIP, keep the manifest and Markdown
-entry points readable and make the install instruction identify the full package. A ZIP
-does not automatically register itself with every client.
+This is a suggested user request. The client still controls its installation and approval
+flow. Use the public manifest to identify the complete ZIP and verify its digest. The
+package contains the Markdown instructions, helper, references and integrity metadata.
+A ZIP does not automatically register itself with every client.
 
 Attach each dated evaluation matrix to the PR that changes the Skill, bound to its commit,
 Skill hash, fixture/scenario version and runner conditions. Append new results after changes;
