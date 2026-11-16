@@ -28,7 +28,12 @@ INSTALLATION_INSTRUCTIONS = (
     "A shared manifest or ZIP link is not an installation request. If the user only shared a link, "
     "explain what the Skill does and wait for an explicit request before downloading the ZIP, "
     "writing files, or binding an account. For an authorized installation, verify the same-origin ZIP "
-    "against installation.sha256, install the complete bundle, and confirm the result."
+    "against installation.sha256 and install it with the client's supported installer or Skill directory. "
+    "Verify the installed files and whether the client loads the Skill. If the supported location is protected, "
+    "report the installation as blocked and give the client-specific manual step. An unpacked copy elsewhere "
+    "does not count as installed. If the user also authorized saving the service, run the verified bundled CLI "
+    "with Python 3.10+ using discover --origin <approved-service> --destination <new-private-file>. "
+    "If that command cannot complete, report that the service was not saved instead of writing a substitute file."
 )
 SKILL_UPDATE_INSTRUCTIONS = (
     "Verify any prior command with an authenticated resource read. Do not replay the command. "
