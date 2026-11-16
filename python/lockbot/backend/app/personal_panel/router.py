@@ -21,6 +21,7 @@ from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, Insta
 from .credential_views import CredentialViews
 from .handoff import connection_id, connection_instructions, installation, recovery_instructions
 from .native import NativeProvider, ProviderError
+from .report_utilization import utilization_fields
 from .sessions import PanelSessions
 
 COOKIE = "__Host-lockbot_me"
@@ -764,9 +765,11 @@ def create_panel(
             )
             allocations = group.get("allocations")
             if isinstance(allocations, list):
+                now = datetime.now(timezone.utc)
                 group["allocations"] = [
                     {
-                        **row,
+                        **{field: value for field, value in row.items() if field != "utilization_sample"},
+                        **utilization_fields(row, group, now),
                         "detail_id": report_selector(
                             group_selector, row.get("kind"), row.get("node"), row.get("device")
                         ),

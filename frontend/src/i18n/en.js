@@ -3,6 +3,23 @@ export default {
     tabHint: 'Press Tab in an empty editor to insert an example',
     invalidSyntax: 'Invalid JSON. Check brackets, quotes, and commas.',
   },
+  nodeHardware: {
+    title: 'Node hardware',
+    open: 'Register hardware',
+    help: 'Use an approved inventory to provide accelerator models and counts.',
+    mapping: 'Hardware mapping JSON',
+    saved: 'Registered hardware',
+    review: 'Review changes before saving.',
+    removed: 'Remove registered hardware',
+    unknownNode: 'The mapping contains an unknown node ID. Refresh the list and check the exact ID.',
+    readFailed: 'Could not load the hardware inventory.',
+    validateFailed: 'Use version 1, existing node IDs, unique models, and positive integer counts.',
+    writeFailed: 'Could not save the hardware inventory.',
+    saveSuccess: 'Hardware inventory saved.',
+    prompt:
+      'Use only my approved hardware inventory and the exact node IDs {nodeIds}. Return JSON in this format:\n{example}\nUse one entry per model with its card count. Leave unknown nodes out and list them separately. Never infer a model from an alias or network address. An empty list removes a node from the registration.',
+  },
+
   nodeAccess: {
     title: 'Node access',
     open: 'Configure addresses',
@@ -405,6 +422,7 @@ export default {
 
     invalid: 'Invalid sample',
     title: 'Utilization',
+    cardAverage: 'Average card utilization {percent}%',
     show: 'Show utilization',
     configure: 'Data source',
     purpose:

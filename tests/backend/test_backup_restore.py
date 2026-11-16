@@ -60,6 +60,7 @@ def _build_backup_zip(
     agent_options=None,
     utilization_config=...,
     node_access_config=...,
+    node_hardware_config=...,
 ):
     """Build a minimal backup zip with one bot.
 
@@ -90,10 +91,11 @@ def _build_backup_zip(
             conn.execute("ALTER TABLE bots ADD COLUMN utilization_config TEXT")
             value = json.dumps(utilization_config) if isinstance(utilization_config, dict) else utilization_config
             conn.execute("UPDATE bots SET utilization_config = ?", (value,))
-        if node_access_config is not ...:
-            conn.execute("ALTER TABLE bots ADD COLUMN node_access_config TEXT")
-            value = json.dumps(node_access_config) if isinstance(node_access_config, dict) else node_access_config
-            conn.execute("UPDATE bots SET node_access_config = ?", (value,))
+        for key, config in (("node_access_config", node_access_config), ("node_hardware_config", node_hardware_config)):
+            if config is not ...:
+                conn.execute(f"ALTER TABLE bots ADD COLUMN {key} TEXT")
+                value = json.dumps(config) if isinstance(config, dict) else config
+                conn.execute(f"UPDATE bots SET {key} = ?", (value,))
         conn.commit()
         conn.close()
         with open(f.name, "rb") as db_file:
@@ -749,4 +751,48 @@ def test_restore_node_access_roundtrip_and_legacy_compatibility(client, auth_hea
         expected = {"node1": dual_address}
     if archived_case in {"omitted", "invalid"}:
         expected = {"node1": previous}
+    assert client.get(path, headers=auth_header).json()["nodes"] == expected
+
+
+@pytest.mark.parametrize("archived_case", ["omitted", "configured", "removed", "invalid"])
+def test_restore_whole_machine_hardware(client, auth_header, db_session, archived_case):
+    from lockbot.backend.app.auth.models import User
+    from lockbot.backend.app.backup.service import restore_apply
+
+    owner = db_session.query(User).filter_by(username="testuser").one()
+    created = client.post(
+        "/api/bots",
+        headers=auth_header,
+        json={
+            "name": "existing-hardware",
+            "bot_type": "NODE",
+            "webhook_url": "https://example.invalid/hook",
+            "cluster_configs": ["node1"],
+        },
+    )
+    assert created.status_code == 201
+    path = f"/api/bots/{created.json()['id']}/node-hardware"
+    previous = {"version": 1, "nodes": {"node1": [{"model": "P800", "count": 4}]}}
+    registered = {"version": 1, "nodes": {"node1": [{"model": "P900", "count": 2}]}}
+    assert client.patch(path, headers=auth_header, json=previous).status_code == 200
+    archived = {
+        "omitted": ...,
+        "configured": registered,
+        "removed": None,
+        "invalid": {"version": 1, "nodes": {"unknown": [{"model": "P900", "count": 2}]}},
+    }[archived_case]
+    uuid = created.json()["uuid"]
+    data = _build_backup_zip(bot_uuid=uuid, state_data={"bot_state": {}}, node_hardware_config=archived)
+    result = restore_apply(
+        file_bytes=data,
+        password=None,
+        source_secret_key=None,
+        selected_uuids=[uuid],
+        current_user_id=owner.id,
+        db=db_session,
+    )
+    assert result["restored"] == (0 if archived_case == "invalid" else 1)
+    expected = registered["nodes"] if archived_case == "configured" else previous["nodes"]
+    if archived_case == "removed":
+        expected = {}
     assert client.get(path, headers=auth_header).json()["nodes"] == expected

@@ -3,6 +3,23 @@ export default {
     tabHint: '空白时按 Tab 填入样例',
     invalidSyntax: 'JSON 格式有误，请检查括号、引号和逗号。',
   },
+  nodeHardware: {
+    title: '节点硬件',
+    open: '登记硬件',
+    help: '根据已确认的清单登记卡型和数量。',
+    mapping: '硬件映射 JSON',
+    saved: '已登记硬件',
+    review: '保存前请核对以下变更。',
+    removed: '移除硬件登记',
+    unknownNode: '映射中有未知节点 ID。请刷新后核对节点 ID。',
+    readFailed: '无法读取硬件清单。',
+    validateFailed: '请使用版本 1、已有节点 ID、不重复的卡型和正整数数量。',
+    writeFailed: '无法保存硬件清单。',
+    saveSuccess: '硬件清单已保存。',
+    prompt:
+      '根据我提供的已确认硬件清单和节点 ID {nodeIds} 生成 JSON，格式如下。\n{example}\n每种卡型单独填写数量。无法核实的节点从 JSON 中省略，并另外列出。不要根据别名或网络地址猜型号。空列表表示移除该节点的登记。',
+  },
+
   nodeAccess: {
     title: '节点连接',
     open: '配置登录地址',
@@ -381,6 +398,7 @@ export default {
 
     invalid: '数据异常',
     title: '利用率',
+    cardAverage: '卡平均利用率 {percent}%',
     show: '显示利用率',
     configure: '数据源',
     purpose: '从指标服务读取节点和卡的利用率，并显示在资源页面。',

@@ -640,6 +640,11 @@ it('removes a partial report when the stream invalidates authorization', async (
 
 it('opens only the selected resource or group and closes on a change of identity scope', async () => {
   const booking = { kind: 'reservation', node: 'node-a', device: '0', detail_id: 'booking-a' }
+  const utilizationSample = {
+    compute_percent: 0,
+    memory_percent: null,
+    expires_at: new Date(Date.now() + 60_000).toISOString(),
+  }
   const state = await readyGroups([
     {
       ...confirmed,
@@ -647,7 +652,12 @@ it('opens only the selected resource or group and closes on a change of identity
       detail_id: 'group-a',
       allocations: [
         ...confirmed.allocations,
-        { kind: 'hold', node: 'node-b', detail_id: 'holding-b' },
+        {
+          kind: 'hold',
+          node: 'node-b',
+          detail_id: 'holding-b',
+          utilization_sample: utilizationSample,
+        },
         booking,
         { ...booking, node: 'node-b', detail_id: 'booking-b' },
       ],
@@ -666,6 +676,8 @@ it('opens only the selected resource or group and closes on a change of identity
   await router.push('/me')
   await router.push('/me/holdings/holding-b')
   expect(state.detailSections[0].rows.map(({ allocation }) => allocation.node)).toEqual(['node-b'])
+  expect(state.detailSections[0].metrics).toBe(true)
+  expect(state.detailSections[0].rows[0].allocation.utilization_sample).toEqual(utilizationSample)
 
   await state.openBooking(reservations.rows[0])
   expect(state.detailSections).toHaveLength(1)
