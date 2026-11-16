@@ -40,6 +40,6 @@
 2. 如流填入的是当前 LockBot 机器人详情页上的回调地址。检查域名、端口和代理路由能否从如流访问。
 3. LockBot 中机器人处于运行状态，Webhook URL、Token 和 AES 密钥均来自同一个如流机器人。已收到回调但未能回复时，检查签名校验和出站 Webhook 的结果。
 
-资源群验证通过后，按 [Agent Skill 安装指南](resource-agent-helper.md) 安装完整 ZIP，再让 Agent 帮你绑定群身份、查看占用和申请资源。
+需要 Agent 协助接入或排查时，把 [消息平台接入说明（AGENTS.md）](../agents/platforms/AGENTS.md) 发给它，并说明目标 LockBot 实例。
 
 本指南已用 v3.3.0 官方容器镜像和全新数据目录验证初始管理员登录、修改密码及启动如流 NODE 机器人。截图使用虚构配置，群内实际收发待在授权测试群验收。

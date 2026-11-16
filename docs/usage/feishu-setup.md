@@ -107,7 +107,7 @@ Lockbot 不支持单聊资源操作，不申请 `im:message.p2p_msg:readonly`。
 
 在已授权的测试群用飞书的 @ 功能选中机器人，发送 `@机器人 query`。若测试机器人配置了 `demo-node`，预期当前群收到包含它的资源状态，网页链接指向当前 LockBot，原生 @ 指向正确用户。这个节点是演示数据。真实收发、WebSocket 握手和群路由需要分别核对。
 
-第一次使用时，把本站的安装清单链接（部署地址加 `/api/agent-skill`）发给 Agent，并说「请安装 LockBot Skill 并帮我绑定」。Agent 按 [安装指南](resource-agent-helper.md) 校验并安装完整 ZIP。收到绑定指令后，在机器人所在群发送即可。
+需要 Agent 协助接入或排查时，把 [消息平台接入说明（AGENTS.md）](../agents/platforms/AGENTS.md) 发给它，并说明目标 LockBot 实例。
 
 Agent 主动提交的详细备注仅本人及超级管理员可见；普通机器人管理员、普通 OP 与其他 Agent 不因管理资源获得详细备注。超级管理员需显式打开“查看 Agent 详细任务备注”，读取会记录审计；公开群与共享网页只展示允许的分类。备注不应包含密码、key 或完整提示词。
 
