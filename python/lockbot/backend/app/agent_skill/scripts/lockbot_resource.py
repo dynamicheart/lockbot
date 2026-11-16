@@ -1902,6 +1902,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     client = None
     try:
+        public_only = args.action == "install" or (args.action == "discover" and not args.destination)
+        if os.name == "nt" and not public_only:
+            raise ClientError("windows_private_acl_unavailable")
         if args.action == "connections":
             if args.connection:
                 raise ClientError("connection_not_used_for_listing")

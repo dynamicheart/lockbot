@@ -34,6 +34,10 @@ def test_portable_package_and_private_key_boundary(tmp_path):
         def log_message(self, *_args):
             pass
 
+        def do_POST(self):
+            requests.append((self.path, bool(self.headers.get("Authorization"))))
+            self.send_error(405)
+
         def do_GET(self):
             authorization = self.headers.get("Authorization")
             requests.append((self.path, bool(authorization)))
@@ -108,10 +112,22 @@ def test_portable_package_and_private_key_boundary(tmp_path):
             initialize = ("init", "--origin", origin, "--scope", "project", "--key-file", str(key))
             if os.name == "nt":
                 # chmod cannot establish a private Windows DACL. Refuse before transmitting the Key.
-                assert cli(script, *initialize, code=2)["error"] == "private_file_permissions_or_size"
-                assert requests[before:] == [("/api/agent-skill", False)]
+                private_target = tmp_path / "private-destination"
+                for command in (
+                    initialize,
+                    ("connections",),
+                    ("discover", "--origin", origin, "--destination", str(private_target)),
+                    ("enroll", "--origin", origin, "--destination", str(private_target), "--authorized"),
+                    ("key-challenge", "--origin", origin, "--destination", str(private_target), "--authorized"),
+                    ("finish-enrollment", "--enrollment-dir", str(private_target)),
+                    ("--connection", str(private_target), "recover"),
+                ):
+                    assert cli(script, *command, code=2)["error"] == "windows_private_acl_unavailable"
+                assert requests[before:] == []
+                assert not private_target.exists()
                 assert not (tmp_path / ".lockbot/connections").exists()
-                print(f"{version} Windows: ZIP installed, Key refused before transmission")
+                assert cli(script, "discover", "--origin", origin)["instance_id"] == manifest["instance_id"]
+                print(f"{version} Windows: ZIP installed, private enrollment and Key use refused before IO")
             else:
                 initialized = cli(script, *initialize)
                 checked = cli(script, "--connection", initialized["connection"], "resources")

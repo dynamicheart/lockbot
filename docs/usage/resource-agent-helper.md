@@ -19,11 +19,10 @@ HTTP API remains available through an already authorized HTTP tool/credential st
 the same service/instance/context/rules/readback and no-replay procedure. Installing Markdown
 or downloading a ZIP does not prove the script can execute.
 
-Local validation covers the available macOS Python runtime and fake HTTP/real API fixtures.
-Windows `py -3`, Windows ACL equivalence to POSIX mode0600, environments without Python, missing
-installer, unavailable networking and other Agent runtimes remain explicit acceptance cases.
-Private files are refused when this helper cannot verify its permission constraint; this
-change does not pretend to provide cross-platform ACL handling or Go/Node alternatives.
+The Windows runner covers ZIP installation with `py -3`. Native Windows can also read the public
+service manifest. Commands that save service metadata, bind or recover Keys, or use a saved connection
+return `windows_private_acl_unavailable` before network or private-file access. Those commands require
+Windows ACL support. The macOS and Linux checks exercise valid private files and authenticated reads.
 
 ## Install and initialize
 
