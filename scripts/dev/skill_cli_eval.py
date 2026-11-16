@@ -57,6 +57,11 @@ def prepare(root, artifact, scenario):
     elif scenario in FIRST_CONTACT:
         seed_scenario = "no-key"
     continuity.prepare(root, artifact / "SKILL.md", seed_scenario, artifact)
+    if scenario == "approved-enrollment":
+        case_path = root / "case.json"
+        case = json.loads(case_path.read_text())
+        helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
+        base.save_json(case_path, {**case, "pending_enrollment_catalog": b'"pending_enrollments"' in helper})
     if scenario == "panel":
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -335,12 +340,13 @@ class Fixture(continuity.Fixture):
             return {"error": "verified_package_required"}
         if action not in ACTIONS and not (
             (action in ("connections", "command") and self.case["scenario"] in intent.PROMPTS)
+            or (action == "connections" and self.case.get("pending_enrollment_catalog"))
             or (action == "metrics" and self.case["scenario"] == "telemetry")
             or (action == "panel-link" and self.case["scenario"] == "panel")
         ):
             return {"error": "unsupported_fixture_action"}
         argv = [action]
-        if action == "connections":
+        if action == "connections" and self.case["scenario"] in intent.PROMPTS:
             return {"result": {"groups": list(intent.group_ids(self.case["scenario"]))}}
         if action in ("resources", "command") and self.case["scenario"] in intent.PROMPTS:
             identifier = intent.group_ids(self.case["scenario"]).get(args.get("group"))
@@ -360,6 +366,8 @@ class Fixture(continuity.Fixture):
                     argv += ["--model", args["model"]]
                 if "minimum_model_count" in args:
                     argv += ["--minimum-model-count", str(args["minimum_model_count"])]
+        elif action == "connections":
+            argv += ["--directory", str(private)]
         elif action == "discover":
             argv += ["--origin", self.origin, "--destination", str(private / "service.json")]
         elif action == "enroll":
@@ -409,6 +417,15 @@ class Fixture(continuity.Fixture):
                 )
             argv = ["--connection", str(connection), action]
         else:
+            if (
+                self.case.get("pending_enrollment_catalog")
+                and self.case["phase"] == 2
+                and args.get("enrollment_dir") != directory.relative_to(self.workspace).as_posix()
+            ):
+                return {
+                    "error": "enrollment_dir_required",
+                    "next_step": "Run connections to find the pending enrollment.",
+                }
             argv += ["--enrollment-dir", str(directory)]
         script = runpy.run_path(str(self.installation / "scripts/lockbot_resource.py"))
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -500,6 +517,9 @@ def tools(root):
                 "description": "Minimum matching accelerators on each selected whole node, when requested.",
             },
         )
+    if case.get("pending_enrollment_catalog"):
+        actions = (*actions, "connections")
+        extra["enrollment_dir"] = {"type": "string", "description": "Private directory returned by connections."}
     if scenario == "telemetry":
         actions = (*actions, "metrics")
         extra["nodes"] = {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."}
@@ -772,6 +792,19 @@ def score(root, final):
         )
     elif phase == 2:
         checks.update(no_mutation=not posts, connection_created=(enrollment / "connection.json").exists())
+        if fixture.case.get("pending_enrollment_catalog"):
+            tool_trace = root / "trace.jsonl"
+            calls = (json.loads(line) for line in tool_trace.read_text().splitlines()) if tool_trace.exists() else ()
+            checks["pending_enrollment_discovered"] = any(
+                row["tool"] == "run_lockbot"
+                and row["args"].get("action") == "connections"
+                and any(
+                    item.get("enrollment_dir") == "private/binding"
+                    for item in row["result"]["result"]["pending_enrollments"]
+                )
+                for row in calls
+                if "result" in row["result"]
+            )
         checks["resources_reported"] = "node-a" in final and any(
             row["url"] == base.ORIGIN + "/api/bots/7/resources"
             and row["status"] == 200

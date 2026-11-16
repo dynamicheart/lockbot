@@ -72,7 +72,12 @@ If the binding is still pending or expired, or the request outcome is unknown, r
 that state and await the user. Never automatically request a second code.
 
 Run `connections` to find saved records across sessions; it lists the origin, instance,
-bot and record path without opening Key files. Verify the live identity with `context`
+bot and record path without opening Key files. `pending_enrollments` lists unfinished
+requests with their group, service and `enrollment_dir`. Use that directory with
+`enrollment-status` to check current server state, even if the displayed code expiry
+has passed. A binding confirmed before expiry can still be finished. For an explicit
+enrollment directory outside the two catalogs, use `connections --directory <directory>`.
+Verify the live identity with `context`
 using the chosen record. By default, `init`, `enroll` and `recover` save under the
 current user's private `~/.config/lockbot/connections/` catalog. Select
 `--scope project` to save under `.lockbot/connections/`, or give an explicit

@@ -226,13 +226,14 @@ def new_catalog_entry(scope, name=None):
 
 
 def listed_connections(directory=None):
-    """List saved connection records without opening their Key files."""
+    """List connections and resumable enrollments without opening their Key files."""
     catalogs = (
         [("custom", Path(directory))]
         if directory is not None
         else [(scope, connection_catalog(scope)) for scope in ("project", "user")]
     )
     connections = []
+    enrollments = []
     unavailable_count = 0
     for scope, root in catalogs:
         try:
@@ -242,7 +243,8 @@ def listed_connections(directory=None):
         if not stat.S_ISDIR(mode) or mode & 0o077:
             raise ClientError("private_connection_directory_required")
         root = root.resolve()
-        paths = sorted([*root.glob("*/connection.json"), *root.glob("*/*/connection.json")])
+        paths = catalog_records(root, "connection.json")
+        completed = set()
         for path in paths:
             try:
                 if path.resolve() != path:
@@ -256,9 +258,23 @@ def listed_connections(directory=None):
                 if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(entry.values())):
                     raise ValueError
                 connections.append({**entry, "scope": scope})
+                completed.add(path.parent)
             except (ClientError, OSError, KeyError, RuntimeError, ValueError):
                 unavailable_count += 1
-    return {"connections": connections, "unavailable_count": unavailable_count}
+        for path in catalog_records(root, "enrollment.json"):
+            if path.parent in completed:
+                continue
+            try:
+                if path.resolve() != path:
+                    raise ValueError
+                enrollments.append({**pending_enrollment_record(path.parent), "scope": scope})
+            except (ClientError, OSError, KeyError, RuntimeError, ValueError):
+                unavailable_count += 1
+    return {"connections": connections, "pending_enrollments": enrollments, "unavailable_count": unavailable_count}
+
+
+def catalog_records(root, filename):
+    return sorted([*root.glob(filename), *root.glob(f"*/{filename}"), *root.glob(f"*/*/{filename}")])
 
 
 def write_private(path, content, *, replace=False):
@@ -293,6 +309,34 @@ def enrollment_state(directory):
     if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
         raise ClientError("private_enrollment_directory_required")
     return path, private_json(path / "enrollment.json")
+
+
+def pending_enrollment_record(directory):
+    path, state = enrollment_state(directory)
+    instance = state["instance_id"]
+    if not isinstance(instance, str) or not instance:
+        raise ValueError
+    status = state["status"]
+    entry = {
+        "origin": origin(state["approved_origin"]),
+        "instance_id": instance,
+        "target_group": enrollment_group(state["target_group"]),
+        "enrollment_dir": str(path),
+        "status": "request_outcome_unknown" if status == "requesting" else status,
+    }
+    if status == "pending":
+        binding = state["binding_id"]
+        if not isinstance(binding, str) or not re.fullmatch(r"[A-Za-z0-9_-]{22}", binding):
+            raise ValueError
+        expiry = state["bind_expires_at"]
+        if not isinstance(expiry, str) or datetime.fromisoformat(expiry.replace("Z", "+00:00")).utcoffset() is None:
+            raise ValueError
+        entry["bind_expires_at"] = expiry
+    elif status != "requesting":
+        raise ValueError
+    if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(entry.values())):
+        raise ValueError
+    return entry
 
 
 def _local_hardware_note(note):
@@ -1668,7 +1712,7 @@ def main(argv=None):
         command.add_argument("--enrollment-dir", required=True, help="Private directory returned by enroll")
         if action == "finish-enrollment":
             command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
-    catalog = sub.add_parser("connections", help="List project and user connections without reading their Keys")
+    catalog = sub.add_parser("connections", help="List project and user connections plus unfinished enrollments")
     catalog.add_argument("--directory", help="Read only this private connection catalog")
     sub.add_parser("context", help="Verify the selected connection's identity, bot and rules")
     sub.add_parser("resources", help="Read the selected bot's current resources and queue")

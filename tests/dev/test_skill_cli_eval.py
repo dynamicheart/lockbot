@@ -162,7 +162,11 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     destination = tmp_path / "fresh-session"
     evaluation.resume(fixture.root, destination)
     resumed = evaluation.Fixture(destination)
-    assert run(resumed, "finish-enrollment")["result"]["connection_created"]
+    assert run(resumed, "finish-enrollment")["error"] == "enrollment_dir_required"
+    pending = run(resumed, "connections")["result"]["pending_enrollments"]
+    assert run(resumed, "finish-enrollment", enrollment_dir=pending[0]["enrollment_dir"])["result"][
+        "connection_created"
+    ]
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
     assert evaluation.score(destination, "node-a")["observable_pass"]
 

@@ -81,7 +81,10 @@ request with a minimum count, include `--minimum-model-count` too. For renewal, 
    with the saved directory returned by `enroll`.
 6. In a new session run `connections` from the project root. Prefer the matching record
    in `.lockbot/connections/` before `~/.config/lockbot/connections/`. For project-only
-   lookup use `connections --directory .lockbot/connections`. If multiple services match
+   lookup use `connections --directory .lockbot/connections`. To resume a binding,
+   take `enrollment_dir` from `pending_enrollments` and run `enrollment-status` on it.
+   After chat confirmation, finish that enrollment instead of requesting another code.
+   If multiple services match
    and the user has not selected one, show their addresses and ask which to use. Use
    `--connection <private-file> context` to verify the intended identity and bot.
    Use `recover` for other eligible bindings before asking the user to rebind or rotate.

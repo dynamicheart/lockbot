@@ -73,7 +73,9 @@ with subprocess.Popen(
         result = call("run_lockbot", action="enroll", group="验证群", authorized=True)["result"]
         answer = "在验证群发送 " + result["bind_command"]
     else:
-        assert call("run_lockbot", action="finish-enrollment")["result"]["connection_created"]
+        pending = call("run_lockbot", action="connections")["result"]["pending_enrollments"]
+        finished = call("run_lockbot", action="finish-enrollment", enrollment_dir=pending[0]["enrollment_dir"])
+        assert finished["result"]["connection_created"]
         assert call("run_lockbot", action="resources")["result"]["resources"]
         answer = "node-a"
     tools.stdin.close()

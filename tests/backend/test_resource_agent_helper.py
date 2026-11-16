@@ -512,7 +512,11 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     assert helper.main(["connections"]) == 0
-    assert json.loads(capsys.readouterr().out)["result"] == {"connections": [], "unavailable_count": 0}
+    assert json.loads(capsys.readouterr().out)["result"] == {
+        "connections": [],
+        "pending_enrollments": [],
+        "unavailable_count": 0,
+    }
 
     root = tmp_path / ".lockbot/connections"
     root.mkdir(mode=0o700, parents=True)
@@ -589,7 +593,19 @@ def test_enrollment_defaults_to_user_or_explicit_project_catalog(case, monkeypat
     assert (direction / "key").stat().st_mode & 0o777 == 0o600
     with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
         client.enroll(None, "Compute team", **kwargs)
-    assert helper.listed_connections()["connections"] == []
+    listing = helper.listed_connections()
+    assert listing["connections"] == []
+    assert listing["pending_enrollments"] == [
+        {
+            "origin": case.base,
+            "instance_id": "instance-a",
+            "target_group": "Compute team",
+            "enrollment_dir": str(direction),
+            "status": "pending",
+            "bind_expires_at": pending["bind_expires_at"],
+            "scope": expected,
+        }
+    ]
 
 
 def test_service_discovery_precedes_key_and_redacts_context(case):
@@ -1109,7 +1125,9 @@ def test_packaged_cli_runs_without_site_packages_and_redacts_credentials(case):
 
 
 def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case):
-    directory = case.tmp / "enrollment"
+    catalog = case.tmp / "private-catalog"
+    catalog.mkdir(mode=0o700)
+    directory = catalog / "enrollment"
 
     def cli(*args, ok=True):
         completed = subprocess.run(
@@ -1124,13 +1142,17 @@ def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case):
         return json.loads(completed.stdout)["result"] if ok else json.loads(completed.stderr)
 
     start = ("enroll", "--origin", case.base, "--group", "Chat group", "--destination", str(directory))
-    finish = ("finish-enrollment", "--enrollment-dir", str(directory))
     assert cli(*start, ok=False)["error"] == "invalid_cli_arguments"
     assert not case.state.requests
     assert cli(*start, "--authorized")["bind_command"] == "bind ACDEFGHJ"
     assert (directory.stat().st_mode & 0o777) == 0o700
     assert ((directory / "key").stat().st_mode & 0o777) == 0o600
     assert cli(*start, "--authorized", ok=False)["error"] == "enrollment_directory_exists"
+    listing = cli("connections", "--directory", str(catalog))
+    pending = listing["pending_enrollments"][0]
+    assert pending["target_group"] == "Chat group" and pending["status"] == "pending"
+    assert "binding_id" not in pending and "bind_command" not in pending
+    finish = ("finish-enrollment", "--enrollment-dir", pending["enrollment_dir"])
     assert cli(*finish)["status"] == "pending"
     assert not (directory / "connection.json").exists()
     assert all("Authorization" not in row[2] for row in case.state.requests)
@@ -1138,6 +1160,8 @@ def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case):
     assert cli(*finish)["status"] == "bot_name_confirmation_required"
     assert not (directory / "connection.json").exists()
     connection = cli(*finish, "--confirm-bot-name", "Compute team")["connection"]
+    listing = cli("connections", "--directory", pending["enrollment_dir"])
+    assert listing["pending_enrollments"] == [] and listing["connections"][0]["connection"] == connection
     assert cli("--connection", connection, "context")["bot"]["uuid"] == "bot-a"
     assert cli(*finish, "--confirm-bot-name", "Compute team", ok=False)["error"] == "enrollment_connection_exists"
     assert sum(row[1] == "POST" for row in case.state.requests) == 1
@@ -1153,6 +1177,8 @@ def test_enrollment_does_not_replay_uncertain_request(case):
         client.enroll(directory, "Compute team")
     path, state = helper.enrollment_state(directory)
     assert client.check_enrollment(path, state)["status"] == "request_outcome_unknown"
+    listing = helper.listed_connections(directory)["pending_enrollments"]
+    assert len(listing) == 1 and listing[0]["status"] == "request_outcome_unknown"
     assert not (path / "key").exists() and not (path / "connection.json").exists()
     assert sum(row[1] == "POST" for row in case.state.requests) == 1
 
