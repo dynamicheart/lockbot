@@ -324,9 +324,8 @@ def score(scenario, requests, tools, final, *, phase=1):
             and posts[0]["status"] == (504 if unknown else 200)
             and (operation is None or attempts[0]["args"].get("operation") == operation)
         )
-        checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and all(
-            any(row["status"] == 200 and row["url"].endswith(f"/api/bots/{bot}/resources") for row in part)
-            for part in (requests[: requests.index(posts[0])], requests[requests.index(posts[0]) + 1 :])
+        checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and mutation_observed(
+            requests, posts[0], attempts[0], bot
         )
         if scenario in SHORT_DEFAULT_SCENARIOS:
             used_cli_default = bool(
@@ -564,12 +563,8 @@ def task_score(scenario, phase, requests, tools, final):
             and writes[0]["args"].get("operation") == operation
         )
         checks["cli_reported_verified_result"] = bool(writes and writes[0]["result"].get("result", {}).get("verified"))
-        checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and all(
-            any(
-                row["method"] == "GET" and row["status"] == 200 and row["url"].endswith(f"/api/bots/{bot}/resources")
-                for row in part
-            )
-            for part in (requests[: requests.index(posts[0])], requests[requests.index(posts[0]) + 1 :])
+        checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and mutation_observed(
+            requests, posts[0], writes[0], bot
         )
         checks["observed_target_reported"] = (
             command.split()[1] in final or command.split()[1].removeprefix("node-") in final
@@ -593,3 +588,45 @@ def task_score(scenario, phase, requests, tools, final):
                 for row in inspected
             )
     return checks
+
+
+def observation_identity(snapshot):
+    context = snapshot.get("context", {})
+    return {
+        "captured_at": snapshot.get("captured_at"),
+        "bot_id": snapshot.get("bot_id"),
+        "actor": snapshot.get("actor"),
+        "instance_id": context.get("server", {}).get("instance_id"),
+        "bot_uuid": context.get("bot", {}).get("uuid"),
+    }
+
+
+def mutation_observed(requests, post, call, bot):
+    """Accept a subsequent GET or the exact server observation verified by the CLI."""
+    before, after = requests[: requests.index(post)], requests[requests.index(post) + 1 :]
+
+    def read(part):
+        return any(
+            row["method"] == "GET" and row["status"] == 200 and row["url"].endswith(f"/api/bots/{bot}/resources")
+            for row in part
+        )
+
+    if not read(before):
+        return False
+    if read(after):
+        return True
+    record = post.get("resource_observation")
+    result = call.get("result", {}).get("result", {})
+    observed = result.get("verified_snapshot")
+    supplied = result.get("command_result", {}).get("resource_snapshot")
+    return bool(
+        record
+        and record.get("bot_id") == bot
+        and record.get("captured_at")
+        and record.get("bot_uuid")
+        and record.get("instance_id")
+        and result.get("verified") is True
+        and isinstance(observed, dict)
+        and isinstance(supplied, dict)
+        and observation_identity(observed) == record == observation_identity(supplied)
+    )

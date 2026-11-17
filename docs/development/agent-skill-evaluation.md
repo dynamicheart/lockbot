@@ -252,3 +252,15 @@ not claim to have tested an actual group notification.
 
 These scenarios use new identifiers and fixture version 11. Earlier matrices and
 snapshots are left untouched; deterministic regressions are not new model runs.
+
+The packaged-CLI fixture also models the live `coherent_resource_snapshot`
+capability. A frozen `skill_artifacts()` manifest alone does not contain live
+server metadata, so the synthetic service advertises this capability when its
+frozen helper supports the contract. Inventory responses include their verified
+context and successful command responses include `resource_snapshot`; building
+that synthetic observation does not issue another HTTP request. Graders accept
+the matching observation recorded in the served POST response and verified by
+the CLI instead of demanding an extra resource GET. Deterministic regressions
+retain the unadvertised old-service flow and ensure an advertised but incomplete
+response fails closed. Fixture HTTP counts describe real packaged-helper requests,
+not an artificially downgraded protocol or actual production concurrency testing.

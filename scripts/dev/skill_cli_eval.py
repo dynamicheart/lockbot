@@ -11,6 +11,7 @@ import runpy
 import shutil
 import sys
 import urllib.error
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urljoin, urlsplit
@@ -76,6 +77,10 @@ def prepare(root, artifact, scenario):
     elif scenario in ENROLLMENT_SCENARIOS:
         seed_scenario = "approved-enrollment"
     continuity.prepare(root, artifact / "SKILL.md", seed_scenario, artifact)
+    case_path = root / "case.json"
+    case = json.loads(case_path.read_text())
+    helper = Fixture(root).artifact["contents"]["scripts/lockbot_cli.py"]
+    base.save_json(case_path, {**case, "coherent_snapshot": b"coherent_resource_snapshot" in helper})
     if scenario == "no-key":
         (root / "prompt.txt").write_text(f"安装Skill: {base.ORIGIN}/api/agent-skill")
     if scenario == "approved-enrollment":
@@ -292,6 +297,8 @@ class Fixture(continuity.Fixture):
         result = super().manifest()
         if self.uses_challenge:
             result["capabilities"] = list(dict.fromkeys([*result["capabilities"], "chat_credential_challenges"]))
+        if self.case.get("coherent_snapshot"):
+            result["capabilities"] = list(dict.fromkeys([*result["capabilities"], "coherent_resource_snapshot"]))
         return result
 
     @property
@@ -306,7 +313,52 @@ class Fixture(continuity.Fixture):
         path = self.root / "binding.json"
         return json.loads(path.read_text())["status"] if path.exists() else "expired"
 
+    def coherent_snapshot(self, args, body):
+        context = self.legacy_http({**args, "url": self.origin + "/api/agent/context", "method": "GET"})
+        if context["status"] != 200:
+            raise ValueError("Cannot attach unauthorized fixture context")
+        context = {
+            name: value
+            for name, value in context["body"].items()
+            if name
+            in {
+                "server",
+                "actor",
+                "bot",
+                "bot_rules",
+                "agent_access_enabled",
+                "credential_scope",
+                "usage_privacy",
+                "links",
+                "skill",
+            }
+        }
+        return {
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "age_seconds": 0,
+            "bot_id": context["bot"]["id"],
+            "bot_type": context["bot"]["type"],
+            "actor": context["actor"],
+            **body,
+            "context": context,
+        }
+
     def http(self, args):
+        result = self.legacy_http(args)
+        if not self.case.get("coherent_snapshot") or result["status"] != 200:
+            return result
+        path = urlsplit(args["url"]).path
+        if args["method"] == "GET" and path.endswith("/resources"):
+            result["body"] = self.coherent_snapshot(args, result["body"])
+        elif args["method"] == "POST" and path.endswith("/commands"):
+            query = {**args, "url": args["url"].removesuffix("/commands") + "/resources", "method": "GET"}
+            after = self.legacy_http(query)
+            if after["status"] != 200:
+                raise ValueError("Cannot observe fixture mutation")
+            result["body"]["resource_snapshot"] = self.coherent_snapshot(query, after["body"])
+        return result
+
+    def legacy_http(self, args):
         path = urlsplit(args["url"]).path
         method = args["method"]
         bearer = args["headers"].get("Authorization", "")
@@ -517,6 +569,11 @@ class Fixture(continuity.Fixture):
                         "status": result["status"],
                         **({"resource_bot": bot} if canonical and bot is not None else {}),
                         **({"command": command} if command is not None else {}),
+                        **(
+                            {"resource_observation": intent.observation_identity(result["body"]["resource_snapshot"])}
+                            if isinstance(result.get("body", {}).get("resource_snapshot"), dict)
+                            else {}
+                        ),
                         **(
                             {
                                 "selector": parse_qs(args["body"]).get("query", [""])[0],
@@ -1200,13 +1257,12 @@ def score(root, final):
                 and commands[0]["status"] == 200
                 and intent.equivalent(commands[0]["command"], COLD_COMMAND)
             )
-            reads = [
-                index
-                for index, row in enumerate(requests)
-                if row["url"].endswith("/resources") and row["status"] == 200
+            calls = [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
+            mutations = [
+                row for row in calls if row["tool"] == "run_lockbot" and row["args"].get("action") == "command"
             ]
-            checks["verified_before_and_after"] = bool(commands and reads) and (
-                reads[0] < requests.index(commands[0]) < reads[-1]
+            checks["verified_before_and_after"] = bool(commands and mutations) and intent.mutation_observed(
+                requests, commands[0], mutations[0], 7
             )
         if fixture.case.get("pending_enrollment_catalog"):
             tool_trace = root / "trace.jsonl"

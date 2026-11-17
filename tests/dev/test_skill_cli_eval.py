@@ -839,3 +839,57 @@ def test_runner_must_acknowledge_native_prior_turns(tmp_path):
     )
     result = evaluation.base.evaluate(root, [sys.executable, str(runner)], "synthetic", grade, timeout=5)
     assert result["observable_pass"]
+
+
+@pytest.mark.parametrize("coherent", [True, False])
+def test_frozen_cli_exercises_coherent_and_legacy_service_protocols(tmp_path, monkeypatch, coherent):
+    fixture = prepare(tmp_path, monkeypatch, "intent-lock-tail")
+    assert "coherent_resource_snapshot" not in fixture.artifact["manifest"].get("capabilities", [])
+    fixture.case["coherent_snapshot"] = coherent
+    evaluation.base.save_json(fixture.root / "case.json", fixture.case)
+    assert ("coherent_resource_snapshot" in fixture.manifest()["capabilities"]) is coherent
+    trace = fixture.root / "cli-http.jsonl"
+    for group in evaluation.intent.GROUP_IDS:
+        before = len(trace.read_text().splitlines()) if trace.exists() else 0
+        assert run(fixture, "resources", group=group)["result"]["resources"]
+        requests = [json.loads(line) for line in trace.read_text().splitlines()][before:]
+        assert len(requests) == (2 if coherent else 3)
+        assert sum(row["url"].endswith("/api/agent/context") for row in requests) == (0 if coherent else 1)
+    before = len(trace.read_text().splitlines())
+    result = run(
+        fixture, "command", group=evaluation.intent.MACHINES, operation="lock", nodes=["node-19"], whole_node=True
+    )
+    assert result["result"]["verified"], result
+    requests = [json.loads(line) for line in trace.read_text().splitlines()][before:]
+    assert len(requests) == (3 if coherent else 5)
+    post = next(index for index, row in enumerate(requests) if row["method"] == "POST")
+    assert bool(requests[post].get("resource_observation")) is coherent
+    assert sum(row["method"] == "GET" for row in requests[post + 1 :]) == (0 if coherent else 1)
+    grade = evaluation.score(fixture.root, "node-19 已锁三小时。")
+    assert grade["observable_pass"], grade
+    if coherent:
+        # An arbitrary CLI claim is insufficient: it must match the response actually served.
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        next(row for row in rows if row["method"] == "POST")["resource_observation"]["captured_at"] = "forged"
+        trace.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        assert not evaluation.score(fixture.root, "node-19 已锁三小时。")["checks"]["verified_before_and_after"]
+
+
+def test_advertised_coherent_fixture_does_not_downgrade_missing_observation(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-lock-tail")
+    original = fixture.http
+
+    def missing(args):
+        result = original(args)
+        if args["method"] == "POST" and args["url"].endswith("/commands") and result["status"] == 200:
+            result["body"].pop("resource_snapshot", None)
+        return result
+
+    monkeypatch.setattr(fixture, "http", missing)
+    result = run(
+        fixture, "command", group=evaluation.intent.MACHINES, operation="lock", nodes=["node-19"], whole_node=True
+    )
+    assert result["error"] == "mutation_not_confirmed_read_resources_do_not_replay"
+    requests = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
+    post = next(index for index, row in enumerate(requests) if row["method"] == "POST")
+    assert not any(row["method"] == "GET" for row in requests[post + 1 :])
