@@ -98,7 +98,8 @@ verified positive remainder below a minute. Use the post-renewal remainder after
 renewal. Bookings have a requested duration and a queue position until claimed.
 When a reliable remaining time is unavailable, refresh or say it could not be confirmed.
 
-For a requested absolute deadline, use the user's requested or saved timezone.
+Reserve absolute deadlines for explicit requests. When requested, use the user's
+requested or saved timezone.
 Do not infer a timezone from language: a Chinese conversation does not imply UTC+08:00.
 If no preference is known, use an explicitly available user-client/browser timezone;
 otherwise state UTC with its full date and offset, and offer a timezone preference.
