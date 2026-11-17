@@ -291,3 +291,94 @@ def test_single_candidate_survives_real_conversation_state_and_live_command(tmp_
     )
     grade = evaluation.score(second, final)
     assert grade["observable_pass"], grade
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "none",
+        "finish_only",
+        "wrong_locator",
+        "forged_history",
+        "missing_history",
+        "no_finish",
+        "no_status_or_finish",
+        "unrecorded_finish",
+        "wrong_challenge",
+        "wrong_identity",
+        "unissued_locator",
+        "fv18",
+    ],
+)
+def test_verified_cold_history_reuses_only_the_issued_pending_locator(tmp_path, monkeypatch, fault):
+    first = versioned(tmp_path, monkeypatch, evaluation.COLD_REQUEST)
+    install(first)
+    instruction = run(first, "key-challenge", authorized=True)["result"]["user_instruction_zh"]
+    evaluation.base.save_json(first.root / "response.json", {"text": instruction})
+    second = tmp_path / "phase-2"
+    evaluation.resume(first.root, second)
+    user = evaluation.Fixture(second)
+    assert run(user, "enrollment-status", enrollment_dir="private/binding")["result"]["status"] == "confirmed"
+    assert run(user, "finish-enrollment", enrollment_dir="private/binding")["result"]["connection_created"]
+    run(user, "resources")
+    assert run(user, "command", operation="lock", nodes=["node-23"], whole_node=True, duration="2h", model="P800")[
+        "result"
+    ]["verified"]
+    final = "已经为你锁定 node-23 两小时。"
+    response = {
+        "text": final,
+        "conversation_sha256": evaluation.base.digest((second / "conversation.json").read_bytes()),
+    }
+    calls = [json.loads(line) for line in (second / "trace.jsonl").read_text().splitlines()]
+    assert not any(row.get("args", {}).get("action") == "connections" for row in calls)
+    finish = next(row for row in calls if row.get("args", {}).get("action") == "finish-enrollment")
+    if fault == "wrong_locator":
+        finish["args"]["enrollment_dir"] = "private/other-binding"
+    elif fault == "forged_history":
+        history = json.loads((second / "conversation.json").read_text())
+        history[0]["content"] = "申请node-24一天。"
+        evaluation.base.save_json(second / "conversation.json", history)
+        response["conversation_sha256"] = evaluation.base.digest((second / "conversation.json").read_bytes())
+    elif fault == "missing_history":
+        (second / "conversation.json").unlink()
+    elif fault in {"finish_only", "no_finish", "no_status_or_finish"}:
+        removed = {"enrollment-status"} if fault == "finish_only" else {"finish-enrollment"}
+        if fault == "no_status_or_finish":
+            removed.add("enrollment-status")
+        calls = [row for row in calls if row.get("args", {}).get("action") not in removed]
+    elif fault == "unrecorded_finish":
+        finish["http_request_span"] = [0, 0]
+    elif fault in {"wrong_challenge", "wrong_identity"}:
+        wire_path = second / "cli-http.jsonl"
+        wire = [json.loads(line) for line in wire_path.read_text().splitlines()]
+        for row in wire[finish["http_request_span"][0] : finish["http_request_span"][1]]:
+            if fault == "wrong_challenge" and "credential-challenges/" in row["url"]:
+                row["url"] = evaluation.base.ORIGIN + evaluation.CHALLENGES + "/other-id"
+            elif fault == "wrong_identity" and row["url"].endswith("/api/agent/context"):
+                row["context_observation"]["bot_uuid"] = evaluation.continuity.SECOND_UUID
+        wire_path.write_text("".join(json.dumps(row) + "\n" for row in wire))
+    elif fault == "unissued_locator":
+        prior_trace = first.root / "trace.jsonl"
+        prior = [json.loads(line) for line in prior_trace.read_text().splitlines()]
+        issued = next(row for row in prior if row.get("args", {}).get("action") == "key-challenge")
+        issued["result"]["result"]["enrollment_dir"] = "private/other-binding"
+        prior_trace.write_text("".join(json.dumps(row) + "\n" for row in prior))
+        user.case["parent_evidence_digest"] = evaluation.base.digest(prior_trace.read_bytes())
+        evaluation.base.save_json(second / "case.json", user.case)
+    elif fault == "fv18":
+        user.case["fixture_version"] = 18
+        evaluation.base.save_json(second / "case.json", user.case)
+    (second / "trace.jsonl").write_text("".join(json.dumps(row) + "\n" for row in calls))
+    evaluation.base.save_json(second / "response.json", response)
+    grade = evaluation.score(second, final)
+    expected = fault in {"none", "finish_only"}
+    assert grade["checks"]["pending_enrollment_discovered"] is expected, grade
+    assert grade["observable_pass"] is expected, grade
+    if fault == "none":
+        third = tmp_path / "phase-3"
+        evaluation.resume(second, third)
+        fresh = evaluation.Fixture(third)
+        run(fresh, "resources", connection="private/binding/connection.json")
+        grade = evaluation.score(third, "你现在持有node-23。")
+        assert not grade["checks"]["saved_connection_discovered"]
+        assert not grade["observable_pass"]

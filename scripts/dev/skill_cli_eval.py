@@ -1438,6 +1438,116 @@ def confirmed_request_history(root, fixture, final):
         return False
 
 
+def resumed_pending_locator(root, fixture, final, calls):
+    """Reuse a trace-proven pending locator only inside the verified cold continuation."""
+    if (
+        fixture.case.get("fixture_version", 0) < 19
+        or fixture.case.get("scenario") != COLD_REQUEST
+        or fixture.case.get("phase") != 2
+        or not confirmed_request_history(root, fixture, final)
+    ):
+        return False
+    try:
+        source = root.parent / fixture.case["parent_fixture_directory"]
+        prior = [json.loads(line) for line in (source / "trace.jsonl").read_text().splitlines()]
+        prior_wire = [json.loads(line) for line in (source / "cli-http.jsonl").read_text().splitlines()]
+        wire = [json.loads(line) for line in (root / "cli-http.jsonl").read_text().splitlines()]
+        locator = "private/binding"
+        old_state = json.loads((source / "workspace" / locator / "enrollment.json").read_text())
+        state = json.loads((fixture.workspace / locator / "enrollment.json").read_text())
+        connection = json.loads((fixture.workspace / locator / "connection.json").read_text())
+        identity = ("approved_origin", "instance_id", "binding_id", "purpose")
+        if (
+            any(state.get(field) != old_state.get(field) for field in identity)
+            or old_state.get("approved_origin") != fixture.origin
+            or old_state.get("instance_id") != fixture.manifest()["instance_id"]
+            or old_state.get("binding_id") != BINDING_ID
+            or old_state.get("purpose") != "recover"
+            or connection.get("approved_origin") != old_state["approved_origin"]
+            or connection.get("instance_id") != old_state["instance_id"]
+            or connection.get("bot_uuid") != base.BOT_UUID
+        ):
+            return False
+
+        def recorded_requests(event, records, action, directory_flag, directory):
+            args, argv = event.get("args", {}), event.get("argv", [])
+            span = event.get("http_request_span")
+            if (
+                event.get("tool") != "run_lockbot"
+                or args.get("action") != action
+                or not argv
+                or not str(argv[0]).endswith("/scripts/lockbot_cli.py")
+                or action not in argv
+                or directory_flag not in argv
+                or argv[argv.index(directory_flag) + 1] != str(directory)
+                or not isinstance(span, list)
+                or len(span) != 2
+                or not all(type(value) is int for value in span)
+                or not 0 <= span[0] < span[1] <= len(records)
+            ):
+                return []
+            return records[span[0] : span[1]]
+
+        issued = False
+        for event in prior:
+            result = event.get("result", {}).get("result", {})
+            if result.get("enrollment_dir") != locator or result.get("status") != "pending":
+                continue
+            issued = any(
+                row.get("url") == fixture.origin + CHALLENGES
+                and row.get("method") == "POST"
+                and row.get("status") == 201
+                and row.get("authorization_present") is False
+                for row in recorded_requests(
+                    event, prior_wire, "key-challenge", "--destination", source / "workspace" / locator
+                )
+            )
+            if issued:
+                break
+        if not issued:
+            return False
+        for event in calls:
+            result = event.get("result", {}).get("result", {})
+            if (
+                event.get("args", {}).get("enrollment_dir") != locator
+                or result.get("status") != "confirmed"
+                or result.get("connection_created") is not True
+                or result.get("purpose") != "recover"
+                or result.get("connection") != locator + "/connection.json"
+                or result.get("bot", {}).get("uuid") != connection["bot_uuid"]
+            ):
+                continue
+            observed = recorded_requests(
+                event, wire, "finish-enrollment", "--enrollment-dir", fixture.workspace / locator
+            )
+            challenge_read = any(
+                row.get("url") == fixture.origin + CHALLENGES + "/" + old_state["binding_id"]
+                and row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present") is True
+                for row in observed
+            )
+            context_read = any(
+                row.get("url") == fixture.origin + "/api/agent/context"
+                and row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present") is True
+                and row.get("context_observation")
+                == {
+                    "actor": connection["actor"],
+                    "instance_id": connection["instance_id"],
+                    "bot_uuid": connection["bot_uuid"],
+                    "bot_id": 7,
+                }
+                for row in observed
+            )
+            if challenge_read and context_read:
+                return True
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return False
+    return False
+
+
 def prior_observed_groups(root, fixture, final):
     """Reuse discovery from an acknowledged, successful preceding turn only.
 
@@ -1745,7 +1855,7 @@ def score(root, final):
             )
         if fixture.case.get("pending_enrollment_catalog"):
             tool_trace = root / "trace.jsonl"
-            calls = (json.loads(line) for line in tool_trace.read_text().splitlines()) if tool_trace.exists() else ()
+            calls = [json.loads(line) for line in tool_trace.read_text().splitlines()] if tool_trace.exists() else []
             catalog = "pending_enrollments" if enrollment_phase == 2 else "connections"
             field, path = (
                 ("enrollment_dir", "private/binding")
@@ -1759,6 +1869,8 @@ def score(root, final):
                 for row in calls
                 if "result" in row["result"]
             )
+            if scenario == COLD_REQUEST and phase == 2 and fixture.case.get("fixture_version", 0) >= 19:
+                checks["pending_enrollment_discovered"] |= resumed_pending_locator(root, fixture, final, calls)
         if uses_challenge:
             key = enrollment / "key"
             checks["correct_key_saved"] = (
