@@ -30,9 +30,12 @@ h1{font-size:17px;letter-spacing:-.02em}
 .layout{max-width:1568px;margin:auto;padding:20px 28px 44px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;align-items:start}
 .sidebar{position:sticky;top:86px;max-height:calc(100dvh - 106px);overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:14px;border:1px solid var(--line);background:var(--paper);border-radius:13px;padding:7px 7px 9px}
 .nav-heading{font-size:12px;font-weight:750;color:var(--ink);padding:9px 9px 5px}
-.sidebar section+section{border-top:1px solid var(--line);padding-top:1px}
 .case-group h3{font-size:11px;font-weight:650;color:var(--muted);padding:6px 9px 3px}
 .case-group+.case-group{margin-top:6px}
+.case-runs{margin:3px 0 8px 14px;padding:1px 0 2px 8px;border-left:1px solid #cdd9ea}
+.case-runs-heading{padding:4px 8px 2px;color:var(--muted);font-size:11px}
+.case-runs .choice{min-height:30px;padding:5px 8px;font-size:12px}
+.case-runs .choice[aria-pressed=true]{background:#edf3fd}
 .choice{position:relative;display:flex;justify-content:space-between;gap:8px;align-items:center;width:100%;text-align:left;padding:7px 9px;min-height:35px;background:transparent;border:0;border-radius:7px;font-size:13px}
 .choice:hover{background:var(--soft)}
 .choice[aria-pressed=true]{background:var(--selected);color:#184b9d;font-weight:710}
@@ -273,7 +276,6 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
 .md-task>input{margin-left:-1.5em;margin-right:.45em;accent-color:#4877af}
 .chat-transcript .activity-group{border-color:#b9cce5;background:#f1f6fd;border-left:3px solid #638fc8}
 .chat-transcript .activity-group summary{grid-template-columns:13px minmax(0,1fr) auto;color:#315b8d}
-.activity-tool-icon{width:17px;height:17px;color:#356eaa}
 .activity-hint{font-size:11px;color:#426b9d;font-weight:500}
 .chat-transcript .activity-group summary:hover{background:#e7f0fc}
 .chat-transcript .activity-group.activity-failed{border-color:#dca5ad;background:#fff5f6}
@@ -296,8 +298,8 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
   <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
 </svg></div><div><h1>LockBot 轨迹浏览器</h1></div></div><div class="header-end"><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
 <div class="layout">
-<aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例"></nav></section><section class="panel"><h2 class="nav-heading">模型与结果</h2><nav id="run-nav" class="run-nav" aria-label="模型与结果"></nav></section></aside>
-<div class="mobile-pick"><label>测例<select id="case-select"></select></label><label>模型与结果<select id="run-select"></select></label></div>
+<aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例及模型结果"></nav></section></aside>
+<div class="mobile-pick"><label>测例<select id="case-select"></select></label><label>所选测例的模型<select id="run-select"></select></label></div>
 <main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><details class="record-meta" id="record-meta"><summary>记录信息</summary><dl id="record-fields"></dl></details></div><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div><footer class="browse-footer" id="browse-footer"></footer></main>
 </div>
 <dialog class="inspector" id="inspector" aria-labelledby="inspector-title"><div class="inspector-header"><div><h2 id="inspector-title"></h2><p id="inspector-meta"></p></div><button class="inspector-close" type="button" id="inspector-close" autofocus>关闭</button></div><div class="inspector-fields" id="inspector-fields"></div></dialog>
@@ -674,9 +676,6 @@ function renderEntry(entry) {
     const caption = node('span',title,'activity-summary');
     if (failures.length) caption.append(node('span',failures.length+' 项异常','badge fail'));
     const preview = (failures.length ? failures : entry.steps).slice(0,3).map(stepLabel).join('、');
-    const toolIcon = icon('terminal');
-    toolIcon.classList.add('activity-tool-icon');
-    caption.prepend(toolIcon);
     summary.append(caption,node('span','展开','activity-hint'),node('span',preview,'activity-preview'));
     details.append(summary,stepList(entry.steps,entry.evidence));
     details.open = failures.length > 0;
@@ -914,21 +913,37 @@ function draw() {
   const failures = tools.reduce((total,entry)=>total+entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i])).length,0);
   if (failures) footer.append(node('span',failures+' 次调用异常'));
 
-  const focusedNav = document.activeElement?.closest('#case-nav, #run-nav')?.id;
+  const focusedNav = document.activeElement?.closest('#case-nav button')?.dataset.navKind;
   select('case-nav').replaceChildren(...scenarioGroups().map(([label,keys]) => {
     const group = node('div',null,'case-group');
     if (label) group.append(node('h3',label));
-    group.append(...keys.map(key=>{
+    for (const key of keys) {
       const scope = data.cases[key].filter(run=>run.state);
       const count = scope.length ? node('span',scope.filter(run=>run.state==='pass').length+'/'+scope.length,'meta') : null;
       if (count) count.title = '通过 / 已判定';
-      return choice(caseName(key),count,
-        activeCase===key,()=>pickCase(key));
-    }));
+      const selected = activeCase === key;
+      const item = node('div');
+      const button = choice(caseName(key),count,selected,()=>pickCase(key));
+      button.dataset.navKind = 'case';
+      item.append(button);
+      if (selected) {
+        const runs = node('div',null,'case-runs');
+        runs.id = 'run-nav';
+        runs.setAttribute('role','group');
+        runs.setAttribute('aria-label',caseName(key)+'的模型结果');
+        button.setAttribute('aria-controls',runs.id);
+        runs.append(node('p','模型结果','case-runs-heading'),...all.map((row,index)=>{
+          const model = choice(modelLabel(row,index),row.state ? badge(row.state) : null,activeIndex===index,()=>pickRun(index));
+          model.dataset.navKind = 'run';
+          return model;
+        }));
+        item.append(runs);
+      }
+      group.append(item);
+    }
     return group;
   }));
-  select('run-nav').replaceChildren(...all.map((row,index)=>choice(modelLabel(row,index),row.state ? badge(row.state) : null,activeIndex===index,()=>pickRun(index))));
-  if (focusedNav) select(focusedNav).querySelector('[aria-pressed="true"]')?.focus({preventScroll:true});
+  if (focusedNav) select('case-nav').querySelector(`[data-nav-kind="${focusedNav}"][aria-pressed="true"]`)?.focus({preventScroll:true});
   select('case-select').replaceChildren(...scenarioGroups().flatMap(([label,keys])=>{
     const options = keys.map(key=>new Option(caseName(key),key,false,key===activeCase));
     if (!label) return options;
@@ -938,6 +953,7 @@ function draw() {
     return [group];
   }));
   select('run-select').replaceChildren(...all.map((row,index)=>new Option([modelLabel(row,index),statusNames[row.state]].filter(Boolean).join(' · '),index,false,index===activeIndex)));
+  select('run-select').setAttribute('aria-label',caseName(activeCase)+'的模型与结果');
   select('case-title').textContent = caseName(activeCase);
   const runTitle = select('run-title');
   runTitle.replaceChildren(node('span',modelLabel(trial,activeIndex)));
