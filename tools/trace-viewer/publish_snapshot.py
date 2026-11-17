@@ -160,6 +160,8 @@ PHASES = {
     "intent-context-renew": ("锁定明确目标", "根据上文续期"),
     "intent-context-release": ("锁定明确目标", "根据上文释放"),
     "intent-context-lock-day": ("查找P800机器", "根据上文锁一天"),
+    "intent-context-reminder-configured": ("查询本人占用", "根据上文核对现有提醒"),
+    "intent-context-reminder-unavailable": ("查询本人占用", "根据上文说明提醒限制"),
 }
 DETAILS = {
     "relevant_source_read": "读取相关依据",

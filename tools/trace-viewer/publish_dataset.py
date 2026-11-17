@@ -127,7 +127,9 @@ def audit_source_io(source, raw):
             counts["fixture_tools"] += calls["total"] if calls else 0
             break
         else:
-            raise ValueError("Raw projection omitted or changed actual phase prompt, final or fixture tool I/O")
+            raise ValueError(
+                "Raw projection omitted or changed actual phase prompt, final or fixture tool I/O: " + evidence
+            )
     return counts
 
 

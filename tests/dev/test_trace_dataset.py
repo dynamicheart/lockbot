@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import sys
 from hashlib import sha256
 from pathlib import Path
@@ -25,13 +26,24 @@ def export(tmp_path, **kwargs):
 @pytest.mark.parametrize("scenario", ["intent-context-reminder-configured", "intent-context-reminder-unavailable"])
 def test_context_reminder_cases_export_actual_dialogue_without_catalog_omissions(tmp_path, scenario):
     source, _ = matrix(tmp_path, terminal=True, scenario=scenario)
+    terminal = json.loads((source / "matrix.json").read_text())
+    first = terminal["results"][0]
+    second = {**first, "phase": 2, "evidence": first["evidence"].replace("phase-1", "phase-2")}
+    shutil.copytree(source / first["evidence"], source / second["evidence"])
+    case_path = source / second["evidence"] / "case.json"
+    case = json.loads(case_path.read_text())
+    case_path.write_text(json.dumps({**case, "phase": 2}))
+    (source / second["evidence"] / "prompt.txt").write_text("Remind me before expiry")
+    terminal["results"].append(second)
+    (source / "matrix.json").write_text(json.dumps(terminal))
     report = publisher.export_dataset(source, tmp_path / "board", minimal_summary=True)
     dataset = tmp_path / "board/datasets" / report["dataset"]["dataset_id"]
     raw = json.loads((dataset / "raw.json").read_text())
     assert list(raw["cases"]) == [scenario]
     assert raw["cases"][scenario][0]["sessions"][0][0] == {"role": "user", "text": "Actual user request"}
-    assert report["source_io_audit"]["prompts"] == 1
-    assert report["source_io_audit"]["finals"] == 1
+    assert {"role": "user", "text": "Remind me before expiry"} in raw["cases"][scenario][0]["sessions"][1]
+    assert report["source_io_audit"]["prompts"] == 2
+    assert report["source_io_audit"]["finals"] == 2
 
 
 def test_terminal_export_is_lossless_and_does_not_read_or_write_legacy_board(tmp_path):
