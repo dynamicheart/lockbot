@@ -42,3 +42,5 @@ python3 publish_snapshot.py /private/matrix-evidence /private/staging/raw.json -
 ```
 
 工具证据可含 `argv` 数组。它记录评测夹具实际调用的脚本和参数，夹具内通过 Python 直接调用。没有这个字段的旧记录只显示子命令和工具参数。
+
+The administrator navigation exposes the configured trace viewer in a Vue/Vite development build to super administrators. The viewer opens raw traces for local review, and the snapshot API requires current super-administrator authorization.

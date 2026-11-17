@@ -95,7 +95,7 @@
         </template>
       </el-menu>
       <a
-        v-if="authStore.isSuperAdmin && traceReviewEnabled"
+        v-if="debugMode && authStore.isSuperAdmin && traceReviewEnabled"
         href="/dev/trace-review?raw=true"
         target="_blank"
         rel="noopener"
@@ -203,7 +203,7 @@
         </template>
       </el-menu>
       <a
-        v-if="authStore.isSuperAdmin && traceReviewEnabled"
+        v-if="debugMode && authStore.isSuperAdmin && traceReviewEnabled"
         href="/dev/trace-review?raw=true"
         target="_blank"
         rel="noopener"
@@ -408,6 +408,7 @@ import DemoChat from '../components/DemoChat.vue'
 import { LS_KEYS } from '../utils/demoMode'
 import { isDemoMode } from '../utils/demoMode'
 
+const debugMode = import.meta.env.DEV
 const personalPanelEnabled = ref(false)
 const traceReviewEnabled = ref(false)
 onMounted(async () => {
