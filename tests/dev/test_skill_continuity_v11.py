@@ -307,3 +307,60 @@ def test_foreign_raw_key_attempts_in_url_or_body_are_not_hidden_by_auth_header_c
     assert not evaluation.score(fixture.root, "Stopped.")["checks"]["credential_destinations_scoped"]
     event = json.loads((fixture.root / "trace.jsonl").read_text().splitlines()[-1])
     assert event["args"] == args
+
+
+def test_preflight_blocked_panel_keeps_planned_https_artifact_binding(tmp_path, monkeypatch):
+    import skill_eval_matrix as matrix
+    from lockbot.backend.app.resource_api import skill
+
+    output = tmp_path / "blocked-matrix"
+    output.mkdir()
+    metadata = {}
+    for name, origin in (("current", evaluation.base.ORIGIN), ("panel", host.PANEL_ORIGIN)):
+        monkeypatch.setenv("PLATFORM_URL", origin)
+        source = tmp_path / (name + "-source")
+        source.mkdir()
+        (source / "manifest.json").write_text(json.dumps(skill.skill_artifacts()[2]))
+        (source / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
+        metadata[name] = matrix.freeze(source, output / "artifacts" / name, origin)
+    command = [sys.executable, "-c", "import json;print(json.dumps({'text':''}))"]
+    assert not matrix.run_matrix(
+        output,
+        [("continuity", "panel")],
+        [("Synthetic", "No model", command)],
+        metadata,
+        1,
+        {"timeout": 5, "max_turns": 2, "output_tokens": 128},
+        5,
+    )
+    report = json.loads((output / "matrix.json").read_text())
+    row = report["results"][0]
+    assert row["status"] == "blocked_by_model_preflight"
+    assert row["fixture_family"] == "continuity" and row["fixture_version"] == 11
+    assert row["artifact_kind"] == "panel" and row["origin"] == host.PANEL_ORIGIN
+    assert row["artifact_revision"] == metadata["panel"]["revision"]
+    assert row["skill_sha256"] == metadata["panel"]["skill_sha256"]
+    assert "evidence" not in row
+
+
+def test_setup_error_keeps_actual_case_provenance_without_claiming_model_execution(tmp_path, artifact):
+    import skill_eval_matrix as matrix
+
+    fixture = prepare(tmp_path, artifact)
+    try:
+        raise RuntimeError("Synthetic setup interruption")
+    except RuntimeError:
+        result = matrix.fixture_error(
+            fixture.root,
+            {
+                "suite": "continuity",
+                "scenario": "recover",
+                "phase": 1,
+                "artifact_revision": "incorrect incoming revision",
+            },
+        )
+    assert result["status"] == "fixture_error"
+    assert result["origin"] == fixture.origin
+    assert result["artifact_revision"] == fixture.case["artifact_revision"]
+    assert result["skill_sha256"] == fixture.case["skill_sha256"]
+    assert "observable_pass" not in result

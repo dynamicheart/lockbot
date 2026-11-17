@@ -43,6 +43,8 @@ def freeze(source, destination, expected_origin):
         "sha256": manifest["installation"]["sha256"],
         "package_version": manifest.get("package_version"),
         "instance_id": manifest.get("instance_id", onboarding.INSTANCE),
+        "origin": stamp["deployment_origin"],
+        "skill_sha256": manifest["skill_sha256"],
     }
 
 
@@ -102,6 +104,14 @@ def fixture_error(path, metadata):
     message = path / "fixture-error.log"
     message.write_text(traceback.format_exc())
     message.chmod(0o600)
+    case_path = path / "case.json"
+    try:
+        case = json.loads(case_path.read_text())
+        keys = ("fixture_family", "fixture_version", "artifact_kind", "artifact_revision", "origin", "skill_sha256")
+        if continuity.host_v11.enabled(case) and all(key in case for key in keys):
+            metadata = {**metadata, **{key: case[key] for key in keys}}
+    except (OSError, ValueError, TypeError):
+        pass
     return {**metadata, "status": "fixture_error"}
 
 
@@ -252,6 +262,14 @@ def run_matrix(output, cases, runners, artifacts, workers, limits, preflight_tim
                     "preflight_status": probe["status"],
                     "preflight_evidence": probe["evidence"],
                 }
+                if suite == "continuity" and scenario in continuity.host_v11.SCENARIOS:
+                    row.update(
+                        fixture_family="continuity",
+                        fixture_version=continuity.host_v11.VERSION,
+                        artifact_kind=artifact,
+                        origin=artifacts[artifact]["origin"],
+                        skill_sha256=artifacts[artifact]["skill_sha256"],
+                    )
                 results[index] = [row]
                 progress.write(json.dumps(row, ensure_ascii=False) + "\n")
                 continue
