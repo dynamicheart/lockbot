@@ -189,10 +189,12 @@ it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's
 
 ## Choose resources and release promptly
 
-Finding resources is read-only. A later duration-only lock request can select a
-uniquely established machine from the actual conversation; do not invent a target.
-Resolve short IDs through exact inventory IDs, aliases or intentionally shared IPv4
-suffixes, not guessed private addresses or model names inferred from group titles.
+Finding resources is read-only. Follow-up requests such as “lock 一天” or “用完了，释放吧”
+refer to the uniquely selected machine in the actual conversation. Other old holdings
+do not erase that selection. Clarify only when the conversation leaves a real ambiguity;
+never invent a target. Resolve short IDs through exact inventory IDs, aliases or the
+last octet of an intentionally shared IPv4 address: 19 matches 198.51.100.19, not
+192.0.2.119. Do not guess private addresses or infer hardware from group titles.
 
 A node-only `lock`, `slock` or `book` follows chat semantics. In a card group, select
 ALL observed cards on that node and enumerate every `--device` in one CLI command.
