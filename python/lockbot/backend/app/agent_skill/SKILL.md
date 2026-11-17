@@ -89,10 +89,10 @@ stop after `resources`. Use `command --help` for all write arguments.
    approved service. Use it to recover other eligible groups without asking for names.
    Before issuing a reset code, get an explicit request to invalidate the old Key and
    acknowledgement that other Agents sharing it need the replacement. Only then add
-   `--purpose reset`. A failed recovery
-   stops at reporting the result. Relay the CLI's `user_instruction` with the exact
-   `bind_command`. The user uses their own chat account to @mention the robot and send
-   the command in its group. The verified chat confirmation identifies the bot.
+   `--purpose reset`. A failed recovery stops at reporting the result.
+   Quote the CLI's `user_instruction_zh` for Chinese or `user_instruction` for English
+   verbatim. For other languages, translate `user_instruction` and preserve the exact
+   `bind_command`. The verified chat confirmation identifies the bot.
    After chat confirmation, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`.
    A confirmed reset has already taken effect. If the user asks to continue in a new
    session, their request and `chat_action: reset_applied` authorize saving the result.

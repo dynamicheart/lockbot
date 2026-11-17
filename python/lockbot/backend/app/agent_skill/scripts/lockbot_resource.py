@@ -1246,6 +1246,7 @@ class Client:
                 f"In the group you want to connect, use your own chat account to @mention the LockBot robot "
                 f"and send `{bind_command}`."
             ),
+            "user_instruction_zh": (f"请用你本人的聊天账号，在要连接的群里 @LockBot 机器人，并发送 `{bind_command}`。"),
             "bind_expires_at": expires_at,
             "enrollment_dir": str(path),
         }

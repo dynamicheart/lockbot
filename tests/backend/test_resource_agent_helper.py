@@ -1341,6 +1341,9 @@ def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, pur
         "In the group you want to connect, use your own chat account to @mention the LockBot robot "
         f"and send `{issued['bind_command']}`."
     )
+    assert issued["user_instruction_zh"] == (
+        f"请用你本人的聊天账号，在要连接的群里 @LockBot 机器人，并发送 `{issued['bind_command']}`。"
+    )
     assert (directory / "proof").stat().st_mode & 0o777 == 0o600
     prior_requests = list(case.state.requests)
     pending = cli("connections", "--directory", str(directory))["pending_enrollments"]
