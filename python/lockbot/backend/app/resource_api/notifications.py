@@ -141,7 +141,6 @@ def notify_group(
     agent_label=None,
     purpose=None,
     task_category=None,
-    affected_resources=None,
     target=None,
 ):
     """Return true only for an accepted immediate send; false also includes queued notices.
@@ -159,14 +158,7 @@ def notify_group(
     public_command = redact_command_text(public_command)
     key = "notify.api_alias" if word == "alias" else "notify.api_mutation"
     try:
-        outcome = t(f"notify.api_outcome.{word}", config=bot.config)
-        text = t(key, config=bot.config, actor=actor_id, command=public_command, outcome=outcome).rstrip()
-        if affected_resources:
-            resources = ", ".join(affected_resources[:12])
-            remaining = len(affected_resources) - 12
-            if remaining > 0:
-                resources += t("notify.api_affected_more", config=bot.config, count=remaining)
-            text += t("notify.api_affected", config=bot.config, resources=resources)
+        text = t(key, config=bot.config, actor=actor_id, command=public_command).rstrip()
         category = TASK_CATEGORIES.get(task_category)
         if category:
             text += t("notify.api_task_category", config=bot.config, category=category)
