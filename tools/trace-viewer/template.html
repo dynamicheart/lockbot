@@ -949,8 +949,13 @@ function draw() {
   const toolCount = Number.isInteger(trial.count) ? ' · '+trial.count+' 次工具事件' : '';
   const phases = Array.isArray(trial.metrics?.phases) ? trial.metrics.phases : [];
   const turns = phases.map(row=>Number.isInteger(row.turns) ? row.turns : '—').join(' / ');
-  const isSummary = online && !imported;
-  select('counts').textContent = isSummary ? (turns ? '各阶段轮数 ' + turns : '') :
+  const simulated = phases.reduce((count,row)=>count+(Number.isInteger(row.simulated_user_actions) ? row.simulated_user_actions : 0),0);
+  const timings = phases.filter(row=>Number.isFinite(row.duration_seconds));
+  const duration = timings.reduce((seconds,row)=>seconds+row.duration_seconds,0);
+  const summary = [turns && '各阶段轮数 '+turns, timings.length && duration.toFixed(1)+' 秒',
+    simulated && simulated+' 次模拟人工操作'].filter(Boolean).join(' · ');
+  const isSummary = online && !imported && trial.sessions.length === 0;
+  select('counts').textContent = isSummary ? summary :
     trial.sessions.length+' 个会话'+toolCount+confirmed+elapsed;
   select('chat-tab').setAttribute('aria-pressed',activeTab==='chat');
   select('event-tab').setAttribute('aria-pressed',activeTab==='events');
@@ -960,7 +965,7 @@ function draw() {
   select('expand-tools').hidden = activeTab!=='chat';
   select('outline-toggle').hidden = activeTab!=='chat';
   select('expand-tools').textContent = '展开调用';
-  if (isSummary) content.append(node('p','当前在线版仅显示阶段摘要。原始会话与步骤可通过本地 JSON 查看。','evidence-note'));
+  if (isSummary) content.append(node('p','这条在线记录仅包含阶段摘要。完整记录可通过本地 JSON 查看。','evidence-note'));
   else if (activeTab==='chat') chatView(content,trial); else eventsView(content,trial);
   if (!content.childNodes.length) content.append(node('p','没有对话记录','evidence-note'));
   writeRoute();
