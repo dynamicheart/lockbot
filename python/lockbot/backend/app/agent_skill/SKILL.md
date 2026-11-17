@@ -7,11 +7,11 @@ description: >
   The user confirms new enrollment in their group chat.
 ---
 
-# LockBot Resource Agent
+# LockBot
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-Run bundled `scripts/lockbot_cli.py` by absolute path, Python 3.10+, from the project. Use `connections`, then its `--connection` with `resources` or `command --operation <verb>`. Keep verified service/instance/bot/actor scopes separate. No Keys/grants in replies, arguments, Skill/shared memory. Default to private user storage, respecting `LOCKBOT_HOME`; project scope only on request.
+Run bundled `scripts/lockbot_cli.py` by absolute path, Python 3.10+. Use `connections`, then its `--connection` with `resources` or `command --operation <verb>`. Keep verified service/instance/bot/actor scopes separate. No Keys/grants in replies, arguments, Skill/shared memory. Default to private user storage, respecting `LOCKBOT_HOME`; project scope only on request.
 
 ## Everyday requests
 
@@ -32,7 +32,7 @@ Run bundled `scripts/lockbot_cli.py` by absolute path, Python 3.10+, from the pr
 
 ## Install or connect
 
-Bare link: inspect only. Explicit install: verify manifest/complete ZIP SHA-256, install/reload; install-only stops. Reuse a connection/verified installed `deployment_origin`, no backup/known-URL demand. With a privately supplied seed Key and known origin but no connection, `init --key-file` then `recover`; no new binding. Without access, `key-challenge --origin <approved-origin> --authorized` returns a chat command for the HUMAN to send; it may restore identity. After confirmation, resume SAME pending enrollment via `enrollment-status`/`finish-enrollment`; fulfill normal follow-ups. Reset: explain old-Key invalidation/other-Agent impact and obtain acknowledgement BEFORE `--purpose reset`/RST confirmation.
+Bare link: inspect only. Explicit install: verify manifest/complete ZIP SHA-256, install/reload; install-only stops. Reuse a connection/verified installed `deployment_origin`, no backup/known-URL demand. With a privately supplied seed Key and known origin but no connection, `init --key-file` then `recover`; no new binding. Without access, `key-challenge --origin <approved-origin> --authorized` returns `user_instruction[_zh]`: quote it verbatim for your OWN chat account; it may restore identity. After confirmation, resume SAME pending enrollment via `enrollment-status`/`finish-enrollment`; fulfill normal follow-ups. Reset: explain old-Key invalidation/other-Agent impact and obtain acknowledgement BEFORE `--purpose reset`/RST confirmation.
 
 For setup/reset/update/storage read [connections](references/connections.md). Read [operations](references/resource-operations.md) for hardware, leases/aliases/metadata. Only supported preset categories are public; detailed notes stay private, never justify write replay.
 
