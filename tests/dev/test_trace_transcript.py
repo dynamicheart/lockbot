@@ -7,6 +7,7 @@ SOURCE = Path(__file__).resolve().parents[2] / "tools/trace-viewer/synthetic_tra
 projection = runpy.run_path(str(SOURCE))
 clean_text = projection["clean_text"]
 synthetic_sessions = projection["synthetic_sessions"]
+tool_steps = projection["tool_steps"]
 
 
 def test_redacts_credentials_urls_and_absolute_paths():
@@ -66,3 +67,72 @@ def test_synthetic_projection_uses_only_matching_evidence_and_known_fields(tmp_p
     another_file.write_text("Sensitive unrelated content")
     (folder / "prompt.txt").symlink_to(another_file)
     assert synthetic_sessions(tmp_path, "reset-personal-key", 1, phases) == []
+
+
+def test_skill_tool_steps_project_page_metadata_without_document_contents():
+    raw = "lbr_12345678901234567890 https://private.example.test/path"
+    records = [
+        {
+            "tool": "read_lockbot_skill",
+            "args": {"offset": 0, "url": raw},
+            "result": {"content": raw, "total_characters": 9000, "next_offset": 6000},
+        },
+        {
+            "tool": "read_lockbot_skill",
+            "args": {"reference": "references/connections.md", "offset": 240},
+            "result": {"content": "中文", "total_characters": 242, "next_offset": None},
+        },
+        {
+            "tool": "read_lockbot_skill",
+            "args": {"reference": "/private/unknown.md", "offset": True},
+            "result": {"error": raw, "total_characters": 100_000, "next_offset": -1},
+        },
+        {
+            "tool": "install_lockbot",
+            "args": {"url": raw},
+            "result": {
+                "installed": True,
+                "version": "0123456789abcdef",
+                "path": "/private/installation",
+                "content": raw,
+                "total_characters": 9000,
+                "next_offset": 6000,
+            },
+        },
+        {
+            "tool": "install_lockbot",
+            "args": {"url": raw},
+            "result": {"installed": True, "version": raw, "total_characters": raw},
+        },
+    ]
+    projected = tool_steps("\n".join(map(json.dumps, records)), 1)
+    assert projected["evidence"] == [
+        {
+            "input": {"document": "SKILL.md", "offset": 0},
+            "output": {
+                "status": "已返回",
+                "returned_characters": len(raw),
+                "total_characters": 9000,
+                "next_offset": 6000,
+            },
+        },
+        {
+            "input": {"document": "references/connections.md", "offset": 240},
+            "output": {"status": "已返回", "returned_characters": 2, "total_characters": 242, "next_offset": None},
+        },
+        {"input": {}, "output": {"status": "失败"}},
+        {
+            "input": {},
+            "output": {
+                "status": "已返回",
+                "returned_characters": len(raw),
+                "total_characters": 9000,
+                "next_offset": 6000,
+                "version": "0123456789abcdef",
+            },
+        },
+        {"input": {}, "output": {"status": "已返回"}},
+    ]
+    serialized = json.dumps(projected)
+    for secret in ("lbr_", "private.example.test", "/private/"):
+        assert secret not in serialized

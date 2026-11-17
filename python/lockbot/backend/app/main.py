@@ -1003,8 +1003,25 @@ def create_app() -> FastAPI:
             title=t(f"public_docs.{scope}.title", lang=lang),
             swagger_ui_parameters={"defaultModelsExpandDepth": -1},
         )
-        page.headers.update(localized_doc_headers(lang))
-        return page
+        compact_style = """
+        <style>
+          #swagger-ui .info { margin: 20px 0 12px; }
+          #swagger-ui .info .title { font-size: 28px; }
+          #swagger-ui .info p { margin: 8px 0 0; }
+          #swagger-ui .scheme-container {
+            margin: 0 0 12px;
+            padding: 0;
+            background: transparent;
+            box-shadow: none;
+          }
+          #swagger-ui .auth-wrapper .authorize { margin: 0; }
+          #swagger-ui .opblock-tag > small p { margin: 4px 0; }
+        </style>
+        """
+        return HTMLResponse(
+            page.body.decode("utf-8").replace("</head>", compact_style + "</head>", 1),
+            headers=localized_doc_headers(lang),
+        )
 
     from lockbot.backend.app.personal_panel.setup import mount_if_configured
 

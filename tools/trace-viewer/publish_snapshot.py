@@ -229,9 +229,7 @@ def snapshot(evidence: Path, *, include_dialogue=False):
                     "state": state,
                     "note": note,
                     "sessions": (
-                        synthetic_sessions(evidence, scenario, model_number, phases)
-                        if include_dialogue and scenario in LEGACY_IDS
-                        else []
+                        synthetic_sessions(evidence, scenario, model_number, phases) if include_dialogue else []
                     ),
                     "metrics": {"phases": phase_metrics(phases)},
                 }
