@@ -149,6 +149,55 @@ contains a failed or unfinished check, and 2 means the command or its inputs wer
 Manual review and live acceptance remain separate. Keep the output directory private and
 publish a sanitized summary.
 
+## Native training13 Codex adapter
+
+`scripts/dev/skill_training13_runner.py` implements the runner protocol through
+Codex app-server over SSH stdio. Put SSH configuration in a private JSON file,
+then register this argv array in the private runner file:
+
+```json
+["python3", "/absolute/repository/scripts/dev/skill_training13_runner.py", "--connection", "/private/evaluation/container.json"]
+```
+
+The connection file requires `host`, `user`, `identity_file` and `known_hosts`;
+`port` and `codex` can override the SSH port and native executable. Use the
+container's authorized account and pinned host key. SSH uses batch authentication
+and strict host verification. The runner creates a private temporary Codex home and
+working directory in the container. It does not read, copy or change the user's
+Codex credentials or default configuration. Its provider uses the existing trusted
+container loopback gateway; verify the chosen full model ID and source separately
+before a live run.
+
+Only the supplied local fixture subprocess is exposed as native dynamic tools.
+Its MCP envelopes, including errors and structured content, pass through the bridge.
+Ambient skills, hooks, memory, plugins, MCP servers and built-in execution tools are
+disabled. The native thread has no environment access, a read-only sandbox and no
+sandbox network access. Model and provider mismatches, unexpected instructions or
+tool requests fail the adapter.
+
+Contextual phases require a successful preceding `phase-1` from this adapter.
+The runner checks the supplied conversation digest, the actual preceding prompt
+and response, the model/system/connection/tool identities, and the native stored
+user/assistant turn. It then forks through that completed native turn, preserving
+tool history, and sends only the current prompt as a new user message. Arbitrary
+history imports are rejected before starting a model turn. Phases without
+`conversation_file` always use a fresh isolated home and thread.
+
+Private evidence includes `native-session.json`, exact argv arrays, stderr and
+both native and fixture JSON-RPC traces. Native turn counts are unavailable and
+reported as null; tool callbacks are recorded separately. Temporary native homes
+remain in the container for contextual forks and must be retained until the matrix
+finishes, then removed through the authorized container maintenance workflow.
+
+Codex app-server currently exposes no hard output-token or hidden-reasoning cap.
+The adapter reports this in `limits_enforcement`; it bounds tool continuations,
+checks cumulative observed usage, applies a conservative streamed-output byte
+limit, and interrupts failures/timeouts. Limit exhaustion is a failed run, never a
+truncated success. These guards do not replace an account quota check or a native
+provider spending limit. Keep native concurrency low and inspect shared quota
+before and after short live pilots. Mock subprocess tests cover the bridge and
+context checks; they do not establish live model or client acceptance.
+
 ## Review and iterate
 
 1. Freeze the instruction snapshot, scenario version, model name, runner version and limits.
