@@ -110,9 +110,9 @@ Start with an already-approved service URL and an existing private personal-key 
 python3 "$LOCKBOT_CLI" init --origin <approved-origin> --key-file /private/resource.key --destination /private/connection.json
 python3 "$LOCKBOT_CLI" --connection /private/connection.json context
 python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation lock --node node-a --duration 30m --metadata-file /private/task.json
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation renew --node node-a --duration 30m
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation release --node node-a
+python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
+python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
+python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation release --node node-a --whole-node
 ```
 
 Give each Agent installation a stable, recognizable label when you want to track its recent activity.
@@ -121,9 +121,9 @@ connection JSON without changing its Key. The helper sends it as a UTF-8 percent
 `X-Lockbot-Agent-Label` header on authenticated Lockbot requests. Use a short name with
 at most 64 characters and keep secrets out of it. Requests without a label continue to work.
 
-For card bots add explicit `--device 0` (repeat for more cards on that node). For the
-same set of device IDs on every selected node, pass `--same-devices-on-all-nodes`. For
-different sets, run separate commands per node. Private `task.json` accepts
+For card bots use explicit `--device 0` (repeat for more cards on that node) instead
+of `--whole-node`. To use the same device IDs on every selected node, pass
+`--same-devices-on-all-nodes`. For different sets, run separate commands per node. Private `task.json` accepts
 only `task_category`, `agent_label`, `purpose`; choose the category from current context.
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.

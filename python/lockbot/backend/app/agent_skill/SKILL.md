@@ -71,17 +71,21 @@ stop after `resources`. Use `command --help` for all write arguments.
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
-  booking is claimable. Add `--device` for a queued card. The booking sets the duration.
+  booking is claimable. Pass `--device` for a queued card or `--whole-node` for an entire
+  node. The booking sets the duration.
 - **Renew a lease:** use `command --operation renew` with the time to add. The inventory
   lists server operations. The CLI uses server `lock` for both `claim` and `renew`.
 - **Cards together:** put every requested card on that node in one command, repeating
   `--device`. Pass `--device-count` when the user specifies a quantity. If the whole
   selection cannot be made, report the shortfall before sending a write.
-- **Whole node:** omit `--device`. If the user specifies a model, pass `--model` in
-  either mode. Use `--minimum-model-count` for a whole-node hardware minimum.
-  An alias does not establish the model. Stop if the model, target or freshness is unknown.
-- **Named group:** pass the exact group as `command --group "$GROUP"`. If the user requests cards in a
-  whole-node group, explain the mismatch and ask before switching group or allocation mode.
+- **Whole node:** pass `--whole-node` only when the user requested or approved the
+  entire node. If the user specifies a model, pass `--model` in either mode.
+  Use `--minimum-model-count` for a whole-node hardware minimum. Stop if model, target
+  or freshness is unknown. An alias does not establish the model.
+- **Named group:** pass the user's exact group as `command --group "$GROUP"`.
+  If they request cards in a whole-node group, stay read-only. Explain the mismatch
+  and wait for the user to choose a different group or explicitly approve an entire node.
+  An error is not permission to change the original group, mode or target.
 - **Unconfirmed write:** read the current resources and report the result. Do not send
   another write for the same request.
 

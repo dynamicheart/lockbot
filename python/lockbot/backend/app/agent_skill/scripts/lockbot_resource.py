@@ -1615,6 +1615,8 @@ class Client:
         if any(not re.fullmatch(r"[^\s,\x00-\x1f\x7f]+", node) for node in nodes):
             raise ClientError("invalid_node")
         card_bot = context["bot"]["type"] in {"DEVICE", "QUEUE_DEVICE"}
+        if not card_bot and devices:
+            raise ClientError("group_supports_whole_nodes_only")
         if card_bot != bool(devices) or len(set(devices)) != len(devices):
             raise ClientError("explicit_device_selection_required")
         if any(not re.fullmatch(r"0|[1-9][0-9]{0,4}", device) for device in devices):
@@ -2156,6 +2158,9 @@ def main(argv=None):
         "--device", action="append", default=[], help="Exact device ID on the selected node. Repeat for more cards."
     )
     command.add_argument(
+        "--whole-node", action="store_true", help="Select entire nodes only when the user asked for or approved them."
+    )
+    command.add_argument(
         "--same-devices-on-all-nodes",
         action="store_true",
         help="Apply all listed device IDs to every selected node. Use separate commands for different IDs per node.",
@@ -2177,6 +2182,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     client = None
     try:
+        if args.action == "command" and args.whole_node == bool(args.device):
+            raise ClientError("select_devices_or_explicit_whole_nodes")
         if args.action == "connections":
             if args.connection:
                 raise ClientError("connection_not_used_for_listing")
@@ -2279,6 +2286,8 @@ def main(argv=None):
                 "Use key-challenge on services that advertise chat_credential_challenges. "
                 "The user's chat confirmation identifies the bot."
             )
+        if exc.code == "group_supports_whole_nodes_only":
+            output["next_step"] = "Ask the user before switching to whole nodes or changing groups."
         if exc.allowed_categories is not None:
             output["allowed_categories"] = exc.allowed_categories
         if exc.retry_after_seconds is not None:
