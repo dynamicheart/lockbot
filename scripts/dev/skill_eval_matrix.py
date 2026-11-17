@@ -50,7 +50,7 @@ def prepare(root, suite, scenario, artifacts):
     current = artifacts / "current"
     source = current / "SKILL.md"
     if suite == "cli":
-        cli.prepare(root, artifacts / "panel" if scenario == "panel" else current, scenario)
+        cli.prepare(root, artifacts / "panel" if scenario == "panel" else current, scenario, fixture_version=19)
         return cli.score
     if suite == "onboarding":
         onboarding.prepare(root, None, scenario, artifacts=current, fixture_version=7)
