@@ -6,6 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none';__TRACE_CONNECT_SRC__">
 <title>LockBot · 轨迹浏览器</title>
 <style>
+__LOCKBOT_THEME__
 :root{color-scheme:light;--ink:#14243b;--muted:#52647e;--line:#dfe7f0;--canvas:#f3f6fa;--paper:#fff;--soft:#f6f8fc;--accent:#215bc0;--selected:#e9f2ff;--sans:system-ui,"PingFang SC",sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
 *{box-sizing:border-box}
 body{margin:0;background:var(--canvas);color:var(--ink);font:14px/1.55 var(--sans)}
@@ -296,10 +297,11 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
 .chat-transcript .activity-failed summary{color:#963744}
 .activity-breakdown{color:var(--muted);font-size:11px;font-weight:500;overflow-wrap:anywhere}
 
+__REVIEW_STYLES__
 </style>
 </head>
 <body>
-<header class="app-header"><div class="head"><div class="brand"><div class="mark"><svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="32" height="32">
+<header class="app-header"><div class="head"><a class="brand" href="/#/bots" target="_top" aria-label="返回 LockBot 工作台"><div class="mark"><svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="32" height="32">
   <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
   <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
   <rect x="5" y="8" width="22" height="19" rx="4" fill="#e6f0ff" stroke="#409eff" stroke-width="1.8"/>
@@ -310,11 +312,12 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
   <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
   <line x1="16" y1="8" x2="16" y2="3.5" stroke="#409eff" stroke-width="1.8" stroke-linecap="round"/>
   <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
-</svg></div><div><h1>LockBot 轨迹浏览器</h1></div></div><div class="header-end"><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
+</svg></div><div><h1>LockBot 轨迹浏览器</h1></div></a><div class="header-end"><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
 <div class="layout">
 <aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例及模型结果"></nav></section></aside>
+<div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整测例侧栏宽度"></div>
 <div class="mobile-pick"><label>测例<select id="case-select"></select></label><label>所选测例的模型<select id="run-select"></select></label></div>
-<main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><details class="record-meta" id="record-meta"><summary>记录信息</summary><dl id="record-fields"></dl></details></div><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div><footer class="browse-footer" id="browse-footer"></footer></main>
+<main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><button id="review-case" class="quiet-button" type="button">点评测例</button></div><details class="case-spec" id="case-spec"><summary>测例与检查说明</summary><div id="case-description"></div></details><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div></main>
 </div>
 <dialog class="inspector" id="inspector" aria-labelledby="inspector-title"><div class="inspector-header"><div><h2 id="inspector-title"></h2><p id="inspector-meta"></p></div><button class="inspector-close" type="button" id="inspector-close" autofocus>关闭</button></div><div class="inspector-fields" id="inspector-fields"></div></dialog>
 <script>__JSON_VIEWER_BUNDLE__</script>
@@ -368,7 +371,6 @@ function scenarioGroups() {
 }
 let cases = Object.keys(data.cases);
 let activeCase, activeIndex, activeTab, activeStep, failureOnly;
-let caseRunsOpen = true;
 let imported = false;
 const online = location.pathname === '/dev/trace-review';
 function defaultRun(key) {
@@ -377,7 +379,6 @@ function defaultRun(key) {
 function readRoute() {
   const route = new URLSearchParams(location.hash.slice(1));
   const key = cases.includes(route.get('case')) ? route.get('case') : cases.includes('create') ? 'create' : cases[0];
-  if (activeCase !== key) caseRunsOpen = true;
   activeCase = key;
   activeIndex = Number(route.get('run') ?? defaultRun(activeCase));
   activeTab = route.get('view') === 'steps' ? 'events' : 'chat';
@@ -391,13 +392,14 @@ function writeRoute() {
     if (activeStep) route.set('step',activeStep);
   }
   history.replaceState(null,'','#'+route);
+  notifyReviewParent();
 }
 const caseName = key => data.labels && Object.hasOwn(data.labels,key) ? data.labels[key] || key : key;
 const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
 function badge(state) { return node('span',statusNames[state],'badge '+state); }
 function resetSelection() { activeStep = 0; failureOnly = false; }
-function pickCase(key, animate = false) { activeCase = key; activeIndex = 0; caseRunsOpen = true; resetSelection(); draw(animate); }
-function pickRun(index) { activeIndex = index; resetSelection(); draw(); }
+function pickCase(key) { if(activeCase===key) return; activeCase = key; activeIndex = selectedRuns.get(key) ?? defaultRun(key); resetSelection(); userNavigation=true; draw(); }
+function pickRun(index) { activeIndex = index; selectedRuns.set(activeCase,index); resetSelection(); userNavigation=true; draw(); }
 readRoute();
 addEventListener('hashchange',()=>{
   if (online && !imported && document.querySelector('.layout').hidden) return;
@@ -497,10 +499,11 @@ function evidenceField(label,value) {
       }
       body.scrollTop = 0;
     };
-    const options = [...(reading ? [['text','文本']] : []),...(formatted ? [['json','结构']] : []),['raw','原文']];
+    const options = [...(reading ? [['text','返回文本']] : []),...(formatted ? [['json','展开 JSON']] : []),['raw','JSON 文本']];
     for (const [mode,title] of options) {
       const button = node('button',title);
       button.type = 'button';
+      button.dataset.reviewAnchor='ui:payload-tab'; button.dataset.reviewField='数据展示切换按钮';
       button.onclick = ()=>render(mode);
       buttons.set(mode,button);
       formats.append(button);
@@ -510,9 +513,9 @@ function evidenceField(label,value) {
     body.append(node('pre',raw));
     formats.append(node('span',json===null?'文本':'JSON','format-label'));
   }
-  const copy = node('button','复制');
+  const copy = node('button','复制完整'+label);
   copy.type = 'button';
-  copy.setAttribute('aria-label','复制'+label);
+  copy.setAttribute('aria-label','复制完整'+label);
   copy.onclick = ()=>copyText(raw,copy);
   actions.append(formats,copy);
   box.append(body,actions);
@@ -540,15 +543,23 @@ function renderStepEvidence(container,step,info) {
     fields.push(error);
   }
   container.replaceChildren(...fields);
+  const base = container.dataset.reviewAnchor;
+  if(base?.startsWith('tool:')) {
+    for(const field of fields) {
+      const label = field.querySelector('summary')?.textContent;
+      const suffix = label==='输出'?'output':label==='错误'?'error':'input';
+      field.dataset.reviewAnchor = base.replace(/:[^:]+$/,':'+suffix);
+      field.dataset.reviewField = '工具'+(label||'输入');
+    }
+  }
 }
 function isFailed(step,info) {
-  return !!info?.error || /失败|错误|拒绝|拦截|超时|未成功/.test(step[3]);
+  const output = info?.output;
+  const code = output?.exit_code ?? info?.exit_code;
+  return !!info?.error || !!output?.error || (Number.isInteger(code) && code!==0) ||
+    /失败|错误|拒绝|拦截|超时|未成功|failed|error/i.test(step[3]);
 }
-function statusChip(step,info) {
-  const status = step[3];
-  return node('span',status || '异常','badge '+(isFailed(step,info) ? 'fail' :
-    /待|进行/.test(status) ? 'pending' : 'blocked'));
-}
+function statusChip(step,info) { return callStatusDot(step,info); }
 function duration(info) {
   const ms = info?.duration_ms;
   if (!Number.isFinite(ms)) return null;
@@ -565,25 +576,15 @@ const actionNames = new Map([
   ['panel-link','生成资源台登录链接'], ['command','执行资源命令'],
 ]);
 function stepLabel(step) { return actionNames.get(step[1]) || step[1] || toolNames.get(step[0]) || step[0] || '工具调用'; }
-function stepGlyph(step,info) {
-  const failed = isFailed(step,info);
-  const glyph = /CLI|终端|Shell/i.test(step[0]) ? 'terminal' : /文档/.test(step[0]) ? 'file' : 'tool';
-  const tile = node('span',null,'trace-icon '+(failed ? 'step-error' : glyph));
-  tile.append(icon(failed ? 'error' : glyph));
-  return tile;
-}
-function activityBreakdown(steps) {
-  const types = new Map();
-  for (const [tool] of steps) {
-    const label = toolNames.get(tool) || tool || '其他';
-    types.set(label,(types.get(label) ?? 0)+1);
-  }
-  return [...types].map(([tool,count])=>tool+' '+count).join(' · ');
-}
-function openStep(step,info) {
+function stepGlyph(step,info) { return callStatusDot(step,info); }
+function openStep(step,info,anchor) {
   const [tool,,stage,status] = step;
   const inspector = select('inspector');
-  select('inspector-title').textContent = stepLabel(step);
+  inspector.dataset.reviewAnchor = anchor || 'run';
+  inspector.dataset.reviewField = '工具名称';
+  select('inspector-title').textContent = toolTitle(step,info);
+  select('inspector-fields').dataset.reviewAnchor = anchor || 'run';
+  select('inspector-fields').dataset.reviewField = '工具调用';
   const meta = select('inspector-meta');
   meta.replaceChildren();
   if (stage) meta.append(node('span',stage));
@@ -594,15 +595,20 @@ function openStep(step,info) {
   select('inspector-fields').scrollTop = 0;
   inspector.showModal();
 }
-function stepList(steps,evidence=[]) {
+function stepList(steps,evidence=[],base="") {
   const list = node('ol');
   for (const [index,step] of steps.entries()) {
     const [tool,,,status] = step;
     const line = node('li',null,'operation');
     const failed = isFailed(step,evidence[index]);
     const label = node('span',null,'activity-action');
-    label.append(node('span',failed ? '!' : '·','activity-dot'),node('span',stepLabel(step)),
-      node('span',[toolNames.has(tool) ? '' : tool,status].filter(Boolean).join(' · '),'tool-status'));
+    const anchor = base ? base+':'+index+':name' : 'run';
+    const description=node('span',stepLabel(step),'tool-description');
+    description.dataset.reviewAnchor=anchor.replace(/:name$/,':label');
+    description.dataset.reviewField='工具说明';
+    label.append(callStatusDot(step,evidence[index]),node('code',toolTitle(step,evidence[index]),'tool-name'),description);
+    line.dataset.reviewAnchor = anchor;
+    line.dataset.reviewField = '工具名称';
     const info = evidence[index];
     if (info) {
       const button = node('button',null,'inspect-step');
@@ -610,7 +616,7 @@ function stepList(steps,evidence=[]) {
       if (failed) button.classList.add('step-failed');
       button.setAttribute('aria-haspopup','dialog');
       button.append(label,node('span','详情 ›','step-open'));
-      button.onclick = ()=>openStep(step,info);
+      button.onclick = ()=>openStep(step,info,anchor);
       line.append(button);
     } else {
       line.append(label);
@@ -715,16 +721,15 @@ function messageBody(text) {
   bubble.append(markdown);
   return bubble;
 }
-function renderEntry(entry) {
+function renderEntry(entry,base) {
   if (entry.role === 'tools') {
     const failures = entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i]));
     const details = node('details',null,'tool-box activity-group'+(failures.length ? ' activity-failed' : ''));
     const summary = node('summary');
     const caption = node('span',entry.steps.length+' 次工具调用','activity-summary');
     if (failures.length) caption.append(node('span',failures.length+' 项异常','badge fail'));
-    caption.append(node('span',activityBreakdown(entry.steps),'activity-breakdown'));
     summary.append(caption,node('span','展开','activity-hint'));
-    details.append(summary,stepList(entry.steps,entry.evidence));
+    details.append(summary,stepList(entry.steps,entry.evidence,base));
     details.open = failures.length > 0;
     const updateHint = ()=>{summary.querySelector('.activity-hint').textContent=details.open?'收起':'展开';};
     details.addEventListener('toggle',updateHint);
@@ -744,55 +749,26 @@ function renderEntry(entry) {
   return message;
 }
 function chatView(content,trial) {
-  const outline = node('nav',null,'chat-outline');
-  outline.setAttribute('aria-label','对话目录');
-  outline.append(node('div','对话目录','trace-toolbar'));
   const transcript = node('div',null,'chat-transcript');
-  const pairs = [];
-  let order = 0;
-  function appendEntry(entry) {
-    const rendered = renderEntry(entry);
-    transcript.append(rendered);
-    const button = node('button',null,'outline-row outline-'+entry.role);
-    button.type = 'button';
-    button.setAttribute('aria-current','false');
-    const label = entry.role==='tools' ? '工具调用 · '+entry.steps.length : roleNames[entry.role] || entry.label || '事件';
-    const excerpt = entry.role==='tools' ? entry.steps.map(stepLabel).join(' · ') : entry.text;
-    const words = node('span');
-    words.append(node('b',label),node('small',excerpt));
-    button.append(node('span',entry.role==='tools' ? '›_' : entry.role==='user' ? 'U' : entry.role==='assistant' ? 'A' : '·','outline-glyph'),words);
-    outline.append(button);
-    rendered.dataset.entry = ++order;
-    button.onclick = ()=>{
-      for (const pair of pairs) pair.button.setAttribute('aria-current',String(pair.button===button));
-      transcript.scrollTop += rendered.getBoundingClientRect().top - transcript.getBoundingClientRect().top - 14;
-      rendered.tabIndex = -1;
-      rendered.focus({preventScroll:true});
-    };
-    pairs.push({rendered,button});
-  }
-  trial.sessions.forEach((session,index) => {
-    if(index && trial.confirmed) appendEntry({role:'human',label:'群内确认',text:'由测试程序模拟 · 一次群操作'});
-    transcript.append(node('p',sessionName(index),'session-label'));
-    outline.append(node('p',sessionName(index),'outline-session'));
-    for (const entry of session) appendEntry(entry);
-  });
-  if (trial.confirmed && trial.sessions.length===1) transcript.append(node('p','已记录模拟群内确认。新会话对话未采集。','human'));
-  if (!pairs.length) transcript.append(node('p','没有对话记录','evidence-note'));
-  content.classList.add('chat-workspace');
-  content.append(outline,transcript);
-  pairs[0]?.button.setAttribute('aria-current','true');
-  let scheduled = false;
-  transcript.addEventListener('scroll',()=>{
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(()=>{
-      scheduled = false;
-      const edge = transcript.getBoundingClientRect().top+32;
-      const current = pairs.find(pair=>pair.rendered.getBoundingClientRect().bottom>edge) ?? pairs.at(-1);
-      for (const pair of pairs) pair.button.setAttribute('aria-current',String(pair===current));
+  trial.sessions.forEach((session,sessionIndex)=>{
+    if(trial.sessions.length>1) transcript.append(node('p',sessionName(sessionIndex),'session-label'));
+    session.forEach((entry,entryIndex)=>{
+      const base = [entry.role==='tools'?'tool':'message',sessionIndex,entryIndex].join(':');
+      const rendered = renderEntry(entry,base);
+      if(entry.role!=='tools') {
+        rendered.dataset.reviewAnchor = base+':text';
+        rendered.dataset.reviewField = entry.role==='assistant'?'Agent 回答':entry.role==='user'?'用户提示词':'记录说明';
+        const feedback = node('button','点评','entry-comment quiet-button');
+        feedback.type='button';
+        feedback.onclick=()=>requestReview(base+':text','',rendered.dataset.reviewField);
+        rendered.append(feedback);
+      }
+      transcript.append(rendered);
     });
-  },{passive:true});
+  });
+  if(!trial.sessions.length) transcript.append(node('p','没有对话记录','evidence-note'));
+  content.classList.add('chat-workspace');
+  content.append(transcript);
 }
 function eventsView(content,trial) {
   const workspace = node('div',null,'trace-workspace');
@@ -816,8 +792,8 @@ function eventsView(content,trial) {
   content.append(workspace);
   content.classList.add('trace-view');
   let id = 0;
-  const sessions = trial.sessions.map(session=>session.flatMap(entry=>
-    entry.role==='tools' ? entry.steps.map((step,i)=>({id:++id,step,info:entry.evidence?.[i]})) : []));
+  const sessions = trial.sessions.map((session,s)=>session.flatMap((entry,e)=>
+    entry.role==='tools' ? entry.steps.map((step,i)=>({id:++id,step,info:entry.evidence?.[i],anchor:'tool:'+s+':'+e+':'+i+':name'})) : []));
   const steps = sessions.flat();
   const errors = steps.filter(item=>isFailed(item.step,item.info));
   heading.textContent = '工具调用 · '+steps.length;
@@ -851,6 +827,7 @@ function eventsView(content,trial) {
       return;
     }
     activeStep = item.id;
+    if(origin) userNavigation=true;
     const row = rows.get(item.id);
     row.setAttribute('aria-pressed','true');
     const [tool,,phase,status] = item.step;
@@ -860,13 +837,16 @@ function eventsView(content,trial) {
     if (phase) meta.append(node('span',phase));
     if (status || isFailed(item.step,item.info)) meta.append(statusChip(item.step,item.info));
     if (duration(item.info)) meta.append(node('span',duration(item.info),'trace-duration'));
-    header.append(node('h3',stepLabel(item.step)));
+    header.append(node('h3',toolTitle(item.step,item.info)),node('p',stepLabel(item.step)));
     if (meta.childNodes.length) header.append(meta);
     name.replaceChildren(stepGlyph(item.step,item.info),header);
     const index = visible.indexOf(item);
     position.textContent = (index+1)+' / '+visible.length;
     prev.disabled = index===0;
     next.disabled = index===visible.length-1;
+    panel.dataset.reviewAnchor = item.anchor;
+    panel.dataset.reviewField = '工具调用';
+    fields.dataset.reviewAnchor = item.anchor;
     renderStepEvidence(fields,item.step,item.info);
     if (!banner.isConnected) panel.replaceChildren(banner,fields);
     panel.scrollTop = 0;
@@ -908,8 +888,10 @@ function eventsView(content,trial) {
         const {step,info} = item;
         const text = node('span');
         const time = duration(info);
-        text.append(node('b',stepLabel(step)),node('small',[step[0],step[3]].filter(Boolean).join(' · ')));
+        text.append(node('b',toolTitle(step,info)),node('small',stepLabel(step)));
         const button = node('button',null,'trace-row');
+        button.dataset.reviewAnchor = item.anchor;
+        button.dataset.reviewField = '工具名称';
         button.type = 'button';
         button.setAttribute('aria-pressed','false');
         button.append(stepGlyph(step,info),text,node('span',time ?? String(item.id).padStart(2,'0'),'trace-ordinal'));
@@ -929,89 +911,11 @@ function eventsView(content,trial) {
   only.onclick = ()=>{failureOnly = !failureOnly; renderList();};
   renderList();
 }
-function renderRecord(trial) {
-  const items = [
-    ['来源',imported ? '本地 JSON' : online ? '在线合成测例' : '',null],
-    ['名称',data.title,'data-title'],
-    ['版本',trial.package_version ?? data.version,'version'],
-    ['测例说明',data.criteria?.[activeCase],'criterion'],
-    ['运行备注',trial.note,null],
-  ].filter(([,text])=>typeof text==='string' && text.trim());
-  const fields = select('record-fields');
-  fields.replaceChildren();
-  for (const [label,text,id] of items) {
-    const dd = node('dd',text);
-    if (label === '运行备注') dd.style.whiteSpace = 'pre-line';
-    if (id) dd.id = id;
-    fields.append(node('dt',label),dd);
-  }
-  select('record-meta').hidden = !items.length;
-}
 function draw(animateCase = false) {
   const all = data.cases[activeCase];
   if(!all[activeIndex]) activeIndex = 0;
   const trial = all[activeIndex];
-  renderRecord(trial);
-  const entries = trial.sessions.flat();
-  const tools = entries.filter(entry=>entry.role==='tools');
-  const captured = tools.reduce((total,entry)=>total+(entry.total ?? entry.steps.length),0);
-  const messages = entries.filter(entry=>['user','assistant'].includes(entry.role)).length;
-  const footer = select('browse-footer');
-  footer.replaceChildren(node('span',trial.sessions.length+' 个会话'),node('span',messages+' 条消息'),node('span',captured+' 次工具调用'));
-  const failures = tools.reduce((total,entry)=>total+entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i])).length,0);
-  if (failures) footer.append(node('span',failures+' 次调用异常'));
-
-  const focusedNav = document.activeElement?.closest('#case-nav button')?.dataset.navKind;
-  select('case-nav').replaceChildren(...scenarioGroups().map(([label,keys]) => {
-    const group = node('div',null,'case-group');
-    if (label) group.append(node('h3',label));
-    for (const key of keys) {
-      const scope = data.cases[key].filter(run=>run.state);
-      const count = scope.length ? node('span',scope.filter(run=>run.state==='pass').length+'/'+scope.length,'meta') : null;
-      if (count) count.title = '通过 / 已判定';
-      const selected = activeCase === key;
-      const item = node('div');
-      const panel = selected ? node('div',null,'case-run-panel') : null;
-      const button = choice(caseName(key),count,selected,()=>{
-        if (!panel) {
-          pickCase(key,true);
-          return;
-        }
-        caseRunsOpen = !caseRunsOpen;
-        panel.removeAttribute('data-enter');
-        panel.dataset.expanded = caseRunsOpen;
-        panel.inert = !caseRunsOpen;
-        button.setAttribute('aria-expanded',caseRunsOpen);
-      });
-      button.classList.add('case-choice');
-      button.prepend(icon('right'));
-      button.setAttribute('aria-expanded',selected && caseRunsOpen);
-      button.dataset.navKind = 'case';
-      item.append(button);
-      if (panel) {
-        const runs = node('div',null,'case-runs');
-        panel.id = 'run-nav';
-        panel.dataset.expanded = caseRunsOpen;
-        panel.inert = !caseRunsOpen;
-        if (animateCase) panel.setAttribute('data-enter','');
-        runs.setAttribute('role','group');
-        runs.setAttribute('aria-label',caseName(key)+'的模型结果');
-        button.setAttribute('aria-controls',panel.id);
-        runs.append(node('p','模型结果','case-runs-heading'),...all.map((row,index)=>{
-          const model = choice(modelLabel(row,index),row.state ? badge(row.state) : null,activeIndex===index,()=>pickRun(index));
-          model.dataset.navKind = 'run';
-          return model;
-        }));
-        const clip = node('div',null,'case-run-clip');
-        clip.append(runs);
-        panel.append(clip);
-        item.append(panel);
-      }
-      group.append(item);
-    }
-    return group;
-  }));
-  if (focusedNav) select('case-nav').querySelector(`[data-nav-kind="${focusedNav}"][aria-pressed="true"]`)?.focus({preventScroll:true});
+  renderCaseNavigation();
   select('case-select').replaceChildren(...scenarioGroups().flatMap(([label,keys])=>{
     const options = keys.map(key=>new Option(caseName(key),key,false,key===activeCase));
     if (!label) return options;
@@ -1023,35 +927,34 @@ function draw(animateCase = false) {
   select('run-select').replaceChildren(...all.map((row,index)=>new Option([modelLabel(row,index),statusNames[row.state]].filter(Boolean).join(' · '),index,false,index===activeIndex)));
   select('run-select').setAttribute('aria-label',caseName(activeCase)+'的模型与结果');
   select('case-title').textContent = caseName(activeCase);
+  const description = select('case-description');
+  description.replaceChildren();
+  const criteria = data.criteria?.[activeCase];
+  if(criteria) {
+    const text = node('p',criteria);
+    text.dataset.reviewAnchor='case'; text.dataset.reviewField='判定标准';
+    description.append(text);
+  }
+  if(trial.note) {
+    const note=node('p',trial.note);
+    note.dataset.reviewAnchor='run'; note.dataset.reviewField='运行说明';
+    description.append(note);
+  }
+  select('case-spec').hidden=!description.childNodes.length;
   const runTitle = select('run-title');
   runTitle.replaceChildren(node('span',modelLabel(trial,activeIndex)));
   if (trial.state) runTitle.append(badge(trial.state));
-  const externalActions = trial.sessions.flat().filter(entry=>entry.role==='human').length;
-  const confirmed = externalActions ? ' · '+externalActions+' 次模拟人工操作' :
-    trial.confirmed ? ' · 1 次模拟确认' : '';
-  const elapsed = Number.isFinite(trial.elapsed_seconds) ? ' · '+trial.elapsed_seconds.toFixed(1)+' 秒' : '';
-  const toolCount = Number.isInteger(trial.count) ? ' · '+trial.count+' 次工具事件' : '';
   const phases = Array.isArray(trial.metrics?.phases) ? trial.metrics.phases : [];
-  const turns = phases.map(row=>Number.isInteger(row.turns) ? row.turns : '—').join(' / ');
-  const simulated = phases.reduce((count,row)=>count+(Number.isInteger(row.simulated_user_actions) ? row.simulated_user_actions : 0),0);
-  const timings = phases.filter(row=>Number.isFinite(row.duration_seconds));
-  const duration = timings.reduce((seconds,row)=>seconds+row.duration_seconds,0);
-  const httpCounts = phases.filter(row=>Number.isInteger(row.http_requests));
-  const httpRequests = httpCounts.reduce((total,row)=>total+row.http_requests,0);
-  if (httpCounts.length) footer.append(node('span',httpRequests+' 次服务 HTTP'));
-  const summary = [turns && '各阶段轮数 '+turns, timings.length && duration.toFixed(1)+' 秒',
-    simulated && simulated+' 次模拟人工操作'].filter(Boolean).join(' · ');
   const isSummary = trial.sessions.length === 0;
-  select('counts').textContent = isSummary ? summary :
-    trial.sessions.length+' 个会话'+toolCount+confirmed+elapsed;
+  select('counts').textContent = runEfficiency(trial);
   select('chat-tab').setAttribute('aria-pressed',activeTab==='chat');
   select('event-tab').setAttribute('aria-pressed',activeTab==='events');
   const content = select('content');
   content.classList.remove('trace-view','chat-workspace');
   content.replaceChildren();
-  document.querySelector('.tabs').hidden = isSummary;
+  document.querySelector('.tabs').hidden = false;
+  select('chat-tab').hidden=isSummary; select('event-tab').hidden=isSummary;
   select('expand-tools').hidden = activeTab!=='chat';
-  select('outline-toggle').hidden = activeTab!=='chat';
   select('expand-tools').textContent = '展开调用';
   if (isSummary) {
     const report = node('section',null,'run-summary');
@@ -1072,8 +975,8 @@ function draw(animateCase = false) {
 }
 select('case-select').onchange = event=>pickCase(event.target.value);
 select('run-select').onchange = event=>pickRun(Number(event.target.value));
-select('chat-tab').onclick = ()=>{if (activeTab!=='chat') {activeTab='chat'; draw();}};
-select('event-tab').onclick = ()=>{if (activeTab!=='events') {activeTab='events'; draw();}};
+select('chat-tab').onclick = ()=>{if (activeTab!=='chat') {activeTab='chat'; userNavigation=true; draw();}};
+select('event-tab').onclick = ()=>{if (activeTab!=='events') {activeTab='events'; userNavigation=true; draw();}};
 const viewActions = node('div',null,'view-actions');
 const expandTools = node('button','展开调用','quiet-button');
 expandTools.type = 'button';
@@ -1084,19 +987,12 @@ expandTools.onclick = ()=>{
   for (const group of groups) group.open = open;
   expandTools.textContent = open ? '收起调用' : '展开调用';
 };
-const outlineToggle = node('button','目录','quiet-button');
-outlineToggle.id = 'outline-toggle'; outlineToggle.type = 'button';
-outlineToggle.setAttribute('aria-pressed','false');
-outlineToggle.onclick = ()=>{
-  const on = document.body.classList.toggle('show-outline');
-  outlineToggle.setAttribute('aria-pressed',on);
-  outlineToggle.textContent = on ? '收起目录' : '目录';
-};
-viewActions.append(outlineToggle,expandTools);
+const reviewRun = node('button','评论记录','quiet-button');
+reviewRun.type = 'button';
+reviewRun.onclick = ()=>requestReview('run','','本次记录');
+viewActions.append(reviewRun,expandTools);
 document.querySelector('.tabs').append(viewActions);
 select('load-file').prepend(icon('file'));
-select('chat-tab').prepend(icon('chat'));
-select('event-tab').prepend(icon('list'));
 function validRecord(record) {
   const optionalText = value => value == null || typeof value==='string';
   const optionalMap = value => value === undefined || (!!value && typeof value==='object' &&
@@ -1142,16 +1038,19 @@ select('trace-file').onchange = async (event)=>{
     imported = true;
     document.querySelector('.layout').hidden = false;
     activeTab = 'chat';
-    select('record-meta').open = false;
     cases = Object.keys(data.cases);
     reportStatus('');
-    pickCase(cases[0]);
+    activeCase = cases[0];
+    activeIndex = 0;
+    resetSelection();
+    draw();
   } catch(error) {
     reportStatus(error instanceof SyntaxError ? '无法读取这个 JSON 文件。' : error.message,true);
   } finally {
     event.target.value = '';
   }
 };
+__REVIEW_BUNDLE__
 if (!online) draw();
 if (online) {
   const layout = document.querySelector('.layout');
@@ -1166,7 +1065,7 @@ if (online) {
     if (inspector.open) inspector.close();
   }
   async function pollSnapshot() {
-    if (imported) return;
+    if (imported || (reviewBusy && !layout.hidden) || !window.getSelection()?.isCollapsed || inspector.open) return;
     const token = localStorage.getItem('lockbot_token');
     if (currentToken !== token) {
       hideSnapshot();
@@ -1195,12 +1094,14 @@ if (online) {
       if (!response.ok) throw new Error();
       const snapshot = await response.text();
       if (imported || localStorage.getItem('lockbot_token') !== token) return;
+      if ((reviewBusy && !layout.hidden) || !window.getSelection()?.isCollapsed || inspector.open) return;
       if (snapshot !== lastSnapshot) {
         const candidate = JSON.parse(snapshot);
         if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw')) throw new Error();
         const firstSnapshot = !lastSnapshot;
         lastSnapshot = snapshot;
-        const selectedModel = data.cases[activeCase]?.[activeIndex]?.model;
+        const selectedIndex = activeIndex;
+        const selectedRunId = data.review_runs?.[activeCase]?.[activeIndex];
         data = candidate;
         cases = Object.keys(data.cases);
         if (firstSnapshot) {
@@ -1208,16 +1109,15 @@ if (online) {
         } else {
           if (!cases.includes(activeCase)) {
             activeCase = cases[0];
-            caseRunsOpen = true;
           }
-          activeIndex = Math.max(0,data.cases[activeCase].findIndex(run=>run.model===selectedModel));
+          const matching = selectedRunId ? data.review_runs?.[activeCase]?.indexOf(selectedRunId) : -1;
+          activeIndex = matching >= 0 ? matching : Math.min(selectedIndex,data.cases[activeCase].length-1);
         }
         draw();
       }
       layout.hidden = false;
       reportStatus('');
-      select('live-status').textContent = raw ? '原始轨迹' : '自动更新';
-      select('live-status').hidden = false;
+      select('live-status').hidden = true;
     } catch {
       reportStatus('暂时无法读取在线结果，稍后重试。',true);
     }

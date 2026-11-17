@@ -88,7 +88,7 @@ def public_settings(db: Session = Depends(get_db)):
         settings.append(SettingOut(key="personal_panel_url", value="/#/me"))
     trace_directory = os.environ.get("LOCKBOT_TRACE_REVIEW_DIR")
     if trace_directory and (Path(trace_directory) / "viewer.html").is_file():
-        settings.append(SettingOut(key="agent_trace_review_url", value="/dev/trace-review?raw=true"))
+        settings.append(SettingOut(key="agent_trace_review_url", value="/#/agent-traces"))
     return settings
 
 

@@ -94,18 +94,16 @@
           </el-menu-item-group>
         </template>
       </el-menu>
-      <a
+      <router-link
         v-if="debugMode && authStore.isSuperAdmin && traceReviewEnabled"
-        href="/dev/trace-review?raw=true"
-        target="_blank"
-        rel="noopener"
+        to="/agent-traces"
         class="trace-review-link"
         :class="{ collapsed: isCollapsed }"
         :title="$t('nav.agentTraces')"
       >
         <el-icon><Operation /></el-icon>
         <span v-if="!isCollapsed">{{ $t('nav.agentTraces') }}</span>
-      </a>
+      </router-link>
     </el-aside>
 
     <!-- Mobile drawer -->
@@ -202,18 +200,16 @@
           </el-menu-item-group>
         </template>
       </el-menu>
-      <a
+      <router-link
         v-if="debugMode && authStore.isSuperAdmin && traceReviewEnabled"
-        href="/dev/trace-review?raw=true"
-        target="_blank"
-        rel="noopener"
+        to="/agent-traces"
         class="trace-review-link"
         :title="$t('nav.agentTraces')"
         @click="drawerOpen = false"
       >
         <el-icon><Operation /></el-icon>
         <span>{{ $t('nav.agentTraces') }}</span>
-      </a>
+      </router-link>
     </el-drawer>
 
     <el-container>
@@ -416,7 +412,7 @@ onMounted(async () => {
     const response = await fetch('/api/settings')
     const settings = await response.json()
     traceReviewEnabled.value = settings.some(
-      (s) => s.key === 'agent_trace_review_url' && s.value === '/dev/trace-review?raw=true'
+      (s) => s.key === 'agent_trace_review_url' && s.value === '/#/agent-traces'
     )
     personalPanelEnabled.value = settings.some(
       (s) => s.key === 'personal_panel_url' && s.value === '/#/me'

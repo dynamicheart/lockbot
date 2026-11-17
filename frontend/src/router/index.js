@@ -146,6 +146,15 @@ const routes = [
   },
 ]
 
+if (import.meta.env.DEV) {
+  routes.unshift({
+    path: '/agent-traces',
+    name: 'AgentTraces',
+    component: () => import('../views/AgentTraces.vue'),
+    meta: { auth: true, superAdminOnly: true },
+  })
+}
+
 const router = createRouter({
   history: createWebHashHistory(),
   routes,
