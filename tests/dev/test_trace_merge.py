@@ -1,3 +1,4 @@
+import copy
 import importlib.util
 import json
 import shutil
@@ -556,3 +557,24 @@ def test_compact_summary_applies_only_to_new_phase_reviews_while_raw_chat_stays_
     assert trial["summary_only"] is True and trial["sessions"] == [] and trial["review_phase"] == 2
     assert "摘要；完整对话和工具输入输出保留在原始轨迹" in trial["note"]
     assert complete["cases"]["case-2"][-1]["sessions"][0][-1]["text"] == merge.load(location / "response.json")["text"]
+
+
+def test_catalog_plans_do_not_repeat_for_new_packages_or_runner_mixes(tmp_path, monkeypatch):
+    raw, _ = baseline(tmp_path)
+    source, _ = matrix(tmp_path)
+    data = merge.load(raw)
+    plan = merge.load(source / "run.json")
+    merge.add_plan(data, plan)
+    before = copy.deepcopy(data)
+    plan["artifacts"]["current"]["package_version"] = "c" * 16
+    plan["runners"] = [{"client": "different-client", "model": "different-model"}]
+    merge.add_plan(data, plan)
+    assert data == before
+    monkeypatch.setitem(merge.CASES, "consultation:future-case", ("Future group", "Future case"))
+    merge.add_plan(data, plan)
+    assert sum(map(len, data["cases"].values())) == sum(map(len, before["cases"].values())) + 1
+    merge.assert_preserved(before, data, True)
+    trial = data["cases"]["consultation-future-case"][0]
+    assert trial["state"] == "pending" and trial["selected_for_run"] is False
+    assert "本次运行未选择此测例" in trial["note"]
+    assert all(data["cases"][key] == value for key, value in before["cases"].items())

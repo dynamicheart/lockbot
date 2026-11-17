@@ -118,6 +118,9 @@ def add_plan(data, plan):
     for case, (group, label) in CASES.items():
         suite, scenario = case.split(":", 1)
         safe = LEGACY_IDS.get(scenario, scenario) if suite == "cli" else f"{suite}-{scenario}"
+        if data["cases"].get(safe):
+            continue  # A new package or runner mix is not a new case plan.
+        selected = case in plan["cases"]
         data.setdefault("labels", {}).setdefault(safe, label)
         data.setdefault("groups", {}).setdefault(safe, group)
         append_trial(
@@ -125,11 +128,13 @@ def add_plan(data, plan):
             safe,
             {
                 "case": safe,
-                "model": "本轮评测计划",
+                "model": "待评测目录",
+                "selected_for_run": selected,
                 "state": "pending",
                 "package_version": version,
                 "source_run": source,
-                "note": "计划占位，不代表已执行或通过；实际结果保存在单独运行记录。计划客户端：" + clients,
+                "note": "目录占位，不代表已执行或通过；实际结果保存在单独运行记录。"
+                + ("本次选择此测例，计划客户端：" + clients if selected else "本次运行未选择此测例。"),
                 "sessions": [],
             },
         )
