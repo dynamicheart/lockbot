@@ -128,9 +128,7 @@ def test_expired_hold_and_claim_window_do_not_consume_quota():
     assert public_policy(state, Config(), "alice", now)["claimed_resource_count"] == 0
 
 
-def test_api_machine_budget_stays_separate_from_card_quota(tmp_path):
-    from lockbot.core.base_bot import AcquisitionLimitExceeded
-
+def test_card_quota_counts_cards_across_machines(tmp_path):
     bot = DeviceBot(
         config_dict={
             "BOT_ID": "cards",
@@ -141,9 +139,8 @@ def test_api_machine_budget_stays_separate_from_card_quota(tmp_path):
             "WEBHOOK_URL": "",
         }
     )
-    assert "❌" not in text(bot.lock("alice", "lock a dev0,1 10m", acquisition_limit=1))
-    with pytest.raises(AcquisitionLimitExceeded):
-        bot.lock("alice", "lock b dev0 10m", acquisition_limit=1)
+    assert "❌" not in text(bot.lock("alice", "lock a dev0,1 10m"))
+    assert "❌" in text(bot.lock("alice", "lock b dev0 10m"))
 
 
 def test_shared_card_counts_once_for_each_user(tmp_path):

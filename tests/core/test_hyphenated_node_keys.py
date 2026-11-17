@@ -28,7 +28,6 @@ def test_dispatch_acquires_and_releases_hyphenated_resources(bot, operation):
         operation + " live-demo-node-1，live-demo-node-2 10m",
         bot,
         allowed_commands=allowed,
-        acquisition_limit=2,
     )
     state = bot.state_snapshot()[1]
     assert set(state) == {"live-demo-node-1", "live-demo-node-2"}
@@ -44,6 +43,5 @@ def test_unknown_hyphenated_resource_cannot_change_known_resources(bot):
         "lock live-demo-node-1,unconfigured-node 10m",
         bot,
         allowed_commands={"lock"},
-        acquisition_limit=2,
     )
     assert all(not node["current_users"] for node in bot.state_snapshot()[1].values())

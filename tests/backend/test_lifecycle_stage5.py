@@ -7,6 +7,7 @@ limiter and the per-bot admission cap. Unit tests pin the window logic; route te
 
 # ruff: noqa: F811 -- the imported `api` pytest fixture is injected by parameter name
 
+import pytest
 from lockbot.backend.app.resource_api.traffic import (
     _CredentialBudget,
     credential_budget,
@@ -38,9 +39,9 @@ def test_budget_window_rolls_off():
 def test_commands_route_enforces_write_budget(client, api):
     credential_budget.write_limit = 2
     url = f"/api/bots/{api['bot_id']}/commands"
-    assert client.post(url, headers=api["headers"], json={"command": "query"}).status_code == 200
-    assert client.post(url, headers=api["headers"], json={"command": "query"}).status_code == 200
-    third = client.post(url, headers=api["headers"], json={"command": "query"})
+    assert client.post(url, headers=api["headers"], json={"command": "lock n1 1h"}).status_code == 200
+    assert client.post(url, headers=api["headers"], json={"command": "free n1"}).status_code == 200
+    third = client.post(url, headers=api["headers"], json={"command": "lock n1 1h"})
     assert third.status_code == 429
     assert third.json()["detail"]["code"] == "rate_limited"
     assert third.headers["Retry-After"]
@@ -69,10 +70,55 @@ def test_resources_can_be_queried_immediately_before_and_after_lock(client, api)
     assert any(holder["external_user_id"] == "alice" for holder in node["holders"])
 
 
-def test_commands_route_enforces_identity_holdings_cap(client, api, monkeypatch):
-    import lockbot.backend.app.resource_api.commands as commands_mod
+def test_commands_route_uses_the_same_resource_quota_as_chat(client, api):
+    bot = api["bot"]
+    bot.config.set_val("MAX_RESOURCES_PER_USER", 1)
+    bot.lock("alice", "lock n1 1h")
+    before = bot.state_snapshot()[1]
+    resp = client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": "lock n2 1h"})
+    assert resp.status_code == 200
+    assert "❌" in resp.json()["reply"]
+    assert bot.state_snapshot()[1] == before
 
-    monkeypatch.setattr(commands_mod, "RESOURCE_API_MAX_HELD_PER_IDENTITY", 0)
-    resp = client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": "lock n1 1h"})
-    assert resp.status_code == 409
-    assert resp.json()["detail"]["code"] == "identity_cap_reached"
+
+def test_query_command_uses_read_allowance_and_preserves_write_allowance(client, api):
+    credential_budget.read_limit = credential_budget.write_limit = 1
+    url = f"/api/bots/{api['bot_id']}/commands"
+    assert client.post(url, headers=api["headers"], json={"command": "query"}).status_code == 200
+    assert client.post(url, headers=api["headers"], json={"command": "query"}).status_code == 429
+    assert client.post(url, headers=api["headers"], json={"command": "lock n1 1h"}).status_code == 200
+
+
+def test_thirty_writes_are_allowed_before_the_next_is_rejected(client, api):
+    from lockbot.backend.app.config import RESOURCE_API_WRITE_BUDGET_PER_MINUTE
+
+    credential_budget.write_limit = RESOURCE_API_WRITE_BUDGET_PER_MINUTE
+    assert credential_budget.write_limit == 30
+    url = f"/api/bots/{api['bot_id']}/commands"
+    for index in range(30):
+        command = "lock n1 1h" if index % 2 == 0 else "free n1"
+        assert client.post(url, headers=api["headers"], json={"command": command}).status_code == 200
+    response = client.post(url, headers=api["headers"], json={"command": "lock n1 1h"})
+    assert response.status_code == 429
+    assert int(response.headers["Retry-After"]) > 0
+    assert api["bot"].state_snapshot()[1]["n1"]["current_users"] == []
+    assert client.post(url, headers=api["other_headers"], json={"command": "lock n1 1h"}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "api",
+    [{"bot_type": kind, "cluster_configs": {f"n{i}": "gpu" for i in range(1, 10)}} for kind in ("NODE", "QUEUE")],
+    indirect=True,
+)
+def test_group_with_no_quantity_limit_can_allocate_more_than_eight_nodes(client, api):
+    nodes = ",".join(f"n{i}" for i in range(1, 10))
+    response = client.post(
+        f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": f"lock {nodes} 1h"}
+    )
+    assert response.status_code == 200
+    assert "❌" not in response.json()["reply"]
+    assert len(api["bot"].state_snapshot()[1]) == 9
+    assert all(
+        any(holder["user_id"] == "alice" for holder in node["current_users"])
+        for node in api["bot"].state_snapshot()[1].values()
+    )

@@ -24,10 +24,13 @@ def _clear_cache():
 def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path, request):
     # Imported fixtures do not inherit this module's autouse cache fixture.
     snapshot_cache.clear()
-    bot_type = getattr(request, "param", "NODE")
+    options = getattr(request, "param", "NODE")
+    bot_type = options["bot_type"] if isinstance(options, dict) else options
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
 
     cluster = {"n1": ["gpu", "gpu"]} if bot_type in {"DEVICE", "QUEUE_DEVICE"} else {"n1": "m1", "n2": "m2"}
+    if isinstance(options, dict):
+        cluster = options["cluster_configs"]
     created = client.post(
         "/api/bots",
         headers=auth_header,

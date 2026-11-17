@@ -54,7 +54,7 @@ class BackendTransport:
 def packaged_cli(client, api, tmp_path, monkeypatch):
     monkeypatch.setenv("PLATFORM_URL", ORIGIN)
     monkeypatch.setattr(credential_budget, "read_limit", 120)
-    monkeypatch.setattr(credential_budget, "write_limit", 6)
+    monkeypatch.setattr(credential_budget, "write_limit", 30)
     credential_budget.reset()
     manifest = client.get("/api/agent-skill").json()
     archive = client.get(manifest["installation"]["download_url"])
@@ -135,7 +135,7 @@ def test_query_then_immediate_lock_and_verification(packaged_cli, api, tmp_path)
         "script": "scripts/lockbot_cli.py",
         "result": "passed",
         "read_budget_per_minute": 120,
-        "write_budget_per_minute": 6,
+        "write_budget_per_minute": 30,
         "verified_single_holder": True,
         "verified_duration_seconds": 3600,
         "tools": transport.tools,

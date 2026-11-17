@@ -70,7 +70,6 @@ These rules can change; `/resources` and the actual command result remain author
 | `supported_operations`, `allow_user_alias` | Server operations and whether alias editing is enabled. The CLI maps `claim` and `renew` to `lock`, and `release` to `unlock`. Access and policy checks still apply. |
 | `request_budget.read_per_minute`, `request_budget.write_per_minute` | Actual deployed per-key read/write budgets shared by all the user's Agents. Other endpoint/IP limits can also apply. |
 | `poll_minimum_seconds.active`, `.booking`, `.discovery` | Server-advertised polling guidance in seconds. Agents can choose an interval suited to the task. |
-| `api_max_machines_per_user` | The separate existing API machine-count ceiling, including held/booked machines; several cards on one machine count once here. A card quota does not redefine this machine limit. |
 
 `resource_policy` on `/resources` repeats the live acquisition switches and includes the
 caller's `claimed_resource_count`. All of the user's Agents and group commands share the
@@ -174,7 +173,7 @@ it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's
 Agents can poll `/resources` continuously when a task needs it. Choose the interval
 according to the task. The Skill adds no minimum interval or cap on repeated reads.
 
-- Default server budgets are `120 reads/min` and `6 writes/min` per credential. Use
+- Default server budgets are `120 reads/min` and `30 writes/min` per credential. Use
   the live `request_budget` in context for the deployed values. Agents using the same
   Key share these budgets.
 - The advertised `poll_minimum_seconds` values are pacing suggestions. Follow the

@@ -37,7 +37,6 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import attach_node_access, saved_node_access
 from lockbot.backend.app.bots.node_hardware import saved_node_hardware
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.commands import AGENT_ALLOWED_COMMANDS
 from lockbot.backend.app.resource_api.snapshot import (
@@ -182,7 +181,6 @@ bot_manager.register_retire_hook(lambda bot_id, generation: snapshot_cache.inval
 
 
 @router.get("/{bot_id}/resources", deprecated=True)
-@limiter.limit("120/minute")
 def get_resources(
     bot_id: int,
     request: Request,

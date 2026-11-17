@@ -15,7 +15,6 @@ from lockbot.backend.app.bots.manager import (
 )
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.resources import snapshot_cache
 from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
@@ -77,7 +76,6 @@ def _display_details(resources, state, aliases):
 
 
 @router.get("/{bot_id}/state")
-@limiter.limit("300/minute")
 def view_state(bot_id: int, request: Request, response: Response, db: Session = Depends(get_db)):
     bot, window = _authorized(db, bot_id, request)
     response.headers.update(PRIVATE_HEADERS)

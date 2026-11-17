@@ -4,6 +4,7 @@ Identity budgets remain in the routes. This gate also covers rejected credential
 which FastAPI dependencies reject before a route-level limiter gets control.
 """
 
+import hashlib
 import math
 import re
 import threading
@@ -13,7 +14,7 @@ from collections import OrderedDict
 from starlette.responses import JSONResponse
 
 _PATH = re.compile(
-    r"^/api/(?:agent/(?:context|commands|resources|usage-declarations(?:/[^/]+)?)|bot-views/[^/]+/state|resource-auth/bindings(?:/[^/]+)?|bots/[^/]+/(?:commands|resources|usage-declarations(?:/[^/]+)?))/?$"
+    r"^/api/(?:agent/(?:bindings(?:/recover)?|context|commands|resources|usage-declarations(?:/[^/]+)?)|bot-views/[^/]+/state|resource-auth/(?:bindings|credential-challenges)(?:/[^/]+)?|bots/[^/]+/(?:commands|resources|usage-declarations(?:/[^/]+)?))/?$"
 )
 
 
@@ -60,6 +61,14 @@ class AgentIngressMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and _PATH.fullmatch(scope.get("path", "")):
             source = (scope.get("client") or ("unknown", 0))[0]
+            # This is only a bounded pre-authentication bucket, never an identity claim.
+            # Verified per-credential quotas still apply in the routes. Hash the presented
+            # bearer so independent users behind one NAT do not share this coarse bucket.
+            authorization = next((value for key, value in scope.get("headers", []) if key == b"authorization"), b"")
+            if authorization.lower().startswith(b"bearer ") and 7 < len(authorization) <= 4096:
+                source = "bearer:" + hashlib.sha256(authorization[7:].strip()).hexdigest()
+            else:
+                source = "ip:" + source
             allowed, retry = self.budget.check(source)
             if not allowed:
                 response = JSONResponse(

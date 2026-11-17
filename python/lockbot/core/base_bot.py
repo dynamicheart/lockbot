@@ -25,10 +25,6 @@ def _get_version():
         return "unknown"
 
 
-class AcquisitionLimitExceeded(ValueError):
-    """A request would increase this identity's holdings beyond its caller policy."""
-
-
 class BotState:
     """Manages bot state by delegating to a loader function."""
 
@@ -136,27 +132,6 @@ class BaseLockBot:
 
         save_bot_state_to_file(self.state.bot_state, config=self.config)
         self._notify_state_changed()
-
-    def _check_acquisition_limit_locked(self, user_id, node_keys, limit):
-        """Check projected node holdings while the caller owns ``_lock``.
-
-        The limit is per invocation, supplied by a trusted transport. Chat keeps its
-        existing policy. Devices on the same node count once; bookings count too.
-        Renewals and claiming an existing booking never increase the held set.
-        """
-        if limit is None:
-            return
-        held = set()
-        for key, node in self.state.bot_state.items():
-            entries = [node] if isinstance(node, dict) else node
-            for entry in entries:
-                users = list(entry.get("current_users", [])) + list(entry.get("booking_list", []))
-                if any(u["user_id"] == user_id for u in users):
-                    held.add(key)
-                    break
-        additions = set(node_keys) - held
-        if additions and len(held | additions) > limit:
-            raise AcquisitionLimitExceeded(limit)
 
     def _resource_policy_locked(self, user_id, targets, *, claim_duration=None):
         """Apply bot policy before any mutation; caller holds the state lock."""

@@ -54,7 +54,7 @@ def serve(port, private_file):
     uvicorn.run(app, host="127.0.0.1", port=port, workers=1, access_log=False, log_level="warning")
 
 
-def probe(output):
+def probe(output, *, traffic_control=False):
     import hashlib
     import io
     import zipfile
@@ -278,6 +278,46 @@ def probe(output):
                 snapshot = request("GET", resources, headers=alice).json()
                 assert next(r for r in snapshot["resources"] if r["id"] == "n1")["holders"] == []
                 assert request("GET", usage, headers=bob).json()["items"] == []
+                traffic_checks = {}
+                if traffic_control:
+                    # Real TCP with the actual SlowAPI decorators enabled, one shared IP.
+                    nat_a = enroll("synthetic-nat-a")
+                    nat_b = enroll("synthetic-nat-b")
+                    for headers in (nat_a, nat_b):
+                        for _ in range(70):
+                            context = request("GET", "/api/agent/context", headers=headers).json()
+                        assert context["bot_rules"]["request_budget"] == {
+                            "read_per_minute": 120,
+                            "write_per_minute": 30,
+                        }
+                        assert "api_max_machines_per_user" not in context["bot_rules"]
+                        for _ in range(50):
+                            request("GET", resources, headers=headers)
+                        limited = request("GET", resources, expected=429, headers=headers)
+                        assert limited.headers["Retry-After"]
+                    traffic_checks["same_ip_independent_read_budgets"] = True
+                    for index in range(30):
+                        request(
+                            "POST",
+                            commands,
+                            headers=nat_a,
+                            json={"command": "lock n2 1h" if index % 2 == 0 else "free n2"},
+                        )
+                    limited = request("POST", commands, expected=429, headers=nat_a, json={"command": "lock n2 1h"})
+                    assert limited.headers["Retry-After"]
+                    request("POST", commands, headers=nat_b, json={"command": "lock n2 1h"})
+                    traffic_checks["thirty_writes_then_429_other_credential_unaffected"] = True
+                    # More than ten hourly requests and five pending users share this IP.
+                    for index in range(50):
+                        request(
+                            "POST",
+                            "/api/resource-auth/credential-challenges" if index % 2 else "/api/resource-auth/bindings",
+                            expected=201,
+                            json={},
+                        )
+                    limited = request("POST", "/api/resource-auth/bindings", expected=429, json={})
+                    assert limited.headers["Retry-After"]
+                    traffic_checks["fifty_pending_bindings_then_429"] = True
                 request(
                     "POST",
                     f"/api/bots/webhook/{bot_id}?signature=fake-valid-signature",
@@ -293,6 +333,7 @@ def probe(output):
                 request("PUT", f"/api/bots/{bot_id}/owner", expected=404, headers=admin, json={"username": "anyone"})
                 result = {
                     "passed": True,
+                    "traffic_controls": traffic_checks,
                     "transport": "real TCP loopback",
                     "identity_source": "synthetic fakeim test adapter, not real IM acceptance",
                     "requests": evidence,
@@ -324,4 +365,6 @@ if __name__ == "__main__":
     else:
         parser = argparse.ArgumentParser()
         parser.add_argument("--output", required=True)
-        probe(parser.parse_args().output)
+        parser.add_argument("--traffic-control", action="store_true")
+        args = parser.parse_args()
+        probe(args.output, traffic_control=args.traffic_control)

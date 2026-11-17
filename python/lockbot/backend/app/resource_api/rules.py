@@ -53,9 +53,6 @@ class BotRules(BaseModel):
     allow_user_alias: bool
     request_budget: RequestBudget
     poll_minimum_seconds: PollMinimumSeconds
-    api_max_machines_per_user: int = Field(
-        description="Separate existing API cap, counting held/booked machines even for card bots."
-    )
 
 
 def current_bot_rules(bot, user_id: str) -> dict:
@@ -86,5 +83,4 @@ def current_bot_rules(bot, user_id: str) -> dict:
             "booking": RESOURCE_API_TIER_BOOKING_SECONDS,
             "discovery": RESOURCE_API_TIER_DISCOVERY_SECONDS,
         },
-        "api_max_machines_per_user": commands.RESOURCE_API_MAX_HELD_PER_IDENTITY,
     }

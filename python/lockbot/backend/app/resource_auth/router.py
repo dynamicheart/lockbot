@@ -57,7 +57,7 @@ class BindingStatus(BaseModel):
 
 
 @router.post("/bindings", response_model=BindingCreated, status_code=status.HTTP_201_CREATED)
-@limiter.limit("10/hour")
+@limiter.limit("60/minute")
 def create_binding(request: Request, body: BindingCreate | None = None) -> BindingCreated:
     """Issue an inert credential and a single-use bind code. Writes nothing to the database."""
     source = request.client.host if request.client else ""
@@ -73,7 +73,6 @@ def create_binding(request: Request, body: BindingCreate | None = None) -> Bindi
 
 
 @router.get("/bindings/{binding_id}", response_model=BindingStatus)
-@limiter.limit("60/minute")
 def get_binding_status(binding_id: str, request: Request, db: Session = Depends(get_db)) -> BindingStatus:
     """Report whether a binding is pending, confirmed, revoked, or gone."""
     return BindingStatus(binding_id=binding_id, status=service.binding_status(db, binding_id))
@@ -102,7 +101,7 @@ _CHALLENGE_HEADERS = {"Cache-Control": "no-store", "Vary": "Authorization"}
 
 
 @router.post("/credential-challenges", status_code=status.HTTP_201_CREATED, response_model=CredentialChallengeCreated)
-@limiter.limit("10/hour")
+@limiter.limit("60/minute")
 def create_credential_challenge(
     request: Request, response: Response, body: CredentialChallengeCreate | None = None
 ) -> CredentialChallengeCreated:
@@ -130,7 +129,6 @@ def create_credential_challenge(
     response_model=CredentialChallengeResult,
     response_model_exclude_none=True,
 )
-@limiter.limit("60/minute")
 def read_credential_challenge(
     challenge_id: str,
     request: Request,

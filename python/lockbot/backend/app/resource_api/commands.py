@@ -30,9 +30,7 @@ from lockbot.backend.app.bots.manager import (
     bot_manager,
 )
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.config import RESOURCE_API_MAX_HELD_PER_IDENTITY
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, should_notify
 from lockbot.backend.app.resource_api.observability import record_api_command
@@ -45,7 +43,6 @@ from lockbot.backend.app.resource_auth.dependencies import (
     require_resource_actor,
     reverify_actor,
 )
-from lockbot.core.base_bot import AcquisitionLimitExceeded
 from lockbot.core.command_result import capture_result
 from lockbot.core.handler import (
     BINDING_COMMANDS,
@@ -259,7 +256,6 @@ class CommandResponse(BaseModel):
     summary="Execute a personal resource command",
     description=COMMAND_GUIDE,
 )
-@limiter.limit("60/minute")
 def execute_command_via_api(
     bot_id: int,
     body: Annotated[CommandRequest, Body(openapi_examples=COMMAND_EXAMPLES)],
@@ -292,9 +288,9 @@ def execute_command_via_api(
     if word in PRE_REJECTED_COMMANDS:
         raise errors.command_not_allowed(word)
 
-    # Per-credential write budget, before admission: one credential cannot flood this bot's
-    # single state lock regardless of its source IP or the per-bot admission cap.
-    allowed, retry_after = credential_budget.check(actor.binding_record_id, "write")
+    # Match the operation classification: a legacy query command consumes the same read
+    # allowance as GET /resources, rather than using up mutation capacity.
+    allowed, retry_after = credential_budget.check(actor.binding_record_id, request.state.resource_activity_kind)
     if not allowed:
         raise errors.rate_limited(retry_after)
 
@@ -340,12 +336,8 @@ def execute_command_via_api(
                         text,
                         bot,
                         allowed_commands=AGENT_ALLOWED_COMMANDS,
-                        acquisition_limit=RESOURCE_API_MAX_HELD_PER_IDENTITY,
                         source="api",
                     )
-            except AcquisitionLimitExceeded:
-                request.state.agent_event["stage"] = "rejected"
-                raise errors.identity_cap_reached(RESOURCE_API_MAX_HELD_PER_IDENTITY) from None
             except CommandNotAllowed:
                 request.state.agent_event["stage"] = "rejected"
                 raise errors.command_not_allowed(word) from None

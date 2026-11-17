@@ -117,11 +117,10 @@ def test_rules_report_actual_deployment_budgets(client, api, monkeypatch):
     monkeypatch.setattr(rules_module, "RESOURCE_API_TIER_ACTIVE_SECONDS", 13)
     monkeypatch.setattr(rules_module, "RESOURCE_API_TIER_BOOKING_SECONDS", 27)
     monkeypatch.setattr(rules_module, "RESOURCE_API_TIER_DISCOVERY_SECONDS", 59)
-    monkeypatch.setattr(commands, "RESOURCE_API_MAX_HELD_PER_IDENTITY", 5)
     rules = context(client, api)["bot_rules"]
     assert rules["request_budget"] == {"read_per_minute": 43, "write_per_minute": 4}
     assert rules["poll_minimum_seconds"] == {"active": 13, "booking": 27, "discovery": 59}
-    assert rules["api_max_machines_per_user"] == 5
+    assert "api_max_machines_per_user" not in rules
 
 
 def test_keys_resolve_only_their_own_bot_policy(client, api, db_session):
@@ -164,6 +163,5 @@ def test_public_schema_documents_rules_as_additive_context_field(client):
         "effective_max_lock_duration_seconds",
         "poll_minimum_seconds",
         "request_budget",
-        "api_max_machines_per_user",
     ]:
         assert field in definitions["BotRules"]["properties"]

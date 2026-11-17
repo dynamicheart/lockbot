@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.rules import BotRules, current_bot_rules
 from lockbot.backend.app.resource_api.traffic import credential_budget
@@ -135,7 +134,6 @@ class AgentContextResponse(BaseModel):
 
 
 @router.get("/context", response_model=AgentContextResponse, response_model_exclude_unset=True)
-@limiter.limit("60/minute")
 def agent_context(request: Request, response: Response, db: Session = Depends(get_db)):
     """Discover only the identity/bot bound to this key. Never scan or list other bots.
 
@@ -243,7 +241,6 @@ def _context_payload(request, response, db, row):
 
 
 @router.get("/bindings", response_model=BindingDirectoryResponse)
-@limiter.limit("60/minute")
 def own_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
     """List live bindings for this verified principal on this instance, without keys.
 
@@ -254,7 +251,6 @@ def own_bindings(request: Request, response: Response, db: Session = Depends(get
 
 
 @router.post("/bindings/recover", response_model=BindingRecoveryResponse)
-@limiter.limit("60/minute")
 def recover_own_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
     """Recover this principal's live per-bot keys and backfill the supplied legacy key.
 
