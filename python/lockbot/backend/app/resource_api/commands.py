@@ -411,7 +411,6 @@ def execute_command_via_api(
                     agent_label=body.agent_label,
                     purpose=body.purpose,
                     task_category=body.task_category,
-                    affected_resources=result.affected_resources,
                     target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
                 )
 
