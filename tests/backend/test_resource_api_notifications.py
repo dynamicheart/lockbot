@@ -103,6 +103,10 @@ def _sent_text(api):
     )
 
 
+def _assert_command_notice(api, command):
+    assert _sent_text(api).strip() == f"🤖【Agent API操作】\n\n用户：{ACTOR}\n命令：{command}"
+
+
 class TestMutationsAreAnnounced:
     @pytest.mark.parametrize(
         "command",
@@ -111,6 +115,8 @@ class TestMutationsAreAnnounced:
     def test_each_mutation_announces(self, client, api, command):
         assert _post(client, api, command).status_code == 200, command
         assert len(api["bot"].adapter.sent) == 1
+        if command.startswith("slock "):
+            _assert_command_notice(api, command)
 
     def test_unlock_announces(self, client, api):
         _post(client, api, "lock n1 1h")
@@ -118,22 +124,20 @@ class TestMutationsAreAnnounced:
         notification_budget.reset()
         assert _post(client, api, "unlock n1").status_code == 200
         assert len(api["bot"].adapter.sent) == 1
-        assert "实际释放或取消：n1" in _sent_text(api)
+        _assert_command_notice(api, "unlock n1")
 
-    def test_a_confirmed_batch_lock_reports_the_result(self, client, api):
+    def test_a_confirmed_batch_lock_announces_the_command(self, client, api):
         response = _post(client, api, "lock n1,n2 2h")
         assert response.status_code == 200
         assert "✅" in response.json()["reply"]
         for node in ("n1", "n2"):
             assert [holder["user_id"] for holder in api["bot"].state.bot_state[node]["current_users"]] == [ACTOR]
-        assert "已确认独占锁定" in _sent_text(api)
-        assert "lock n1,n2 2h" in _sent_text(api)
+        _assert_command_notice(api, "lock n1,n2 2h")
 
     @pytest.mark.parametrize("api", ["QUEUE", "QUEUE_DEVICE"], indirect=True)
     def test_booking_confirms_the_queue_and_duplicate_is_silent(self, client, api):
         assert _post(client, api, "book n1 1h").status_code == 200
-        assert "已加入预约队列" in _sent_text(api)
-        assert "已确认独占锁定" not in _sent_text(api)
+        _assert_command_notice(api, "book n1 1h")
         state = deepcopy(api["bot"].state.bot_state)
         node = state["n1"]
         resources = node if isinstance(node, list) else [node]
@@ -150,7 +154,7 @@ class TestMutationsAreAnnounced:
         assert len(api["bot"].adapter.sent) == 1
 
     @pytest.mark.parametrize("api", ["DEVICE"], indirect=True)
-    def test_whole_node_unlock_announces_only_released_cards(self, client, api):
+    def test_whole_node_unlock_with_an_actual_release_announces_the_command(self, client, api):
         bot = api["bot"]
         bot.lock(ACTOR, "lock n1 dev0 1h")
         bot.lock("other-user", "lock n1 dev1 1h")
@@ -158,8 +162,7 @@ class TestMutationsAreAnnounced:
         assert response.status_code == 200
         assert bot.state.bot_state["n1"][0]["status"] == "idle"
         assert bot.state.bot_state["n1"][1]["current_users"][0]["user_id"] == "other-user"
-        assert "实际释放或取消：n1:dev0" in _sent_text(api)
-        assert "n1:dev1" not in _sent_text(api)
+        _assert_command_notice(api, "unlock n1,n2")
 
     def test_the_notification_names_the_acting_identity(self, client, api):
         _post(client, api, "lock n1 1h")
@@ -172,7 +175,7 @@ class TestMutationsAreAnnounced:
 
     def test_alias_uses_its_own_string(self, client, api):
         _post(client, api, "alias n1 10.0.0.3")
-        assert "备注" in _sent_text(api) or "label" in _sent_text(api)
+        assert _sent_text(api).strip() == f"🤖【Agent API备注更新】\n\n用户：{ACTOR}\n命令：alias n1"
 
     def test_the_notification_is_not_the_plain_chat_reply(self, client, api):
         reply = _post(client, api, "lock n1 1h").json()["reply"]
