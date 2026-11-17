@@ -212,6 +212,7 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
                 "lock",
                 "--node",
                 "runtime-node",
+                "--whole-node",
                 "--duration",
                 "2m",
             )

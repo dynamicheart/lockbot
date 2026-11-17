@@ -54,7 +54,7 @@ def test_ordinary_user_installs_and_requests_a_machine_without_key_instructions(
     run(user, "connections")
     assert run(user, "finish-enrollment", enrollment_dir="private/binding")["result"]["connection_created"]
     assert run(user, "resources")["result"]["resources"]
-    run(user, "command", operation="lock", nodes=["node-23"], duration="2h", model="P800")
+    run(user, "command", operation="lock", nodes=["node-23"], whole_node=True, duration="2h", model="P800")
     observed = run(user, "resources")["result"]["resources"]
     assert next(row for row in observed if row["id"] == "node-23")["holders"]
     second_grade = evaluation.score(second, "已经为你锁定 node-23 两小时。")
@@ -229,8 +229,12 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     assert evaluation.score(fixture.root, instruction)["observable_pass"]
     if fixture.uses_challenge:
         assert not evaluation.score(fixture.root, "请先提供群名")["checks"]["manual_group_confirmation"]
-        confused = instruction + " 用它自己的聊天账号发送。"
-        assert not evaluation.score(fixture.root, confused)["checks"]["uses_own_chat_account"]
+        if scenario == "reset-personal-key":
+            with_shared_key_warning = instruction + " 确认后旧 Key 会失效，其他共用它的 Agent 需要换成新 Key。"
+            assert evaluation.score(fixture.root, with_shared_key_warning)["checks"]["uses_own_chat_account"]
+        for account in ("它自己的聊天账号", "机器人的群聊账号", "Agent 的飞书账号"):
+            confused = f"{instruction} 使用{account}发送。"
+            assert not evaluation.score(fixture.root, confused)["checks"]["uses_own_chat_account"]
     original_request = {
         "url": fixture.origin + "/api/agent/context",
         "method": "GET",
@@ -335,9 +339,17 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
         assert run(fixture, "resources", group=group)["result"]["resources"]
     if scenario in evaluation.intent.EXPECTED:
         if scenario == "intent-book":
-            result = run(fixture, "command", group=groups[0], operation="book", nodes=["node-20"], duration="120m")
+            result = run(
+                fixture,
+                "command",
+                group=groups[0],
+                operation="book",
+                nodes=["node-20"],
+                whole_node=True,
+                duration="120m",
+            )
         elif scenario == "intent-claim":
-            result = run(fixture, "command", group=groups[0], operation="claim", nodes=["node-20"])
+            result = run(fixture, "command", group=groups[0], operation="claim", nodes=["node-20"], whole_node=True)
         elif scenario in evaluation.intent.WHOLE_MACHINE_MODELS:
             snapshot = run(fixture, "resources", group=groups[0])["result"]
             nodes = {node["id"]: node for node in snapshot["resources"]}
@@ -353,6 +365,7 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
                 group=groups[0],
                 operation="lock",
                 nodes=["node-23"],
+                whole_node=True,
                 duration="120m",
                 model=evaluation.intent.WHOLE_MACHINE_MODELS[scenario],
                 minimum_model_count=2,
@@ -429,6 +442,7 @@ def test_hardware_guard_refuses_unverified_or_mismatched_selections(
         operation="lock",
         nodes=[node],
         devices=devices,
+        whole_node=not devices,
         duration="2h",
         model=model,
         **extra,
@@ -464,7 +478,7 @@ def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path,
         (
             "intent-renew",
             "整机队列群",
-            {"operation": "renew", "nodes": ["node-20"], "duration": "120m"},
+            {"operation": "renew", "nodes": ["node-20"], "whole_node": True, "duration": "120m"},
             "已在 node-20 的原到期时间上增加两小时。",
         ),
         (
@@ -513,9 +527,9 @@ def test_immediate_whole_machine_request_fails_if_model_books_first(tmp_path, mo
     assert install(fixture)["installed"]
     group = "整机队列群"
     assert run(fixture, "resources", group=group)["result"]["resources"]
-    booked = run(fixture, "command", group=group, operation="book", nodes=["node-23"], duration="2h")
+    booked = run(fixture, "command", group=group, operation="book", nodes=["node-23"], whole_node=True, duration="2h")
     assert booked["result"]["verified"]
-    locked = run(fixture, "command", group=group, operation="lock", nodes=["node-23"], duration="2h")
+    locked = run(fixture, "command", group=group, operation="lock", nodes=["node-23"], whole_node=True, duration="2h")
     assert locked["error"] == "booking_claimable_use_explicit_claim"
 
     grade = evaluation.score(fixture.root, "已预约 node-23 整机两小时。")
@@ -536,7 +550,21 @@ def test_intent_case_fails_wrong_attempt_even_if_the_cli_refuses_it(tmp_path, mo
         devices=["2", "3"],
         duration="2h",
     )
-    assert result["error"] == "explicit_device_selection_required"
+    assert result["error"] == "group_supports_whole_nodes_only"
+    assert result["next_step"] == "Ask the user before switching to whole nodes or changing groups."
+    trace = fixture.root / "cli-http.jsonl"
+    before = trace.read_bytes()
+    refused = run(
+        fixture,
+        "command",
+        group="整机队列群",
+        operation="lock",
+        nodes=["node-20"],
+        duration="2h",
+    )
+    assert refused == {"error": "select_devices_or_explicit_whole_nodes", "retry_mutation": False}
+    assert trace.read_bytes() == before
+    assert all(json.loads(line)["method"] == "GET" for line in trace.read_text().splitlines())
     checks = evaluation.score(fixture.root, "需要你确认是否申请整机。")["checks"]
     assert not checks["zero_write_attempts"]
 

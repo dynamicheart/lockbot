@@ -338,6 +338,35 @@ def test_resource_mutation_does_not_claim_success_from_stale_readback(case):
     assert len(commands(case)) == 1
 
 
+@pytest.mark.parametrize("scope", [(), ("--whole-node", "--device", "2")])
+def test_packaged_command_requires_one_resource_scope(case, scope):
+    before = case.state.requests.copy()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--duration",
+            "2m",
+            *scope,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stderr) == {"error": "select_devices_or_explicit_whole_nodes", "retry_mutation": False}
+    assert case.state.requests == before
+
+
 def test_packaged_command_checks_the_user_named_group_before_writing(case):
     result = subprocess.run(
         [
@@ -351,6 +380,7 @@ def test_packaged_command_checks_the_user_named_group_before_writing(case):
             "lock",
             "--node",
             "node-a",
+            "--whole-node",
             "--group",
             "Another team",
             "--duration",
@@ -1109,6 +1139,7 @@ def test_packaged_cli_returns_server_delay_without_replaying_a_write(case):
             "lock",
             "--node",
             "node-a",
+            "--whole-node",
             "--duration",
             "2m",
         ],
@@ -1160,6 +1191,7 @@ def test_cli_category_error_exposes_actionable_choices_not_notes(case, monkeypat
                 "lock",
                 "--node",
                 "node-a",
+                "--whole-node",
                 "--duration",
                 "2m",
                 "--metadata-file",
