@@ -19,7 +19,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     BUNDLE_FORMAT,
     LEGACY_BUNDLE_FORMAT,
     deployment_fragments,

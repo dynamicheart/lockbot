@@ -1,6 +1,6 @@
 # Resource Agent helper and complete installation bundle
 
-The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_resource.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-resource-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
+The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_cli.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-resource-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
 
 Existing API routes, personal keys and the legacy ZIP URL/root (`lockbot-agent-api`) remain supported. The public manifest points to the complete installation ZIP, which includes `SKILL.md`. Operator bundles remain separate and use operator credentials.
 
@@ -67,7 +67,7 @@ whether the known hardware can be allocated now.
 4. Initialize a **new** private connection. The user need not supply a bot ID or UUID:
 
 ```sh
-python3 scripts/lockbot_resource.py init --origin https://resources.example.test --key-file /private/resource.key --destination /private/connection.json
+python3 scripts/lockbot_cli.py init --origin https://resources.example.test --key-file /private/resource.key --destination /private/connection.json
 ```
 
 `init` first checks the credential-free manifest, then sends the Key only to that approved service's advertised context endpoint. It discovers the bound bot UUID and writes a private connection containing approved origin, instance ID, bot UUID and the Key file reference. Reuse the original Key file when upgrading. If context authentication fails, investigate the intended service and binding.
@@ -90,11 +90,11 @@ The metrics origin is optional and must be separately approved; `init --metrics-
 
 If Codex can download the verified ZIP but its workspace sandbox refuses writes to `.agents`,
 finish the install in your own terminal. From the archive you already checked against
-`installation.sha256`, extract `scripts/lockbot_resource.py` to a temporary location.
+`installation.sha256`, extract `scripts/lockbot_cli.py` to a temporary location.
 Use that verified helper from the project root:
 
 ```sh
-python3 -I -S /path/to/verified/lockbot_resource.py install \
+python3 -I -S /path/to/verified/lockbot_cli.py install \
   --origin https://resources.example.test \
   --destination "$PWD/.agents/skills/lockbot-resource-agent"
 ```
@@ -107,9 +107,9 @@ installation should use the client's update workflow.
 ### Connect without a usable local Key
 
 ```sh
-python3 scripts/lockbot_resource.py key-challenge --origin https://resources.example.test --destination /private/compute-team --authorized
-python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir /private/compute-team
-python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir /private/compute-team
+python3 scripts/lockbot_cli.py key-challenge --origin https://resources.example.test --destination /private/compute-team --authorized
+python3 scripts/lockbot_cli.py enrollment-status --enrollment-dir /private/compute-team
+python3 scripts/lockbot_cli.py finish-enrollment --enrollment-dir /private/compute-team
 ```
 
 Request the code after the user authorizes it. They send the returned bind command
@@ -126,7 +126,7 @@ Privately copy one active Key into a file protected as described above on the re
 `init` with that file to create the seed connection, then run:
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/seed.json recover --destination /private/recovered-groups
+python3 scripts/lockbot_cli.py --connection /private/seed.json recover --destination /private/recovered-groups
 ```
 
 Keep using the original seed connection for its group. The CLI saves each available
@@ -139,12 +139,12 @@ through the receiving Agent's private credential storage.
 ## Fixed resource operations
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/connection.json context
-python3 scripts/lockbot_resource.py --connection /private/connection.json resources
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation claim --node node-a --whole-node
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a --whole-node
+python3 scripts/lockbot_cli.py --connection /private/connection.json context
+python3 scripts/lockbot_cli.py --connection /private/connection.json resources
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation claim --node node-a --whole-node
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation release --node node-a --whole-node
 ```
 
 Whole-node writes require `--whole-node`. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments. Repeat `--node` for multiple exact nodes. If a requested card cannot be selected in the named group, ask the user before switching the group or scope. Supported operations are `lock`, `slock`, `book`, `claim`, deliberate `renew`, and `release`. For `lock`, `slock`, or `book`, omit `--duration` if the user did not specify a time. The helper checks the selected group's default before dispatch. If that default is missing or exceeds the applicable limit, specify a valid duration. Renewal always requires the amount of time to add. Claim uses the booked duration. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
@@ -180,7 +180,7 @@ The published `version` covers the rendered Skill, the helper and all reference 
 The packaged helper can fetch and verify a new installation into a **new** destination, without any key:
 
 ```sh
-python3 scripts/lockbot_resource.py install --origin https://resources.example.test --destination /private/new-skill
+python3 scripts/lockbot_cli.py install --origin https://resources.example.test --destination /private/new-skill
 ```
 
 It refuses an existing destination, unexpected/duplicate ZIP entries, symlinks, oversized expanded content and mismatched hashes. The complete installation becomes visible at the destination in one step. If a local write fails before publication, fix the storage or permissions and retry the same destination. After a successful install, reload the Skill using the client's workflow. Use the client's update workflow for an existing Skill and preserve external connection/key files.
@@ -188,9 +188,9 @@ It refuses an existing destination, unexpected/duplicate ZIP entries, symlinks, 
 ## Shared node aliases
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a
-python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a --set "Training"
-python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a --clear
+python3 scripts/lockbot_cli.py --connection /private/connection.json alias --node node-a
+python3 scripts/lockbot_cli.py --connection /private/connection.json alias --node node-a --set "Training"
+python3 scripts/lockbot_cli.py --connection /private/connection.json alias --node node-a --clear
 ```
 
 The alias is a public label on the parent node. Use at most 15 characters.
@@ -204,7 +204,7 @@ observation alone cannot attribute the change or guarantee it survives restart.
 ## Best-effort metrics
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/connection.json metrics --node node-a
+python3 scripts/lockbot_cli.py --connection /private/connection.json metrics --node node-a
 ```
 
 This implementation supports only the existing `type: prometheus`, `profile: lockbot-v1` source configuration and its fixed metric family. The generic/custom profile and arbitrary PromQL are not implemented. Select at most 64 explicit configured node names per query; the helper translates only the context's node mapping and refuses unmapped targets. It reads compute/memory/CPU/memory/cache/filesystem/collector-timestamp/success series, not arbitrary process or command information. The data source still enforces its own ACL.

@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_PATHS, Client, ClientError
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import REFERENCE_PATHS, Client, ClientError
 
 base = continuity.base
 OriginalFixture = base.Fixture
@@ -87,7 +87,7 @@ def prepare(root, artifact, scenario):
     if scenario in ENROLLMENT_SCENARIOS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
-        helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
+        helper = Fixture(root).artifact["contents"]["scripts/lockbot_cli.py"]
         base.save_json(
             case_path, {**case, "scenario": scenario, "pending_enrollment_catalog": b'"pending_enrollments"' in helper}
         )
@@ -123,7 +123,7 @@ def prepare(root, artifact, scenario):
     if scenario in intent.PROMPTS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
-        helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
+        helper = Fixture(root).artifact["contents"]["scripts/lockbot_cli.py"]
         base.save_json(
             case_path,
             {
@@ -661,7 +661,7 @@ class Fixture(continuity.Fixture):
                     "next_step": "Run connections to find the pending enrollment.",
                 }
             argv += ["--enrollment-dir", str(directory)]
-        script_path = self.installation / "scripts/lockbot_resource.py"
+        script_path = self.installation / "scripts/lockbot_cli.py"
         script = runpy.run_path(str(script_path))
         execution["argv"] = [str(script_path), *argv]
         stdout, stderr = io.StringIO(), io.StringIO()

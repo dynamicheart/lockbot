@@ -313,7 +313,7 @@ def test_fresh_installed_helper_reads_report_over_http(api, client, db_session, 
                 return json.loads(result.stdout)["result"]
 
             assert run(SCRIPT, "install", "--origin", origin, "--destination", install)["client_reload_required"]
-            helper = install / "scripts" / "lockbot_resource.py"
+            helper = install / "scripts" / "lockbot_cli.py"
             key_path = tmp_path / "key"
             key_path.write_text(key)
             key_path.chmod(0o600)

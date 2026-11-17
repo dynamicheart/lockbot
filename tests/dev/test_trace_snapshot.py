@@ -29,7 +29,7 @@ def test_link_only_publishes_available_synthetic_dialogue_without_raw_urls(tmp_p
     url = "https://private.example.test/api/agent-skill"
     (folder / "prompt.txt").write_text(f"请看这个链接 {url}")
     (folder / "response.json").write_text(json.dumps({"text": "这是 Skill 下载入口。"}, ensure_ascii=False))
-    actual_args = ["/fixture/lockbot_resource.py", "connections"]
+    actual_args = ["/fixture/lockbot_cli.py", "connections"]
     tool_events = [
         {"tool": "inspect_lockbot", "args": {"url": url}, "result": {"url": url}},
         {"tool": "run_lockbot", "args": {"action": "connections"}, "result": {}, "argv": actual_args},

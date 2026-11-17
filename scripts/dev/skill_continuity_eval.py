@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import skill_agent_eval as base
 import skill_eval_artifact as artifacts
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     ClientError,
     enrollment_state,
     private_bytes,
@@ -427,8 +427,8 @@ class Fixture(base.Fixture):
                         "path": str(path.relative_to(self.workspace)),
                         "name": "lockbot-resource-agent",
                         "version": self.manifest()["version"] if self.artifact else None,
-                        "helper_path": str((path.parent / "scripts/lockbot_resource.py").relative_to(self.workspace))
-                        if (path.parent / "scripts/lockbot_resource.py").is_file()
+                        "helper_path": str((path.parent / "scripts/lockbot_cli.py").relative_to(self.workspace))
+                        if (path.parent / "scripts/lockbot_cli.py").is_file()
                         else None,
                     }
                     for path in self.installed_skill_files()

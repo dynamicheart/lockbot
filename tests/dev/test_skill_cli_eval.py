@@ -156,7 +156,7 @@ def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path,
     events = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
     assert "argv" not in events[0]
     assert events[-1]["args"] == {"action": "connections"}
-    assert Path(events[-1]["argv"][0]).name == "lockbot_resource.py"
+    assert Path(events[-1]["argv"][0]).name == "lockbot_cli.py"
     assert events[-1]["argv"][1:] == ["connections"]
     assert run(fixture, "resources")["result"]["resources"]
     final = "已安装并查询资源。"

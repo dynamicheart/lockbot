@@ -28,14 +28,14 @@ def write_test_artifact(directory, markdown, helper=b"# Synthetic helper fixture
         "version": hashlib.sha256(markdown + b"\0" + helper).hexdigest()[:16],
         "files": {
             "SKILL.md": hashlib.sha256(markdown).hexdigest(),
-            "scripts/lockbot_resource.py": hashlib.sha256(helper).hexdigest(),
+            "scripts/lockbot_cli.py": hashlib.sha256(helper).hexdigest(),
         },
     }
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
         for name, content in {
             "SKILL.md": markdown,
-            "scripts/lockbot_resource.py": helper,
+            "scripts/lockbot_cli.py": helper,
             "installation.json": json.dumps(stamp).encode(),
         }.items():
             archive.writestr("lockbot-resource-agent/" + name, content)
@@ -426,7 +426,7 @@ def test_production_builder_complete_package_is_accepted_when_available(tmp_path
 
     from lockbot.backend.app.resource_api import skill
 
-    helper = files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py")
+    helper = files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_cli.py")
     if not helper.is_file():
         pytest.skip("Production helper is not available before its separate bundle PR")
     monkeypatch.setenv("PLATFORM_URL", base.ORIGIN)
@@ -440,7 +440,7 @@ def test_production_builder_complete_package_is_accepted_when_available(tmp_path
     evaluation.prepare(root, directory / "SKILL.md", "recover", directory)
     fixture = evaluation.Fixture(root)
     install_and_save(fixture)
-    assert (fixture.workspace / "skills/resource/scripts/lockbot_resource.py").read_bytes() == helper.read_bytes()
+    assert (fixture.workspace / "skills/resource/scripts/lockbot_cli.py").read_bytes() == helper.read_bytes()
     destination = tmp_path / "production-session-2"
     evaluation.resume(root, destination)
     second = evaluation.Fixture(destination)
@@ -466,7 +466,7 @@ def test_rehashed_markdown_only_zip_is_still_blocked(case):
 def test_installed_helper_changes_fail_fresh_session_grader(case, tmp_path):
     fixture = case("panel")
     install_and_save(fixture)
-    (fixture.workspace / "skills/resource/scripts/lockbot_resource.py").write_text("# changed")
+    (fixture.workspace / "skills/resource/scripts/lockbot_cli.py").write_text("# changed")
     destination = tmp_path / "changed-session-2"
     evaluation.resume(fixture.root, destination)
     assert not evaluation.score(destination, "Installed")["checks"]["complete_package_persisted"]

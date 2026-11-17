@@ -1,6 +1,6 @@
 # Bundled CLI
 
-From the project directory, invoke the bundled `scripts/lockbot_resource.py` beside the
+From the project directory, invoke the bundled `scripts/lockbot_cli.py` beside the
 installed `SKILL.md` directly. In examples, replace `$LOCKBOT_CLI` with the script's
 absolute path and substitute the actual connection or enrollment paths before running.
 `--help` lists commands, and
@@ -30,7 +30,7 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
 For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
-alone: it contains `SKILL.md`, `references/`, `scripts/lockbot_resource.py` and `installation.json`.
+alone: it contains `SKILL.md`, `references/`, `scripts/lockbot_cli.py` and `installation.json`.
 One installation can serve multiple independently approved connections when its verified
 `package_version` matches a service's declared package revision. Keep each connection's
 origin, instance, bot, actor and key reference separate. Different rendered deployment

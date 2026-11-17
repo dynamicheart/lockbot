@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     BUNDLE_FORMAT,
     REFERENCE_PATHS,
     SCRIPT_PATH,

@@ -50,7 +50,7 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as zipped:
         assert set(zipped.namelist()) == {
             root + "/SKILL.md",
-            root + "/scripts/lockbot_resource.py",
+            root + "/scripts/lockbot_cli.py",
             root + "/installation.json",
             *(root + "/" + name for name in REFERENCE_PATHS),
         }
@@ -170,9 +170,9 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     markdown.write_text("---\nname: lockbot-resource-agent\n---\nUpdated instructions\n")
     from importlib.resources import files
 
-    script = markdown.parent / "scripts/lockbot_resource.py"
+    script = markdown.parent / "scripts/lockbot_cli.py"
     script.parent.mkdir()
-    script.write_bytes(files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes())
+    script.write_bytes(files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_cli.py").read_bytes())
     for relative in REFERENCE_PATHS:
         reference = markdown.parent / relative
         reference.parent.mkdir(exist_ok=True)

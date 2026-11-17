@@ -157,7 +157,7 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
             env = dict(os.environ, NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
             bootstrap = tmp_path / "bootstrap.py"
             with ZipFile(BytesIO(archive)) as package:
-                bootstrap.write_bytes(package.read("lockbot-resource-agent/scripts/lockbot_resource.py"))
+                bootstrap.write_bytes(package.read("lockbot-resource-agent/scripts/lockbot_cli.py"))
 
             def cli(script, *args, code=0):
                 result = subprocess.run(
@@ -179,7 +179,7 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
             assert installed["client_reload_required"] and not installed["connection_and_enrollment_created"]
             assert requests == [("/api/agent-skill", False), (metadata["installation"]["download_url"], False)]
 
-            script = destination / "scripts/lockbot_resource.py"
+            script = destination / "scripts/lockbot_cli.py"
             start = "enroll" if scenario == "legacy" else "key-challenge"
             args = ("--purpose", "reset") if scenario == "reset" else ()
             pending = cli(script, start, "--origin", origin, "--scope", "project", "--authorized", *args)

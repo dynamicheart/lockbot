@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_PATHS
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import REFERENCE_PATHS
 from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
@@ -38,7 +38,7 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
         assert set(archive.namelist()) == {
             "lockbot-resource-agent/SKILL.md",
-            "lockbot-resource-agent/scripts/lockbot_resource.py",
+            "lockbot-resource-agent/scripts/lockbot_cli.py",
             "lockbot-resource-agent/installation.json",
             *("lockbot-resource-agent/" + name for name in REFERENCE_PATHS),
         }

@@ -7,9 +7,9 @@ import stat
 import zipfile
 from pathlib import Path
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import BUNDLE_FORMAT, REFERENCE_PATHS, content_version
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import BUNDLE_FORMAT, REFERENCE_PATHS, content_version
 
-FILES = {"SKILL.md", "scripts/lockbot_resource.py", "installation.json"}
+FILES = {"SKILL.md", "scripts/lockbot_cli.py", "installation.json"}
 LIMIT = 1024 * 1024
 
 
@@ -54,7 +54,7 @@ def load(directory):
                 raise ArtifactBlocked("unsafe_bundle")
             contents = {name: archive.read(prefix + name) for name in expected}
         stamp = json.loads(contents["installation.json"])
-        if digest(contents["SKILL.md"]) != meta["skill_sha256"] or not contents["scripts/lockbot_resource.py"]:
+        if digest(contents["SKILL.md"]) != meta["skill_sha256"] or not contents["scripts/lockbot_cli.py"]:
             raise ArtifactBlocked("artifact_markdown_or_helper_mismatch")
         legacy_snapshot = directory / "SKILL.md"
         if legacy_snapshot.is_symlink() or (
@@ -66,7 +66,7 @@ def load(directory):
             raise ArtifactBlocked("unsupported_bundle_protocol")
         revision = content_version(
             contents["SKILL.md"],
-            contents["scripts/lockbot_resource.py"],
+            contents["scripts/lockbot_cli.py"],
             {name: contents[name] for name in reference_paths},
         )
         if stamp["version"] != meta["version"] or meta["version"] != revision:

@@ -27,7 +27,7 @@ from pathlib import Path
 
 SERVICE = "lockbot.resource-api"
 API_VERSION = "1"
-SCRIPT_PATH = "scripts/lockbot_resource.py"
+SCRIPT_PATH = "scripts/lockbot_cli.py"
 BUNDLE_FORMAT = "canonical-origin-v2"
 LEGACY_BUNDLE_FORMAT = "canonical-origin-v1"
 REFERENCE_PATHS = (

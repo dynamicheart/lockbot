@@ -47,13 +47,13 @@ saved locally. The `recover` subcommand uses a saved Key to find other eligible 
 ## Quick start with a saved connection
 
 Use Python 3.10 or newer. Run from the project root. Substitute the actual absolute path
-of `scripts/lockbot_resource.py` beside this `SKILL.md` and run each CLI command directly.
+of `scripts/lockbot_cli.py` beside this `SKILL.md` and run each CLI command directly.
 Pass literal paths so a client's command allowlist can match the invocation.
 
 ```sh
-python3 "/path/to/skill/scripts/lockbot_resource.py" connections
-python3 "/path/to/skill/scripts/lockbot_resource.py" --connection "/path/to/connection.json" resources
-python3 "/path/to/skill/scripts/lockbot_resource.py" --connection "/path/to/connection.json" command --operation lock --node node-01 --device 0 --device 1 --device-count 2 --model P800 --duration 30m
+python3 "/path/to/skill/scripts/lockbot_cli.py" connections
+python3 "/path/to/skill/scripts/lockbot_cli.py" --connection "/path/to/connection.json" resources
+python3 "/path/to/skill/scripts/lockbot_cli.py" --connection "/path/to/connection.json" command --operation lock --node node-01 --device 0 --device 1 --device-count 2 --model P800 --duration 30m
 ```
 
 Use the matching private file listed by `connections`. Replace the
@@ -115,7 +115,7 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
    and reload the Skill. If a previously installed helper rejects the archive layout,
    use the client's installer for the checked ZIP, then use the helper in the new package.
    A failed or unavailable installation remains unverified.
-3. Use Python 3.10+ and the bundled CLI. Resolve `scripts/lockbot_resource.py`
+3. Use Python 3.10+ and the bundled CLI. Resolve `scripts/lockbot_cli.py`
    relative to this `SKILL.md` and run it by absolute path from the project directory.
    Run `connections` to find the user's existing sign-in. With authorization to save
    the service, run `discover --destination <new-private-file>`. During an explicit

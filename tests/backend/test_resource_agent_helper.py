@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 from lockbot.backend.app.resource_api import skill
 
-SCRIPT = Path(__file__).parents[2] / "python/lockbot/backend/app/agent_skill/scripts/lockbot_resource.py"
+SCRIPT = Path(__file__).parents[2] / "python/lockbot/backend/app/agent_skill/scripts/lockbot_cli.py"
 spec = importlib.util.spec_from_file_location("distributed_resource_helper", SCRIPT)
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
@@ -1026,7 +1026,7 @@ def test_bundle_hashes_and_helper_only_change_rotate_revision(client, monkeypatc
     class Resource:
         def joinpath(self, relative):
             path = original("lockbot.backend.app").joinpath(relative)
-            if relative.endswith("scripts/lockbot_resource.py"):
+            if relative.endswith("scripts/lockbot_cli.py"):
                 return SimpleNamespace(read_bytes=lambda: path.read_bytes() + b"\n# revision test\n")
             return path
 
