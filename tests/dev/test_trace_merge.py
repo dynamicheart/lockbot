@@ -578,3 +578,96 @@ def test_catalog_plans_do_not_repeat_for_new_packages_or_runner_mixes(tmp_path, 
     assert trial["state"] == "pending" and trial["selected_for_run"] is False
     assert "本次运行未选择此测例" in trial["note"]
     assert all(data["cases"][key] == value for key, value in before["cases"].items())
+
+
+def test_minimal_new_summary_preserves_714_published_trials_and_exact_raw_reviews(tmp_path):
+    raw, latest = baseline(tmp_path)
+    source, review, _ = phase_review(tmp_path, 4)
+    data = merge.load(raw)
+    merge.add_plan(data, merge.load(source / "run.json"))
+    while sum(map(len, data["cases"].values())) < 714:
+        index = sum(map(len, data["cases"].values()))
+        data["cases"]["link-only"].append(
+            {
+                "model": f"published-{index}",
+                "state": "pending",
+                "note": "Published note must stay exact",
+                "source_run": f"published:{index}",
+                "sessions": [[{"role": "assistant", "text": f"Published message {index}"}]],
+            }
+        )
+    write(raw, data)
+    published_summary = copy.deepcopy(data)
+    published_summary.pop("visibility")
+    write(latest, published_summary)
+    review["reviews"][0].update(
+        overall_review_status="fail",
+        action_safety_status="write_repeated",
+        secondary_review_notes=["Full action safety explanation stays in raw"],
+    )
+    write(source / "manual-semantic-review-independent.json", review)
+    ordinary, minimal = tmp_path / "ordinary", tmp_path / "minimal"
+    merge.aggregate(raw, latest, ordinary, plan=source / "run.json", matrices=[source], compact_new_summary=True)
+    merge.aggregate(
+        raw,
+        latest,
+        minimal,
+        plan=source / "run.json",
+        matrices=[source],
+        compact_new_summary=True,
+        minimal_new_summary=True,
+    )
+    assert (minimal / "raw.json").read_bytes() == (ordinary / "raw.json").read_bytes()
+    complete, projected = merge.load(minimal / "raw.json"), merge.load(minimal / "latest.json")
+    assert merge.assert_preserved(data, complete, True) == 714
+    assert merge.assert_preserved(published_summary, projected, False) == 714
+    trial = projected["cases"]["case-3"][-1]
+    full = complete["cases"]["case-3"][-1]
+    assert trial["review_phase"] == 4 and trial["semantic_status"] == "pass"
+    assert trial["state"] == "fail" and trial["overall_review_status"] == "fail"
+    assert trial["action_safety_status"] == "write_repeated"
+    assert trial["source_run"] == full["source_run"] and trial["package_version"] == full["package_version"]
+    assert trial["sessions"] == [] and "原始轨迹" in trial["note"]
+    assert "response_sha256" not in trial and "response_sha256" in full
+    assert "Full action safety explanation" in full["note"]
+    assert len((minimal / "latest.json").read_bytes()) < len((ordinary / "latest.json").read_bytes())
+
+
+def test_minimal_summary_keeps_measured_cli_http_and_phase_outcomes(tmp_path):
+    raw, latest = baseline(tmp_path)
+    source, _ = matrix(tmp_path, terminal=True)
+    folder = source / "cli/link-only/001/phase-1"
+    events = [
+        {
+            "tool": "run_lockbot",
+            "args": {"action": action},
+            "result": {"exit_code": 0},
+            "argv": ["/fixture/lockbot_cli.py", action],
+        }
+        for action in ["connections", "resources"]
+    ]
+    (folder / "trace.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
+    (folder / "cli-http.jsonl").write_text("{}\n{}\n{}\n")
+    result = merge.load(folder / "result.json")
+    result.update(duration_seconds=2.5, model_turns=3)
+    write(folder / "result.json", result)
+    report = merge.load(source / "matrix.json")
+    report["results"][0] = result
+    write(source / "matrix.json", report)
+    output = tmp_path / "merged"
+    merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source], minimal_new_summary=True)
+    trial = merge.load(output / "latest.json")["cases"]["link-only"][-1]
+    phase = trial["metrics"]["phases"][0]
+    assert phase == {
+        "phase": 1,
+        "duration_seconds": 2.5,
+        "turns": 3,
+        "http_requests": 3,
+        "status": "completed",
+        "observable_pass": False,
+        "cli_calls": 2,
+    }
+    events[0].pop("argv")
+    (folder / "trace.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events))
+    unknown = merge.summary_efficiency(source, [result])["phases"][0]
+    assert "cli_calls" not in unknown  # Missing execution evidence is not a fabricated zero.

@@ -11,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from publish_snapshot import CASES, LEGACY_IDS, MAX_SNAPSHOT_BYTES, snapshot
+from publish_snapshot import CASES, LEGACY_IDS, MAX_SNAPSHOT_BYTES, phase_metrics, snapshot
 from synthetic_transcript import (
     MAX_TRACE_BYTES,
     clean_prompt,
@@ -140,7 +140,57 @@ def add_plan(data, plan):
         )
 
 
-def add_matrix(data, directory, raw, *, native_artifacts=None, compact_summary=False):
+def minimal_summary(trial):
+    """Project only new summary entries; keep the full raw record unchanged."""
+    keys = (
+        "model",
+        "state",
+        "source_run",
+        "package_version",
+        "review_phase",
+        "semantic_status",
+        "overall_review_status",
+        "action_safety_status",
+        "semantic_reason",
+        "corrects_source_runs",
+        "metrics",
+    )
+    projected = {key: copy.deepcopy(trial[key]) for key in keys if key in trial}
+    if trial.get("semantic_status") != "pass" and trial.get("finding_code"):
+        projected["finding_code"] = trial["finding_code"]
+    projected.update(sessions=[], note="摘要；完整信息和证据见原始轨迹。")
+    return projected
+
+
+def summary_efficiency(directory, rows):
+    """Keep actual phase outcomes and measured CLI/HTTP activity, without I/O bodies."""
+    observed = {item["phase"]: item for item in phase_metrics(rows, directory)}
+    phases = []
+    for row in rows:
+        item = {
+            key: value
+            for key, value in observed.get(row["phase"], {}).items()
+            if key in {"phase", "duration_seconds", "http_requests", "turns", "simulated_user_actions"}
+        }
+        item.update(phase=row["phase"], status=row["status"])
+        if type(row.get("observable_pass")) is bool:
+            item["observable_pass"] = row["observable_pass"]
+        if isinstance(row.get("evidence"), str):
+            trace = directory / row["evidence"] / "trace.jsonl"
+            if trace.exists():
+                events = [
+                    json.loads(line) for line in semantic_bytes(trace, directory).decode().splitlines() if line.strip()
+                ]
+                cli = [event for event in events if event.get("tool") in {"run_lockbot", "packaged_cli.main"}]
+                # A tool request alone does not prove a CLI invocation. Older
+                # traces without argv retain an unknown CLI count.
+                if all(isinstance(event.get("argv"), list) and event["argv"] for event in cli):
+                    item["cli_calls"] = len(cli)
+        phases.append(item)
+    return {"phases": phases}
+
+
+def add_matrix(data, directory, raw, *, native_artifacts=None, compact_summary=False, minimal_new_summary=False):
     matrix = load(directory / "matrix.json")
     if not isinstance(matrix.get("results"), list) or matrix.get("simulation_only") is not True:
         raise ValueError("Expected a terminal synthetic matrix with results")
@@ -162,6 +212,33 @@ def add_matrix(data, directory, raw, *, native_artifacts=None, compact_summary=F
                 trial["sessions"] = []
                 trial["summary_only"] = True
                 trial["note"] = "摘要；完整对话和工具输入输出保留在原始轨迹。\n" + trial["note"]
+            if minimal_new_summary and not raw:
+                if case != "model-preflight":
+                    selected_case = next(
+                        key
+                        for key in matrix["cases"]
+                        if (
+                            LEGACY_IDS.get(key.split(":", 1)[1], key.split(":", 1)[1])
+                            if key.startswith("cli:")
+                            else key.replace(":", "-", 1)
+                        )
+                        == case
+                    )
+                    suite, scenario = selected_case.split(":", 1)
+                    pair = matrix["runners"][number]
+                    rows = sorted(
+                        (
+                            row
+                            for row in matrix["results"]
+                            if row.get("suite") == suite
+                            and row.get("scenario") == scenario
+                            and row.get("client") == pair["client"]
+                            and row.get("model") == pair["model"]
+                        ),
+                        key=lambda row: row["phase"],
+                    )
+                    trial["metrics"] = summary_efficiency(directory.resolve(), rows)
+                trial = minimal_summary(trial)
             append_trial(data, case, trial)
 
 
@@ -203,13 +280,15 @@ def add_probe(data, directory, raw, *, native_artifacts=None):
     )
 
 
-def add_semantic_reviews(data, directory, raw, *, compact_summary=False):
+def add_semantic_reviews(data, directory, raw, *, compact_summary=False, minimal_new_summary=False):
     canonical = directory / "manual-semantic-review.json"
     paths = ([canonical] if canonical.is_file() else []) + sorted(
         path for path in directory.glob("manual-semantic-review*.json") if path != canonical
     )
     for path in paths:
-        add_semantic_review(data, directory, path, raw, compact_summary=compact_summary)
+        add_semantic_review(
+            data, directory, path, raw, compact_summary=compact_summary, minimal_new_summary=minimal_new_summary
+        )
 
 
 def semantic_findings(review):
@@ -375,7 +454,7 @@ def bind_semantic_phase(directory, plan, review, finding, suite, scenario, pair,
     return row, result_digest
 
 
-def add_semantic_review(data, directory, path, raw, *, compact_summary=False):
+def add_semantic_review(data, directory, path, raw, *, compact_summary=False, minimal_new_summary=False):
     directory = directory.resolve()
     review, plan = load(path), load(directory / "run.json")
     if "evidence_root" in review and Path(review["evidence_root"]) != directory:
@@ -459,48 +538,43 @@ def add_semantic_review(data, directory, path, raw, *, compact_summary=False):
             note = f"阶段 {phase} 追加更正，已有记录与评论保持不变。\n"
         if reason == "fixture_conflict":
             note += "夹具与真实接口存在冲突，结论待核对；不能据此归因于模型。\n"
-        append_trial(
-            data,
-            case,
-            {
-                "case": case,
-                "model": f"{pair['client']} · {pair['model']} · "
-                + f"阶段 {phase} "
-                + ("语义更正" if kind == "correction" else "语义复核"),
-                "state": "fail"
-                if (finding["semantic_status"] == "fail" or finding.get("overall_review_status") == "fail")
-                else "pending",
-                "source_run": source,
-                **({"semantic_reason": reason} if reason else {}),
-                **({"corrects_source_runs": corrections} if corrections else {}),
-                "package_version": version,
-                "response_sha256": finding.get("response_sha256"),
-                **({"terminal_result_sha256": terminal_digest} if terminal_digest else {}),
-                **({"finding_code": finding["finding_code"]} if finding.get("finding_code") else {}),
-                "semantic_status": finding["semantic_status"],
-                "review_phase": phase,
-                **(
-                    {"matrix_result_sha256": finding["matrix_result_sha256"]}
-                    if finding.get("matrix_result_sha256")
-                    else {}
-                ),
-                **(
-                    {"overall_review_status": finding["overall_review_status"]}
-                    if finding.get("overall_review_status")
-                    else {}
-                ),
-                **(
-                    {"action_safety_status": finding["action_safety_status"]}
-                    if finding.get("action_safety_status")
-                    else {}
-                ),
-                "note": ("摘要；完整对话和工具输入输出保留在原始轨迹。\n" if compact_summary and not raw else "")
-                + note
-                + (finding["note"] if raw else clean_text(finding["note"])),
-                "sessions": [] if compact_summary and not raw else [session],
-                **({"summary_only": True} if compact_summary and not raw else {}),
-            },
-        )
+        trial = {
+            "case": case,
+            "model": f"{pair['client']} · {pair['model']} · "
+            + f"阶段 {phase} "
+            + ("语义更正" if kind == "correction" else "语义复核"),
+            "state": "fail"
+            if (finding["semantic_status"] == "fail" or finding.get("overall_review_status") == "fail")
+            else "pending",
+            "source_run": source,
+            **({"semantic_reason": reason} if reason else {}),
+            **({"corrects_source_runs": corrections} if corrections else {}),
+            "package_version": version,
+            "response_sha256": finding.get("response_sha256"),
+            **({"terminal_result_sha256": terminal_digest} if terminal_digest else {}),
+            **({"finding_code": finding["finding_code"]} if finding.get("finding_code") else {}),
+            "semantic_status": finding["semantic_status"],
+            "review_phase": phase,
+            **(
+                {"matrix_result_sha256": finding["matrix_result_sha256"]} if finding.get("matrix_result_sha256") else {}
+            ),
+            **(
+                {"overall_review_status": finding["overall_review_status"]}
+                if finding.get("overall_review_status")
+                else {}
+            ),
+            **(
+                {"action_safety_status": finding["action_safety_status"]} if finding.get("action_safety_status") else {}
+            ),
+            "note": ("摘要；完整对话和工具输入输出保留在原始轨迹。\n" if compact_summary and not raw else "")
+            + note
+            + (finding["note"] if raw else clean_text(finding["note"])),
+            "sessions": [] if compact_summary and not raw else [session],
+            **({"summary_only": True} if compact_summary and not raw else {}),
+        }
+        if minimal_new_summary and not raw:
+            trial = minimal_summary(trial)
+        append_trial(data, case, trial)
 
 
 def atomic_write(path, content):
@@ -525,6 +599,7 @@ def aggregate(
     probes=(),
     external_native_evidence=False,
     compact_new_summary=False,
+    minimal_new_summary=False,
 ):
     output.mkdir(mode=0o700, parents=True, exist_ok=True)
     terminal = [directory for directory in matrices if (directory / "matrix.json").is_file()]
@@ -545,8 +620,11 @@ def aggregate(
                 raw,
                 native_artifacts=output.resolve() / "evidence" if raw and external_native_evidence else None,
                 compact_summary=compact_new_summary,
+                minimal_new_summary=minimal_new_summary,
             )
-            add_semantic_reviews(data, directory, raw, compact_summary=compact_new_summary)
+            add_semantic_reviews(
+                data, directory, raw, compact_summary=compact_new_summary, minimal_new_summary=minimal_new_summary
+            )
         for directory in probes:
             add_probe(
                 data,
@@ -591,6 +669,11 @@ def main():
         action="store_true",
         help="Summarize only new summary trials; raw dialogue and all old anchors remain unchanged",
     )
+    parser.add_argument(
+        "--minimal-new-summary",
+        action="store_true",
+        help="Keep only new summary verdicts, phase/provenance and measured efficiency; raw stays complete",
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
         "--follow", action="store_true", help="Refresh locally until all supplied matrices are terminal"
@@ -606,6 +689,7 @@ def main():
             probes=args.probe,
             external_native_evidence=args.external_native_evidence,
             compact_new_summary=args.compact_new_summary,
+            minimal_new_summary=args.minimal_new_summary,
         )
         print(json.dumps(report, ensure_ascii=False), flush=True)
         if not args.follow or not report["waiting_for_terminal_matrix"]:
