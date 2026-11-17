@@ -2115,22 +2115,7 @@ class Client:
         raise ClientError("metrics_authentication_failed")
 
     def redacted(self, value):
-        if isinstance(value, dict):
-            return {
-                self.redacted(key): (
-                    "[redacted]"
-                    if key.lower() in {"credential", "token", "secret", "api_key", "authorization", "proof"}
-                    else self.redacted(item)
-                )
-                for key, item in value.items()
-            }
-        if isinstance(value, list):
-            return [self.redacted(item) for item in value]
-        if isinstance(value, str):
-            value = re.sub(r"\b(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,200}|lbc1\.[\w-]{22}\.[\w-]{43}", "[redacted]", value)
-            for secret in self.secrets:
-                value = value.replace(secret, "[redacted]")
-        return value
+        return redacted_values(value, self.secrets)
 
     def install(self, destination):
         output_path = Path(destination)
@@ -2216,6 +2201,108 @@ class SafeParser(argparse.ArgumentParser):
         self.exit(2, '{"error":"invalid_cli_arguments","retry_mutation":false}\n')
 
 
+def redacted_values(value, private_values=()):
+    if isinstance(value, dict):
+        return {
+            redacted_values(key, private_values): (
+                "[redacted]"
+                if key.lower() in {"credential", "token", "secret", "api_key", "authorization", "proof"}
+                else redacted_values(item, private_values)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redacted_values(item, private_values) for item in value]
+    if isinstance(value, str):
+        value = re.sub(r"\b(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,200}|lbc1\.[\w-]{22}\.[\w-]{43}", "[redacted]", value)
+        for secret in private_values:
+            value = value.replace(secret, "[redacted]")
+    return value
+
+
+def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=None, opener=None, clock=time.monotonic):
+    """Read existing catalog scopes separately, sharing only the bounded request budget."""
+    deadline, calls, clients = clock() + 60, 0, []
+    snapshots, unread = [], []
+    try:
+        catalog = listed_connections(directory)
+    except (ClientError, OSError, ValueError, KeyError, TypeError, RuntimeError):
+        catalog = {"connections": [], "pending_enrollments": [], "unavailable_count": 1}
+    if catalog["unavailable_count"]:
+        unread.append({"error": "catalog_records_unavailable", "count": catalog["unavailable_count"]})
+    for pending in catalog["pending_enrollments"]:
+        unread.append({"enrollment": pending, "error": "enrollment_unfinished"})
+    if not catalog["connections"] and not unread:
+        unread.append({"error": "no_saved_connections"})
+    for locator in catalog["connections"]:
+        if calls >= MAX_CALLS or clock() >= deadline:
+            unread.append({"connection": locator, "error": "request_budget_exhausted"})
+            continue
+        client = None
+        try:
+            client = Client(locator["connection"], root=root, opener=opener, clock=clock)
+            clients.append(client)
+            client.calls, client.deadline = calls, deadline
+            # Catalog aggregation does not invalidate/save local address caches.
+            client.node_access = None
+            if mine:
+                snapshot = client.own_inventory(exact_lease_times=exact_lease_times)
+                context = snapshot["context"]
+            else:
+                context = client._read_context(with_resources=True)
+                snapshot = client.resources_with_hardware_notes(context)
+                if not isinstance(snapshot.get("resources"), list):
+                    raise ClientError("invalid_resource_summary")
+                if not exact_lease_times:
+                    format_lease_times(snapshot)
+            snapshots.append(
+                {
+                    "connection": locator,
+                    "identity": {
+                        "origin": client.base,
+                        "instance_id": context["server"]["instance_id"],
+                        "bot": context["bot"],
+                        "actor": context["actor"],
+                    },
+                    "snapshot": snapshot,
+                    "update_required": client.needs_update,
+                }
+            )
+            if snapshot.get("snapshot_fresh_for_write") is not True:
+                unread.append({"connection": locator, "error": "stale_or_unverifiable_snapshot"})
+        except ClientError as error:
+            unread.append(
+                {
+                    "connection": locator,
+                    "error": error.code,
+                    **(
+                        {"retry_after_seconds": error.retry_after_seconds}
+                        if error.retry_after_seconds is not None
+                        else {}
+                    ),
+                }
+            )
+        except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
+            unread.append({"connection": locator, "error": "invalid_server_or_local_data"})
+        finally:
+            if client:
+                calls = client.calls
+    return redacted_values(
+        {
+            "result": {
+                "scope": "saved_connections_only",
+                "complete": not unread,
+                "groups": snapshots,
+                "unread": unread,
+                "catalog_connections": len(catalog["connections"]),
+                "http_requests": calls,
+            },
+            "update_required": any(client.needs_update for client in clients),
+        },
+        [value for client in clients for value in client.secrets],
+    )
+
+
 def runtime_compatible():
     return sys.version_info >= (3, 10)
 
@@ -2296,6 +2383,10 @@ def main(argv=None):
     resources.add_argument("--mine", action="store_true", help="Separate only your verified holdings and bookings")
     exact_times_help = "Include precise lease timestamps and seconds for scheduling or an exact deadline."
     resources.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
+    aggregate = sub.add_parser("resources-all", help="Read all existing private catalog connections without enrollment")
+    aggregate.add_argument("--directory", help="Read only this private connection catalog")
+    aggregate.add_argument("--mine", action="store_true", help="Separate your holdings and bookings in every group")
+    aggregate.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
     recovery.add_argument("--destination", help="Explicit new private directory for separate group connections")
     recovery.add_argument("--scope", choices=["user", "project"], default="user")
@@ -2362,6 +2453,16 @@ def main(argv=None):
             print(
                 json.dumps(
                     {"result": listed_connections(args.directory), "update_required": False},
+                    ensure_ascii=os.name == "nt",
+                )
+            )
+            return 0
+        if args.action == "resources-all":
+            if args.connection:
+                raise ClientError("connection_not_used_for_aggregation")
+            print(
+                json.dumps(
+                    resources_all(args.directory, mine=args.mine, exact_lease_times=args.exact_lease_times),
                     ensure_ascii=os.name == "nt",
                 )
             )
