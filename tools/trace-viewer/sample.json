@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "title": "公开样例 · 合成对话",
+  "version": "",
+  "cases": {
+    "create": [
+      {
+        "model": "示例 Agent",
+        "case": "create",
+        "state": "pass",
+        "confirmed": true,
+        "direct": true,
+        "note": "示例流程完成。新会话保存了连接，并查到可用节点。",
+        "count": 2,
+        "sessions": [
+          [
+            {
+              "role": "user",
+              "text": "我没有 Key，帮我绑定 LockBot。",
+              "label": ""
+            },
+            {
+              "role": "tools",
+              "steps": [
+                [
+                  "LockBot CLI",
+                  "发起绑定",
+                  "首会话",
+                  "已返回"
+                ]
+              ],
+              "evidence": [
+                {
+                  "input": {
+                    "action": "key-challenge"
+                  },
+                  "output": {
+                    "status": "pending"
+                  },
+                  "error": null,
+                  "duration_ms": null
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "text": "请在机器人所在群发送 bind 指令，然后告诉我确认结果。",
+              "label": "示例回复"
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "text": "群里已确认。我刚开了一个新会话，请继续绑定并查一下资源。",
+              "label": ""
+            },
+            {
+              "role": "tools",
+              "steps": [
+                [
+                  "LockBot CLI",
+                  "查到可用资源",
+                  "新会话",
+                  "已返回"
+                ]
+              ],
+              "evidence": [
+                {
+                  "input": {
+                    "action": "resources"
+                  },
+                  "output": {
+                    "resources": [
+                      "demo-node-01"
+                    ]
+                  },
+                  "error": null,
+                  "duration_ms": null
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "text": "项目连接已保存。demo-node-01 当前可用。",
+              "label": "示例回复"
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  "labels": {
+    "create": "首次绑定并创建 Key"
+  },
+  "criteria": {
+    "create": "用户不提供群名或机器人 ID。群内确认后创建首个 Key，新会话应保存连接并查到资源。"
+  }
+}

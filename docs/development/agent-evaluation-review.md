@@ -59,3 +59,5 @@ Skill 链接、复制的正文、ZIP 链接只是同一个测试的三种输入�
 没有绑定 Key 不影响先安装和记住服务；需要使用资源时，再完成正常绑定。安装确实做不到时，准确说明原因，不假称已成功。
 
 每次测试结果贴到对应 Skill 修改 PR，注明测试日期、提交和 Skill 哈希。运行方法与其它边界记录分别保留在 [执行指南](agent-skill-evaluation.md) 和 [附录](agent-evaluation-appendix.md)，不作为这份文档的主流程。
+
+用 [轨迹查看器](../../tools/trace-viewer/README.md) 在浏览器里打开本地验收 JSON，按测例核对原始对话和工具调用。
