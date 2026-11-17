@@ -53,6 +53,11 @@ def model_system(fixture, *, fresh=False):
     )
     if fixture.case["scenario"] == "telemetry":
         result += " The client separately approved read access to the metrics origin stored in its connection."
+    if fixture.case["scenario"] == "panel":
+        result += (
+            " This is the verified bound user's private session. "
+            "deliver_private_link sends only to that verified user; browser login still requires their consent."
+        )
     if fresh:
         result += " Prior conversation is unavailable."
     return result

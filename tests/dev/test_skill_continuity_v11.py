@@ -87,6 +87,10 @@ def test_panel_actual_https_cli_handoff_and_fresh_browser_session(tmp_path, monk
     assert fixture.case["artifact_revision"] == json.loads((artifact / "manifest.json").read_text())["version"]
     assert fixture.case["skill_sha256"] == fixture.artifact["manifest"]["skill_sha256"]
     assert fixture.case["artifact_kind"] == "panel"
+    system = (fixture.root / "system.txt").read_text()
+    assert "verified bound user's private session" in system
+    assert "browser login still requires their consent" in system
+    assert (fixture.root / "prompt.txt").read_text() == "打开个人资源台"
     read_skill(fixture)
     connection = run(fixture, "connections")["result"]["connections"][0]["connection"]
     issued = run(fixture, "--connection", connection, "panel-link")
@@ -161,6 +165,7 @@ def test_v11_never_injects_service_route_or_target_into_natural_prompt(tmp_path,
     frontmatter = current.artifact["contents"]["SKILL.md"].decode().split("---", 2)[1].strip()
     assert frontmatter in system
     assert evaluation.base.ORIGIN not in system
+    assert "verified bound user's private session" not in system
     assert "node-a" not in system and "验证群" not in system
     assert str(current.workspace) not in system
     assert json.loads((previous / "case.json").read_text())["fixture_version"] == 6
