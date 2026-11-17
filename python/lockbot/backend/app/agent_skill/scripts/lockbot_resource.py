@@ -2066,7 +2066,26 @@ def main(argv=None):
             command.add_argument("--key-file", required=True, help="Existing private personal-key file, not a raw key")
             command.add_argument("--metrics-origin", help="Separately approved metrics origin, optional")
             command.add_argument("--agent-label", help="Optional stable name for this Agent installation")
-    enroll = sub.add_parser("enroll", help="Request a bind code for the user to confirm in the target group")
+    challenge = sub.add_parser(
+        "key-challenge",
+        help="Recover or create a personal Key through chat confirmation",
+        description=(
+            "Request the personal Key flow. Chat confirmation identifies the bot and recovers an active Key "
+            "or creates the first Key. Reset requires explicit user approval."
+        ),
+    )
+    challenge.add_argument("--origin", required=True)
+    challenge.add_argument(
+        "--purpose", choices=["recover", "reset"], default="recover", help="Default: recover or create"
+    )
+    challenge.add_argument("--destination", help="Explicit new private challenge directory")
+    challenge.add_argument("--scope", choices=["user", "project"], default="user")
+    challenge.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
+    enroll = sub.add_parser(
+        "enroll",
+        help="Compatibility binding for older services; use key-challenge for personal Keys",
+        description="Compatibility binding for services without chat_credential_challenges.",
+    )
     enroll.add_argument("--origin", required=True)
     enroll.add_argument("--group", help="Optional group explicitly named by the user")
     enroll.add_argument("--destination", help="Explicit new private enrollment directory")
@@ -2075,20 +2094,12 @@ def main(argv=None):
     )
     enroll.add_argument("--agent-label", help="Optional stable name for this Agent installation")
     enroll.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
-    challenge = sub.add_parser(
-        "key-challenge", help="Request a chat code to recover or explicitly reset a personal Key"
-    )
-    challenge.add_argument("--origin", required=True)
-    challenge.add_argument("--purpose", choices=["recover", "reset"], default="recover")
-    challenge.add_argument("--destination", help="Explicit new private challenge directory")
-    challenge.add_argument("--scope", choices=["user", "project"], default="user")
-    challenge.add_argument("--authorized", action="store_true", required=True, help="User authorized requesting a code")
     for action, help_text in (
         ("enrollment-status", "Check a previously requested binding code"),
         ("finish-enrollment", "Verify chat confirmation and save the scoped connection"),
     ):
         command = sub.add_parser(action, help=help_text, description=help_text)
-        command.add_argument("--enrollment-dir", required=True, help="Private directory returned by enroll")
+        command.add_argument("--enrollment-dir", required=True, help="Private directory returned with the chat code")
         if action == "finish-enrollment":
             command.add_argument("--confirm-bot-name", help="Bot name explicitly confirmed by the user")
     catalog = sub.add_parser("connections", help="List project and user connections plus unfinished enrollments")
@@ -2238,6 +2249,11 @@ def main(argv=None):
         return 0
     except ClientError as exc:
         output = {"error": exc.code, "retry_mutation": False}
+        if args.action == "enroll" and exc.code in {"invalid_enrollment_group", "http_403"}:
+            output["next_step"] = (
+                "Use key-challenge on services that advertise chat_credential_challenges. "
+                "The user's chat confirmation identifies the bot."
+            )
         if exc.allowed_categories is not None:
             output["allowed_categories"] = exc.allowed_categories
         if exc.retry_after_seconds is not None:

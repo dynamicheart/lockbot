@@ -21,6 +21,10 @@ grants out of replies, command arguments, Skill files and shared memory.
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
+**First connection or missing Key.** When the user authorizes a code on the approved
+service, run `key-challenge --origin "$ORIGIN" --authorized`. Chat confirmation
+identifies the bot and restores the user's existing Key or creates their first Key.
+
 ## Quick start with a saved connection
 
 Use Python 3.10 or newer. Run from the project root. Substitute the actual absolute path
@@ -78,13 +82,11 @@ stop after `resources`. Use `command --help` for all write arguments.
    you a Key file, run `init --key-file` first to save a verified connection, then pass
    that connection to resource commands. The service resolves the bot from the Key.
 4. If the user asks to save a credential in this project, run from the project root and
-   select `--scope project` for `init`, `key-challenge`, `enroll` or `recover`. Use only the project's
+   select `--scope project` for `init`, `key-challenge` or `recover`. Use only the project's
    catalog for a project-only setup. Default writes go to the system user's private
    catalog. Choose the command options yourself and report where the connection was saved.
 5. To restore access, first look for an existing connection or personal Key on the
    approved service. Use it to recover other eligible groups without asking for names.
-   With no valid local Key, use `key-challenge --origin "$ORIGIN" --authorized`.
-   Group confirmation restores the original Key or creates one if none is active.
    Before issuing a reset code, get an explicit request to invalidate the old Key and
    acknowledgement that other Agents sharing it need the replacement. Only then add
    `--purpose reset`. A failed recovery

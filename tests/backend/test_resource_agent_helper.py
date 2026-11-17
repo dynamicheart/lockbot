@@ -1242,6 +1242,44 @@ def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case, group)
     assert sum(row[1] == "POST" for row in case.state.requests) == 1
 
 
+@pytest.mark.parametrize(
+    ("group_args", "error_code", "enrollment_requests"),
+    [(("--group", ""), "invalid_enrollment_group", 0), ((), "http_403", 1)],
+)
+def test_packaged_cli_guides_new_connections_away_from_compatibility_enroll(
+    case, group_args, error_code, enrollment_requests
+):
+    cli = [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH)]
+    help_text = subprocess.run([*cli, "--help"], capture_output=True, text=True, timeout=5, check=True).stdout
+    assert "Recover or create a personal Key" in help_text
+    assert "Compatibility binding for older services" in help_text
+    case.state.binding_create_status = 403
+    reply = subprocess.run(
+        [
+            *cli,
+            "enroll",
+            "--origin",
+            case.base,
+            "--destination",
+            str(case.tmp / "attempt"),
+            "--authorized",
+            *group_args,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    assert reply.returncode == 2
+    error = json.loads(reply.stderr)
+    assert error["error"] == error_code
+    assert not error["retry_mutation"]
+    assert "key-challenge" in error["next_step"]
+    assert [row[0] for row in case.state.requests if row[1] == "POST"] == [
+        "/api/resource-auth/bindings"
+    ] * enrollment_requests
+
+
 def test_unnamed_enrollment_reuses_pending_slot_and_allows_another_after_confirmation(case, monkeypatch):
     monkeypatch.chdir(case.tmp)
     client = helper.Client(approved_origin=case.base, root=case.root)

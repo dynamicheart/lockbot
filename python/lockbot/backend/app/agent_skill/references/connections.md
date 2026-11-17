@@ -64,11 +64,12 @@ with the user's approval. An unavailable recovery result never starts a reset.
 If a reset result expired or went missing, use fresh recovery proof to
 reconcile it before considering another reset.
 
-For a first binding on an older service without the challenge capability, use
-`enroll` with the approved origin. If the user names
-a group, pass that name with `--group` to check it against the confirmed bot. Add the selected storage options to `enroll`. Pass `--authorized` only
-once the user approves requesting the code. Use the returned `enrollment_dir` for
-subsequent commands, shown below as `"$enrollment_dir"`.
+For a first binding on an older service, check its manifest for
+`chat_credential_challenges`. If it is absent, use the compatibility command
+`enroll` with the approved origin and selected storage scope. Pass `--authorized`
+after the user approves requesting a code. When the user explicitly names a group,
+`--group` can verify that name against the bot identified by chat confirmation.
+Use the returned `enrollment_dir` for subsequent commands.
 
 ```sh
 python3 "$LOCKBOT_CLI" enroll --origin https://resources.example.test --authorized
@@ -92,7 +93,7 @@ requests with their group, service and `enrollment_dir`. Use that directory with
 has passed. A binding confirmed before expiry can still be finished. For an explicit
 enrollment directory outside the two catalogs, use `connections --directory <directory>`.
 Verify the live identity with `context`
-using the chosen record. By default, `init`, `enroll` and `recover` save under the
+using the chosen record. By default, `init`, `key-challenge` and `recover` save under the
 current user's private `~/.config/lockbot/connections/` catalog. Select
 `--scope project` to save under `.lockbot/connections/`, or give an explicit
 `--destination` for a separately managed path. `init` keeps an existing Key file at
@@ -134,7 +135,7 @@ that it belongs here. Another Lockbot implementation can have a different authen
 protocol and permission scope. Check the advertised service identity and API version;
 never transfer credentials or assumptions such as one token authorizing every bot.
 
-Run `discover --origin <approved-service>` before setting up a connection. Use `init` for an existing Key or `enroll` to start a new binding with the user's approval. In later sessions, run `connections` from the project and use `context` with the selected private connection. The CLI verifies the service, instance and Key's group. Ask for the address if it is missing and for the intended service if several match. Keep credentials scoped to the approved service and verified group.
+Run `discover --origin <approved-service>` before setting up a connection. Use `init` for an existing Key or `key-challenge` with the user's approval when there is no valid local Key. In later sessions, run `connections` from the project and use `context` with the selected private connection. The CLI verifies the service, instance and Key's group. Ask for the address if it is missing and for the intended service if several match. Keep credentials scoped to the approved service and verified group.
 
 ## Keep credentials and resource assignments scoped
 
@@ -238,7 +239,7 @@ Agents share each group key but track their own tasks separately:
 ### Resume from a saved connection
 
 Use `connections` from the current project. Load the existing verified connection
-for the intended service, group and actor. Use `init`, `enroll` or `recover` to create
+for the intended service, group and actor. Use `init`, `key-challenge` or `recover` to create
 connection records in the CLI's private catalog. Save each service and group's Key
 separately. Keep connection and Key files out of Git and shared notes.
 
