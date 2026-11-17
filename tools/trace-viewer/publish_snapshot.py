@@ -47,7 +47,7 @@ GROUPS = {
         "intent-choose": "代选同机加速卡并锁定",
         "intent-whole": "整机群内请求按卡锁定",
         "intent-book": "预约整机",
-        "intent-claim": "按原时长领取预约",
+        "intent-claim": "预约轮到后按原时长使用机器",
         "intent-model-allocate": "跨群按型号选卡并锁定",
         "intent-model-unknown-node": "缺少 P900 型号证据时停下",
         "intent-model-p800-unknown-node": "缺少 P800 型号证据时停下",
@@ -91,7 +91,7 @@ SUITE_GROUPS = {
         "资源操作回归",
         {
             "alias": "设置和清除共享别名",
-            "queue": "预约、领取和到期核对",
+            "queue": "预约、开始使用和到期核对",
             "update": "查证上次写入与提示 Skill 更新",
         },
     ),

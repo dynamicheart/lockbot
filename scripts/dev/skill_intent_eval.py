@@ -49,7 +49,7 @@ PROMPTS = {
     "intent-choose": "找台机器，直接锁两张空闲 P800，用两小时。",
     "intent-whole": "锁 node-20 上两张卡，两小时。",
     "intent-book": "book node-20 2h",
-    "intent-claim": "轮到我了，帮我领预约的机器。",
+    "intent-claim": "lock 20",
     "intent-model-find": "哪个群有空闲的 P800 或 P900 卡？我先看看。",
     "intent-model-allocate": "直接锁一张空闲 P800 或 P900 卡，两小时。你挑。",
     **{

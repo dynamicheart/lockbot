@@ -31,6 +31,14 @@ def prepare(tmp_path, monkeypatch, scenario, instance_id=None):
 
 
 def install(fixture):
+    # Day-to-day tasks start with a verified, installed Skill. Do not add a
+    # simulated installation call just to satisfy the old test setup.
+    if fixture.installation.is_dir():
+        assert all(
+            (fixture.installation / name).read_bytes() == content
+            for name, content in fixture.artifact["contents"].items()
+        )
+        return {"installed": True}
     return fixture.call("install_lockbot", {"url": fixture.origin + evaluation.base.BUNDLE_PATH})
 
 
@@ -276,7 +284,7 @@ def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tm
 
 
 def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch):
-    fixture = prepare(tmp_path, monkeypatch, "intent-model-whole-machine")
+    fixture = prepare(tmp_path, monkeypatch, "no-key")
     assert fixture.call("read_lockbot_skill", {"offset": 0})["error"] == "verified_package_required"
     first = install(fixture)
     second = fixture.call("read_lockbot_skill", {"offset": first["next_offset"]})
@@ -539,7 +547,7 @@ def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path,
     fixture = prepare(tmp_path, monkeypatch, "intent-choose")
     assert install(fixture)["installed"]
     trace = fixture.root / "cli-http.jsonl"
-    before = trace.read_bytes()
+    before = trace.read_bytes() if trace.is_file() else b""
     result = run(
         fixture,
         "command",
@@ -552,7 +560,7 @@ def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path,
         device_count=2,
     )
     assert result["error"] == "selected_device_count_does_not_match_request"
-    assert trace.read_bytes() == before
+    assert (trace.read_bytes() if trace.is_file() else b"") == before
 
 
 @pytest.mark.parametrize(

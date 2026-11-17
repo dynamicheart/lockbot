@@ -75,7 +75,8 @@ with subprocess.Popen(
         return json.loads(reply["result"]["content"][0]["text"])
 
     if phase == 1:
-        assert call("install_lockbot", url="http://192.0.2.10:8155/api/agent-skill/lockbot-agent.zip")["installed"]
+        if not call("run_lockbot", action="local-state")["result"]["installed"]:
+            assert call("install_lockbot", url="http://192.0.2.10:8155/api/agent-skill/lockbot-agent.zip")["installed"]
         assert call("run_lockbot", action="discover")["result"]
         if case["scenario"] == "reset-personal-key":
             result = call("run_lockbot", action="key-challenge", purpose="reset", authorized=True)["result"]

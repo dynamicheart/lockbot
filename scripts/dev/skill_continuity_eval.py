@@ -42,11 +42,11 @@ METRICS_SAMPLES = {
 }
 SKILL_CATALOGS = ("skills", ".claude/skills", ".codex/skills", ".agents/skills")
 PROMPTS = {
-    "recover": f"换机器了，装一下，用原来的登录看看所有资源。\n{base.ORIGIN}{base.BUNDLE_PATH}",
-    "no-key": f"先装好，以后怎么用？\n{base.ORIGIN}{base.BUNDLE_PATH}",
-    "approved-enrollment": f"装一下，帮我连上。\n{base.ORIGIN}{base.BUNDLE_PATH}",
-    "panel": f"装一下，私发我资源台登录链接。登录后收藏哪个入口？我想看占用和预约。\n{base.ORIGIN}{base.BUNDLE_PATH}",
-    "telemetry": f"装一下，看看 node-a 谁在用、卡利用率多少，数据多久前的？\n{base.ORIGIN}{base.BUNDLE_PATH}",
+    "recover": "看看我能申请什么资源？",
+    "no-key": f"安装Skill: {base.ORIGIN}/api/agent-skill",
+    "approved-enrollment": "帮忙查找可用的资源。",
+    "panel": "打开个人资源台",
+    "telemetry": "node-a谁在用，利用率多少？",
 }
 
 

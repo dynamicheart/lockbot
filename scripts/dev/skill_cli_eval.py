@@ -51,16 +51,16 @@ RESOURCE_BOTS = {
 }
 FIRST_CONTACT = {
     "link-only": "{url}",
-    "install-from-link": "装一下，下次还用。\n{url}",
-    "install-from-zip": "装一下。\n{zip_url}",
+    "install-from-link": "安装Skill: {url}",
+    "install-from-zip": "安装Skill: {zip_url}",
     "install-with-key": "装一下，用原来的登录查下资源。\n{zip_url}",
 }
 SAVED_LOGIN_SCENARIOS = {"install-with-key", "panel", "telemetry"}
 CHALLENGE_PROMPTS = {
     COLD_REQUEST: "帮我安装这个 Skill，申请一台 P800 机器用两小时。",
-    "approved-enrollment-no-group": "装一下，看看有啥资源。",
-    "recover-original-key": "换机器了，装一下，帮我恢复原来的登录。",
-    "reset-personal-key": ("装一下，帮我重置登录。我知道别的 Agent 要重新连接，确认重置。"),
+    "approved-enrollment-no-group": "帮忙查找可用的资源。",
+    "recover-original-key": "我换环境了，帮我恢复下。",
+    "reset-personal-key": "我的key泄漏了，帮我重置下key。",
 }
 ENROLLMENT_SCENARIOS = ("approved-enrollment", *CHALLENGE_PROMPTS)
 SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *FIRST_CONTACT, *intent.PROMPTS)
@@ -76,9 +76,9 @@ def prepare(root, artifact, scenario):
         seed_scenario = "approved-enrollment"
     continuity.prepare(root, artifact / "SKILL.md", seed_scenario, artifact)
     if scenario == "no-key":
-        (root / "prompt.txt").write_text(f"先装好，以后怎么用？\n{base.ORIGIN}{base.BUNDLE_PATH}")
+        (root / "prompt.txt").write_text(f"安装Skill: {base.ORIGIN}/api/agent-skill")
     if scenario == "approved-enrollment":
-        (root / "prompt.txt").write_text(f"装一下，帮我连上。\n{base.ORIGIN}{base.BUNDLE_PATH}")
+        (root / "prompt.txt").write_text("帮忙查找可用的资源。")
     if scenario in ENROLLMENT_SCENARIOS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -87,7 +87,10 @@ def prepare(root, artifact, scenario):
             case_path, {**case, "scenario": scenario, "pending_enrollment_catalog": b'"pending_enrollments"' in helper}
         )
         if scenario in CHALLENGE_PROMPTS:
-            (root / "prompt.txt").write_text(CHALLENGE_PROMPTS[scenario] + "\n" + base.ORIGIN + base.BUNDLE_PATH)
+            prompt = CHALLENGE_PROMPTS[scenario]
+            if scenario == COLD_REQUEST:
+                prompt += "\n" + base.ORIGIN + base.BUNDLE_PATH
+            (root / "prompt.txt").write_text(prompt)
     if scenario == "panel":
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -100,13 +103,9 @@ def prepare(root, artifact, scenario):
                 "fixture_version": PANEL_FIXTURE_VERSION,
             },
         )
-        (root / "prompt.txt").write_text(
-            f"装一下，打开个人资源台，看看我占了啥、约了啥。\n{PANEL_ORIGIN}{base.BUNDLE_PATH}"
-        )
+        (root / "prompt.txt").write_text("打开个人资源台")
     if scenario == "telemetry":
-        (root / "prompt.txt").write_text(
-            f"装一下，看看 node-a 谁在用、利用率多少，数据多久前的？\n{base.ORIGIN}{base.BUNDLE_PATH}"
-        )
+        (root / "prompt.txt").write_text("node-a谁在用，利用率多少？")
     if scenario in FIRST_CONTACT:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -130,8 +129,6 @@ def prepare(root, artifact, scenario):
             },
         )
         prompt = intent.PROMPTS[scenario]
-        if scenario not in intent.SHORT_PROMPTS:
-            prompt = f"装一下。\n{base.ORIGIN}{base.BUNDLE_PATH}\n{prompt}"
         (root / "prompt.txt").write_text(prompt)
         private = root / "workspace/private"
         for identifier, key, uuid in ((7, base.KEY, base.BOT_UUID), (8, continuity.SECOND_KEY, continuity.SECOND_UUID)):
@@ -149,7 +146,7 @@ def prepare(root, artifact, scenario):
             path.write_text(key)
             path.chmod(0o600)
     if scenario == "recover":
-        (root / "prompt.txt").write_text(f"装一下，接回原来的登录，看看有啥资源。\n{base.ORIGIN}{base.BUNDLE_PATH}")
+        (root / "prompt.txt").write_text("看看我能申请什么资源？")
     if scenario in SAVED_LOGIN_SCENARIOS:
         fixture = Fixture(root)
         connection = fixture.saved_connection
@@ -186,7 +183,18 @@ def prepare(root, artifact, scenario):
             "Only a human can confirm a new enrollment in the resource group's chat. "
             "An existing verified connection uses the API for authorized resource operations."
         )
-    if scenario in intent.SHORT_PROMPTS:
+    if (
+        scenario in intent.PROMPTS
+        or scenario in SAVED_LOGIN_SCENARIOS - set(FIRST_CONTACT)
+        or scenario
+        in {
+            "recover",
+            "approved-enrollment",
+            "approved-enrollment-no-group",
+            "recover-original-key",
+            "reset-personal-key",
+        }
+    ):
         fixture = Fixture(root)
         Client(approved_origin=fixture.origin, opener=fixture).install(fixture.installation)
         (root / "cli-http.jsonl").unlink(missing_ok=True)
