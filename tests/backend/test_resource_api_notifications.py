@@ -1,6 +1,7 @@
 """AC-15 / AC-11: group notifications and transport-discriminating observability."""
 
 import threading
+from copy import deepcopy
 from unittest.mock import patch
 
 import pytest
@@ -24,20 +25,24 @@ def _reset_budget(monkeypatch):
 
 
 @pytest.fixture
-def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path):
+def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path, request):
     clock = [0.0]
     monkeypatch.setattr(notification_budget, "clock", lambda: clock[0])
     notification_budget.reset()
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
+    bot_type = getattr(request, "param", "NODE")
+    inventory = (
+        {"n1": ["GPU", "GPU"], "n2": ["GPU"]} if bot_type in {"DEVICE", "QUEUE_DEVICE"} else {"n1": "m1", "n2": "m2"}
+    )
 
     created = client.post(
         "/api/bots",
         headers=auth_header,
         json={
             "name": "notifybot",
-            "bot_type": "NODE",
+            "bot_type": bot_type,
             "webhook_url": "https://example.invalid/hook",
-            "cluster_configs": {"n1": "m1", "n2": "m2"},
+            "cluster_configs": inventory,
         },
     )
     bot_id = created.json()["id"]
@@ -53,11 +58,11 @@ def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path)
     manager.start_bot(
         bot_id,
         {
-            "BOT_TYPE": "NODE",
+            "BOT_TYPE": bot_type,
             "BOT_NAME": "notifybot",
             "BOT_ID": bot_id,
             "DATA_DIR": str(tmp_path / "bots"),
-            "CLUSTER_CONFIGS": {"n1": "m1", "n2": "m2"},
+            "CLUSTER_CONFIGS": inventory,
             "ALLOW_USER_ALIAS": True,
         },
     )
@@ -113,6 +118,48 @@ class TestMutationsAreAnnounced:
         notification_budget.reset()
         assert _post(client, api, "unlock n1").status_code == 200
         assert len(api["bot"].adapter.sent) == 1
+        assert "实际释放或取消：n1" in _sent_text(api)
+
+    def test_a_confirmed_batch_lock_reports_the_result(self, client, api):
+        response = _post(client, api, "lock n1,n2 2h")
+        assert response.status_code == 200
+        assert "✅" in response.json()["reply"]
+        for node in ("n1", "n2"):
+            assert [holder["user_id"] for holder in api["bot"].state.bot_state[node]["current_users"]] == [ACTOR]
+        assert "已确认独占锁定" in _sent_text(api)
+        assert "lock n1,n2 2h" in _sent_text(api)
+
+    @pytest.mark.parametrize("api", ["QUEUE", "QUEUE_DEVICE"], indirect=True)
+    def test_booking_confirms_the_queue_and_duplicate_is_silent(self, client, api):
+        assert _post(client, api, "book n1 1h").status_code == 200
+        assert "已加入预约队列" in _sent_text(api)
+        assert "已确认独占锁定" not in _sent_text(api)
+        state = deepcopy(api["bot"].state.bot_state)
+        node = state["n1"]
+        resources = node if isinstance(node, list) else [node]
+        assert resources
+        for resource in resources:
+            assert resource["current_users"] == []
+            assert [user["user_id"] for user in resource["booking_list"]] == [ACTOR]
+        response = _post(client, api, "book n1 1h")
+        assert response.status_code == 200
+        assert "❌" in response.json()["reply"]
+        assert api["bot"].state.bot_state == state
+        api["clock"][0] = 10.0
+        assert notification_budget.run_due() == 0
+        assert len(api["bot"].adapter.sent) == 1
+
+    @pytest.mark.parametrize("api", ["DEVICE"], indirect=True)
+    def test_whole_node_unlock_announces_only_released_cards(self, client, api):
+        bot = api["bot"]
+        bot.lock(ACTOR, "lock n1 dev0 1h")
+        bot.lock("other-user", "lock n1 dev1 1h")
+        response = _post(client, api, "unlock n1,n2")
+        assert response.status_code == 200
+        assert bot.state.bot_state["n1"][0]["status"] == "idle"
+        assert bot.state.bot_state["n1"][1]["current_users"][0]["user_id"] == "other-user"
+        assert "实际释放或取消：n1:dev0" in _sent_text(api)
+        assert "n1:dev1" not in _sent_text(api)
 
     def test_the_notification_names_the_acting_identity(self, client, api):
         _post(client, api, "lock n1 1h")
@@ -154,6 +201,31 @@ class TestReadsDoNotAnnounce:
 
     def test_a_refused_command_does_not_announce(self, client, api):
         _post(client, api, "kickout someone")
+        assert api["bot"].adapter.sent == []
+
+    @pytest.mark.parametrize(
+        "command", ["lock n1,n2 2h", "slock n1 1h", "unlock n1", "alias n1 this-label-is-too-long"]
+    )
+    @pytest.mark.parametrize("key_scoped", [False, True])
+    def test_a_business_rejection_does_not_announce(self, client, api, command, key_scoped):
+        bot = api["bot"]
+        bot.lock("other-user", "lock n1 1h")
+        state = deepcopy(bot.state.bot_state)
+        path = "/api/agent/commands" if key_scoped else f"/api/bots/{api['bot_id']}/commands"
+        response = client.post(path, headers=api["headers"], json={"command": command})
+        assert response.status_code == 200
+        assert "❌" in response.json()["reply"]
+        assert bot.state.bot_state == state
+        assert bot.adapter.sent == []
+
+    @pytest.mark.parametrize("api", ["NODE", "DEVICE"], indirect=True)
+    def test_release_without_holdings_is_silent(self, client, api):
+        _post(client, api, "free")
+        assert api["bot"].adapter.sent == []
+
+    def test_unconfirmed_alias_update_does_not_announce(self, client, api, monkeypatch):
+        monkeypatch.setattr(api["bot"], "_persist_config_override", lambda *_: False)
+        assert _post(client, api, "alias n1 volatile-label").status_code == 200
         assert api["bot"].adapter.sent == []
 
 

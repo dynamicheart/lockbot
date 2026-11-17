@@ -1,7 +1,7 @@
 """Request-local delivery hints, separate from rendered messages and HTTP status.
 
 Only committed success paths mark a result. Capture is opt-in at trusted ingress;
-unknown results never suppress a reply. No command text or user identity is stored.
+unknown results never suppress the caller's reply. No command text or user identity is stored.
 """
 
 from contextlib import contextmanager
@@ -14,6 +14,7 @@ class CommandResult:
     operation: str | None = None
     committed: bool = False
     reaction_safe: bool = False
+    affected_resources: tuple[str, ...] | None = None
 
 
 _result = ContextVar("lockbot_delivery_result", default=None)
@@ -29,10 +30,11 @@ def capture_result():
         _result.reset(token)
 
 
-def completed_reply(reply, operation, *, reaction_safe=True):
+def completed_reply(reply, operation, *, reaction_safe=True, affected_resources=None):
     result = _result.get()
     if result is not None:
         result.operation = operation
         result.committed = True
         result.reaction_safe = reaction_safe
+        result.affected_resources = None if affected_resources is None else tuple(affected_resources)
     return reply

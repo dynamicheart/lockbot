@@ -206,13 +206,14 @@ def test_unrelated_settings_and_toggle_preserve_saved_localized_prefixes(client,
 
 @pytest.mark.parametrize("bot_type", [NodeBot, DeviceBot, QueueBot, QueueDeviceBot])
 @pytest.mark.parametrize("platform", ["Infoflow", "Feishu"])
-def test_success_promotes_fixed_personal_home_with_existing_toggle(bot_type, platform, tmp_path, monkeypatch):
+def test_success_promotes_only_the_skill(bot_type, platform, tmp_path, monkeypatch):
     home = "https://example.test/#/me"
+    skill_url = "https://example.test/api/agent-skill"
     bot = bot_type(
         config_dict={
             "DATA_DIR": str(tmp_path),
             "CLUSTER_CONFIGS": ["n1"],
-            "_AGENT_SKILL_URL": lambda: "https://example.test/api/agent-skill",
+            "_AGENT_SKILL_URL": lambda: skill_url,
             "_PERSONAL_PANEL_URL": lambda: home,
             "PLATFORM": platform,
         }
@@ -220,8 +221,8 @@ def test_success_promotes_fixed_personal_home_with_existing_toggle(bot_type, pla
     monkeypatch.setattr(bot, "_get_site_value", lambda key: "true" if key == "agent_promotion_enabled" else "")
     monkeypatch.setattr(bot, "_current_usage", lambda key: "n1 alice")
     reply = bot.adapter.build_reply(bot._msg_with_usage("success.resource_locked"), ["alice"])
-    assert home in bot.adapter.extract_reply_text(reply)
-    assert "我的资源" in bot.adapter.extract_reply_text(reply)
-    assert "#ticket=" not in bot.adapter.extract_reply_text(reply)
+    text = bot.adapter.extract_reply_text(reply)
+    assert "资源申请成功" in text and skill_url in text
+    assert home not in text and "我的资源" not in text
     monkeypatch.setattr(bot, "_get_site_value", lambda key: "false")
     assert home not in bot._msg_with_usage("success.resource_locked")
