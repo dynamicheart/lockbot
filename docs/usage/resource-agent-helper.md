@@ -141,13 +141,13 @@ through the receiving Agent's private credential storage.
 ```sh
 python3 scripts/lockbot_resource.py --connection /private/connection.json context
 python3 scripts/lockbot_resource.py --connection /private/connection.json resources
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --duration 30m --metadata-file /private/task.json
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation claim --node node-a
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --duration 30m
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation claim --node node-a --whole-node
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
+python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a --whole-node
 ```
 
-Repeat `--node` for operations on multiple explicit nodes. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments. Supported operations are `lock`, `slock`, `book`, `claim`, deliberate `renew`, and `release`. Duration is explicit for new acquisitions, booking and renewal. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
+Whole-node writes require `--whole-node`. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments. Repeat `--node` for multiple exact nodes. If a requested card cannot be selected in the named group, ask the user before switching the group or scope. Supported operations are `lock`, `slock`, `book`, `claim`, deliberate `renew`, and `release`. Duration is explicit for new acquisitions, booking and renewal. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
 
 Resource mutations require verifiably fresh snapshots before dispatch and at readback.
 The helper rejects a missing or invalid snapshot age and applies the server's five-second

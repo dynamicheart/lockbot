@@ -521,6 +521,8 @@ class Fixture(continuity.Fixture):
                         return {"error": "unsupported_device_count_constraint"}
                     argv += ["--device-count", str(args["device_count"])]
                 argv += ["--operation", args.get("operation", "")]
+                if args.get("whole_node") is True:
+                    argv += ["--whole-node"]
                 for field in ("node", "device"):
                     for value in args.get(field + "s", []):
                         argv += ["--" + field, value]
@@ -577,6 +579,8 @@ class Fixture(continuity.Fixture):
                 "--operation",
                 args.get("operation", ""),
             ]
+            if args.get("whole_node") is True:
+                argv += ["--whole-node"]
             for field in ("node", "device"):
                 for target in args.get(field + "s", []):
                     argv += ["--" + field, target]
@@ -696,6 +700,10 @@ def tools(root):
             "operation": {"type": "string", "enum": operations},
             "nodes": {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."},
             "devices": {"type": "array", "items": {"type": "string"}, "description": "Exact card IDs as strings."},
+            "whole_node": {
+                "type": "boolean",
+                "description": "True only if the user requested or approved entire nodes.",
+            },
             "duration": {"type": "string", "description": "Explicit duration such as 30m or 2h."},
         }
         if allows_commands
