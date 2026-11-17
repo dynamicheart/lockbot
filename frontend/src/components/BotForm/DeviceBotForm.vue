@@ -460,8 +460,14 @@ watch(
   transition: opacity 0.2s;
   flex-shrink: 0;
 }
-.device-card:hover .node-remove {
+.device-card:hover .node-remove,
+.device-card:focus-within .node-remove {
   opacity: 1;
+}
+@media (hover: none) {
+  .node-remove {
+    opacity: 1;
+  }
 }
 .device-rows {
   display: flex;

@@ -338,8 +338,14 @@ watch(
   transition: opacity 0.2s;
   flex-shrink: 0;
 }
-.node-item:hover .node-remove {
+.node-item:hover .node-remove,
+.node-item:focus-within .node-remove {
   opacity: 1;
+}
+@media (hover: none) {
+  .node-remove {
+    opacity: 1;
+  }
 }
 .node-empty {
   text-align: center;
