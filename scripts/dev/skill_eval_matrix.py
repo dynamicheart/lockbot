@@ -108,11 +108,35 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     return rows
 
 
-def run_matrix(output, cases, runners, artifacts, workers, limits):
+def preflight_runner(output, number, runner, timeout):
+    client, model, command = runner
+    root = output / "preflight" / f"{number:03d}"
+    root.mkdir(mode=0o700, parents=True)
+    (root / "prompt.txt").write_text("Reply with READY. No tools are needed.\n")
+    (root / "system.txt").write_text("This is an isolated model connectivity check. Use no tools.\n")
+    onboarding.save_json(root / "mcp.json", {"mcpServers": {}})
+    result = onboarding.evaluate(
+        root,
+        command,
+        model,
+        lambda _, text: {"responded": bool(text.strip())},
+        timeout=timeout,
+        max_turns=2,
+        output_tokens=128,
+    )
+    if result["status"] == "completed":
+        result["status"] = "ready" if result.pop("responded") else "empty_response"
+    result.update(client=client, evidence=root.relative_to(output).as_posix())
+    onboarding.save_json(root / "result.json", result)
+    return result
+
+
+def run_matrix(output, cases, runners, artifacts, workers, limits, preflight_timeout):
     plan = list(product(cases, enumerate(runners, start=1)))
     metadata = {
         "artifacts": artifacts,
         "limits": limits,
+        "preflight_timeout": preflight_timeout,
         "workers": workers,
         "simulation_only": True,
         "cases": [f"{suite}:{scenario}" for suite, scenario in cases],
@@ -121,13 +145,32 @@ def run_matrix(output, cases, runners, artifacts, workers, limits):
     onboarding.save_json(output / "run.json", metadata)
     results = {}
     with ThreadPoolExecutor(max_workers=workers) as pool, (output / "progress.jsonl").open("w") as progress:
+        probes = list(pool.map(lambda item: preflight_runner(output, *item, preflight_timeout), enumerate(runners, 1)))
+        onboarding.save_json(output / "preflight.json", probes)
         pending = {}
         for index, ((suite, scenario), (number, runner)) in enumerate(plan):
             artifact = "panel" if (suite, scenario) == ("cli", "panel") else "current"
+            probe = probes[number - 1]
+            if probe["status"] != "ready":
+                row = {
+                    "suite": suite,
+                    "scenario": scenario,
+                    "client": probe["client"],
+                    "model": probe["model"],
+                    "artifact_revision": artifacts[artifact]["revision"],
+                    "phase": 1,
+                    "status": "blocked_by_model_preflight",
+                    "preflight_status": probe["status"],
+                    "preflight_evidence": probe["evidence"],
+                }
+                results[index] = [row]
+                progress.write(json.dumps(row, ensure_ascii=False) + "\n")
+                continue
             future = pool.submit(
                 run_case, output, suite, scenario, number, runner, limits, artifacts[artifact]["revision"]
             )
             pending[future] = index
+        progress.flush()
         for future in as_completed(pending):
             rows = future.result()
             results[pending[future]] = rows
@@ -135,7 +178,7 @@ def run_matrix(output, cases, runners, artifacts, workers, limits):
                 progress.write(json.dumps(row, ensure_ascii=False) + "\n")
             progress.flush()
     ordered = [row for index in range(len(plan)) for row in results[index]]
-    onboarding.save_json(output / "matrix.json", {**metadata, "results": ordered})
+    onboarding.save_json(output / "matrix.json", {**metadata, "preflight": probes, "results": ordered})
     return all(row.get("observable_pass") for row in ordered)
 
 
@@ -160,6 +203,9 @@ def main():
     run.add_argument("--installed-artifacts", type=Path, help="Older Skill ZIP for operations:update")
     run.add_argument("--output", type=Path, required=True, help="New private evidence directory outside the repository")
     run.add_argument("--workers", type=positive_int, default=4)
+    run.add_argument(
+        "--preflight-timeout", type=positive_int, default=45, help="Seconds for each model connectivity probe"
+    )
     run.add_argument("--timeout", type=positive_int, default=180, help="Seconds per model session")
     run.add_argument("--max-turns", type=positive_int, default=24)
     run.add_argument("--output-tokens", type=positive_int, default=4096)
@@ -204,7 +250,7 @@ def main():
         run.error(str(error))
 
     limits = {"timeout": args.timeout, "max_turns": args.max_turns, "output_tokens": args.output_tokens}
-    passed = run_matrix(output, cases, runners, artifacts, args.workers, limits)
+    passed = run_matrix(output, cases, runners, artifacts, args.workers, limits, args.preflight_timeout)
     print(output / "matrix.json")
     return 0 if passed else 1
 

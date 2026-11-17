@@ -123,6 +123,13 @@ the scheduler checks the first phase, injects simulated consent where applicable
 uses the fixture's resume function to keep only durable state. A failed first phase
 records the second as `blocked_by_phase_1`.
 
+Before scheduling cases, the matrix runs one short connectivity probe per client/model
+pair through its configured adapter. A usable reply admits the pair to the matrix.
+The probe uses no fixture tools and has a separate `--preflight-timeout` limit of 45
+seconds by default. `preflight.json` records connectivity results and timing. Blocked
+pairs are recorded as `blocked_by_model_preflight` and have no behavior verdict.
+A timeout during a case remains a case timeout even when the connectivity probe passed.
+
 Follow `progress.jsonl` during a run. The final `matrix.json` orders results by case,
 configured client/model pair and phase. It records which artifact and fixture produced
 each result. It distinguishes observable checks, adapter failures, timeouts and fixture

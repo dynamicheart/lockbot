@@ -23,10 +23,17 @@ from pathlib import Path
 request = json.load(sys.stdin)
 root = Path.cwd()
 model = request["model"]
+if root.parent.name == "preflight":
+    assert request["max_turns"] == 2 and request["output_tokens"] == 128
+    assert json.loads(Path(request["mcp_config"]).read_text()) == {"mcpServers": {}}
+    if model == "preflight-timeout":
+        time.sleep(30)
+    print(json.dumps({"text": 42 if model == "preflight-invalid" else "READY"}))
+    raise SystemExit
 case = json.loads((root / "case.json").read_text())
-if model == "timeout":
+if model == "case-timeout":
     time.sleep(30)
-if model == "invalid":
+if model == "case-invalid":
     print(json.dumps({"text": 42}))
     raise SystemExit
 if model == "bad":
@@ -107,6 +114,8 @@ def run_matrix(tmp_path, monkeypatch, scenario, *models, timeout=15):
         str(output),
         "--workers",
         "2",
+        "--preflight-timeout",
+        "1",
         "--timeout",
         str(timeout),
         "--max-turns",
@@ -136,6 +145,7 @@ def test_concurrent_matrix_keeps_next_session_state_and_report_order(tmp_path, m
     ]
     assert report["limits"] == {"max_turns": 28, "output_tokens": 1024, "timeout": 15}
     assert report["simulation_only"]
+    assert [row["status"] for row in report["preflight"]] == ["ready", "ready"]
     assert json.loads((output / "progress.jsonl").read_text().splitlines()[0])["client"] == "Client B"
     first, second, failed = [output / row["evidence"] for row in rows[:3]]
     assert (first / "workspace/private/binding/enrollment.json").exists()
@@ -149,10 +159,27 @@ def test_concurrent_matrix_keeps_next_session_state_and_report_order(tmp_path, m
 
 def test_matrix_reports_adapter_timeout_and_bad_protocol_separately(tmp_path, monkeypatch):
     _, report = run_matrix(
-        tmp_path, monkeypatch, "onboarding:body", ("Client A", "timeout"), ("Client B", "invalid"), timeout=1
+        tmp_path, monkeypatch, "onboarding:body", ("Client A", "case-timeout"), ("Client B", "case-invalid"), timeout=1
     )
+    assert [row["status"] for row in report["preflight"]] == ["ready", "ready"]
     assert [row["status"] for row in report["results"]] == ["timeout", "runner_protocol_error"]
     assert all("observable_pass" not in row for row in report["results"])
+
+
+def test_matrix_skips_cases_for_a_blocked_preflight(tmp_path, monkeypatch):
+    output, report = run_matrix(
+        tmp_path,
+        monkeypatch,
+        "cli:approved-enrollment",
+        ("Client A", "preflight-timeout"),
+        ("Client B", "preflight-invalid"),
+    )
+    assert [row["status"] for row in report["preflight"]] == ["timeout", "runner_protocol_error"]
+    rows = report["results"]
+    assert [row["status"] for row in rows] == ["blocked_by_model_preflight"] * 2
+    assert [row["preflight_status"] for row in rows] == ["timeout", "runner_protocol_error"]
+    assert all("observable_pass" not in row for row in rows)
+    assert not (output / "cli").exists()
 
 
 def test_operations_answer_without_tool_calls_fails_observable_checks(tmp_path, monkeypatch):
