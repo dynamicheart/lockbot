@@ -139,7 +139,7 @@ function renderCaseNavigation() {
         list.setAttribute('role', 'group');
         list.setAttribute('aria-label', caseName(key) + '的模型');
         list.append(...runs.map((run, index) => {
-          const button = choice(modelLabel(run, index), run.state ? badge(run.state) : null,
+          const button = choice(modelLabel(run, index, key), run.state ? badge(run.state) : null,
             activeCase === key && activeIndex === index, () => {
               activeCase = key;
               pickRun(index);

@@ -374,7 +374,13 @@ let activeCase, activeIndex, activeTab, activeStep, failureOnly;
 let imported = false;
 const online = location.pathname === '/dev/trace-review';
 function defaultRun(key) {
-  return key==='create' ? Math.max(0,data.cases[key].findIndex(run=>run.direct)) : 0;
+  const runs = data.cases[key];
+  const direct = key === 'create' ? runs.findIndex(run => run.direct) : -1;
+  if (direct >= 0) return direct;
+  for (let index = runs.length - 1; index >= 0; index--) {
+    if (runs[index].source_run?.startsWith('matrix:')) return index;
+  }
+  return 0;
 }
 function readRoute() {
   const route = new URLSearchParams(location.hash.slice(1));
@@ -415,8 +421,12 @@ function choice(text, meta, pressed, action) {
   button.addEventListener('click',action);
   return button;
 }
-function modelLabel(trial,index) {
-  return trial.model || '运行 '+String(index+1).padStart(2,'0');
+function modelLabel(trial,index,key=activeCase) {
+  const label = trial.model || '运行 '+String(index+1).padStart(2,'0');
+  const runs = data.cases[key] || [];
+  if (!trial.model || runs.filter(run => run.model === trial.model).length < 2) return label;
+  const number = runs.slice(0,index+1).filter(run => run.model === trial.model).length;
+  return label + ' · 记录 ' + number;
 }
 function jsonPreview(value) {
   if (value && typeof value === 'object') return JSON.stringify(value,null,2);
@@ -914,7 +924,7 @@ function eventsView(content,trial) {
 }
 function draw(animateCase = false) {
   const all = data.cases[activeCase];
-  if(!all[activeIndex]) activeIndex = 0;
+  if(!all[activeIndex]) activeIndex = defaultRun(activeCase);
   const trial = all[activeIndex];
   renderCaseNavigation();
   select('case-select').replaceChildren(...scenarioGroups().flatMap(([label,keys])=>{
@@ -1042,7 +1052,7 @@ select('trace-file').onchange = async (event)=>{
     cases = Object.keys(data.cases);
     reportStatus('');
     activeCase = cases[0];
-    activeIndex = 0;
+    activeIndex = defaultRun(activeCase);
     resetSelection();
     draw();
   } catch(error) {
