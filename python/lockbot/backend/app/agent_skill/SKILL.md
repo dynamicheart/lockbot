@@ -56,6 +56,11 @@ Use the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
 stop after `resources`. Use `command --help` for all write arguments.
 
+When reporting a verified lease, give the remaining time in minutes, hours or days
+by default (for example, “约 2 小时后到期”). Use the post-operation snapshot for
+acquisition, claim and renewal. Group resources that expire together. Give an exact
+date and time when the user asks for it.
+
 - **Already signed into the workbench:** open the bookmarked fixed URL in one step.
   If the bookmark is not available to your tools, append `/#/me` to the selected
   connection's verified service origin. Pass the full URL on the first browser call

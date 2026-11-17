@@ -91,7 +91,14 @@ offset; do not interpret them as the Agent machine's local time. Unix epoch valu
 lease durations do not change with timezone. Never add eight hours to an epoch or relabel
 an existing UTC timestamp as `+08:00` when calculating ownership, renewal or stop deadlines.
 
-For human-facing absolute deadlines, use the user's requested or saved timezone.
+For user-facing lease summaries, lead with the verified time remaining. Subtract
+the snapshot's `age_seconds` from the holder's `remaining_seconds` and use minutes,
+hours or days, such as “约 2 小时后到期” or “约 2 天后到期”. Say “不到 1 分钟” for a
+verified positive remainder below a minute. Use the post-renewal remainder after a
+renewal. Bookings have a requested duration and a queue position until claimed.
+When a reliable remaining time is unavailable, refresh or say it could not be confirmed.
+
+For a requested absolute deadline, use the user's requested or saved timezone.
 Do not infer a timezone from language: a Chinese conversation does not imply UTC+08:00.
 If no preference is known, use an explicitly available user-client/browser timezone;
 otherwise state UTC with its full date and offset, and offer a timezone preference.
