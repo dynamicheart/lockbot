@@ -19,6 +19,8 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
 | Verify a server or install the ZIP | `discover` or `install` |
 | Set up access with an existing Key file | `init` |
 | Request a binding and finish after the user confirms | `key-challenge`, then `finish-enrollment` |
+| Invalidate the old Key after explicit authorization and group confirmation | `key-challenge --purpose reset`, then `finish-enrollment` |
+| Restore additional bindings using a verified existing Key | `recover` |
 | Find or verify a saved connection | `connections` or `context` |
 | Read status or use an exact resource | `resources` or `command` |
 | Open the workbench or check utilization | `panel-link` or `metrics` |
@@ -49,9 +51,10 @@ Key is active for that user and bot, the same confirmation creates one and
 reports `outcome: created`. If an active Key cannot be recovered, report that
 result and keep it valid.
 
-Only use `key-challenge --purpose reset` after the user explicitly chooses to
-invalidate the old Key and is aware that other Agents sharing it will need the
-replacement. Both paths use `bind` in chat. The server distinguishes `REC-` and
+Use `key-challenge --origin "$ORIGIN" --purpose reset --authorized` after the user
+explicitly chooses to invalidate the old Key and acknowledges that other Agents sharing
+it will need the replacement. This works without a locally saved Key. Both paths use
+`bind` in chat. The server distinguishes `REC-` and
 `RST-` codes. Sending `bind RST-…` in the robot's group applies the reset.
 The local `pending` entry in `connections` does not show the current server
 status. Use its `next_command` to check whether the group already applied the reset.

@@ -25,6 +25,11 @@ grants out of replies, command arguments, Skill files and shared memory.
 service, run `key-challenge --origin "$ORIGIN" --authorized`. Chat confirmation
 identifies the bot and restores the user's existing Key or creates their first Key.
 
+**Explicit Key reset.** Once the user requests invalidation and acknowledges that other
+Agents sharing the old Key must replace it, run
+`key-challenge --origin "$ORIGIN" --purpose reset --authorized`, even when no Key is
+saved locally. The `recover` subcommand uses a saved Key to find other eligible bindings.
+
 ## Quick start with a saved connection
 
 Use Python 3.10 or newer. Run from the project root. Substitute the actual absolute path
@@ -87,9 +92,8 @@ stop after `resources`. Use `command --help` for all write arguments.
    catalog. Choose the command options yourself and report where the connection was saved.
 5. To restore access, first look for an existing connection or personal Key on the
    approved service. Use it to recover other eligible groups without asking for names.
-   Before issuing a reset code, get an explicit request to invalidate the old Key and
-   acknowledgement that other Agents sharing it need the replacement. Only then add
-   `--purpose reset`. A failed recovery stops at reporting the result.
+   A failed recovery stops at reporting the result. For an explicitly authorized reset,
+   follow the **Explicit Key reset** command above.
    Quote the CLI's `user_instruction_zh` for Chinese or `user_instruction` for English
    verbatim. For other languages, translate `user_instruction` and preserve the exact
    `bind_command`. The verified chat confirmation identifies the bot.
@@ -97,15 +101,15 @@ stop after `resources`. Use `command --help` for all write arguments.
    A confirmed reset has already taken effect. If the user asks to continue in a new
    session, their request and `chat_action: reset_applied` authorize saving the result.
    Run `finish-enrollment` directly without asking them to confirm the reset again.
-6. In a new session run `connections` from the project root. Prefer the matching record
-   in `.lockbot/connections/` before `~/.config/lockbot/connections/`. For project-only
-   lookup use `connections --directory .lockbot/connections`. To resume a binding,
-   take `enrollment_dir` from `pending_enrollments` and run `enrollment-status` on it.
-   After chat confirmation, finish that enrollment instead of requesting another code.
-   If multiple services match
-   and the user has not selected one, show their addresses and ask which to use. Use
-   `--connection <private-file> context` to verify the intended identity and bot.
-   Use `recover` for other eligible bindings before asking the user to rebind or rotate.
+6. In a new session run `connections` from the project root. Prefer the project catalog
+   `.lockbot/connections/` over `~/.config/lockbot/connections/`. For project-only lookup,
+   use `connections --directory .lockbot/connections`.
+   - For a status request, run `resources` with the matching path from `result.connections`.
+     If multiple services match and the user has not selected one, show their addresses
+     and ask which to use.
+   - When the user returns to finish a binding, take `enrollment_dir` from
+     `pending_enrollments` and check it with `enrollment-status`. After chat confirmation,
+     finish that enrollment using the same directory.
 
 Read [connections and updates](references/connections.md) for setup commands, directory
 rules, Key recovery, and version checks. An update or incompatible API blocks writes until
