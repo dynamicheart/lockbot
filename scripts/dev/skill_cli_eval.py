@@ -134,9 +134,10 @@ def prepare(root, artifact, scenario):
                 "group_constraint": b"selected_connection_does_not_match_requested_group" in helper,
             },
         )
-        (root / "prompt.txt").write_text(
-            f"装一下这个 Skill。{base.ORIGIN}{base.BUNDLE_PATH}\n{intent.PROMPTS[scenario]}"
-        )
+        prompt = intent.PROMPTS[scenario]
+        if scenario not in intent.SHORT_PROMPTS:
+            prompt = f"装一下这个 Skill。{base.ORIGIN}{base.BUNDLE_PATH}\n{prompt}"
+        (root / "prompt.txt").write_text(prompt)
         private = root / "workspace/private"
         for identifier, key, uuid in ((7, base.KEY, base.BOT_UUID), (8, continuity.SECOND_KEY, continuity.SECOND_UUID)):
             base.save_json(
@@ -190,6 +191,11 @@ def prepare(root, artifact, scenario):
             "Only a human can confirm a new enrollment in the resource group's chat. "
             "An existing verified connection uses the API for authorized resource operations."
         )
+    if scenario in intent.SHORT_PROMPTS:
+        fixture = Fixture(root)
+        Client(approved_origin=fixture.origin, opener=fixture).install(fixture.installation)
+        (root / "cli-http.jsonl").unlink(missing_ok=True)
+        system += " The verified Skill is already installed. read_lockbot_skill reads it."
     (root / "system.txt").write_text(system)
     configure(root)
 
@@ -409,6 +415,11 @@ class Fixture(continuity.Fixture):
                 name=next(name for name, identifier in intent.group_ids(scenario).items() if identifier == bot)
             )
             body["bot"]["type"] = intent.bot_type(scenario, bot)
+            if scenario in intent.SHORT_PROMPTS:
+                body["bot_rules"] = {
+                    **(body.get("bot_rules") or {}),
+                    "default_duration_seconds": intent.SHORT_DEFAULT_DURATION if bot == 8 else 3600,
+                }
             body["skill"] = self.manifest()
             return response
         state = self.root / f"simulated-bot-{bot}.json"
@@ -432,7 +443,9 @@ class Fixture(continuity.Fixture):
                 (
                     expected
                     for case, (identifier, expected) in intent.EXPECTED.items()
-                    if (case != "intent-release" or case == scenario)
+                    if (case not in intent.SHORT_PROMPTS or case == scenario)
+                    and (scenario not in intent.SHORT_PROMPTS or case == scenario)
+                    and (case != "intent-release" or case == scenario)
                     and identifier == bot
                     and intent.equivalent(args.get("command"), expected)
                 ),
@@ -515,7 +528,7 @@ class Fixture(continuity.Fixture):
         if not installed:
             return {"error": "verified_package_required"}
         if action not in ACTIONS and not (
-            (action in ("connections", "command") and self.case["scenario"] in intent.PROMPTS)
+            (action in ("connections", "context", "command") and self.case["scenario"] in intent.PROMPTS)
             or (action == "command" and self.case["scenario"] == COLD_REQUEST)
             or (
                 action == "connections"
@@ -529,7 +542,7 @@ class Fixture(continuity.Fixture):
         argv = [action]
         if action == "connections" and self.case["scenario"] in intent.PROMPTS:
             return {"result": {"groups": list(intent.group_ids(self.case["scenario"]))}}
-        if action in ("resources", "command") and self.case["scenario"] in intent.PROMPTS:
+        if action in ("context", "resources", "command") and self.case["scenario"] in intent.PROMPTS:
             identifier = intent.group_ids(self.case["scenario"]).get(args.get("group"))
             if identifier is None:
                 return {"error": "group_required"}
@@ -728,7 +741,9 @@ def tools(root):
     is_intent = scenario in intent.PROMPTS
     allows_commands = is_intent or scenario == COLD_REQUEST
     operations = ["lock", "book", "claim", "renew", "release"]
-    actions = ("discover", "connections", "resources", "command") if is_intent else ACTIONS
+    if is_intent:
+        operations.append("slock")
+    actions = ("discover", "connections", "context", "resources", "command") if is_intent else ACTIONS
     extra = (
         {
             "operation": {"type": "string", "enum": operations},
@@ -825,7 +840,7 @@ def tools(root):
                 "Run the installed Lockbot CLI using the approved origin and private workspace. "
                 "Use local-state for installed files and connections for private connection records."
                 if not is_intent
-                else "List configured groups, read inventory, or run a command through the packaged Lockbot CLI."
+                else "List configured groups, inspect group rules with context, read inventory, or run a command."
             ),
             "inputSchema": base.schema(
                 {

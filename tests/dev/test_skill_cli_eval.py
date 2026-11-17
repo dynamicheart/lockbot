@@ -38,6 +38,53 @@ def run(fixture, action, **kwargs):
     return fixture.call("run_lockbot", {"action": action, **kwargs})
 
 
+@pytest.mark.parametrize(
+    ("scenario", "operation", "nodes", "duration", "final"),
+    [
+        ("intent-lock-tail", "lock", ["node-19"], "180m", "19 已锁三小时。"),
+        (
+            "intent-lock-tail-list",
+            "lock",
+            ["node-22", "node-21", "node-20", "node-19"],
+            "3h",
+            "四台机器都已锁三小时。",
+        ),
+        (
+            "intent-lock-tail-list-4h",
+            "lock",
+            ["node-11", "node-12", "node-13", "node-14"],
+            "240m",
+            "四台机器都已锁四小时。",
+        ),
+        ("intent-book-tail", "book", ["node-19"], "4h", "已预约 19，使用四小时。"),
+        ("intent-shared-tail", "slock", ["node-19"], "4h", "19 的 0 号卡已共享锁定四小时。"),
+        ("intent-lock-duration-only", None, [], None, "你要锁哪台机器？"),
+        ("intent-find-p800", None, [], None, "node-23 是空闲的 P800 整机。"),
+        ("intent-ambiguous-tail", None, [], None, "加速卡群还是整机队列群，你想锁哪个群里的机器？"),
+    ],
+)
+def test_short_prompts_use_saved_environment(tmp_path, monkeypatch, scenario, operation, nodes, duration, final):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    prompt = (fixture.root / "prompt.txt").read_text()
+    assert prompt == evaluation.intent.SHORT_PROMPTS[scenario]
+    assert not (fixture.root / "cli-http.jsonl").exists()
+    groups = run(fixture, "connections")["result"]["groups"]
+    for group in groups:
+        assert run(fixture, "resources", group=group)["result"]["resources"]
+
+    if operation:
+        group = evaluation.intent.CARDS if operation == "slock" else evaluation.intent.MACHINES
+        kwargs = {"devices": ["0"]} if operation == "slock" else {"whole_node": True}
+        if scenario in {"intent-lock-tail", "intent-lock-tail-list"}:
+            rules = run(fixture, "context", group=group)["result"]["bot_rules"]
+            assert rules["default_duration_seconds"] == 10_800
+        response = run(fixture, "command", group=group, operation=operation, nodes=nodes, duration=duration, **kwargs)
+        assert response.get("result", {}).get("verified"), response
+
+    grade = evaluation.score(fixture.root, final)
+    assert grade["observable_pass"], grade["checks"]
+
+
 def test_ordinary_user_installs_and_requests_a_machine_without_key_instructions(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, evaluation.COLD_REQUEST)
     request = (fixture.root / "prompt.txt").read_text().splitlines()[0]

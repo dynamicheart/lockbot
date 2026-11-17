@@ -22,14 +22,33 @@ TRAINING_NODE = "node-10"
 MACHINE_NODE = "node-20"
 MATCHING_MACHINE = "node-23"
 WHOLE_MACHINE_BOOKING = f"book {MATCHING_MACHINE} 2h"
+SHORT_PROMPTS = {
+    "intent-lock-tail": "lock 19",
+    "intent-lock-tail-list": "lock 19,20,21,22",
+    "intent-lock-tail-list-4h": "lock 11,12,13,14 4h",
+    "intent-lock-duration-only": "lock 一天",
+    "intent-find-p800": "帮我找台P800的机器",
+    "intent-book-tail": "book 19 4h",
+    "intent-shared-tail": "slock 19 dev0 4h",
+    "intent-ambiguous-tail": "lock 19 4h",
+}
+SHORT_MACHINE_IDS = {
+    "intent-lock-tail": (19,),
+    "intent-lock-tail-list": (19, 20, 21, 22),
+    "intent-lock-tail-list-4h": (11, 12, 13, 14),
+    "intent-book-tail": (19,),
+}
+SHORT_DEFAULT_DURATION = 10_800
+
 PROMPTS = {
-    "intent-exact": f"帮我锁{CARDS}里训练节点的 2、3 号 P800 卡，使用 2 小时。",
+    **SHORT_PROMPTS,
+    "intent-exact": "帮我锁 node-10 的 2、3 号 P800 卡，用两小时。",
     "intent-query": "帮我找一台还有两张空闲 P800 卡的机器，我先看看。",
     "intent-ambiguous": "帮我锁训练节点 2 小时。",
-    "intent-choose": f"帮我在{CARDS}找同一台机器上的两张空闲 P800 卡，你直接代选并锁 2 小时。",
-    "intent-whole": f"帮我锁{MACHINES}里训练节点的两张卡，2 小时。",
-    "intent-book": f"帮我预约{MACHINES}里的训练节点，轮到后用 2 小时。",
-    "intent-claim": f"{MACHINES}通知我轮到了。帮我领取之前预约的训练节点，按原预约时长用。",
+    "intent-choose": "找台有两张空闲 P800 卡的机器，直接锁这两张，用两小时。",
+    "intent-whole": "帮我锁 node-20 上的两张卡，两小时。",
+    "intent-book": "book node-20 2h",
+    "intent-claim": "轮到我了，领取之前预约的机器。",
     "intent-model-find": "帮我找空闲的 P800 或 P900 卡，哪个群、哪台机器都行，我先看看。",
     "intent-model-allocate": "帮我直接申请一张空闲的 P800 或 P900 卡，用两小时。群、机器、卡都由你选。",
     **{
@@ -40,12 +59,17 @@ PROMPTS = {
         scenario: f"帮我直接申请一台空闲的整机，要至少有两张 {model} 卡，用两小时。哪个群、哪台都行。"
         for scenario, model in WHOLE_MACHINE_MODELS.items()
     },
-    "intent-renew": f"帮我给{MACHINES}里我占用的训练节点续期，在原到期时间上再加两小时。",
-    "intent-release": f"帮我释放{CARDS}里训练节点的 2 号卡，3 号卡继续保留。",
-    "intent-write-unknown": f"帮我锁{CARDS}里训练节点的 2、3 号卡两小时。",
-    "intent-stale": f"帮我在{CARDS}找一台有两张空闲 P800 的机器并锁 2 小时。",
+    "intent-renew": "我占用的那台机器再加两小时。",
+    "intent-release": "释放 node-10 的 2 号卡，3 号留着。",
+    "intent-write-unknown": "锁 node-10 的 2、3 号卡，两小时。",
+    "intent-stale": "找两张同一台机器上的空闲 P800，帮我锁两小时。",
 }
 EXPECTED = {
+    "intent-lock-tail": (8, "lock node-19 3h"),
+    "intent-lock-tail-list": (8, "lock node-19,node-20,node-21,node-22 3h"),
+    "intent-lock-tail-list-4h": (8, "lock node-11,node-12,node-13,node-14 4h"),
+    "intent-book-tail": (8, "book node-19 4h"),
+    "intent-shared-tail": (7, "slock node-19 dev0 4h"),
     "intent-exact": (7, "lock node-10 dev2,3 2h"),
     "intent-choose": (7, "lock node-10 dev2,3 2h"),
     "intent-book": (8, "book node-20 2h"),
@@ -70,7 +94,9 @@ def equivalent(command, expected):
     if not isinstance(command, str):
         return False
     actual_parts, expected_parts = command.split(), expected.split()
-    if len(actual_parts) != len(expected_parts) or actual_parts[:2] != expected_parts[:2]:
+    if len(actual_parts) != len(expected_parts) or actual_parts[0] != expected_parts[0]:
+        return False
+    if sorted(actual_parts[1].split(",")) != sorted(expected_parts[1].split(",")):
         return False
     if len(expected_parts) == 2:
         return True
@@ -81,11 +107,11 @@ def equivalent(command, expected):
         expected_cards = expected_parts[2][3:].split(",")
         if not card_spec.startswith("dev") or sorted(card_spec[3:].split(",")) != sorted(expected_cards):
             return False
-    duration = actual_parts[-1]
-    factor = {"s": 1, "m": 60, "h": 3600, "d": 86400}.get(duration[-1])
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    actual, expected = actual_parts[-1], expected_parts[-1]
     try:
-        return factor is not None and Decimal(duration[:-1]) * factor == 7200
-    except InvalidOperation:
+        return Decimal(actual[:-1]) * units[actual[-1]] == Decimal(expected[:-1]) * units[expected[-1]]
+    except (InvalidOperation, KeyError):
         return False
 
 
@@ -104,7 +130,43 @@ def inventory(bot, command="", *, scenario=None):
             "holders": [{"external_user_id": "neighbor"}] if busy else [holder] if acquired else [],
         }
 
-    if scenario in MODEL_SCENARIOS:
+    if scenario in SHORT_PROMPTS:
+        acquired = bool(command and scenario in EXPECTED and command == EXPECTED[scenario][1])
+        if acquired:
+            value = command.split()[-1]
+            seconds = int(value[:-1]) * 3600
+            holder.update(remaining_seconds=seconds, expires_at=(captured + timedelta(seconds=seconds)).isoformat())
+        if bot == 7:
+            matching = scenario in {"intent-ambiguous-tail", "intent-shared-tail"}
+            rows = [
+                {
+                    "id": "node-19" if matching else "node-10",
+                    "alias": "19" if matching else "10",
+                    "devices": [device(0, "P800", acquired=acquired)],
+                }
+            ]
+            if acquired:
+                rows[0]["devices"][0]["lock_status"] = "shared"
+            operations = ["lock", "slock", "unlock"]
+        else:
+            numbers = SHORT_MACHINE_IDS.get(scenario, (23,) if scenario == "intent-find-p800" else (19, 20))
+            if scenario == "intent-shared-tail":
+                numbers = (20,)
+            booking = scenario == "intent-book-tail"
+            holders = [{"external_user_id": "neighbor"}] if booking else [holder] if acquired else []
+            rows = [
+                {
+                    "id": f"node-{number}",
+                    "alias": str(number),
+                    "lock_status": "exclusive" if holders else "idle",
+                    "holders": holders,
+                    "booking_list": [holder] if acquired and booking else [],
+                    "accelerators": [{"model": "P800", "count": 8}],
+                }
+                for number in numbers
+            ]
+            operations = ["lock", "book", "unlock"]
+    elif scenario in MODEL_SCENARIOS:
         acquired = bot == 8 and command == EXPECTED["intent-model-allocate"][1]
         rows = [
             {
@@ -217,8 +279,8 @@ def score(scenario, requests, tools, final):
     checks = {}
     groups = group_ids(scenario)
     resource_paths = {f"bots/{bot}/resources" for bot in groups.values()}
-    if scenario in MODEL_SCENARIOS:
-        inspected = tools if not attempts else tools[: tools.index(attempts[0])]
+    inspected = tools if not attempts else tools[: tools.index(attempts[0])]
+    if scenario in MODEL_SCENARIOS or scenario in SHORT_PROMPTS.keys() - {"intent-lock-duration-only"}:
         checks["both_candidate_groups_examined"] = set(groups) <= {
             row["args"].get("group")
             for row in inspected
@@ -241,6 +303,14 @@ def score(scenario, requests, tools, final):
             any(row["status"] == 200 and row["url"].endswith(f"/api/bots/{bot}/resources") for row in part)
             for part in (requests[: requests.index(posts[0])], requests[requests.index(posts[0]) + 1 :])
         )
+        if scenario in {"intent-lock-tail", "intent-lock-tail-list"}:
+            checks["verified_default_duration"] = any(
+                row["args"].get("action") == "context"
+                and groups.get(row["args"].get("group")) == bot
+                and row["result"].get("result", {}).get("bot_rules", {}).get("default_duration_seconds")
+                == SHORT_DEFAULT_DURATION
+                for row in inspected
+            )
         if unknown:
             checks["unknown_outcome_reported"] = any(
                 phrase in final for phrase in ("无法确认", "未能确认", "未确认", "结果不明", "结果未知", "不确定")
@@ -277,7 +347,7 @@ def score(scenario, requests, tools, final):
     else:
         checks["zero_write_attempts"] = not posts and not attempts
         suffixes = {row["url"].split("/api/")[-1] for row in reads}
-        if scenario == "intent-ambiguous":
+        if scenario in {"intent-ambiguous", "intent-ambiguous-tail"}:
             checks["both_candidate_groups_examined"] = resource_paths <= suffixes
             explicit_question = re.search(
                 r"哪(?:个|一个|一台|台)[^。！？!?]{0,8}(?:群|节点|机器|资源)[^。！？!?\n]{0,16}[？?]", final
@@ -293,6 +363,12 @@ def score(scenario, requests, tools, final):
                 final,
             )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
+        elif scenario == "intent-lock-duration-only":
+            checks["asks_for_missing_target"] = bool(
+                re.search(r"(?:选|锁|哪|目标|指定).{0,10}(?:机器|节点|资源|台)", final)
+            )
+        elif scenario == "intent-find-p800":
+            checks["whole_p800_candidate_reported"] = "node-23" in final and "p800" in final.lower()
         elif scenario == "intent-model-find":
             checks["both_models_reported"] = all(
                 token in final.lower() for token in ("node-10", "node-20", "p800", "p900")
