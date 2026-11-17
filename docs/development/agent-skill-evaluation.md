@@ -413,3 +413,20 @@ groups public aliases ending in `.19` and requires clarification without a write
 These idle snapshots contain no `node_access` fields: an intentionally shared
 public alias is a legitimate lookup source, separate from privately registered
 SSH addresses. The held-address and genuinely missing-mapping cases remain.
+
+Fixture version 15 corrects two observable-grading false negatives found in native
+runs. A contextual second turn may reuse candidate discovery only when the
+preceding sibling fixture's trace digest, scenario, Skill hash, actual conversation,
+adapter acknowledgement and pinned actor/bot identities all match. The first turn
+must have passed its observable checks. A multi-machine prior answer cannot supply
+a unique referent for `lock 一天`. Current mutation verification still requires a
+fresh selected-group observation from the packaged helper; prior discovery never
+substitutes for current state or authorizes a different target.
+
+Own-resource reply checks distinguish clearly labeled holding, booking and other-owner
+sections, including Markdown tables. An explanatory booking or neighbor-card mention
+is not automatically a claim of ownership. Explicit wrong card/role claims in the
+requested section still fail. Mixed-role prose remains a semantic-review task;
+observable success does not certify queue start times, booking expiry, or any other
+explanation. Historical native results are preserved; a read-only regrade is separate
+from a new paid model run.

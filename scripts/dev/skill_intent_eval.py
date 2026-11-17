@@ -318,9 +318,9 @@ def inventory(bot, command="", *, scenario=None, phase=1, writes=0):
     }
 
 
-def score(scenario, requests, tools, final, *, phase=1):
+def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
     if scenario in TASK_SCENARIOS:
-        return task_score(scenario, phase, requests, tools, final)
+        return task_score(scenario, phase, requests, tools, final, prior_groups=prior_groups)
     attempts = [row for row in tools if row["args"].get("action") == "command"]
     reads = [row for row in requests if row["url"].endswith("/resources") and row["status"] == 200]
     posts = [row for row in requests if row["method"] == "POST"]
@@ -574,7 +574,7 @@ def task_inventory(bot, scenario, phase, writes):
     return snapshot
 
 
-def task_score(scenario, phase, requests, tools, final):
+def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
     writes = [row for row in tools if row["args"].get("action") == "command"]
     posts = [row for row in requests if row["method"] == "POST"]
     inspected = tools if not writes else tools[: tools.index(writes[0])]
@@ -583,6 +583,8 @@ def task_score(scenario, phase, requests, tools, final):
         for row in inspected
         if row["args"].get("action") == "resources" and "result" in row["result"]
     }
+    if phase == 2 and scenario in CONVERSATIONAL_PROMPTS and scenario not in INSTALL_FOLLOWUPS:
+        groups_read.update(prior_groups)
     expected = task_expectation(scenario, phase)
     if scenario in INSTALL_FOLLOWUPS and phase == 1:
         return {
@@ -616,11 +618,13 @@ def task_score(scenario, phase, requests, tools, final):
     else:
         checks["zero_write_attempts"] = not writes and not posts
         if scenario == "intent-my-locks":
-            checks["own_holdings_reported"] = reported_nodes(final) == {"node-10", "node-20"}
-            checks["others_not_reported_as_own"] = explicit_cards(final, "node-10") <= {2}
+            claims = requested_claim_text(final, "holdings")
+            checks["own_holdings_reported"] = reported_nodes(claims) == {"node-10", "node-20"}
+            checks["others_not_reported_as_own"] = explicit_cards(claims, "node-10") <= {2}
         elif scenario == "intent-my-books":
-            checks["own_bookings_reported"] = reported_nodes(final) == {"node-10", "node-21"}
-            checks["holdings_not_confused_with_bookings"] = explicit_cards(final, "node-10") <= {3}
+            claims = requested_claim_text(final, "bookings")
+            checks["own_bookings_reported"] = reported_nodes(claims) == {"node-10", "node-21"}
+            checks["holdings_not_confused_with_bookings"] = explicit_cards(claims, "node-10") <= {3}
         elif scenario == "intent-context-lock-day":
             checks["whole_p800_candidate_reported"] = "node-23" in final and "p800" in final.lower()
         elif scenario == "intent-install-then-query":
@@ -691,7 +695,9 @@ def explicit_cards(final, node):
     for match in re.finditer(r"(?<![A-Za-z0-9_-])" + re.escape(node) + r"(?![A-Za-z0-9_-])", final):
         following = final[match.end() :]
         following = re.split(r"(?<![A-Za-z0-9_-])node-\d+(?![A-Za-z0-9_-])", following, maxsplit=1)[0]
-        claims.update(int(value) for value in re.findall(r"(?<!\d)(\d+)\s*号(?:卡)?", following))
+        for value in re.findall(r"(?<!\d)(\d+(?:\s*[,、/]\s*\d+)*)\s*号", following):
+            claims.update(int(part) for part in re.findall(r"\d+", value))
+        claims.update(int(value) for value in re.findall(r"卡(?:号)?\s*#?\s*(\d+)", following))
         for value in re.findall(r"\bdev([0-9,]+)", following):
             claims.update(int(part) for part in value.split(","))
     return claims
@@ -768,3 +774,64 @@ def public_ip_alias_inventory(bot, scenario, writes):
         "supported_operations": ["lock", "book", "unlock"],
         "resources": [node],
     }
+
+
+def requested_claim_text(final, requested):
+    """Separate clearly labeled roles; uncertain prose still needs semantic review.
+
+    Mentioning another state is not claiming it as the requested state. Retain
+    contradictions within the requested block, but do not mix another section's
+    card numbers into it. Ambiguous mixed-role summaries are not used as proof.
+    """
+    active, claimed = requested, []
+    for original in final.splitlines():
+        for fragment in re.split(r"[；;]", original):
+            text = re.sub(r"[*_`]", "", fragment).strip()
+            if not text:
+                continue
+            book = bool(re.search(r"预约|预订|排队|\bbook|\breserv|\bqueued|\bqueue position", text, re.I))
+            hold = bool(re.search(r"持有|占用|锁定|锁（|\block|\bhold|\blease", text, re.I))
+            other = bool(
+                re.search(
+                    r"与你(?:的账号)?无关|不是你的|不算你的|另一个账号|都属于\s*neighbor|均由他人|其他(?:资源|情况|说明)|需要留意",
+                    text,
+                    re.I,
+                )
+            )
+            not_book = bool(re.search(r"(?:不属于|不是|不在|并非|不算).{0,6}(?:预约|预订|book|排队)", text, re.I))
+            not_hold = bool(
+                re.search(r"(?:不是|尚未|并未|暂未|还未|不算|不属于|不代表).{0,6}(?:占用|持有|锁定|lock)", text, re.I)
+            )
+            role = None
+            ambiguous = False
+            if other:
+                role = "other"
+            elif not_book and hold:
+                role = "holdings"
+            elif not_hold and book:
+                role = "bookings"
+            elif not_hold:
+                role = "other"
+            elif (
+                hold
+                and not book
+                and re.search(r"neighbor|demo-user-other|他人|别人|当前持有者", text, re.I)
+                and not re.search(r"(?:你|您|本人|我).{0,12}(?:持有|占用|锁|lock|hold)", text, re.I)
+            ):
+                role = active if active in {"bookings", "other"} else "other"
+            elif book and hold:
+                if re.search(r"neighbor|他人|别人|当前持有者|持卡人|持机人", text, re.I):
+                    role = "bookings"
+                else:
+                    ambiguous = True
+            elif book:
+                role = "bookings"
+            elif hold:
+                role = "holdings"
+            if ambiguous:
+                continue
+            if role is not None:
+                active = role
+            if active == requested:
+                claimed.append(text)
+    return "\n".join(claimed)

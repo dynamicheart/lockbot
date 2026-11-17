@@ -1060,3 +1060,103 @@ def test_public_alias_119_does_not_satisfy_tail_19(tmp_path, monkeypatch):
     wrong = run(fixture, "command", group=evaluation.intent.CARDS, operation="lock", nodes=["cedar"], whole_node=True)
     assert not wrong.get("result", {}).get("verified")
     assert not evaluation.score(fixture.root, "cedar 已锁定。")["observable_pass"]
+
+
+@pytest.mark.parametrize(
+    "provenance", ["valid", "bad_digest", "bad_reply", "wrong_actor", "failed_parent", "ambiguous_parent", "no_ack"]
+)
+def test_followup_reuses_only_verified_prior_discovery(tmp_path, monkeypatch, provenance):
+    first = prepare(tmp_path, monkeypatch, "intent-context-lock-day")
+    for group in evaluation.intent.GROUP_IDS:
+        run(first, "resources", group=group)
+    answer = "node-23 是空闲的 P800 整机。"
+    if provenance == "failed_parent":
+        failed = run(
+            first, "command", group=evaluation.intent.MACHINES, operation="lock", nodes=["node-23"], whole_node=True
+        )
+        assert failed.get("error")
+    if provenance == "ambiguous_parent":
+        answer = "node-23 和 node-24 都有P800，可以选择。"
+    if provenance == "wrong_actor":
+        path = first.root / "trace.jsonl"
+        events = [json.loads(line) for line in path.read_text().splitlines()]
+        for event in events:
+            if event.get("args", {}).get("group") == evaluation.intent.CARDS:
+                event["result"]["result"]["actor"]["external_user_id"] = "other-user"
+                event["result"]["result"]["context"]["actor"]["external_user_id"] = "other-user"
+        path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    evaluation.base.save_json(first.root / "response.json", {"text": answer})
+    destination = tmp_path / "followup"
+    evaluation.resume(first.root, destination)
+    second = evaluation.Fixture(destination)
+    if provenance == "bad_digest":
+        second.case["parent_evidence_digest"] = "0" * 64
+        evaluation.base.save_json(destination / "case.json", second.case)
+    if provenance == "bad_reply":
+        history = json.loads((destination / "conversation.json").read_text())
+        history[-1]["content"] = "node-24 是P800。"
+        evaluation.base.save_json(destination / "conversation.json", history)
+    result = run(
+        second,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation="lock",
+        nodes=["node-23"],
+        whole_node=True,
+        duration="1d",
+    )
+    assert result["result"]["verified"], result
+    final = "node-23 已锁一天。"
+    response = {"text": final}
+    if provenance != "no_ack":
+        response["conversation_sha256"] = evaluation.base.digest((destination / "conversation.json").read_bytes())
+    evaluation.base.save_json(destination / "response.json", response)
+    grade = evaluation.score(destination, final)
+    assert grade["checks"]["exactly_one_correct_cli_write"]
+    assert grade["checks"]["verified_before_and_after"]
+    assert grade["checks"]["both_candidate_groups_examined"] is (provenance == "valid")
+    assert grade["observable_pass"] is (provenance == "valid")
+
+
+@pytest.mark.parametrize(
+    ("scenario", "reply", "passed"),
+    [
+        (
+            "intent-my-locks",
+            "你目前lock了：\n|群|机器|占用|\n|加速卡群|`node-10`|卡号`2`|\n|整机群|`node-20`|整机|\n"
+            "另外你还有预约 `node-10` 的卡`3`和`node-21`，尚未持有。",
+            True,
+        ),
+        (
+            "intent-my-locks",
+            "## 正在持有\n加速卡群(DEVICE)\n|node-10|卡 #2|\n整机队列群(QUEUE)\n|node-20|整机|\n"
+            "## 另外预约\n- node-10 的3号卡，当前由neighbor持有\n- node-21，当前持有者是neighbor\n"
+            "## 其他说明\n- node-10 卡 #4 属于demo-user-other，与你无关。",
+            True,
+        ),
+        (
+            "intent-my-books",
+            "你book了：\n- node-10 的3号卡\n- node-21 整机\n另外你已lock持有 node-20 和 node-10 的2号卡，不属于排队。",
+            True,
+        ),
+        (
+            "intent-my-books",
+            "## 预约（不是锁定）\n- node-10 的3号卡，当前由neighbor持有\n- node-21，当前由neighbor持有\n"
+            "## 已锁定（不属于预约）\n- node-10 的2号卡\n- node-20 整机",
+            True,
+        ),
+        ("intent-my-locks", "## 你持有\nnode-10 的3号卡和node-20\n## 另外预约\nnode-10 的3号卡和node-21", False),
+        ("intent-my-locks", "## 你持有\n|node-10|卡 #4|\n|node-20|整机|\n## 另外预约\nnode-10卡3和node-21", False),
+        ("intent-my-books", "## 你预约\nnode-10 的2号卡和node-21\n## 已持有\nnode-10 的2号卡和node-20", False),
+        ("intent-my-locks", "你持有node-10 的2、4号卡和node-20", False),
+    ],
+)
+def test_ownership_grading_distinguishes_explanatory_roles_and_explicit_contradictions(
+    tmp_path, monkeypatch, scenario, reply, passed
+):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    for group in evaluation.intent.GROUP_IDS:
+        run(fixture, "resources", group=group)
+    grade = evaluation.score(fixture.root, reply)
+    assert grade["observable_pass"] is passed, grade
+    assert grade["manual_review_required"]

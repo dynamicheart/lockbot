@@ -85,7 +85,9 @@ def prepare(root, artifact, scenario):
         {
             **case,
             "coherent_snapshot": b"coherent_resource_snapshot" in helper,
-            "fixture_version": 14
+            "fixture_version": 15
+            if scenario in intent.CONVERSATIONAL_PROMPTS or scenario in {"intent-my-locks", "intent-my-books"}
+            else 14
             if scenario in intent.PUBLIC_IP_ALIAS_PROMPTS
             else 13
             if scenario in {"reset-personal-key", "intent-my-locks", "intent-my-books"}
@@ -239,6 +241,9 @@ def continue_conversation(source, destination, prompt):
     if not isinstance(previous.get("text"), str):
         raise ValueError("The prior assistant response is unavailable")
     continuity.resume(source, destination)
+    case_path = destination / "case.json"
+    case = json.loads(case_path.read_text())
+    base.save_json(case_path, {**case, "parent_fixture_directory": source.name})
     for state in source.glob("simulated-bot-*.json"):
         shutil.copy2(state, destination / state.name)
     history = json.loads((source / "conversation.json").read_text()) if (source / "conversation.json").is_file() else []
@@ -1153,6 +1158,83 @@ def score_panel(fixture, requests, final):
     return checks
 
 
+def prior_observed_groups(root, fixture, final):
+    """Reuse discovery from an acknowledged, successful preceding turn only.
+
+    This does not supply current mutation state: the packaged CLI must still
+    obtain its own fresh selected-group snapshot before the POST.
+    """
+    scenario = fixture.case["scenario"]
+    if (
+        fixture.case["phase"] != 2
+        or scenario not in intent.CONVERSATIONAL_PROMPTS
+        or scenario in intent.INSTALL_FOLLOWUPS
+    ):
+        return set()
+    try:
+        name = fixture.case.get("parent_fixture_directory", "phase-1")
+        if not isinstance(name, str) or Path(name).name != name:
+            return set()
+        source = root.parent / name
+        if source.resolve().parent != root.resolve().parent or source.resolve() == root.resolve():
+            return set()
+
+        def read(path):
+            with path.open("rb") as evidence:
+                data = evidence.read(32 * 1024 * 1024 + 1)
+            if len(data) > 32 * 1024 * 1024:
+                raise ValueError("Context evidence is too large")
+            return data
+
+        prior_case = json.loads(read(source / "case.json"))
+        trace = read(source / "trace.jsonl")
+        previous = json.loads(read(source / "response.json"))
+        conversation = read(root / "conversation.json")
+        response = json.loads(read(root / "response.json"))
+        if (
+            prior_case.get("scenario") != scenario
+            or prior_case.get("phase") != 1
+            or prior_case.get("skill_sha256") != fixture.case.get("skill_sha256")
+            or base.digest(trace) != fixture.case.get("parent_evidence_digest")
+            or response.get("text") != final
+            or response.get("conversation_sha256") != base.digest(conversation)
+            or json.loads(conversation)
+            != [
+                {"role": "user", "content": read(source / "prompt.txt").decode()},
+                {"role": "assistant", "content": previous["text"]},
+            ]
+        ):
+            return set()
+        if not score(source, previous["text"])["observable_pass"]:
+            return set()
+        observed = {}
+        for event in (json.loads(line) for line in trace.decode().splitlines()):
+            args, result = event.get("args", {}), event.get("result", {}).get("result", {})
+            group = args.get("group")
+            if event.get("tool") != "run_lockbot" or args.get("action") != "resources" or group not in intent.GROUP_IDS:
+                continue
+            identifier = intent.GROUP_IDS[group]
+            pinned = json.loads(read(fixture.workspace / f"private/group-{identifier}.json"))
+            context = result.get("context", {})
+            if (
+                result.get("bot_id") == identifier
+                and isinstance(result.get("resources"), list)
+                and result.get("actor") == context.get("actor") == pinned.get("actor")
+                and context.get("server", {}).get("instance_id") == pinned.get("instance_id")
+                and context.get("bot", {}).get("uuid") == pinned.get("bot_uuid")
+            ):
+                observed[group] = result
+        if scenario == "intent-context-lock-day":
+            machines = observed.get(intent.MACHINES, {}).get("resources", [])
+            mentioned = intent.reported_nodes(previous["text"])
+            # Multiple whole-machine mentions do not establish a unique referent.
+            if {node["id"] for node in machines} & mentioned != {intent.MATCHING_MACHINE}:
+                return set()
+        return set(observed)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
 def score(root, final):
     fixture = Fixture(root)
     private = fixture.workspace / "private"
@@ -1260,7 +1342,16 @@ def score(root, final):
             if tool_trace.exists()
             else []
         )
-        checks.update(intent.score(scenario, requests, cli_tools, final, phase=phase))
+        checks.update(
+            intent.score(
+                scenario,
+                requests,
+                cli_tools,
+                final,
+                phase=phase,
+                prior_groups=prior_observed_groups(root, fixture, final),
+            )
+        )
     elif scenario == "recover":
         recovered = private / "groups" / continuity.SECOND_UUID
         key = recovered / "key"
