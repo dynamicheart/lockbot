@@ -137,10 +137,10 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
 
 def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "panel")
-    monkeypatch.setattr(evaluation.base, "tools", lambda: evaluation.tools(fixture.root))
-    assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= {
-        tool["name"] for tool in evaluation.base.tools()
-    }
+    tools = {tool["name"]: tool for tool in evaluation.tools(fixture.root)}
+    assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= tools.keys()
+    assert "local-state" in tools["browser_home"]["description"]
+    assert fixture.case["fixture_version"] == evaluation.PANEL_FIXTURE_VERSION
     assert install(fixture)["installed"]
     assert run(fixture, "init")["result"]["connection_created"]
     assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []
@@ -320,6 +320,7 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
         ("intent-claim", ["整机队列群"], "已领取 node-20，沿用原预约两小时。"),
         ("intent-stale", ["加速卡群"], "快照已过期，无法确认有两张空闲卡。"),
         ("intent-stale", ["加速卡群"], "复查后，资源快照仍滞后 10 分钟。这次未提交锁卡。"),
+        ("intent-stale", ["加速卡群"], "快照不新鲜，我重新查询后数据仍没刷新，所以没发锁卡。"),
     ],
 )
 def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, groups, verdict):
@@ -395,6 +396,11 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
 )
 def test_ambiguous_target_accepts_explicit_options_without_keyword(reply, asks):
     assert evaluation.intent.score("intent-ambiguous", [], [], reply)["asks_which_target"] is asks
+
+
+def test_stale_inventory_requires_an_actual_freshness_warning():
+    result = evaluation.intent.score("intent-stale", [], [], "快照没有提示不新鲜。我已核对。")
+    assert not result["uncertain_availability_reported"]
 
 
 @pytest.mark.parametrize(
