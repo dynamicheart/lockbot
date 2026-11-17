@@ -90,6 +90,12 @@ def mount_if_configured(app):
         metadata_adapter = _load_plugin(metadata["adapter"], "lockbot_connection_metadata", "create_metadata_adapter")
         if not callable(getattr(metadata_adapter, "describe_connection", None)):
             raise ValueError("Invalid connection metadata adapter")
+    native_handoff = None
+    local_key_handoff = config.get("local_key_handoff", False)
+    if type(local_key_handoff) is not bool:
+        raise ValueError("local_key_handoff must be a boolean")
+    if local_key_handoff:
+        native_handoff = NativeProvider({"issuer": config["origin"], "local_key_handoff": True})
     app.mount(
         "/api/personal-panel",
         create_panel(
@@ -102,6 +108,7 @@ def mount_if_configured(app):
             allow_private_http=config.get("allow_private_http", False),
             metadata_adapter=metadata_adapter,
             metadata_pins=metadata_pins,
+            native_handoff=native_handoff,
         ),
     )
 

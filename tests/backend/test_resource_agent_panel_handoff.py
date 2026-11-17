@@ -15,6 +15,8 @@ from lockbot.backend.app.personal_panel.native import NativeProvider
 from lockbot.backend.app.personal_panel.router import create_panel
 from lockbot.backend.app.resource_api.skill import skill_artifacts
 
+from backend.test_personal_panel_http import Directory
+from backend.test_personal_panel_metadata import SOURCE, Adapter
 from backend.test_resource_agent_helper import helper, write_private
 from backend.test_resource_api_resources import api  # noqa: F401
 
@@ -53,12 +55,22 @@ class PanelOpener:
 
 @pytest.fixture
 def handoff(client, api, session_factory, tmp_path, monkeypatch, request):
-    base = getattr(request, "param", BASE)
+    target = getattr(request, "param", BASE)
+    mixed = target == "external-with-local-handoff"
+    base = BASE if mixed else target
     parent = FastAPI()
-    provider = NativeProvider({"issuer": base, "session_factory": session_factory})
+    provider = NativeProvider({"issuer": base, "session_factory": session_factory, "local_key_handoff": mixed})
+    panel_options = {}
+    if mixed:
+        panel_options.update(
+            native_handoff=provider, metadata_adapter=Adapter(), metadata_pins={SOURCE: "native-instance"}
+        )
+        provider = Directory()
     parent.mount(
         "/api/personal-panel",
-        create_panel(base, tmp_path / "panel.sqlite3", provider, allow_private_http=base.startswith("http://")),
+        create_panel(
+            base, tmp_path / "panel.sqlite3", provider, allow_private_http=base.startswith("http://"), **panel_options
+        ),
     )
     parent.mount("/", client.app)
     agent = TestClient(parent, base_url=base, follow_redirects=False)
@@ -90,7 +102,7 @@ def handoff(client, api, session_factory, tmp_path, monkeypatch, request):
     return connection, opener, agent, browser, original
 
 
-@pytest.mark.parametrize("handoff", [BASE, "http://127.0.0.1:8002"], indirect=True)
+@pytest.mark.parametrize("handoff", [BASE, "http://127.0.0.1:8002", "external-with-local-handoff"], indirect=True)
 def test_panel_link_cli_issues_once_and_preserves_ticket_for_browser(handoff, capsys):
     connection, opener, agent, browser, original = handoff
     base = str(browser.base_url)
@@ -138,6 +150,13 @@ def test_panel_link_uses_single_binding_endpoint_without_account_capability(hand
         {"home": "https://other.example.test/#/me"},
         {"transport": "private-http"},
         {"connection_management": {"version": 2}},
+        {"connection_management": {"version": 2, "native_key_handoff": {"version": True, "account_issue_path": ISSUE}}},
+        {
+            "connection_management": {
+                "version": 2,
+                "native_key_handoff": {"version": 1, "account_issue_path": LEGACY_ISSUE},
+            }
+        },
         {"connection_management": {"version": True, "list_path": "/api/personal-panel/connections"}},
     ],
 )

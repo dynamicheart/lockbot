@@ -150,6 +150,16 @@ class NativeProvider:
         self.session_factory = config.get("session_factory") or SessionLocal
         self.guidance = None
 
+    def owns_handoff_grant(self, grant):
+        # Reserve a separate realm for local-Key sign-ins in an external panel.
+        # The exact binding still has to pass validate() against the local DB.
+        realm = grant.get("realm")
+        return (
+            grant.get("issuer") == self.config["issuer"]
+            and isinstance(realm, str)
+            and realm.startswith('["local-key-handoff",')
+        )
+
     @staticmethod
     def _instance_id(db: Session):
         row = db.get(SiteSetting, "resource_api_instance_id")
@@ -181,6 +191,8 @@ class NativeProvider:
             if not isinstance(pin, dict) or pin.get("platform") != row.platform or not _text(pin.get("realm")):
                 raise ProviderError("identity_namespace_mismatch")
             realm = _namespace("instance", instance, "attested", pin["realm"])
+        if self.config.get("local_key_handoff") is True:
+            realm = _namespace("local-key-handoff", realm)
         generation = row.credential_generation
         if not isinstance(generation, int) or generation < 0:
             raise ProviderError("credential_invalid")
