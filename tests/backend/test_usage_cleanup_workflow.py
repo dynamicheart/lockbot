@@ -87,25 +87,19 @@ def test_housekeeping_expired_and_revoked_declarations_are_removed(
     assert db_session.query(UsageDeclaration).count() == 0
 
 
-def test_mutation_allows_one_verification_poll_but_not_a_polling_bypass(client, api, monkeypatch):
-    from lockbot.backend.app.resource_api.traffic import resource_tier_gate
-
-    resource_tier_gate.active = resource_tier_gate.booking = resource_tier_gate.discovery = 60
+def test_resource_verification_polls_can_follow_mutations_immediately(client, api):
     path = f"/api/bots/{api['bot_id']}/resources"
     assert client.get(path, headers=api["headers"]).status_code == 200
-    assert client.get(path, headers=api["headers"]).status_code == 429
+    assert client.get(path, headers=api["headers"]).status_code == 200
     assert command(client, api, "lock n1 1h", purpose="Verify after mutation").status_code == 200
     assert client.get(path, headers=api["headers"]).status_code == 200
-    assert client.get(path, headers=api["headers"]).status_code == 429
+    assert client.get(path, headers=api["headers"]).status_code == 200
     assert command(client, api, "query").status_code == 200
-    assert client.get(path, headers=api["headers"]).status_code == 429
+    assert client.get(path, headers=api["headers"]).status_code == 200
 
 
-def test_resource_name_query_does_not_reset_poll_interval(client, api):
-    from lockbot.backend.app.resource_api.traffic import resource_tier_gate
-
-    resource_tier_gate.active = resource_tier_gate.booking = resource_tier_gate.discovery = 60
+def test_resource_name_query_allows_an_immediate_resource_snapshot(client, api):
     path = f"/api/bots/{api['bot_id']}/resources"
     assert client.get(path, headers=api["headers"]).status_code == 200
     assert command(client, api, "n1").status_code == 200
-    assert client.get(path, headers=api["headers"]).status_code == 429
+    assert client.get(path, headers=api["headers"]).status_code == 200

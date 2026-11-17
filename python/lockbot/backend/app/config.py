@@ -70,10 +70,8 @@ RESOURCE_AUTH_BIND_FAILURE_WINDOW_SECONDS = int(os.environ.get("RESOURCE_AUTH_BI
 RESOURCE_API_READ_BUDGET_PER_MINUTE = int(os.environ.get("RESOURCE_API_READ_BUDGET_PER_MINUTE", 120))
 RESOURCE_API_WRITE_BUDGET_PER_MINUTE = int(os.environ.get("RESOURCE_API_WRITE_BUDGET_PER_MINUTE", 6))
 
-# Per-resource poll tier: the minimum interval between /resources polls for one credential,
-# derived server-side from the caller's current stake. A holder or head-of-queue (active) may
-# poll fastest; a waiting booker slower; a bystander discovering state slowest. A compliant
-# agent stays under its budget automatically; busy-polling is shed with a precise Retry-After.
+# Suggested resource polling intervals, advertised in bot rules. These are guidance only.
+# Per-credential request budgets above enforce traffic limits for interactive and background reads.
 RESOURCE_API_TIER_ACTIVE_SECONDS = int(os.environ.get("RESOURCE_API_TIER_ACTIVE_SECONDS", 10))
 RESOURCE_API_TIER_BOOKING_SECONDS = int(os.environ.get("RESOURCE_API_TIER_BOOKING_SECONDS", 20))
 RESOURCE_API_TIER_DISCOVERY_SECONDS = int(os.environ.get("RESOURCE_API_TIER_DISCOVERY_SECONDS", 40))

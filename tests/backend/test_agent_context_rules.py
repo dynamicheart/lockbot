@@ -7,8 +7,9 @@ import pytest
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import commands
+from lockbot.backend.app.resource_api import rules as rules_module
 from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS
-from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
+from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_auth import service
 from lockbot.core.config import Config
 
@@ -113,9 +114,9 @@ def test_whitelist_exemption_is_caller_specific_without_disclosing_list(client, 
 def test_rules_report_actual_deployment_budgets(client, api, monkeypatch):
     monkeypatch.setattr(credential_budget, "read_limit", 43)
     monkeypatch.setattr(credential_budget, "write_limit", 4)
-    monkeypatch.setattr(resource_tier_gate, "active", 13)
-    monkeypatch.setattr(resource_tier_gate, "booking", 27)
-    monkeypatch.setattr(resource_tier_gate, "discovery", 59)
+    monkeypatch.setattr(rules_module, "RESOURCE_API_TIER_ACTIVE_SECONDS", 13)
+    monkeypatch.setattr(rules_module, "RESOURCE_API_TIER_BOOKING_SECONDS", 27)
+    monkeypatch.setattr(rules_module, "RESOURCE_API_TIER_DISCOVERY_SECONDS", 59)
     monkeypatch.setattr(commands, "RESOURCE_API_MAX_HELD_PER_IDENTITY", 5)
     rules = context(client, api)["bot_rules"]
     assert rules["request_budget"] == {"read_per_minute": 43, "write_per_minute": 4}

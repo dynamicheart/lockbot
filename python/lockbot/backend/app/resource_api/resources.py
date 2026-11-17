@@ -49,7 +49,7 @@ from lockbot.backend.app.resource_api.snapshot import (
     compute_next_event,
     scrub_private,
 )
-from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
+from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import (
@@ -65,9 +65,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
 agent_router = APIRouter(prefix="/api/agent", tags=["Public API"])
 
-#: Chosen together with the minimum poll interval. A compliant agent polling at its tier's
-#: interval mostly hits the cache, so sustained polling costs roughly one locked deep copy
-#: per TTL per bot rather than one per request.
+#: Reuse short-lived snapshots so bursts need roughly one locked deep copy per TTL
+#: and bot. Fresh declarations or node access can require a new observation.
 SNAPSHOT_CACHE_TTL_SECONDS = 5.0
 
 
@@ -202,11 +201,6 @@ def get_resources(
     if not allowed:
         raise errors.rate_limited(retry_after)
 
-    # Per-resource poll tier: enforce the minimum interval for the caller's last-known tier.
-    allowed, retry_after = resource_tier_gate.check(actor.binding_record_id)
-    if not allowed:
-        raise errors.rate_limited(retry_after)
-
     now = datetime.now(timezone.utc)
 
     try:
@@ -278,10 +272,6 @@ def get_resources(
         time_alert_seconds=time_alert,
     )
     scrub_private(resources)
-
-    # Record this poll's server-derived tier so the next poll's interval floor reflects the
-    # caller's current stake (holder/head poll fastest, bystanders slowest).
-    resource_tier_gate.record(actor.binding_record_id, next_event_kind)
 
     # age_seconds is measured at response-assembly time (now, re-read here), not request start,
     # so a client correcting a relative remaining_seconds by age_seconds uses the true staleness

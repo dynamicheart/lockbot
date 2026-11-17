@@ -9,9 +9,7 @@ limiter and the per-bot admission cap. Unit tests pin the window logic; route te
 
 from lockbot.backend.app.resource_api.traffic import (
     _CredentialBudget,
-    _ResourceTierGate,
     credential_budget,
-    resource_tier_gate,
 )
 
 from backend.test_resource_api_resources import api  # noqa: F401
@@ -59,28 +57,18 @@ def test_resources_route_enforces_read_budget(client, api):
     assert third.headers["Retry-After"]
 
 
-def test_resource_tier_gate_floors_by_stake():
-    g = _ResourceTierGate(active=10, booking=20, discovery=40)
-    assert g.floor_for("own_lock_expiry") == 10
-    assert g.floor_for("node_frees") == 10  # head-of-queue counts as active
-    assert g.floor_for("queue_estimate") == 20
-    assert g.floor_for(None) == 40
-    # First poll is always allowed; an immediate re-poll is shed for the recorded tier floor.
-    assert g.check(7, now=100.0) == (True, 0)
-    g.record(7, "own_lock_expiry", now=100.0)  # active floor = 10s
-    ok, retry = g.check(7, now=105.0)
-    assert ok is False and retry >= 1
-    assert g.check(7, now=111.0)[0] is True  # the floor has elapsed
-
-
-def test_resources_route_enforces_poll_tier(client, api):
-    resource_tier_gate.discovery = 40
-    url = f"/api/bots/{api['bot_id']}/resources"
-    assert client.get(url, headers=api["headers"]).status_code == 200  # first poll allowed
-    second = client.get(url, headers=api["headers"])  # immediate re-poll, discovery tier
-    assert second.status_code == 429
-    assert second.json()["detail"]["code"] == "rate_limited"
-    assert second.headers["Retry-After"]
+def test_resources_can_be_queried_immediately_before_and_after_lock(client, api):
+    path = f"/api/bots/{api['bot_id']}/resources"
+    assert client.get(path, headers=api["headers"]).status_code == 200
+    assert client.get(path, headers=api["headers"]).status_code == 200
+    locked = client.post(
+        f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": "lock n1 1h"}
+    )
+    assert locked.status_code == 200
+    snapshot = client.get(path, headers=api["headers"])
+    assert snapshot.status_code == 200
+    node = next(item for item in snapshot.json()["resources"] if item["id"] == "n1")
+    assert any(holder["external_user_id"] == "alice" for holder in node["holders"])
 
 
 def test_commands_route_enforces_identity_holdings_cap(client, api, monkeypatch):

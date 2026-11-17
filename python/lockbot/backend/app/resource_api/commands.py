@@ -37,7 +37,7 @@ from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, should_notify
 from lockbot.backend.app.resource_api.observability import record_api_command
 from lockbot.backend.app.resource_api.task_categories import TaskCategoryInput, TaskCategoryNotice
-from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
+from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import (
     ResourceActor,
@@ -356,8 +356,6 @@ def execute_command_via_api(
             from lockbot.backend.app.resource_api.resources import snapshot_cache
 
             snapshot_cache.invalidate(bot_id)
-            if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
-                resource_tier_gate.invalidate(actor.binding_record_id)
             reply_text = bot.adapter.extract_reply_text(raw_reply)
             request.state.agent_event.update(
                 stage="dispatched", reply=reply_text[:2048], reply_truncated=len(reply_text) > 2048
