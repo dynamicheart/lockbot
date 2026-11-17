@@ -6,10 +6,23 @@ from hashlib import sha256
 from pathlib import Path
 
 TOOL_LABELS = {
+    "inspect_lockbot": "检查 Skill 链接",
     "install_lockbot": "安装完整 Skill",
     "read_lockbot_skill": "读取 Skill",
     "run_lockbot": "运行 LockBot CLI",
+    "deliver_private_link": "私下交付登录链接",
+    "browser_home": "打开资源台固定入口",
 }
+CONFIRMATIONS = {
+    "chat_binding_confirmation": "测试程序模拟一次群内确认。",
+    "browser_consent": "测试程序模拟一次浏览器确认。",
+}
+SKILL_REFERENCES = {
+    "references/connections.md",
+    "references/resource-operations.md",
+    "references/workbench-and-metrics.md",
+}
+MAX_DOCUMENT_CHARACTERS = 65_536
 ACTIONS = {
     "local-state",
     "connections",
@@ -21,6 +34,8 @@ ACTIONS = {
     "init",
     "recover",
     "resources",
+    "panel-link",
+    "command",
 }
 SECRET_FIELDS = re.compile(
     r"(?i)(\b(?:authorization|api[_ -]?key|access[_ -]?token|password|credential|proof|ticket)\s*[:=]\s*)"
@@ -58,6 +73,21 @@ def read_local(path: Path, root: Path, limit: int) -> str:
     return content.decode("utf-8")
 
 
+def skill_page_metadata(result):
+    metadata = {}
+    content = result.get("content")
+    if isinstance(content, str) and len(content) <= 6000:
+        metadata["returned_characters"] = len(content)
+    total = result.get("total_characters")
+    if type(total) is int and 0 <= total <= MAX_DOCUMENT_CHARACTERS:
+        metadata["total_characters"] = total
+    if "next_offset" in result:
+        offset = result["next_offset"]
+        if offset is None or (type(offset) is int and 0 <= offset <= MAX_DOCUMENT_CHARACTERS):
+            metadata["next_offset"] = offset
+    return metadata
+
+
 def tool_steps(lines: str, phase: int):
     steps, evidence = [], []
     for line in lines.splitlines()[:20]:
@@ -71,15 +101,37 @@ def tool_steps(lines: str, phase: int):
         result = event.get("result", {})
         if not isinstance(params, dict) or not isinstance(result, dict):
             raise ValueError("Invalid tool event fields")
-        action = params.get("action")
-        arguments = {"action": action} if action in ACTIONS else {}
-        purpose = params.get("purpose")
-        if purpose in {"recover", "reset"}:
-            arguments["purpose"] = purpose
         failed = bool(result.get("error"))
         status = "失败" if failed else "已返回"
-        steps.append([name, arguments.get("action", TOOL_LABELS[name]), f"会话 {phase}", status])
-        evidence.append({"input": arguments, "output": {"status": status}})
+        arguments = {}
+        output = {"status": status}
+        label = TOOL_LABELS[name]
+        if name == "read_lockbot_skill":
+            reference = params.get("reference")
+            if reference is None:
+                arguments["document"] = "SKILL.md"
+            elif isinstance(reference, str) and reference in SKILL_REFERENCES:
+                arguments["document"] = reference
+            offset = params.get("offset")
+            if type(offset) is int and 0 <= offset <= MAX_DOCUMENT_CHARACTERS:
+                arguments["offset"] = offset
+            if not failed:
+                output.update(skill_page_metadata(result))
+        elif name == "install_lockbot":
+            if not failed and result.get("installed") is True:
+                output.update(skill_page_metadata(result))
+                version = result.get("version")
+                if isinstance(version, str) and re.fullmatch("[a-f0-9]{16}", version):
+                    output["version"] = version
+        elif name == "run_lockbot":
+            action = params.get("action")
+            if isinstance(action, str) and action in ACTIONS:
+                arguments["action"] = label = action
+            purpose = params.get("purpose")
+            if purpose in ("recover", "reset"):
+                arguments["purpose"] = purpose
+        steps.append([name, label, f"会话 {phase}", status])
+        evidence.append({"input": arguments, "output": output})
     return {"role": "tools", "steps": steps, "evidence": evidence}
 
 
@@ -88,7 +140,7 @@ def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict]) -> 
     root = root.resolve()
     sessions = []
     try:
-        for row in rows:
+        for index, row in enumerate(rows):
             phase = row.get("phase")
             if phase not in {1, 2, 3} or "evidence" not in row:
                 continue
@@ -115,10 +167,12 @@ def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict]) -> 
             if response.is_file():
                 final = json.loads(read_local(response, root, 65_536))["text"]
                 session.append({"role": "assistant", "text": clean_text(final)})
-            if phase == 1 and any(
-                "chat_binding_confirmation" in other.get("simulated_user_actions", []) for other in rows
-            ):
-                session.append({"role": "human", "text": "测试程序模拟一次群内确认。"})
+            if index + 1 < len(rows):
+                actions = rows[index + 1].get("simulated_user_actions", [])
+                if isinstance(actions, list):
+                    session.extend(
+                        {"role": "human", "text": text} for action, text in CONFIRMATIONS.items() if action in actions
+                    )
             sessions.append(session)
     except (OSError, KeyError, TypeError, ValueError):
         # Retain the summary if an optional detail cannot be projected safely.
