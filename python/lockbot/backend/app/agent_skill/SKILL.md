@@ -82,6 +82,10 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
   supplied an approved origin and a private Key file. `init` verifies the service.
   When the browser session is authenticated at the fixed entry, check holdings and
   bookings there. A normal follow-up request is enough to resume.
+- **Find resources:** “帮我找台 P800 的机器” or “看看有哪些资源能用” asks for
+  available choices. Read the inventory, report a suitable machine, and stop. Finding
+  a match does not authorize locking or booking it. A follow-up such as “lock 一天”
+  authorizes locking the uniquely selected machine for that duration.
 - **Acquire now:** a request such as “申请一台 P800 用两小时” asks for a lease now.
   Use `lock` on an idle match with an empty queue. If no match qualifies, report that
   and ask if the user wants to queue. Send `book` only after the user requests or
