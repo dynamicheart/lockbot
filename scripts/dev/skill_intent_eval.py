@@ -442,11 +442,14 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
                 node in final for node in (TRAINING_NODE, MACHINE_NODE)
             )
             choice = re.search(
-                r"(?:请|麻烦|需要[你您])[^\n。！？!?]{0,10}(?:选|确认)"
+                r"(?<![不无])(?:请|麻烦|需(?:要)?[你您])[^\n。！？!?]{0,10}(?:选|确认)"
                 r"|[你您](?:想|要|希望)[^。！？!?]+还是[^。！？!?]+[？?]"
                 r"|(?:请)?告诉我[你您](?:指|要)(?:的是)?哪(?:一个|个|一台|台)"
                 r"|[你您](?:想|要|希望)(?:怎么|如何)处理\s*[？?]"
-                r"|[你您](?:想|要|希望)(?:选|锁|用)?哪(?:一个|个|一台|台)\s*[？?]",
+                r"|[你您](?:想|要|希望)(?:选|锁|用)?哪(?:一个|个|一台|台)\s*[？?]"
+                r"|[你您]指(?:的是)?哪(?:一个|个|一台|台)\s*[？?]"
+                r"|(?<!不要)(?<!无需)(?<!不用)(?:回复|直接回)[^\n。！？!?]{0,12}(?:1|整机)[^\n。！？!?]{0,6}或"
+                r"[^\n。！？!?]{0,6}(?:2|卡)",
                 final,
             )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
@@ -644,9 +647,7 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
         checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and mutation_observed(
             requests, posts[0], writes[0], bot
         )
-        checks["observed_target_reported"] = (
-            command.split()[1] in final or command.split()[1].removeprefix("node-") in final
-        )
+        checks["observed_target_reported"] = target_reported(final, command.split()[1], writes)
     else:
         checks["zero_write_attempts"] = not writes and not posts
         if scenario in CONTEXT_REMINDERS and phase == 1:
@@ -666,7 +667,7 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
             checks["answer_present"] = bool(final.strip())
         elif scenario in IP_TAIL_PROMPTS:
             checks["asks_for_missing_target"] = bool(
-                re.search(r"哪台|哪个|确认|无法|不能|没法|不确定|which|cannot", final, re.I)
+                re.search(r"哪台|哪个|确认|无法|不能|没法|不确定|请[你您]?\s*(?:指定|提供)|which|cannot", final, re.I)
             )
         else:
             # Wording and actual notification delivery remain separate from observable API behavior.
@@ -787,7 +788,30 @@ def reported_nodes(final):
     return set(re.findall(r"(?<![A-Za-z0-9_-])node-\d+(?![A-Za-z0-9_-])", final))
 
 
+def target_reported(final, node_id, writes):
+    """Accept a reported alias/address only from this write's verified target."""
+    names = {node_id, node_id.removeprefix("node-")}
+    for write in writes:
+        result = write.get("result", {}).get("result", {})
+        if result.get("verified") is not True:
+            continue
+        snapshot = result.get("verified_snapshot", {})
+        resources = snapshot.get("resources") if isinstance(snapshot, dict) else None
+        for node in resources if isinstance(resources, list) else ():
+            if not isinstance(node, dict) or str(node.get("id")) != node_id:
+                continue
+            names.add(node.get("alias") if isinstance(node.get("alias"), str) else "")
+            access = node.get("node_access")
+            if isinstance(access, dict):
+                names.update(access.get(field) for field in ("ip", "host") if isinstance(access.get(field), str))
+    return any(
+        name and re.search(r"(?<![A-Za-z0-9_.-])" + re.escape(name) + r"(?![A-Za-z0-9_-]|\.[A-Za-z0-9])", final, re.I)
+        for name in names
+    )
+
+
 def explicit_cards(final, node):
+    final = re.sub(r"[*_`]", "", final)
     claims = set()
     for match in re.finditer(r"(?<![A-Za-z0-9_-])" + re.escape(node) + r"(?![A-Za-z0-9_-])", final):
         following = final[match.end() :]
@@ -886,18 +910,30 @@ def requested_claim_text(final, requested):
             text = re.sub(r"[*_`]", "", fragment).strip()
             if not text:
                 continue
-            book = bool(re.search(r"预约|预订|排队|\bbook|\breserv|\bqueued|\bqueue position", text, re.I))
-            hold = bool(re.search(r"持有|占用|锁定|锁（|\block|\bhold|\blease", text, re.I))
+            # An introductory aside about another role does not relabel the
+            # primary section. Keep original claims so an explicit wrong node
+            # or card in the aside still cannot evade ownership checking.
+            role_text = re.sub(r"[（(](?:另有|另外|还有)[^（）()\n]*[）)]", "", text)
+            book = bool(
+                re.search(r"预约|预订|排队|(?<![A-Za-z])(?:book|reserv|queued|queue position)", role_text, re.I)
+            )
+            hold = bool(re.search(r"持有|占用|锁定|锁（|(?<![A-Za-z])(?:lock|hold|lease)", role_text, re.I))
             other = bool(
                 re.search(
                     r"与你(?:的账号)?无关|不是你的|不算你的|另一个账号|都属于\s*neighbor|均由他人|其他(?:资源|情况|说明)|需要留意",
-                    text,
+                    role_text,
                     re.I,
                 )
             )
-            not_book = bool(re.search(r"(?:不属于|不是|不在|并非|不算).{0,6}(?:预约|预订|book|排队)", text, re.I))
+            not_book = bool(
+                re.search(r"(?:不属于|不是|不在|并非|不算|不计入).{0,6}(?:预约|预订|book|排队)", role_text, re.I)
+            )
             not_hold = bool(
-                re.search(r"(?:不是|尚未|并未|暂未|还未|不算|不属于|不代表).{0,6}(?:占用|持有|锁定|lock)", text, re.I)
+                re.search(
+                    r"(?:不是|尚未|并未|暂未|还未|不算|不属于|不代表|不等于).{0,6}(?:占用|持有|锁定|lock)",
+                    role_text,
+                    re.I,
+                )
             )
             role = None
             ambiguous = False
