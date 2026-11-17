@@ -862,6 +862,7 @@ class Client:
         self.needs_update = False
         self.manifest = None
         self._prepared_resources = None
+        self._resource_request_started = None
 
     def _file(self, name):
         value = self.config.get(name)
@@ -1548,6 +1549,7 @@ class Client:
                 "actor": {field: context["actor"][field] for field in ("platform", "external_user_id")},
             }
             self.node_access.save(generation, nodes, self.redacted(scope))
+        self._resource_request_started = started
         snapshot["snapshot_fresh_for_write"] = self._snapshot_fresh_for_write(snapshot, started)
         return snapshot
 
@@ -2240,6 +2242,7 @@ def redacted_values(value, private_values=()):
 def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=None, opener=None, clock=time.monotonic):
     """Read existing catalog scopes separately, sharing only the bounded request budget."""
     deadline, calls, clients = clock() + 60, 0, []
+    observations = []
     snapshots, unread = [], []
     try:
         catalog = listed_connections(directory)
@@ -2263,15 +2266,14 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
             # Catalog aggregation does not invalidate/save local address caches.
             client.node_access = None
             if mine:
-                snapshot = client.own_inventory(exact_lease_times=exact_lease_times)
+                # Keep precise source timing until every group has been read.
+                snapshot = client.own_inventory(exact_lease_times=True)
                 context = snapshot["context"]
             else:
                 context = client._read_context(with_resources=True)
                 snapshot = client.resources_with_hardware_notes(context)
                 if not isinstance(snapshot.get("resources"), list):
                     raise ClientError("invalid_resource_summary")
-                if not exact_lease_times:
-                    format_lease_times(snapshot)
             snapshots.append(
                 {
                     "connection": locator,
@@ -2285,8 +2287,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                     "update_required": client.needs_update,
                 }
             )
-            if snapshot.get("snapshot_fresh_for_write") is not True:
-                unread.append({"connection": locator, "error": "stale_or_unverifiable_snapshot"})
+            observations.append((client, snapshot, locator))
         except ClientError as error:
             unread.append(
                 {
@@ -2304,6 +2305,28 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
         finally:
             if client:
                 calls = client.calls
+    completed_at = clock()
+    for client, snapshot, locator in observations:
+        age = metric_number(snapshot.get("age_seconds"))
+        started = client._resource_request_started
+        elapsed = completed_at - started if started is not None else None
+        snapshot["age_seconds"] = (
+            age + elapsed if age is not None and age >= 0 and elapsed is not None and elapsed >= 0 else None
+        )
+        snapshot["snapshot_fresh_for_write"] = bool(
+            snapshot.get("snapshot_fresh_for_write")
+            and snapshot["age_seconds"] is not None
+            and snapshot["age_seconds"] <= MAX_RESOURCE_SNAPSHOT_AGE
+        )
+        if snapshot["snapshot_fresh_for_write"] is not True:
+            unread.append({"connection": locator, "error": "stale_or_unverifiable_snapshot"})
+        if not exact_lease_times:
+            if mine:
+                format_lease_times(
+                    {"age_seconds": snapshot["age_seconds"], "resources": [{"holders": snapshot["holdings"]}]}
+                )
+            else:
+                format_lease_times(snapshot)
     return redacted_values(
         {
             "result": {

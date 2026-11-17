@@ -317,3 +317,47 @@ def test_legacy_aggregate_retains_valid_absent_identity_fields(aggregate, mine):
     result = aggregate.run("resources-all", *(["--mine"] if mine else []))["result"]
     assert result["complete"] is True and len(result["groups"]) == 1
     assert result["groups"][0]["identity"]["actor"] == server.actor
+
+
+@pytest.mark.parametrize("mine", [False, True])
+@pytest.mark.parametrize("delayed_manifest", ["first", "second"])
+def test_aggregate_ages_observations_at_completion_without_counting_pre_read_wait(aggregate, mine, delayed_manifest):
+    first, second = aggregate.server(1), aggregate.server(2)
+    aggregate.record(first, "first")
+    aggregate.record(second, "second")
+    first.extra["resources"] = [
+        {
+            "id": "same-node",
+            "lock_status": "exclusive",
+            "holders": [
+                {
+                    "external_user_id": first.actor["external_user_id"],
+                    "remaining_seconds": 5,
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat(),
+                }
+            ],
+            "booking_list": [],
+        }
+    ]
+    spec = importlib.util.spec_from_file_location("aggregate_completion_age", aggregate.script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def clock():
+        return 6 if (first if delayed_manifest == "first" else second).events else 0
+
+    report = module.resources_all(aggregate.catalog, root=aggregate.script.parents[1], mine=mine, clock=clock)["result"]
+    assert report["http_requests"] == 4
+    old, fresh = [group["snapshot"] for group in report["groups"]]
+    assert fresh["snapshot_fresh_for_write"] is True and fresh["age_seconds"] == 0
+    holder = old["holdings"][0] if mine else old["resources"][0]["holders"][0]
+    if delayed_manifest == "second":
+        assert old["snapshot_fresh_for_write"] is False and old["age_seconds"] == 6
+        assert report["complete"] is False
+        assert report["unread"][0]["error"] == "stale_or_unverifiable_snapshot"
+        assert holder["remaining_time"] == "due now"
+    else:
+        assert old["snapshot_fresh_for_write"] is True and old["age_seconds"] == 0
+        assert report["complete"] is True
+        assert holder["remaining_time"] == "<1m"
+    assert all(method == "GET" for state in (first, second) for _, method, _ in state.events)
