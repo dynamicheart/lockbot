@@ -110,6 +110,7 @@ def prepare(root, skill, scenario, artifact_directory=None, *, fixture_version=N
         )
         if scenario == "panel":
             case["panel_ticket"] = host_v11.PANEL_TICKET
+            case["panel_followup_policy_version"] = 1
         base.save_json(root / "case.json", case)
         host_v11.prepare_client(root, Fixture)
 
@@ -142,7 +143,10 @@ def resume(previous, destination):
     trace = previous / "trace.jsonl"
     case.update(phase=2, parent_evidence_digest=base.digest(trace.read_bytes() if trace.is_file() else b""))
     base.save_json(destination / "case.json", case)
-    (destination / "prompt.txt").write_text("看看我之前连的群里有哪些资源和预约。资源台收藏过的话，把入口也告诉我。")
+    followup = "看看我之前连的群里有哪些资源和预约。资源台收藏过的话，把入口也告诉我。"
+    if host_v11.enabled(case) and case["scenario"] == "panel" and case.get("panel_followup_policy_version") == 1:
+        followup = "打开个人资源台"
+    (destination / "prompt.txt").write_text(followup)
     (destination / "system.txt").write_text(
         base.SYSTEM + " Use discover_local_state for installed Skills and private file inventory. "
         "Prior conversation is unavailable."

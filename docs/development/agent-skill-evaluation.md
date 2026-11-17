@@ -114,6 +114,9 @@ revision and Skill digest; trace and phase-review export validate the panel arti
 without changing historical continuity rows. The CLI's HTTPS/ticket checks remain
 intact. Human browser consent is still a separate harness-only simulated event.
 Telemetry uses the actual CLI's grant scope, sample checks and single refresh/retry.
+New v11 panel cases mark `panel_followup_policy_version: 1`; their fresh-session
+follow-up is exactly `打开个人资源台`, matching the browser-reuse acceptance gate.
+Older case files without this marker retain their original inventory/bookmark prompt.
 
 Newly prepared onboarding v7 and continuity v11 cases additionally record
 `http_policy_version: 2`. The public service root returns minimal HTML without a

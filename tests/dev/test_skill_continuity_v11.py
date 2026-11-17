@@ -87,6 +87,7 @@ def test_panel_actual_https_cli_handoff_and_fresh_browser_session(tmp_path, monk
     assert fixture.case["artifact_revision"] == json.loads((artifact / "manifest.json").read_text())["version"]
     assert fixture.case["skill_sha256"] == fixture.artifact["manifest"]["skill_sha256"]
     assert fixture.case["artifact_kind"] == "panel"
+    assert fixture.case["panel_followup_policy_version"] == 1
     system = (fixture.root / "system.txt").read_text()
     assert "verified bound user's private session" in system
     assert "browser login still requires their consent" in system
@@ -102,6 +103,12 @@ def test_panel_actual_https_cli_handoff_and_fresh_browser_session(tmp_path, monk
     destination = tmp_path / "fresh-panel"
     evaluation.resume(fixture.root, destination)
     fresh = evaluation.Fixture(destination)
+    assert (destination / "prompt.txt").read_bytes() == "打开个人资源台".encode()
+    state = json.loads((destination / "browser.json").read_text())
+    assert state["authenticated"] and state["ticket_consumed"]
+    assert state["bookmarks"] == [fixture.panel_home]
+    assert not (destination / "conversation.json").exists()
+    assert not (destination / "response.json").exists()
     read_skill(fresh)
     catalog = run(fresh, "connections")
     assert catalog["exit_code"] == 0 and len(catalog["result"]["connections"]) == 2
@@ -394,3 +401,37 @@ def test_rejected_ticket_open_attempt_fails_even_after_an_otherwise_valid_privat
     event = json.loads((fixture.root / "trace.jsonl").read_text().splitlines()[-1])
     assert event["tool"] == tool and event["args"] == args and event["result"] == blocked
     assert not json.loads((fixture.root / "browser.json").read_text())["authenticated"]
+
+
+@pytest.mark.parametrize("legacy", ["v6", "v11-without-policy"])
+def test_old_panel_case_files_keep_original_followup_without_history_injection(tmp_path, monkeypatch, legacy):
+    from lockbot.backend.app.resource_api import skill
+
+    monkeypatch.setenv("PLATFORM_URL", host.PANEL_ORIGIN)
+    artifact = tmp_path / "panel-artifact"
+    artifact.mkdir()
+    (artifact / "manifest.json").write_text(json.dumps(skill.skill_artifacts()[2]))
+    (artifact / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
+    if legacy == "v6":
+        root = tmp_path / "legacy-panel"
+        evaluation.prepare(root, artifact / "SKILL.md", "panel", artifact)
+        fixture = evaluation.Fixture(root)
+    else:
+        fixture = prepare(tmp_path, artifact, "panel")
+        fixture.case.pop("panel_followup_policy_version")
+        evaluation.base.save_json(fixture.root / "case.json", fixture.case)
+        connection = run(fixture, "connections")["result"]["connections"][0]["connection"]
+        assert run(fixture, "--connection", connection, "panel-link")["exit_code"] == 0
+    assert fixture.call("deliver_private_link", {"url": fixture.panel_login_url})["delivered_privately"]
+    evaluation.human_confirm(fixture.root)
+    destination = tmp_path / "replayed-panel"
+    evaluation.resume(fixture.root, destination)
+    assert (destination / "prompt.txt").read_bytes() == (
+        "看看我之前连的群里有哪些资源和预约。资源台收藏过的话，把入口也告诉我。".encode()
+    )
+    assert not (destination / "conversation.json").exists()
+    assert not (destination / "response.json").exists()
+    state = json.loads((destination / "browser.json").read_text())
+    assert state["authenticated"] and state["ticket_consumed"]
+    assert state["bookmarks"] == [fixture.panel_home]
+    assert "panel_followup_policy_version" not in json.loads((destination / "case.json").read_text())
