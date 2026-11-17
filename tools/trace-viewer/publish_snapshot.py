@@ -38,6 +38,8 @@ GROUPS = {
         "intent-my-books": "我当前预约哪些机器",
         "intent-reminder-configured": "核对现有群内到期提醒",
         "intent-reminder-unavailable": "提醒能力不足时明确告知",
+        "intent-context-reminder-configured": "查询本人占用后核对到期提醒",
+        "intent-context-reminder-unavailable": "查询本人占用后说明提醒限制",
         "intent-query": "查找两张空闲 P800 卡",
         "intent-model-find": "跨群查找空闲 P800 或 P900",
     },

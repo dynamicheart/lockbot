@@ -22,6 +22,18 @@ def export(tmp_path, **kwargs):
     return source, publisher.export_dataset(source, tmp_path / "board", **kwargs)
 
 
+@pytest.mark.parametrize("scenario", ["intent-context-reminder-configured", "intent-context-reminder-unavailable"])
+def test_context_reminder_cases_export_actual_dialogue_without_catalog_omissions(tmp_path, scenario):
+    source, _ = matrix(tmp_path, terminal=True, scenario=scenario)
+    report = publisher.export_dataset(source, tmp_path / "board", minimal_summary=True)
+    dataset = tmp_path / "board/datasets" / report["dataset"]["dataset_id"]
+    raw = json.loads((dataset / "raw.json").read_text())
+    assert list(raw["cases"]) == [scenario]
+    assert raw["cases"][scenario][0]["sessions"][0][0] == {"role": "user", "text": "Actual user request"}
+    assert report["source_io_audit"]["prompts"] == 1
+    assert report["source_io_audit"]["finals"] == 1
+
+
 def test_terminal_export_is_lossless_and_does_not_read_or_write_legacy_board(tmp_path):
     board = tmp_path / "board"
     board.mkdir(mode=0o700)
