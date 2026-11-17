@@ -100,6 +100,27 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
         first.mkdir(mode=0o700, exist_ok=True)
         result = fixture_error(first, first_metadata)
     rows = [result]
+    if suite == "cli" and scenario == "reset-personal-key":
+        previous = first
+        for phase in range(2, 5):
+            metadata_phase = {**metadata, "phase": phase, "simulated_user_actions": []}
+            if not rows[-1].get("observable_pass"):
+                rows.append({**metadata_phase, "status": f"blocked_by_phase_{phase - 1}"})
+                continue
+            destination = case / f"phase-{phase}"
+            metadata_phase["evidence"] = destination.relative_to(output).as_posix()
+            try:
+                cli.resume(previous, destination)
+                if phase == 2:
+                    metadata_phase["simulated_user_actions"].append("reset_impact_acknowledgment")
+                elif phase == 3:
+                    metadata_phase["simulated_user_actions"].append("chat_binding_confirmation")
+                rows.append(evaluate_phase(destination, metadata_phase, command, grader, limits))
+            except Exception:
+                destination.mkdir(mode=0o700, exist_ok=True)
+                rows.append(fixture_error(destination, metadata_phase))
+            previous = destination
+        return rows
     if scenario not in SECOND_PHASE.get(suite, ()):
         return rows
     fresh_read = suite == "cli" and scenario in cli.CHALLENGE_PROMPTS

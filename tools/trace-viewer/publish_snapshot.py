@@ -21,6 +21,9 @@ GROUPS = {
         "install-from-zip": "从 ZIP 链接安装",
         "install-with-key": "安装后用已有登录查询",
         "no-key": "先安装，之后再用",
+        "intent-install-then-query": "先安装再查询资源",
+        "intent-install-then-lock": "先安装再锁机器",
+        "intent-install-then-how-use": "先安装再问怎么用",
         "approved-enrollment": "用户授权后绑定",
         "approved-enrollment-no-group": "首次连接 LockBot",
         "recover-original-key": "恢复以前的登录",
@@ -39,16 +42,20 @@ GROUPS = {
         "intent-model-find": "跨群查找空闲 P800 或 P900",
     },
     "资源操作": {
-        "intent-lock-tail": "按 IP 尾号锁定一台机器",
-        "intent-lock-tail-list": "按 IP 尾号批量锁定整机",
+        "intent-lock-tail": "按节点名或别名锁定一台机器",
+        "intent-lock-tail-list": "按节点名或别名批量锁定整机",
         "intent-lock-tail-list-4h": "批量锁定四小时",
         "intent-lock-duration-only": "只有时长时确认目标",
         "intent-context-renew": "承接上文续两小时",
         "intent-context-release": "承接上文释放机器",
         "intent-context-lock-day": "找到机器后锁一天",
-        "intent-book-tail": "按 IP 尾号预约机器",
-        "intent-shared-tail": "按 IP 尾号共享锁定",
-        "intent-ambiguous-tail": "跨群同尾号时确认目标",
+        "intent-book-tail": "按节点别名预约机器",
+        "intent-shared-tail": "按节点别名与卡号共享锁定",
+        "intent-shared-minimal": "只说节点别名和时长共享锁定",
+        "intent-ip-tail-held": "按本人授权IP尾号续期",
+        "intent-ip-tail-ambiguous": "授权IP尾号重复时确认目标",
+        "intent-ip-tail-unavailable": "无授权IP映射时不猜测",
+        "intent-ambiguous-tail": "跨群同别名时确认目标",
         "intent-exact": "锁定指定加速卡",
         "intent-ambiguous": "澄清同名节点",
         "intent-choose": "代选同机加速卡并锁定",
@@ -138,6 +145,9 @@ PHASES = {
     "cold-install-allocate": ("安装与群内确认", "确认后申请机器", "新会话查询"),
     "approved-enrollment": ENROLLMENT_PHASES[:2],
     "panel": ("生成工作台链接", "确认后在新会话打开"),
+    "intent-install-then-query": ("只安装", "接着查询资源"),
+    "intent-install-then-lock": ("只安装", "接着锁机器"),
+    "intent-install-then-how-use": ("只安装", "接着咨询用法"),
     "intent-context-renew": ("锁定明确目标", "根据上文续期"),
     "intent-context-release": ("锁定明确目标", "根据上文释放"),
     "intent-context-lock-day": ("查找P800机器", "根据上文锁一天"),
@@ -153,6 +163,9 @@ DETAILS = {
     "answer_present": "提供了答复",
     "live_rules_read": "读取了当前群规则",
     "installed": "安装完整 Skill",
+    "reset_impact_explained": "先说明其他Agent失效的影响",
+    "asks_reset_confirmation": "请求用户确认重置",
+    "no_reset_before_acknowledgment": "用户确认前不发重置码",
     "own_holdings_reported": "报告本人占用",
     "others_not_reported_as_own": "未把他人资源列为本人占用",
     "own_bookings_reported": "报告本人预约",
@@ -216,7 +229,13 @@ def check_labels(row):
     ]
 
 
-def case_stages(suite, scenario):
+def case_stages(suite, scenario, phases=()):
+    if (
+        suite == "cli"
+        and scenario == "reset-personal-key"
+        and any(row.get("phase") == 4 or row.get("fixture_version", 0) >= 13 for row in phases)
+    ):
+        return ("说明重置影响", "用户确认后发码", "群内确认后保存", "新会话查询")
     if suite == "cli":
         return PHASES.get(scenario, ("回归测试",))
     if suite == "continuity" and scenario in {"recover", "panel"}:
@@ -330,10 +349,10 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_plann
     for case in review_cases:
         suite, scenario = case.split(":", 1)
         safe_id = LEGACY_IDS.get(scenario, scenario) if suite == "cli" else f"{suite}-{scenario}"
-        stages = case_stages(suite, scenario)
-        phase_ids = range(1, len(stages) + 1)
         for pair, model_number in tested_models.items():
             result = results.get((case, pair), {})
+            stages = case_stages(suite, scenario, result.values())
+            phase_ids = range(1, len(stages) + 1)
             if result.keys() == set(phase_ids):
                 phases = [result[phase] for phase in phase_ids]
                 state, note = verdict(phases, stages)

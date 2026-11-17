@@ -30,9 +30,16 @@ SHORT_PROMPTS = {
     "intent-find-p800": "帮我找台P800的机器",
     "intent-book-tail": "book 19 4h",
     "intent-shared-tail": "slock 19 dev0 4h",
+    "intent-shared-minimal": "slock 19 4h",
     "intent-ambiguous-tail": "lock 19 4h",
 }
+INSTALL_FOLLOWUPS = {
+    "intent-install-then-query": ("安装Skill: {url}", "帮忙查找可用的资源"),
+    "intent-install-then-lock": ("安装Skill: {url}", "lock 19 2h"),
+    "intent-install-then-how-use": ("安装Skill: {url}", "看看怎么用"),
+}
 CONVERSATIONAL_PROMPTS = {
+    **INSTALL_FOLLOWUPS,
     "intent-context-renew": ("lock 19 2h", "再续两小时"),
     "intent-context-release": ("lock 19 2h", "用完了，释放吧"),
     "intent-context-lock-day": ("帮我找台P800的机器", "lock 一天"),
@@ -43,7 +50,12 @@ OWN_RESOURCE_PROMPTS = {
     "intent-reminder-configured": "准备到时间时提醒吧",
     "intent-reminder-unavailable": "准备到时间时提醒吧",
 }
-TASK_SCENARIOS = {*CONVERSATIONAL_PROMPTS, *OWN_RESOURCE_PROMPTS}
+IP_TAIL_PROMPTS = {
+    "intent-ip-tail-held": "lock 19 4h",
+    "intent-ip-tail-ambiguous": "lock 19 4h",
+    "intent-ip-tail-unavailable": "lock 19 4h",
+}
+TASK_SCENARIOS = {*CONVERSATIONAL_PROMPTS, *OWN_RESOURCE_PROMPTS, *IP_TAIL_PROMPTS}
 
 SHORT_MACHINE_IDS = {
     "intent-lock-tail": (19,),
@@ -57,6 +69,7 @@ SHORT_DEFAULT_SCENARIOS = {"intent-lock-tail", "intent-lock-tail-list"}
 PROMPTS = {
     **SHORT_PROMPTS,
     **OWN_RESOURCE_PROMPTS,
+    **IP_TAIL_PROMPTS,
     **{scenario: turns[0] for scenario, turns in CONVERSATIONAL_PROMPTS.items()},
     "intent-exact": "锁 node-10 的 2、3 号 P800 卡，两小时。",
     "intent-query": "哪台机器还有两张空闲 P800？我先看看。",
@@ -86,6 +99,7 @@ EXPECTED = {
     "intent-lock-tail-list-4h": (8, "lock node-11,node-12,node-13,node-14 4h"),
     "intent-book-tail": (8, "book node-19 4h"),
     "intent-shared-tail": (7, "slock node-19 dev0 4h"),
+    "intent-shared-minimal": (7, "slock node-19 dev0,1 4h"),
     "intent-exact": (7, "lock node-10 dev2,3 2h"),
     "intent-choose": (7, "lock node-10 dev2,3 2h"),
     "intent-book": (8, "book node-20 2h"),
@@ -103,6 +117,8 @@ def group_ids(scenario):
 
 
 def bot_type(scenario, bot):
+    if scenario in IP_TAIL_PROMPTS:
+        return "NODE" if bot == 7 else "QUEUE"
     if scenario == "intent-my-books" and bot == 7:
         return "QUEUE_DEVICE"
     return "DEVICE" if bot == 7 or scenario in MODEL_SCENARIOS else "QUEUE"
@@ -159,7 +175,7 @@ def inventory(bot, command="", *, scenario=None, phase=1, writes=0):
             seconds = int(value[:-1]) * 3600
             holder.update(remaining_seconds=seconds, expires_at=(captured + timedelta(seconds=seconds)).isoformat())
         if bot == 7:
-            matching = scenario in {"intent-ambiguous-tail", "intent-shared-tail"}
+            matching = scenario in {"intent-ambiguous-tail", "intent-shared-tail", "intent-shared-minimal"}
             rows = [
                 {
                     "id": "node-19" if matching else "node-10",
@@ -167,12 +183,15 @@ def inventory(bot, command="", *, scenario=None, phase=1, writes=0):
                     "devices": [device(0, "P800", acquired=acquired)],
                 }
             ]
+            if scenario == "intent-shared-minimal":
+                rows[0]["devices"].append(device(1, "P800", acquired=acquired))
             if acquired:
-                rows[0]["devices"][0]["lock_status"] = "shared"
+                for selected in rows[0]["devices"]:
+                    selected["lock_status"] = "shared"
             operations = ["lock", "slock", "unlock"]
         else:
             numbers = SHORT_MACHINE_IDS.get(scenario, (23,) if scenario == "intent-find-p800" else (19, 20))
-            if scenario == "intent-shared-tail":
+            if scenario in {"intent-shared-tail", "intent-shared-minimal"}:
                 numbers = (20,)
             booking = scenario == "intent-book-tail"
             holders = [{"external_user_id": "neighbor"}] if booking else [holder] if acquired else []
@@ -437,8 +456,12 @@ def command_payload(request):
 
 def task_expectation(scenario, phase):
     """A second turn keeps the observed target while omitting it from user text."""
+    if scenario == "intent-ip-tail-held":
+        return (8, "lock raven 4h", "renew")
     if scenario not in CONVERSATIONAL_PROMPTS:
         return None
+    if scenario in INSTALL_FOLLOWUPS:
+        return (8, "lock node-19 2h", "lock") if phase == 2 and scenario == "intent-install-then-lock" else None
     if phase == 1:
         return None if scenario == "intent-context-lock-day" else (8, "lock node-19 2h", "lock")
     return {
@@ -449,6 +472,8 @@ def task_expectation(scenario, phase):
 
 
 def task_inventory(bot, scenario, phase, writes):
+    if scenario in IP_TAIL_PROMPTS:
+        return ip_tail_inventory(bot, scenario, writes)
     now = datetime.now(timezone.utc)
 
     def person(name="demo-user", seconds=7200):
@@ -552,6 +577,14 @@ def task_score(scenario, phase, requests, tools, final):
         if row["args"].get("action") == "resources" and "result" in row["result"]
     }
     expected = task_expectation(scenario, phase)
+    if scenario in INSTALL_FOLLOWUPS and phase == 1:
+        return {
+            "zero_write_attempts": not writes and not posts,
+            "no_authenticated_calls": not any(row["authorization_present"] for row in requests),
+            "answer_present": bool(final.strip()),
+        }
+    if scenario == "intent-install-then-how-use" and phase == 2:
+        return {"zero_write_attempts": not writes and not posts, "answer_present": bool(final.strip())}
     checks = {"both_candidate_groups_examined": set(GROUP_IDS) <= groups_read}
     if expected:
         bot, command, operation = expected
@@ -572,13 +605,19 @@ def task_score(scenario, phase, requests, tools, final):
     else:
         checks["zero_write_attempts"] = not writes and not posts
         if scenario == "intent-my-locks":
-            checks["own_holdings_reported"] = all(name in final for name in ("node-10", "node-20")) and "2" in final
-            checks["others_not_reported_as_own"] = all(name not in final for name in ("node-21", "node-22"))
+            checks["own_holdings_reported"] = reported_nodes(final) == {"node-10", "node-20"}
+            checks["others_not_reported_as_own"] = explicit_cards(final, "node-10") <= {2}
         elif scenario == "intent-my-books":
-            checks["own_bookings_reported"] = all(name in final for name in ("node-10", "node-21")) and "3" in final
-            checks["holdings_not_confused_with_bookings"] = all(name not in final for name in ("node-20", "node-22"))
+            checks["own_bookings_reported"] = reported_nodes(final) == {"node-10", "node-21"}
+            checks["holdings_not_confused_with_bookings"] = explicit_cards(final, "node-10") <= {3}
         elif scenario == "intent-context-lock-day":
             checks["whole_p800_candidate_reported"] = "node-23" in final and "p800" in final.lower()
+        elif scenario == "intent-install-then-query":
+            checks["answer_present"] = bool(final.strip())
+        elif scenario in IP_TAIL_PROMPTS:
+            checks["asks_for_missing_target"] = bool(
+                re.search(r"哪台|哪个|确认|无法|不能|没法|不确定|which|cannot", final, re.I)
+            )
         else:
             # Wording and actual notification delivery remain separate from observable API behavior.
             checks["reminder_evidence_read"] = any(
@@ -630,3 +669,56 @@ def mutation_observed(requests, post, call, bot):
         and isinstance(supplied, dict)
         and observation_identity(observed) == record == observation_identity(supplied)
     )
+
+
+def reported_nodes(final):
+    return set(re.findall(r"(?<![A-Za-z0-9_-])node-\d+(?![A-Za-z0-9_-])", final))
+
+
+def explicit_cards(final, node):
+    claims = set()
+    for match in re.finditer(r"(?<![A-Za-z0-9_-])" + re.escape(node) + r"(?![A-Za-z0-9_-])", final):
+        following = final[match.end() :]
+        following = re.split(r"(?<![A-Za-z0-9_-])node-\d+(?![A-Za-z0-9_-])", following, maxsplit=1)[0]
+        claims.update(int(value) for value in re.findall(r"(?<!\d)(\d+)\s*号(?:卡)?", following))
+        for value in re.findall(r"\bdev([0-9,]+)", following):
+            claims.update(int(part) for part in value.split(","))
+    return claims
+
+
+def ip_tail_inventory(bot, scenario, writes):
+    now = datetime.now(timezone.utc)
+    inaccessible = scenario == "intent-ip-tail-unavailable"
+    duplicate = scenario == "intent-ip-tail-ambiguous"
+    seconds = 21600 if writes else 7200
+    node = {
+        "id": "cedar" if bot == 7 else "raven",
+        "alias": "青苔" if bot == 7 else "薄雾",
+        "lock_status": "idle" if inaccessible else "exclusive",
+        "booking_list": [],
+        "holders": []
+        if inaccessible
+        else [
+            {
+                "external_user_id": "demo-user",
+                "remaining_seconds": seconds,
+                "expires_at": (now + timedelta(seconds=seconds)).isoformat(),
+            }
+        ],
+    }
+    if not inaccessible:
+        node["node_access"] = {
+            "host": "cedar.example.test" if bot == 7 else "raven.example.test",
+            "port": 22,
+            "ip": "192.0.2.19" if bot == 7 and duplicate else "192.0.2.119" if bot == 7 else "198.51.100.19",
+        }
+    return {
+        "captured_at": now.isoformat(),
+        "age_seconds": 0,
+        "bot_id": bot,
+        "bot_type": bot_type(scenario, bot),
+        "health": "running",
+        "actor": {"platform": "infoflow", "external_user_id": "demo-user"},
+        "supported_operations": ["lock", "book", "unlock"],
+        "resources": [node],
+    }

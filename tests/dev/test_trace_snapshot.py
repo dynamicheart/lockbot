@@ -447,3 +447,57 @@ def test_raw_snapshot_preserves_large_tool_output_and_final_response(tmp_path, r
         assert session[1]["role"] == "missing"
         assert "32 MB" in session[1]["text"]
     assert session[-1]["text"] == "这是安装入口"
+
+
+@pytest.mark.parametrize(("fixture_version", "count"), [(10, 3), (13, 4)])
+def test_reset_snapshot_preserves_historical_and_new_consent_phase_counts(tmp_path, fixture_version, count):
+    runner = {"client": "fixture", "model": "gpt-6.1-sol"}
+    plan = {
+        "simulation_only": True,
+        "artifacts": {"current": {"package_version": "0123456789abcdef"}},
+        "cases": ["cli:reset-personal-key"],
+        "runners": [runner],
+    }
+    (tmp_path / "run.json").write_text(json.dumps(plan))
+    rows = [
+        {
+            **runner,
+            "suite": "cli",
+            "scenario": "reset-personal-key",
+            "status": "completed",
+            "observable_pass": True,
+            "phase": phase,
+            "fixture_version": fixture_version,
+        }
+        for phase in range(1, count + 1)
+    ]
+    (tmp_path / "progress.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    output = tmp_path / "latest.json"
+    subprocess.run([sys.executable, str(SCRIPT), str(tmp_path), str(output)], check=True)
+    trial = json.loads(output.read_text())["cases"]["case-3"][0]
+    assert trial["state"] == "pass"
+    assert len(trial["metrics"]["phases"]) == count
+
+
+def test_own_resource_answers_remain_pending_semantic_review(tmp_path):
+    runner = {"client": "fixture", "model": "gpt-6.1-sol"}
+    plan = {
+        "simulation_only": True,
+        "artifacts": {"current": {"package_version": "0123456789abcdef"}},
+        "cases": ["cli:intent-my-locks"],
+        "runners": [runner],
+    }
+    (tmp_path / "run.json").write_text(json.dumps(plan))
+    row = {
+        **runner,
+        "suite": "cli",
+        "scenario": "intent-my-locks",
+        "status": "completed",
+        "observable_pass": True,
+        "phase": 1,
+        "manual_review_required": ["Check exact ownership and roles."],
+    }
+    (tmp_path / "progress.jsonl").write_text(json.dumps(row) + "\n")
+    output = tmp_path / "latest.json"
+    subprocess.run([sys.executable, str(SCRIPT), str(tmp_path), str(output)], check=True)
+    assert json.loads(output.read_text())["cases"]["intent-my-locks"][0]["state"] == "pending"

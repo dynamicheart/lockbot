@@ -112,7 +112,8 @@ def resume(previous, destination):
     shutil.copy2(previous / "browser.json", destination / "browser.json")
     if (previous / "artifacts").exists():
         shutil.copytree(previous / "artifacts", destination / "artifacts")
-    case.update(phase=2, parent_evidence_digest=base.digest((previous / "trace.jsonl").read_bytes()))
+    trace = previous / "trace.jsonl"
+    case.update(phase=2, parent_evidence_digest=base.digest(trace.read_bytes() if trace.is_file() else b""))
     base.save_json(destination / "case.json", case)
     (destination / "prompt.txt").write_text("看看我之前连的群里有哪些资源和预约。资源台收藏过的话，把入口也告诉我。")
     (destination / "system.txt").write_text(

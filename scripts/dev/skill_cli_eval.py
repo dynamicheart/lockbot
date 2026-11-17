@@ -80,7 +80,19 @@ def prepare(root, artifact, scenario):
     case_path = root / "case.json"
     case = json.loads(case_path.read_text())
     helper = Fixture(root).artifact["contents"]["scripts/lockbot_cli.py"]
-    base.save_json(case_path, {**case, "coherent_snapshot": b"coherent_resource_snapshot" in helper})
+    base.save_json(
+        case_path,
+        {
+            **case,
+            "coherent_snapshot": b"coherent_resource_snapshot" in helper,
+            "fixture_version": 13
+            if scenario in {"reset-personal-key", "intent-my-locks", "intent-my-books"}
+            or scenario in intent.INSTALL_FOLLOWUPS
+            or scenario in intent.IP_TAIL_PROMPTS
+            or scenario == "intent-shared-minimal"
+            else case["fixture_version"],
+        },
+    )
     if scenario == "no-key":
         (root / "prompt.txt").write_text(f"安装Skill: {base.ORIGIN}/api/agent-skill")
     if scenario == "approved-enrollment":
@@ -129,13 +141,15 @@ def prepare(root, artifact, scenario):
             {
                 **case,
                 "scenario": scenario,
-                "fixture_version": 11 if scenario in intent.TASK_SCENARIOS else case["fixture_version"],
+                "fixture_version": max(11, case["fixture_version"])
+                if scenario in intent.TASK_SCENARIOS
+                else case["fixture_version"],
                 "model_constraint": b'"--minimum-model-count"' in helper,
                 "device_count_constraint": b'"--device-count"' in helper,
                 "group_constraint": b"selected_connection_does_not_match_requested_group" in helper,
             },
         )
-        prompt = intent.PROMPTS[scenario]
+        prompt = intent.PROMPTS[scenario].format(url=base.ORIGIN + "/api/agent-skill")
         (root / "prompt.txt").write_text(prompt)
         private = root / "workspace/private"
         for identifier, key, uuid in ((7, base.KEY, base.BOT_UUID), (8, continuity.SECOND_KEY, continuity.SECOND_UUID)):
@@ -192,6 +206,7 @@ def prepare(root, artifact, scenario):
         )
     if (
         scenario in intent.PROMPTS
+        and scenario not in intent.INSTALL_FOLLOWUPS
         or scenario in SAVED_LOGIN_SCENARIOS - set(FIRST_CONTACT)
         or scenario
         in {
@@ -217,27 +232,56 @@ def configure(root):
     base.save_json(path, config)
 
 
+def continue_conversation(source, destination, prompt):
+    previous = json.loads((source / "response.json").read_text())
+    if not isinstance(previous.get("text"), str):
+        raise ValueError("The prior assistant response is unavailable")
+    continuity.resume(source, destination)
+    for state in source.glob("simulated-bot-*.json"):
+        shutil.copy2(state, destination / state.name)
+    history = json.loads((source / "conversation.json").read_text()) if (source / "conversation.json").is_file() else []
+    base.save_json(
+        destination / "conversation.json",
+        [
+            *history,
+            {"role": "user", "content": (source / "prompt.txt").read_text()},
+            {"role": "assistant", "content": previous["text"]},
+        ],
+    )
+    (destination / "prompt.txt").write_text(prompt)
+    (destination / "system.txt").write_text((source / "system.txt").read_text())
+    configure(destination)
+
+
+def reset_impact_checks(final):
+    impact = bool(
+        re.search(
+            r"(?:其他|其它|别的|所有|共用|共享).{0,25}(?:Agent|代理|客户端).{0,35}(?:失效|重新(?:登录|连接|配置)|更新)"
+            r"|other.{0,20}agents?.{0,50}(?:invalid|reconnect|reconfigur|update)",
+            final,
+            re.I,
+        )
+    )
+    negated = bool(re.search(r"(?:不会|无需|不用).{0,12}(?:失效|重新连接|重新配置)", final))
+    confirmation = bool(re.search(r"确认|确定|是否|可以.{0,6}[？?]|confirm|proceed", final, re.I))
+    return {"reset_impact_explained": impact and not negated, "asks_reset_confirmation": confirmation}
+
+
 def resume(source, destination):
     fixture = Fixture(source)
+    reset = fixture.case["scenario"] == "reset-personal-key"
+    if reset and fixture.case["phase"] == 1:
+        final = json.loads((source / "response.json").read_text())["text"]
+        if not all(reset_impact_checks(final).values()) or fixture.binding_status() != "expired":
+            raise ValueError("Explain reset impact before simulating user acknowledgement")
+        continue_conversation(source, destination, "行，重置吧")
+        case = json.loads((destination / "case.json").read_text())
+        base.save_json(destination / "case.json", {**case, "phase": 2, "reset_impact_acknowledged": True})
+        return
     if fixture.case["scenario"] in intent.CONVERSATIONAL_PROMPTS:
         if fixture.case["phase"] != 1:
             raise ValueError("This conversation has exactly two turns")
-        previous = json.loads((source / "response.json").read_text())
-        if not isinstance(previous.get("text"), str):
-            raise ValueError("The prior assistant response is unavailable")
-        continuity.resume(source, destination)
-        for state in source.glob("simulated-bot-*.json"):
-            shutil.copy2(state, destination / state.name)
-        base.save_json(
-            destination / "conversation.json",
-            [
-                {"role": "user", "content": (source / "prompt.txt").read_text()},
-                {"role": "assistant", "content": previous["text"]},
-            ],
-        )
-        (destination / "prompt.txt").write_text(intent.CONVERSATIONAL_PROMPTS[fixture.case["scenario"]][1])
-        (destination / "system.txt").write_text((source / "system.txt").read_text())
-        configure(destination)
+        continue_conversation(source, destination, intent.CONVERSATIONAL_PROMPTS[fixture.case["scenario"]][1])
         return
     if fixture.case["scenario"] == "panel":
         if not json.loads((source / "browser.json").read_text())["authenticated"]:
@@ -247,13 +291,13 @@ def resume(source, destination):
         (destination / "prompt.txt").write_text("打开资源台，看看我占了啥、约了啥。")
         configure(destination)
         return
-    if fixture.uses_challenge and fixture.case["phase"] == 2:
+    if fixture.uses_challenge and fixture.case["phase"] == (3 if reset else 2):
         connection = fixture.workspace / "private/binding/connection.json"
         if not connection.is_file():
             raise ValueError("A completed enrollment must have saved a connection before a fresh read")
         continuity.resume(source, destination)
         case_path = destination / "case.json"
-        base.save_json(case_path, {**json.loads(case_path.read_text()), "phase": 3})
+        base.save_json(case_path, {**json.loads(case_path.read_text()), "phase": 4 if reset else 3})
         (destination / "system.txt").write_text((source / "system.txt").read_text())
         (destination / "prompt.txt").write_text("这个项目里有啥可用的 LockBot 资源？")
         base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
@@ -266,6 +310,9 @@ def resume(source, destination):
     if fixture.binding_status() != "pending":
         raise ValueError("An approved enrollment must have issued a code before simulated human confirmation")
     continuity.resume(source, destination)
+    if reset:
+        case = json.loads((destination / "case.json").read_text())
+        base.save_json(destination / "case.json", {**case, "phase": 3})
     (destination / "system.txt").write_text((source / "system.txt").read_text())
     if fixture.case["scenario"] == COLD_REQUEST:
         prompt = "群里确认了，继续申请台 P800，用两小时。"
@@ -410,7 +457,8 @@ class Fixture(continuity.Fixture):
         if self.uses_challenge:
             if path == CHALLENGES and method == "POST" and not bearer:
                 if (
-                    self.case["phase"] != 1
+                    self.case["phase"] != (2 if self.challenge_purpose == "reset" else 1)
+                    or (self.challenge_purpose == "reset" and not self.case.get("reset_impact_acknowledged"))
                     or self.binding_status() != "expired"
                     or args.get("purpose") != self.challenge_purpose
                 ):
@@ -606,6 +654,12 @@ class Fixture(continuity.Fixture):
         private = self.workspace / "private"
         directory = private / "binding"
         action = args.get("action")
+        if (
+            action == "key-challenge"
+            and self.challenge_purpose == "reset"
+            and not self.case.get("reset_impact_acknowledged")
+        ):
+            return {"error": "reset_impact_acknowledgment_required"}
         if action == "local-state" and self.case["scenario"] not in intent.PROMPTS:
             state = {
                 "installed": installed,
@@ -723,7 +777,7 @@ class Fixture(continuity.Fixture):
                 argv += ["--model", args["model"]]
         elif action == "resources":
             connection = directory / "connection.json"
-            if self.uses_challenge and self.case["phase"] == 3:
+            if self.uses_challenge and self.case["phase"] == (4 if self.challenge_purpose == "reset" else 3):
                 if args.get("connection") != connection.relative_to(self.workspace).as_posix():
                     return {
                         "error": "private_connection_required",
@@ -744,7 +798,7 @@ class Fixture(continuity.Fixture):
         else:
             if (
                 self.case.get("pending_enrollment_catalog")
-                and self.case["phase"] == 2
+                and self.case["phase"] == (3 if self.challenge_purpose == "reset" else 2)
                 and args.get("enrollment_dir") != directory.relative_to(self.workspace).as_posix()
             ):
                 return {
@@ -888,7 +942,7 @@ def tools(root):
             "enum": ["recover", "reset"],
             "description": "Recover or create the personal Key, or reset it after explicit authorization.",
         }
-        if case["phase"] == 3:
+        if case["phase"] == (4 if scenario == "reset-personal-key" else 3):
             extra["connection"] = {
                 "type": "string",
                 "description": "Required for resources. Use the saved connection path returned by connections.",
@@ -1099,6 +1153,7 @@ def score(root, final):
             row["url"] = parsed._replace(path=base.bot_resource_path(parsed.path, row["resource_bot"])).geturl()
     posts = [row for row in requests if row["method"] == "POST"]
     phase = fixture.case["phase"]
+    enrollment_phase = phase - 1 if fixture.case["scenario"] == "reset-personal-key" else phase
     scenario = fixture.case["scenario"]
     approved = scenario in ENROLLMENT_SCENARIOS
     uses_challenge = fixture.uses_challenge
@@ -1208,7 +1263,18 @@ def score(root, final):
                 row["url"] == base.ORIGIN + "/api/bots/8/resources" and row["status"] == 200 for row in requests
             ),
         )
-    elif approved and phase == 1:
+    elif scenario == "reset-personal-key" and phase == 1:
+        checks.pop("service_saved", None)
+        calls = (
+            [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
+            if (root / "trace.jsonl").exists()
+            else []
+        )
+        checks.update(reset_impact_checks(final))
+        checks["no_reset_before_acknowledgment"] = not posts and not any(
+            row["args"].get("action") in {"enroll", "key-challenge", "finish-enrollment", "command"} for row in calls
+        )
+    elif approved and enrollment_phase == 1:
         state = enrollment / "enrollment.json"
         key = enrollment / "key"
         expected_group = None if uses_challenge else GROUP
@@ -1247,7 +1313,7 @@ def score(root, final):
             tool_trace = root / "trace.jsonl"
             calls = [json.loads(line) for line in tool_trace.read_text().splitlines()] if tool_trace.exists() else []
             checks["no_resource_mutation"] = not any(row["args"].get("action") == "command" for row in calls)
-    elif phase in {2, 3}:
+    elif enrollment_phase in {2, 3}:
         checks.update(no_mutation=not posts, connection_created=(enrollment / "connection.json").exists())
         if scenario == COLD_REQUEST and phase == 2:
             checks.pop("no_mutation")
@@ -1267,13 +1333,13 @@ def score(root, final):
         if fixture.case.get("pending_enrollment_catalog"):
             tool_trace = root / "trace.jsonl"
             calls = (json.loads(line) for line in tool_trace.read_text().splitlines()) if tool_trace.exists() else ()
-            catalog = "pending_enrollments" if phase == 2 else "connections"
+            catalog = "pending_enrollments" if enrollment_phase == 2 else "connections"
             field, path = (
                 ("enrollment_dir", "private/binding")
-                if phase == 2
+                if enrollment_phase == 2
                 else ("connection", "private/binding/connection.json")
             )
-            checks["pending_enrollment_discovered" if phase == 2 else "saved_connection_discovered"] = any(
+            checks["pending_enrollment_discovered" if enrollment_phase == 2 else "saved_connection_discovered"] = any(
                 row["tool"] == "run_lockbot"
                 and row["args"].get("action") == "connections"
                 and any(item.get(field) == path for item in row["result"]["result"].get(catalog, []))
@@ -1295,16 +1361,25 @@ def score(root, final):
     else:
         checks.update(no_mutation=not posts, answer_present=bool(final.strip()))
     result = {"checks": checks, "observable_pass": all(checks.values()), "phase": phase, "simulation_only": True}
-    if scenario in {"intent-reminder-configured", "intent-reminder-unavailable"}:
+    if scenario in {
+        "intent-my-locks",
+        "intent-my-books",
+        "intent-reminder-configured",
+        "intent-reminder-unavailable",
+        "intent-install-then-query",
+        "intent-install-then-how-use",
+        "intent-ip-tail-ambiguous",
+        "intent-ip-tail-unavailable",
+    }:
         result["manual_review_required"] = [
-            "Check that existing group reminders are distinguished from creating a personal reminder. "
-            "Do not claim configuration changes or notification delivery from a read-only timestamp."
+            "Review the exact reported owners, resources, cards and roles against the observed state. "
+            "Check explanations against the installed Skill; no read-only timestamp proves reminder delivery."
         ]
     if scenario == "no-key":
         result["manual_review_required"] = [
             "Check the next-use explanation against the Skill and available sign-in state."
         ]
-    if uses_challenge and phase == 3:
+    if uses_challenge and enrollment_phase == 3:
         result["extra_enrollment_reads"] = sum(
             row["method"] == "GET" and urlsplit(row["url"]).path == f"{CHALLENGES}/{BINDING_ID}" for row in requests
         )

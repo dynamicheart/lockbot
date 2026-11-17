@@ -358,3 +358,41 @@ Process-mock regressions verify this adapter contract without calling a model.
 They do not prove live client authentication, upstream model availability, or a
 successful model evaluation. Run the normal native preflight and retain its real
 JSONL before claiming those results.
+
+## Consent and first-use review corrections
+
+The leak-reset case keeps its minimal initial request. Fixture version 13 uses four
+stages: the Agent first explains that other Agents sharing the old Key will lose
+access and asks for confirmation; the simulated user replies `行，重置吧`; only
+then may the Agent request the `RST-` challenge. Group confirmation is simulated
+only after that challenge actually exists. A final fresh session verifies the new
+saved identity. The fixture blocks a reset challenge before impact acknowledgement,
+and its transcript contains the actual warning and user reply. Historical three-stage
+reset results retain their original stage count in the exporter.
+
+Three separate first-use variants now begin genuinely uninstalled with
+`安装Skill: <manifest URL>`. After a verified installation, their next native turn
+asks for available resources, requests a short lock, or asks how to use the Skill.
+The installation and private client state persist without another install request.
+These three variants start with previously authorized private client connections;
+they do not replace the separate credentialless cold-onboarding case.
+The query and explanation variants keep response semantics pending manual review;
+this is distinct from starting a daily-use fixture with an already installed Skill.
+
+Personal holding/booking checks compare complete node identifiers. If an answer
+volunteers explicit card numbers, those must belong to the relevant caller state;
+neighbor bookings, prefix-similar identities such as `demo-user-other`, and node-ID
+prefixes cannot satisfy a caller's own holding. Machine-only answers need not list
+cards. These checks do not replace semantic review, so the exporter leaves such
+answers pending review even after observable actions pass.
+
+Existing short `19` cases whose fixtures match node names or aliases are labeled
+as name/alias resolution, not as IP resolution. New IP cases use opaque identifiers
+and unrelated aliases. They resolve an IP tail only from actual `node_access`
+metadata on resources currently held by the caller, including a duplicate-tail
+case across two authorized groups. TEST-NET addresses are synthetic. The real
+resource API deliberately exposes these SSH addresses only during a current own
+holding; an idle opaque resource therefore has no such mapping. The missing-mapping
+case must ask for a target rather than invent an IP or relax that access rule.
+A separate minimal `slock 19 4h` case exercises selection of all cards from observed inventory for shared use without
+preloading a card number into the user's request.
