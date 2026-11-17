@@ -62,7 +62,14 @@ def prepare(root, suite, scenario, artifacts):
         consultation.prepare(root, current, scenario)
         return consultation.score
     installed = artifacts / "installed" if scenario == "update" else None
-    operations.prepare(root, source, scenario, current, installed)
+    operations.prepare(
+        root,
+        source,
+        scenario,
+        current,
+        installed,
+        **({"fixture_version": 10} if scenario in {"queue", "update"} else {}),
+    )
     return operations.score
 
 
