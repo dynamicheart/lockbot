@@ -1069,6 +1069,8 @@ def test_reset_cannot_issue_challenge_or_simulate_ack_before_warning(tmp_path, m
     [
         ("可以。重置后旧 Key 将失效，其他共用该 Key 的 Agent 也必须更换。确认要重置吗？", True),
         ("旧key将作废，其他Agent需要换成新Key。确定吗？", True),
+        ("旧Key将立即失效，其他共用Key的Agent需要重新接入。确认重置吗？", True),
+        ("旧Key将失效，其他Agent无需重新接入。确认重置吗？", False),
         ("重置后其他 Agent 会失效，需要重新配置。确认重置吗？", True),
         ("其他共用该Key的Agent也必须更换。确认要重置吗？", False),
         ("重置后旧Key将失效。确认要重置吗？", False),
