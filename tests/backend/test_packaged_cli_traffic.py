@@ -105,6 +105,7 @@ def test_query_then_immediate_lock_and_verification(packaged_cli, api, tmp_path)
     for _ in range(2):
         output, events = run(*arguments, "resources")
         assert all(event["status"] == 200 for event in events)
+        assert [event["path"] for event in events] == ["/api/agent-skill", "/api/agent/resources"]
         assert next(item for item in output["result"]["resources"] if item["id"] == "n1")["holders"] == []
     output, events = run(
         *arguments, "command", "--operation", "lock", "--node", "n1", "--whole-node", "--duration", "1h"
@@ -112,6 +113,7 @@ def test_query_then_immediate_lock_and_verification(packaged_cli, api, tmp_path)
     assert output["result"]["verified"] is True
     assert all(event["status"] == 200 for event in events)
     assert [event["method"] for event in events].count("POST") == 1
+    assert [event["path"] for event in events] == ["/api/agent-skill", "/api/agent/resources", "/api/agent/commands"]
     output, events = run(*arguments, "resources", "--exact-lease-times")
     assert all(event["status"] == 200 for event in events)
     snapshot = output["result"]
@@ -161,3 +163,88 @@ def test_resource_read_budget_still_returns_429(client, api, packaged_cli, monke
     assert 0 < int(response.headers["Retry-After"]) <= 61
     # A different credential retains its own allowance.
     assert client.get(path, headers=api["other_headers"]).status_code == 200
+
+
+def test_inventory_and_command_do_not_issue_optional_capabilities(packaged_cli, monkeypatch):
+    from lockbot.backend.app.bots import metrics_access
+    from lockbot.backend.app.resource_api import view_links
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("An inventory observation must not issue metrics access or a view link")
+
+    monkeypatch.setattr(metrics_access, "issue_metrics_access", unexpected)
+    monkeypatch.setattr(view_links, "view_link", unexpected)
+    run, connection, _ = packaged_cli
+    prefix = ("--connection", str(connection))
+    output, events = run(*prefix, "resources")
+    assert len(events) == 2
+    context = output["result"]["context"]
+    assert {"utilization", "view_url", "view_expires_at", "personal_report_extensions"}.isdisjoint(context)
+    output, events = run(*prefix, "command", "--operation", "lock", "--node", "n1", "--whole-node", "--duration", "1h")
+    assert output["result"]["verified"] and len(events) == 3
+
+
+def test_lost_mutation_response_never_replays_or_claims_success(packaged_cli, monkeypatch):
+    run, connection, transport = packaged_cli
+    original = transport.open
+
+    def lost(request, timeout=None):
+        response = original(request, timeout)
+        if request.get_method() == "POST":
+            response.close()
+            raise HTTPError(request.full_url, 503, "synthetic lost response", Message(), io.BytesIO())
+        return response
+
+    monkeypatch.setattr(transport, "open", lost)
+    prefix = ("--connection", str(connection))
+    output, events = run(
+        *prefix, "command", "--operation", "lock", "--node", "n1", "--whole-node", "--duration", "1h", expected_code=2
+    )
+    assert output["error"] == "mutation_outcome_unknown_read_resources_do_not_replay"
+    assert output["retry_mutation"] is False
+    assert sum(event["method"] == "POST" for event in events) == 1
+    # An explicit later read can recover the truth; the failed mutation itself
+    # must not silently retry or declare the lease acquired.
+    output, _ = run(*prefix, "resources")
+    held = next(row for row in output["result"]["resources"] if row["id"] == "n1")
+    assert held["holders"][0]["external_user_id"] == ACTOR
+
+
+@pytest.mark.parametrize("field", ["actor", "bot", "server", "snapshot_actor"])
+def test_mutation_observation_rejects_changed_identity(packaged_cli, monkeypatch, field):
+    run, connection, transport = packaged_cli
+    original = transport.open
+
+    def changed(request, timeout=None):
+        response = original(request, timeout)
+        if request.get_method() != "POST":
+            return response
+        body = json.load(response)
+        response.close()
+        snapshot = body["resource_snapshot"]
+        if field == "snapshot_actor":
+            snapshot["actor"]["external_user_id"] = "another-user"
+        else:
+            identity = {"actor": "external_user_id", "bot": "uuid", "server": "instance_id"}[field]
+            snapshot["context"][field][identity] = "changed-identity"
+        result = io.BytesIO(json.dumps(body).encode())
+        result.headers = Message()
+        return result
+
+    monkeypatch.setattr(transport, "open", changed)
+    output, events = run(
+        "--connection",
+        str(connection),
+        "command",
+        "--operation",
+        "lock",
+        "--node",
+        "n1",
+        "--whole-node",
+        "--duration",
+        "1h",
+        expected_code=2,
+    )
+    assert output["error"] == "mutation_not_confirmed_read_resources_do_not_replay"
+    assert output["retry_mutation"] is False
+    assert sum(event["method"] == "POST" for event in events) == 1

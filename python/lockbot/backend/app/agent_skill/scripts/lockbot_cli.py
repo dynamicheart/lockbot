@@ -860,6 +860,7 @@ class Client:
         self.portable_package = False
         self.needs_update = False
         self.manifest = None
+        self._prepared_resources = None
 
     def _file(self, name):
         value = self.config.get(name)
@@ -1018,7 +1019,9 @@ class Client:
         )
         self.needs_update |= self._version_differs(self.manifest.get("version"), self.manifest.get("package_version"))
 
-    def _read_context(self, *, initializing=False):
+    def _read_context(self, *, initializing=False, with_resources=False):
+        if with_resources and self.node_access:
+            self.node_access.invalidate()
         if self.manifest is None:
             self.discover()  # no credentials have been read or sent yet
         if not self.config.get("instance_id") or (not initializing and not self.config.get("bot_uuid")):
@@ -1032,7 +1035,20 @@ class Client:
             if not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", self.key):
                 raise ClientError("invalid_resource_key")
             self.secrets.append(self.key)
-        result = self._request(same_origin_url(self.base, self.manifest["context_url"]), token=self.key)
+        combined = with_resources and "coherent_resource_snapshot" in self.manifest.get("capabilities", ())
+        if combined:
+            snapshot, started = self._request(self.base + "/api/agent/resources", token=self.key, include_started=True)
+            result = snapshot.get("context")
+            if not isinstance(result, dict):
+                raise ClientError("resource_context_missing")
+        else:
+            result = self._request(same_origin_url(self.base, self.manifest["context_url"]), token=self.key)
+        self._validate_context(result, initializing=initializing)
+        if combined:
+            self._prepared_resources = (result, snapshot, started)
+        return result
+
+    def _validate_context(self, result, *, initializing=False):
         server = result.get("server", {})
         uuid = result.get("bot", {}).get("uuid")
         actor = result.get("actor")
@@ -1065,7 +1081,6 @@ class Client:
         self.needs_update |= self._version_differs(
             result.get("skill", {}).get("version"), result.get("skill", {}).get("package_version")
         )
-        return result
 
     def context(self):
         if self.node_access:
@@ -1411,11 +1426,33 @@ class Client:
                 raise ClientError("enrollment_connection_exists")
         return {**result, "connection_created": True, "connection": str(connection), "bot": context["bot"]}
 
+    def inventory(self):
+        """One authorized inventory observation includes its identity and rules."""
+        context = self._read_context(with_resources=True)
+        return self.resources_with_hardware_notes(context)
+
     def resources(self, context):
+        prepared = self._prepared_resources
+        self._prepared_resources = None
+        if prepared is not None and prepared[0] is context:
+            _, snapshot, started = prepared
+        else:
+            snapshot, started = self._request(
+                same_origin_url(self.base, context["links"]["resources"]), token=self.key, include_started=True
+            )
+        return self._remember_resources(snapshot, context, started)
+
+    def _remember_resources(self, snapshot, context, started):
+        if "context" in snapshot and (
+            snapshot.get("bot_id") != context["bot"]["id"]
+            or snapshot.get("bot_type") != context["bot"]["type"]
+            or not isinstance(snapshot.get("actor"), dict)
+            or any(
+                snapshot["actor"].get(field) != context["actor"][field] for field in ("platform", "external_user_id")
+            )
+        ):
+            raise ClientError("resource_snapshot_identity_mismatch")
         generation = self.node_access.invalidate() if self.node_access else None
-        snapshot, started = self._request(
-            same_origin_url(self.base, context["links"]["resources"]), token=self.key, include_started=True
-        )
         if generation:
             nodes = self._current_node_access(snapshot, context, self.clock() - started)
             scope = {
@@ -1637,7 +1674,7 @@ class Client:
             model is None or devices or type(minimum_model_count) is not int or minimum_model_count < 1
         ):
             raise ClientError("minimum_model_count_requires_whole_node_and_model")
-        context = self.context()
+        context = self._read_context(with_resources=True)
         if group is not None and context["bot"]["name"] != group:
             raise ClientError("selected_connection_does_not_match_requested_group")
         if self.needs_update:
@@ -1749,9 +1786,17 @@ class Client:
             command += " " + duration
         if len(command) > 512:
             raise ClientError("command_too_large")
+        started = self.clock()
         result = self._post_command(context, command, metadata)
         try:
-            after = self.resources(context)
+            if "coherent_resource_snapshot" in self.manifest.get("capabilities", ()):
+                after = result.get("resource_snapshot")
+                if not isinstance(after, dict) or not isinstance(after.get("context"), dict):
+                    raise ClientError("command_observation_missing")
+                self._validate_context(after["context"])
+                after = self._remember_resources(after, context, started)
+            else:
+                after = self.resources(context)
             self._require_fresh_snapshot(after)
             targets = self._selected(after, nodes, devices)
             if operation == "release":
@@ -2296,7 +2341,7 @@ def main(argv=None):
         elif args.action == "context":
             result = client.context()
         elif args.action == "resources":
-            result = client.resources_with_hardware_notes(client.context())
+            result = client.inventory()
         elif args.action == "recover":
             result = client.recover(args.destination, scope=args.scope)
         elif args.action == "resource-guidance":

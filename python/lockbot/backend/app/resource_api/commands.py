@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -113,8 +113,9 @@ The examples below use placeholder resources; replace them with those returned b
   persistence or that your command caused the value. HTTP 200 alone is not success.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
   Agent keys**. Native chat/OP permissions do not imply permission through this API.
-- HTTP 200 only means the command was dispatched. Inspect `reply` and read `/resources`
-  to verify ownership or queue position. Repeating `lock` extends the lease; do not retry
+- HTTP 200 only means the command was dispatched. Inspect the returned `resource_snapshot`
+  to verify ownership or queue position. It is copied before the command releases its
+  allocator state lock. If absent, read `/resources` explicitly. Repeating `lock` extends the lease; do not retry
   it blindly after a timeout. Prefer structured GET `/resources` over parsing query replies.
 
 ### Example: two Agents sharing one user's key
@@ -162,10 +163,13 @@ response = session.post(
     timeout=15,
 )
 response.raise_for_status()
-# Honour Retry-After / next_event_at for subsequent checks; a POST reply is not proof.
-state = session.get(f"{base_url}/api/agent/resources", timeout=15)
-state.raise_for_status()
-# Match state.json()["actor"] against the resource's holders, then use the resource.
+# A POST reply is not proof; verify its detached resource observation.
+state = response.json().get("resource_snapshot")
+if state is None:
+    observed = session.get(f"{base_url}/api/agent/resources", timeout=15)
+    observed.raise_for_status()
+    state = observed.json()
+# Match state["actor"] against the resource's holders, then use the resource.
 ```
 """
 
@@ -232,6 +236,10 @@ class CommandActor(BaseModel):
 
 
 class CommandResponse(BaseModel):
+    resource_snapshot: dict | None = Field(
+        default=None,
+        description="Authorized state observed under the command allocator lock; not a structured command outcome.",
+    )
     skill_update: dict = Field(default_factory=dict)
     next_step: str | None = None
     task_category_notice: TaskCategoryNotice | None = None
@@ -243,7 +251,7 @@ class CommandResponse(BaseModel):
     reply: str = Field(
         description=(
             "The bot's reply as text. This reports what the bot said, not a structured "
-            "outcome: read GET /resources to verify what is actually true."
+            "outcome: verify resource_snapshot, or GET /resources when absent."
         )
     )
 
@@ -330,7 +338,9 @@ def execute_command_via_api(
             request.state.agent_event["all_owned_resources"] = text.lower() in {"free", "unlock"}
             try:
                 request.state.agent_event["stage"] = "dispatching"
-                with capture_result() as result:
+                with capture_result(
+                    observe_state=canonical_command(word) in {"lock", "slock", "book", "unlock"}
+                ) as result:
                     raw_reply = execute_text_command(
                         actor.external_user_id,
                         text,
@@ -383,6 +393,17 @@ def execute_command_via_api(
                 logger.exception("Bot %s: usage registration failed after command admission", bot_id)
                 raise errors.may_have_executed(bot_id) from None
 
+            # Reuse the command's own locked observation, never a cached pre-write
+            # snapshot. Alias/configuration commands without such an observation
+            # retain their existing explicit readback contract.
+            resource_snapshot = None
+            if result.observation is not None:
+                from lockbot.backend.app.resource_api.resources import resource_payload
+
+                resource_snapshot = resource_payload(
+                    bot_row, request, Response(), actor, db, lease, observation=result.observation
+                )
+
             # The bot method has released the state lock by now, so this send cannot
             # extend a critical section. Still inside the lease, so a drain waits for it.
             if (
@@ -415,6 +436,7 @@ def execute_command_via_api(
     if notice is not None and notice.reason == "missing" and canonical_command(word) not in {"lock", "slock", "book"}:
         notice = None
     return CommandResponse(
+        resource_snapshot=resource_snapshot,
         task_category_notice=notice,
         skill_update=client_skill_notice(request),
         next_step=(

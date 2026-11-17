@@ -199,46 +199,57 @@ def get_resources(
     if not allowed:
         raise errors.rate_limited(retry_after)
 
-    now = datetime.now(timezone.utc)
-
     try:
         with (
             bot_manager.admit(bot_id, for_read=True) as lease,
             authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id),
         ):
-            # Re-verify the credential against the fresh binding inside the lease: a
-            # restore/delete/revoke may have committed between authentication and here.
             if not reverify_actor(db, request, actor):
                 raise errors.credential_invalid()
-            # Node addresses require a current hold, so never authorize from cached state.
-            generation = lease.generation
-            # Single-flight: concurrent misses collapse onto one locked deep copy.
-            captured_at, raw_state, from_cache = snapshot_cache.get_or_compute(
-                bot_id, generation, now, lease.bot.state_snapshot
-            )
-            rows = active_declarations(db, bot_row, datetime.utcnow())
-            # Authoritative health from the admitted generation. Addresses require a
-            # running allocator and a fresh hold, including for chat releases.
-            health = lease.health or bot_row.status
-            access = saved_node_access(bot_row) if health == "running" else {}
-            if from_cache and (rows or access):
-                # A declaration may refer to a newer hold/booking than the cached state,
-                # or a release/reacquire may invalidate it. Join against a fresh instant.
-                captured_at, raw_state = lease.bot.state_snapshot()
-                from_cache = False
-            declarations = declarations_for_state(rows, raw_state, captured_at)
-            config = lease.bot.config
-            # Alias writes use configuration rather than the state lock/cache.
-            # Detach this observation while the admitted generation is still held;
-            # it is deliberately not claimed to be atomic with captured_at.
-            configured_aliases = config.get_val("NODE_ALIASES")
-            aliases = configured_aliases.copy() if isinstance(configured_aliases, dict) else {}
-            aliases_observed_at = datetime.now(timezone.utc).isoformat()
-            supported = sorted(set(lease.bot.supported_commands()) & AGENT_ALLOWED_COMMANDS)
-            early_notify = bool(config.get_val("EARLY_NOTIFY"))
-            time_alert = int(config.get_val("TIME_ALERT") or 0)
+            return resource_payload(bot_row, request, response, actor, db, lease)
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
+
+
+def resource_payload(bot_row, request, response, actor, db, lease, *, observation=None):
+    """Build one authorized observation while its bot generation is admitted.
+
+    Command observations supply the detached state captured under their original
+    allocator lock. No second admission, read-budget charge or capability issuance.
+    """
+    bot_id = bot_row.id
+    now = datetime.now(timezone.utc)
+    # Node addresses require a current hold, so never authorize from cached state.
+    generation = lease.generation
+    # Single-flight: concurrent misses collapse onto one locked deep copy.
+    if observation is None:
+        captured_at, raw_state, from_cache = snapshot_cache.get_or_compute(
+            bot_id, generation, now, lease.bot.state_snapshot
+        )
+    else:
+        captured_at, raw_state = observation
+        from_cache = False
+    rows = active_declarations(db, bot_row, datetime.utcnow())
+    # Authoritative health from the admitted generation. Addresses require a
+    # running allocator and a fresh hold, including for chat releases.
+    health = lease.health or bot_row.status
+    access = saved_node_access(bot_row) if health == "running" else {}
+    if from_cache and (rows or access):
+        # A declaration may refer to a newer hold/booking than the cached state,
+        # or a release/reacquire may invalidate it. Join against a fresh instant.
+        captured_at, raw_state = lease.bot.state_snapshot()
+        from_cache = False
+    declarations = declarations_for_state(rows, raw_state, captured_at)
+    config = lease.bot.config
+    # Alias writes use configuration rather than the state lock/cache.
+    # Detach this observation while the admitted generation is still held;
+    # it is deliberately not claimed to be atomic with captured_at.
+    configured_aliases = config.get_val("NODE_ALIASES")
+    aliases = configured_aliases.copy() if isinstance(configured_aliases, dict) else {}
+    aliases_observed_at = datetime.now(timezone.utc).isoformat()
+    supported = sorted(set(lease.bot.supported_commands()) & AGENT_ALLOWED_COMMANDS)
+    early_notify = bool(config.get_val("EARLY_NOTIFY"))
+    time_alert = int(config.get_val("TIME_ALERT") or 0)
 
     platform = normalize_platform_name(bot_row.platform)
     resources = build_resources(
@@ -276,11 +287,13 @@ def get_resources(
     # of the served snapshot. next_event/remaining are all anchored to captured_at.
     age_seconds = max(0.0, round((datetime.now(timezone.utc) - captured_at).total_seconds(), 3))
 
+    from lockbot.backend.app.resource_api.discovery import operation_context
     from lockbot.backend.app.resource_api.skill import client_skill_notice
     from lockbot.core.resource_policy import public_policy
 
     return {
         "skill_update": client_skill_notice(request),
+        "context": operation_context(request, db, bot_row, actor),
         "resource_policy": public_policy(raw_state, config, actor.external_user_id, captured_at.timestamp()),
         "bot_id": bot_id,
         "bot_type": bot_row.bot_type,

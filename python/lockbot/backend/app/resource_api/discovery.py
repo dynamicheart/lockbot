@@ -58,6 +58,7 @@ def server_metadata(request: Request, db: Session) -> dict:
             "namespaced_skill",
             "skill_version_headers",
             "resource_view_link",
+            "coherent_resource_snapshot",
         ],
         "context_url": "/api/agent/context",
         "bindings_url": "/api/agent/bindings",
@@ -165,6 +166,44 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
         return _context_payload(request, response, db, row)
 
 
+def operation_context(request, db, bot, actor):
+    """Identity and operation rules, without issuing grants, links or extensions.
+
+    Call only after authentication and fresh authorization, while holding the
+    caller's authority guard. Inventory and mutation observations share this shape.
+    """
+    from lockbot.backend.app.resource_api.skill import skill_artifacts
+    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
+
+    return {
+        "server": server_metadata(request, db),
+        "actor": {"platform": actor.platform, "external_user_id": actor.external_user_id},
+        "bot": {"id": bot.id, "uuid": bot.uuid, "name": bot.name, "type": bot.bot_type},
+        "bot_rules": current_bot_rules(bot, actor.external_user_id),
+        "agent_access_enabled": bot.resource_auth_enabled,
+        "credential_scope": "one_user_one_bot",
+        "usage_privacy": {
+            "conditional_cleanup": {
+                "header": "If-Match",
+                "revision_field": "revision",
+                "mismatch_status": 412,
+                "lease_required": True,
+            },
+            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id", "revision"],
+            "policy_version": 2,
+            "private_readers": ["same_verified_actor", "super_administrator"],
+            "management_private_capability": "task_private:read",
+            "management_private_requires_opt_in": True,
+            "ordinary_operator_private_access": False,
+            "delegated_private_access_supported": False,
+            "public_task_categories": TASK_CATEGORIES,
+            "legacy_purpose_visibility": "private",
+        },
+        "links": {"resources": "/api/agent/resources", "commands": "/api/agent/commands"},
+        "skill": skill_artifacts()[2],
+    }
+
+
 def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
     # Refresh even if another request retained this ORM identity in a reused Session.
@@ -172,7 +211,6 @@ def _context_payload(request, response, db, row):
     from lockbot.backend.app.bots.datasource import public_datasource
     from lockbot.backend.app.bots.metrics_access import issue_metrics_access
     from lockbot.backend.app.resource_api.skill import client_skill_notice, skill_artifacts
-    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
     from lockbot.backend.app.resource_api.view_links import view_link
 
     response.headers["Cache-Control"] = "no-store"
@@ -207,23 +245,7 @@ def _context_payload(request, response, db, row):
         }
         if public_datasource(bot)
         else None,
-        "usage_privacy": {
-            "conditional_cleanup": {
-                "header": "If-Match",
-                "revision_field": "revision",
-                "mismatch_status": 412,
-                "lease_required": True,
-            },
-            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id", "revision"],
-            "policy_version": 2,
-            "private_readers": ["same_verified_actor", "super_administrator"],
-            "management_private_capability": "task_private:read",
-            "management_private_requires_opt_in": True,
-            "ordinary_operator_private_access": False,
-            "delegated_private_access_supported": False,
-            "public_task_categories": TASK_CATEGORIES,
-            "legacy_purpose_visibility": "private",
-        },
+        "usage_privacy": operation_context(request, db, bot, row)["usage_privacy"],
         "links": {
             "bindings": "/api/agent/bindings",
             "binding_recovery": "/api/agent/bindings/recover",

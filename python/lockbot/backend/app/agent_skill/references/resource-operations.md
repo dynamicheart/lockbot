@@ -34,8 +34,8 @@ Confirmed local notes can inform model matching; identify their source in the re
 Ask before relying on conflicting or uncertain inventory and never infer a card
 model from a node name. Occupancy, queue order and permission still come from the live service.
 
-After acquiring a node or a card, use the verified resource snapshot from the helper's
-`resources` command to look for `node_access` on your current holding. It contains the
+After acquiring a node or a card, use `command`'s `verified_snapshot` to look for
+`node_access` on your current holding. Use `resources` for a later fresh check. It contains the
 administrator-configured SSH `host` and `port`, with a separate `ip` when both a hostname
 and IPv4 address were registered. A card uses the addresses of its parent node. Recheck
 the snapshot before relying on either address. If the field is absent,
@@ -53,11 +53,17 @@ persistence or exclude another user's concurrent update.
 
 ## Read current bot rules and manage the lease lifecycle
 
-The CLI's `context` includes `bot_rules`, read from the bot's current
-persisted configuration even when the bot is stopped. Refresh your private rule cache at
-connection/resume and before renewal, and after a policy rejection or configuration change.
-Use `/resources` for polling and fetch context when you need refreshed connection or rule information.
-These rules can change; `/resources` and the actual command result remain authoritative.
+On services advertising `coherent_resource_snapshot`, `resources` includes `context`
+with the verified identity, `bot_rules` and task-category choices from the same request.
+It does not issue view links, metrics grants or personal-report capabilities. Do not
+make a separate `context` call before each inventory read or mutation. Use `context`
+when explicitly requesting those additional capabilities or inspecting a stopped bot.
+The CLI retains an anonymous manifest check before sending a saved credential: an
+ordinary inventory command uses two HTTP requests, and a resource mutation uses three
+(manifest, fresh inventory, one POST). The mutation returns the state copied under its
+allocator lock, so the CLI verifies that observation without a redundant follow-up GET.
+Older services without this capability retain the explicit context/readback flow.
+Rules can change; later ownership checks still require a new resource observation.
 
 | `bot_rules` field | Meaning |
 |---|---|
@@ -178,8 +184,9 @@ according to the task. The Skill adds no minimum interval or cap on repeated rea
   Key share these budgets.
 - The advertised `poll_minimum_seconds` values are pacing suggestions. Follow the
   server's `Retry-After` on 429 or 503, including either seconds or an HTTP date.
-- A repeated `lock` **adds** duration (not idempotent). After any mutation, read `/resources` to
-  verify; never assume a `reply` means success.
+- A repeated `lock` **adds** duration (not idempotent). Verify `command`'s returned
+  `verified_snapshot`; its HTTP reply text alone is not success. If the outcome is
+  unknown, make an explicit resource read, never replay the mutation.
 
 Use `next_event_at` to help plan checks. A holder may release early or extend their lease,
 so recalculate queue estimates from each snapshot. Observe `captured_at` and `age_seconds`
@@ -208,7 +215,8 @@ An optional stdlib [handoff/payload-gate reference](https://github.com/dynamiche
 provides executable checks and an offline example; clients may implement equivalent checks
 without installing a Python SDK. Lease evidence uses real actor/start time, never Agent labels.
 
-Check `/api/agent/context.usage_privacy` before sending notes. On servers advertising this
+Check the inventory's `context.usage_privacy` before sending notes (or explicit
+`/api/agent/context` on older services). On servers advertising this
 policy, `task_category` is the only public task description. Choose exactly one ID from
 `public_task_categories`, for example `operator_testing`, `communication_testing`,
 `model_load_testing`, `performance_testing` or `code_review`. Do not add a project name,

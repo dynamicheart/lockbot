@@ -58,7 +58,11 @@ python3 "/path/to/skill/scripts/lockbot_cli.py" --connection "/path/to/connectio
 
 Use the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
-stop after `resources`. Use `command --help` for all write arguments.
+stop after `resources`. Its `context` includes identity, current rules and task-category
+choices; do not issue separate `discover` or `context` calls for the same ordinary read.
+`command` verifies its returned `verified_snapshot`; do not immediately read again just
+to repeat that verification. Later ownership checks remain necessary.
+Use `command --help` for all write arguments.
 
 Use the CLI's formatted `remaining_time` for status, acquisition, claim and renewal
 (for example, `2h 30m` becomes “约 2 小时 30 分钟后到期”). State each shared deadline once.
@@ -178,7 +182,7 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    exact resource, without a duration.
    For card selections with different device IDs on different nodes, run a separate
    command for each node. Stop if any write is unconfirmed.
-4. Send the verified write once and verify the resulting resource state. If the CLI
+4. Send the verified write once and inspect its `verified_snapshot` and `verified` result. If the CLI
    reports an unconfirmed write, read current resources and report what is verifiable.
    Do not try another write for that request, including by
    changing the target or switching to HTTP. Honor server `Retry-After` when polling.

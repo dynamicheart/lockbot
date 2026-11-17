@@ -114,6 +114,10 @@ class BaseLockBot:
                     with suppress(Exception):
                         observer.unconfirmed(self.state.bot_state)
                 raise
+            else:
+                from lockbot.core.command_result import observe_locked_state
+
+                observe_locked_state(self.state.bot_state)
 
     def _notify_state_changed(self) -> None:
         """Call _on_state_changed if wired up (no-op otherwise)."""

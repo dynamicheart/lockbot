@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 
-def serve(port, private_file):
+def serve(port, private_file, *, request_evidence=None):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "support"))
     import lockbot.backend.app.config as config
     from fake_adapter import FakeAdapter
@@ -51,6 +51,18 @@ def serve(port, private_file):
             yield
 
     app.router.lifespan_context = bootstrap
+    if request_evidence is not None:
+
+        @app.middleware("http")
+        async def record_requests(request, call_next):
+            response = await call_next(request)
+            with Path(request_evidence).open("a") as evidence:
+                evidence.write(
+                    json.dumps({"method": request.method, "path": request.url.path, "status": response.status_code})
+                    + "\n"
+                )
+            return response
+
     uvicorn.run(app, host="127.0.0.1", port=port, workers=1, access_log=False, log_level="warning")
 
 
