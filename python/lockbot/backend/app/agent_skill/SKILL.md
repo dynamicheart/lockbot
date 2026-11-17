@@ -21,9 +21,19 @@ grants out of replies, command arguments, Skill files and shared memory.
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-**First connection or missing Key.** When the user authorizes a code on the approved
-service, run `key-challenge --origin "$ORIGIN" --authorized`. Chat confirmation
-identifies the bot and restores the user's existing Key or creates their first Key.
+**First connection or missing Key.** If the user asks to use an identified LockBot
+service (for example, to request a machine), look for a saved connection first. If
+none exists, run `key-challenge --origin "$ORIGIN" --authorized` and give the user
+the single chat confirmation step returned by the CLI. The request to use the
+service authorizes this step even when the user does not mention a Key or a code.
+Chat confirmation identifies the bot and restores the existing Key or creates a
+first Key. For an installation-only request, stop after verifying the installation.
+
+**When the user returns from the group.** Use `connections` to find the unfinished
+request, then run `enrollment-status` with its enrollment directory. The local
+`pending` label can remain after the user has confirmed in chat. If the service
+reports `confirmed`, run `finish-enrollment` with the same directory and continue
+the original task. The group confirmation already provided authorization.
 
 **Explicit Key reset.** Once the user requests invalidation and acknowledges that other
 Agents sharing the old Key must replace it, run
@@ -55,6 +65,8 @@ stop after `resources`. Use `command --help` for all write arguments.
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
   booking is claimable. Add `--device` for a queued card. The booking sets the duration.
+- **Renew a lease:** use `command --operation renew` with the time to add. The inventory
+  lists server operations. The CLI uses server `lock` for both `claim` and `renew`.
 - **Cards together:** put every requested card on that node in one command, repeating
   `--device`. Pass `--device-count` when the user specifies a quantity. If the whole
   selection cannot be made, report the shortfall before sending a write.

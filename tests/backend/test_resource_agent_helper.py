@@ -648,6 +648,10 @@ def test_enrollment_defaults_to_user_or_explicit_project_catalog(case, monkeypat
             "target_group": "Compute team",
             "enrollment_dir": str(direction),
             "status": "pending",
+            "status_source": "local",
+            "next_command": ["enrollment-status", "--enrollment-dir", str(direction)],
+            "next_step": "Check the service status after chat confirmation. "
+            "If confirmed, finish this enrollment and continue the request.",
             "bind_expires_at": pending["bind_expires_at"],
             "scope": expected,
         }
@@ -1350,11 +1354,8 @@ def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, pur
     assert case.state.requests == prior_requests
     assert pending[0]["purpose"] == (purpose or "recover") and pending[0]["target_group"] is None
     finish = ("finish-enrollment", "--enrollment-dir", pending[0]["enrollment_dir"])
-    if purpose == "reset":
-        assert pending[0]["status_source"] == "local"
-        assert pending[0]["next_command"] == ["enrollment-status", *finish[1:]]
-    else:
-        assert "next_command" not in pending[0]
+    assert pending[0]["status_source"] == "local"
+    assert pending[0]["next_command"] == ["enrollment-status", *finish[1:]]
     waiting = cli(*finish)
     assert waiting["status"] == "pending"
     assert "chat_action" not in waiting and "next_command" not in waiting

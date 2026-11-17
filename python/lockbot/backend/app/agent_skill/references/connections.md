@@ -42,7 +42,7 @@ supported; the helper is the recommended fixed path, not a new server requiremen
 
 Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
-If the user has no valid saved Key, run
+If the user requests a resource on the identified service and has no valid saved Key, run
 `key-challenge --origin "$ORIGIN" --authorized` for chat confirmation on a
 server that advertises `chat_credential_challenges`. Use the confirmation sentence from
 [the setup workflow](../SKILL.md#install-or-connect). Use the saved `enrollment_dir` with

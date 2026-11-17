@@ -15,6 +15,7 @@ from synthetic_transcript import read_local, synthetic_sessions
 
 GROUPS = {
     "安装与绑定": {
+        "cold-install-allocate": "首次安装并申请机器",
         "link-only": "只分享 Skill 链接",
         "install-from-link": "从发现链接安装",
         "install-from-zip": "从 ZIP 链接安装",
@@ -69,6 +70,7 @@ MODELS = {
 ENROLLMENT_PHASES = ("安装与发码", "确认后保存", "新会话查询")
 PHASES = {
     **dict.fromkeys(LEGACY_IDS, ENROLLMENT_PHASES),
+    "cold-install-allocate": ("安装与群内确认", "确认后申请机器", "新会话查询"),
     "approved-enrollment": ENROLLMENT_PHASES[:2],
     "panel": ("生成工作台链接", "确认后在新会话打开"),
 }
