@@ -3,6 +3,8 @@
 # ruff: noqa: F811
 
 import json
+import sqlite3
+from contextlib import closing
 from copy import deepcopy
 from datetime import datetime, timezone
 
@@ -13,6 +15,8 @@ from lockbot.backend.app.personal_panel.native import NativeProvider
 from lockbot.backend.app.personal_panel.router import COOKIE, create_panel
 from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 from lockbot.backend.app.resource_auth.models import ResourceBinding
+from sqlalchemy import URL, create_engine
+from sqlalchemy.orm import sessionmaker
 
 from backend.test_personal_panel_http import Directory, issue, post
 from backend.test_resource_api_resources import api  # noqa: F401
@@ -191,10 +195,26 @@ def test_upstream_recovery_health_can_be_unknown_without_guessing(env):
     assert response.json()["connections"][0]["identity_revision"] is None
 
 
-def test_native_login_preserves_existing_external_browser_authority(api, db_session, session_factory, tmp_path):
+@pytest.fixture
+def native_db(api, db_session, tmp_path):
+    # The stream validates a grant while another worker reads its report. Give
+    # those sessions separate connections as the deployed file-backed DB does.
     ensure_instance_id(db_session)
+    db_session.rollback()
+    path = tmp_path / "native.db"
+    with db_session.get_bind().connect() as source, closing(sqlite3.connect(path)) as destination:
+        source.connection.driver_connection.backup(destination)
+
+    engine = create_engine(URL.create("sqlite", database=str(path)))
+    try:
+        yield sessionmaker(bind=engine)
+    finally:
+        engine.dispose()
+
+
+def test_native_login_preserves_existing_external_browser_authority(api, native_db, tmp_path):
     external, adapter = Directory(), Adapter()
-    native = NativeProvider({"issuer": ORIGIN, "session_factory": session_factory, "local_key_handoff": True})
+    native = NativeProvider({"issuer": ORIGIN, "session_factory": native_db, "local_key_handoff": True})
     state_file = tmp_path / "sessions.db"
     reporter_calls = []
 
@@ -255,14 +275,14 @@ def test_native_login_preserves_existing_external_browser_authority(api, db_sess
     assert groups[:2] == previous_groups
     assert [group["identity"]["issuer"] for group in groups[2:]] == [ORIGIN]
     batches = [json.loads(line) for line in browser.get("/me/resources-stream").iter_lines()]
-    assert batches[-1]["event"] == "complete"
+    assert batches[-1]["event"] == "complete", batches
     assert {g["detail_id"] for batch in batches if batch["event"] == "batch" for g in batch["groups"]} == {
         g["detail_id"] for g in groups
     }
     assert adapter.calls and reporter_calls
     assert all(grant["ref"] == "a" for grant in adapter.calls + reporter_calls)
 
-    row = db_session.query(ResourceBinding).filter_by(external_user_id="alice").one()
-    row.revoked_at = datetime.now(timezone.utc)
-    db_session.commit()
+    with native_db.begin() as db:
+        row = db.query(ResourceBinding).filter_by(external_user_id="alice").one()
+        row.revoked_at = datetime.now(timezone.utc)
     assert browser.get("/me/resources").json()["groups"] == previous_groups
