@@ -22,15 +22,19 @@ grants out of replies, command arguments, Skill files and shared memory.
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
 **First connection or missing Key.** If the user asks to use an identified LockBot
-service (for example, to request a machine), look for a saved connection first. If
-none exists, use `key-challenge --origin "$ORIGIN" --authorized` to obtain the
-single chat confirmation command. This prepares a short-lived request. The service
+service (for example, to request a machine), look for a saved connection first. Reuse
+the approved origin from the verified installed package (`installation.json`
+`deployment_origin` or its rendered deployment links); do not ask for an address already
+known from that installation. If no saved connection exists, use
+`key-challenge --origin "$ORIGIN" --authorized` to obtain the single chat confirmation command. This prepares a short-lived request. The service
 connects the account only when the user sends the command from their own chat account
 in their chosen group. Give that command directly when the user asks to check or
 request resources on the service. For installation only, stop after verifying the
 installation. After confirmation, use the service's `outcome` to say the original
 sign-in was restored or a new connection was established. If the service omits the
-outcome, say the account is connected.
+outcome, say the account is connected. A new environment does not mean a new identity:
+“我换环境了，帮我恢复下” follows this same confirmation flow when no saved connection
+is available. Do not require an old Key file or revoke an existing binding to restore access.
 
 **Continue after group confirmation.** If the user asks to use the same service
 (for example, “帮我看看资源”), use `connections` and check its unfinished request
@@ -67,6 +71,8 @@ Use `command --help` for all write arguments.
 Use the CLI's formatted `remaining_time` for status, acquisition, claim and renewal
 (for example, `2h 30m` becomes “约 2 小时 30 分钟后到期”). State each shared deadline once.
 Use `resources --exact-lease-times` for an exact deadline or a timed stop or renewal.
+Keep ordinary replies brief: report the answer and any necessary group/browser confirmation.
+Handle connection paths, Key storage and CLI arguments internally unless the user asks.
 
 - **Already signed into the workbench:** open the bookmarked fixed URL in one step.
   If the bookmark is not available to your tools, append `/#/me` to the selected
@@ -86,6 +92,12 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
   available choices. Read the inventory, report a suitable machine, and stop. Finding
   a match does not authorize locking or booking it. A follow-up such as “lock 一天”
   authorizes locking the uniquely selected machine for that duration.
+- **Available resources across groups:** for “看看我能申请什么资源”, use a saved, verified
+  seed connection to run `recover` once when the service supports binding recovery. Read
+  the returned groups with their own connections and list actual machines/cards, models
+  and availability. Reuse any groups already verified in this request; do not ask the
+  user to supply group names or assume the seed group is the entire inventory. If recovery
+  is unavailable, report the scope you could verify without resetting or rebinding.
 - **My resources:** check every saved, authorized group. Separate current holdings
   from queued bookings, including individual cards; match the verified actor exactly.
   A holder's remaining time is not the booking's expiry or a guaranteed start time.
@@ -99,11 +111,14 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
   Use `lock` on an idle match with an empty queue. If no match qualifies, report that
   and ask if the user wants to queue. Send `book` only after the user requests or
   accepts a queue.
-- **Claim a booking:** use `command --operation claim --node <id>` when the user's
-  booking is claimable. Pass `--device` for a queued card or `--whole-node` for an entire
-  node. The booking sets the duration.
+- **Claim a booking:** use `command --operation claim --node <id>` only after the target
+  is idle and the user's booking is `claimable_by_you`. The claim window starts when it
+  becomes claimable, not before the current holder's expiry. Pass `--device` for a queued
+  card or `--whole-node` for an entire node. The booking sets the duration.
 - **Renew a lease:** use `command --operation renew` with the time to add. The inventory
   lists server operations. The CLI uses server `lock` for both `claim` and `renew`.
+- **Release:** release only the selected holding or cancel the selected booking. Releasing
+  a holding does not automatically book it or place the user in a queue.
 - **Cards together:** put every requested card on that node in one command, repeating
   `--device`. Pass `--device-count` when the user specifies a quantity. If the whole
   selection cannot be made, report the shortfall before sending a write.
@@ -144,6 +159,9 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
    when needed.
 5. To restore access, first look for an existing connection or personal Key on the
    approved service. Use it to recover other eligible groups without asking for names.
+   If no local credential exists, use the approved installed origin and the chat-confirmation
+   flow above; the same `bind` command can restore the existing identity. Ask for a service
+   URL only when no approved origin is available or several remain ambiguous.
    A failed recovery stops at reporting the result. For an explicitly authorized reset,
    follow the **Explicit Key reset** command above.
    Quote the CLI's `user_instruction_zh` for Chinese or `user_instruction` for English

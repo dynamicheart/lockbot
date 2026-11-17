@@ -88,6 +88,8 @@ For a `lock`, `slock`, or `book` request with no time specified, omit `--duratio
 The CLI verifies the current default and lets the selected group apply its configured duration.
 If the default is missing or exceeds the effective ceiling, the CLI stops before writing.
 Renewal still requires the amount of time to add. Claim uses the original booked duration.
+Releasing a holding ends that lease; it does not automatically create a booking or put
+the former holder in a queue. A separate booking needs its own user authorization.
 
 ### Interpret instants separately from human display time
 
@@ -100,7 +102,8 @@ an existing UTC timestamp as `+08:00` when calculating ownership, renewal or sto
 The CLI formats the verified lease time after accounting for snapshot age. Use
 `remaining_time` in user-facing replies, such as “约 2 小时后到期” for `2h`, or
 “约 2 天后到期” for `2d`. A booking has a requested duration and a queue position
-until claimed. Refresh when a reliable remaining time is needed and unavailable.
+until claimed. A current holder's expiry is neither the booking's validity deadline nor
+a guaranteed time of acquisition. Refresh when a reliable remaining time is needed and unavailable.
 
 Reserve absolute deadlines for explicit requests. When requested, use the user's
 requested or saved timezone.
@@ -192,9 +195,11 @@ Use `next_event_at` to help plan checks. A holder may release early or extend th
 so recalculate queue estimates from each snapshot. Observe `captured_at` and `age_seconds`
 before acting, and use the observed lease's `expires_at` for its deadline.
 
-When claimable, claim within `queue_claim_window_seconds` and verify ownership; never wait
-for the predicted expiry or a human to relay a group message. While working, keep checking
-ownership, including before critical operations and after resuming. Polling is not a push
+Claim only after the target resource is idle and your booking is `claimable_by_you`.
+The `queue_claim_window_seconds` window starts when that booking becomes claimable,
+not in the minutes before the current holder's expiry. Claim within that observed window
+and verify ownership; a predicted expiry or group message alone does not authorize claiming.
+While working, keep checking ownership, including before critical operations and after resuming. Polling is not a push
 subscription and cannot detect every change instantly. If ownership or lease identity no
 longer matches, pause the workload; do not continue based on a saved registry entry.
 

@@ -42,6 +42,12 @@ supported; the helper is the recommended fixed path, not a new server requiremen
 
 Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
+For an ordinary new-environment restore, use the approved origin from the verified
+installed package (`installation.json` `deployment_origin` or rendered deployment links).
+Run `connections` first. If none exists, use chat confirmation below rather than asking
+for an old Key path or an already-known service URL. Confirmation can restore the existing
+identity; report the returned `outcome`, not an assumption that a new account was created.
+
 If the user requests a resource on the identified service and has no valid saved Key, run
 `key-challenge --origin "$ORIGIN" --authorized` for chat confirmation on a
 server that advertises `chat_credential_challenges`. This requests a short-lived
@@ -147,13 +153,20 @@ Run `discover --origin <approved-service>` before setting up a connection. Use `
 
 ### Discover your existing bindings before enrolling again
 
-Run `recover` with a verified seed connection to find other current bindings. On Feishu, recovery requires the same verified application and tenant. Equal user IDs from different applications do not establish the same identity.
+For “看看我能申请什么资源”, run `recover` once with an existing verified seed
+connection when supported. Read each returned group with its matching connection, then
+report actual resources, hardware and availability. The user need not know the group names.
+Keep the seed usable if another group cannot be recovered; report only the scope verified.
+On Feishu, recovery requires the same verified application and tenant. Equal user IDs from
+different applications do not establish the same identity.
 
-When the user asks to move their existing access to another Agent, give the receiving
-Agent **one existing active Key for the approved service via its private credential
-store or a private file**. Use mode `0600` on POSIX, or a local Windows file whose ACL grants
-access only to your account, SYSTEM, and local Administrators. Use `init` to verify it and create the seed connection
-on that Agent, unless the connection already exists. Then use the fixed CLI:
+For an explicitly requested credential-file transfer, give the receiving Agent
+**one existing active Key for the approved service via its private credential store
+or a private file**. This is an optional import path, not a requirement for normal
+new-environment restoration through chat confirmation. Use mode `0600` on POSIX, or a
+local Windows file whose ACL grants access only to your account, SYSTEM, and local
+Administrators. Use `init` to verify it and create the seed connection on that Agent,
+unless the connection already exists. Then use the fixed CLI:
 
 ```sh
 python3 "$LOCKBOT_CLI" --connection /private/seed.json recover --destination /private/recovered-groups
@@ -187,15 +200,18 @@ key operate on B. HTTP 503 `detail.code: credential_recovery_unavailable` means 
 service could not create a copy; retain the valid key/configuration and report the
 failure without retry loops, rotation or reset. A digest cannot reconstruct a key.
 
-Only genuinely lost credentials or suspected disclosure/compromised authorization
-justify considering revoke/re-enroll. First obtain explicit user confirmation of the
-service, bot and revocation scope, explaining that every Agent sharing the affected
+On an older service without chat credential recovery, only genuinely lost credentials
+or suspected disclosure/compromised authorization justify considering revoke/re-enroll.
+Ordinary restoration on a recovery-capable service uses chat confirmation and preserves
+the existing binding; having an active binding is not a reason to revoke it.
+Before revoking, obtain explicit user confirmation of the service, bot and revocation scope, explaining that every Agent sharing the affected
 key loses access and needs private reconfiguration. In the affected group, the verified
 human runs `bindings` to identify the old binding, then `unbind <short-id>` to revoke it.
 Wait for confirmed revocation before requesting a fresh enrollment code. The human then
-sends `bind <code>` in that same group. Sending only `bind <code>` while the old binding
-is active leaves the old Key valid and the new code's Key unusable. An authorized
-owner's revoke-all affects every personal binding on that bot. If revocation fails or
+sends `bind <code>` in that same group. In this older compatibility enrollment flow,
+sending only `bind <code>` while the old binding is active leaves the old Key valid and
+the new code's Key unusable; this does not describe the recovery-capable confirmation flow.
+An authorized owner's revoke-all affects every personal binding on that bot. If revocation fails or
 is denied, stop before enrollment. Existing locks and queues survive revocation.
 Discuss and authorize any
 resource changes separately. Never reset during a routine release, Skill update,
