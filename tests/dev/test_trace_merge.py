@@ -269,3 +269,56 @@ def test_independent_reviews_schema_binds_timeout_without_inventing_final_reply(
     write(location / "response.json", {"text": "Unexpected later response"})
     with pytest.raises(ValueError, match="absent response"):
         merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source])
+
+
+def test_externalizing_new_diagnostics_keeps_published_inline_trials_and_fixture_io(tmp_path):
+    raw, latest = baseline(tmp_path)
+    old, _ = matrix(tmp_path, "b" * 16, True)
+    first_phase = old / "cli/link-only/001/phase-1"
+    record = {
+        "direction": "receive",
+        "message": {"method": "item/completed", "params": {"item": {"type": "agentMessage", "text": "Native answer"}}},
+    }
+    write(first_phase / "codex-native.jsonl", record)
+    output = tmp_path / "merged"
+    merge.aggregate(raw, latest, output, plan=old / "run.json", matrices=[old])
+    before = merge.load(output / "raw.json")
+    new, _ = matrix(tmp_path, "c" * 16, True)
+    second_phase = new / "cli/link-only/001/phase-1"
+    write(second_phase / "codex-native.jsonl", record)
+    source_bytes = (second_phase / "codex-native.jsonl").read_bytes()
+    merge.aggregate(raw, latest, output, plan=new / "run.json", matrices=[old, new], external_native_evidence=True)
+    after = merge.load(output / "raw.json")
+    merge.assert_preserved(before, after, True)
+    trial = after["cases"]["link-only"][-1]
+    events = trial["sessions"][0]
+    assert events[1]["evidence"][0]["input"] == {"path": "/fixture/SKILL.md"}
+    assert events[1]["evidence"][0]["output"] == {"exit_code": 2, "error": "Synthetic failure"}
+    reference = events[2]["evidence"][0]["output"]["artifact"]
+    assert (output / "evidence" / reference["sha256"]).read_bytes() == source_bytes
+    assert not any(
+        "artifact" in e.get("output", {})
+        for t in before["cases"]["link-only"]
+        for s in t["sessions"]
+        for event in s
+        if event.get("role") == "tools"
+        for e in event.get("evidence", [])
+    )
+    assert events[-1]["text"] == "Actual native reply"
+
+
+def test_opt_in_compact_summary_only_affects_new_summary_trials(tmp_path):
+    raw, latest = baseline(tmp_path)
+    first, _ = matrix(tmp_path, "b" * 16, True)
+    output = tmp_path / "merged"
+    merge.aggregate(raw, latest, output, plan=first / "run.json", matrices=[first])
+    before = merge.load(output / "latest.json")
+    second, _ = matrix(tmp_path, "c" * 16, True)
+    merge.aggregate(raw, latest, output, plan=second / "run.json", matrices=[first, second], compact_new_summary=True)
+    summary, complete = merge.load(output / "latest.json"), merge.load(output / "raw.json")
+    merge.assert_preserved(before, summary, False)
+    trial = summary["cases"]["link-only"][-1]
+    assert trial["sessions"] == [] and trial["summary_only"] is True
+    assert "摘要；完整对话和工具输入输出保留在原始轨迹" in trial["note"]
+    assert complete["cases"]["link-only"][-1]["sessions"][0][-1]["text"] == "Actual native reply"
+    assert complete["cases"]["link-only"][-1]["sessions"][0][1]["evidence"][0]["input"] == {"path": "/fixture/SKILL.md"}

@@ -1,7 +1,10 @@
 """Project dialogue from the local, synthetic CLI test harness."""
 
 import json
+import os
 import re
+import stat
+import tempfile
 from hashlib import sha256
 from pathlib import Path
 
@@ -32,6 +35,7 @@ SKILL_REFERENCES = {
 }
 MAX_DOCUMENT_CHARACTERS = 65_536
 MAX_TRACE_BYTES = 32 * 1024 * 1024
+MAX_NATIVE_EVIDENCE_BYTES = 16 * 1024 * 1024
 ACTIONS = {
     "local-state",
     "connections",
@@ -196,8 +200,108 @@ def native_records(directory, root):
             yield name, records
 
 
-def native_evidence(directory, root):
-    """Keep the complete native wire records in private raw exports only."""
+class NativeArtifactError(ValueError):
+    pass
+
+
+def read_native_bytes(path, root):
+    if path.resolve(strict=True) != path or not path.is_relative_to(root):
+        raise ValueError("Native evidence must be a regular in-directory file")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as source:
+        details = os.fstat(source.fileno())
+        if not stat.S_ISREG(details.st_mode) or details.st_size > MAX_NATIVE_EVIDENCE_BYTES:
+            raise ValueError("Native evidence is not regular or exceeds its 16 MiB limit")
+        content = source.read(MAX_NATIVE_EVIDENCE_BYTES + 1)
+    if len(content) > MAX_NATIVE_EVIDENCE_BYTES:
+        raise ValueError("Native evidence exceeds its 16 MiB limit")
+    return content
+
+
+def store_native_artifact(path, root, artifacts):
+    content = read_native_bytes(path, root)
+    digest = sha256(content).hexdigest()
+    artifacts.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if artifacts.resolve() != artifacts or artifacts.stat().st_mode & 0o777 != 0o700:
+        raise ValueError("Native artifact directory must be private and contain no symlinks")
+    target = artifacts / digest
+    descriptor, temporary = tempfile.mkstemp(dir=artifacts)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, target, follow_symlinks=False)
+        except FileExistsError:
+            if (
+                target.is_symlink()
+                or target.stat().st_mode & 0o777 != 0o600
+                or read_native_bytes(target, artifacts) != content
+            ):
+                raise ValueError("Immutable native evidence was modified") from None
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return {"sha256": digest, "bytes": len(content), "filename": path.name}
+
+
+def native_artifact_manifest(artifacts):
+    files = []
+    if artifacts.is_symlink():
+        raise ValueError("Native artifact directory must not be a symlink")
+    if artifacts.exists():
+        if artifacts.resolve() != artifacts or artifacts.stat().st_mode & 0o777 != 0o700:
+            raise ValueError("Native artifact directory must be private and contain no symlinks")
+        for path in sorted(artifacts.iterdir()):
+            if (
+                not re.fullmatch(r"[a-f0-9]{64}", path.name)
+                or path.is_symlink()
+                or path.stat().st_mode & 0o777 != 0o600
+            ):
+                raise ValueError("Unsafe native artifact entry")
+            content = read_native_bytes(path, artifacts)
+            if sha256(content).hexdigest() != path.name:
+                raise ValueError("Immutable native evidence was modified")
+            files.append({"sha256": path.name, "bytes": len(content)})
+    return {
+        "directory": "evidence",
+        "max_file_bytes": MAX_NATIVE_EVIDENCE_BYTES,
+        "files": files,
+        "total_bytes": sum(item["bytes"] for item in files),
+    }
+
+
+def external_native_evidence(directory, root, artifacts):
+    events = []
+    for name in (
+        "codex-native.jsonl",
+        "native-ducc.jsonl",
+        "codex-native.stderr",
+        "native-ducc.stderr",
+        "runner.stderr",
+    ):
+        path = directory / name
+        if not path.is_file() or not path.stat().st_size:
+            continue
+        try:
+            reference = store_native_artifact(path, root, artifacts)
+        except (OSError, ValueError) as error:
+            raise NativeArtifactError(str(error)) from error
+        events.append(
+            {
+                "role": "tools",
+                "total": 1,
+                "steps": [["native_client_diagnostic", name, "完整诊断独立保存", "可下载"]],
+                "evidence": [{"input": {"file": name}, "output": {"artifact": reference}}],
+            }
+        )
+    return events
+
+
+def native_evidence(directory, root, *, artifacts=None):
+    """Keep complete diagnostics inline by default, or losslessly in private blobs."""
+    if artifacts is not None:
+        return external_native_evidence(directory, root, artifacts)
     events = [
         {
             "role": "tools",
@@ -244,7 +348,7 @@ def native_partial_replies(directory, root):
 
 
 def synthetic_sessions(
-    root: Path, case: str, runner: int, rows: list[dict], *, suite="cli", raw=False
+    root: Path, case: str, runner: int, rows: list[dict], *, suite="cli", raw=False, native_artifacts=None
 ) -> list[list[dict]]:
     """Use the expected synthetic evidence files and redact by default."""
     root = root.resolve()
@@ -285,7 +389,7 @@ def synthetic_sessions(
                             {"role": "missing", "text": f"已展示 {len(calls['steps'])} / {calls['total']} 次工具调用。"}
                         )
             if raw:
-                session.extend(native_evidence(directory, root))
+                session.extend(native_evidence(directory, root, artifacts=native_artifacts))
             response = directory / "response.json"
             if response.is_file():
                 final = json.loads(read_local(response, root, 65_536))["text"]
@@ -302,7 +406,9 @@ def synthetic_sessions(
                         {"role": "human", "text": text} for action, text in CONFIRMATIONS.items() if action in actions
                     )
             sessions.append(session)
-        except (OSError, KeyError, TypeError, ValueError):
+        except (OSError, KeyError, TypeError, ValueError) as error:
+            if isinstance(error, NativeArtifactError):
+                raise
             # One unavailable phase must not erase earlier verified dialogue.
             continue
     return sessions

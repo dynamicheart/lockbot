@@ -537,6 +537,7 @@ function renderStepEvidence(container,step,info) {
     return;
   }
   fields.push(evidenceField('输入',info.input),evidenceField('输出',info.output));
+  if (info.output?.artifact) fields.push(diagnosticDownload(info.output.artifact));
   if (info.error != null) {
     const error = evidenceField('错误',info.error);
     error.classList.add('payload-error');

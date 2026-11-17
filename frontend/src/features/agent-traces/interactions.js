@@ -1,5 +1,5 @@
 /* global scenarioGroups, data, select, node, actionNames, isFailed, choice, caseName, modelLabel, badge, pickCase, pickRun, icon, readRoute, draw, online, imported, cases, activeCase:writable, activeIndex:writable, activeTab:writable, openStep */
-/* exported callStatusDot, toolTitle, runEfficiency, renderCaseNavigation, notifyReviewParent, selectedRuns, reviewBusy, userNavigation */
+/* exported diagnosticDownload, callStatusDot, toolTitle, runEfficiency, renderCaseNavigation, notifyReviewParent, selectedRuns, reviewBusy, userNavigation */
 const selectedRuns = new Map();
 const expandedCases = new Set();
 let reviewBusy = false;
@@ -24,6 +24,60 @@ function toolTitle(step, info) {
   const action = typeof info?.input?.action === 'string' ? info.input.action :
     actionNames.has(step[1]) ? step[1] : '';
   return [step[0] || '未记录工具名', action].filter(Boolean).join(' · ');
+}
+
+function diagnosticDownload(artifact) {
+  const section = node('section', null, 'evidence-section');
+  const valid = artifact && /^[a-f0-9]{64}$/.test(artifact.sha256) &&
+    Number.isInteger(artifact.bytes) && artifact.bytes >= 0 && artifact.bytes <= 16 * 1024 * 1024 &&
+    /^[a-z][a-z0-9_.-]{0,79}$/.test(artifact.filename);
+  if (!valid) {
+    section.append(node('p', '诊断文件引用无效。', 'payload-error'));
+    return section;
+  }
+  if (!online || imported) {
+    section.append(node('p', '完整诊断保存在独立 evidence 文件中；请在已登录的测试看板下载。', 'payload-empty'));
+    return section;
+  }
+  const button = node('button', '下载完整诊断（' + Math.ceil(artifact.bytes / 1024) + ' KB）', 'quiet-button');
+  const status = node('p', '', 'payload-empty');
+  button.type = 'button';
+  button.onclick = async () => {
+    button.disabled = true;
+    status.textContent = '';
+    try {
+      const token = localStorage.getItem('lockbot_token');
+      if (!token) throw new Error('请先登录超级管理员。');
+      const response = await fetch('/api/dev/trace-review/evidence/' + artifact.sha256, {
+        headers: {Authorization: 'Bearer ' + token}, cache: 'no-store', redirect: 'error',
+        signal: AbortSignal.timeout(30000),
+      });
+      if (response.status === 401 || response.status === 403) throw new Error('当前账号无权下载。');
+      if (!response.ok) throw new Error('文件未上传或完整性检查失败。');
+      if (response.headers.get('X-Content-SHA256') !== artifact.sha256) throw new Error('文件摘要不匹配。');
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength !== artifact.bytes) throw new Error('文件长度不匹配。');
+      if (globalThis.crypto?.subtle) {
+        const hash = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+        const actual = [...new Uint8Array(hash)].map(value => value.toString(16).padStart(2, '0')).join('');
+        if (actual !== artifact.sha256) throw new Error('文件摘要不匹配。');
+      }
+      if (localStorage.getItem('lockbot_token') !== token) throw new Error('登录状态已改变，请重试。');
+      const url = URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'}));
+      const link = node('a');
+      link.href = url;
+      link.download = artifact.filename;
+      document.body.append(link);
+      try { link.click(); } finally { link.remove(); URL.revokeObjectURL(url); }
+      status.textContent = '完整诊断已下载；看板记录与评论未改变。';
+    } catch (error) {
+      status.textContent = error.message || '下载失败，请重试。';
+    } finally {
+      button.disabled = false;
+    }
+  };
+  section.append(button, status);
+  return section;
 }
 
 function runEfficiency(trial) {

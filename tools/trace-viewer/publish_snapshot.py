@@ -310,7 +310,7 @@ def phase_metrics(phases, evidence):
     return observed
 
 
-def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_planned=False):
+def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_planned=False, native_artifacts=None):
     evidence = evidence.resolve()
     plan = json.loads(read_local(evidence / "run.json", evidence, MAX_METADATA_BYTES))
     if plan.get("simulation_only") is not True:
@@ -373,7 +373,15 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_plann
                 phases = [result[phase] for phase in phase_ids]
                 state, note = verdict(phases, stages)
                 sessions = (
-                    synthetic_sessions(evidence, scenario, model_number, phases, suite=suite, raw=raw)
+                    synthetic_sessions(
+                        evidence,
+                        scenario,
+                        model_number,
+                        phases,
+                        suite=suite,
+                        raw=raw,
+                        native_artifacts=native_artifacts,
+                    )
                     if include_dialogue or raw
                     else []
                 )
@@ -509,8 +517,25 @@ def add_cli_regression(data, path, *, raw=False):
     ]
 
 
-def publish(evidence: Path, target: Path, *, include_dialogue=False, raw=False, include_planned=False, regression=None):
-    data = snapshot(evidence, include_dialogue=include_dialogue, raw=raw, include_planned=include_planned)
+def publish(
+    evidence: Path,
+    target: Path,
+    *,
+    include_dialogue=False,
+    raw=False,
+    include_planned=False,
+    regression=None,
+    external_native_evidence=False,
+):
+    if external_native_evidence and not raw:
+        raise ValueError("External native evidence requires a private raw export")
+    data = snapshot(
+        evidence,
+        include_dialogue=include_dialogue,
+        raw=raw,
+        include_planned=include_planned,
+        native_artifacts=target.resolve().parent / "evidence" if external_native_evidence else None,
+    )
     if regression is not None:
         add_cli_regression(data, regression, raw=raw)
     if not data["cases"]:
@@ -549,9 +574,16 @@ def main():
     parser.add_argument(
         "--include-planned", action="store_true", help="List all planned cases while waiting for results"
     )
+    parser.add_argument(
+        "--external-native-evidence",
+        action="store_true",
+        help="Keep complete native diagnostics in immutable private evidence files (raw only)",
+    )
     parser.add_argument("--regression", type=Path, help="Include actual packaged CLI and backend regression evidence")
     parser.add_argument("--on-update", type=Path, help="Private JSON argv array for transferring the snapshot")
     args = parser.parse_args()
+    if args.external_native_evidence and not args.raw_local:
+        parser.error("--external-native-evidence requires --raw-local")
     if args.raw_local and args.on_update:
         parser.error("--raw-local writes a local file; transfer it through the private reviewer deployment")
     if args.on_update:
@@ -576,6 +608,7 @@ def main():
             raw=args.raw_local,
             include_planned=args.include_planned,
             regression=args.regression,
+            external_native_evidence=args.external_native_evidence,
         )
         if transport and updated is not None and (updated or not transfer_started):
             subprocess.run([*transport, str(args.target)], check=True)

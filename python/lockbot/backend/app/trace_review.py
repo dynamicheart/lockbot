@@ -3,7 +3,9 @@
 import hashlib
 import json
 import os
+import re
 import sqlite3
+import stat
 import threading
 import uuid
 from contextlib import contextmanager
@@ -19,6 +21,7 @@ from lockbot.backend.app.auth.dependencies import require_super_admin
 from lockbot.backend.app.auth.models import User
 
 PRIVATE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+MAX_DIAGNOSTIC_BYTES = 16 * 1024 * 1024
 
 
 class ReviewComment(BaseModel):
@@ -149,6 +152,46 @@ def trace_review_router(directory: Path) -> APIRouter:
         except (ValueError, KeyError, TypeError):
             raise HTTPException(503, "Snapshot is unavailable", headers=PRIVATE_HEADERS) from None
         return JSONResponse(data, headers=PRIVATE_HEADERS)
+
+    @router.get("/api/dev/trace-review/evidence/{digest}", dependencies=[Depends(require_super_admin)])
+    def diagnostic(digest: str):
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise HTTPException(404, "Evidence is unavailable", headers=PRIVATE_HEADERS)
+        try:
+            # Directory and file descriptors prevent path substitution or symlink
+            # escapes. Read bounded bytes before responding so the digest covers
+            # exactly the body sent, even if an operator replaces a file later.
+            folder = os.open(directory / "evidence", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                if os.fstat(folder).st_mode & 0o777 != 0o700:
+                    raise HTTPException(503, "Evidence is unavailable", headers=PRIVATE_HEADERS)
+                descriptor = os.open(digest, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+            finally:
+                os.close(folder)
+            with os.fdopen(descriptor, "rb") as source:
+                details = os.fstat(source.fileno())
+                if (
+                    not stat.S_ISREG(details.st_mode)
+                    or details.st_mode & 0o777 != 0o600
+                    or details.st_size > MAX_DIAGNOSTIC_BYTES
+                ):
+                    raise HTTPException(503, "Evidence is unavailable", headers=PRIVATE_HEADERS)
+                content = source.read(MAX_DIAGNOSTIC_BYTES + 1)
+        except FileNotFoundError:
+            raise HTTPException(404, "Evidence is unavailable", headers=PRIVATE_HEADERS) from None
+        except OSError:
+            raise HTTPException(503, "Evidence is unavailable", headers=PRIVATE_HEADERS) from None
+        if len(content) > MAX_DIAGNOSTIC_BYTES or hashlib.sha256(content).hexdigest() != digest:
+            raise HTTPException(503, "Evidence integrity check failed", headers=PRIVATE_HEADERS)
+        return Response(
+            content,
+            media_type="application/octet-stream",
+            headers={
+                **PRIVATE_HEADERS,
+                "Content-Disposition": f'attachment; filename="trace-evidence-{digest}.bin"',
+                "X-Content-SHA256": digest,
+            },
+        )
 
     @router.get("/api/dev/trace-review/comments", dependencies=[Depends(require_super_admin)])
     def comments(response: Response, case_id: str | None = None, run_index: int | None = None, raw: bool = True):

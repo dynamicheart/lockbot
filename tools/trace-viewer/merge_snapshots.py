@@ -11,7 +11,14 @@ import time
 from pathlib import Path
 
 from publish_snapshot import CASES, LEGACY_IDS, MAX_SNAPSHOT_BYTES, snapshot
-from synthetic_transcript import MAX_TRACE_BYTES, clean_prompt, clean_text, native_evidence, native_partial_replies
+from synthetic_transcript import (
+    MAX_TRACE_BYTES,
+    clean_prompt,
+    clean_text,
+    native_artifact_manifest,
+    native_evidence,
+    native_partial_replies,
+)
 
 STATES = {"pass", "fail", "pending", "blocked", "timeout"}
 
@@ -127,12 +134,16 @@ def add_plan(data, plan):
         )
 
 
-def add_matrix(data, directory, raw):
+def add_matrix(data, directory, raw, *, native_artifacts=None, compact_summary=False):
     matrix = load(directory / "matrix.json")
     if not isinstance(matrix.get("results"), list) or matrix.get("simulation_only") is not True:
         raise ValueError("Expected a terminal synthetic matrix with results")
-    projected = snapshot(directory, raw=raw, include_dialogue=not raw, include_planned=True)
     source = "matrix:" + fingerprint(matrix)
+    if any(t.get("source_run", "").startswith(source + ":") for trials in data["cases"].values() for t in trials):
+        return  # Already-published trials and their inline diagnostics stay untouched.
+    projected = snapshot(
+        directory, raw=raw, include_dialogue=not raw, include_planned=True, native_artifacts=native_artifacts
+    )
     for key in ("labels", "groups", "criteria"):
         for case, value in projected.get(key, {}).items():
             data.setdefault(key, {}).setdefault(case, value)
@@ -141,20 +152,27 @@ def add_matrix(data, directory, raw):
             trial = copy.deepcopy(trial)
             trial.update(source_run=f"{source}:{case}:{number}", package_version=projected["version"])
             trial["note"] = f"运行：{directory.name}；安装包：{projected['version']}\n" + trial.get("note", "")
+            if compact_summary and not raw:
+                trial["sessions"] = []
+                trial["summary_only"] = True
+                trial["note"] = "摘要；完整对话和工具输入输出保留在原始轨迹。\n" + trial["note"]
             append_trial(data, case, trial)
 
 
-def add_probe(data, directory, raw):
+def add_probe(data, directory, raw, *, native_artifacts=None):
     summary = load(directory / "preflight-summary.json")
     if summary.get("status") in {None, "running", "pending"}:
         raise ValueError("Connectivity probe is not terminal")
+    source = "probe:" + fingerprint({"summary": summary, "run": directory.name})
+    if any(t.get("source_run") == source for t in data["cases"].get("model-preflight", [])):
+        return
     location = (directory / summary["evidence"]).resolve()
     if not location.is_relative_to(directory.resolve()):
         raise ValueError("Probe evidence escaped its directory")
     prompt = (location / "prompt.txt").read_text()
     session = [{"role": "user", "text": prompt if raw else clean_prompt(prompt)}]
     if raw:
-        session.extend(native_evidence(location, directory.resolve()))
+        session.extend(native_evidence(location, directory.resolve(), artifacts=native_artifacts))
     response = location / "response.json"
     if response.is_file():
         text = load(response)["text"]
@@ -173,7 +191,7 @@ def add_probe(data, directory, raw):
             "model": f"{summary['client']} · {summary['model']}",
             "state": "pass" if summary["status"] == "ready" else "blocked",
             "note": "仅连接预检，不是 Skill 行为通过；运行：" + directory.name,
-            "source_run": "probe:" + fingerprint({"summary": summary, "run": directory.name}),
+            "source_run": source,
             "sessions": [session],
         },
     )
@@ -323,7 +341,17 @@ def atomic_write(path, content):
         Path(temporary).unlink(missing_ok=True)
 
 
-def aggregate(base_raw, base_latest, output, *, plan, matrices=(), probes=()):
+def aggregate(
+    base_raw,
+    base_latest,
+    output,
+    *,
+    plan,
+    matrices=(),
+    probes=(),
+    external_native_evidence=False,
+    compact_new_summary=False,
+):
     output.mkdir(mode=0o700, parents=True, exist_ok=True)
     terminal = [directory for directory in matrices if (directory / "matrix.json").is_file()]
     waiting = [str(directory) for directory in matrices if directory not in terminal]
@@ -337,10 +365,21 @@ def aggregate(base_raw, base_latest, output, *, plan, matrices=(), probes=()):
         before = copy.deepcopy(data)
         add_plan(data, load(plan))
         for directory in terminal:
-            add_matrix(data, directory, raw)
+            add_matrix(
+                data,
+                directory,
+                raw,
+                native_artifacts=output.resolve() / "evidence" if raw and external_native_evidence else None,
+                compact_summary=compact_new_summary,
+            )
             add_semantic_reviews(data, directory, raw)
         for directory in probes:
-            add_probe(data, directory, raw)
+            add_probe(
+                data,
+                directory,
+                raw,
+                native_artifacts=output.resolve() / "evidence" if raw and external_native_evidence else None,
+            )
         report[filename] = {
             "preserved_base_anchors": assert_preserved(base, data, raw),
             "preserved_previous_anchors": assert_preserved(before, data, raw),
@@ -349,6 +388,7 @@ def aggregate(base_raw, base_latest, output, *, plan, matrices=(), probes=()):
         }
         payloads[filename] = validate(data, raw)
         report[filename].update(bytes=len(payloads[filename]), sha256=hashlib.sha256(payloads[filename]).hexdigest())
+    report["local_diagnostic_artifacts"] = native_artifact_manifest(output.resolve() / "evidence")
     # Validate both complete files before replacing either local output.
     for filename, content in payloads.items():
         atomic_write(output / filename, content)
@@ -367,6 +407,16 @@ def main():
     parser.add_argument(
         "--probe", action="append", default=[], type=Path, help="Terminal preflight-summary.json directory"
     )
+    parser.add_argument(
+        "--external-native-evidence",
+        action="store_true",
+        help="Externalize only new raw native diagnostics into private immutable files",
+    )
+    parser.add_argument(
+        "--compact-new-summary",
+        action="store_true",
+        help="Summarize only new summary trials; raw dialogue and all old anchors remain unchanged",
+    )
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
         "--follow", action="store_true", help="Refresh locally until all supplied matrices are terminal"
@@ -374,7 +424,14 @@ def main():
     args = parser.parse_args()
     while True:
         report = aggregate(
-            args.base_raw, args.base_latest, args.output, plan=args.plan, matrices=args.matrix, probes=args.probe
+            args.base_raw,
+            args.base_latest,
+            args.output,
+            plan=args.plan,
+            matrices=args.matrix,
+            probes=args.probe,
+            external_native_evidence=args.external_native_evidence,
+            compact_new_summary=args.compact_new_summary,
         )
         print(json.dumps(report, ensure_ascii=False), flush=True)
         if not args.follow or not report["waiting_for_terminal_matrix"]:

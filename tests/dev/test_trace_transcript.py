@@ -3,6 +3,8 @@ import runpy
 from hashlib import sha256
 from pathlib import Path
 
+import pytest
+
 SOURCE = Path(__file__).resolve().parents[2] / "tools/trace-viewer/synthetic_transcript.py"
 projection = runpy.run_path(str(SOURCE))
 clean_text = projection["clean_text"]
@@ -179,3 +181,46 @@ def test_raw_native_diagnostics_preserve_actual_error_text(tmp_path):
     (tmp_path / "native-ducc.stderr").write_text(error)
     evidence = projection["native_evidence"](tmp_path, tmp_path.resolve())
     assert evidence[0]["evidence"][0]["output"]["text"] == error
+
+
+def test_external_native_diagnostics_are_exact_immutable_and_private(tmp_path):
+    directory = tmp_path / "phase"
+    directory.mkdir()
+    content = b'{"native":"complete wire"}\npartial final line'
+    path = directory / "codex-native.jsonl"
+    path.write_bytes(content)
+    artifacts = tmp_path / "evidence"
+    events = projection["native_evidence"](directory, tmp_path.resolve(), artifacts=artifacts)
+    reference = events[0]["evidence"][0]["output"]["artifact"]
+    assert reference == {"sha256": sha256(content).hexdigest(), "bytes": len(content), "filename": path.name}
+    stored = artifacts / reference["sha256"]
+    assert stored.read_bytes() == content
+    assert stored.stat().st_mode & 0o777 == 0o600
+    assert artifacts.stat().st_mode & 0o777 == 0o700
+    assert projection["native_evidence"](directory, tmp_path.resolve(), artifacts=artifacts) == events
+    stored.write_bytes(b"Tampered")
+    with pytest.raises(ValueError, match="Immutable"):
+        projection["native_evidence"](directory, tmp_path.resolve(), artifacts=artifacts)
+
+
+def test_external_native_diagnostics_reject_source_and_destination_symlinks(tmp_path):
+    source = tmp_path / "codex-native.jsonl"
+    real = tmp_path / "real"
+    real.write_bytes(b"Native evidence")
+    source.symlink_to(real)
+    with pytest.raises(ValueError, match="regular in-directory"):
+        projection["native_evidence"](tmp_path, tmp_path.resolve(), artifacts=tmp_path / "evidence")
+    source.unlink()
+    source.write_bytes(b"Native evidence")
+    destination = tmp_path / "evidence"
+    destination.symlink_to(tmp_path, target_is_directory=True)
+    with pytest.raises(ValueError, match="private"):
+        projection["native_evidence"](tmp_path, tmp_path.resolve(), artifacts=destination)
+
+
+def test_external_native_diagnostics_are_bounded_per_file(tmp_path):
+    source = tmp_path / "codex-native.jsonl"
+    with source.open("wb") as stream:
+        stream.truncate(projection["MAX_NATIVE_EVIDENCE_BYTES"] + 1)
+    with pytest.raises(ValueError, match="16 MiB"):
+        projection["native_evidence"](tmp_path, tmp_path.resolve(), artifacts=tmp_path / "evidence")
