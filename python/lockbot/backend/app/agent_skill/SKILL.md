@@ -10,7 +10,7 @@ description: >
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use its private locator as `--connection` for `resources/command`. Keep verified service/instance/bot/actor separate. No Keys/grants in replies, args, Skills/memory. Use CLI default user storage; no invented `--destination`/`--directory` paths. `LOCKBOT_HOME` overrides storage for requested isolation; project scope only on request.
+Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use its private locator as `--connection` for `resources/command`. Keep verified service/instance/bot/actor separate. Matching node names across bots do not prove one physical machine. No Keys/grants in replies, args, Skills/memory. Use CLI default user storage; no invented `--destination`/`--directory` paths. `LOCKBOT_HOME` overrides storage for requested isolation; project scope only on request.
 
 ## Everyday requests
 
