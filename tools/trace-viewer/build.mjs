@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
 const root = new URL('./', import.meta.url);
 const read = (name) => readFile(new URL(name, root), 'utf8');
+const online = process.argv.includes('--online');
 
 async function browserScript(scriptName, licenseNames) {
   const [script, ...licenses] = await Promise.all([read(scriptName), ...licenseNames.map(read)]);
@@ -26,12 +27,13 @@ const [template, sample, jsonViewer, markdown] = await Promise.all([
 const sampleJson = JSON.stringify(JSON.parse(sample)).replace(/</g, '\\u003c');
 const replacements = {
   __TRACE_PAYLOAD__: sampleJson,
+  __TRACE_CONNECT_SRC__: online ? " connect-src 'self';" : '',
   __JSON_VIEWER_BUNDLE__: jsonViewer,
   __MARKDOWN_BUNDLE__: markdown,
 };
 const html = template.replace(
-  /__TRACE_PAYLOAD__|__JSON_VIEWER_BUNDLE__|__MARKDOWN_BUNDLE__/g,
+  /__TRACE_PAYLOAD__|__TRACE_CONNECT_SRC__|__JSON_VIEWER_BUNDLE__|__MARKDOWN_BUNDLE__/g,
   (marker) => replacements[marker],
 );
 await mkdir(new URL('dist/', root), { recursive: true });
-await writeFile(new URL('dist/index.html', root), html);
+await writeFile(new URL(online ? 'dist/online.html' : 'dist/index.html', root), html);
