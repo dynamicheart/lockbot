@@ -111,7 +111,8 @@ python scripts/dev/skill_eval_matrix.py run \
 ```
 
 Repeat `--suite` or `--case` to select their union. Without a selection, the matrix
-runs all four suites. Supply `manifest.json` and `lockbot-agent.zip` rendered
+runs all five suites, including newcomer consultations. Supply `manifest.json` and
+`lockbot-agent.zip` rendered
 for `http://192.0.2.10:8155`. The full matrix additionally needs `--panel-artifacts`
 with the same portable release rendered for `https://lockbot.example.test` and
 `--installed-artifacts` with a distinct older revision rendered for the same synthetic
@@ -193,3 +194,24 @@ do not silently reclassify model behavior after changing the expected behavior.
 
 New cases do not add CI model calls. Run only the relevant cases locally with the private
 client adapter and publish sanitized model names, evidence and limitations.
+
+
+## Newcomer consultations and deterministic CLI regressions
+
+The consultation suite covers short questions about what LockBot does, getting started,
+binding, reservations, default durations, utilization and sharing login links. The test
+client supplies its verified document catalog and selected connection privately. Score
+source reading and attempted writes from the trace, then review answer correctness
+against the actual reference pages and current rules.
+
+The packaged CLI backend regression runs with:
+
+```sh
+PYTHONPATH=python:tests:tests/support pytest -q tests/backend/test_packaged_cli_traffic.py
+```
+
+It exercises immediate consecutive queries, one lock and immediate verification on
+fictional resources, then checks the separate per-credential read budget. Its temporary
+evidence includes the actual CLI arguments, complete responses and HTTP statuses.
+The trace exporter accepts that evidence with `--regression EVIDENCE_JSON` alongside
+the model matrix and records the tested package version on the regression entry.

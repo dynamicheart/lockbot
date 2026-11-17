@@ -78,3 +78,17 @@ def load(directory):
         raise
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError, zipfile.BadZipFile) as error:
         raise ArtifactBlocked("complete_artifact_invalid_or_missing") from error
+
+
+def installed_service_origin(directory, artifact, origin):
+    """A complete verified deployment package retains its approved service origin."""
+    if artifact is None:
+        return False
+    try:
+        stamp = json.loads(artifact["contents"]["installation.json"])
+        return stamp.get("deployment_origin") == origin and all(
+            not (directory / name).is_symlink() and (directory / name).read_bytes() == content
+            for name, content in artifact["contents"].items()
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False

@@ -6,6 +6,14 @@ from hashlib import sha256
 from pathlib import Path
 
 TOOL_LABELS = {
+    "discover_local_state": "查找已安装 Skill 与本地连接",
+    "http_request": "HTTP 请求",
+    "read_file": "读取文件",
+    "write_file": "写入文件",
+    "inspect_archive": "检查安装包",
+    "install_skill": "安装 Skill",
+    "read_consultation_skill": "读取 Skill 文档",
+    "read_consultation_context": "读取群规则",
     "inspect_lockbot": "检查 Skill 链接",
     "install_lockbot": "安装完整 Skill",
     "read_lockbot_skill": "读取 Skill",
@@ -62,6 +70,19 @@ def clean_text(value: str) -> str:
     return redacted
 
 
+SYNTHETIC_SKILL_LINK = re.compile(
+    r"http://192[.]0[.]2[.]10:8155(/api/agent-skill(?:/SKILL[.]md|/lockbot-(?:resource-)?agent[.]zip)?)"
+    r"(?=$|[\s`，。)])"
+)
+
+
+def clean_prompt(value: str) -> str:
+    parts = SYNTHETIC_SKILL_LINK.split(value)
+    return "".join(
+        f"https://lockbot.example.test{part}" if index % 2 else clean_text(part) for index, part in enumerate(parts)
+    )
+
+
 def read_local(path: Path, root: Path, limit: int) -> str:
     resolved = path.resolve(strict=True)
     if resolved != path or not resolved.is_relative_to(root) or not resolved.is_file():
@@ -91,7 +112,7 @@ def skill_page_metadata(result):
 def tool_steps(lines: str, phase: int, *, raw=False):
     steps, evidence = [], []
     records = lines.splitlines()
-    for line in records if raw else records[:20]:
+    for line in records if raw or len(records) <= 20 else records[:10] + records[-10:]:
         event = json.loads(line)
         if not isinstance(event, dict):
             raise ValueError("Invalid tool event")
@@ -117,9 +138,9 @@ def tool_steps(lines: str, phase: int, *, raw=False):
             steps.append([name, label, f"会话 {phase}", status])
             evidence.append(details)
             continue
-        if name == "read_lockbot_skill":
-            reference = params.get("reference")
-            if reference is None:
+        if name in ("read_lockbot_skill", "read_consultation_skill"):
+            reference = params.get("document") if name == "read_consultation_skill" else params.get("reference")
+            if reference in (None, "SKILL.md"):
                 arguments["document"] = "SKILL.md"
             elif isinstance(reference, str) and reference in SKILL_REFERENCES:
                 arguments["document"] = reference
@@ -128,6 +149,12 @@ def tool_steps(lines: str, phase: int, *, raw=False):
                 arguments["offset"] = offset
             if not failed:
                 output.update(skill_page_metadata(result))
+        elif name == "http_request":
+            method = params.get("method", "GET")
+            if method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"):
+                arguments["method"] = method
+            if type(result.get("status")) is int and 100 <= result["status"] <= 599:
+                output["http_status"] = result["status"]
         elif name == "install_lockbot":
             if not failed and result.get("installed") is True:
                 output.update(skill_page_metadata(result))
@@ -143,10 +170,12 @@ def tool_steps(lines: str, phase: int, *, raw=False):
                 arguments["purpose"] = purpose
         steps.append([name, label, f"会话 {phase}", status])
         evidence.append({"input": arguments, "output": output})
-    return {"role": "tools", "steps": steps, "evidence": evidence}
+    return {"role": "tools", "steps": steps, "evidence": evidence, "total": len(records)}
 
 
-def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict], *, raw=False) -> list[list[dict]]:
+def synthetic_sessions(
+    root: Path, case: str, runner: int, rows: list[dict], *, suite="cli", raw=False
+) -> list[list[dict]]:
     """Use the expected synthetic evidence files and redact by default."""
     root = root.resolve()
     sessions = []
@@ -155,7 +184,7 @@ def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict], *, 
             phase = row.get("phase")
             if phase not in {1, 2, 3} or "evidence" not in row:
                 continue
-            location = Path("cli", case, f"{runner:03d}", f"phase-{phase}")
+            location = Path(suite, case, f"{runner:03d}", f"phase-{phase}")
             if row["evidence"] != location.as_posix():
                 raise ValueError("Unexpected fixture evidence path")
             directory = root / location
@@ -163,18 +192,22 @@ def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict], *, 
             subject = read_local(directory / "subject.md", root, 65_536)
             if (
                 meta["scenario"] != case
-                or meta["phase"] != phase
+                or meta.get("phase", 1) != phase
                 or meta["skill_sha256"] != row["skill_sha256"]
-                or sha256(subject.encode()).hexdigest() != meta["skill_sha256"]
+                or sha256(subject.encode()).hexdigest() != meta.get("subject_sha256", meta["skill_sha256"])
             ):
                 raise ValueError("Unexpected synthetic fixture")
             prompt = read_local(directory / "prompt.txt", root, 32_768)
-            session = [{"role": "user", "text": prompt if raw else clean_text(prompt)}]
+            session = [{"role": "user", "text": prompt if raw else clean_prompt(prompt)}]
             trace = directory / "trace.jsonl"
             if trace.is_file():
                 calls = tool_steps(read_local(trace, root, 524_288), phase, raw=raw)
                 if calls["steps"]:
                     session.append(calls)
+                if calls["total"] > len(calls["steps"]):
+                    session.append(
+                        {"role": "missing", "text": f"已展示 {len(calls['steps'])} / {calls['total']} 次工具调用。"}
+                    )
             response = directory / "response.json"
             if response.is_file():
                 final = json.loads(read_local(response, root, 65_536))["text"]

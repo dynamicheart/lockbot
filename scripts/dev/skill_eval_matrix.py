@@ -10,6 +10,7 @@ from pathlib import Path
 
 import skill_agent_eval as onboarding
 import skill_cli_eval as cli
+import skill_consultation_eval as consultation
 import skill_continuity_eval as continuity
 import skill_operations_eval as operations
 from skill_eval_artifact import load
@@ -19,6 +20,7 @@ CASES = {
     "onboarding": tuple(onboarding.SCENARIOS),
     "continuity": tuple(continuity.PROMPTS),
     "operations": tuple(operations.PROMPTS),
+    "consultation": tuple(consultation.PROMPTS),
 }
 SECOND_PHASE = {
     "cli": {*cli.ENROLLMENT_SCENARIOS, "panel"},
@@ -56,6 +58,9 @@ def prepare(root, suite, scenario, artifacts):
     if suite == "continuity":
         continuity.prepare(root, source, scenario, current)
         return continuity.score
+    if suite == "consultation":
+        consultation.prepare(root, current, scenario)
+        return consultation.score
     installed = artifacts / "installed" if scenario == "update" else None
     operations.prepare(root, source, scenario, current, installed)
     return operations.score

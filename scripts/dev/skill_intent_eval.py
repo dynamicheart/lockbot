@@ -43,27 +43,27 @@ SHORT_DEFAULT_SCENARIOS = {"intent-lock-tail", "intent-lock-tail-list"}
 
 PROMPTS = {
     **SHORT_PROMPTS,
-    "intent-exact": "帮我锁 node-10 的 2、3 号 P800 卡，用两小时。",
-    "intent-query": "帮我找一台还有两张空闲 P800 卡的机器，我先看看。",
-    "intent-ambiguous": "帮我锁训练节点 2 小时。",
-    "intent-choose": "找台有两张空闲 P800 卡的机器，直接锁这两张，用两小时。",
-    "intent-whole": "帮我锁 node-20 上的两张卡，两小时。",
+    "intent-exact": "锁 node-10 的 2、3 号 P800 卡，两小时。",
+    "intent-query": "哪台机器还有两张空闲 P800？我先看看。",
+    "intent-ambiguous": "锁训练节点 2 小时。",
+    "intent-choose": "找台机器，直接锁两张空闲 P800，用两小时。",
+    "intent-whole": "锁 node-20 上两张卡，两小时。",
     "intent-book": "book node-20 2h",
-    "intent-claim": "轮到我了，领取之前预约的机器。",
-    "intent-model-find": "帮我找空闲的 P800 或 P900 卡，哪个群、哪台机器都行，我先看看。",
-    "intent-model-allocate": "帮我直接申请一张空闲的 P800 或 P900 卡，用两小时。群、机器、卡都由你选。",
+    "intent-claim": "轮到我了，帮我领预约的机器。",
+    "intent-model-find": "哪个群有空闲的 P800 或 P900 卡？我先看看。",
+    "intent-model-allocate": "直接锁一张空闲 P800 或 P900 卡，两小时。你挑。",
     **{
-        scenario: f"帮我申请一台空闲的 {model} 整机，用两小时。哪台都可以。"
+        scenario: f"申请台空闲 {model} 整机，两小时。哪台都行。"
         for scenario, model in UNVERIFIED_MACHINE_MODELS.items()
     },
     **{
-        scenario: f"帮我直接申请一台空闲的整机，要至少有两张 {model} 卡，用两小时。哪个群、哪台都行。"
+        scenario: f"直接锁台空闲整机，至少有两张 {model} 卡，用两小时。你挑。"
         for scenario, model in WHOLE_MACHINE_MODELS.items()
     },
-    "intent-renew": "我占用的那台机器再加两小时。",
+    "intent-renew": "我在用的机器续两小时。",
     "intent-release": "释放 node-10 的 2 号卡，3 号留着。",
     "intent-write-unknown": "锁 node-10 的 2、3 号卡，两小时。",
-    "intent-stale": "找两张同一台机器上的空闲 P800，帮我锁两小时。",
+    "intent-stale": "找同一台机器的两张空闲 P800，锁两小时。",
 }
 EXPECTED = {
     "intent-lock-tail": (8, "lock node-19 3h"),
@@ -359,7 +359,11 @@ def score(scenario, requests, tools, final):
         if scenario in {"intent-ambiguous", "intent-ambiguous-tail"}:
             checks["both_candidate_groups_examined"] = resource_paths <= suffixes
             explicit_question = re.search(
-                r"哪(?:个|一个|一台|台)[^。！？!?]{0,8}(?:群|节点|机器|资源)[^。！？!?\n]{0,16}[？?]", final
+                r"哪(?:个|一个|一台|台)[^。！？!?]{0,8}(?:群|节点|机器|资源)[^。！？!?\n]{0,16}[？?]"
+                r"|(?:^|[.!?\n])\s*which\s+(?:group|node|machine|resource)\s+"
+                r"(?:should|shall|do|would)\s+(?:i|we|you)\b[^.!?\n]{0,100}\?",
+                final,
+                re.IGNORECASE,
             )
             both_targets = all(name in final for name in (CARDS, MACHINES)) or all(
                 node in final for node in (TRAINING_NODE, MACHINE_NODE)
@@ -368,7 +372,8 @@ def score(scenario, requests, tools, final):
                 r"(?:请|麻烦|需要[你您])[^\n。！？!?]{0,10}(?:选|确认)"
                 r"|[你您](?:想|要|希望)[^。！？!?]+还是[^。！？!?]+[？?]"
                 r"|(?:请)?告诉我[你您](?:指|要)(?:的是)?哪(?:一个|个|一台|台)"
-                r"|[你您](?:想|要|希望)(?:怎么|如何)处理\s*[？?]",
+                r"|[你您](?:想|要|希望)(?:怎么|如何)处理\s*[？?]"
+                r"|[你您](?:想|要|希望)(?:选|锁|用)?哪(?:一个|个|一台|台)\s*[？?]",
                 final,
             )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))

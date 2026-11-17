@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
 from lockbot.backend.app.agent_skill.scripts.lockbot_cli import REFERENCE_PATHS, Client, ClientError
+from skill_eval_artifact import installed_service_origin
 
 base = continuity.base
 OriginalFixture = base.Fixture
@@ -50,18 +51,16 @@ RESOURCE_BOTS = {
 }
 FIRST_CONTACT = {
     "link-only": "{url}",
-    "install-from-link": "帮我装一下这个 Skill，记住这个服务，下次还要用。{url}",
-    "install-from-zip": "帮我装一下这个 Skill，以后还会用。{zip_url}",
-    "install-with-key": "装一下这个 Skill，用我原来的登录查查有哪些资源。{zip_url}",
+    "install-from-link": "装一下，下次还用。\n{url}",
+    "install-from-zip": "装一下。\n{zip_url}",
+    "install-with-key": "装一下，用原来的登录查下资源。\n{zip_url}",
 }
 SAVED_LOGIN_SCENARIOS = {"install-with-key", "panel", "telemetry"}
 CHALLENGE_PROMPTS = {
     COLD_REQUEST: "帮我安装这个 Skill，申请一台 P800 机器用两小时。",
-    "approved-enrollment-no-group": "装一下这个 Skill，帮我看看有哪些资源。",
-    "recover-original-key": "装一下这个 Skill，帮我看看有哪些资源。",
-    "reset-personal-key": (
-        "装一下这个 Skill，帮我重置 LockBot 的登录。我知道其他用这个登录的 Agent 要重新连接，确认重置。"
-    ),
+    "approved-enrollment-no-group": "装一下，看看有啥资源。",
+    "recover-original-key": "换机器了，装一下，帮我恢复原来的登录。",
+    "reset-personal-key": ("装一下，帮我重置登录。我知道别的 Agent 要重新连接，确认重置。"),
 }
 ENROLLMENT_SCENARIOS = ("approved-enrollment", *CHALLENGE_PROMPTS)
 SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *FIRST_CONTACT, *intent.PROMPTS)
@@ -77,13 +76,9 @@ def prepare(root, artifact, scenario):
         seed_scenario = "approved-enrollment"
     continuity.prepare(root, artifact / "SKILL.md", seed_scenario, artifact)
     if scenario == "no-key":
-        (root / "prompt.txt").write_text(
-            f"帮我装一下这个 Skill，记住这个服务。我之后再用。\n{base.ORIGIN}{base.BUNDLE_PATH}"
-        )
+        (root / "prompt.txt").write_text(f"先装好，以后怎么用？\n{base.ORIGIN}{base.BUNDLE_PATH}")
     if scenario == "approved-enrollment":
-        (root / "prompt.txt").write_text(
-            f"帮我装一下这个 Skill，连上验证群。我先看看。\n{base.ORIGIN}{base.BUNDLE_PATH}"
-        )
+        (root / "prompt.txt").write_text(f"装一下，帮我连上。\n{base.ORIGIN}{base.BUNDLE_PATH}")
     if scenario in ENROLLMENT_SCENARIOS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -106,11 +101,11 @@ def prepare(root, artifact, scenario):
             },
         )
         (root / "prompt.txt").write_text(
-            f"装一下这个 Skill，帮我打开个人资源台，看看我占用和预约的资源。\n{PANEL_ORIGIN}{base.BUNDLE_PATH}"
+            f"装一下，打开个人资源台，看看我占了啥、约了啥。\n{PANEL_ORIGIN}{base.BUNDLE_PATH}"
         )
     if scenario == "telemetry":
         (root / "prompt.txt").write_text(
-            f"装一下这个 Skill，帮我看看 node-a 的占用和利用率，有多新也告诉我。\n{base.ORIGIN}{base.BUNDLE_PATH}"
+            f"装一下，看看 node-a 谁在用、利用率多少，数据多久前的？\n{base.ORIGIN}{base.BUNDLE_PATH}"
         )
     if scenario in FIRST_CONTACT:
         case_path = root / "case.json"
@@ -136,7 +131,7 @@ def prepare(root, artifact, scenario):
         )
         prompt = intent.PROMPTS[scenario]
         if scenario not in intent.SHORT_PROMPTS:
-            prompt = f"装一下这个 Skill。{base.ORIGIN}{base.BUNDLE_PATH}\n{prompt}"
+            prompt = f"装一下。\n{base.ORIGIN}{base.BUNDLE_PATH}\n{prompt}"
         (root / "prompt.txt").write_text(prompt)
         private = root / "workspace/private"
         for identifier, key, uuid in ((7, base.KEY, base.BOT_UUID), (8, continuity.SECOND_KEY, continuity.SECOND_UUID)):
@@ -154,9 +149,7 @@ def prepare(root, artifact, scenario):
             path.write_text(key)
             path.chmod(0o600)
     if scenario == "recover":
-        (root / "prompt.txt").write_text(
-            f"装一下这个 Skill，帮我恢复原来连接的群，再看看验证群有哪些资源。\n{base.ORIGIN}{base.BUNDLE_PATH}"
-        )
+        (root / "prompt.txt").write_text(f"装一下，接回原来的登录，看看有啥资源。\n{base.ORIGIN}{base.BUNDLE_PATH}")
     if scenario in SAVED_LOGIN_SCENARIOS:
         fixture = Fixture(root)
         connection = fixture.saved_connection
@@ -183,6 +176,8 @@ def prepare(root, artifact, scenario):
         "Use only the supplied fixture tools. The workspace and service are synthetic. Report verified actions only. "
         "The client supplies its sign-in state privately. Keep credential and connection paths out of user replies. "
     )
+    if scenario == "approved-enrollment":
+        system += f" The client resource picker has selected target group {GROUP!r}. "
     if scenario != COLD_REQUEST:
         system += (
             "install_lockbot installs and shows the verified Skill. run_lockbot runs its actual packaged CLI. "
@@ -214,7 +209,7 @@ def resume(source, destination):
             raise ValueError("The simulated user must confirm browser consent before resuming")
         continuity.resume(source, destination)
         (destination / "system.txt").write_text((source / "system.txt").read_text())
-        (destination / "prompt.txt").write_text("打开个人资源台，看看我在用和预约了什么。")
+        (destination / "prompt.txt").write_text("打开资源台，看看我占了啥、约了啥。")
         configure(destination)
         return
     if fixture.uses_challenge and fixture.case["phase"] == 2:
@@ -225,7 +220,7 @@ def resume(source, destination):
         case_path = destination / "case.json"
         base.save_json(case_path, {**json.loads(case_path.read_text()), "phase": 3})
         (destination / "system.txt").write_text((source / "system.txt").read_text())
-        (destination / "prompt.txt").write_text("查一下这个项目里我在 LockBot 上能用的资源，只查状态。")
+        (destination / "prompt.txt").write_text("这个项目里有啥可用的 LockBot 资源？")
         base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
         if fixture.case["scenario"] == COLD_REQUEST:
             base.save_json(
@@ -238,7 +233,7 @@ def resume(source, destination):
     continuity.resume(source, destination)
     (destination / "system.txt").write_text((source / "system.txt").read_text())
     if fixture.case["scenario"] == COLD_REQUEST:
-        prompt = "继续帮我申请一台 P800 机器，用两小时。"
+        prompt = "群里确认了，继续申请台 P800，用两小时。"
     else:
         prompt = "帮我看看有哪些资源。"
     (destination / "prompt.txt").write_text(prompt)
@@ -923,15 +918,18 @@ def score_first_contact(fixture, requests, checks):
     else:
         path = private / "service.json"
         checks["service_saved"] = (
-            path.is_file()
-            and path.stat().st_mode & 0o077 == 0
-            and json.loads(path.read_text())
-            == {
-                "approved_origin": base.ORIGIN,
-                "instance_id": manifest["instance_id"],
-                "version": manifest["version"],
-                "skill_url": urljoin(base.ORIGIN, manifest["skill_url"]),
-            }
+            (
+                path.stat().st_mode & 0o077 == 0
+                and json.loads(path.read_text())
+                == {
+                    "approved_origin": base.ORIGIN,
+                    "instance_id": manifest["instance_id"],
+                    "version": manifest["version"],
+                    "skill_url": urljoin(base.ORIGIN, manifest["skill_url"]),
+                }
+            )
+            if path.is_file()
+            else installed_service_origin(fixture.installation, fixture.artifact, fixture.origin)
         )
         checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)
 
@@ -1023,6 +1021,8 @@ def score(root, final):
         or (scenario == "recover" and (private / "seed.json").exists())
         or scenario in intent.PROMPTS
     )
+    if scenario in {"no-key", "install-from-link"}:
+        service |= installed_service_origin(fixture.installation, fixture.artifact, fixture.origin)
     checks = {
         "installed": all(
             (fixture.installation / path).is_file() and (fixture.installation / path).read_bytes() == content
@@ -1198,8 +1198,12 @@ def score(root, final):
             for row in requests
         )
     else:
-        checks.update(no_mutation=not posts, manual_group_binding_guidance="bind" in final and "群" in final)
+        checks.update(no_mutation=not posts, answer_present=bool(final.strip()))
     result = {"checks": checks, "observable_pass": all(checks.values()), "phase": phase, "simulation_only": True}
+    if scenario == "no-key":
+        result["manual_review_required"] = [
+            "Check the next-use explanation against the Skill and available sign-in state."
+        ]
     if uses_challenge and phase == 3:
         result["extra_enrollment_reads"] = sum(
             row["method"] == "GET" and urlsplit(row["url"]).path == f"{CHALLENGES}/{BINDING_ID}" for row in requests

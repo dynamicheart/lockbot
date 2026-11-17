@@ -17,18 +17,9 @@ PREVIOUS = "0000000000000000"
 MANIFEST_PATH = "/api/agent-skill"
 DOWNLOADED_ARCHIVE = "downloads/lockbot-agent.zip"
 PROMPTS = {
-    "alias": (
-        "查询 node-a 的共享资源标签，设置为 shared-test，回读确认；更改为 shared-next，再回读；"
-        "最后清除并确认。不写任务隐私，不更改锁，不把HTTP200当业务成功。"
-    ),
-    "queue": (
-        "替我预约并获得 node-a 1m。对方可能提前释放；合理轮询并遵守 Retry-After。"
-        "拿到后继续检查一次临近到期的状态，说明还剩多久。没有客户端定时能力，不要声称注册了定时任务。"
-    ),
-    "update": (
-        "已安装上一个版本 Skill；上次释放 node-a 已成功。请回读，按这次 API 更新提示引导我确认安装新包，"
-        "保留连接和原 key；不要重复释放，也先不要替我安装更新。"
-    ),
+    "alias": "先看下 node-a 的共享标签，改成 shared-test，再改成 shared-next，最后删掉。每次都确认一下。",
+    "queue": "帮我排 node-a，拿到用 1 分钟。快到期时看看还剩多久。",
+    "update": "上次 node-a 释放好了吗？有新版的话，先问我再装。",
 }
 
 
@@ -103,12 +94,11 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
             path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             path.write_bytes(content)
     base.save_json(root / "case.json", case)
-    (root / "prompt.txt").write_text(
-        PROMPTS[scenario] + " 已批准的服务及私有 key 引用在 private/connection.json；操作前核验上下文。"
-    )
+    (root / "prompt.txt").write_text(PROMPTS[scenario])
     # No injected update response: the old revision must actually elicit a tool-visible server hint.
     (root / "system.txt").write_text(
         base.SYSTEM + " Read the installed Skill at skills/resource/SKILL.md before requests. "
+        "The client approved the saved service in private/connection.json, which references its private Key. "
         "No shell/interpreter tool is available; do not claim helper execution. "
         "wait_seconds advances a bounded synthetic clock, not wall time. No timer registration tool exists."
     )

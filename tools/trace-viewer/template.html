@@ -322,7 +322,7 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
 <script type="application/json" id="trace-data">__TRACE_PAYLOAD__</script>
 <script>
 let data = JSON.parse(document.getElementById('trace-data').textContent);
-const statusNames = {pass:'通过',timeout:'超时',blocked:'环境阻塞',fail:'行为失败'};
+const statusNames = {pass:'通过',pending:'待核对',timeout:'超时',blocked:'环境阻塞',fail:'检查未通过'};
 const select = (id) => document.getElementById(id);
 const node = (tag, text, className) => {
   const el = document.createElement(tag);
@@ -933,7 +933,7 @@ function renderRecord(trial) {
   const items = [
     ['来源',imported ? '本地 JSON' : online ? '在线合成测例' : '',null],
     ['名称',data.title,'data-title'],
-    ['版本',data.version,'version'],
+    ['版本',trial.package_version ?? data.version,'version'],
     ['测例说明',data.criteria?.[activeCase],'criterion'],
     ['运行备注',trial.note,null],
   ].filter(([,text])=>typeof text==='string' && text.trim());
@@ -941,6 +941,7 @@ function renderRecord(trial) {
   fields.replaceChildren();
   for (const [label,text,id] of items) {
     const dd = node('dd',text);
+    if (label === '运行备注') dd.style.whiteSpace = 'pre-line';
     if (id) dd.id = id;
     fields.append(node('dt',label),dd);
   }
@@ -953,7 +954,7 @@ function draw(animateCase = false) {
   renderRecord(trial);
   const entries = trial.sessions.flat();
   const tools = entries.filter(entry=>entry.role==='tools');
-  const captured = tools.reduce((total,entry)=>total+entry.steps.length,0);
+  const captured = tools.reduce((total,entry)=>total+(entry.total ?? entry.steps.length),0);
   const messages = entries.filter(entry=>['user','assistant'].includes(entry.role)).length;
   const footer = select('browse-footer');
   footer.replaceChildren(node('span',trial.sessions.length+' 个会话'),node('span',messages+' 条消息'),node('span',captured+' 次工具调用'));
@@ -1035,6 +1036,9 @@ function draw(animateCase = false) {
   const simulated = phases.reduce((count,row)=>count+(Number.isInteger(row.simulated_user_actions) ? row.simulated_user_actions : 0),0);
   const timings = phases.filter(row=>Number.isFinite(row.duration_seconds));
   const duration = timings.reduce((seconds,row)=>seconds+row.duration_seconds,0);
+  const httpCounts = phases.filter(row=>Number.isInteger(row.http_requests));
+  const httpRequests = httpCounts.reduce((total,row)=>total+row.http_requests,0);
+  if (httpCounts.length) footer.append(node('span',httpRequests+' 次服务 HTTP'));
   const summary = [turns && '各阶段轮数 '+turns, timings.length && duration.toFixed(1)+' 秒',
     simulated && simulated+' 次模拟人工操作'].filter(Boolean).join(' · ');
   const isSummary = trial.sessions.length === 0;

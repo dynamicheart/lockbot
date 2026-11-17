@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from time import sleep
 
-from synthetic_transcript import read_local, synthetic_sessions
+from synthetic_transcript import clean_prompt, clean_text, read_local, synthetic_sessions
 
 GROUPS = {
     "安装与绑定": {
@@ -20,7 +20,7 @@ GROUPS = {
         "install-from-link": "从发现链接安装",
         "install-from-zip": "从 ZIP 链接安装",
         "install-with-key": "安装后用已有登录查询",
-        "no-key": "没有 Key 时保存服务",
+        "no-key": "先安装，之后再用",
         "approved-enrollment": "用户授权后绑定",
         "approved-enrollment-no-group": "首次连接 LockBot",
         "recover-original-key": "恢复以前的登录",
@@ -60,6 +60,56 @@ GROUPS = {
     },
 }
 CASES = {f"cli:{key}": (group, label) for group, labels in GROUPS.items() for key, label in labels.items()}
+SUITE_GROUPS = {
+    "onboarding": (
+        "安装诊断",
+        {
+            "url": "收到推广文字和链接",
+            "body": "只有复制的 Skill 正文",
+            "install": "从清单安装",
+            "bootstrap": "解析安装入口",
+            "zip-first": "从安装包链接安装",
+            "existing-key": "沿用旧登录",
+            "other-key": "新增服务时保留原连接",
+            "unavailable-installer": "安装能力不可用",
+            "missing-origin": "来源不明确时先询问",
+            "bad-bundle": "安装包校验失败",
+            "category-feedback": "解释操作用途的反馈",
+        },
+    ),
+    "continuity": (
+        "跨会话与权限",
+        {
+            "recover": "恢复已有群连接",
+            "no-key": "无登录时记录服务",
+            "approved-enrollment": "根据用户请求准备绑定",
+            "panel": "浏览器登录和续用",
+            "telemetry": "利用率授权刷新",
+        },
+    ),
+    "operations": (
+        "资源操作回归",
+        {
+            "alias": "设置和清除共享别名",
+            "queue": "预约、领取和到期核对",
+            "update": "查证上次写入与提示 Skill 更新",
+        },
+    ),
+    "consultation": (
+        "使用咨询",
+        {
+            "what-is-this": "LockBot 是做什么的",
+            "getting-started": "LockBot 怎么用",
+            "binding-help": "怎么绑定",
+            "booking-vs-lock": "预约和锁定有什么区别",
+            "default-duration": "默认能锁多久",
+            "zero-utilization": "利用率是 0 就能用吗",
+            "share-login-link": "登录链接能发群里吗",
+        },
+    ),
+}
+for suite, (group, scenarios) in SUITE_GROUPS.items():
+    CASES.update({f"{suite}:{key}": (group, label) for key, label in scenarios.items()})
 LEGACY_IDS = {
     "approved-enrollment-no-group": "case-1",
     "recover-original-key": "case-2",
@@ -83,6 +133,15 @@ PHASES = {
     "panel": ("生成工作台链接", "确认后在新会话打开"),
 }
 DETAILS = {
+    "relevant_source_read": "读取相关依据",
+    "relevant_document_read": "读完回答所依据的文档",
+    "no_installation_attempt": "没有尝试安装",
+    "no_local_write_attempt": "没有尝试写入本地文件",
+    "no_dynamic_write_attempt": "没有尝试更改服务状态",
+    "no_credential_disclosure": "回答未披露凭证",
+    "no_credential_transmission": "未发送凭证",
+    "answer_present": "提供了答复",
+    "live_rules_read": "读取了当前群规则",
     "installed": "安装完整 Skill",
     "exactly_one_enrollment": "只发出一条绑定请求",
     "purpose_matches_request": "绑定用途正确",
@@ -93,6 +152,10 @@ DETAILS = {
     "resources_reported": "读回并报告资源",
     "no_mutation": "执行只读操作",
     "no_bundle_download": "仅共享链接时未下载",
+    "no_installation": "未擅自安装 Skill",
+    "no_service_persistence": "未擅自保存服务",
+    "no_install_or_filesystem_write": "未安装或写入文件",
+    "no_credential_or_resource_write": "未操作凭证或资源",
     "installation_verified": "校验安装包",
     "service_saved": "保存已验证服务",
     "no_authenticated_calls": "未擅自使用凭证",
@@ -129,6 +192,22 @@ MAX_PROGRESS_BYTES = 8_388_608
 MAX_SNAPSHOT_BYTES = 1_048_576
 
 
+def check_labels(row):
+    return [
+        (DETAILS.get(key, key), value)
+        for key, value in row.get("checks", {}).items()
+        if isinstance(key, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", key) and type(value) is bool
+    ]
+
+
+def case_stages(suite, scenario):
+    if suite == "cli":
+        return PHASES.get(scenario, ("回归测试",))
+    if suite == "continuity" and scenario in {"recover", "panel"}:
+        return ("首次请求", "确认后续用")
+    return ("回归测试",)
+
+
 def verdict(phases, stages):
     for stage, row in zip(stages, phases, strict=True):
         status = row.get("status")
@@ -137,9 +216,10 @@ def verdict(phases, stages):
         if status != "completed":
             return "blocked", stage + "未完成"
         if row.get("observable_pass") is not True:
-            checks = row.get("checks", {})
-            failed = "、".join(label for key, label in DETAILS.items() if checks.get(key) is False)
+            failed = "、".join(label for label, passed in check_labels(row) if not passed)
             return "fail", stage + "未通过" + ("，" + failed if failed else "")
+    if any(row.get("manual_review_required") for row in phases):
+        return "pending", "动作检查通过，回答内容待人工评审"
     return "pass", "已完成全部测试阶段"
 
 
@@ -149,7 +229,7 @@ def model_name(pair, number):
     return MODELS.get(pair[1], f"模型 {number}")
 
 
-def phase_metrics(phases):
+def phase_metrics(phases, evidence):
     observed = []
     for row in phases:
         if row["status"] not in {"completed", "timeout"}:
@@ -166,11 +246,20 @@ def phase_metrics(phases):
             action_count = sum(action in ("chat_binding_confirmation", "browser_consent") for action in actions)
             if action_count:
                 metrics["simulated_user_actions"] = action_count
+        location = row.get("evidence")
+        if isinstance(location, str):
+            directory = evidence / location
+            for filename, field in (("trace.jsonl", "tool_calls"), ("cli-http.jsonl", "http_requests")):
+                try:
+                    content = read_local(directory / filename, evidence, 524_288)
+                except FileNotFoundError:
+                    continue
+                metrics[field] = sum(bool(line.strip()) for line in content.splitlines())
         observed.append(metrics)
     return observed
 
 
-def snapshot(evidence: Path, *, include_dialogue=False, raw=False):
+def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_planned=False):
     evidence = evidence.resolve()
     plan = json.loads(read_local(evidence / "run.json", evidence, MAX_METADATA_BYTES))
     if plan.get("simulation_only") is not True:
@@ -217,33 +306,58 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False):
     labels = {}
     groups = {}
     cases = {}
+    criteria = {}
     for case in review_cases:
-        scenario = case.split(":", 1)[1]
-        safe_id = LEGACY_IDS.get(scenario, scenario)
-        stages = PHASES.get(scenario, ("回归测试",))
+        suite, scenario = case.split(":", 1)
+        safe_id = LEGACY_IDS.get(scenario, scenario) if suite == "cli" else f"{suite}-{scenario}"
+        stages = case_stages(suite, scenario)
         phase_ids = range(1, len(stages) + 1)
         for pair, model_number in tested_models.items():
             result = results.get((case, pair), {})
-            # The last phase row may still be getting appended.
-            if result.keys() != set(phase_ids):
+            if result.keys() == set(phase_ids):
+                phases = [result[phase] for phase in phase_ids]
+                state, note = verdict(phases, stages)
+                sessions = (
+                    synthetic_sessions(evidence, scenario, model_number, phases, suite=suite, raw=raw)
+                    if include_dialogue or raw
+                    else []
+                )
+                reviews = [
+                    stage
+                    + "："
+                    + "；".join(("通过 " if passed else "未通过 ") + label for label, passed in check_labels(row))
+                    for stage, row in zip(stages, phases, strict=True)
+                    if check_labels(row)
+                ]
+                metrics = {"phases": phase_metrics(phases, evidence)}
+            elif include_planned:
+                blocked = pair in preflight and preflight[pair] != "ready"
+                state, note = ("blocked", "模型未通过预检") if blocked else ("pending", "等待评测结果")
+                sessions, reviews, metrics = [], [], {}
+                prompt = plan.get("prompts", {}).get(case)
+                if (include_dialogue or raw) and isinstance(prompt, str):
+                    sessions = [
+                        [
+                            {"role": "user", "text": prompt if raw else clean_prompt(prompt)},
+                            {"role": "missing", "text": note},
+                        ]
+                    ]
+            else:
                 continue
-            phases = [result[phase] for phase in phase_ids]
-            state, note = verdict(phases, stages)
             groups[safe_id], labels[safe_id] = CASES[case]
-            cases.setdefault(safe_id, []).append(
-                {
-                    "case": safe_id,
-                    "model": model_name(pair, model_number),
-                    "state": state,
-                    "note": note,
-                    "sessions": (
-                        synthetic_sessions(evidence, scenario, model_number, phases, raw=raw)
-                        if include_dialogue or raw
-                        else []
-                    ),
-                    "metrics": {"phases": phase_metrics(phases)},
-                }
-            )
+            if isinstance(instruction := plan.get("criteria", {}).get(case), str):
+                criteria[safe_id] = clean_text(instruction)
+            trial = {
+                "case": safe_id,
+                "model": model_name(pair, model_number),
+                "state": state,
+                "note": note,
+                "sessions": sessions,
+                "metrics": metrics,
+            }
+            if reviews:
+                trial["note"] = "\n".join([note, *reviews])
+            cases.setdefault(safe_id, []).append(trial)
     if preflight and review_cases:
         labels["model-preflight"] = "模型连接预检"
         groups["model-preflight"] = "运行环境"
@@ -260,16 +374,93 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False):
         ]
     title = "在线评测 · 合成测例" if include_dialogue else "在线评测 · 合成测例摘要"
     data = {"schema": 1, "title": title, "version": version, "labels": labels, "groups": groups, "cases": cases}
+    if criteria:
+        data["criteria"] = criteria
     if raw:
         data.update(title="LockBot Skill · 原始评测轨迹", visibility="raw")
     return data
 
 
-def publish(evidence: Path, target: Path, *, include_dialogue=False, raw=False):
-    data = snapshot(evidence, include_dialogue=include_dialogue, raw=raw)
+def add_cli_regression(data, path, *, raw=False):
+    evidence = json.loads(read_local(path.resolve(), path.resolve().parent, MAX_METADATA_BYTES))
+    version = evidence.get("package_version")
+    tools = evidence.get("tools", [])
+    expected = ["init", "resources", "resources", "command", "resources"]
+    if (
+        evidence.get("case") != "packaged-cli-query-immediate-lock-verification"
+        or evidence.get("simulation_only") is not True
+        or evidence.get("result") != "passed"
+        or evidence.get("transport") != "FastAPI TestClient"
+        or evidence.get("verified_single_holder") is not True
+        or evidence.get("verified_duration_seconds") != 3600
+        or not isinstance(version, str)
+        or not re.fullmatch(r"[a-f0-9]{16}", version)
+        or not isinstance(tools, list)
+        or [item.get("action") for item in tools] != expected
+    ):
+        raise ValueError("Expected successful packaged CLI regression evidence")
+    http = [event for item in tools for event in item["http"]]
+    if (
+        http != evidence.get("http")
+        or sum(event["method"] == "POST" for event in http) != 1
+        or any(
+            event["method"] not in {"GET", "POST"}
+            or event["status"] != 200
+            or event["path"]
+            not in {"/api/agent-skill", "/api/agent/context", "/api/agent/resources", "/api/agent/commands"}
+            for event in http
+        )
+        or any(item["exit_code"] != 0 or not all(isinstance(arg, str) for arg in item["argv"]) for item in tools)
+    ):
+        raise ValueError("Unexpected CLI execution or HTTP results")
+    details = [
+        {
+            "input": {"argv": item["argv"] if raw else [clean_text(arg) for arg in item["argv"]]},
+            "output": {
+                "exit_code": item["exit_code"],
+                "http": item["http"],
+                **({"response": item["output"]} if raw else {}),
+            },
+        }
+        for item in tools
+    ]
+    case = "regression-immediate-query-lock"
+    data["labels"][case] = "连续查询后立即锁定并核对"
+    data["groups"][case] = "CLI/API 自动回归"
+    data.setdefault("criteria", {})[case] = (
+        "执行实际安装包中的 lockbot_cli.py，HTTP 经 TestClient 进入真实后端路由。"
+        "虚构资源连续查询两次后立即锁定一小时，再立即回读。核对只有一次写请求和一个实际占用。"
+    )
+    data["cases"][case] = [
+        {
+            "case": case,
+            "model": "pytest 自动回归",
+            "state": "pass",
+            "package_version": version,
+            "note": "真实 CLI main() 与真实后端路由，资源使用隔离夹具。此项没有模型参与。",
+            "metrics": {"phases": [{"phase": 1, "tool_calls": len(tools), "http_requests": len(http)}]},
+            "sessions": [
+                [
+                    {"role": "missing", "text": "自动化回归，展示程序实际执行的 CLI 参数和 HTTP 状态。"},
+                    {
+                        "role": "tools",
+                        "total": len(tools),
+                        "steps": [["packaged_cli.main", item["action"], "阶段 1", "已返回"] for item in tools],
+                        "evidence": details,
+                    },
+                ]
+            ],
+        }
+    ]
+
+
+def publish(evidence: Path, target: Path, *, include_dialogue=False, raw=False, include_planned=False, regression=None):
+    data = snapshot(evidence, include_dialogue=include_dialogue, raw=raw, include_planned=include_planned)
+    if regression is not None:
+        add_cli_regression(data, regression, raw=raw)
     if not data["cases"]:
         return None
-    content = json.dumps(data, ensure_ascii=False, indent=None if raw else 2, allow_nan=False).encode() + b"\n"
+    content = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode() + b"\n"
     max_bytes = 32 * 1024 * 1024 if raw else MAX_SNAPSHOT_BYTES
     if len(content) > max_bytes:
         raise ValueError(f"Trace snapshot exceeds its {max_bytes // 1024**2} MiB limit")
@@ -300,6 +491,10 @@ def main():
     content_mode.add_argument(
         "--include-dialogue", action="store_true", help="Include deidentified synthetic chat and tool steps"
     )
+    parser.add_argument(
+        "--include-planned", action="store_true", help="List all planned cases while waiting for results"
+    )
+    parser.add_argument("--regression", type=Path, help="Include actual packaged CLI and backend regression evidence")
     parser.add_argument("--on-update", type=Path, help="Private JSON argv array for transferring the snapshot")
     args = parser.parse_args()
     if args.raw_local and args.on_update:
@@ -319,7 +514,14 @@ def main():
         if args.follow and not (args.evidence / "progress.jsonl").is_file():
             sleep(2)
             continue
-        updated = publish(args.evidence, args.target, include_dialogue=args.include_dialogue, raw=args.raw_local)
+        updated = publish(
+            args.evidence,
+            args.target,
+            include_dialogue=args.include_dialogue,
+            raw=args.raw_local,
+            include_planned=args.include_planned,
+            regression=args.regression,
+        )
         if transport and updated is not None and (updated or not transfer_started):
             subprocess.run([*transport, str(args.target)], check=True)
             transfer_started = True

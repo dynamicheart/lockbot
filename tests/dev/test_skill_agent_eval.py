@@ -121,6 +121,7 @@ def test_frozen_missing_origin_does_not_expose_candidate_deployment(tmp_path, fr
     assert evaluation.ORIGIN not in (root / "prompt.txt").read_text()
     assert "Deployment API addresses" not in fixture.markdown
     assert fixture.manifest()["skill_sha256"] == fixture.case["skill_sha256"]
+    assert evaluation.digest((root / "subject.md").read_bytes()) == fixture.case["subject_sha256"]
 
 
 def test_unattributed_markdown_does_not_gain_a_deployment_hint(tmp_path, subject):
@@ -203,7 +204,7 @@ def test_claiming_success_is_not_a_passing_installation(tmp_path, subject):
     result = evaluation.score(fixture.root, "Everything is installed and connected.")
     assert not result["observable_pass"]
     assert not result["checks"]["verified_installation"]
-    assert not result["checks"]["connection_origin_and_instance_saved"]
+    assert not result["checks"]["service_origin_persisted"]
 
 
 def test_credential_does_not_discover_manifest_and_keys_do_not_leak(tmp_path, subject):
@@ -303,3 +304,30 @@ def test_archived_failure_trace_keeps_original_scoring(tmp_path, subject):
     fixture.case["fixture_version"] = 3
     evaluation.save_json(fixture.root / "case.json", fixture.case)
     assert evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
+
+
+@pytest.mark.parametrize("damaged", ["installation.json", "scripts/lockbot_resource.py"])
+def test_installation_preserves_origin_without_an_extra_config(tmp_path, frozen_package, damaged):
+    root = tmp_path / "install"
+    evaluation.prepare(root, None, "install", artifacts=frozen_package)
+    fixture = evaluation.Fixture(root)
+    fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})
+    fixture.call(
+        "install_skill",
+        {
+            "url": evaluation.ORIGIN + evaluation.BUNDLE_PATH,
+            "sha256": fixture.manifest()["installation"]["sha256"],
+            "destination": "skills/lockbot-resource-agent",
+        },
+    )
+    assert evaluation.score(root, "装好了")["checks"]["service_origin_persisted"]
+    (fixture.workspace / "skills/lockbot-resource-agent" / damaged).write_text("damaged")
+    assert not evaluation.score(root, "装好了")["checks"]["service_origin_persisted"]
+
+
+def test_category_consultation_keeps_natural_language_for_manual_review(tmp_path, subject):
+    fixture = make_fixture(tmp_path, subject, "category-feedback")
+    result = evaluation.score(fixture.root, "下次选算子测试这个分类。")
+    assert result["observable_pass"]
+    assert result["manual_review_required"]
+    assert not (fixture.workspace / "skills").exists()

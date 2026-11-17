@@ -258,3 +258,134 @@ def test_snapshot_groups_cli_cases_by_scenario_and_counts_only_behavior_runs(tmp
         {"phase": 1},
         {"phase": 2, "turns": 3, "duration_seconds": 42.2, "simulated_user_actions": 1},
     ]
+
+
+def test_snapshot_projects_non_cli_and_planned_consultations(tmp_path):
+    runner = {"client": "fixture", "model": "gpt-6.1-sol"}
+    plan = {
+        "simulation_only": True,
+        "artifacts": {"current": {"package_version": "0123456789abcdef"}},
+        "cases": ["onboarding:install", "consultation:default-duration", "cli:link-only"],
+        "runners": [runner],
+        "prompts": {"cli:link-only": "http://192.0.2.10:8155/api/agent-skill"},
+    }
+    (tmp_path / "run.json").write_text(json.dumps(plan))
+    rows = []
+    for suite, scenario in [("onboarding", "install"), ("consultation", "default-duration")]:
+        location = f"{suite}/{scenario}/001/phase-1"
+        folder = tmp_path / location
+        folder.mkdir(parents=True)
+        subject = "Synthetic Skill"
+        digest = sha256(subject.encode()).hexdigest()
+        (folder / "subject.md").write_text(subject)
+        (folder / "case.json").write_text(json.dumps({"scenario": scenario, "skill_sha256": digest}))
+        (folder / "prompt.txt").write_text("没写时长多久" if suite == "consultation" else "装一下")
+        (folder / "response.json").write_text(json.dumps({"text": "已根据说明回答"}))
+        rows.append(
+            {
+                **runner,
+                "suite": suite,
+                "scenario": scenario,
+                "phase": 1,
+                "evidence": location,
+                "skill_sha256": digest,
+                "status": "completed",
+                "observable_pass": True,
+                "checks": {"answer_present": True},
+                "manual_review_required": ["Review explanation"] if suite == "consultation" else [],
+            }
+        )
+    (tmp_path / "progress.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    output = tmp_path / "latest.json"
+    subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            str(tmp_path),
+            str(output),
+            "--include-dialogue",
+            "--include-planned",
+        ],
+        check=True,
+    )
+    snapshot = json.loads(output.read_text())
+    assert set(snapshot["cases"]) == {"onboarding-install", "consultation-default-duration", "link-only"}
+    consultation = snapshot["cases"]["consultation-default-duration"][0]
+    assert consultation["state"] == "pending"
+    assert consultation["sessions"][0][0]["text"] == "没写时长多久"
+    assert snapshot["cases"]["onboarding-install"][0]["sessions"]
+    pending = snapshot["cases"]["link-only"][0]
+    assert pending["state"] == "pending"
+    assert pending["sessions"][0][0]["text"] == "https://lockbot.example.test/api/agent-skill"
+
+
+def test_packaged_cli_regression_preserves_version_and_actual_steps(tmp_path):
+    (tmp_path / "run.json").write_text(
+        json.dumps(
+            {
+                "simulation_only": True,
+                "artifacts": {"current": {"package_version": "0123456789abcdef"}},
+                "cases": [],
+                "runners": [],
+            }
+        )
+    )
+    (tmp_path / "progress.jsonl").write_text("")
+    actions = ["init", "resources", "resources", "command", "resources"]
+    tools = [
+        {
+            "action": action,
+            "argv": [action, "--connection", "/private/fixture/connection.json"],
+            "exit_code": 0,
+            "output": {"result": {"verified": True}},
+            "http": [
+                {
+                    "method": "POST" if action == "command" else "GET",
+                    "path": "/api/agent/commands" if action == "command" else "/api/agent/resources",
+                    "status": 200,
+                }
+            ],
+        }
+        for action in actions
+    ]
+    evidence = {
+        "case": "packaged-cli-query-immediate-lock-verification",
+        "simulation_only": True,
+        "result": "passed",
+        "transport": "FastAPI TestClient",
+        "verified_single_holder": True,
+        "verified_duration_seconds": 3600,
+        "package_version": "fedcba9876543210",
+        "tools": tools,
+        "http": [event for item in tools for event in item["http"]],
+    }
+    regression = tmp_path / "regression.json"
+    regression.write_text(json.dumps(evidence))
+    output = tmp_path / "latest.json"
+    command = [sys.executable, str(SCRIPT), str(tmp_path), str(output), "--regression", str(regression)]
+    subprocess.run(command, check=True)
+    data = json.loads(output.read_text())
+    trial = data["cases"]["regression-immediate-query-lock"][0]
+    assert trial["package_version"] == "fedcba9876543210"
+    assert trial["model"] == "pytest 自动回归"
+    assert trial["state"] == "pass"
+    assert trial["metrics"]["phases"][0]["http_requests"] == 5
+    assert len(trial["sessions"][0][1]["steps"]) == 5
+    assert "/private/fixture" not in output.read_text()
+    raw = tmp_path / "raw.json"
+    subprocess.run(
+        [sys.executable, str(SCRIPT), str(tmp_path), str(raw), "--regression", str(regression), "--raw-local"],
+        check=True,
+    )
+    raw_trial = json.loads(raw.read_text())["cases"]["regression-immediate-query-lock"][0]
+    assert raw_trial["sessions"][0][1]["evidence"][0]["output"]["response"] == tools[0]["output"]
+
+    tools[-1]["http"][0]["status"] = 429
+    regression.write_text(json.dumps(evidence))
+    rejected = tmp_path / "rejected.json"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(tmp_path), str(rejected), "--regression", str(regression)],
+        capture_output=True,
+    )
+    assert result.returncode != 0
+    assert not rejected.exists()

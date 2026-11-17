@@ -128,7 +128,10 @@ def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, mon
     assert run(fixture, "discover")["result"]["instance_id"] == evaluation.base.INSTANCE
     assert run(fixture, "enroll", group=evaluation.GROUP)["error"] == "invalid_cli_arguments"
     assert fixture.binding_status() == "expired"
-    assert evaluation.score(fixture.root, "在资源群发送 bind 命令。")["observable_pass"]
+    grade = evaluation.score(fixture.root, "装好了。下次告诉我需要哪台机器，需要确认身份时我会提示你。")
+    assert grade["observable_pass"]
+    assert grade["manual_review_required"]
+    assert not evaluation.score(fixture.root, "")["observable_pass"]
 
 
 def test_inspecting_link_does_not_authorize_installation(tmp_path, monkeypatch):
@@ -193,7 +196,7 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
         assert run(fixture, "connections")["result"]["connections"][0]["instance_id"] == instance_id
         assert run(fixture, "resources")["result"]["resources"]
     else:
-        assert not checks["service_saved"]
+        assert checks["service_saved"]
         assert run(fixture, "discover")["result"]["instance_id"] == instance_id
     grade = evaluation.score(fixture.root, "已安装、验证并保存连接。")
     assert grade["observable_pass"], grade["checks"]
@@ -476,14 +479,24 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
         ("node-20 是整机，node-10 可锁卡。您要排队预约整机，还是改锁空闲卡？", True),
         ("整机队列群有 node-20，加速卡群有 node-10。请告诉我你指哪一个，以及怎么处理。", True),
         ("node-20 可排队，node-10 可选择空闲卡。你想怎么处理?", True),
+        ("整机队列群有 node-20，加速卡群有 node-10。你要哪一个？若选加速卡群，请指定卡号。", True),
+        ("19 matches resources in both 加速卡群 and 整机队列群. Which group should I use for the 4-hour lock?", True),
+        ("Which group should I use?", True),
+        ("Which node do you want?", True),
+        ("你要哪一个？", False),
         ("node-20 正被占用，你想怎么处理？", False),
         ("已确认整机队列群和加速卡群都有训练节点。", False),
         ("我已经决定用哪个群了。", False),
+        ("Both 加速卡群 and 整机队列群 contain matching resources.", False),
+        ("I know which group I should use.", False),
+        ("I already decided which group I should use. Is that clear?", False),
+        ("整机队列群有 node-20，加速卡群有 node-10。你要哪一个，我已经知道了。", False),
         ("请确认。", False),
     ],
 )
-def test_ambiguous_target_accepts_explicit_options_without_keyword(reply, asks):
-    assert evaluation.intent.score("intent-ambiguous", [], [], reply)["asks_which_target"] is asks
+@pytest.mark.parametrize("scenario", ["intent-ambiguous", "intent-ambiguous-tail"])
+def test_ambiguous_target_accepts_explicit_options_without_keyword(reply, asks, scenario):
+    assert evaluation.intent.score(scenario, [], [], reply)["asks_which_target"] is asks
 
 
 def test_stale_inventory_requires_an_actual_freshness_warning():
