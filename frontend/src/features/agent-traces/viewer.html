@@ -593,6 +593,9 @@ function renderStepEvidence(container,step,info) {
     return;
   }
   fields.push(evidenceField('输入',info.input),evidenceField('输出',info.output));
+  for (const [key,label] of [['raw_result','CLI 原始结果'],['stdout','标准输出'],['stderr','标准错误']]) {
+    if (Object.hasOwn(info,key)) fields.push(evidenceField(label,info[key]));
+  }
   if (info.output?.artifact) fields.push(diagnosticDownload(info.output.artifact));
   if (info.error != null) {
     const error = evidenceField('错误',info.error);
@@ -783,7 +786,7 @@ function renderEntry(entry,base) {
     const failures = entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i]));
     const details = node('details',null,'tool-box activity-group'+(failures.length ? ' activity-failed' : ''));
     const summary = node('summary');
-    const caption = node('span',entry.steps.length+' 次工具调用','activity-summary');
+    const caption = node('span',toolActivityLabel(entry.steps,entry.evidence),'activity-summary');
     if (failures.length) caption.append(node('span',failures.length+' 项异常','badge fail'));
     summary.append(caption,node('span','展开','activity-hint'));
     details.append(summary,stepList(entry.steps,entry.evidence,base));
@@ -853,7 +856,9 @@ function eventsView(content,trial) {
     entry.role==='tools' ? entry.steps.map((step,i)=>({id:++id,step,info:entry.evidence?.[i],anchor:'tool:'+s+':'+e+':'+i+':name'})) : []));
   const steps = sessions.flat();
   const errors = steps.filter(item=>isFailed(item.step,item.info));
-  heading.textContent = '工具调用 · '+steps.length;
+  const activityLabel = steps.some(item=>item.info?.source === 'packaged_cli') ?
+    toolActivityLabel(steps.map(item=>item.step),steps.map(item=>item.info)) : '工具调用 · '+steps.length;
+  heading.textContent = activityLabel;
   const only = node('button','仅异常 '+errors.length,'quiet-button trace-toggle');
   only.type = 'button';
   if (errors.length) toolbar.append(only);
@@ -934,7 +939,7 @@ function eventsView(content,trial) {
   });
   function renderList() {
     visible = (failureOnly ? errors : steps).filter(item=>!query || searchable.get(item).includes(query));
-    heading.textContent = query ? '匹配 '+visible.length+' / '+steps.length : '工具调用 · '+steps.length;
+    heading.textContent = query ? '匹配 '+visible.length+' / '+steps.length : activityLabel;
     const eligible = new Set(visible);
     only.setAttribute('aria-pressed',failureOnly);
     groups.replaceChildren();

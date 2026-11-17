@@ -1,5 +1,5 @@
 /* global scenarioGroups, data, select, node, actionNames, isFailed, choice, caseName, modelLabel, badge, pickCase, pickRun, icon, readRoute, draw, online, imported, cases, activeCase:writable, activeIndex:writable, activeTab:writable, openStep, datasetId, routeDataset, switchDatasetRoute */
-/* exported diagnosticDownload, callStatusDot, toolTitle, runEfficiency, renderCaseNavigation, notifyReviewParent, selectedRuns, reviewBusy, userNavigation */
+/* exported diagnosticDownload, callStatusDot, toolTitle, toolActivityLabel, runEfficiency, renderCaseNavigation, notifyReviewParent, selectedRuns, reviewBusy, userNavigation */
 const selectedRuns = new Map();
 const expandedCases = new Set();
 let reviewBusy = false;
@@ -21,9 +21,20 @@ function callStatusDot(step, info) {
 }
 
 function toolTitle(step, info) {
-  const action = typeof info?.input?.action === 'string' ? info.input.action :
+  if (info?.source === 'packaged_cli') return 'CLI 内部 HTTP · ' + (step[0] || '未记录工具名');
+  const action = typeof info?.cli_action === 'string' ? info.cli_action :
+    typeof info?.input?.action === 'string' ? info.input.action :
     actionNames.has(step[1]) ? step[1] : '';
   return [step[0] || '未记录工具名', action].filter(Boolean).join(' · ');
+}
+
+function toolActivityLabel(steps, evidence = []) {
+  const internal = evidence.filter(info => info?.source === 'packaged_cli').length;
+  const diagnostics = steps.filter(step => ['native_client_diagnostic', 'native_client_protocol',
+    'native_client_stderr'].includes(step[0])).length;
+  return internal ? (steps.length - internal - diagnostics) + ' 次模型工具调用 · ' + internal + ' 次 CLI 内部 HTTP' +
+    (diagnostics ? ' · ' + diagnostics + ' 项客户端诊断' : '') :
+    steps.length + ' 次工具调用';
 }
 
 function diagnosticDownload(artifact) {
@@ -85,10 +96,17 @@ function runEfficiency(trial) {
   const steps = tools.flatMap(entry => entry.steps);
   const completeTools = tools.every(entry => !entry.total || entry.total === entry.steps.length);
   const parts = [];
-  if (trial.sessions.length && completeTools) {
+  const phases = Array.isArray(trial.metrics?.phases) ? trial.metrics.phases : [];
+  const measured = phases.filter(phase => Number.isInteger(phase.model_tool_calls));
+  if (measured.length) {
+    const partial = measured.length < phases.length ? '（部分阶段）' : '';
+    parts.push('模型工具 ' + measured.reduce((sum, phase) => sum + phase.model_tool_calls, 0) + ' 次' + partial);
+    const executed = measured.filter(phase => Number.isInteger(phase.cli_calls));
+    if (executed.length) parts.push('CLI ' + executed.reduce((sum, phase) => sum + phase.cli_calls, 0) +
+      ' 次' + (executed.length < phases.length ? '（部分阶段）' : ''));
+  } else if (trial.sessions.length && completeTools) {
     parts.push('CLI ' + steps.filter(step => ['run_lockbot', 'packaged_cli.main'].includes(step[0])).length + ' 次');
   }
-  const phases = Array.isArray(trial.metrics?.phases) ? trial.metrics.phases : [];
   const http = phases.filter(phase => Number.isInteger(phase.http_requests));
   if (http.length) {
     const count = http.reduce((sum, phase) => sum + phase.http_requests, 0);

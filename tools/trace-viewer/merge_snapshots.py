@@ -173,6 +173,14 @@ def summary_efficiency(directory, rows):
             if key in {"phase", "duration_seconds", "http_requests", "turns", "simulated_user_actions"}
         }
         item.update(phase=row["phase"], status=row["status"])
+        measured = observed.get(row["phase"], {})
+        if "model_tool_calls" in measured:
+            item.update(
+                {
+                    key: measured[key]
+                    for key in ("model_tool_calls", "model_http_requests", "cli_http_requests", "cli_calls")
+                }
+            )
         if type(row.get("observable_pass")) is bool:
             item["observable_pass"] = row["observable_pass"]
         if isinstance(row.get("evidence"), str):
@@ -184,7 +192,9 @@ def summary_efficiency(directory, rows):
                 cli = [event for event in events if event.get("tool") in {"run_lockbot", "packaged_cli.main"}]
                 # A tool request alone does not prove a CLI invocation. Older
                 # traces without argv retain an unknown CLI count.
-                if all(isinstance(event.get("argv"), list) and event["argv"] for event in cli):
+                if "model_tool_calls" not in measured and all(
+                    isinstance(event.get("argv"), list) and event["argv"] for event in cli
+                ):
                     item["cli_calls"] = len(cli)
         phases.append(item)
     return {"phases": phases}

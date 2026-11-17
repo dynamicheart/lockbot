@@ -114,9 +114,29 @@ def skill_page_metadata(result):
     return metadata
 
 
+def has_packaged_cli_host(events):
+    """Recognize the versioned host, including local invocations with no HTTP."""
+    return any(
+        isinstance(event, dict)
+        and (
+            event.get("source") == "packaged_cli"
+            or (
+                event.get("tool") == "run_lockbot"
+                and isinstance(args := event.get("args"), dict)
+                and isinstance(args.get("script"), str)
+                and isinstance(args.get("argv"), list)
+            )
+        )
+        for event in events
+    )
+
+
 def tool_steps(lines: str, phase: int, *, raw=False):
     steps, evidence = [], []
     records = lines.splitlines()
+    # The versioned host marks internal HTTP and uses script/argv requests.
+    # Keep action-based legacy projections and positional anchors unchanged.
+    packaged = has_packaged_cli_host(json.loads(line) for line in records)
     for line in records if raw or len(records) <= 20 else records[:10] + records[-10:]:
         event = json.loads(line)
         if not isinstance(event, dict):
@@ -138,6 +158,8 @@ def tool_steps(lines: str, phase: int, *, raw=False):
         arguments = {}
         output = {"status": status}
         label = TOOL_LABELS.get(name, name)
+        internal = event.get("source") == "packaged_cli"
+        scope = "CLI 内部 HTTP" if internal else f"会话 {phase}"
         if raw:
             action = params.get("action")
             if isinstance(action, str):
@@ -145,7 +167,11 @@ def tool_steps(lines: str, phase: int, *, raw=False):
             details = {"input": params, "output": result}
             if "argv" in event:
                 details["argv"] = event["argv"]
-            steps.append([name, label, f"会话 {phase}", status])
+            if packaged:
+                # Preserve actual raw_result/stdout/stderr and any later host
+                # execution diagnostics, not merely the model-visible result.
+                details.update({key: value for key, value in event.items() if key not in {"tool", "args", "result"}})
+            steps.append([name, label, scope, status])
             evidence.append(details)
             continue
         if name in ("read_lockbot_skill", "read_consultation_skill"):
@@ -178,9 +204,16 @@ def tool_steps(lines: str, phase: int, *, raw=False):
             purpose = params.get("purpose")
             if purpose in ("recover", "reset"):
                 arguments["purpose"] = purpose
-        steps.append([name, label, f"会话 {phase}", status])
-        evidence.append({"input": arguments, "output": output})
-    return {"role": "tools", "steps": steps, "evidence": evidence, "total": len(records)}
+        steps.append([name, label, scope, status])
+        evidence.append({"input": arguments, "output": output, **({"source": "packaged_cli"} if internal else {})})
+    projected = {"role": "tools", "steps": steps, "evidence": evidence, "total": len(records)}
+    if packaged:
+        events = [json.loads(line) for line in records]
+        projected["model_tool_calls"] = sum(event.get("source") != "packaged_cli" for event in events)
+        projected["cli_http_requests"] = sum(
+            event.get("source") == "packaged_cli" and event.get("tool") == "http_request" for event in events
+        )
+    return projected
 
 
 def native_records(directory, root):
@@ -385,8 +418,9 @@ def synthetic_sessions(
                     if calls["steps"]:
                         session.append(calls)
                     if calls["total"] > len(calls["steps"]):
+                        noun = "条调用与 HTTP 记录" if "model_tool_calls" in calls else "次工具调用"
                         session.append(
-                            {"role": "missing", "text": f"已展示 {len(calls['steps'])} / {calls['total']} 次工具调用。"}
+                            {"role": "missing", "text": f"已展示 {len(calls['steps'])} / {calls['total']} {noun}。"}
                         )
             if raw:
                 session.extend(native_evidence(directory, root, artifacts=native_artifacts))

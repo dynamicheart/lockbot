@@ -11,7 +11,14 @@ import tempfile
 from pathlib import Path
 from time import sleep
 
-from synthetic_transcript import MAX_TRACE_BYTES, clean_prompt, clean_text, read_local, synthetic_sessions
+from synthetic_transcript import (
+    MAX_TRACE_BYTES,
+    clean_prompt,
+    clean_text,
+    has_packaged_cli_host,
+    read_local,
+    synthetic_sessions,
+)
 
 GROUPS = {
     "安装与绑定": {
@@ -300,6 +307,7 @@ def phase_metrics(phases, evidence):
         location = row.get("evidence")
         if isinstance(location, str):
             directory = evidence / location
+            trace_events = None
             for filename, field in (("trace.jsonl", "tool_calls"), ("cli-http.jsonl", "http_requests")):
                 try:
                     content = read_local(directory / filename, evidence, MAX_TRACE_BYTES)
@@ -310,6 +318,30 @@ def phase_metrics(phases, evidence):
                         raise
                     continue
                 metrics[field] = sum(bool(line.strip()) for line in content.splitlines())
+                if filename == "trace.jsonl":
+                    trace_events = [json.loads(line) for line in content.splitlines() if line.strip()]
+            if trace_events is not None and has_packaged_cli_host(trace_events):
+                # These hosts embed the complete HTTP stream in trace.jsonl.
+                # A legacy sidecar, if copied alongside it, is not another set
+                # of requests and must not be counted twice.
+                metrics["tool_calls"] = sum(event.get("source") != "packaged_cli" for event in trace_events)
+                metrics["model_tool_calls"] = metrics["tool_calls"]
+                metrics["cli_http_requests"] = sum(
+                    event.get("source") == "packaged_cli" and event.get("tool") == "http_request"
+                    for event in trace_events
+                )
+                metrics["model_http_requests"] = sum(
+                    event.get("source") != "packaged_cli" and event.get("tool") == "http_request"
+                    for event in trace_events
+                )
+                metrics["http_requests"] = metrics["cli_http_requests"] + metrics["model_http_requests"]
+                metrics["cli_calls"] = sum(
+                    event.get("source") != "packaged_cli"
+                    and event.get("tool") in {"run_lockbot", "packaged_cli.main"}
+                    and isinstance(event.get("argv"), list)
+                    and bool(event["argv"])
+                    for event in trace_events
+                )
         observed.append(metrics)
     return observed
 

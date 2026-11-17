@@ -43,6 +43,8 @@ python3 publish_snapshot.py /private/matrix-evidence /private/staging/raw.json -
 
 工具证据可含 `argv` 数组。它记录评测夹具实际调用的脚本和参数，夹具内通过 Python 直接调用。没有这个字段的旧记录只显示子命令和工具参数。
 
+新版执行夹具使用 `script`/`argv` 参数调用脚本，并把 CLI 内部请求标为 `source: packaged_cli`。这些请求单列为「CLI 内部 HTTP」，不计入模型工具调用；HTTP 总数包含模型直接请求与 CLI 内部请求。本地命令没有 HTTP 时计为零。CLI 次数只统计有实际 `argv` 的调用，校验失败且未执行脚本的请求不计入。原始轨迹按记录顺序保留参数、结果及标准输出、标准错误，不改写旧格式的历史记录。
+
 The administrator navigation exposes the configured trace viewer in a Vue/Vite development build to super administrators. The viewer opens raw traces for local review, and the snapshot API requires current super-administrator authorization.
 
 页面和交互源码位于 `frontend/src/features/agent-traces/`，Vue 路由页为 `frontend/src/views/AgentTraces.vue`。本目录只维护离线/在线网页构建、轨迹投影与发布工具；它们复用同一份前端源码。
