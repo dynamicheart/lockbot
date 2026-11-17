@@ -21,7 +21,7 @@ CASES = {
     "operations": tuple(operations.PROMPTS),
 }
 SECOND_PHASE = {
-    "cli": {"approved-enrollment", "panel"},
+    "cli": {*cli.ENROLLMENT_SCENARIOS, "panel"},
     "continuity": {"recover", "panel"},
 }
 
@@ -82,7 +82,12 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     case.mkdir(mode=0o700, parents=True)
     metadata = {"suite": suite, "scenario": scenario, "client": client, "model": model, "artifact_revision": revision}
     first = case / "phase-1"
-    first_metadata = {**metadata, "phase": 1, "evidence": first.relative_to(output).as_posix()}
+    first_metadata = {
+        **metadata,
+        "phase": 1,
+        "evidence": first.relative_to(output).as_posix(),
+        "simulated_user_actions": [],
+    }
     try:
         grader = prepare(first, suite, scenario, output / "artifacts")
         result = evaluate_phase(first, first_metadata, command, grader, limits)
@@ -92,7 +97,7 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     rows = [result]
     if scenario not in SECOND_PHASE.get(suite, ()):
         return rows
-    second_metadata = {**metadata, "phase": 2}
+    second_metadata = {**metadata, "phase": 2, "simulated_user_actions": []}
     if not result.get("observable_pass"):
         return [*rows, {**second_metadata, "status": "blocked_by_phase_1"}]
     second = case / "phase-2"
@@ -100,7 +105,10 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     try:
         if scenario == "panel":
             continuity.human_confirm(first)
+            second_metadata["simulated_user_actions"].append("browser_consent")
         (cli if suite == "cli" else continuity).resume(first, second)
+        if suite == "cli" and scenario in cli.ENROLLMENT_SCENARIOS:
+            second_metadata["simulated_user_actions"].append("chat_binding_confirmation")
         rows.append(evaluate_phase(second, second_metadata, command, grader, limits))
     except Exception:
         second.mkdir(mode=0o700, exist_ok=True)

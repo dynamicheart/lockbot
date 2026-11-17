@@ -86,7 +86,7 @@ with subprocess.Popen(
         assert call("run_lockbot", action="resources")["result"]["resources"]
         answer = "node-a"
     tools.stdin.close()
-print(json.dumps({"text": answer, "pid": os.getpid()}))
+print(json.dumps({"text": answer, "pid": os.getpid(), "turns": 3}))
 """
 
 
@@ -146,6 +146,8 @@ def test_concurrent_matrix_keeps_next_session_state_and_report_order(tmp_path, m
     assert report["limits"] == {"max_turns": 28, "output_tokens": 1024, "timeout": 15}
     assert report["simulation_only"]
     assert [row["status"] for row in report["preflight"]] == ["ready", "ready"]
+    assert [row.get("model_turns") for row in rows] == [3, 3, None, None]
+    assert [row["simulated_user_actions"] for row in rows] == [[], ["chat_binding_confirmation"], [], []]
     assert json.loads((output / "progress.jsonl").read_text().splitlines()[0])["client"] == "Client B"
     first, second, failed = [output / row["evidence"] for row in rows[:3]]
     assert (first / "workspace/private/binding/enrollment.json").exists()

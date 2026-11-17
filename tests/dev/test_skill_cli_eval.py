@@ -174,20 +174,28 @@ def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch)
     assert first["content"] + second["content"] == markdown[: second["next_offset"]]
 
 
-def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch):
-    fixture = prepare(tmp_path, monkeypatch, "approved-enrollment")
+@pytest.mark.parametrize("scenario", evaluation.ENROLLMENT_SCENARIOS)
+def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch, scenario):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
     assert install(fixture)["installed"]
-    issued = run(fixture, "enroll", group=evaluation.GROUP, authorized=True)["result"]
+    enrollment = {} if scenario == "approved-enrollment-no-group" else {"group": evaluation.GROUP}
+    action = "enroll" if enrollment else "key-challenge"
+    issued = run(fixture, action, authorized=True, **enrollment)["result"]
+    assert issued["target_group"] == enrollment.get("group")
     assert run(fixture, "finish-enrollment")["result"]["status"] == "pending"
-    assert evaluation.score(fixture.root, f"在{evaluation.GROUP}发送 {issued['bind_command']}")["observable_pass"]
+    instruction = f"在{enrollment.get('group', '机器人所在的群')} @机器人并发送 {issued['bind_command']}"
+    assert evaluation.score(fixture.root, instruction)["observable_pass"]
+    if not enrollment:
+        assert not evaluation.score(fixture.root, "请先提供群名")["checks"]["manual_group_confirmation"]
     destination = tmp_path / "fresh-session"
     evaluation.resume(fixture.root, destination)
     resumed = evaluation.Fixture(destination)
     assert run(resumed, "finish-enrollment")["error"] == "enrollment_dir_required"
     pending = run(resumed, "connections")["result"]["pending_enrollments"]
-    assert run(resumed, "finish-enrollment", enrollment_dir=pending[0]["enrollment_dir"])["result"][
-        "connection_created"
-    ]
+    result = run(resumed, "finish-enrollment", enrollment_dir=pending[0]["enrollment_dir"])["result"]
+    assert result["connection_created"]
+    if not enrollment:
+        assert issued["bind_command"].startswith("bind REC-") and result["outcome"] == "created"
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
     assert evaluation.score(destination, "node-a")["observable_pass"]
 

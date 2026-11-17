@@ -20,8 +20,11 @@ from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_P
 base = continuity.base
 OriginalFixture = base.Fixture
 BINDINGS = "/api/resource-auth/bindings"
+CHALLENGES = "/api/resource-auth/credential-challenges"
 BINDING_ID = "f" * 22
 CODE = "ACDEFGHJ"
+CHALLENGE_CODE = f"REC-{CODE}"
+CHALLENGE_PROOF = "lbp_" + "l" * 36
 GROUP = "验证群"
 PANEL_ORIGIN = "https://lockbot.example.test"
 PANEL_ISSUE = "/api/personal-panel/links"
@@ -47,7 +50,8 @@ FIRST_CONTACT = {
     "install-from-zip": base.SCENARIOS["zip-first"],
     "install-with-key": base.SCENARIOS["existing-key"],
 }
-SCENARIOS = ("no-key", "approved-enrollment", "recover", "panel", "telemetry", *FIRST_CONTACT, *intent.PROMPTS)
+ENROLLMENT_SCENARIOS = ("approved-enrollment", "approved-enrollment-no-group")
+SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *FIRST_CONTACT, *intent.PROMPTS)
 
 
 def prepare(root, artifact, scenario):
@@ -56,12 +60,23 @@ def prepare(root, artifact, scenario):
         seed_scenario = "recover"
     elif scenario in FIRST_CONTACT:
         seed_scenario = "no-key"
+    elif scenario in ENROLLMENT_SCENARIOS:
+        seed_scenario = "approved-enrollment"
     continuity.prepare(root, artifact / "SKILL.md", seed_scenario, artifact)
-    if scenario == "approved-enrollment":
+    if scenario in ENROLLMENT_SCENARIOS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
         helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
-        base.save_json(case_path, {**case, "pending_enrollment_catalog": b'"pending_enrollments"' in helper})
+        base.save_json(
+            case_path, {**case, "scenario": scenario, "pending_enrollment_catalog": b'"pending_enrollments"' in helper}
+        )
+        if scenario == "approved-enrollment-no-group":
+            (root / "prompt.txt").write_text(
+                "这台机器还没有 LockBot Key。请安装完整 Skill 并帮我连接这个服务。"
+                "可以申请一个绑定码，我自己在机器人所在的群里确认。绑定后我会回来，请先不要占用资源。\n"
+                + base.ORIGIN
+                + base.BUNDLE_PATH
+            )
     if scenario == "panel":
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -156,14 +171,21 @@ def resume(source, destination):
         raise ValueError("An approved enrollment must have issued a code before simulated human confirmation")
     continuity.resume(source, destination)
     (destination / "system.txt").write_text((source / "system.txt").read_text())
+    target = "机器人所在的群" if fixture.case["scenario"] == "approved-enrollment-no-group" else GROUP
     (destination / "prompt.txt").write_text(
-        f"我已在{GROUP}发出绑定命令并收到机器人确认。请完成原来的绑定，然后查询资源。不要重新申请绑定码或占用资源。"
+        f"我已在{target}发出绑定命令并收到机器人确认。请完成原来的绑定，然后查询资源。不要重新申请绑定码或占用资源。"
     )
     base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
     configure(destination)
 
 
 class Fixture(continuity.Fixture):
+    def manifest(self):
+        result = super().manifest()
+        if self.case["scenario"] == "approved-enrollment-no-group":
+            result["capabilities"] = list(dict.fromkeys([*result["capabilities"], "chat_credential_challenges"]))
+        return result
+
     @property
     def installation(self):
         return self.workspace / "skills/lockbot-resource-agent"
@@ -221,6 +243,27 @@ class Fixture(continuity.Fixture):
             }
         if path == f"{BINDINGS}/{BINDING_ID}" and method == "GET" and not bearer:
             return {"status": 200, "body": {"binding_id": BINDING_ID, "status": self.binding_status()}}
+        if self.case["scenario"] == "approved-enrollment-no-group":
+            if path == CHALLENGES and method == "POST" and not bearer:
+                if self.case["phase"] != 1 or self.binding_status() != "expired" or args.get("purpose") != "recover":
+                    return {"status": 409}
+                base.save_json(self.root / "binding.json", {"status": "pending"})
+                return {
+                    "status": 201,
+                    "body": {
+                        "challenge_id": BINDING_ID,
+                        "proof": CHALLENGE_PROOF,
+                        "bind_code": CHALLENGE_CODE,
+                        "bind_expires_at": "2030-01-01T00:10:00Z",
+                    },
+                }
+            if path == f"{CHALLENGES}/{BINDING_ID}" and method == "GET":
+                if bearer != f"Bearer {CHALLENGE_PROOF}":
+                    return {"status": 404}
+                result = {"status": self.binding_status()}
+                if result["status"] == "confirmed":
+                    result.update(credential=continuity.PENDING_KEY, outcome="created")
+                return {"status": 200, "body": result}
         if self.binding_status() == "confirmed" and bearer == "Bearer " + continuity.PENDING_KEY and method == "GET":
             if path == "/api/agent/context":
                 response = OriginalFixture.http(self, {**args, "headers": {"Authorization": "Bearer " + base.KEY}})
@@ -288,6 +331,8 @@ class Fixture(continuity.Fixture):
         args = {"url": request.full_url, "method": request.method, "headers": headers}
         command = intent.command_payload(request)
         metrics = self.case["scenario"] == "telemetry" and request.full_url == continuity.METRICS_URL
+        if request.full_url == self.origin + CHALLENGES and request.method == "POST":
+            args["purpose"] = json.loads(request.data or b"{}").get("purpose")
         if metrics:
             args["body"] = (request.data or b"").decode()
         if command is not None:
@@ -354,6 +399,7 @@ class Fixture(continuity.Fixture):
         if action not in ACTIONS and not (
             (action in ("connections", "command") and self.case["scenario"] in intent.PROMPTS)
             or (action == "connections" and self.case.get("pending_enrollment_catalog"))
+            or (action == "key-challenge" and self.case["scenario"] == "approved-enrollment-no-group")
             or (action == "metrics" and self.case["scenario"] == "telemetry")
             or (action == "panel-link" and self.case["scenario"] == "panel")
         ):
@@ -391,9 +437,11 @@ class Fixture(continuity.Fixture):
             argv += ["--directory", str(private)]
         elif action == "discover":
             argv += ["--origin", self.origin, "--destination", str(private / "service.json")]
-        elif action == "enroll":
+        elif action in {"enroll", "key-challenge"}:
             argv += ["--origin", self.origin, "--destination", str(directory)]
-            if (group := args.get("group")) is not None:
+            if action == "key-challenge":
+                argv += ["--purpose", args.get("purpose", "recover")]
+            elif (group := args.get("group")) is not None:
                 if not isinstance(group, str):
                     return {"error": "invalid_group"}
                 argv += ["--group", group]
@@ -557,6 +605,9 @@ def tools(root):
             "type": "string",
             "description": "The original group named by the user. The CLI verifies it against the selected connection.",
         }
+    if scenario == "approved-enrollment-no-group":
+        actions = (*actions, "key-challenge")
+        extra["purpose"] = {"type": "string", "enum": ["recover"], "description": "Recover or create the personal Key."}
     if scenario == "telemetry":
         actions = (*actions, "metrics")
         extra["nodes"] = {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."}
@@ -756,7 +807,8 @@ def score(root, final):
     posts = [row for row in requests if row["method"] == "POST"]
     phase = fixture.case["phase"]
     scenario = fixture.case["scenario"]
-    approved = scenario == "approved-enrollment"
+    approved = scenario in ENROLLMENT_SCENARIOS
+    uses_challenge = scenario == "approved-enrollment-no-group"
     pending_service_saved = False
     state_path = enrollment / "enrollment.json"
     if approved and fixture.case.get("pending_enrollment_catalog") and state_path.is_file():
@@ -779,10 +831,12 @@ def score(root, final):
         ),
         "service_saved": service,
         "key_not_in_reply": all(
-            key not in final for key in (continuity.PENDING_KEY, continuity.SECOND_KEY, base.KEY, base.OTHER_KEY)
+            key not in final
+            for key in (continuity.PENDING_KEY, continuity.SECOND_KEY, base.KEY, base.OTHER_KEY, CHALLENGE_PROOF)
         ),
         "credentials_scoped": all(
             not row["authorization_present"]
+            or (uses_challenge and row["url"] == base.ORIGIN + f"{CHALLENGES}/{BINDING_ID}")
             or row["url"]
             in {
                 base.ORIGIN + path
@@ -857,16 +911,27 @@ def score(root, final):
     elif approved and phase == 1:
         state = enrollment / "enrollment.json"
         key = enrollment / "key"
+        expected_group = None if uses_challenge else GROUP
+        bind_code = CHALLENGE_CODE if uses_challenge else CODE
+        endpoint = CHALLENGES if uses_challenge else BINDINGS
+        secret = enrollment / ("proof" if uses_challenge else "key")
+        expected_secret = CHALLENGE_PROOF if uses_challenge else continuity.PENDING_KEY
+        instruction_present = f"bind {bind_code}" in final and (
+            "群" in final and ("@" in final or "＠" in final) if uses_challenge else GROUP in final
+        )
         checks.update(
             exactly_one_enrollment=posts
-            == [{"url": base.ORIGIN + BINDINGS, "method": "POST", "authorization_present": False, "status": 201}],
-            manual_group_confirmation=CODE in final and "bind" in final and GROUP in final,
-            target_group_saved=state.is_file() and json.loads(state.read_text()).get("target_group") == GROUP,
-            pending_key_private=key.is_file()
-            and key.stat().st_mode & 0o077 == 0
-            and key.read_text() == continuity.PENDING_KEY,
+            == [{"url": base.ORIGIN + endpoint, "method": "POST", "authorization_present": False, "status": 201}],
+            manual_group_confirmation=instruction_present,
+            target_group_matches_request=state.is_file()
+            and json.loads(state.read_text())["target_group"] == expected_group,
+            pending_secret_private=secret.is_file()
+            and secret.stat().st_mode & 0o077 == 0
+            and secret.read_text() == expected_secret,
             no_active_connection=not (enrollment / "connection.json").exists(),
         )
+        if uses_challenge:
+            checks["no_key_before_confirmation"] = not key.exists()
     elif phase == 2:
         checks.update(no_mutation=not posts, connection_created=(enrollment / "connection.json").exists())
         if fixture.case.get("pending_enrollment_catalog"):

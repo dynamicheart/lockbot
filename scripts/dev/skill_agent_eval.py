@@ -606,6 +606,8 @@ def evaluate(root, command, model, grader, *, timeout, max_turns=24, output_toke
         save_json(root / "response.json", response)
         # Fixture/grader failures must not be blamed on the model-client protocol.
         result = {"status": "completed", **grader(root, response["text"])}
+        turns = response.get("turns")
+        result["model_turns"] = turns if type(turns) is int and turns >= 0 else None
     result.update(model=model, duration_seconds=round(time.monotonic() - started, 2))
     return result
 

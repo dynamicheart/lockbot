@@ -66,7 +66,7 @@ of this evaluation. Respect `max_turns`, output-token and per-run spending limit
 one JSON object on stdout, exiting nonzero for authentication/provider/client failures:
 
 ```json
-{"text": "Agent final response", "usage": {"input_tokens": 0, "output_tokens": 0}}
+{"text": "Agent final response", "turns": 3, "usage": {"input_tokens": 0, "output_tokens": 0}}
 ```
 
 Keep runner configuration, model credentials and raw transcripts outside Git. Supply
@@ -129,6 +129,13 @@ The probe uses no fixture tools and has a separate `--preflight-timeout` limit o
 seconds by default. `preflight.json` records connectivity results and timing. Blocked
 pairs are recorded as `blocked_by_model_preflight` and have no behavior verdict.
 A timeout during a case remains a case timeout even when the connectivity probe passed.
+
+`cli:approved-enrollment-no-group` exercises the default Key recovery flow for a
+first-time user. The case checks that the Agent supplies the exact group confirmation
+command without selecting a group and continues in a fresh session after simulated
+confirmation. The adapter may report its actual turn count as `turns`. The report
+keeps that count, session phases, and simulated user actions such as chat binding or
+browser consent separate. An unavailable turn count is recorded as null.
 
 Follow `progress.jsonl` during a run. The final `matrix.json` orders results by case,
 configured client/model pair and phase. It records which artifact and fixture produced
