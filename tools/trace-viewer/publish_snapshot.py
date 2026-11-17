@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from time import sleep
 
-from synthetic_transcript import clean_prompt, clean_text, read_local, synthetic_sessions
+from synthetic_transcript import MAX_TRACE_BYTES, clean_prompt, clean_text, read_local, synthetic_sessions
 
 GROUPS = {
     "安装与绑定": {
@@ -251,8 +251,12 @@ def phase_metrics(phases, evidence):
             directory = evidence / location
             for filename, field in (("trace.jsonl", "tool_calls"), ("cli-http.jsonl", "http_requests")):
                 try:
-                    content = read_local(directory / filename, evidence, 524_288)
+                    content = read_local(directory / filename, evidence, MAX_TRACE_BYTES)
                 except FileNotFoundError:
+                    continue
+                except ValueError as error:
+                    if str(error) != "Trace evidence is too large":
+                        raise
                     continue
                 metrics[field] = sum(bool(line.strip()) for line in content.splitlines())
         observed.append(metrics)

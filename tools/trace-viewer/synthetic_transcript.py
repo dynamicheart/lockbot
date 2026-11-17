@@ -31,6 +31,7 @@ SKILL_REFERENCES = {
     "references/workbench-and-metrics.md",
 }
 MAX_DOCUMENT_CHARACTERS = 65_536
+MAX_TRACE_BYTES = 32 * 1024 * 1024
 ACTIONS = {
     "local-state",
     "connections",
@@ -201,13 +202,19 @@ def synthetic_sessions(
             session = [{"role": "user", "text": prompt if raw else clean_prompt(prompt)}]
             trace = directory / "trace.jsonl"
             if trace.is_file():
-                calls = tool_steps(read_local(trace, root, 524_288), phase, raw=raw)
-                if calls["steps"]:
-                    session.append(calls)
-                if calls["total"] > len(calls["steps"]):
-                    session.append(
-                        {"role": "missing", "text": f"已展示 {len(calls['steps'])} / {calls['total']} 次工具调用。"}
-                    )
+                try:
+                    calls = tool_steps(read_local(trace, root, MAX_TRACE_BYTES), phase, raw=raw)
+                except ValueError as error:
+                    if str(error) != "Trace evidence is too large":
+                        raise
+                    session.append({"role": "missing", "text": "工具轨迹超过 32 MB，完整内容保留在本地证据中。"})
+                else:
+                    if calls["steps"]:
+                        session.append(calls)
+                    if calls["total"] > len(calls["steps"]):
+                        session.append(
+                            {"role": "missing", "text": f"已展示 {len(calls['steps'])} / {calls['total']} 次工具调用。"}
+                        )
             response = directory / "response.json"
             if response.is_file():
                 final = json.loads(read_local(response, root, 65_536))["text"]

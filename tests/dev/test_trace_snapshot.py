@@ -5,6 +5,8 @@ from hashlib import sha256
 from pathlib import Path
 from time import monotonic, sleep
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[2] / "tools/trace-viewer/publish_snapshot.py"
 
 
@@ -389,3 +391,59 @@ def test_packaged_cli_regression_preserves_version_and_actual_steps(tmp_path):
     )
     assert result.returncode != 0
     assert not rejected.exists()
+
+
+@pytest.mark.parametrize("repetitions", [30_000, 1_600_000])
+def test_raw_snapshot_preserves_large_tool_output_and_final_response(tmp_path, repetitions):
+    runner = {"client": "fixture", "model": "gpt-6.1-sol"}
+    plan = {
+        "simulation_only": True,
+        "artifacts": {"current": {"package_version": "0123456789abcdef"}},
+        "cases": ["cli:link-only"],
+        "runners": [runner],
+    }
+    (tmp_path / "run.json").write_text(json.dumps(plan))
+    location = "cli/link-only/001/phase-1"
+    folder = tmp_path / location
+    folder.mkdir(parents=True)
+    subject = "Synthetic Skill"
+    digest = sha256(subject.encode()).hexdigest()
+    row = {"scenario": "link-only", "phase": 1, "skill_sha256": digest}
+    (folder / "subject.md").write_text(subject)
+    (folder / "case.json").write_text(json.dumps(row))
+    (folder / "prompt.txt").write_text("看看这个链接")
+    payload = "large synthetic output " * repetitions
+    (folder / "trace.jsonl").write_text(
+        json.dumps(
+            {
+                "tool": "inspect_lockbot",
+                "args": {},
+                "result": {"content": payload},
+            }
+        )
+        + "\n"
+    )
+    (folder / "response.json").write_text(json.dumps({"text": "这是安装入口"}))
+    (tmp_path / "progress.jsonl").write_text(
+        json.dumps(
+            {
+                **row,
+                **runner,
+                "suite": "cli",
+                "evidence": location,
+                "status": "completed",
+                "observable_pass": True,
+            }
+        )
+        + "\n"
+    )
+    output = tmp_path / "raw.json"
+    subprocess.run([sys.executable, str(SCRIPT), str(tmp_path), str(output), "--raw-local"], check=True)
+    session = json.loads(output.read_text())["cases"]["link-only"][0]["sessions"][0]
+    assert session[0]["text"] == "看看这个链接"
+    if repetitions == 30_000:
+        assert session[1]["evidence"][0]["output"]["content"] == payload
+    else:
+        assert session[1]["role"] == "missing"
+        assert "32 MB" in session[1]["text"]
+    assert session[-1]["text"] == "这是安装入口"

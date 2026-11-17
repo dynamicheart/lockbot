@@ -306,7 +306,7 @@ def test_archived_failure_trace_keeps_original_scoring(tmp_path, subject):
     assert evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
 
 
-@pytest.mark.parametrize("damaged", ["installation.json", "scripts/lockbot_resource.py"])
+@pytest.mark.parametrize("damaged", ["installation.json", "scripts/lockbot_cli.py"])
 def test_installation_preserves_origin_without_an_extra_config(tmp_path, frozen_package, damaged):
     root = tmp_path / "install"
     evaluation.prepare(root, None, "install", artifacts=frozen_package)
@@ -317,11 +317,11 @@ def test_installation_preserves_origin_without_an_extra_config(tmp_path, frozen_
         {
             "url": evaluation.ORIGIN + evaluation.BUNDLE_PATH,
             "sha256": fixture.manifest()["installation"]["sha256"],
-            "destination": "skills/lockbot-resource-agent",
+            "destination": "skills/lockbot-agent",
         },
     )
     assert evaluation.score(root, "装好了")["checks"]["service_origin_persisted"]
-    (fixture.workspace / "skills/lockbot-resource-agent" / damaged).write_text("damaged")
+    (fixture.workspace / "skills/lockbot-agent" / damaged).write_text("damaged")
     assert not evaluation.score(root, "装好了")["checks"]["service_origin_persisted"]
 
 
