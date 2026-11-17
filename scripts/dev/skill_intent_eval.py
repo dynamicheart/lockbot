@@ -38,8 +38,13 @@ INSTALL_FOLLOWUPS = {
     "intent-install-then-lock": ("安装Skill: {url}", "lock 19 2h"),
     "intent-install-then-how-use": ("安装Skill: {url}", "看看怎么用"),
 }
+CONTEXT_REMINDERS = {
+    "intent-context-reminder-configured": ("我现在lock了哪些机器", "准备到时间时提醒吧"),
+    "intent-context-reminder-unavailable": ("我现在lock了哪些机器", "准备到时间时提醒吧"),
+}
 CONVERSATIONAL_PROMPTS = {
     **INSTALL_FOLLOWUPS,
+    **CONTEXT_REMINDERS,
     "intent-context-renew": ("lock 19 2h", "再续两小时"),
     "intent-context-release": ("lock 19 2h", "用完了，释放吧"),
     "intent-context-lock-day": ("帮我找台P800的机器", "lock 一天"),
@@ -489,6 +494,8 @@ def task_expectation(scenario, phase):
         return (8, "lock raven 3h", "lock")
     if scenario == "intent-ip-tail-held":
         return (8, "lock raven 4h", "renew")
+    if scenario in CONTEXT_REMINDERS:
+        return None
     if scenario not in CONVERSATIONAL_PROMPTS:
         return None
     if scenario in INSTALL_FOLLOWUPS:
@@ -562,7 +569,7 @@ def task_inventory(bot, scenario, phase, writes):
             ]
         )
     else:
-        held = scenario in OWN_RESOURCE_PROMPTS or writes > 0
+        held = scenario in OWN_RESOURCE_PROMPTS or scenario in CONTEXT_REMINDERS or writes > 0
         released = scenario == "intent-context-release" and phase == 2 and writes >= 2
         seconds = 14400 if scenario == "intent-context-renew" and phase == 2 and writes >= 2 else 7200
         rows = (
@@ -584,8 +591,8 @@ def task_inventory(bot, scenario, phase, writes):
         "supported_operations": ["lock", "book", "unlock"],
         "resources": rows,
     }
-    if scenario.startswith("intent-reminder-") and bot == 8:
-        configured = scenario == "intent-reminder-configured"
+    if (scenario.startswith("intent-reminder-") or scenario in CONTEXT_REMINDERS) and bot == 8:
+        configured = scenario.endswith("-configured")
         snapshot.update(
             next_event_at=(now + timedelta(minutes=105 if configured else 120)).isoformat(),
             next_event_kind="own_early_warning" if configured else "own_lock_expiry",
@@ -642,7 +649,10 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
         )
     else:
         checks["zero_write_attempts"] = not writes and not posts
-        if scenario == "intent-my-locks":
+        if scenario in CONTEXT_REMINDERS and phase == 1:
+            claims = requested_claim_text(final, "holdings")
+            checks["own_holdings_reported"] = reported_nodes(claims) == {"node-19", "node-20"}
+        elif scenario == "intent-my-locks":
             claims = requested_claim_text(final, "holdings")
             checks["own_holdings_reported"] = reported_nodes(claims) == {"node-10", "node-20"}
             checks["others_not_reported_as_own"] = explicit_cards(claims, "node-10") <= {2}
@@ -665,7 +675,7 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
                 and row["args"].get("group") == MACHINES
                 and row["result"].get("result", {}).get("next_event_kind") in {"own_early_warning", "own_lock_expiry"}
                 for row in inspected
-            )
+            ) or (scenario in CONTEXT_REMINDERS and phase == 2 and MACHINES in prior_groups)
     return checks
 
 

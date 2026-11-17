@@ -882,7 +882,12 @@ def test_own_resources_and_reminder_requests_are_read_only(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize(
-    "scenario", [s for s in evaluation.intent.CONVERSATIONAL_PROMPTS if s not in evaluation.intent.INSTALL_FOLLOWUPS]
+    "scenario",
+    [
+        s
+        for s in evaluation.intent.CONVERSATIONAL_PROMPTS
+        if s not in evaluation.intent.INSTALL_FOLLOWUPS and s not in evaluation.intent.CONTEXT_REMINDERS
+    ],
 )
 def test_contextual_followup_preserves_observed_conversation(tmp_path, monkeypatch, scenario):
     first = prepare(tmp_path, monkeypatch, scenario)
@@ -1403,3 +1408,45 @@ def test_ownership_grading_distinguishes_explanatory_roles_and_explicit_contradi
     grade = evaluation.score(fixture.root, reply)
     assert grade["observable_pass"] is passed, grade
     assert grade["manual_review_required"]
+
+
+@pytest.mark.parametrize("scenario", evaluation.intent.CONTEXT_REMINDERS)
+@pytest.mark.parametrize("evidence", ["verified_parent", "missing_ack", "changed_parent", "fresh_read"])
+def test_short_reminder_follows_actual_resource_conversation(tmp_path, monkeypatch, scenario, evidence):
+    first = prepare(tmp_path, monkeypatch, scenario)
+    assert first.case["fixture_version"] >= 18
+    assert (first.root / "prompt.txt").read_text() == "我现在lock了哪些机器"
+    observed = {group: run(first, "resources", group=group)["result"] for group in evaluation.intent.GROUP_IDS}
+    expected_kind = "own_early_warning" if scenario.endswith("configured") else "own_lock_expiry"
+    assert observed[evaluation.intent.MACHINES]["next_event_kind"] == expected_kind
+    prior_reply = "你当前占用 node-19 和 node-20 整机。"
+    assert evaluation.score(first.root, prior_reply)["observable_pass"]
+    evaluation.base.save_json(first.root / "response.json", {"text": prior_reply})
+    destination = tmp_path / "reminder-followup"
+    evaluation.resume(first.root, destination)
+    second = evaluation.Fixture(destination)
+    assert (destination / "prompt.txt").read_text() == "准备到时间时提醒吧"
+    assert json.loads((destination / "conversation.json").read_text()) == [
+        {"role": "user", "content": "我现在lock了哪些机器"},
+        {"role": "assistant", "content": prior_reply},
+    ]
+    if evidence == "changed_parent":
+        (first.root / "trace.jsonl").write_text("{}\n")
+    if evidence == "fresh_read":
+        for group in evaluation.intent.GROUP_IDS:
+            run(second, "resources", group=group)
+    reply = "已有群内预警，我没有新建提醒。" if scenario.endswith("configured") else "接口不能新建个人提醒。"
+    response = {"text": reply}
+    if evidence != "missing_ack":
+        response["conversation_sha256"] = evaluation.base.digest((destination / "conversation.json").read_bytes())
+    evaluation.base.save_json(destination / "response.json", response)
+    grade = evaluation.score(destination, reply)
+    assert grade["observable_pass"] is (evidence in {"verified_parent", "fresh_read"}), grade
+    assert grade["manual_review_required"]
+    # A proven prior observation needs no redundant current request; forged or
+    # unacknowledged history never supplies the missing resource evidence.
+    if evidence != "fresh_read":
+        assert not (destination / "cli-http.jsonl").exists()
+    else:
+        requests = [json.loads(line) for line in (destination / "cli-http.jsonl").read_text().splitlines()]
+        assert all(row["method"] == "GET" for row in requests)

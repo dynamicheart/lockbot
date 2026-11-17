@@ -86,7 +86,9 @@ def prepare(root, artifact, scenario):
         {
             **case,
             "coherent_snapshot": b"coherent_resource_snapshot" in helper,
-            "fixture_version": 16
+            "fixture_version": 18
+            if scenario in intent.CONTEXT_REMINDERS
+            else 16
             if scenario in intent.PROMPTS or scenario == COLD_REQUEST
             else 15
             if scenario in intent.CONVERSATIONAL_PROMPTS or scenario in {"intent-my-locks", "intent-my-books"}
@@ -1498,6 +1500,7 @@ def score(root, final):
         "intent-my-books",
         "intent-reminder-configured",
         "intent-reminder-unavailable",
+        *intent.CONTEXT_REMINDERS,
         "intent-install-then-query",
         "intent-install-then-how-use",
         "intent-ip-tail-ambiguous",
