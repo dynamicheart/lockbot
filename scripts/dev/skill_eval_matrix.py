@@ -23,7 +23,7 @@ CASES = {
     "consultation": tuple(consultation.PROMPTS),
 }
 SECOND_PHASE = {
-    "cli": {*cli.ENROLLMENT_SCENARIOS, "panel"},
+    "cli": {*cli.ENROLLMENT_SCENARIOS, *cli.intent.CONVERSATIONAL_PROMPTS, "panel"},
     "continuity": {"recover", "panel"},
 }
 

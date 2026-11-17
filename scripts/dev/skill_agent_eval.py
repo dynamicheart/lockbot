@@ -605,8 +605,20 @@ def evaluate(root, command, model, grader, *, timeout, max_turns=24, output_toke
         "max_turns": max_turns,
         "output_tokens": output_tokens,
     }
+    conversation = root / "conversation.json"
+    if conversation.is_file():
+        # Adapters must replay these as native prior turns, not append a target to
+        # the current user prompt. Unsupported adapters fail explicitly.
+        request.update(conversation_file=str(conversation), conversation_sha256=digest(conversation.read_bytes()))
     started = time.monotonic()
     response, result = _call_runner(root, command, request, timeout)
+    if (
+        result is None
+        and "conversation_sha256" in request
+        and response.get("conversation_sha256") != request["conversation_sha256"]
+    ):
+        save_json(root / "response.json", response)
+        result = {"status": "unsupported_context", "observable_pass": False, "context_consumed": False}
     if result is None:
         save_json(root / "response.json", response)
         # Fixture/grader failures must not be blamed on the model-client protocol.

@@ -8,6 +8,7 @@ import json
 import os
 import re
 import runpy
+import shutil
 import sys
 import urllib.error
 from pathlib import Path
@@ -123,6 +124,7 @@ def prepare(root, artifact, scenario):
             {
                 **case,
                 "scenario": scenario,
+                "fixture_version": 11 if scenario in intent.TASK_SCENARIOS else case["fixture_version"],
                 "model_constraint": b'"--minimum-model-count"' in helper,
                 "device_count_constraint": b'"--device-count"' in helper,
                 "group_constraint": b"selected_connection_does_not_match_requested_group" in helper,
@@ -212,6 +214,26 @@ def configure(root):
 
 def resume(source, destination):
     fixture = Fixture(source)
+    if fixture.case["scenario"] in intent.CONVERSATIONAL_PROMPTS:
+        if fixture.case["phase"] != 1:
+            raise ValueError("This conversation has exactly two turns")
+        previous = json.loads((source / "response.json").read_text())
+        if not isinstance(previous.get("text"), str):
+            raise ValueError("The prior assistant response is unavailable")
+        continuity.resume(source, destination)
+        for state in source.glob("simulated-bot-*.json"):
+            shutil.copy2(state, destination / state.name)
+        base.save_json(
+            destination / "conversation.json",
+            [
+                {"role": "user", "content": (source / "prompt.txt").read_text()},
+                {"role": "assistant", "content": previous["text"]},
+            ],
+        )
+        (destination / "prompt.txt").write_text(intent.CONVERSATIONAL_PROMPTS[fixture.case["scenario"]][1])
+        (destination / "system.txt").write_text((source / "system.txt").read_text())
+        configure(destination)
+        return
     if fixture.case["scenario"] == "panel":
         if not json.loads((source / "browser.json").read_text())["authenticated"]:
             raise ValueError("The simulated user must confirm browser consent before resuming")
@@ -428,9 +450,18 @@ class Fixture(continuity.Fixture):
         state = self.root / f"simulated-bot-{bot}.json"
         if path == f"/api/bots/{bot}/resources" and method == "GET":
             command = json.loads(state.read_text()) if state.exists() else ""
-            snapshot = intent.inventory(bot, command, scenario=scenario)
+            writes = command.get("writes", 0) if isinstance(command, dict) else 0
+            snapshot = intent.inventory(bot, command, scenario=scenario, phase=self.case["phase"], writes=writes)
             return {"status": 200, "body": snapshot}
         if path == f"/api/bots/{bot}/commands" and method == "POST":
+            if scenario in intent.TASK_SCENARIOS:
+                expected = intent.task_expectation(scenario, self.case["phase"])
+                if expected and bot == expected[0] and intent.equivalent(args.get("command"), expected[1]):
+                    previous = json.loads(state.read_text()) if state.is_file() else {}
+                    writes = previous.get("writes", 0) if isinstance(previous, dict) else 0
+                    base.save_json(state, {"command": expected[1], "writes": writes + 1})
+                    return {"status": 200, "body": {"reply": "ok"}}
+                return {"status": 403}
             if (
                 scenario in intent.WHOLE_MACHINE_MODELS
                 and bot == 8
@@ -1105,7 +1136,7 @@ def score(root, final):
             if tool_trace.exists()
             else []
         )
-        checks.update(intent.score(scenario, requests, cli_tools, final))
+        checks.update(intent.score(scenario, requests, cli_tools, final, phase=phase))
     elif scenario == "recover":
         recovered = private / "groups" / continuity.SECOND_UUID
         key = recovered / "key"
@@ -1208,6 +1239,11 @@ def score(root, final):
     else:
         checks.update(no_mutation=not posts, answer_present=bool(final.strip()))
     result = {"checks": checks, "observable_pass": all(checks.values()), "phase": phase, "simulation_only": True}
+    if scenario in {"intent-reminder-configured", "intent-reminder-unavailable"}:
+        result["manual_review_required"] = [
+            "Check that existing group reminders are distinguished from creating a personal reminder. "
+            "Do not claim configuration changes or notification delivery from a read-only timestamp."
+        ]
     if scenario == "no-key":
         result["manual_review_required"] = [
             "Check the next-use explanation against the Skill and available sign-in state."

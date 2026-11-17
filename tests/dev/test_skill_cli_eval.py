@@ -697,3 +697,145 @@ def test_model_only_request_does_not_pass_without_checking_both_groups(tmp_path,
     grade = evaluation.score(fixture.root, "已申请 node-20 的 2 号 P900")
     assert not grade["observable_pass"]
     assert not grade["checks"]["both_candidate_groups_examined"]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "reply"),
+    [
+        ("intent-my-locks", "你当前占用 node-10 的 2 号卡，以及 node-20 整机。"),
+        ("intent-my-books", "你预约了 node-10 的 3 号卡，以及 node-21 整机。"),
+        ("intent-reminder-configured", "node-19 已有群内提前提醒；我没有新增提醒或修改群设置。"),
+        ("intent-reminder-unavailable", "当前只能查看到期状态，不能通过此接口新建提醒；我没有设置提醒。"),
+    ],
+)
+def test_own_resources_and_reminder_requests_are_read_only(tmp_path, monkeypatch, scenario, reply):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert (fixture.root / "prompt.txt").read_text() == evaluation.intent.OWN_RESOURCE_PROMPTS[scenario]
+    for group in evaluation.intent.GROUP_IDS:
+        assert run(fixture, "resources", group=group)["result"]["actor"]["external_user_id"] == "demo-user"
+    grade = evaluation.score(fixture.root, reply)
+    assert grade["observable_pass"], grade
+    if scenario.startswith("intent-reminder-"):
+        assert grade["manual_review_required"]
+    if scenario == "intent-my-locks":
+        assert not evaluation.score(fixture.root, "你占用了 node-10、node-20、node-21 和 node-22。2 号卡也在用。")[
+            "observable_pass"
+        ]
+    if scenario == "intent-my-books":
+        assert not evaluation.score(fixture.root, "你预约了 node-10 的3号卡、node-20 和 node-21。")["observable_pass"]
+
+
+@pytest.mark.parametrize("scenario", list(evaluation.intent.CONVERSATIONAL_PROMPTS))
+def test_contextual_followup_preserves_observed_conversation(tmp_path, monkeypatch, scenario):
+    first = prepare(tmp_path, monkeypatch, scenario)
+    for group in evaluation.intent.GROUP_IDS:
+        assert run(first, "resources", group=group)["result"]
+    expected = evaluation.intent.task_expectation(scenario, 1)
+    first_reply = "node-23 是空闲的 P800 整机。"
+    if expected:
+        assert run(
+            first,
+            "command",
+            group=evaluation.intent.MACHINES,
+            operation="lock",
+            nodes=["node-19"],
+            whole_node=True,
+            duration="2h",
+        )["result"]["verified"]
+        first_reply = "node-19 已锁两小时。"
+    assert evaluation.score(first.root, first_reply)["observable_pass"]
+    evaluation.base.save_json(first.root / "response.json", {"text": first_reply})
+    second_path = tmp_path / "followup"
+    evaluation.resume(first.root, second_path)
+    second = evaluation.Fixture(second_path)
+    prompt = (second_path / "prompt.txt").read_text()
+    assert prompt == evaluation.intent.CONVERSATIONAL_PROMPTS[scenario][1]
+    assert "node-" not in prompt and "19" not in prompt and "23" not in prompt
+    assert json.loads((second_path / "conversation.json").read_text()) == [
+        {"role": "user", "content": (first.root / "prompt.txt").read_text()},
+        {"role": "assistant", "content": first_reply},
+    ]
+    for group in evaluation.intent.GROUP_IDS:
+        assert run(second, "resources", group=group)["result"]
+    bot, command, operation = evaluation.intent.task_expectation(scenario, 2)
+    node = command.split()[1]
+    kwargs = {} if operation == "release" else {"duration": "1d" if scenario.endswith("lock-day") else "2h"}
+    result = run(
+        second,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation=operation,
+        nodes=[node],
+        whole_node=True,
+        **kwargs,
+    )
+    assert result["result"]["verified"], result
+    assert evaluation.score(second_path, node + " 操作完成。")["observable_pass"]
+    # The other resource owned by this user is not the target of the follow-up.
+    if not scenario.endswith("lock-day"):
+        snapshot = run(second, "resources", group=evaluation.intent.MACHINES)["result"]
+        other = next(row for row in snapshot["resources"] if row["id"] == "node-20")
+        assert other["holders"][0]["external_user_id"] == "demo-user"
+
+
+@pytest.mark.parametrize("target", ["node-20", "node-21"])
+def test_contextual_renew_rejects_another_target(tmp_path, monkeypatch, target):
+    fixture = prepare(tmp_path, monkeypatch, "intent-context-renew")
+    for group in evaluation.intent.GROUP_IDS:
+        run(fixture, "resources", group=group)
+    run(
+        fixture,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation="lock",
+        nodes=["node-19"],
+        whole_node=True,
+        duration="2h",
+    )
+    evaluation.base.save_json(fixture.root / "response.json", {"text": "node-19 已锁两小时。"})
+    second_path = tmp_path / "followup"
+    evaluation.resume(fixture.root, second_path)
+    second = evaluation.Fixture(second_path)
+    for group in evaluation.intent.GROUP_IDS:
+        run(second, "resources", group=group)
+    result = run(
+        second,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation="renew",
+        nodes=[target],
+        whole_node=True,
+        duration="2h",
+    )
+    assert not result.get("result", {}).get("verified")
+    assert not evaluation.score(second.root, target + " 已续期。")["observable_pass"]
+
+
+def test_runner_must_acknowledge_native_prior_turns(tmp_path):
+    root = tmp_path / "phase"
+    root.mkdir()
+    evaluation.base.save_json(
+        root / "conversation.json",
+        [
+            {"role": "user", "content": "帮我找台P800的机器"},
+            {"role": "assistant", "content": "node-23 是空闲的P800整机。"},
+        ],
+    )
+    (root / "prompt.txt").write_text("lock 一天")
+    (root / "system.txt").write_text("Synthetic test")
+    evaluation.base.save_json(root / "mcp.json", {"mcpServers": {}})
+    runner = tmp_path / "adapter.py"
+    runner.write_text("import json,sys; r=json.load(sys.stdin); print(json.dumps({'text':'完成'}))")
+
+    def grade(*_):
+        return {"observable_pass": True}
+
+    result = evaluation.base.evaluate(root, [sys.executable, str(runner)], "synthetic", grade, timeout=5)
+    assert result["status"] == "unsupported_context" and not result["observable_pass"]
+    runner.write_text(
+        "import json,sys; r=json.load(sys.stdin); "
+        "assert json.load(open(r['conversation_file']))[0]['role']=='user'; "
+        "print(json.dumps({'text':'完成','conversation_sha256':r['conversation_sha256']}))"
+    )
+    result = evaluation.base.evaluate(root, [sys.executable, str(runner)], "synthetic", grade, timeout=5)
+    assert result["observable_pass"]

@@ -215,3 +215,40 @@ fictional resources, then checks the separate per-credential read budget. Its te
 evidence includes the actual CLI arguments, complete responses and HTTP statuses.
 The trace exporter accepts that evidence with `--regression EVIDENCE_JSON` alongside
 the model matrix and records the tested package version on the regression entry.
+
+## Own resources, reminders and contextual follow-ups
+
+The packaged-CLI suite includes short requests for current personal holdings and
+bookings. Its synthetic inventory mixes the caller's cards, whole nodes, queue
+positions and other users' resources. The grader requires reading both configured
+groups, reports the requested state, and rejects mutation attempts or confusing
+someone else's holding with the caller's.
+
+Three two-turn cases run an observed first request and then continue with only
+`再续两小时`, `用完了，释放吧`, or `lock 一天`. The first two begin with `lock 19 2h`;
+the third begins with `帮我找台P800的机器`. The harness carries the actual prior
+user prompt and adapter answer in `conversation.json`. It does not add a target to
+the second user sentence or pretend that a new context-free session remembers it.
+The follow-up inventory includes another resource owned by the caller so that
+"operate on everything I own" cannot satisfy the expected recent target.
+
+A runner request containing `conversation_file` and `conversation_sha256` requires
+the adapter to replay that JSON array as **native preceding user/assistant turns**,
+then append `prompt_file` as the current user turn. The adapter must return the
+same `conversation_sha256` after consuming the file. Adapters that do not support
+this contract receive `unsupported_context`; they cannot earn a pass by ignoring
+history. This acknowledgement is a protocol check, not independent evidence that
+an arbitrary third-party adapter implemented native history correctly. Review the
+adapter implementation and its preserved transcript as part of acceptance.
+
+Reminder cases exercise a read-only request, `准备到时间时提醒吧`. The backend's
+existing `EARLY_NOTIFY`/`TIME_ALERT` group policy can produce
+`next_event_kind: own_early_warning`; this is separate from creating a personal
+Agent reminder. The personal resource API exposes no operation to change that
+administrator setting or create a new reminder. A reminder timestamp is not proof
+of actual delivery. These cases therefore check reads and absence of mutations,
+while their final explanation remains explicitly pending manual review. They do
+not claim to have tested an actual group notification.
+
+These scenarios use new identifiers and fixture version 11. Earlier matrices and
+snapshots are left untouched; deterministic regressions are not new model runs.

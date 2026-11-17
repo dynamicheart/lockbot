@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from lockbot.backend.app.resource_api import skill
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -99,7 +100,7 @@ print(json.dumps({"text": answer, "pid": os.getpid(), "turns": 3}))
 """
 
 
-def run_matrix(tmp_path, monkeypatch, scenario, *models, timeout=15):
+def run_matrix(tmp_path, monkeypatch, scenario, *models, timeout=15, adapter_source=ADAPTER):
     monkeypatch.setenv("PLATFORM_URL", ORIGIN)
     artifacts = tmp_path / "input"
     artifacts.mkdir()
@@ -107,7 +108,7 @@ def run_matrix(tmp_path, monkeypatch, scenario, *models, timeout=15):
     (artifacts / "manifest.json").write_text(json.dumps(manifest))
     (artifacts / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     adapter = tmp_path / "adapter.py"
-    adapter.write_text(ADAPTER)
+    adapter.write_text(adapter_source)
     runner = tmp_path / "runner.json"
     runner.write_text(json.dumps([sys.executable, str(adapter), str(tmp_path)]))
     output = tmp_path / "evidence"
@@ -216,3 +217,64 @@ def test_operations_answer_without_tool_calls_fails_observable_checks(tmp_path, 
     assert result["status"] == "completed"
     assert not result["observable_pass"]
     assert not result["checks"]["exact_alias_commands"]
+
+
+CONTEXT_ADAPTER = """
+import json, sys
+from pathlib import Path
+request = json.load(sys.stdin)
+root = Path.cwd()
+if root.parent.name == "preflight":
+    print(json.dumps({"text": "READY"}))
+    raise SystemExit
+if request["model"] == "bad":
+    print(json.dumps({"text": "完成"}))
+    raise SystemExit
+config = json.loads(Path(request["mcp_config"]).read_text())["mcpServers"]["fixture"]
+sys.path.insert(0, str(Path(config["args"][0]).parent))
+import skill_cli_eval as cli
+fixture = cli.Fixture(root)
+scenario, phase = fixture.case["scenario"], fixture.case["phase"]
+for group in cli.intent.GROUP_IDS:
+    assert fixture.call("run_lockbot", {"action": "resources", "group": group})["result"]
+expected = cli.intent.task_expectation(scenario, phase)
+if expected:
+    _, command, operation = expected
+    args = {"action": "command", "group": cli.intent.MACHINES, "operation": operation,
+            "nodes": [command.split()[1]], "whole_node": True}
+    if operation != "release":
+        args["duration"] = command.split()[-1]
+    assert fixture.call("run_lockbot", args)["result"]["verified"]
+    answer = command.split()[1] + " 操作完成。"
+else:
+    answer = "node-23 是空闲的 P800 整机。"
+response = {"text": answer}
+if phase == 2:
+    history = json.loads(Path(request["conversation_file"]).read_text())
+    assert [message["role"] for message in history] == ["user", "assistant"]
+    assert history[1]["content"] in ("node-19 操作完成。", "node-23 是空闲的 P800 整机。")
+    assert Path(request["prompt_file"]).read_text() == cli.intent.CONVERSATIONAL_PROMPTS[scenario][1]
+    response["conversation_sha256"] = request["conversation_sha256"]
+print(json.dumps(response))
+"""
+
+
+@pytest.mark.parametrize("scenario", ["intent-context-renew", "intent-context-release", "intent-context-lock-day"])
+def test_matrix_carries_observed_turns_to_contextual_followup(tmp_path, monkeypatch, scenario):
+    output, report = run_matrix(
+        tmp_path,
+        monkeypatch,
+        "cli:" + scenario,
+        ("Synthetic A", "ok"),
+        ("Synthetic B", "bad"),
+        adapter_source=CONTEXT_ADAPTER,
+    )
+    passing = [row for row in report["results"] if row["model"] == "ok"]
+    assert [row["phase"] for row in passing] == [1, 2]
+    assert all(row["observable_pass"] for row in passing), passing
+    assert all(row["simulated_user_actions"] == [] for row in passing)
+    followup = output / passing[1]["evidence"]
+    history = json.loads((followup / "conversation.json").read_text())
+    original = output / passing[0]["evidence"]
+    assert history[1]["content"] == json.loads((original / "response.json").read_text())["text"]
+    assert json.loads((followup / "response.json").read_text())["conversation_sha256"]

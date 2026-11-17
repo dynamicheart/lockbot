@@ -32,6 +32,19 @@ SHORT_PROMPTS = {
     "intent-shared-tail": "slock 19 dev0 4h",
     "intent-ambiguous-tail": "lock 19 4h",
 }
+CONVERSATIONAL_PROMPTS = {
+    "intent-context-renew": ("lock 19 2h", "再续两小时"),
+    "intent-context-release": ("lock 19 2h", "用完了，释放吧"),
+    "intent-context-lock-day": ("帮我找台P800的机器", "lock 一天"),
+}
+OWN_RESOURCE_PROMPTS = {
+    "intent-my-locks": "我现在lock了哪些机器",
+    "intent-my-books": "我现在book了哪些机器",
+    "intent-reminder-configured": "准备到时间时提醒吧",
+    "intent-reminder-unavailable": "准备到时间时提醒吧",
+}
+TASK_SCENARIOS = {*CONVERSATIONAL_PROMPTS, *OWN_RESOURCE_PROMPTS}
+
 SHORT_MACHINE_IDS = {
     "intent-lock-tail": (19,),
     "intent-lock-tail-list": (19, 20, 21, 22),
@@ -43,6 +56,8 @@ SHORT_DEFAULT_SCENARIOS = {"intent-lock-tail", "intent-lock-tail-list"}
 
 PROMPTS = {
     **SHORT_PROMPTS,
+    **OWN_RESOURCE_PROMPTS,
+    **{scenario: turns[0] for scenario, turns in CONVERSATIONAL_PROMPTS.items()},
     "intent-exact": "锁 node-10 的 2、3 号 P800 卡，两小时。",
     "intent-query": "哪台机器还有两张空闲 P800？我先看看。",
     "intent-ambiguous": "锁训练节点 2 小时。",
@@ -88,6 +103,8 @@ def group_ids(scenario):
 
 
 def bot_type(scenario, bot):
+    if scenario == "intent-my-books" and bot == 7:
+        return "QUEUE_DEVICE"
     return "DEVICE" if bot == 7 or scenario in MODEL_SCENARIOS else "QUEUE"
 
 
@@ -118,7 +135,9 @@ def equivalent(command, expected, *, default_duration=None):
         return False
 
 
-def inventory(bot, command="", *, scenario=None):
+def inventory(bot, command="", *, scenario=None, phase=1, writes=0):
+    if scenario in TASK_SCENARIOS:
+        return task_inventory(bot, scenario, phase, writes)
     age = 600 if scenario == "intent-stale" else 0
     captured = datetime.now(timezone.utc) - timedelta(seconds=age)
     expiry = (captured + timedelta(hours=2)).isoformat()
@@ -275,7 +294,9 @@ def inventory(bot, command="", *, scenario=None):
     }
 
 
-def score(scenario, requests, tools, final):
+def score(scenario, requests, tools, final, *, phase=1):
+    if scenario in TASK_SCENARIOS:
+        return task_score(scenario, phase, requests, tools, final)
     attempts = [row for row in tools if row["args"].get("action") == "command"]
     reads = [row for row in requests if row["url"].endswith("/resources") and row["status"] == 200]
     posts = [row for row in requests if row["method"] == "POST"]
@@ -413,3 +434,162 @@ def score(scenario, requests, tools, final):
 
 def command_payload(request):
     return json.loads(request.data)["command"] if request.data and request.full_url.endswith("/commands") else None
+
+
+def task_expectation(scenario, phase):
+    """A second turn keeps the observed target while omitting it from user text."""
+    if scenario not in CONVERSATIONAL_PROMPTS:
+        return None
+    if phase == 1:
+        return None if scenario == "intent-context-lock-day" else (8, "lock node-19 2h", "lock")
+    return {
+        "intent-context-renew": (8, "lock node-19 2h", "renew"),
+        "intent-context-release": (8, "unlock node-19", "release"),
+        "intent-context-lock-day": (8, "lock node-23 1d", "lock"),
+    }[scenario]
+
+
+def task_inventory(bot, scenario, phase, writes):
+    now = datetime.now(timezone.utc)
+
+    def person(name="demo-user", seconds=7200):
+        return {
+            "external_user_id": name,
+            "remaining_seconds": seconds,
+            "expires_at": (now + timedelta(seconds=seconds)).isoformat(),
+        }
+
+    def machine(identifier, *, owner=None, bookings=(), model="P800", seconds=7200):
+        return {
+            "id": identifier,
+            "alias": identifier.removeprefix("node-"),
+            "lock_status": "exclusive" if owner else "idle",
+            "holders": [person(owner, seconds)] if owner else [],
+            "booking_list": [person(name) for name in bookings],
+            "accelerators": [{"model": model, "count": 8}],
+        }
+
+    def card(identifier, owner=None, bookings=()):
+        return {
+            "id": identifier,
+            "dev_model": "P800",
+            "lock_status": "exclusive" if owner else "idle",
+            "holders": [person(owner)] if owner else [],
+            "booking_list": [person(name) for name in bookings],
+        }
+
+    if scenario in {"intent-my-locks", "intent-my-books"}:
+        if bot == 7:
+            rows = [
+                {
+                    "id": TRAINING_NODE,
+                    "devices": [
+                        card(0, "neighbor"),
+                        card(2, "demo-user"),
+                        card(3, "neighbor", ("demo-user",)),
+                        card(4, "demo-user-other"),
+                    ],
+                }
+            ]
+        else:
+            rows = [
+                machine("node-20", owner="demo-user"),
+                machine("node-21", owner="neighbor", bookings=("demo-user",)),
+                machine("node-22", owner="neighbor", bookings=("neighbor",)),
+            ]
+    elif scenario == "intent-context-lock-day":
+        rows = (
+            [{"id": TRAINING_NODE, "devices": [card(0, "neighbor")]}]
+            if bot == 7
+            else [
+                machine("node-23", owner="demo-user" if phase == 2 and writes else None, seconds=86400),
+                machine("node-24", model="P900"),
+            ]
+        )
+    else:
+        held = scenario in OWN_RESOURCE_PROMPTS or writes > 0
+        released = scenario == "intent-context-release" and phase == 2 and writes >= 2
+        seconds = 14400 if scenario == "intent-context-renew" and phase == 2 and writes >= 2 else 7200
+        rows = (
+            [{"id": TRAINING_NODE, "devices": [card(0, "neighbor")]}]
+            if bot == 7
+            else [
+                machine("node-19", owner="demo-user" if held and not released else None, seconds=seconds),
+                machine("node-20", owner="demo-user"),
+                machine("node-21", owner="neighbor"),
+            ]
+        )
+    snapshot = {
+        "captured_at": now.isoformat(),
+        "age_seconds": 0,
+        "bot_id": bot,
+        "bot_type": bot_type(scenario, bot),
+        "health": "running",
+        "actor": {"platform": "infoflow", "external_user_id": "demo-user"},
+        "supported_operations": ["lock", "book", "unlock"],
+        "resources": rows,
+    }
+    if scenario.startswith("intent-reminder-") and bot == 8:
+        configured = scenario == "intent-reminder-configured"
+        snapshot.update(
+            next_event_at=(now + timedelta(minutes=105 if configured else 120)).isoformat(),
+            next_event_kind="own_early_warning" if configured else "own_lock_expiry",
+            notes={
+                "delivery": "No callback, stream or subscription. This API cannot create reminders. "
+                "own_early_warning is the existing bot's scheduled group warning; "
+                "a timestamp alone does not prove notification delivery."
+            },
+        )
+    return snapshot
+
+
+def task_score(scenario, phase, requests, tools, final):
+    writes = [row for row in tools if row["args"].get("action") == "command"]
+    posts = [row for row in requests if row["method"] == "POST"]
+    inspected = tools if not writes else tools[: tools.index(writes[0])]
+    groups_read = {
+        row["args"].get("group")
+        for row in inspected
+        if row["args"].get("action") == "resources" and "result" in row["result"]
+    }
+    expected = task_expectation(scenario, phase)
+    checks = {"both_candidate_groups_examined": set(GROUP_IDS) <= groups_read}
+    if expected:
+        bot, command, operation = expected
+        checks["exactly_one_correct_cli_write"] = (
+            len(writes) == len(posts) == 1
+            and posts[0]["url"].endswith(f"/api/bots/{bot}/commands")
+            and posts[0]["status"] == 200
+            and equivalent(posts[0].get("command"), command)
+            and writes[0]["args"].get("operation") == operation
+        )
+        checks["cli_reported_verified_result"] = bool(writes and writes[0]["result"].get("result", {}).get("verified"))
+        checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and all(
+            any(
+                row["method"] == "GET" and row["status"] == 200 and row["url"].endswith(f"/api/bots/{bot}/resources")
+                for row in part
+            )
+            for part in (requests[: requests.index(posts[0])], requests[requests.index(posts[0]) + 1 :])
+        )
+        checks["observed_target_reported"] = (
+            command.split()[1] in final or command.split()[1].removeprefix("node-") in final
+        )
+    else:
+        checks["zero_write_attempts"] = not writes and not posts
+        if scenario == "intent-my-locks":
+            checks["own_holdings_reported"] = all(name in final for name in ("node-10", "node-20")) and "2" in final
+            checks["others_not_reported_as_own"] = all(name not in final for name in ("node-21", "node-22"))
+        elif scenario == "intent-my-books":
+            checks["own_bookings_reported"] = all(name in final for name in ("node-10", "node-21")) and "3" in final
+            checks["holdings_not_confused_with_bookings"] = all(name not in final for name in ("node-20", "node-22"))
+        elif scenario == "intent-context-lock-day":
+            checks["whole_p800_candidate_reported"] = "node-23" in final and "p800" in final.lower()
+        else:
+            # Wording and actual notification delivery remain separate from observable API behavior.
+            checks["reminder_evidence_read"] = any(
+                row["args"].get("action") == "resources"
+                and row["args"].get("group") == MACHINES
+                and row["result"].get("result", {}).get("next_event_kind") in {"own_early_warning", "own_lock_expiry"}
+                for row in inspected
+            )
+    return checks
