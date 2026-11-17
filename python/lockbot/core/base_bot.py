@@ -330,11 +330,7 @@ class BaseLockBot:
                     prefix = self._get_site_value(f"agent_promotion_text_{lang}")
                     if not prefix.strip():
                         prefix = t("help.agent_lock_hint", config=self.config, url="")
-                    parts = [content + "\n\n", (prefix, skill_url)]
-                    panel_url = self._personal_panel_url()
-                    if panel_url:
-                        parts.append((t("help.personal_panel_short", config=self.config), panel_url))
-                    return parts + ["\n"]
+                    return [content + "\n\n", (prefix, skill_url), "\n"]
             return content + "\n\n"
         return message + sep + usage
 

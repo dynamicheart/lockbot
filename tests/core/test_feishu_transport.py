@@ -385,13 +385,16 @@ def test_api_notice_compacts_only_empty_paragraphs_and_keeps_batch_order(languag
 
     config = Config({"LANGUAGE": language})
     adapter = FeishuAdapter(config)
-    first = t(notice, config=config, actor="Alice", command="lock node_a 5m").rstrip()
-    second = t(notice, config=config, actor="Bob", command="free node_b").rstrip()
+    first_outcome = t("notify.api_outcome.lock", config=config)
+    second_outcome = t("notify.api_outcome.unlock", config=config)
+    first = t(notice, config=config, actor="Alice", command="lock node_a 5m", outcome=first_outcome).rstrip()
+    second = t(notice, config=config, actor="Bob", command="free node_b", outcome=second_outcome).rstrip()
     payload = adapter.build_api_notification(first + "\n\n" + second + "\n\n", "oc_demo")
     post = json.loads(payload["content"])["zh_cn"]
     lines = ["".join(node["text"] for node in row) for row in post["content"]]
     assert len(lines) == 6
     assert lines[0].startswith("🤖") and lines[3].startswith("🤖")
+    assert first_outcome in lines[0] and second_outcome in lines[3]
     assert "Alice" in lines[1] and "node_a" in lines[2]
     assert "Bob" in lines[4] and "node_b" in lines[5]
     assert all(line.strip() for line in lines)

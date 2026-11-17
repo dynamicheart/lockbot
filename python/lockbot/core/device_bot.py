@@ -317,6 +317,17 @@ class DeviceBot(BaseLockBot):
             self._save_and_notify()
             return completed_reply(reply, "slock")
 
+    def _release_owned_devices(self, user_id, node_keys):
+        affected = []
+        for node_key in node_keys:
+            for index, device in enumerate(self.state.bot_state[node_key]):
+                if device["status"] != "idle":
+                    if remove_user_info(device["current_users"], user_id):
+                        affected.append(f"{node_key}:dev{index}")
+                    if not device["current_users"]:
+                        device["status"] = "idle"
+        return affected
+
     def unlock(self, user_id, command):
         """
         unlock command
@@ -326,18 +337,13 @@ class DeviceBot(BaseLockBot):
 
         if re.match(r"^\s*(unlock|free)\s*$", command):
             with self._state_guard():
-                for _, devices in self.state.bot_state.items():
-                    for device in devices:
-                        if device["status"] != "idle":
-                            remove_user_info(device["current_users"], user_id)
-                            if len(device["current_users"]) == 0:
-                                device["status"] = "idle"
+                affected = self._release_owned_devices(user_id, self.state.bot_state)
                 reply = self.adapter.build_reply(self._msg_with_usage("success.resource_released"), [user_id])
                 log_to_file(user_id, "unlock", "all", "all", config=self.config)
                 self._save_and_notify()
-                return completed_reply(reply, "unlock")
+                return completed_reply(reply, "unlock", affected_resources=affected)
 
-        m = re.match(r"^\s*(unlock|free)\s+([\w\d]+)(\s*[,，、]\s*([\w\d])+)*\s*$", command)
+        m = re.match(rf"^\s*(unlock|free)\s+{self._node_list_pattern}\s*$", command)
         if m:
             node_key_str = m[2]
             if m[3]:
@@ -357,17 +363,11 @@ class DeviceBot(BaseLockBot):
                     )
 
             with self._state_guard():
-                for node_key in node_key_list:
-                    devices = self.state.bot_state[node_key]
-                    for device in devices:
-                        if device["status"] != "idle":
-                            remove_user_info(device["current_users"], user_id)
-                            if len(device["current_users"]) == 0:
-                                device["status"] = "idle"
+                affected = self._release_owned_devices(user_id, node_key_list)
                 reply = self.adapter.build_reply(self._msg_with_usage("success.resource_released"), [user_id])
-                log_to_file(user_id, "unlock", node_key, "all", config=self.config)
+                log_to_file(user_id, "unlock", node_key_list, "all", config=self.config)
                 self._save_and_notify()
-                return completed_reply(reply, "unlock")
+                return completed_reply(reply, "unlock", affected_resources=affected)
 
         # Case 3: Release specific devices requested by the user
         parse_ok, error_reply, node_key_list, dev_ids_list, _ = self.parse_command(user_id, "unlock|free", command)
@@ -396,7 +396,12 @@ class DeviceBot(BaseLockBot):
             )
             log_to_file(user_id, "unlock", node_key_list, dev_ids_list, config=self.config)
             self._save_and_notify()
-            return completed_reply(reply, "unlock")
+            affected = (
+                f"{node_key}:dev{dev_id}"
+                for node_key, dev_ids in zip(node_key_list, dev_ids_list, strict=True)
+                for dev_id in dev_ids
+            )
+            return completed_reply(reply, "unlock", affected_resources=affected)
 
     def kickout(self, user_id, command):
         """
