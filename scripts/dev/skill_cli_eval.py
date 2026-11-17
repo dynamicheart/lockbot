@@ -50,7 +50,7 @@ RESOURCE_BOTS = {
 }
 FIRST_CONTACT = {
     "link-only": "{url}",
-    "install-from-link": "帮我装一下这个 Skill，以后还会用。{url}",
+    "install-from-link": "帮我装一下这个 Skill，记住这个服务，下次还要用。{url}",
     "install-from-zip": "帮我装一下这个 Skill，以后还会用。{zip_url}",
     "install-with-key": "装一下这个 Skill，用我原来的登录查查有哪些资源。{zip_url}",
 }
@@ -893,6 +893,10 @@ def score_first_contact(fixture, requests, checks):
             for row in requests
         )
         checks["original_key_preserved"] = (path.parent / "key").read_text() == base.KEY
+    elif scenario == "install-from-zip":
+        # Installing the verified service ZIP already preserves its service identity.
+        checks.pop("service_saved")
+        checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)
     else:
         path = private / "service.json"
         checks["service_saved"] = (

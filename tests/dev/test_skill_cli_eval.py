@@ -108,7 +108,20 @@ def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path,
     assert not evaluation.score(fixture.root, final + " private/connections/connection.json")["observable_pass"]
 
 
-@pytest.mark.parametrize("scenario", ["install-from-link", "install-from-zip", "install-with-key"])
+def test_zip_only_install_needs_no_separate_service_record(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "install-from-zip")
+    assert not evaluation.score(fixture.root, "已安装。")["observable_pass"]
+    assert install(fixture)["installed"]
+    assert not (fixture.workspace / "private/service.json").exists()
+    grade = evaluation.score(fixture.root, "已安装。")
+    assert grade["observable_pass"], grade["checks"]
+    assert grade["checks"]["installation_verified"] and grade["checks"]["no_authenticated_calls"]
+
+    run(fixture, "enroll", group=evaluation.GROUP, authorized=True)
+    assert not evaluation.score(fixture.root, "已安装。")["checks"]["no_extra_writes"]
+
+
+@pytest.mark.parametrize("scenario", ["install-from-link", "install-with-key"])
 @pytest.mark.parametrize("instance_id", [evaluation.base.INSTANCE, "d709dca8-cd10-4602-a415-f480a63349be"])
 def test_first_contact_requires_verified_install_and_complete_private_connection(
     tmp_path, monkeypatch, scenario, instance_id
