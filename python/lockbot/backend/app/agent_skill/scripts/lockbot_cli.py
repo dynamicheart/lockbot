@@ -666,16 +666,16 @@ class CatalogScanBudget:
                 self.reasons.append("directory_unavailable")
         return sorted(found["connection.json"]), sorted(found["enrollment.json"])
 
-    def reserve(self, path):
+    def reserve(self, path, *, record=True):
         self.check()
-        if self.records >= self.record_limit:
+        if record and self.records >= self.record_limit:
             self.stop("record_budget")
         # private_bytes rejects larger files without reading them. Reserve the
         # maximum possible read, so oversized or changing files remain bounded.
         size = 16385
         if self.bytes + size > self.byte_limit:
             self.stop("byte_budget")
-        self.records += 1
+        self.records += int(record)
         self.bytes += size
 
     def summary(self):
@@ -755,6 +755,19 @@ def listed_connections(directory=None, *, scan_budget=None):
 
 def catalog_records(root, filename):
     return sorted([*root.glob(filename), *root.glob(f"*/{filename}"), *root.glob(f"*/*/{filename}")])
+
+
+def connection_scope(record):
+    """A local identity claim becomes evidence only after online verification."""
+    actor = record.get("actor")
+    if not isinstance(actor, dict):
+        raise ClientError("connection_actor_not_pinned")
+    fields = [record.get("instance_id"), record.get("bot_uuid"), actor.get("platform"), actor.get("external_user_id")]
+    if any(not isinstance(value, str) or not value or len(value) > 512 for value in fields):
+        raise ClientError("connection_identity_not_pinned")
+    if "agent_label" in record:
+        normalize_agent_label(record["agent_label"])
+    return (origin(record.get("approved_origin")), *fields)
 
 
 def write_private(path, content, *, replace=False):
@@ -1359,19 +1372,60 @@ class Client:
             raise ClientError("unsupported_binding_recovery_endpoint")
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
-        if path is None:
-            path = new_catalog_entry(scope)
-        try:
-            make_private_directory(path)
-        except FileExistsError as exc:
-            raise ClientError("recovery_directory_exists") from exc
+        if path is not None:
+            try:
+                make_private_directory(path)
+            except FileExistsError as exc:
+                raise ClientError("recovery_directory_exists") from exc
         response = self._request(endpoint, method="POST", token=self.key, readonly=False)
         items = self._recovery_items(response, context)
         actor = self.config["actor"]
+        reusable = []
+        budget = CatalogScanBudget(self.deadline, self.clock)
+        if directory is None:
+            catalog = listed_connections(connection_catalog(scope), scan_budget=budget)
+            if not catalog["scan"]["complete"]:
+                raise ClientError("recovery_catalog_scan_incomplete")
+            for locator in catalog["connections"]:
+                candidate = Path(locator["connection"])
+                try:
+                    budget.reserve(candidate, record=False)
+                    record = private_json(candidate)
+                    reusable.append((candidate, record, connection_scope(record)))
+                except CatalogScanTruncated:
+                    raise ClientError("recovery_catalog_scan_incomplete") from None
+                except (ClientError, OSError, KeyError, ValueError):
+                    continue
         connections = []
         for bot, key, current in items:
             entry = {"bot": bot, "status": "existing" if current else "unavailable"}
             if key is not None and not current:
+                self.secrets.append(key)
+                identity = connection_scope({**self.config, "bot_uuid": bot["uuid"]})
+                for candidate, record, claimed in reusable:
+                    if claimed != identity:
+                        continue
+                    try:
+                        source = Path(record["key_file"])
+                        source = source if source.is_absolute() else candidate.parent / source
+                        budget.reserve(source, record=False)
+                        material = private_bytes(source).decode().strip()
+                        if not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", material):
+                            continue
+                        self.secrets.append(material)
+                        if secrets.compare_digest(material, key):
+                            entry.update(status="existing", connection=str(candidate))
+                            break
+                    except CatalogScanTruncated:
+                        raise ClientError("recovery_catalog_scan_incomplete") from None
+                    except (ClientError, OSError, KeyError, ValueError, UnicodeError, TypeError):
+                        continue
+                if "connection" in entry:
+                    connections.append(entry)
+                    continue
+                if path is None:
+                    path = new_catalog_entry(scope)
+                    make_private_directory(path)
                 target = path / bot["uuid"]
                 make_private_directory(target)
                 write_private(target / "key", key.encode())
@@ -2480,6 +2534,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
     deadline, calls, clients = clock() + 60, 0, []
     observations = []
     snapshots, unread = [], []
+    verified, coalesced = {}, 0
     scan_budget = CatalogScanBudget(deadline, clock)
 
     def gap(item):
@@ -2504,7 +2559,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
     if not catalog["connections"] and not unread:
         unread.append({"error": "no_saved_connections"})
     for index, locator in enumerate(catalog["connections"]):
-        if calls >= MAX_CALLS or clock() >= deadline:
+        if clock() >= deadline:
             gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
             break
         client = None
@@ -2514,6 +2569,32 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
             client.calls, client.deadline = calls, deadline
             # Catalog aggregation does not invalidate/save local address caches.
             client.node_access = None
+            try:
+                identity = connection_scope(client.config)
+            except ClientError:
+                identity = None
+            if identity in verified:
+                # Only an already online-verified identical scope gates this
+                # local comparison. Never share discovery across distinct Keys.
+                try:
+                    budget_path = client._file("key_file")
+                    scan_budget.reserve(budget_path, record=False)
+                    material = private_bytes(budget_path).decode().strip()
+                    duplicate = None
+                    if re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", material):
+                        client.secrets.append(material)
+                        duplicate = next(
+                            (group for key, group in verified[identity] if secrets.compare_digest(key, material)), None
+                        )
+                except (ClientError, OSError, UnicodeError):
+                    duplicate = None
+                if duplicate is not None:
+                    duplicate.setdefault("equivalent_connections", [duplicate["connection"]]).append(locator)
+                    coalesced += 1
+                    continue
+            if calls >= MAX_CALLS:
+                gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
+                break
             if mine:
                 # Keep precise source timing until every group has been read.
                 snapshot = client.own_inventory(exact_lease_times=True)
@@ -2537,6 +2618,10 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                 }
             )
             observations.append((client, snapshot, locator, context))
+            verified.setdefault(connection_scope(client.config), []).append((client.key, snapshots[-1]))
+        except CatalogScanTruncated:
+            gap({"error": "catalog_scan_incomplete", "scan": scan_budget.summary(), "remaining_records": "unknown"})
+            break
         except ClientError as error:
             gap(
                 {
@@ -2555,6 +2640,8 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
             if client:
                 calls = client.calls
     completed_at = clock()
+    if "scan" in catalog:
+        scan = scan_budget.summary()
     for client, snapshot, locator, context in observations:
         age = metric_number(snapshot.get("age_seconds"))
         started = client._resource_request_started
@@ -2586,6 +2673,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                 "groups": snapshots,
                 "unread": unread,
                 "catalog_connections": len(catalog["connections"]),
+                "coalesced_catalog_connections": coalesced,
                 "catalog_count_exact": scan["complete"] and catalog["unavailable_count"] == 0,
                 "catalog_scan": scan,
                 "http_requests": calls,

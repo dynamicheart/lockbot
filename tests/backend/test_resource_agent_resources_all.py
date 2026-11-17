@@ -34,6 +34,7 @@ def aggregate(tmp_path):
             key="lbr_" + str(number) * 32,
             instance=f"instance-{number}",
             actor={"platform": "infoflow", "external_user_id": f"actor-{number}"},
+            bot_uuid=f"bot-{number}",
             events=[],
             status=200,
             changed_instance=False,
@@ -68,13 +69,17 @@ def aggregate(tmp_path):
                     assert self.headers.get("Authorization") is None
                     body = manifest
                 elif self.path in {"/api/agent/resources", "/api/agent/context"}:
-                    assert self.headers.get("Authorization") == "Bearer " + state.key
+                    if self.headers.get("Authorization") != "Bearer " + state.key:
+                        self.send_response(401)
+                        self.end_headers()
+                        self.wfile.write(b"{}")
+                        return
                     now = datetime.now(timezone.utc)
                     context = {
                         "server": manifest,
                         "bot": {
                             "id": number,
-                            "uuid": f"bot-{number}",
+                            "uuid": state.bot_uuid,
                             "name": "Same group name",
                             "type": state.bot_type,
                         },
@@ -146,7 +151,7 @@ def aggregate(tmp_path):
                 {
                     "approved_origin": state.origin,
                     "instance_id": state.instance,
-                    "bot_uuid": f"bot-{states.index(state) + 1}",
+                    "bot_uuid": state.bot_uuid,
                     "actor": state.actor,
                     "key_file": "key",
                 }
@@ -227,15 +232,18 @@ def test_packaged_aggregate_marks_partial_without_hiding_good_groups(aggregate, 
 
 
 def test_packaged_aggregate_shares_request_budget_without_a_resource_count_cap(aggregate):
-    server = aggregate.server(1)
+    servers = []
     for number in range(8):
+        server = aggregate.server(number + 1)
+        servers.append(server)
         aggregate.record(server, str(number))
     result = aggregate.run("resources-all")["result"]
     assert result["complete"] is False and result["catalog_connections"] == 8
-    assert result["http_requests"] == len(server.events) == 12
+    events = [event for server in servers for event in server.events]
+    assert result["http_requests"] == len(events) == 12
     assert len(result["groups"]) == 6
     assert result["unread"] == [{"error": "request_budget_exhausted", "count": 2}]
-    assert sum(path == "/api/agent-skill" for path, *_ in server.events) == 6
+    assert sum(path == "/api/agent-skill" for path, *_ in events) == 6
 
 
 def test_packaged_aggregate_empty_catalog_is_unknown_not_empty_resources(aggregate):

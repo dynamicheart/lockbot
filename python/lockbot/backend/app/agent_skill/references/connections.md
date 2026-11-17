@@ -14,6 +14,16 @@ The `/private/...` paths below illustrate an explicit operator-selected override
 not a location to invent for an ordinary user. Use storage overrides only when
 the user requested isolation or selected a destination.
 
+Repeated recovery reuses an existing private connection only when origin, instance,
+bot, platform, account and Key material all match the verified recovery result.
+It preserves existing credentials and labels; different Keys remain separate records.
+`connections` lists physical records without reading their Keys. Within one
+`resources-all` call, an online-verified connection can represent exact local
+duplicates with the same identity and private Key. `equivalent_connections` retains
+their locators. This does not cache discovery across different bindings or calls;
+different or invalid credentials still require independent verification. Snapshot
+freshness is measured from the original observation, and no Key fingerprint is returned.
+
 ```sh
 python3 "$LOCKBOT_CLI" --help
 python3 "$LOCKBOT_CLI" command --help
