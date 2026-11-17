@@ -6,6 +6,7 @@ import os
 import re
 import unicodedata
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -85,6 +86,9 @@ def public_settings(db: Session = Depends(get_db)):
     settings = [SettingOut(key=k, value=_get_setting(db, k)) for k in sorted(PUBLIC_KEYS)]
     if panel_home():
         settings.append(SettingOut(key="personal_panel_url", value="/#/me"))
+    trace_directory = os.environ.get("LOCKBOT_TRACE_REVIEW_DIR")
+    if trace_directory and (Path(trace_directory) / "viewer.html").is_file():
+        settings.append(SettingOut(key="agent_trace_review_url", value="/dev/trace-review?raw=true"))
     return settings
 
 

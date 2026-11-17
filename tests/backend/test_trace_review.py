@@ -50,3 +50,16 @@ def test_trace_snapshot_requires_current_super_admin(request, tmp_path, monkeypa
     db_session.commit()
     assert client.get(path, headers=headers).status_code == 403
     assert client.get(raw_path, headers=headers).status_code == 403
+
+
+def test_public_settings_expose_trace_entry_only_when_the_viewer_exists(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCKBOT_TRACE_REVIEW_DIR", str(tmp_path))
+    response = client.get("/api/settings")
+    assert response.status_code == 200
+    assert not any(setting["key"] == "agent_trace_review_url" for setting in response.json())
+    (tmp_path / "viewer.html").write_text("<html>test viewer</html>")
+    settings = {setting["key"]: setting["value"] for setting in client.get("/api/settings").json()}
+    assert settings["agent_trace_review_url"] == "/dev/trace-review?raw=true"
+    assert str(tmp_path) not in str(settings)
+    monkeypatch.delenv("LOCKBOT_TRACE_REVIEW_DIR")
+    assert not any(setting["key"] == "agent_trace_review_url" for setting in client.get("/api/settings").json())

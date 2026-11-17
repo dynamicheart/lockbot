@@ -752,6 +752,7 @@ export default {
     keyUnavailableStatus: 'Key 状态：暂不可查看',
   },
   nav: {
+    agentTraces: 'Agent 轨迹',
     apiCredentials: 'API 凭证',
     myResources: '我的资源',
     dashboard: '仪表盘',

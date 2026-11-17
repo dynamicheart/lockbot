@@ -780,6 +780,7 @@ export default {
     keyUnavailableStatus: 'Key status: unavailable',
   },
   nav: {
+    agentTraces: 'Agent traces',
     apiCredentials: 'API credentials',
     myResources: 'My resources',
     dashboard: 'Dashboard',

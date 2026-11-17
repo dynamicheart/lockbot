@@ -94,6 +94,18 @@
           </el-menu-item-group>
         </template>
       </el-menu>
+      <a
+        v-if="authStore.isSuperAdmin && traceReviewEnabled"
+        href="/dev/trace-review?raw=true"
+        target="_blank"
+        rel="noopener"
+        class="trace-review-link"
+        :class="{ collapsed: isCollapsed }"
+        :title="$t('nav.agentTraces')"
+      >
+        <el-icon><Operation /></el-icon>
+        <span v-if="!isCollapsed">{{ $t('nav.agentTraces') }}</span>
+      </a>
     </el-aside>
 
     <!-- Mobile drawer -->
@@ -190,6 +202,18 @@
           </el-menu-item-group>
         </template>
       </el-menu>
+      <a
+        v-if="authStore.isSuperAdmin && traceReviewEnabled"
+        href="/dev/trace-review?raw=true"
+        target="_blank"
+        rel="noopener"
+        class="trace-review-link"
+        :title="$t('nav.agentTraces')"
+        @click="drawerOpen = false"
+      >
+        <el-icon><Operation /></el-icon>
+        <span>{{ $t('nav.agentTraces') }}</span>
+      </a>
     </el-drawer>
 
     <el-container>
@@ -385,10 +409,14 @@ import { LS_KEYS } from '../utils/demoMode'
 import { isDemoMode } from '../utils/demoMode'
 
 const personalPanelEnabled = ref(false)
+const traceReviewEnabled = ref(false)
 onMounted(async () => {
   try {
     const response = await fetch('/api/settings')
     const settings = await response.json()
+    traceReviewEnabled.value = settings.some(
+      (s) => s.key === 'agent_trace_review_url' && s.value === '/dev/trace-review?raw=true'
+    )
     personalPanelEnabled.value = settings.some(
       (s) => s.key === 'personal_panel_url' && s.value === '/#/me'
     )
@@ -657,6 +685,24 @@ function handleRemoveAccount(username) {
 }
 .sidebar :deep(.el-menu-item.is-active) {
   background-color: var(--lb-sidebar-hover) !important;
+}
+.trace-review-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 20px;
+  color: var(--lb-sidebar-text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.trace-review-link:hover,
+.trace-review-link:focus-visible {
+  background: var(--lb-sidebar-hover);
+}
+.trace-review-link.collapsed {
+  justify-content: center;
+  padding: 0;
 }
 .account-list {
   display: flex;
