@@ -175,6 +175,19 @@ def test_unlock_all(bot):
     assert "✅【资源释放成功】" in reply["message"]["body"][0]["content"]
 
 
+@pytest.mark.parametrize("command", ["unlock test,test2,test3", "free test，test2、test3"])
+def test_unlock_all_devices_on_three_nodes(bot, command):
+    bot.lock("user1", "lock test,test2,test3 dev0 1h")
+    bot.slock("user2", "slock test2 dev1 1h")
+
+    reply = bot.unlock("user1", command)
+
+    assert "资源释放成功" in bot.adapter.extract_reply_text(reply)
+    for node in ("test", "test2", "test3"):
+        assert bot.state.bot_state[node][0]["status"] == "idle"
+    assert bot.state.bot_state["test2"][1]["current_users"][0]["user_id"] == "user2"
+
+
 def test_usage_display_after_lock_and_slock(bot):
     """Test usage display after lock and slock."""
     bot.config.set_val(
