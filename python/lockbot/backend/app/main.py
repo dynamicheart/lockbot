@@ -1010,6 +1010,14 @@ def create_app() -> FastAPI:
 
     mount_if_configured(app)
 
+    trace_review_directory = os.environ.get("LOCKBOT_TRACE_REVIEW_DIR")
+    if trace_review_directory:
+        from pathlib import Path
+
+        from lockbot.backend.app.trace_review import trace_review_router
+
+        app.include_router(trace_review_router(Path(trace_review_directory)))
+
     # Serve frontend static files (built by vite)
     # In Docker: /app/frontend/dist — locally: project_root/frontend/dist
     _frontend_dist = os.environ.get("FRONTEND_DIST", "")

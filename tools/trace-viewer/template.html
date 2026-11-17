@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none';__TRACE_CONNECT_SRC__">
 <title>LockBot · 轨迹浏览器</title>
 <style>
 :root{color-scheme:light;--ink:#14243b;--muted:#52647e;--line:#dfe7f0;--canvas:#f3f6fa;--paper:#fff;--soft:#f6f8fc;--accent:#215bc0;--selected:#e9f2ff;--sans:system-ui,"PingFang SC",sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
@@ -353,6 +353,7 @@ function scenarioGroups() {
 let cases = Object.keys(data.cases);
 let activeCase, activeIndex, activeTab, activeStep, failureOnly;
 let imported = false;
+const online = location.pathname === '/dev/trace-review';
 function defaultRun(key) {
   return key==='create' ? Math.max(0,data.cases[key].findIndex(run=>run.direct)) : 0;
 }
@@ -884,7 +885,7 @@ function eventsView(content,trial) {
 }
 function renderRecord(trial) {
   const items = [
-    ['来源',imported ? '本地 JSON' : '',null],
+    ['来源',imported ? '本地 JSON' : online ? '在线合成测例摘要' : '',null],
     ['名称',data.title,'data-title'],
     ['版本',data.version,'version'],
     ['测例说明',data.criteria?.[activeCase],'criterion'],
@@ -946,7 +947,11 @@ function draw() {
     trial.confirmed ? ' · 1 次模拟确认' : '';
   const elapsed = Number.isFinite(trial.elapsed_seconds) ? ' · '+trial.elapsed_seconds.toFixed(1)+' 秒' : '';
   const toolCount = Number.isInteger(trial.count) ? ' · '+trial.count+' 次工具事件' : '';
-  select('counts').textContent = trial.sessions.length+' 个会话'+toolCount+confirmed+elapsed;
+  const phases = Array.isArray(trial.metrics?.phases) ? trial.metrics.phases : [];
+  const turns = phases.map(row=>Number.isInteger(row.turns) ? row.turns : '—').join(' / ');
+  const isSummary = online && !imported;
+  select('counts').textContent = isSummary ? (turns ? '各阶段轮数 ' + turns : '') :
+    trial.sessions.length+' 个会话'+toolCount+confirmed+elapsed;
   select('chat-tab').setAttribute('aria-pressed',activeTab==='chat');
   select('event-tab').setAttribute('aria-pressed',activeTab==='events');
   const content = select('content');
@@ -955,7 +960,8 @@ function draw() {
   select('expand-tools').hidden = activeTab!=='chat';
   select('outline-toggle').hidden = activeTab!=='chat';
   select('expand-tools').textContent = '展开调用';
-  if (activeTab==='chat') chatView(content,trial); else eventsView(content,trial);
+  if (isSummary) content.append(node('p','当前在线版仅显示阶段摘要。原始会话与步骤可通过本地 JSON 查看。','evidence-note'));
+  else if (activeTab==='chat') chatView(content,trial); else eventsView(content,trial);
   if (!content.childNodes.length) content.append(node('p','没有对话记录','evidence-note'));
   writeRoute();
 }
@@ -1030,6 +1036,7 @@ select('trace-file').onchange = async (event)=>{
     if (!validRecord(candidate)) throw new Error('这个文件不符合 LockBot 轨迹 JSON v1 格式。');
     data = candidate;
     imported = true;
+    document.querySelector('.layout').hidden = false;
     activeTab = 'chat';
     select('record-meta').open = false;
     cases = Object.keys(data.cases);
@@ -1042,6 +1049,70 @@ select('trace-file').onchange = async (event)=>{
   }
 };
 draw();
+if (online) {
+  const layout = document.querySelector('.layout');
+  const status = select('load-status');
+  layout.hidden = true;
+  let lastSnapshot = '';
+  let currentToken = '';
+  function hideSnapshot() {
+    lastSnapshot = '';
+    layout.hidden = true;
+    if (inspector.open) inspector.close();
+  }
+  async function pollSnapshot() {
+    if (imported) return;
+    const token = localStorage.getItem('lockbot_token');
+    if (currentToken !== token) {
+      hideSnapshot();
+      currentToken = token;
+    }
+    if (!token) {
+      status.textContent = '请先登录 LockBot 超级管理员，再打开此页面。';
+      return;
+    }
+    try {
+      const response = await fetch('/api/dev/trace-review/snapshot', {
+        headers: {Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error',
+        signal:AbortSignal.timeout(6000)
+      });
+      if (imported || localStorage.getItem('lockbot_token') !== token) return;
+      if (response.status === 401 || response.status === 403) {
+        hideSnapshot();
+        status.textContent = '仅已登录的超级管理员可查看在线结果。';
+        return;
+      }
+      if (response.status === 404) {
+        hideSnapshot();
+        status.textContent = '等待首个测例结果。';
+        return;
+      }
+      if (!response.ok) throw new Error();
+      const snapshot = await response.text();
+      if (imported || localStorage.getItem('lockbot_token') !== token) return;
+      if (snapshot !== lastSnapshot) {
+        const candidate = JSON.parse(snapshot);
+        if (!validRecord(candidate)) throw new Error();
+        lastSnapshot = snapshot;
+        const selectedModel = data.cases[activeCase]?.[activeIndex]?.model;
+        data = candidate;
+        cases = Object.keys(data.cases);
+        if (!cases.includes(activeCase)) activeCase = cases[0];
+        activeIndex = Math.max(0, data.cases[activeCase].findIndex(run=>run.model===selectedModel));
+        draw();
+      }
+      layout.hidden = false;
+      status.textContent = '在线评测结果 · 自动更新';
+    } catch {
+      status.textContent = '暂时无法读取在线结果，稍后重试。';
+    }
+  }
+  async function refreshSnapshot() {
+    await pollSnapshot();
+    if (!imported) setTimeout(refreshSnapshot, 8000);
+  }
+  refreshSnapshot();
+}
 </script>
 </body>
 </html>
