@@ -14,6 +14,29 @@ evaluation = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evaluation)
 
 
+@pytest.mark.parametrize(
+    ("kind", "exit_code", "status"),
+    [
+        ("unsupported_context", 0, "unsupported_context"),
+        ("unsupported_context", 1, "unsupported_context"),
+        ("error_output_limit", 1, "budget_exhausted"),
+        ("timeout", 1, "timeout"),
+    ],
+)
+def test_native_runner_limitations_are_distinct_from_model_failures(tmp_path, kind, exit_code, status):
+    command = [
+        sys.executable,
+        "-c",
+        f"import json;print(json.dumps({{'kind': {kind!r}}}));raise SystemExit({exit_code})",
+    ]
+    response, result = evaluation._call_runner(tmp_path, command, {}, timeout=5)
+    assert response is None
+    assert result["status"] == status
+    if status == "unsupported_context":
+        assert result["observable_pass"] is False
+        assert result["context_consumed"] is False
+
+
 @pytest.fixture
 def subject(tmp_path):
     skill = tmp_path / "SKILL.md"

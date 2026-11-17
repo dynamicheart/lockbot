@@ -585,11 +585,15 @@ def _call_runner(root, command, request, timeout):
         response = json.loads(stdout)
     except ValueError:
         response = None
+    kind = response.get("kind") if isinstance(response, dict) else None
+    if kind == "unsupported_context":
+        return None, {"status": "unsupported_context", "observable_pass": False, "context_consumed": False}
     if process.returncode:
         result = {"status": "runner_error", "exit_code": process.returncode}
-        kind = response.get("kind") if isinstance(response, dict) else None
-        if kind in ("error_max_turns", "error_max_budget_usd"):
+        if kind in ("error_max_turns", "error_max_budget_usd", "error_output_limit"):
             result.update(status="budget_exhausted", budget_kind=kind)
+        elif kind == "timeout":
+            result["status"] = "timeout"
         return None, result
     if not isinstance(response, dict) or not isinstance(response.get("text"), str):
         return None, {"status": "runner_protocol_error"}
