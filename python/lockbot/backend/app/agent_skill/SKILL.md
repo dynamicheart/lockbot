@@ -21,9 +21,19 @@ grants out of replies, command arguments, Skill files and shared memory.
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-**First connection or missing Key.** When the user authorizes a code on the approved
-service, run `key-challenge --origin "$ORIGIN" --authorized`. Chat confirmation
-identifies the bot and restores the user's existing Key or creates their first Key.
+**First connection or missing Key.** If the user asks to use an identified LockBot
+service (for example, to request a machine), look for a saved connection first. If
+none exists, run `key-challenge --origin "$ORIGIN" --authorized` and give the user
+the single chat confirmation step returned by the CLI. The request to use the
+service authorizes this step even when the user does not mention a Key or a code.
+Chat confirmation identifies the bot and restores the existing Key or creates a
+first Key. For an installation-only request, stop after verifying the installation.
+
+**When the user returns from the group.** Use `connections` to find the unfinished
+request, then run `enrollment-status` with its enrollment directory. The local
+`pending` label can remain after the user has confirmed in chat. If the service
+reports `confirmed`, run `finish-enrollment` with the same directory and continue
+the original task. The group confirmation already provided authorization.
 
 **Explicit Key reset.** Once the user requests invalidation and acknowledges that other
 Agents sharing the old Key must replace it, run
@@ -46,23 +56,36 @@ Use the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
 stop after `resources`. Use `command --help` for all write arguments.
 
-- **Already signed into the workbench:** open the full bookmarked `/#/me` URL with
-  authorized browser access. Reply with the address and what the page shows.
-- **Needs to sign into the workbench:** use `panel-link` after verifying private
-  delivery is authorized, then give the user the returned `result.login_url` in that
-  private reply. The user opens and confirms it. Use `result.home` for return visits.
+- **Already signed into the workbench:** open the bookmarked fixed URL in one step.
+  If the bookmark is not available to your tools, append `/#/me` to the selected
+  connection's verified service origin. Pass the full URL on the first browser call
+  and include it with the page findings in your reply. Skip `panel-link`.
+- **Needs to sign into the workbench:** use `panel-link` once with authorization for private
+  delivery. In your final reply, give the user the private login link or confirm its private
+  delivery. Tell them to open it and confirm the account, then bookmark `result.home`
+  (include its full address). Wait for their confirmation before using the workbench.
+  For this handoff, read only the instructions relevant to sign-in and the selected
+  connection. Use a saved connection, or run `init` directly when the user already
+  supplied an approved origin and a private Key file. `init` verifies the service.
+  Check holdings and bookings in the browser after the user confirms.
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
-  booking is claimable. Add `--device` for a queued card. The booking sets the duration.
+  booking is claimable. Pass `--device` for a queued card or `--whole-node` for an entire
+  node. The booking sets the duration.
+- **Renew a lease:** use `command --operation renew` with the time to add. The inventory
+  lists server operations. The CLI uses server `lock` for both `claim` and `renew`.
 - **Cards together:** put every requested card on that node in one command, repeating
   `--device`. Pass `--device-count` when the user specifies a quantity. If the whole
   selection cannot be made, report the shortfall before sending a write.
-- **Whole node:** omit `--device`. If the user specifies a model, pass `--model` in
-  either mode. Use `--minimum-model-count` for a whole-node hardware minimum.
-  An alias does not establish the model. Stop if the model, target or freshness is unknown.
-- **Named group:** pass the exact group as `command --group "$GROUP"`. If the user requests cards in a
-  whole-node group, explain the mismatch and ask before switching group or allocation mode.
+- **Whole node:** pass `--whole-node` only when the user requested or approved the
+  entire node. If the user specifies a model, pass `--model` in either mode.
+  Use `--minimum-model-count` for a whole-node hardware minimum. Stop if model, target
+  or freshness is unknown. An alias does not establish the model.
+- **Named group:** pass the user's exact group as `command --group "$GROUP"`.
+  If they request cards in a whole-node group, stay read-only. Explain the mismatch
+  and wait for the user to choose a different group or explicitly approve an entire node.
+  An error is not permission to change the original group, mode or target.
 - **Unconfirmed write:** read the current resources and report the result. Do not send
   another write for the same request.
 

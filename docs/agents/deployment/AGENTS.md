@@ -85,8 +85,8 @@ The tool prints a generated password and may promote an existing username. Confi
 ## Verify the outcome
 
 1. Check process/image identity, published port and the selected persistent mount, without dumping container secrets. Check `/api/health` at the intended service address.
-2. Sign in through the intended service. Check bot configuration, active locks/queues, original keys and per-bot access. Startup success does not prove configuration/state preservation.
-3. For Feishu, confirm the image includes its optional SDK dependency, the configured proxy can reach HTTP and WebSocket services, and exactly one receiver serves an application. Stop an old development receiver before moving the app connection. The dedicated HTTP probe does not prove WebSocket handshake or inbound delivery.
+2. Sign in through the intended service. Check bot configuration, active locks/queues, original keys and per-bot access. Startup success does not prove configuration/state preservation. If the mount or bot count differs from expectations, mark acceptance failed and verify the original data location before concluding that state was lost.
+3. For Feishu, confirm the image includes its optional SDK dependency, the configured proxy can reach HTTP and WebSocket services, and count the active receivers serving each application to confirm there is exactly one. Stop an old development receiver before moving the app connection. The dedicated HTTP probe does not prove WebSocket handshake or inbound delivery.
 4. Use only an authorized test group and fictional resources for actual mention/query, short lock/release, queue/reminder, Agent binding and resource-link acceptance. Do not broadcast or mention everyone as an incidental health test.
 5. Record image/tag/commit/checksum, backup identifier, health and acceptance outcomes, and limitations. Mark failed/uncertain sends as uncertain; do not automatically replay resource commands.
 

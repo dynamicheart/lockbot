@@ -338,6 +338,35 @@ def test_resource_mutation_does_not_claim_success_from_stale_readback(case):
     assert len(commands(case)) == 1
 
 
+@pytest.mark.parametrize("scope", [(), ("--whole-node", "--device", "2")])
+def test_packaged_command_requires_one_resource_scope(case, scope):
+    before = case.state.requests.copy()
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--duration",
+            "2m",
+            *scope,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stderr) == {"error": "select_devices_or_explicit_whole_nodes", "retry_mutation": False}
+    assert case.state.requests == before
+
+
 def test_packaged_command_checks_the_user_named_group_before_writing(case):
     result = subprocess.run(
         [
@@ -351,6 +380,7 @@ def test_packaged_command_checks_the_user_named_group_before_writing(case):
             "lock",
             "--node",
             "node-a",
+            "--whole-node",
             "--group",
             "Another team",
             "--duration",
@@ -648,6 +678,10 @@ def test_enrollment_defaults_to_user_or_explicit_project_catalog(case, monkeypat
             "target_group": "Compute team",
             "enrollment_dir": str(direction),
             "status": "pending",
+            "status_source": "local",
+            "next_command": ["enrollment-status", "--enrollment-dir", str(direction)],
+            "next_step": "Check the service status after chat confirmation. "
+            "If confirmed, finish this enrollment and continue the request.",
             "bind_expires_at": pending["bind_expires_at"],
             "scope": expected,
         }
@@ -1078,6 +1112,7 @@ def test_packaged_cli_returns_server_delay_without_replaying_a_write(case):
             "lock",
             "--node",
             "node-a",
+            "--whole-node",
             "--duration",
             "2m",
         ],
@@ -1129,6 +1164,7 @@ def test_cli_category_error_exposes_actionable_choices_not_notes(case, monkeypat
                 "lock",
                 "--node",
                 "node-a",
+                "--whole-node",
                 "--duration",
                 "2m",
                 "--metadata-file",
@@ -1350,11 +1386,8 @@ def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, pur
     assert case.state.requests == prior_requests
     assert pending[0]["purpose"] == (purpose or "recover") and pending[0]["target_group"] is None
     finish = ("finish-enrollment", "--enrollment-dir", pending[0]["enrollment_dir"])
-    if purpose == "reset":
-        assert pending[0]["status_source"] == "local"
-        assert pending[0]["next_command"] == ["enrollment-status", *finish[1:]]
-    else:
-        assert "next_command" not in pending[0]
+    assert pending[0]["status_source"] == "local"
+    assert pending[0]["next_command"] == ["enrollment-status", *finish[1:]]
     waiting = cli(*finish)
     assert waiting["status"] == "pending"
     assert "chat_action" not in waiting and "next_command" not in waiting

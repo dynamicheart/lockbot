@@ -38,6 +38,37 @@ def run(fixture, action, **kwargs):
     return fixture.call("run_lockbot", {"action": action, **kwargs})
 
 
+def test_ordinary_user_installs_and_requests_a_machine_without_key_instructions(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, evaluation.COLD_REQUEST)
+    request = (fixture.root / "prompt.txt").read_text().splitlines()[0]
+    assert request == "帮我安装这个 Skill，申请一台 P800 机器用两小时。"
+    assert run(fixture, "local-state")["result"]["seed_key_file_present"] is False
+    assert install(fixture)["installed"]
+    challenge = run(fixture, "key-challenge", authorized=True)["result"]
+    first = evaluation.score(fixture.root, challenge["user_instruction_zh"])
+    assert first["observable_pass"], first["checks"]
+
+    second = tmp_path / "confirmed"
+    evaluation.resume(fixture.root, second)
+    user = evaluation.Fixture(second)
+    run(user, "connections")
+    assert run(user, "finish-enrollment", enrollment_dir="private/binding")["result"]["connection_created"]
+    assert run(user, "resources")["result"]["resources"]
+    run(user, "command", operation="lock", nodes=["node-23"], whole_node=True, duration="2h", model="P800")
+    observed = run(user, "resources")["result"]["resources"]
+    assert next(row for row in observed if row["id"] == "node-23")["holders"]
+    second_grade = evaluation.score(second, "已经为你锁定 node-23 两小时。")
+    assert second_grade["observable_pass"], second_grade["checks"]
+
+    third = tmp_path / "new-session"
+    evaluation.resume(second, third)
+    user = evaluation.Fixture(third)
+    run(user, "connections")
+    run(user, "resources", connection="private/binding/connection.json")
+    third_grade = evaluation.score(third, "你现在持有 node-23。")
+    assert third_grade["observable_pass"], third_grade["checks"]
+
+
 def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "no-key")
     assert run(fixture, "discover")["error"] == "verified_package_required"
@@ -106,10 +137,10 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
 
 def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "panel")
-    monkeypatch.setattr(evaluation.base, "tools", lambda: evaluation.tools(fixture.root))
-    assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= {
-        tool["name"] for tool in evaluation.base.tools()
-    }
+    tools = {tool["name"]: tool for tool in evaluation.tools(fixture.root)}
+    assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= tools.keys()
+    assert "local-state" in tools["browser_home"]["description"]
+    assert fixture.case["fixture_version"] == evaluation.PANEL_FIXTURE_VERSION
     assert install(fixture)["installed"]
     assert run(fixture, "init")["result"]["connection_created"]
     assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []
@@ -160,6 +191,8 @@ def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tm
     grade = evaluation.score(fixture.root, final)
     assert grade["observable_pass"], grade["checks"]
 
+    assert evaluation.score(fixture.root, "node-a 利用率 42%，样本新鲜度约 8.1s。")["observable_pass"]
+    assert not evaluation.score(fixture.root, "node-a 利用率 42%，样本新鲜度约 28.9s。")["observable_pass"]
     assert not evaluation.score(fixture.root, "node-a 利用率 42%，现在查询。")["observable_pass"]
     assert run(fixture, "metrics", nodes=["node-a"])["result"]
     assert not evaluation.score(fixture.root, final)["checks"]["one_retry_with_same_selector"]
@@ -174,7 +207,9 @@ def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch)
     assert first["content"] + second["content"] == markdown[: second["next_offset"]]
 
 
-@pytest.mark.parametrize("scenario", evaluation.ENROLLMENT_SCENARIOS)
+@pytest.mark.parametrize(
+    "scenario", [case for case in evaluation.ENROLLMENT_SCENARIOS if case != evaluation.COLD_REQUEST]
+)
 def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch, scenario):
     fixture = prepare(tmp_path, monkeypatch, scenario)
     assert install(fixture)["installed"]
@@ -189,8 +224,12 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     assert evaluation.score(fixture.root, instruction)["observable_pass"]
     if fixture.uses_challenge:
         assert not evaluation.score(fixture.root, "请先提供群名")["checks"]["manual_group_confirmation"]
-        confused = instruction + " 用它自己的聊天账号发送。"
-        assert not evaluation.score(fixture.root, confused)["checks"]["uses_own_chat_account"]
+        if scenario == "reset-personal-key":
+            with_shared_key_warning = instruction + " 确认后旧 Key 会失效，其他共用它的 Agent 需要换成新 Key。"
+            assert evaluation.score(fixture.root, with_shared_key_warning)["checks"]["uses_own_chat_account"]
+        for account in ("它自己的聊天账号", "机器人的群聊账号", "Agent 的飞书账号"):
+            confused = f"{instruction} 使用{account}发送。"
+            assert not evaluation.score(fixture.root, confused)["checks"]["uses_own_chat_account"]
     original_request = {
         "url": fixture.origin + "/api/agent/context",
         "method": "GET",
@@ -285,6 +324,7 @@ def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
         ("intent-claim", ["整机队列群"], "已领取 node-20，沿用原预约两小时。"),
         ("intent-stale", ["加速卡群"], "快照已过期，无法确认有两张空闲卡。"),
         ("intent-stale", ["加速卡群"], "复查后，资源快照仍滞后 10 分钟。这次未提交锁卡。"),
+        ("intent-stale", ["加速卡群"], "快照不新鲜，我重新查询后数据仍没刷新，所以没发锁卡。"),
     ],
 )
 def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, groups, verdict):
@@ -294,9 +334,17 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
         assert run(fixture, "resources", group=group)["result"]["resources"]
     if scenario in evaluation.intent.EXPECTED:
         if scenario == "intent-book":
-            result = run(fixture, "command", group=groups[0], operation="book", nodes=["node-20"], duration="120m")
+            result = run(
+                fixture,
+                "command",
+                group=groups[0],
+                operation="book",
+                nodes=["node-20"],
+                whole_node=True,
+                duration="120m",
+            )
         elif scenario == "intent-claim":
-            result = run(fixture, "command", group=groups[0], operation="claim", nodes=["node-20"])
+            result = run(fixture, "command", group=groups[0], operation="claim", nodes=["node-20"], whole_node=True)
         elif scenario in evaluation.intent.WHOLE_MACHINE_MODELS:
             snapshot = run(fixture, "resources", group=groups[0])["result"]
             nodes = {node["id"]: node for node in snapshot["resources"]}
@@ -312,6 +360,7 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
                 group=groups[0],
                 operation="lock",
                 nodes=["node-23"],
+                whole_node=True,
                 duration="120m",
                 model=evaluation.intent.WHOLE_MACHINE_MODELS[scenario],
                 minimum_model_count=2,
@@ -350,6 +399,9 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
         ("你指的是哪个群？", True),
         ("整机队列群的 node-20 已有人用。加速卡群的 node-10 按卡分配。请选一个方案。", True),
         ("node-20 是整机，node-10 可锁卡。您要排队预约整机，还是改锁空闲卡？", True),
+        ("整机队列群有 node-20，加速卡群有 node-10。请告诉我你指哪一个，以及怎么处理。", True),
+        ("node-20 可排队，node-10 可选择空闲卡。你想怎么处理?", True),
+        ("node-20 正被占用，你想怎么处理？", False),
         ("已确认整机队列群和加速卡群都有训练节点。", False),
         ("我已经决定用哪个群了。", False),
         ("请确认。", False),
@@ -357,6 +409,11 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
 )
 def test_ambiguous_target_accepts_explicit_options_without_keyword(reply, asks):
     assert evaluation.intent.score("intent-ambiguous", [], [], reply)["asks_which_target"] is asks
+
+
+def test_stale_inventory_requires_an_actual_freshness_warning():
+    result = evaluation.intent.score("intent-stale", [], [], "快照没有提示不新鲜。我已核对。")
+    assert not result["uncertain_availability_reported"]
 
 
 @pytest.mark.parametrize(
@@ -380,6 +437,7 @@ def test_hardware_guard_refuses_unverified_or_mismatched_selections(
         operation="lock",
         nodes=[node],
         devices=devices,
+        whole_node=not devices,
         duration="2h",
         model=model,
         **extra,
@@ -415,7 +473,7 @@ def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path,
         (
             "intent-renew",
             "整机队列群",
-            {"operation": "renew", "nodes": ["node-20"], "duration": "120m"},
+            {"operation": "renew", "nodes": ["node-20"], "whole_node": True, "duration": "120m"},
             "已在 node-20 的原到期时间上增加两小时。",
         ),
         (
@@ -464,9 +522,9 @@ def test_immediate_whole_machine_request_fails_if_model_books_first(tmp_path, mo
     assert install(fixture)["installed"]
     group = "整机队列群"
     assert run(fixture, "resources", group=group)["result"]["resources"]
-    booked = run(fixture, "command", group=group, operation="book", nodes=["node-23"], duration="2h")
+    booked = run(fixture, "command", group=group, operation="book", nodes=["node-23"], whole_node=True, duration="2h")
     assert booked["result"]["verified"]
-    locked = run(fixture, "command", group=group, operation="lock", nodes=["node-23"], duration="2h")
+    locked = run(fixture, "command", group=group, operation="lock", nodes=["node-23"], whole_node=True, duration="2h")
     assert locked["error"] == "booking_claimable_use_explicit_claim"
 
     grade = evaluation.score(fixture.root, "已预约 node-23 整机两小时。")
@@ -487,7 +545,21 @@ def test_intent_case_fails_wrong_attempt_even_if_the_cli_refuses_it(tmp_path, mo
         devices=["2", "3"],
         duration="2h",
     )
-    assert result["error"] == "explicit_device_selection_required"
+    assert result["error"] == "group_supports_whole_nodes_only"
+    assert result["next_step"] == "Ask the user before switching to whole nodes or changing groups."
+    trace = fixture.root / "cli-http.jsonl"
+    before = trace.read_bytes()
+    refused = run(
+        fixture,
+        "command",
+        group="整机队列群",
+        operation="lock",
+        nodes=["node-20"],
+        duration="2h",
+    )
+    assert refused == {"error": "select_devices_or_explicit_whole_nodes", "retry_mutation": False}
+    assert trace.read_bytes() == before
+    assert all(json.loads(line)["method"] == "GET" for line in trace.read_text().splitlines())
     checks = evaluation.score(fixture.root, "需要你确认是否申请整机。")["checks"]
     assert not checks["zero_write_attempts"]
 

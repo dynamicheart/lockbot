@@ -35,11 +35,13 @@ Never copy detailed Agent task notes into public metric labels or group reports.
 
 ## Open the optional personal resource panel
 
-For a user who is already signed in, use the full saved workbench URL, including its
-service origin and `/#/me`, with the browser access they authorized. The `home` field
-contains the URL. Once the page opens, report the requested holdings and bookings
-with that fixed address. If browser access is unavailable, ask the user to open the
-bookmarked address themselves.
+If the user says they have signed in and bookmarked the workbench, open that fixed
+address directly. Use the bookmark or saved `home` value. If your tools cannot read
+bookmarks, use the selected connection's verified service origin followed by
+`/#/me`. Pass the full fixed URL on your first browser call. If several saved
+services could match, ask the user which to open. Report what the page shows together
+with the full address. When you have no browser access, give the user the fixed
+address to open. Use a sign-in link only when there is an authorized sign-in task.
 
 For an authorized first sign-in or recovery of a lost session, use the selected
 connection. The CLI verifies capabilities, identity, and the returned link:
@@ -54,11 +56,12 @@ CLI or server-Agent session where the caller is proven to own the binding. If pr
 delivery is unavailable, give the fixed workbench address and direct the user to a
 verified private chat.
 
-After success, use the exact `result.login_url` as the link target in your private
-reply. It includes a `ticket` fragment parameter. Ask the user to open it in their
-browser and confirm the displayed account. The `result.home` field is the bookmark
-for return visits after sign-in. Keep the one-use link out of browser tools, files,
-logs and shared messages. If issuance fails, report the error without retrying.
+After success, deliver the exact `result.login_url` through the verified private
+channel. In your final reply, also tell the user to open the privately delivered link
+in their browser, confirm the displayed account and bookmark the full `result.home`
+URL for future visits. End the turn while confirmation is pending. The one-use link
+contains a ticket and goes only into the private handoff. If issuance fails, report
+the error without retrying.
 
 When supported, the browser previews the groups recoverable from the verified account.
 The user can confirm all listed groups or only the group associated with the current Key.

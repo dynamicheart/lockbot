@@ -287,7 +287,9 @@ def score(scenario, requests, tools, final):
             )
             choice = re.search(
                 r"(?:请|麻烦|需要[你您])[^\n。！？!?]{0,10}(?:选|确认)"
-                r"|[你您](?:想|要|希望)[^。！？!?]+还是[^。！？!?]+[？?]",
+                r"|[你您](?:想|要|希望)[^。！？!?]+还是[^。！？!?]+[？?]"
+                r"|(?:请)?告诉我[你您](?:指|要)(?:的是)?哪(?:一个|个|一台|台)"
+                r"|[你您](?:想|要|希望)(?:怎么|如何)处理\s*[？?]",
                 final,
             )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
@@ -307,7 +309,13 @@ def score(scenario, requests, tools, final):
             if scenario == "intent-stale":
                 checks["uncertain_availability_reported"] = any(
                     word in final for word in ("过期", "陈旧", "无法确认")
-                ) or bool(re.search(r"快照[^。！？\n]{0,12}滞后\s*\d+\s*(?:秒|分钟|小时)", final))
+                ) or bool(
+                    re.search(
+                        r"快照[^。！？\n]{0,12}滞后\s*\d+\s*(?:秒|分钟|小时)"
+                        r"|快照 *(?:仍然|仍|还)? *不(?:够)?新鲜",
+                        final,
+                    )
+                )
             else:
                 checks["correct_cards_reported"] = TRAINING_NODE in final and "2" in final and "3" in final
     return checks
