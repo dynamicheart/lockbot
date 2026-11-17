@@ -90,8 +90,8 @@ with subprocess.Popen(
         assert call("run_lockbot", action="resources")["result"]["resources"]
         answer = "node-a"
     else:
-        assert call("run_lockbot", action="connections")["result"]["connections"]
-        assert call("run_lockbot", action="resources")["result"]["resources"]
+        (record,) = call("run_lockbot", action="connections")["result"]["connections"]
+        assert call("run_lockbot", action="resources", connection=record["connection"])["result"]["resources"]
         answer = "node-a"
     tools.stdin.close()
 print(json.dumps({"text": answer, "pid": os.getpid(), "turns": 3}))

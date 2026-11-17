@@ -135,7 +135,8 @@ A timeout during a case remains a case timeout even when the connectivity probe 
 and an explicitly authorized reset. Each case checks the group confirmation command
 and who should send it, then starts a new session after simulated confirmation to
 save the expected Key. A third session receives a read-only request and must find and
-use the saved connection. The adapter may report its actual turn count as `turns`. The report
+use its explicit path from `connections`. Reading the completed enrollment again is counted
+as an extra read. The adapter may report its actual turn count as `turns`. The report
 keeps that count, session phases, and simulated user actions such as chat binding or
 browser consent separate. An unavailable turn count is recorded as null.
 

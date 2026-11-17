@@ -210,6 +210,7 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     if scenario == "reset-personal-key":
         assert issued["bind_command"].startswith("bind RST-") and result["chat_action"] == "reset_applied"
         assert resumed.http(original_request)["status"] == 403
+        assert "确认刚才的重置" in (destination / "prompt.txt").read_text()
     if scenario == "recover-original-key":
         assert resumed.http(original_request)["status"] == 200
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
@@ -220,9 +221,13 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
         reader = evaluation.Fixture(later)
         assert reader.case["phase"] == 3
         assert not evaluation.score(later, "node-a")["observable_pass"]
-        assert run(reader, "connections")["result"]["connections"]
-        assert run(reader, "resources")["result"]["resources"][0]["id"] == "node-a"
-        assert evaluation.score(later, "node-a")["observable_pass"]
+        assert run(reader, "resources")["error"] == "private_connection_required"
+        (record,) = run(reader, "connections")["result"]["connections"]
+        assert run(reader, "resources", connection=record["connection"])["result"]["resources"][0]["id"] == "node-a"
+        assert evaluation.score(later, "node-a")["extra_enrollment_reads"] == 0
+        assert run(reader, "enrollment-status", enrollment_dir="private/binding")["result"]["status"] == "confirmed"
+        grade = evaluation.score(later, "node-a")
+        assert grade["observable_pass"] and grade["extra_enrollment_reads"] == 1
 
 
 def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):
