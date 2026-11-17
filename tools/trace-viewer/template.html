@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>LockBot · 轨迹浏览器</title>
+<style>
+:root{color-scheme:light;--ink:#14243b;--muted:#52647e;--line:#dfe7f0;--canvas:#f3f6fa;--paper:#fff;--soft:#f6f8fc;--accent:#215bc0;--selected:#e9f2ff;--sans:system-ui,"PingFang SC",sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font:14px/1.55 var(--sans)}
+button,select{font:inherit;color:inherit}
+button,summary{cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:disabled{cursor:default;opacity:.45}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+h1,h2,h3,p,pre{margin:0}
+[hidden]{display:none!important}
+.head{max-width:1568px;min-height:66px;margin:auto;padding:0 28px;display:flex;justify-content:space-between;gap:14px;align-items:center}
+.app-header{background:var(--paper);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:4}
+.brand{display:flex;gap:10px;align-items:center}
+.mark{width:36px;height:36px;border-radius:10px;background:#edf5ff;display:grid;place-items:center;flex:none}
+.mark svg{width:26px;height:26px}
+h1{font-size:17px;letter-spacing:-.02em}
+.open-file,.quiet-button,.inspector-close,.chat-code button{border:1px solid #d5e0ee;background:white;border-radius:8px;font-size:12px;font-weight:650;padding:6px 10px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.open-file{color:#234d8f;padding:7px 11px}
+.icon{width:16px;height:16px;flex:none;display:inline-block;vertical-align:middle}
+.open-file:hover,.quiet-button:not(:disabled):hover,.inspector-close:hover,.chat-code button:hover{background:var(--selected);border-color:#c7daf5}
+.load-status{max-width:1568px;margin:auto;padding:0 28px 9px;color:#932d37;font-size:13px}
+.load-status:empty{display:none}
+.layout{max-width:1568px;margin:auto;padding:20px 28px 44px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;align-items:start}
+.sidebar{position:sticky;top:86px;max-height:calc(100dvh - 106px);overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:14px;border:1px solid var(--line);background:var(--paper);border-radius:13px;padding:7px 7px 9px}
+.nav-heading{font-size:12px;font-weight:750;color:var(--ink);padding:9px 9px 5px}
+.sidebar section+section{border-top:1px solid var(--line);padding-top:1px}
+.case-group h3{font-size:11px;font-weight:650;color:var(--muted);padding:6px 9px 3px}
+.case-group+.case-group{margin-top:6px}
+.choice{position:relative;display:flex;justify-content:space-between;gap:8px;align-items:center;width:100%;text-align:left;padding:7px 9px;min-height:35px;background:transparent;border:0;border-radius:7px;font-size:13px}
+.choice:hover{background:var(--soft)}
+.choice[aria-pressed=true]{background:var(--selected);color:#184b9d;font-weight:710}
+.choice[aria-pressed=true]::before{content:"";width:2px;position:absolute;inset:7px auto 7px 0;background:var(--accent);border-radius:2px}
+.model-name{overflow-wrap:anywhere}
+.meta,.trace-ordinal,.trace-duration,.step-nav-count{font-variant-numeric:tabular-nums;white-space:nowrap}
+.meta{font-size:11px;color:var(--muted)}
+.badge{display:inline-flex;gap:4px;align-items:center;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:720;white-space:nowrap}
+.pass{background:#e7f5ee;color:#146144}.timeout,.pending{background:#fff2da;color:#7b4b08}.blocked{background:#edf1f8;color:#365684}.fail{background:#fcebed;color:#952d38}
+.mobile-pick{display:none}
+#review{min-width:0;background:var(--paper);border:1px solid var(--line);border-radius:13px}
+.run-overview{padding:20px 24px 0}
+.case-header{position:relative;display:flex;justify-content:space-between;align-items:start;gap:12px}
+.case-header h2{font-size:clamp(19px,2vw,26px);line-height:1.25;letter-spacing:-.025em;overflow-wrap:anywhere}
+.run-header{display:flex;justify-content:space-between;align-items:baseline;gap:5px 14px;margin:9px 0 14px;flex-wrap:wrap}
+.run-header h3{display:flex;align-items:center;gap:8px;font-size:14px;overflow-wrap:anywhere}
+.counts{font-size:12px;color:var(--muted)}
+.record-meta{font-size:12px;color:var(--muted)}
+.record-meta summary{width:max-content;max-width:100%;margin-left:auto;padding:3px 0;white-space:nowrap}
+.record-meta[open] dl{position:absolute;z-index:3;right:0;top:31px;width:min(100%,425px);border:1px solid var(--line);box-shadow:0 8px 24px #15294519;background:var(--paper)}
+.record-meta dl{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:5px 12px;background:var(--soft);border-radius:8px;margin:4px 0 0;padding:10px 12px;overflow-wrap:anywhere}
+.record-meta dt{font-weight:650}
+.record-meta dd{margin:0;white-space:pre-wrap}
+#version{font-family:var(--mono)}
+.tabs{display:flex;gap:21px;padding:0 24px;border-bottom:1px solid var(--line)}
+.tab{display:flex;align-items:center;gap:6px;background:transparent;border:0;border-bottom:2px solid transparent;padding:9px 2px;color:var(--muted);font-size:13px;font-weight:650}
+.tab[aria-pressed=true]{border-bottom-color:var(--accent);color:#184b9d}
+.timeline:not(.trace-view){max-width:1040px;margin:auto;padding:4px 28px 28px}
+.session-label{margin:20px 0 16px;display:flex;align-items:center;gap:11px;color:var(--muted);font-size:12px;font-weight:720}
+.session-label::after{content:"";height:1px;background:var(--line);flex:1}
+.message{margin:0 0 17px;max-width:87%;width:fit-content;min-width:0}
+.message.user{margin-left:auto;max-width:84%}
+.role{font-size:12px;color:var(--muted);display:flex;gap:7px;align-items:baseline;font-weight:700;margin:0 2px 4px}
+.user .role{justify-content:end}
+.role small{font-size:11px;font-weight:500}
+.bubble{padding:10px 13px;border:1px solid var(--line);background:var(--soft);border-radius:3px 11px 11px;overflow-wrap:anywhere;line-height:1.7}
+.user .bubble{background:#eff5ff;border-color:#d9e6fa;border-radius:11px 3px 11px 11px}
+.rich-text{white-space:pre-wrap}
+.rich-text code{font: .89em var(--mono);background:#e8eef7;padding:2px 4px;border-radius:4px;color:#26496e}
+.chat-code{margin:5px 0;border:1px solid #d8e3f1;background:#fff;border-radius:8px;overflow:hidden}
+.chat-code-bar{padding:4px 8px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;background:#f4f7fc;color:var(--muted);font:11px var(--mono)}
+.chat-code button{padding:2px 6px}
+.chat-code pre{padding:9px 11px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.65 var(--mono)}
+.missing,.human{color:#714b18;background:#fffaee;border:1px solid #f1e3c8;border-radius:8px;margin:12px 0;padding:7px 11px;font-size:13px}
+.human{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px}
+.human span{font-size:12px}
+.activity-group{margin:1px 0 17px 0;border:1px solid var(--line);border-radius:9px}
+.activity-group summary{list-style:none;padding:8px 10px;display:grid;column-gap:8px;align-items:center;grid-template-columns:13px minmax(0,1fr);color:var(--muted);font-size:12px}
+summary::-webkit-details-marker{display:none}
+.activity-group summary:hover{background:var(--soft);border-radius:8px}
+.activity-group summary::before,.evidence-section>summary::before{content:"";width:6px;height:6px;border:solid currentColor;border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);margin:0 2px}
+.activity-group[open] summary::before,.evidence-section[open]>summary::before{transform:rotate(45deg) translateY(-2px)}
+.activity-summary{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-weight:680}
+.activity-preview{grid-column:2;overflow-wrap:anywhere;font-size:11px;padding-top:3px}
+.activity-failed{border-color:#edcbd2}
+.activity-group ol{list-style:none;margin:0;padding:0 8px 7px}
+.operation+.operation{margin-top:3px}
+.inspect-step{border:0;background:var(--soft);border-radius:6px;padding:6px 8px;width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px}
+.inspect-step:hover{background:var(--selected)}
+.step-failed{background:#fff5f6}
+.step-open{color:var(--accent);white-space:nowrap}
+.activity-action{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;overflow-wrap:anywhere}
+.tool-status{font-size:11px;color:var(--muted)}
+.trace-workspace{display:grid;grid-template-columns:clamp(204px,30%,330px) minmax(0,1fr);min-height:440px}
+.trace-tree{min-width:0;align-self:start;position:sticky;top:66px;max-height:calc(100dvh - 66px);overflow:auto;scrollbar-width:thin;border-radius:0 0 0 13px}
+.trace-toolbar{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:11px 12px;background:#fafbfd;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:1}
+.trace-toolbar h3{font-size:12px;white-space:nowrap}
+.trace-toggle{padding:3px 7px;font-size:11px}
+.trace-toggle[aria-pressed=true]{background:#fcebed;color:#952d38;border-color:#f0cbd3}
+.trace-session{display:flex;gap:6px;align-items:center;margin:10px 11px 4px;color:var(--muted);font-size:11px;font-weight:720}
+.trace-actions{margin:0 7px 11px 17px;padding:0 0 0 8px;border-left:1px solid var(--line);list-style:none}
+.trace-actions li{position:relative}
+.trace-actions li::before{content:"";position:absolute;left:-9px;top:20px;width:8px;border-top:1px solid var(--line)}
+.trace-row{background:transparent;border:0;border-radius:7px;display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:6px;align-items:start;width:100%;text-align:left;padding:6px 5px;margin:2px 0}
+.trace-row:hover{background:var(--soft)}
+.trace-row[aria-pressed=true]{background:var(--selected);color:#184b9d;box-shadow:inset 2px 0 var(--accent)}
+.trace-icon{display:grid;place-items:center;width:24px;height:24px;border-radius:6px;background:#e8f1fd;color:#255591;flex:none}
+.trace-icon.terminal{background:#e6f4ef;color:#1b6952}
+.trace-icon.step-error{background:#fbe9ed;color:#9a3141}
+.trace-row b{display:block;font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.trace-row small{display:block;font-size:10px;color:var(--muted);line-height:1.4;overflow-wrap:anywhere}
+.trace-row .trace-ordinal{font-size:10px;color:var(--muted);padding-top:1px}
+.trace-inspect{min-width:0;border-left:1px solid var(--line)}
+.trace-inspect-header{padding:13px 17px;border-bottom:1px solid var(--line);display:flex;align-items:start;justify-content:space-between;gap:9px}
+.step-name{display:flex;gap:9px;align-items:start;min-width:0}
+.step-name .trace-icon{margin-top:2px}
+.trace-inspect-header h3,.inspector-header h2{font-size:16px;line-height:1.35;overflow-wrap:anywhere}
+.trace-inspect-header p,.inspector-header p{font-size:11px;color:var(--muted);margin-top:5px;display:flex;gap:4px 8px;flex-wrap:wrap;align-items:center}
+.step-nav{display:flex;align-items:center;gap:5px;flex:none}
+.step-nav-count{font-size:11px;color:var(--muted);margin-right:2px}
+.step-nav button{padding:4px}
+.trace-inspect-body,.inspector-fields{padding:2px 17px 18px}
+.evidence-section{margin:11px 0;font-size:13px}
+.evidence-section>summary{list-style:none;display:flex;align-items:center;gap:9px;font-weight:720;padding:4px 0 7px}
+.payload{overflow:hidden;border:1px solid var(--line);border-radius:8px;background:#f5f8fc}
+.payload-body{max-height:46vh;overflow:auto;padding:11px 12px;scrollbar-width:thin}
+.payload-text-key{font:11px/1.4 var(--mono);color:var(--muted);margin-bottom:6px;overflow-wrap:anywhere}
+.payload-body .payload-text{color:var(--ink)}
+.payload-body pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.6 var(--mono)}
+.payload-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 6px;border-top:1px solid var(--line);background:#fff}
+.payload-bar button{padding:3px 7px;color:var(--muted);background:#fff;border:1px solid transparent;border-radius:5px;font-size:11px;display:inline-flex;align-items:center;gap:4px}
+.payload-bar button:hover,.payload-bar button[aria-pressed=true]{background:var(--selected);color:#184b9d}
+.payload-format{display:flex;gap:3px}
+.payload-empty,.evidence-note,.empty-session{color:var(--muted);font-size:12px;padding:8px 12px}
+.payload-empty{background:var(--soft);border-radius:7px}
+.trace-inspect>.evidence-note{padding:24px 17px}
+.format-label{font-size:11px;color:var(--muted);padding:0 5px}
+.payload-error .payload{border-color:#edcbd2;background:#fff5f6}
+.payload-body json-viewer{--background-color:transparent;--color:var(--ink);--font-family:var(--mono);--font-size:12px;--line-height:1.6;--property-color:#235d93;--string-color:#166447;--number-color:#865215;--boolean-color:#73437f;--null-color:#73437f;--preview-color:var(--muted);--indentguide-color:#d4dfed;--indentguide-color-active:#91add5}
+.json-key{color:#235d93}.json-string{color:#166447}.json-number{color:#865215}.json-literal{color:#73437f}
+.inspector{position:fixed;inset:0 0 0 auto;margin:0;width:min(550px,100%);max-width:100%;height:100dvh;max-height:none;padding:0;border:0;border-left:1px solid var(--line);background:#fff;color:var(--ink);box-shadow:-14px 0 42px #15294529}
+.inspector[open]{display:flex;flex-direction:column;animation:inspector-in 150ms ease-out}
+.inspector::backdrop{background:#17284355}
+.inspector-header{display:flex;align-items:start;justify-content:space-between;gap:10px;padding:16px 17px;border-bottom:1px solid var(--line)}
+.inspector-fields{min-height:0;overflow:auto}
+@keyframes inspector-in{from{transform:translateX(12px);opacity:.85}to{transform:none;opacity:1}}
+@media(max-width:900px){.layout{grid-template-columns:188px minmax(0,1fr);padding-inline:14px;gap:12px}.head{padding-inline:14px}.trace-workspace{grid-template-columns:minmax(168px,34%) minmax(0,1fr)}}
+@media(max-width:720px){.app-header{position:static}.head{min-height:58px}.layout{padding:10px 10px 22px;display:block}.sidebar{display:none}.mobile-pick{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr));padding:0 0 10px}.mobile-pick label{display:grid;gap:3px;color:var(--muted);font-size:11px}.mobile-pick select{width:100%;min-width:0;border:1px solid var(--line);background:#fff;border-radius:7px;padding:6px;font-size:12px}.run-overview{padding:13px 12px 0}.tabs{padding:0 12px}.timeline:not(.trace-view){padding:1px 12px 15px}.message,.message.user{max-width:95%}.trace-workspace{display:block;min-height:0}.trace-tree{position:static;max-height:238px;border-radius:0;border-bottom:1px solid var(--line)}.trace-inspect{border-left:0}.trace-inspect-header{padding:11px 12px}.trace-inspect-body{padding:0 12px 13px}.trace-inspect{scroll-margin-top:12px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* Compact browsing workspace */
+:root{--canvas:#f8fafc;--line:#e4e9f0;--muted:#66758a}
+.head{min-height:52px;max-width:none;padding:0 18px}
+.mark{width:29px;height:29px;background:transparent}
+.head h1{font-size:14px}
+.layout{max-width:none;padding:0;gap:0;grid-template-columns:212px minmax(0,1fr)}
+.sidebar{border:0;border-right:1px solid var(--line);border-radius:0;background:#f8fafc;padding:10px 9px;gap:12px;top:52px;height:calc(100dvh - 52px);max-height:none}
+#review{border:0;border-radius:0}
+.run-overview{padding:14px 20px 0}
+.case-header h2{font-size:19px}
+.run-header{margin:7px 0 8px}
+.run-header h3{font-size:13px}
+.tabs{padding:0 20px;gap:20px;align-items:center}
+.tab{padding:8px 0;font-size:12px}
+.view-actions{margin-left:auto;display:flex;gap:5px}
+.view-actions button{font-size:11px;padding:3px 7px}
+.trace-workspace,.chat-workspace{grid-template-columns:252px minmax(0,1fr);min-height:0;height:100%}
+.timeline.trace-view,.timeline.chat-workspace{padding:0;margin:0;max-width:none;min-height:0;overflow:hidden}
+.chat-workspace{display:grid}
+.trace-tree,.chat-outline{position:static;align-self:stretch;max-height:none;min-height:0;overflow:auto;background:#fafbfd;scrollbar-width:thin;border-radius:0}
+.chat-outline{border-right:1px solid var(--line)}
+.trace-inspect,.chat-transcript{overflow:auto;min-height:0;scrollbar-width:thin}
+.trace-inspect-header{position:sticky;top:0;z-index:2;background:var(--paper);padding:12px 16px}
+.trace-inspect-body{padding:0 16px 18px}
+.trace-toolbar{padding:9px 12px}
+.trace-search{position:sticky;top:38px;z-index:1;background:#fafbfd;padding:7px 10px;border-bottom:1px solid var(--line)}
+.trace-search input{width:100%;border:1px solid #dbe3ef;border-radius:5px;padding:6px 8px;background:white;font:12px var(--sans);color:var(--ink)}
+.trace-search input::placeholder{color:var(--muted)}
+.trace-row{padding:7px 6px}
+.trace-row b{font-size:12px;font-weight:600}
+.trace-row small{font-size:11px;margin-top:2px}
+.trace-session{margin-top:13px}
+.trace-inspect-header h3{font-size:14px}
+.evidence-section{margin:10px 0}
+.payload-body{max-height:none;padding:12px;font-size:12px}
+.payload-bar{position:sticky;top:0}
+.payload{display:flex;flex-direction:column}
+.payload-bar{order:-1;border-top:0;border-bottom:1px solid var(--line);background:#fafbfd}
+.chat-transcript{padding:0 22px 22px;min-width:0}
+.chat-transcript .session-label{margin:16px 0 13px;font-size:11px}
+.chat-transcript .message,.chat-transcript .message.user{width:100%;max-width:100%;margin:0 0 14px;position:relative}
+.chat-transcript .role{justify-content:start;font-size:11px;gap:8px;margin:0 0 5px}
+.chat-transcript .role::before{content:"A";display:grid;place-items:center;width:20px;height:20px;border:1px solid #d8e5f5;border-radius:5px;background:#edf4ff;color:#30629b;font:700 10px var(--sans)}
+.chat-transcript .user .role::before{content:"U";background:#f1f3f6;color:#66758a;border-color:#e1e6ee}
+.chat-transcript .bubble{border:0;padding:0 0 0 28px;background:transparent;border-radius:0;font-size:13px;line-height:1.7}
+.chat-transcript .user .bubble{background:#f5f7fa;padding:9px 12px;margin-left:28px;border:1px solid #e8edf3;border-radius:7px}
+.chat-transcript .activity-group{margin:4px 0 16px 28px}
+.chat-transcript .human,.chat-transcript .missing{margin-left:28px;font-size:12px}
+.chat-transcript .activity-group summary{padding:7px 9px}
+.outline-session{padding:10px 12px 4px;font-size:11px;color:var(--muted);font-weight:650}
+.outline-row{display:grid;grid-template-columns:22px minmax(0,1fr);gap:7px;align-items:start;width:calc(100% - 16px);margin:2px 8px;padding:7px 8px;border:0;background:transparent;border-radius:6px;text-align:left}
+.outline-row:hover{background:#edf2f8}
+.outline-row[aria-current=true]{background:#eaf2fe;box-shadow:inset 2px 0 #4079c9}
+.outline-row .outline-glyph{font:700 10px var(--mono);display:grid;place-items:center;height:21px;border-radius:5px;color:#4b6c99;background:#eaf0f8}
+.outline-row.outline-tools .outline-glyph{color:#2b7960;background:#e5f3ed}
+.outline-row.outline-human .outline-glyph{color:#8b601d;background:#fcf0db}
+.outline-row b{font-size:11px;font-weight:600;display:block}
+.outline-row small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:11px;line-height:1.5;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.outline-row strong{font-weight:inherit}
+.browse-footer{border-top:1px solid var(--line);padding:5px 12px;font-size:10px;color:var(--muted);display:flex;gap:14px;background:#fafbfd;min-height:26px}
+body.focus-mode .layout{grid-template-columns:minmax(0,1fr)}
+body.focus-mode .sidebar{display:none}
+@media(min-width:721px){body{height:100dvh;overflow:hidden;display:flex;flex-direction:column}.app-header{position:static;flex:none}.layout{flex:1;min-height:0;width:100%;grid-template-rows:minmax(0,1fr)}.sidebar{position:static;align-self:stretch;height:auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}#review{height:100%;min-height:0;display:flex;flex-direction:column}.run-overview,.tabs{flex:none}#content{flex:1;min-height:0}.chat-outline,.trace-tree{border-right:1px solid var(--line)}.trace-inspect{border-left:0}.browse-footer{flex:none}}
+@media(max-width:1050px) and (min-width:721px){.layout{grid-template-columns:180px minmax(0,1fr)}.chat-workspace,.trace-workspace{grid-template-columns:204px minmax(0,1fr)}.chat-transcript{padding-inline:14px}.counts{font-size:11px}}
+@media(max-width:720px){.head{padding:0 12px}.layout{padding:8px;display:block}.mobile-pick{padding-bottom:8px}.run-overview{padding:12px 10px 0}.tabs{padding:0 10px;gap:14px}.view-actions #focus-toggle{display:none}.chat-workspace{display:block}.chat-outline{display:none}.chat-transcript{overflow:visible;padding:0 12px 16px}.trace-workspace{display:block;height:auto}.trace-tree{max-height:270px}.trace-inspect-header{position:static}.trace-inspect{overflow:visible}.timeline.trace-view,.timeline.chat-workspace{overflow:visible}.browse-footer{flex-wrap:wrap;gap:3px 12px}.chat-transcript .bubble{padding-left:0}.chat-transcript .user .bubble{margin-left:0}.chat-transcript .activity-group{margin-left:0}}
+
+
+/* Reading first: secondary navigation is opt-in. */
+.timeline.chat-workspace{grid-template-columns:minmax(0,1fr)}
+.chat-outline{display:none}
+body.show-outline .timeline.chat-workspace{grid-template-columns:220px minmax(0,1fr)}
+body.show-outline .chat-outline{display:block}
+.chat-transcript{padding:12px max(28px,calc((100% - 840px)/2)) 40px}
+body.show-outline .chat-transcript{padding:12px 28px 40px}
+.chat-transcript .message,.chat-transcript .message.user{margin-bottom:25px}
+.chat-transcript .bubble{font-size:14px;line-height:1.85}
+.chat-transcript .role{margin-bottom:8px;font-size:12px}
+.chat-transcript .role small{font-size:11px}
+.chat-transcript .session-label{margin:16px 0 24px}
+.chat-transcript .activity-group{margin-top:3px;margin-bottom:26px}
+.chat-transcript .activity-group summary{padding:10px 12px}
+.chat-transcript .activity-group:not([open]) .activity-preview{display:none}
+.chat-transcript .human{margin-top:22px;margin-bottom:27px}
+.browse-footer{display:none}
+.run-overview{padding:19px 24px 0}
+.run-header{margin:9px 0 12px}
+.tabs{padding:0 24px}
+.tab{padding:10px 0}
+.sidebar{padding:14px 10px}
+.choice{min-height:39px}
+.view-actions{gap:8px}
+#expand-tools{display:none}
+@media(max-width:1050px) and (min-width:721px){.chat-transcript{padding-inline:28px}}
+@media(max-width:720px){.chat-transcript,body.show-outline .chat-transcript{padding:6px 12px 26px}.timeline.chat-workspace,body.show-outline .timeline.chat-workspace{display:block}.chat-outline,body.show-outline .chat-outline{display:none}#outline-toggle{display:none}.run-overview{padding:12px 10px 0}.tabs{padding:0 10px}.chat-transcript .bubble{font-size:14px}.chat-transcript .message,.chat-transcript .message.user{margin-bottom:22px}}
+
+
+/* Markdown inherits the accepted reading density. */
+.rich-text.markdown{white-space:normal;min-width:0}
+.markdown p{margin:0 0 1em}
+.markdown>:last-child,.markdown li>:last-child,.markdown blockquote>:last-child{margin-bottom:0}
+.markdown ul,.markdown ol{margin:.65em 0 1em;padding-left:1.6em}
+.markdown li{padding-left:.15em;margin:.3em 0}
+.markdown li>ul,.markdown li>ol{margin:.35em 0}
+.markdown li p{margin:.3em 0}
+.markdown blockquote{margin:.8em 0 1em;padding:8px 14px;border-left:3px solid #a6bbd7;background:#f6f8fb;color:#536785;border-radius:0 5px 5px 0}
+.markdown h2,.markdown h3,.markdown h4,.markdown h5,.markdown h6{margin:1em 0 .5em;font-size:1.05em;font-weight:700}
+.markdown hr{border:0;border-top:1px solid var(--line);margin:1.1em 0}
+.markdown .chat-code{margin:.8em 0 1em}
+.markdown .chat-code code{padding:0;background:transparent;color:inherit;font:inherit}
+.md-literal{white-space:pre-wrap}
+.md-table{max-width:100%;overflow:auto;margin:.8em 0 1em;border:1px solid #dce4ef;border-radius:7px;scrollbar-width:thin}
+.md-table table{border-collapse:collapse;width:100%;font-size:13px;line-height:1.65}
+.md-table th,.md-table td{padding:8px 11px;border-bottom:1px solid #e4eaf2;border-right:1px solid #e4eaf2;text-align:left;min-width:90px;vertical-align:top}
+.md-table th{font-weight:650;background:#f3f6fb;color:#415570;white-space:nowrap}
+.md-table tr:last-child td{border-bottom:0}
+.md-table th:last-child,.md-table td:last-child{border-right:0}
+.markdown .md-task{list-style:none}
+.md-task>input{margin-left:-1.5em;margin-right:.45em;accent-color:#4877af}
+.chat-transcript .activity-group{border-color:#b9cce5;background:#f1f6fd;border-left:3px solid #638fc8}
+.chat-transcript .activity-group summary{grid-template-columns:13px minmax(0,1fr) auto;color:#315b8d}
+.activity-tool-icon{width:17px;height:17px;color:#356eaa}
+.activity-hint{font-size:11px;color:#426b9d;font-weight:500}
+.chat-transcript .activity-group summary:hover{background:#e7f0fc}
+.chat-transcript .activity-group.activity-failed{border-color:#dca5ad;background:#fff5f6}
+.chat-transcript .activity-failed summary{color:#963744}
+.activity-group .activity-preview{grid-column:2 / -1}
+
+</style>
+</head>
+<body>
+<header class="app-header"><div class="head"><div class="brand"><div class="mark"><svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="32" height="32">
+  <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
+  <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
+  <rect x="5" y="8" width="22" height="19" rx="4" fill="#e6f0ff" stroke="#409eff" stroke-width="1.8"/>
+  <circle cx="12" cy="16" r="2.5" fill="#409eff"/>
+  <circle cx="20" cy="16" r="2.5" fill="#409eff"/>
+  <circle cx="13" cy="15" r="0.8" fill="#fff"/>
+  <circle cx="21" cy="15" r="0.8" fill="#fff"/>
+  <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
+  <line x1="16" y1="8" x2="16" y2="3.5" stroke="#409eff" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
+</svg></div><div><h1>LockBot 轨迹浏览器</h1></div></div><div class="header-end"><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
+<div class="layout">
+<aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例"></nav></section><section class="panel"><h2 class="nav-heading">模型与结果</h2><nav id="run-nav" class="run-nav" aria-label="模型与结果"></nav></section></aside>
+<div class="mobile-pick"><label>测例<select id="case-select"></select></label><label>模型与结果<select id="run-select"></select></label></div>
+<main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><details class="record-meta" id="record-meta"><summary>记录信息</summary><dl id="record-fields"></dl></details></div><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div><footer class="browse-footer" id="browse-footer"></footer></main>
+</div>
+<dialog class="inspector" id="inspector" aria-labelledby="inspector-title"><div class="inspector-header"><div><h2 id="inspector-title"></h2><p id="inspector-meta"></p></div><button class="inspector-close" type="button" id="inspector-close" autofocus>关闭</button></div><div class="inspector-fields" id="inspector-fields"></div></dialog>
+<script>__JSON_VIEWER_BUNDLE__</script>
+<script>__MARKDOWN_BUNDLE__</script>
+<script type="application/json" id="trace-data">__TRACE_PAYLOAD__</script>
+<script>
+let data = JSON.parse(document.getElementById('trace-data').textContent);
+const statusNames = {pass:'通过',timeout:'超时',blocked:'环境阻塞',fail:'行为失败'};
+const select = (id) => document.getElementById(id);
+const node = (tag, text, className) => {
+  const el = document.createElement(tag);
+  if (text) el.textContent = text;
+  if (className) el.className = className;
+  return el;
+};
+const icons = {
+  file:'M7 3h7l4 4v14H6V3h1m7 0v5h5M9 13h6m-6 4h6',
+  chat:'M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l1.5-3A7.5 7.5 0 1 1 20 11.5Z',
+  list:'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
+  terminal:'m5 6 5 5-5 5m8 0h6',
+  tool:'M5 6h14M5 12h14M5 18h9',
+  error:'M12 8v5m0 3h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
+  left:'m15 6-6 6 6 6',right:'m9 6 6 6-6 6',
+};
+function icon(name) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns,'svg');
+  const path = document.createElementNS(ns,'path');
+  svg.setAttribute('class','icon'); svg.setAttribute('viewBox','0 0 24 24');
+  svg.setAttribute('aria-hidden','true');
+  path.setAttribute('d',icons[name]); path.setAttribute('fill','none');
+  path.setAttribute('stroke','currentColor'); path.setAttribute('stroke-width','1.7');
+  path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round');
+  svg.append(path);
+  return svg;
+}
+const roleNames = {user:'用户', assistant:'Agent'};
+const scenarioLabels = {
+  recover:'接入与凭证',create:'接入与凭证',reset:'接入与凭证','native-bind':'接入与凭证',
+  native:'跨会话续用',preflight:'仓库指引与运维',workbench:'个人工作台',
+};
+function scenarioGroups() {
+  const groups = new Map();
+  for (const key of cases) {
+    const label = data.groups && Object.hasOwn(data.groups,key) ? data.groups[key] :
+      Object.hasOwn(scenarioLabels,key) ? scenarioLabels[key] : '';
+    if (!groups.has(label)) groups.set(label,[]);
+    groups.get(label).push(key);
+  }
+  return [...groups];
+}
+let cases = Object.keys(data.cases);
+let activeCase, activeIndex, activeTab, activeStep, failureOnly;
+let imported = false;
+function defaultRun(key) {
+  return key==='create' ? Math.max(0,data.cases[key].findIndex(run=>run.direct)) : 0;
+}
+function readRoute() {
+  const route = new URLSearchParams(location.hash.slice(1));
+  activeCase = cases.includes(route.get('case')) ? route.get('case') : cases.includes('create') ? 'create' : cases[0];
+  activeIndex = Number(route.get('run') ?? defaultRun(activeCase));
+  activeTab = route.get('view') === 'steps' ? 'events' : 'chat';
+  activeStep = Number(route.get('step'));
+  failureOnly = false;
+}
+function writeRoute() {
+  const route = new URLSearchParams({case:activeCase,run:activeIndex});
+  if (activeTab==='events') {
+    route.set('view','steps');
+    if (activeStep) route.set('step',activeStep);
+  }
+  history.replaceState(null,'','#'+route);
+}
+const caseName = key => data.labels && Object.hasOwn(data.labels,key) ? data.labels[key] || key : key;
+const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
+function badge(state) { return node('span',statusNames[state],'badge '+state); }
+function resetSelection() { activeStep = 0; failureOnly = false; }
+function pickCase(key) { activeCase = key; activeIndex = 0; resetSelection(); draw(); }
+function pickRun(index) { activeIndex = index; resetSelection(); draw(); }
+readRoute();
+addEventListener('hashchange',()=>{readRoute(); draw();});
+function choice(text, meta, pressed, action) {
+  const button = node('button',null,'choice');
+  button.type = 'button';
+  button.setAttribute('aria-pressed',pressed);
+  button.append(node('span',text,'model-name'));
+  if (meta) button.append(meta);
+  button.addEventListener('click',action);
+  return button;
+}
+function modelLabel(trial,index) {
+  return trial.model || '运行 '+String(index+1).padStart(2,'0');
+}
+function jsonPreview(value) {
+  if (value && typeof value === 'object') return JSON.stringify(value,null,2);
+  if (typeof value !== 'string' || !/^\s*[\[{]/.test(value) || value.length > 24000) return null;
+  try { return JSON.stringify(JSON.parse(value),null,2); } catch { return null; }
+}
+function appendJson(code,text) {
+  const tokens = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+  let cursor = 0;
+  for (const match of text.matchAll(tokens)) {
+    if (cursor < match.index) code.append(document.createTextNode(text.slice(cursor,match.index)));
+    const type = match[2] ? 'key' : match[1] ? 'string' : match[3] ? 'literal' : 'number';
+    code.append(node('span',match[0],'json-'+type));
+    cursor = match.index + match[0].length;
+  }
+  code.append(document.createTextNode(text.slice(cursor)));
+}
+function displayText(value) {
+  return typeof value === 'string' ? value : JSON.stringify(value,null,2);
+}
+async function copyText(text,button) {
+  try {
+    if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const textArea = node('textarea');
+    textArea.value = text;
+    textArea.style.cssText = 'position:fixed;opacity:0;inset:auto 0 0';
+    (button.closest('dialog') ?? document.body).append(textArea);
+    textArea.select();
+    const copied = document.execCommand('copy');
+    textArea.remove();
+    button.focus();
+    if (!copied) { button.textContent = '复制失败'; return; }
+  }
+  button.textContent = '已复制';
+  setTimeout(()=>{button.textContent = '复制';},1200);
+}
+function evidenceField(label,value) {
+  const field = node('details',null,'evidence-section');
+  field.open = true;
+  field.append(node('summary',label));
+  if (value == null) {
+    field.append(node('p','未采集','payload-empty'));
+    return field;
+  }
+  const box = node('div',null,'payload');
+  const body = node('div',null,'payload-body');
+  const actions = node('div',null,'payload-bar');
+  const raw = displayText(value);
+  const json = jsonPreview(value);
+  const formatted = json !== null && json.length <= 24000;
+  const formats = node('div',null,'payload-format');
+  const structured = value && typeof value==='object' ? value : formatted ? JSON.parse(json) : null;
+  const entries = structured && !Array.isArray(structured) ? Object.entries(structured) : [];
+  const [key,text] = entries.length===1 ? entries[0] : [];
+  const reading = typeof text==='string' && text.includes('\n') ? [key,text] : null;
+  if (formatted || reading) {
+    const buttons = new Map();
+    const render = mode=>{
+      for (const [name,button] of buttons) button.setAttribute('aria-pressed',name===mode);
+      if (mode==='text') {
+        body.replaceChildren(node('p',reading[0],'payload-text-key'),node('pre',reading[1],'payload-text'));
+      } else if (mode==='json' && customElements.get('json-viewer')) {
+        const viewer = node('json-viewer');
+        viewer.data = structured;
+        body.replaceChildren(viewer);
+      } else {
+        const pre = node('pre');
+        const code = node('code');
+        if (mode==='json') appendJson(code,json);
+        else code.textContent = raw;
+        pre.append(code);
+        body.replaceChildren(pre);
+      }
+      body.scrollTop = 0;
+    };
+    const options = [...(reading ? [['text','文本']] : []),...(formatted ? [['json','结构']] : []),['raw','原文']];
+    for (const [mode,title] of options) {
+      const button = node('button',title);
+      button.type = 'button';
+      button.onclick = ()=>render(mode);
+      buttons.set(mode,button);
+      formats.append(button);
+    }
+    render(reading ? 'text' : 'json');
+  } else {
+    body.append(node('pre',raw));
+    formats.append(node('span',json===null?'文本':'JSON','format-label'));
+  }
+  const copy = node('button','复制');
+  copy.type = 'button';
+  copy.setAttribute('aria-label','复制'+label);
+  copy.onclick = ()=>copyText(raw,copy);
+  actions.append(formats,copy);
+  box.append(body,actions);
+  field.append(box);
+  return field;
+}
+function renderStepEvidence(container,info) {
+  if (!info) {
+    container.replaceChildren(node('p','这条记录只保存了步骤概要。','payload-empty'));
+    return;
+  }
+  const fields = [evidenceField('输入',info.input),evidenceField('输出',info.output)];
+  if (info.error != null) {
+    const error = evidenceField('错误',info.error);
+    error.classList.add('payload-error');
+    fields.push(error);
+  }
+  container.replaceChildren(...fields);
+}
+function isFailed(step,info) {
+  return !!info?.error || /失败|错误|拒绝|拦截|超时|未成功/.test(step[3]);
+}
+function statusChip(step,info) {
+  const status = step[3];
+  return node('span',status || '异常','badge '+(isFailed(step,info) ? 'fail' :
+    /待|进行/.test(status) ? 'pending' : 'blocked'));
+}
+function duration(info) {
+  const ms = info?.duration_ms;
+  if (!Number.isFinite(ms)) return null;
+  return ms < 1000 ? ms+' ms' : Number((ms/1000).toFixed(2))+' s';
+}
+function stepLabel(step) { return step[1] || step[0] || '工具调用'; }
+function stepGlyph(step,info) {
+  const failed = isFailed(step,info);
+  const glyph = /CLI|终端|Shell/i.test(step[0]) ? 'terminal' : /文档/.test(step[0]) ? 'file' : 'tool';
+  const tile = node('span',null,'trace-icon '+(failed ? 'step-error' : glyph));
+  tile.append(icon(failed ? 'error' : glyph));
+  return tile;
+}
+function activityTitle(steps) {
+  const types = new Map();
+  for (const [tool] of steps) types.set(tool,(types.get(tool) ?? 0)+1);
+  return [...types].map(([tool,count])=>tool+' '+count+' 次').join(' · ');
+}
+function openStep(step,info) {
+  const [tool,,stage,status] = step;
+  const inspector = select('inspector');
+  select('inspector-title').textContent = stepLabel(step);
+  const meta = select('inspector-meta');
+  meta.replaceChildren();
+  if (stage) meta.append(node('span',stage));
+  if (tool) meta.append(node('span',tool));
+  if (status || isFailed(step,info)) meta.append(statusChip(step,info));
+  if (duration(info)) meta.append(node('span',duration(info),'trace-duration'));
+  renderStepEvidence(select('inspector-fields'),info);
+  select('inspector-fields').scrollTop = 0;
+  inspector.showModal();
+}
+function stepList(steps,evidence=[]) {
+  const list = node('ol');
+  for (const [index,step] of steps.entries()) {
+    const [tool,action,stage,status] = step;
+    const line = node('li',null,'operation');
+    const failed = isFailed(step,evidence[index]);
+    const label = node('span',null,'activity-action');
+    label.append(node('span',failed ? '!' : '·','activity-dot'),node('span',stepLabel(step)),
+      node('span',[tool,status].filter(Boolean).join(' · '),'tool-status'));
+    const info = evidence[index];
+    if (info) {
+      const button = node('button',null,'inspect-step');
+      button.type = 'button';
+      if (failed) button.classList.add('step-failed');
+      button.setAttribute('aria-haspopup','dialog');
+      button.append(label,node('span','详情 ›','step-open'));
+      button.onclick = ()=>openStep(step,info);
+      line.append(button);
+    } else {
+      line.append(label);
+    }
+    list.append(line);
+  }
+  return list;
+}
+
+function decodeEntities(text) {
+  const decoder = document.createElement('textarea');
+  return text.replace(/&(?:#\d+|#x[\da-f]+|[a-z][\da-z]+);/gi,entity=>{
+    decoder.innerHTML = entity;
+    return decoder.value;
+  });
+}
+function codeBlock(text,language='') {
+  const block = node('div',null,'chat-code');
+  const bar = node('div',null,'chat-code-bar');
+  const copy = node('button','复制');
+  copy.type = 'button'; copy.setAttribute('aria-label','复制代码');
+  copy.onclick = ()=>copyText(text,copy);
+  bar.append(node('span',language || '代码'),copy);
+  const pre = node('pre'), code = node('code');
+  if (language.toLowerCase()==='json' && text.length<=24000 && jsonPreview(text)!==null) appendJson(code,text);
+  else code.textContent = text;
+  pre.append(code); block.append(bar,pre);
+  return block;
+}
+function renderMarkdownTokens(target,tokens) {
+  for (const token of tokens) {
+    let el;
+    switch (token.type) {
+      case 'space': case 'def': continue;
+      case 'html': target.append(node('span',token.raw,'md-literal')); continue;
+      case 'code': target.append(codeBlock(token.text,token.lang?.split(/\s+/)[0])); continue;
+      case 'codespan': target.append(node('code',token.text)); continue;
+      case 'text': case 'escape':
+        if (token.tokens) renderMarkdownTokens(target,token.tokens);
+        else target.append(decodeEntities(token.text));
+        continue;
+      case 'paragraph': el=node('p'); break;
+      case 'heading': el=node('h'+Math.min(6,Math.max(2,token.depth))); break;
+      case 'blockquote': el=node('blockquote'); break;
+      case 'strong': el=node('strong'); break;
+      case 'em': el=node('em'); break;
+      case 'del': el=node('del'); break;
+      case 'br': target.append(node('br')); continue;
+      case 'hr': target.append(node('hr')); continue;
+      case 'link':
+        // Display logged link text without inventing navigation actions.
+        renderMarkdownTokens(target,token.tokens); continue;
+      case 'image': target.append(node('span',token.text || token.raw)); continue;
+      case 'list':
+        el=node(token.ordered ? 'ol' : 'ul');
+        if (token.ordered && Number.isInteger(token.start)) el.start=token.start;
+        for (const item of token.items) {
+          const li=node('li');
+          if (item.task) {
+            const check=node('input');
+            check.type='checkbox';check.disabled=true;check.checked=!!item.checked;
+            check.setAttribute('aria-label',item.checked ? '已完成' : '未完成');
+            li.classList.add('md-task');li.append(check);
+          }
+          renderMarkdownTokens(li,item.tokens);
+          el.append(li);
+        }
+        target.append(el);continue;
+      case 'table': {
+        const wrap=node('div',null,'md-table');
+        wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','表格，可横向滚动');
+        const table=node('table'),head=node('thead'),body=node('tbody');
+        const row=(cells,header)=>{
+          const tr=node('tr');
+          for (const [i,cell] of cells.entries()) {
+            const td=node(header?'th':'td');
+            if (header) td.scope='col';
+            if (['left','right','center'].includes(token.align[i])) td.style.textAlign=token.align[i];
+            renderMarkdownTokens(td,cell.tokens);tr.append(td);
+          }
+          return tr;
+        };
+        head.append(row(token.header,true));
+        for (const cells of token.rows) body.append(row(cells,false));
+        table.append(head,body);wrap.append(table);target.append(wrap);continue;
+      }
+      default: target.append(token.raw ?? token.text ?? '');continue;
+    }
+    renderMarkdownTokens(el,token.tokens ?? []);
+    target.append(el);
+  }
+}
+function messageBody(text) {
+  const bubble=node('div',null,'bubble');
+  const markdown=node('div',null,'rich-text markdown');
+  try {
+    renderMarkdownTokens(markdown,marked.lexer(text,{gfm:true,breaks:true}));
+  } catch {
+    markdown.textContent=text;
+    markdown.classList.add('md-literal');
+  }
+  bubble.append(markdown);
+  return bubble;
+}
+function renderEntry(entry) {
+  if (entry.role === 'tools') {
+    const failures = entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i]));
+    const details = node('details',null,'tool-box activity-group'+(failures.length ? ' activity-failed' : ''));
+    const title = activityTitle(entry.steps);
+    const summary = node('summary');
+    const caption = node('span',title,'activity-summary');
+    if (failures.length) caption.append(node('span',failures.length+' 项异常','badge fail'));
+    const preview = (failures.length ? failures : entry.steps).slice(0,3).map(stepLabel).join('、');
+    const toolIcon = icon('terminal');
+    toolIcon.classList.add('activity-tool-icon');
+    caption.prepend(toolIcon);
+    summary.append(caption,node('span','展开','activity-hint'),node('span',preview,'activity-preview'));
+    details.append(summary,stepList(entry.steps,entry.evidence));
+    details.open = failures.length > 0;
+    const updateHint = ()=>{summary.querySelector('.activity-hint').textContent=details.open?'收起':'展开';};
+    details.addEventListener('toggle',updateHint);
+    updateHint();
+    return details;
+  }
+  if (entry.role === 'human') {
+    const event = node('div',null,'human');
+    event.append(node('strong',entry.label || '用户操作'),node('span',entry.text));
+    return event;
+  }
+  if (entry.role === 'missing') return node('p',entry.text,'missing');
+  const message = node('div',null,'message '+entry.role);
+  const role = node('p',roleNames[entry.role],'role');
+  if (entry.label) role.append(node('small',entry.label));
+  message.append(role,messageBody(entry.text));
+  return message;
+}
+function chatView(content,trial) {
+  const outline = node('nav',null,'chat-outline');
+  outline.setAttribute('aria-label','对话目录');
+  outline.append(node('div','对话目录','trace-toolbar'));
+  const transcript = node('div',null,'chat-transcript');
+  const pairs = [];
+  let order = 0;
+  function appendEntry(entry) {
+    const rendered = renderEntry(entry);
+    transcript.append(rendered);
+    const button = node('button',null,'outline-row outline-'+entry.role);
+    button.type = 'button';
+    button.setAttribute('aria-current','false');
+    const label = entry.role==='tools' ? '工具调用 · '+entry.steps.length : roleNames[entry.role] || entry.label || '事件';
+    const excerpt = entry.role==='tools' ? entry.steps.map(stepLabel).join(' · ') : entry.text;
+    const words = node('span');
+    words.append(node('b',label),node('small',excerpt));
+    button.append(node('span',entry.role==='tools' ? '›_' : entry.role==='user' ? 'U' : entry.role==='assistant' ? 'A' : '·','outline-glyph'),words);
+    outline.append(button);
+    rendered.dataset.entry = ++order;
+    button.onclick = ()=>{
+      for (const pair of pairs) pair.button.setAttribute('aria-current',String(pair.button===button));
+      transcript.scrollTop += rendered.getBoundingClientRect().top - transcript.getBoundingClientRect().top - 14;
+      rendered.tabIndex = -1;
+      rendered.focus({preventScroll:true});
+    };
+    pairs.push({rendered,button});
+  }
+  trial.sessions.forEach((session,index) => {
+    if(index && trial.confirmed) appendEntry({role:'human',label:'群内确认',text:'由测试程序模拟 · 一次群操作'});
+    transcript.append(node('p',sessionName(index),'session-label'));
+    outline.append(node('p',sessionName(index),'outline-session'));
+    for (const entry of session) appendEntry(entry);
+  });
+  if (trial.confirmed && trial.sessions.length===1) transcript.append(node('p','已记录模拟群内确认。新会话对话未采集。','human'));
+  if (!pairs.length) transcript.append(node('p','没有对话记录','evidence-note'));
+  content.classList.add('chat-workspace');
+  content.append(outline,transcript);
+  pairs[0]?.button.setAttribute('aria-current','true');
+  let scheduled = false;
+  transcript.addEventListener('scroll',()=>{
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(()=>{
+      scheduled = false;
+      const edge = transcript.getBoundingClientRect().top+32;
+      const current = pairs.find(pair=>pair.rendered.getBoundingClientRect().bottom>edge) ?? pairs.at(-1);
+      for (const pair of pairs) pair.button.setAttribute('aria-current',String(pair===current));
+    });
+  },{passive:true});
+}
+function eventsView(content,trial) {
+  const workspace = node('div',null,'trace-workspace');
+  const tree = node('nav',null,'trace-tree');
+  tree.setAttribute('aria-label','执行步骤');
+  const panel = node('section',null,'trace-inspect');
+  panel.setAttribute('aria-label','步骤详情');
+  panel.tabIndex = -1;
+  const toolbar = node('div',null,'trace-toolbar');
+  const heading = node('h3','工具调用');
+  const groups = node('div');
+  toolbar.append(heading);
+  const searchBar = node('div',null,'trace-search');
+  const search = node('input');
+  search.type = 'search';
+  search.placeholder = '搜索步骤、工具、输入输出';
+  search.setAttribute('aria-label','搜索执行步骤');
+  searchBar.append(search);
+  tree.append(toolbar,searchBar,groups);
+  workspace.append(tree,panel);
+  content.append(workspace);
+  content.classList.add('trace-view');
+  let id = 0;
+  const sessions = trial.sessions.map(session=>session.flatMap(entry=>
+    entry.role==='tools' ? entry.steps.map((step,i)=>({id:++id,step,info:entry.evidence?.[i]})) : []));
+  const steps = sessions.flat();
+  const errors = steps.filter(item=>isFailed(item.step,item.info));
+  heading.textContent = '工具调用 · '+steps.length;
+  const only = node('button','仅异常 '+errors.length,'quiet-button trace-toggle');
+  only.type = 'button';
+  if (errors.length) toolbar.append(only);
+  const searchable = new Map(steps.map(item=>[item,JSON.stringify([item.step,item.info]).toLocaleLowerCase()]));
+  let query = '';
+  let visible = [];
+  let selected = null;
+  const rows = new Map();
+  const banner = node('header',null,'trace-inspect-header');
+  const name = node('div',null,'step-name');
+  const nav = node('div',null,'step-nav');
+  const position = node('span',null,'step-nav-count');
+  const prev = node('button',null,'quiet-button');
+  const next = node('button',null,'quiet-button');
+  for (const [button,glyph,label] of [[prev,'left','上一步'],[next,'right','下一步']]) {
+    button.type = 'button'; button.title = label; button.setAttribute('aria-label',label); button.append(icon(glyph));
+  }
+  nav.append(position,prev,next);
+  banner.append(name,nav);
+  const fields = node('div',null,'trace-inspect-body');
+  function show(item,origin) {
+    if (selected) rows.get(selected.id)?.setAttribute('aria-pressed','false');
+    selected = item;
+    if (!item) {
+      activeStep = 0;
+      panel.replaceChildren(node('p',query ? '没有匹配的步骤' : '没有工具调用记录','evidence-note'));
+      writeRoute();
+      return;
+    }
+    activeStep = item.id;
+    const row = rows.get(item.id);
+    row.setAttribute('aria-pressed','true');
+    const [tool,,phase,status] = item.step;
+    const header = node('div');
+    const meta = node('p');
+    if (tool) meta.append(node('span',tool));
+    if (phase) meta.append(node('span',phase));
+    if (status || isFailed(item.step,item.info)) meta.append(statusChip(item.step,item.info));
+    if (duration(item.info)) meta.append(node('span',duration(item.info),'trace-duration'));
+    header.append(node('h3',stepLabel(item.step)));
+    if (meta.childNodes.length) header.append(meta);
+    name.replaceChildren(stepGlyph(item.step,item.info),header);
+    const index = visible.indexOf(item);
+    position.textContent = (index+1)+' / '+visible.length;
+    prev.disabled = index===0;
+    next.disabled = index===visible.length-1;
+    renderStepEvidence(fields,item.info);
+    if (!banner.isConnected) panel.replaceChildren(banner,fields);
+    panel.scrollTop = 0;
+    if (origin==='arrow') {
+      row.focus();
+    } else if (origin==='nav') {
+      const rb = row.getBoundingClientRect(), tb = tree.getBoundingClientRect();
+      if (rb.top < searchBar.getBoundingClientRect().bottom) tree.scrollTop -= searchBar.getBoundingClientRect().bottom - rb.top;
+      else if (rb.bottom > tb.bottom) tree.scrollTop += rb.bottom - tb.bottom;
+      if (document.activeElement?.disabled) (prev.disabled ? next : prev).focus({preventScroll:true});
+    } else if (origin==='click' && matchMedia('(max-width:720px)').matches) {
+      panel.focus({preventScroll:true});
+      panel.scrollIntoView({block:'start'});
+    }
+    writeRoute();
+  }
+  function move(delta,origin) {
+    const item = visible[visible.indexOf(selected)+delta];
+    if (item) show(item,origin);
+  }
+  prev.onclick = ()=>move(-1,'nav');
+  next.onclick = ()=>move(1,'nav');
+  tree.addEventListener('keydown',event=>{
+    if (!event.target.closest('.trace-row') || !['ArrowUp','ArrowDown','Home','End'].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key==='Home' || event.key==='End') show(visible.at(event.key==='Home' ? 0 : -1),'arrow');
+    else move(event.key==='ArrowUp' ? -1 : 1,'arrow');
+  });
+  function renderList() {
+    visible = (failureOnly ? errors : steps).filter(item=>!query || searchable.get(item).includes(query));
+    heading.textContent = query ? '匹配 '+visible.length+' / '+steps.length : '工具调用 · '+steps.length;
+    const eligible = new Set(visible);
+    only.setAttribute('aria-pressed',failureOnly);
+    groups.replaceChildren();
+    rows.clear();
+    for (const [i,session] of sessions.entries()) {
+      const list = node('ol',null,'trace-actions');
+      for (const item of session.filter(row=>eligible.has(row))) {
+        const {step,info} = item;
+        const text = node('span');
+        const time = duration(info);
+        text.append(node('b',stepLabel(step)),node('small',[step[0],step[3]].filter(Boolean).join(' · ')));
+        const button = node('button',null,'trace-row');
+        button.type = 'button';
+        button.setAttribute('aria-pressed','false');
+        button.append(stepGlyph(step,info),text,node('span',time ?? String(item.id).padStart(2,'0'),'trace-ordinal'));
+        button.onclick = ()=>show(item,'click');
+        rows.set(item.id,button);
+        const li = node('li');
+        li.append(button);
+        list.append(li);
+      }
+      if (!list.childNodes.length && (failureOnly || query)) continue;
+      groups.append(node('p',sessionName(i),'trace-session'),
+        list.childNodes.length ? list : node('p','无调用记录','empty-session'));
+    }
+    show(visible.find(item=>item.id===activeStep) ?? visible.find(item=>errors.includes(item)) ?? visible[0]);
+  }
+  search.oninput = ()=>{query=search.value.trim().toLocaleLowerCase();renderList();};
+  only.onclick = ()=>{failureOnly = !failureOnly; renderList();};
+  renderList();
+}
+function renderRecord(trial) {
+  const items = [
+    ['来源',imported ? '本地 JSON' : '',null],
+    ['名称',data.title,'data-title'],
+    ['版本',data.version,'version'],
+    ['测例说明',data.criteria?.[activeCase],'criterion'],
+    ['运行备注',trial.note,null],
+  ].filter(([,text])=>typeof text==='string' && text.trim());
+  const fields = select('record-fields');
+  fields.replaceChildren();
+  for (const [label,text,id] of items) {
+    const dd = node('dd',text);
+    if (id) dd.id = id;
+    fields.append(node('dt',label),dd);
+  }
+  select('record-meta').hidden = !items.length;
+}
+function draw() {
+  const all = data.cases[activeCase];
+  if(!all[activeIndex]) activeIndex = 0;
+  const trial = all[activeIndex];
+  renderRecord(trial);
+  const entries = trial.sessions.flat();
+  const tools = entries.filter(entry=>entry.role==='tools');
+  const captured = tools.reduce((total,entry)=>total+entry.steps.length,0);
+  const messages = entries.filter(entry=>['user','assistant'].includes(entry.role)).length;
+  const footer = select('browse-footer');
+  footer.replaceChildren(node('span',trial.sessions.length+' 个会话'),node('span',messages+' 条消息'),node('span',captured+' 次工具调用'));
+  const failures = tools.reduce((total,entry)=>total+entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i])).length,0);
+  if (failures) footer.append(node('span',failures+' 次调用异常'));
+
+  const focusedNav = document.activeElement?.closest('#case-nav, #run-nav')?.id;
+  select('case-nav').replaceChildren(...scenarioGroups().map(([label,keys]) => {
+    const group = node('div',null,'case-group');
+    if (label) group.append(node('h3',label));
+    group.append(...keys.map(key=>{
+      const scope = data.cases[key].filter(run=>run.state);
+      const count = scope.length ? node('span',scope.filter(run=>run.state==='pass').length+'/'+scope.length,'meta') : null;
+      if (count) count.title = '通过 / 已判定';
+      return choice(caseName(key),count,
+        activeCase===key,()=>pickCase(key));
+    }));
+    return group;
+  }));
+  select('run-nav').replaceChildren(...all.map((row,index)=>choice(modelLabel(row,index),row.state ? badge(row.state) : null,activeIndex===index,()=>pickRun(index))));
+  if (focusedNav) select(focusedNav).querySelector('[aria-pressed="true"]')?.focus({preventScroll:true});
+  select('case-select').replaceChildren(...scenarioGroups().flatMap(([label,keys])=>{
+    const options = keys.map(key=>new Option(caseName(key),key,false,key===activeCase));
+    if (!label) return options;
+    const group = node('optgroup');
+    group.label = label;
+    group.append(...options);
+    return [group];
+  }));
+  select('run-select').replaceChildren(...all.map((row,index)=>new Option([modelLabel(row,index),statusNames[row.state]].filter(Boolean).join(' · '),index,false,index===activeIndex)));
+  select('case-title').textContent = caseName(activeCase);
+  const runTitle = select('run-title');
+  runTitle.replaceChildren(node('span',modelLabel(trial,activeIndex)));
+  if (trial.state) runTitle.append(badge(trial.state));
+  const externalActions = trial.sessions.flat().filter(entry=>entry.role==='human').length;
+  const confirmed = externalActions ? ' · '+externalActions+' 次模拟人工操作' :
+    trial.confirmed ? ' · 1 次模拟确认' : '';
+  const elapsed = Number.isFinite(trial.elapsed_seconds) ? ' · '+trial.elapsed_seconds.toFixed(1)+' 秒' : '';
+  const toolCount = Number.isInteger(trial.count) ? ' · '+trial.count+' 次工具事件' : '';
+  select('counts').textContent = trial.sessions.length+' 个会话'+toolCount+confirmed+elapsed;
+  select('chat-tab').setAttribute('aria-pressed',activeTab==='chat');
+  select('event-tab').setAttribute('aria-pressed',activeTab==='events');
+  const content = select('content');
+  content.classList.remove('trace-view','chat-workspace');
+  content.replaceChildren();
+  select('expand-tools').hidden = activeTab!=='chat';
+  select('outline-toggle').hidden = activeTab!=='chat';
+  select('expand-tools').textContent = '展开调用';
+  if (activeTab==='chat') chatView(content,trial); else eventsView(content,trial);
+  if (!content.childNodes.length) content.append(node('p','没有对话记录','evidence-note'));
+  writeRoute();
+}
+select('case-select').onchange = event=>pickCase(event.target.value);
+select('run-select').onchange = event=>pickRun(Number(event.target.value));
+select('chat-tab').onclick = ()=>{if (activeTab!=='chat') {activeTab='chat'; draw();}};
+select('event-tab').onclick = ()=>{if (activeTab!=='events') {activeTab='events'; draw();}};
+const viewActions = node('div',null,'view-actions');
+const expandTools = node('button','展开调用','quiet-button');
+expandTools.type = 'button';
+expandTools.id = 'expand-tools';
+expandTools.onclick = ()=>{
+  const groups = [...document.querySelectorAll('.chat-transcript .activity-group')];
+  const open = groups.some(group=>!group.open);
+  for (const group of groups) group.open = open;
+  expandTools.textContent = open ? '收起调用' : '展开调用';
+};
+const focus = node('button','专注阅读','quiet-button');
+focus.id='focus-toggle'; focus.type='button'; focus.setAttribute('aria-pressed','false');
+focus.onclick = ()=>{
+  const on = document.body.classList.toggle('focus-mode');
+  focus.setAttribute('aria-pressed',on); focus.textContent = on ? '显示导航' : '专注阅读';
+};
+const outlineToggle = node('button','目录','quiet-button');
+outlineToggle.id = 'outline-toggle'; outlineToggle.type = 'button';
+outlineToggle.setAttribute('aria-pressed','false');
+outlineToggle.onclick = ()=>{
+  const on = document.body.classList.toggle('show-outline');
+  outlineToggle.setAttribute('aria-pressed',on);
+  outlineToggle.textContent = on ? '收起目录' : '目录';
+};
+viewActions.append(outlineToggle,expandTools,focus);
+document.querySelector('.tabs').append(viewActions);
+select('load-file').prepend(icon('file'));
+select('chat-tab').prepend(icon('chat'));
+select('event-tab').prepend(icon('list'));
+function validRecord(record) {
+  const optionalText = value => value == null || typeof value==='string';
+  const optionalMap = value => value === undefined || (!!value && typeof value==='object' &&
+    !Array.isArray(value) && Object.values(value).every(text=>typeof text==='string'));
+  if (!record || record.schema !== 1 || !optionalText(record.title) || !optionalText(record.version) ||
+    !record.cases || typeof record.cases !== 'object' || Array.isArray(record.cases) ||
+    ![record.labels,record.criteria,record.groups].every(optionalMap)) return false;
+  const runs = Object.values(record.cases);
+  return runs.length && runs.every(list => Array.isArray(list) && list.length && list.every(run => run &&
+      optionalText(run.model) && optionalText(run.note) &&
+      (run.state == null || Object.hasOwn(statusNames,run.state)) && Array.isArray(run.sessions) &&
+      run.sessions.every(session => Array.isArray(session) && session.every(entry => entry &&
+        (entry.role === 'tools' ? Array.isArray(entry.steps) &&
+          entry.steps.every(step => Array.isArray(step) && step.length === 4 && step.every(field=>typeof field==='string')) &&
+          (entry.evidence === undefined || Array.isArray(entry.evidence)) :
+          ['user','assistant','human','missing'].includes(entry.role) && typeof entry.text === 'string')))));
+}
+const inspector = select('inspector');
+select('inspector-close').onclick = ()=> inspector.close();
+inspector.addEventListener('click',event=>{
+  if (event.target !== inspector) return;
+  const bounds = inspector.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right ||
+      event.clientY < bounds.top || event.clientY > bounds.bottom) {
+    inspector.close();
+  }
+});
+select('load-file').onclick = ()=> select('trace-file').click();
+select('trace-file').onchange = async (event)=>{
+  const file = event.target.files[0];
+  if (!file) return;
+  const status = select('load-status');
+  try {
+    if (file.size > 32 * 1024 * 1024) throw new Error('请选择 32 MB 以内的轨迹 JSON。');
+    const candidate = JSON.parse(await file.text());
+    if (!validRecord(candidate)) throw new Error('这个文件不符合 LockBot 轨迹 JSON v1 格式。');
+    data = candidate;
+    imported = true;
+    activeTab = 'chat';
+    select('record-meta').open = false;
+    cases = Object.keys(data.cases);
+    status.textContent = '';
+    pickCase(cases[0]);
+  } catch(error) {
+    status.textContent = error instanceof SyntaxError ? '无法读取这个 JSON 文件。' : error.message;
+  } finally {
+    event.target.value = '';
+  }
+};
+draw();
+</script>
+</body>
+</html>

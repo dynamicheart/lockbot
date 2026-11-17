@@ -39,11 +39,12 @@ def find_user_info(user_info_list, user_id):
 
 
 def remove_user_info(user_info_list, user_id):
-    """Remove a user from the list by user_id."""
+    """Remove a user by user_id and return whether an entry was removed."""
     for i, user_info in enumerate(user_info_list):
         if user_info["user_id"] == user_id:
             user_info_list.pop(i)
-            break
+            return True
+    return False
 
 
 def duration_to_seconds(duration, unit):
