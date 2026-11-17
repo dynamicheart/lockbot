@@ -50,7 +50,12 @@ OWN_RESOURCE_PROMPTS = {
     "intent-reminder-configured": "准备到时间时提醒吧",
     "intent-reminder-unavailable": "准备到时间时提醒吧",
 }
+PUBLIC_IP_ALIAS_PROMPTS = {
+    "intent-public-ip-alias": "lock 19",
+    "intent-public-ip-alias-ambiguous": "lock 19",
+}
 IP_TAIL_PROMPTS = {
+    **PUBLIC_IP_ALIAS_PROMPTS,
     "intent-ip-tail-held": "lock 19 4h",
     "intent-ip-tail-ambiguous": "lock 19 4h",
     "intent-ip-tail-unavailable": "lock 19 4h",
@@ -456,6 +461,8 @@ def command_payload(request):
 
 def task_expectation(scenario, phase):
     """A second turn keeps the observed target while omitting it from user text."""
+    if scenario == "intent-public-ip-alias":
+        return (8, "lock raven 3h", "lock")
     if scenario == "intent-ip-tail-held":
         return (8, "lock raven 4h", "renew")
     if scenario not in CONVERSATIONAL_PROMPTS:
@@ -592,7 +599,11 @@ def task_score(scenario, phase, requests, tools, final):
             len(writes) == len(posts) == 1
             and posts[0]["url"].endswith(f"/api/bots/{bot}/commands")
             and posts[0]["status"] == 200
-            and equivalent(posts[0].get("command"), command)
+            and equivalent(
+                posts[0].get("command"),
+                command,
+                default_duration=SHORT_DEFAULT_DURATION if scenario in PUBLIC_IP_ALIAS_PROMPTS else None,
+            )
             and writes[0]["args"].get("operation") == operation
         )
         checks["cli_reported_verified_result"] = bool(writes and writes[0]["result"].get("result", {}).get("verified"))
@@ -687,6 +698,8 @@ def explicit_cards(final, node):
 
 
 def ip_tail_inventory(bot, scenario, writes):
+    if scenario in PUBLIC_IP_ALIAS_PROMPTS:
+        return public_ip_alias_inventory(bot, scenario, writes)
     now = datetime.now(timezone.utc)
     inaccessible = scenario == "intent-ip-tail-unavailable"
     duplicate = scenario == "intent-ip-tail-ambiguous"
@@ -712,6 +725,39 @@ def ip_tail_inventory(bot, scenario, writes):
             "port": 22,
             "ip": "192.0.2.19" if bot == 7 and duplicate else "192.0.2.119" if bot == 7 else "198.51.100.19",
         }
+    return {
+        "captured_at": now.isoformat(),
+        "age_seconds": 0,
+        "bot_id": bot,
+        "bot_type": bot_type(scenario, bot),
+        "health": "running",
+        "actor": {"platform": "infoflow", "external_user_id": "demo-user"},
+        "supported_operations": ["lock", "book", "unlock"],
+        "resources": [node],
+    }
+
+
+def public_ip_alias_inventory(bot, scenario, writes):
+    """Public NODE_ALIASES can intentionally identify idle machines by IPv4."""
+    now = datetime.now(timezone.utc)
+    duplicate = scenario == "intent-public-ip-alias-ambiguous"
+    acquired = scenario == "intent-public-ip-alias" and bot == 8 and writes > 0
+    alias = "192.0.2.19" if bot == 7 and duplicate else "192.0.2.119" if bot == 7 else "198.51.100.19"
+    node = {
+        "id": "cedar" if bot == 7 else "raven",
+        "alias": alias,
+        "lock_status": "exclusive" if acquired else "idle",
+        "booking_list": [],
+        "holders": [
+            {
+                "external_user_id": "demo-user",
+                "remaining_seconds": SHORT_DEFAULT_DURATION,
+                "expires_at": (now + timedelta(seconds=SHORT_DEFAULT_DURATION)).isoformat(),
+            }
+        ]
+        if acquired
+        else [],
+    }
     return {
         "captured_at": now.isoformat(),
         "age_seconds": 0,

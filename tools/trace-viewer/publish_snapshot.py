@@ -52,6 +52,8 @@ GROUPS = {
         "intent-book-tail": "按节点别名预约机器",
         "intent-shared-tail": "按节点别名与卡号共享锁定",
         "intent-shared-minimal": "只说节点别名和时长共享锁定",
+        "intent-public-ip-alias": "通过公开IPv4备注锁定空闲机器",
+        "intent-public-ip-alias-ambiguous": "公开IPv4备注尾号重复时确认目标",
         "intent-ip-tail-held": "按本人授权IP尾号续期",
         "intent-ip-tail-ambiguous": "授权IP尾号重复时确认目标",
         "intent-ip-tail-unavailable": "无授权IP映射时不猜测",

@@ -992,7 +992,9 @@ def test_minimal_shared_lock_does_not_require_a_card_number_in_the_user_prompt(t
     assert evaluation.score(fixture.root, "19 已共享四小时。")["observable_pass"]
 
 
-@pytest.mark.parametrize("scenario", list(evaluation.intent.IP_TAIL_PROMPTS))
+@pytest.mark.parametrize(
+    "scenario", [s for s in evaluation.intent.IP_TAIL_PROMPTS if s not in evaluation.intent.PUBLIC_IP_ALIAS_PROMPTS]
+)
 def test_ip_tail_cases_use_only_current_authorized_address_evidence(tmp_path, monkeypatch, scenario):
     fixture = prepare(tmp_path, monkeypatch, scenario)
     snapshots = {group: run(fixture, "resources", group=group)["result"] for group in evaluation.intent.GROUP_IDS}
@@ -1019,3 +1021,42 @@ def test_ip_tail_cases_use_only_current_authorized_address_evidence(tmp_path, mo
         )["result"]["verified"]
         result = evaluation.score(fixture.root, "raven 已续四小时。")
     assert result["observable_pass"], result
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_idle_ip_tail_uses_public_ipv4_alias_without_private_node_access(tmp_path, monkeypatch, ambiguous):
+    scenario = "intent-public-ip-alias-ambiguous" if ambiguous else "intent-public-ip-alias"
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert (fixture.root / "prompt.txt").read_text() == "lock 19"
+    snapshots = {group: run(fixture, "resources", group=group)["result"] for group in evaluation.intent.GROUP_IDS}
+    nodes = [(group, node) for group, snapshot in snapshots.items() for node in snapshot["resources"]]
+    assert all("19" not in node["id"] and not node["holders"] and "node_access" not in node for _, node in nodes)
+    assert all(node["alias"].count(".") == 3 for _, node in nodes)
+    matches = [(group, node) for group, node in nodes if node["alias"].split(".")[-1] == "19"]
+    if ambiguous:
+        assert len(matches) == 2
+        grade = evaluation.score(fixture.root, "两个资源群都有IP尾号19，指哪台？")
+        assert grade["observable_pass"], grade
+        assert grade["manual_review_required"]
+        requests = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
+        assert all(row["method"] == "GET" for row in requests)
+    else:
+        assert [(group, node["id"]) for group, node in matches] == [(evaluation.intent.MACHINES, "raven")]
+        group, selected = matches[0]
+        result = run(fixture, "command", group=group, operation="lock", nodes=[selected["id"]], whole_node=True)
+        assert result.get("result", {}).get("verified"), result
+        assert result["result"]["duration_source"] == "group-default"
+        grade = evaluation.score(fixture.root, "raven 已锁三小时。")
+        assert grade["observable_pass"], grade
+        trace = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
+        mutations = [row for row in trace if row["args"].get("action") == "command"]
+        assert len(mutations) == 1 and mutations[0]["args"]["nodes"] == ["raven"]
+
+
+def test_public_alias_119_does_not_satisfy_tail_19(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-public-ip-alias")
+    for group in evaluation.intent.GROUP_IDS:
+        run(fixture, "resources", group=group)
+    wrong = run(fixture, "command", group=evaluation.intent.CARDS, operation="lock", nodes=["cedar"], whole_node=True)
+    assert not wrong.get("result", {}).get("verified")
+    assert not evaluation.score(fixture.root, "cedar 已锁定。")["observable_pass"]

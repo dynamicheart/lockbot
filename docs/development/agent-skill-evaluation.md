@@ -399,7 +399,17 @@ and unrelated aliases. They resolve an IP tail only from actual `node_access`
 metadata on resources currently held by the caller, including a duplicate-tail
 case across two authorized groups. TEST-NET addresses are synthetic. The real
 resource API deliberately exposes these SSH addresses only during a current own
-holding; an idle opaque resource therefore has no such mapping. The missing-mapping
+holding; an idle opaque resource therefore has no such private mapping. The missing-mapping
 case must ask for a target rather than invent an IP or relax that access rule.
 A separate minimal `slock 19 4h` case exercises selection of all cards from observed inventory for shared use without
 preloading a card number into the user's request.
+
+
+Fixture version 14 adds idle machines with opaque IDs and intentionally public
+`NODE_ALIASES` containing complete TEST-NET IPv4 addresses. With `lock 19`, the
+Agent must choose the `.19` alias rather than `.119`, then submit the opaque ID
+using the group's actual default duration. A second case gives two authorized
+groups public aliases ending in `.19` and requires clarification without a write.
+These idle snapshots contain no `node_access` fields: an intentionally shared
+public alias is a legitimate lookup source, separate from privately registered
+SSH addresses. The held-address and genuinely missing-mapping cases remain.

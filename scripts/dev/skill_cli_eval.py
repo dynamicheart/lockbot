@@ -85,7 +85,9 @@ def prepare(root, artifact, scenario):
         {
             **case,
             "coherent_snapshot": b"coherent_resource_snapshot" in helper,
-            "fixture_version": 13
+            "fixture_version": 14
+            if scenario in intent.PUBLIC_IP_ALIAS_PROMPTS
+            else 13
             if scenario in {"reset-personal-key", "intent-my-locks", "intent-my-books"}
             or scenario in intent.INSTALL_FOLLOWUPS
             or scenario in intent.IP_TAIL_PROMPTS
@@ -540,7 +542,7 @@ class Fixture(continuity.Fixture):
                 name=next(name for name, identifier in intent.group_ids(scenario).items() if identifier == bot)
             )
             body["bot"]["type"] = intent.bot_type(scenario, bot)
-            if scenario in intent.SHORT_PROMPTS:
+            if scenario in intent.SHORT_PROMPTS or scenario in intent.PUBLIC_IP_ALIAS_PROMPTS:
                 body["bot_rules"] = {
                     **(body.get("bot_rules") or {}),
                     "default_duration_seconds": intent.SHORT_DEFAULT_DURATION if bot == 8 else 3600,
@@ -556,7 +558,17 @@ class Fixture(continuity.Fixture):
         if path == f"/api/bots/{bot}/commands" and method == "POST":
             if scenario in intent.TASK_SCENARIOS:
                 expected = intent.task_expectation(scenario, self.case["phase"])
-                if expected and bot == expected[0] and intent.equivalent(args.get("command"), expected[1]):
+                if (
+                    expected
+                    and bot == expected[0]
+                    and intent.equivalent(
+                        args.get("command"),
+                        expected[1],
+                        default_duration=intent.SHORT_DEFAULT_DURATION
+                        if scenario in intent.PUBLIC_IP_ALIAS_PROMPTS
+                        else None,
+                    )
+                ):
                     previous = json.loads(state.read_text()) if state.is_file() else {}
                     writes = previous.get("writes", 0) if isinstance(previous, dict) else 0
                     base.save_json(state, {"command": expected[1], "writes": writes + 1})
@@ -1370,6 +1382,7 @@ def score(root, final):
         "intent-install-then-how-use",
         "intent-ip-tail-ambiguous",
         "intent-ip-tail-unavailable",
+        "intent-public-ip-alias-ambiguous",
     }:
         result["manual_review_required"] = [
             "Review the exact reported owners, resources, cards and roles against the observed state. "
