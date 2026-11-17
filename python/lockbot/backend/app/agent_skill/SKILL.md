@@ -23,20 +23,21 @@ grants out of replies, command arguments, Skill files and shared memory.
 
 **First connection or missing Key.** If the user asks to use an identified LockBot
 service (for example, to request a machine), look for a saved connection first. If
-none exists, run `key-challenge --origin "$ORIGIN" --authorized` and give the user
-the single chat confirmation step returned by the CLI. The request to use the
-service authorizes this step even when the user does not mention a Key or a code.
-Chat confirmation identifies the bot. Describe the step as connecting the account.
-After confirmation, use the service's `outcome` to say the original sign-in was restored
-or a new connection was established. If the service omits the outcome, say the account
-is connected. For installation only, stop after verifying the installation.
+none exists, use `key-challenge --origin "$ORIGIN" --authorized` to obtain the
+single chat confirmation command. This prepares a short-lived request. The service
+connects the account only when the user sends the command from their own chat account
+in their chosen group. Give that command directly when the user asks to check or
+request resources on the service. For installation only, stop after verifying the
+installation. After confirmation, use the service's `outcome` to say the original
+sign-in was restored or a new connection was established. If the service omits the
+outcome, say the account is connected.
 
-**Continue after group confirmation.** Use `connections` to find an unfinished request
-when the user asks to continue or makes a relevant request such as “帮我看看资源”.
-Check it with `enrollment-status` using its enrollment directory. The local
-`pending` label can remain after the user has confirmed in chat. If the service
-reports `confirmed`, run `finish-enrollment` with the same directory and continue
-the original task. The group confirmation already provided authorization.
+**Continue after group confirmation.** If the user asks to use the same service
+(for example, “帮我看看资源”), use `connections` and check its unfinished request
+with `enrollment-status`. The local `pending` label can remain after chat confirmation.
+When the service reports `confirmed`, `finish-enrollment` verifies and stores the
+already-confirmed sign-in locally. Use the same enrollment directory, then fulfill the
+current request. If the user only asks for resources, respond with the resource status.
 
 **Explicit Key reset.** Once the user requests invalidation and acknowledges that other
 Agents sharing the old Key must replace it, run
@@ -76,8 +77,10 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
   supplied an approved origin and a private Key file. `init` verifies the service.
   When the browser session is authenticated at the fixed entry, check holdings and
   bookings there. A normal follow-up request is enough to resume.
-- **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
-  report what is unavailable. Use `book` only when the user requests or accepts a queue.
+- **Acquire now:** a request such as “申请一台 P800 用两小时” asks for a lease now.
+  Use `lock` on an idle match with an empty queue. If no match qualifies, report that
+  and ask if the user wants to queue. Send `book` only after the user requests or
+  accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
   booking is claimable. Pass `--device` for a queued card or `--whole-node` for an entire
   node. The booking sets the duration.
@@ -129,9 +132,9 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
    verbatim. For other languages, translate `user_instruction` and preserve the exact
    `bind_command`. The verified chat confirmation identifies the bot.
    After chat confirmation, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`.
-   A confirmed reset has already taken effect. If the user asks to continue in a new
-   session, their request and `chat_action: reset_applied` authorize saving the result.
-   Run `finish-enrollment` directly without asking them to confirm the reset again.
+   `chat_action: reset_applied` confirms the group has already applied the reset.
+   A request that needs access to the same service, including a read-only resource
+   query in a new session, can use `finish-enrollment` to save that sign-in locally.
 6. In a new session run `connections` to reuse saved sign-ins. With `LOCKBOT_HOME`,
    the default lookup reads only that catalog. For explicit project-only lookup, use
    `connections --directory .lockbot/connections`.

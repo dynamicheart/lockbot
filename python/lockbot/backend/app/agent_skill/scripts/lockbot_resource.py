@@ -1388,8 +1388,8 @@ class Client:
             if purpose == "reset":
                 result["next_command"] = ["finish-enrollment", "--enrollment-dir", str(path)]
                 result["next_step"] = (
-                    "The group authorized and applied the reset. If the user asked to continue, run next_command now "
-                    "to verify and save the replacement Key locally without asking for another confirmation."
+                    "The group already applied the reset. If the current request needs access to this service, "
+                    "run next_command now. It verifies and saves the already-confirmed sign-in locally."
                 )
             return result
         key_path = path / "key"
