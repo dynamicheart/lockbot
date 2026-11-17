@@ -37,6 +37,7 @@ def aggregate(tmp_path):
             events=[],
             status=200,
             changed_instance=False,
+            bot_type="QUEUE",
             coherent=True,
             omit_identity=(),
             extra={},
@@ -71,7 +72,12 @@ def aggregate(tmp_path):
                     now = datetime.now(timezone.utc)
                     context = {
                         "server": manifest,
-                        "bot": {"id": number, "uuid": f"bot-{number}", "name": "Same group name", "type": "QUEUE"},
+                        "bot": {
+                            "id": number,
+                            "uuid": f"bot-{number}",
+                            "name": "Same group name",
+                            "type": state.bot_type,
+                        },
                         "actor": state.actor,
                         "agent_access_enabled": True,
                         "bot_rules": {},
@@ -81,7 +87,7 @@ def aggregate(tmp_path):
                     body = {
                         "context": context,
                         "bot_id": number,
-                        "bot_type": "QUEUE",
+                        "bot_type": state.bot_type,
                         "actor": state.actor,
                         "captured_at": now.isoformat(),
                         "age_seconds": 0,

@@ -19,6 +19,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections import Counter
 from contextlib import ExitStack, contextmanager, suppress
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -44,6 +45,8 @@ MAX_CATALOG_RECORDS = 256
 MAX_CATALOG_ENTRIES = 4096
 MAX_CATALOG_BYTES = 4 * 1024 * 1024
 MAX_RESOURCE_SNAPSHOT_AGE = 5.0
+MAX_OVERVIEW_ENTRIES = 256
+MAX_OVERVIEW_BYTES = 16 * 1024
 METRICS = (
     "lockbot_accelerator_utilization_percent",
     "lockbot_accelerator_memory_used_bytes",
@@ -92,6 +95,126 @@ def format_lease_times(snapshot):
                     units = ((days, "d"), (hours, "h")) if days else ((hours, "h"), (minutes, "m"))
                     text = " ".join(f"{value}{unit}" for value, unit in units if value)
                 holder["remaining_time"] = text
+
+
+def inventory_overview(snapshot, context):
+    """Group observed IDs without inferring availability, hardware or policy."""
+    overview = {
+        "source": "verified_snapshot",
+        "meaning": "Observed lock/queue state only, not proof of allocatability, "
+        "policy approval or queue authorization. "
+        "Queued IDs are not lock candidates. Full resources remain authoritative.",
+        "snapshot_fresh": snapshot.get("snapshot_fresh_for_write") is True,
+        "nodes": [],
+        "truncated": False,
+        "omitted_entries": 0,
+        "unidentified_entries": 0,
+    }
+    resources = snapshot.get("resources")
+    if not isinstance(resources, list):
+        overview["unidentified_entries"] = 1
+        return overview
+
+    def identifier(value):
+        return (type(value) is int and value >= 0) or (isinstance(value, str) and bool(value))
+
+    def state(unit, queued, valid):
+        holders, queue = unit.get("holders"), unit.get("booking_list", None if queued else [])
+        status = unit.get("lock_status")
+        if (
+            not valid
+            or not overview["snapshot_fresh"]
+            or not isinstance(status, str)
+            or status not in {"idle", "exclusive", "shared"}
+            or not isinstance(holders, list)
+            or not isinstance(queue, list)
+            or any(
+                not isinstance(row, dict)
+                or not isinstance(row.get("external_user_id"), str)
+                or not row["external_user_id"]
+                for row in holders + queue
+            )
+            or (status == "idle" and holders)
+            or (status in {"exclusive", "shared"} and not holders)
+            or (status == "exclusive" and len(holders) != 1)
+        ):
+            return "unknown"
+        return "queued" if queue else "idle" if status == "idle" else "busy"
+
+    node_ids = Counter(str(node["id"]) for node in resources if isinstance(node, dict) and identifier(node.get("id")))
+    entries = 0
+    for node in resources:
+        if not isinstance(node, dict) or not identifier(node.get("id")):
+            overview["unidentified_entries"] += 1
+            continue
+        cards = node.get("devices")
+        if "devices" in node and not isinstance(cards, list):
+            overview["unidentified_entries"] += 1
+            continue
+        units = cards if cards is not None else [node]
+        count = 1 + len(units)
+        if entries + count > MAX_OVERVIEW_ENTRIES:
+            overview["truncated"] = True
+            overview["omitted_entries"] += count
+            continue
+        item = {
+            "node": node["id"],
+            "alias": node.get("alias"),
+            "allocation": "card" if cards is not None else "whole_node",
+            "groups": [],
+        }
+        hardware = node.get("accelerators") if cards is None else None
+        if cards is None:
+            if isinstance(hardware, list) and len(hardware) > MAX_OVERVIEW_ENTRIES:
+                overview["truncated"] = True
+                overview["omitted_entries"] += count + len(hardware)
+                continue
+            item["accelerators"] = (
+                [
+                    {"model": row.get("model"), "count": row.get("count")}
+                    if isinstance(row, dict)
+                    else {"model": None, "count": None}
+                    for row in hardware
+                ]
+                if isinstance(hardware, list)
+                else None
+            )
+        known = (
+            hardware[0].get("model")
+            if isinstance(hardware, list)
+            and len(hardware) == 1
+            and isinstance(hardware[0], dict)
+            and type(hardware[0].get("count")) is int
+            and hardware[0]["count"] > 0
+            else None
+        )
+        ids = Counter(str(unit["id"]) for unit in units if isinstance(unit, dict) and identifier(unit.get("id")))
+        groups = {}
+        bot_type = context.get("bot", {}).get("type")
+        for unit in units:
+            if not isinstance(unit, dict) or not identifier(unit.get("id")):
+                overview["unidentified_entries"] += 1
+                continue
+            model = unit.get("dev_model") if cards is not None else known
+            model = model if isinstance(model, str) and model.strip() else None
+            if model not in groups:
+                groups[model] = {"model": model, "idle": [], "busy": [], "queued": [], "unknown": []}
+            valid = (
+                node_ids[str(node["id"])] == 1
+                and ids[str(unit["id"])] == 1
+                and bot_type in ({"DEVICE", "QUEUE_DEVICE"} if cards is not None else {"NODE", "QUEUE"})
+            )
+            label = state(unit, bot_type in {"QUEUE", "QUEUE_DEVICE"}, valid)
+            groups[model][label].append(unit["id"])
+        item["groups"] = list(groups.values())
+        candidate = {**overview, "nodes": [*overview["nodes"], item]}
+        if len(json.dumps(candidate, ensure_ascii=False).encode()) > MAX_OVERVIEW_BYTES - 256:
+            overview["truncated"] = True
+            overview["omitted_entries"] += count
+            continue
+        overview["nodes"].append(item)
+        entries += count
+    return overview
 
 
 def utilization_sample(values, success, stamps, now, stale_seconds):
@@ -1523,7 +1646,9 @@ class Client:
     def inventory(self):
         """One authorized inventory observation includes its identity and rules."""
         context = self._read_context(with_resources=True)
-        return self.resources_with_hardware_notes(context)
+        snapshot = self.resources_with_hardware_notes(context)
+        snapshot["inventory_overview"] = inventory_overview(snapshot, context)
+        return snapshot
 
     def own_inventory(self, *, exact_lease_times=False):
         """Project only the verified actor's holdings and queued bookings."""
@@ -2411,7 +2536,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                     "update_required": client.needs_update,
                 }
             )
-            observations.append((client, snapshot, locator))
+            observations.append((client, snapshot, locator, context))
         except ClientError as error:
             gap(
                 {
@@ -2430,7 +2555,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
             if client:
                 calls = client.calls
     completed_at = clock()
-    for client, snapshot, locator in observations:
+    for client, snapshot, locator, context in observations:
         age = metric_number(snapshot.get("age_seconds"))
         started = client._resource_request_started
         elapsed = completed_at - started if started is not None else None
@@ -2451,6 +2576,8 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                 )
             else:
                 format_lease_times(snapshot)
+        if not mine:
+            snapshot["inventory_overview"] = inventory_overview(snapshot, context)
     return redacted_values(
         {
             "result": {
