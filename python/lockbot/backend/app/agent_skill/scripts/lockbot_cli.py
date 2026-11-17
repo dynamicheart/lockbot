@@ -1512,15 +1512,32 @@ class Client:
         return self._remember_resources(snapshot, context, started)
 
     def _remember_resources(self, snapshot, context, started):
-        if "context" in snapshot and (
-            snapshot.get("bot_id") != context["bot"]["id"]
-            or snapshot.get("bot_type") != context["bot"]["type"]
-            or not isinstance(snapshot.get("actor"), dict)
-            or any(
-                snapshot["actor"].get(field) != context["actor"][field] for field in ("platform", "external_user_id")
-            )
+        coherent = "context" in snapshot
+        expected = {
+            "bot_id": context["bot"]["id"],
+            "bot_type": context["bot"]["type"],
+            "bot_uuid": context["bot"]["uuid"],
+            "instance_id": context["server"]["instance_id"],
+            "platform": context["actor"]["platform"],
+            "external_user_id": context["actor"]["external_user_id"],
+        }
+        if any(
+            (key in snapshot or coherent and key in {"bot_id", "bot_type"}) and snapshot.get(key) != value
+            for key, value in expected.items()
         ):
             raise ClientError("resource_snapshot_identity_mismatch")
+        for field, identity in (("actor", context["actor"]), ("bot", context["bot"]), ("server", context["server"])):
+            if field not in snapshot and not (coherent and field == "actor"):
+                continue  # Older resource payloads can omit identity fields.
+            reported = snapshot.get(field)
+            required = {"platform", "external_user_id"} if coherent and field == "actor" else set()
+            if not isinstance(reported, dict) or any(
+                (key in reported or key in required) and reported.get(key) != value
+                for key, value in identity.items()
+                if key
+                in {"platform", "external_user_id", "id", "uuid", "type", "instance_id", "service_id", "api_version"}
+            ):
+                raise ClientError("resource_snapshot_identity_mismatch")
         generation = self.node_access.invalidate() if self.node_access else None
         if generation:
             nodes = self._current_node_access(snapshot, context, self.clock() - started)

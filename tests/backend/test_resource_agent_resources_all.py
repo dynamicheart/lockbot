@@ -37,6 +37,8 @@ def aggregate(tmp_path):
             events=[],
             status=200,
             changed_instance=False,
+            coherent=True,
+            omit_identity=(),
             extra={},
         )
 
@@ -58,13 +60,13 @@ def aggregate(tmp_path):
                     "api_version": "1",
                     "instance_id": "changed" if state.changed_instance else state.instance,
                     "context_url": "/api/agent/context",
-                    "capabilities": ["coherent_resource_snapshot"],
+                    "capabilities": ["coherent_resource_snapshot"] if state.coherent else [],
                 }
                 status = 200
                 if self.path == "/api/agent-skill":
                     assert self.headers.get("Authorization") is None
                     body = manifest
-                elif self.path == "/api/agent/resources":
+                elif self.path in {"/api/agent/resources", "/api/agent/context"}:
                     assert self.headers.get("Authorization") == "Bearer " + state.key
                     now = datetime.now(timezone.utc)
                     context = {
@@ -102,6 +104,13 @@ def aggregate(tmp_path):
                         ],
                         **state.extra,
                     }
+                    if self.path == "/api/agent/context":
+                        body = context
+                    else:
+                        if not state.coherent:
+                            body.pop("context")
+                        for field in state.omit_identity:
+                            body.pop(field, None)
                     status = state.status
                 else:
                     status, body = 404, {}
@@ -263,11 +272,48 @@ def test_packaged_aggregate_deadline_is_shared_and_stops_before_credentials(aggr
     spec = importlib.util.spec_from_file_location("aggregate_deadline_helper", aggregate.script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+
     # One real anonymous response crosses the total deadline; no credential may
     # be sent afterward, including by a new per-connection Client.
     def clock():
         return 61 if server.events else 0
+
     result = module.resources_all(aggregate.catalog, root=aggregate.script.parents[1], clock=clock)["result"]
     assert result["complete"] is False and result["http_requests"] == 1
     assert server.events == [("/api/agent-skill", "GET", None)]
     assert all(row["error"] == "request_budget_exhausted" for row in result["unread"])
+
+
+@pytest.mark.parametrize("mine", [False, True])
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("bot_id", 999),
+        ("bot_type", "NODE"),
+        ("actor", {"platform": "feishu", "external_user_id": "actor-1"}),
+        ("actor", {"platform": "infoflow", "external_user_id": "actor-1-other"}),
+        ("instance_id", "another-instance"),
+        ("bot", {"uuid": "another-bot"}),
+        ("server", {"instance_id": "another-instance"}),
+    ],
+)
+def test_legacy_aggregate_rejects_explicit_identity_conflicts_before_projection(aggregate, mine, field, value):
+    server = aggregate.server(1)
+    server.coherent = False
+    server.extra[field] = value
+    aggregate.record(server, "legacy")
+    result = aggregate.run("resources-all", *(["--mine"] if mine else []))["result"]
+    assert result["complete"] is False and result["groups"] == []
+    assert result["unread"][0]["error"] == "resource_snapshot_identity_mismatch"
+    assert [event[0] for event in server.events] == ["/api/agent-skill", "/api/agent/context", "/api/agent/resources"]
+
+
+@pytest.mark.parametrize("mine", [False, True])
+def test_legacy_aggregate_retains_valid_absent_identity_fields(aggregate, mine):
+    server = aggregate.server(1)
+    server.coherent = False
+    server.omit_identity = ("actor", "bot_id", "bot_type")
+    aggregate.record(server, "legacy")
+    result = aggregate.run("resources-all", *(["--mine"] if mine else []))["result"]
+    assert result["complete"] is True and len(result["groups"]) == 1
+    assert result["groups"][0]["identity"]["actor"] == server.actor
