@@ -214,7 +214,7 @@ def resume(source, destination):
             raise ValueError("The simulated user must confirm browser consent before resuming")
         continuity.resume(source, destination)
         (destination / "system.txt").write_text((source / "system.txt").read_text())
-        (destination / "prompt.txt").write_text("看看我在用和预约了什么。")
+        (destination / "prompt.txt").write_text("打开个人资源台，看看我在用和预约了什么。")
         configure(destination)
         return
     if fixture.uses_challenge and fixture.case["phase"] == 2:

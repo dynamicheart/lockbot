@@ -69,8 +69,9 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
   connection's verified service origin. Pass the full URL on the first browser call
   and include it with the page findings in your reply. Skip `panel-link`.
 - **Needs to sign into the workbench:** use `panel-link` once with authorization for private
-  delivery. In your final reply, give the user the private login link or confirm its private
-  delivery. Tell them to open it and confirm the account, then bookmark `result.home`
+  delivery. If a private delivery tool is available, use it and check its result before
+  saying the link was sent. Otherwise provide the link only within the verified private
+  handoff. Tell the user to open it and confirm the account, then bookmark `result.home`
   (include its full address). Wait for their confirmation before using the workbench.
   For this handoff, read only the instructions relevant to sign-in and the selected
   connection. Use a saved connection, or run `init` directly when the user already
