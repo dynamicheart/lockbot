@@ -237,19 +237,23 @@ class NodeBot(BaseLockBot):
         """
         if re.match(r"^\s*(unlock|free)\s*$", command):
             with self._state_guard():
-                for _, node in self._resource_state().items():
-                    remove_user_info(node["booking_list"], user_id)
+                affected = []
+                for node_key, node in self._resource_state().items():
+                    booking_removed = remove_user_info(node["booking_list"], user_id)
+                    holding_removed = False
                     if node["status"] != "idle":
-                        remove_user_info(node["current_users"], user_id)
+                        holding_removed = remove_user_info(node["current_users"], user_id)
                         if len(node["current_users"]) == 0:
                             node["status"] = "idle"
+                    if booking_removed or holding_removed:
+                        affected.append(node_key)
                 reply = self.adapter.build_reply(
                     self._msg_with_usage("success.resource_released"),
                     [user_id],
                 )
                 log_to_file(user_id, "unlock", "all", config=self.config)
                 self._save_and_notify()
-                return completed_reply(reply, "unlock")
+                return completed_reply(reply, "unlock", affected_resources=affected)
 
         parse_ok, error_reply, node_keys, _ = self._parse_resource_command(user_id, "unlock|free", command)
         if not parse_ok:
@@ -273,7 +277,7 @@ class NodeBot(BaseLockBot):
             )
             log_to_file(user_id, "unlock", node_keys, config=self.config)
             self._save_and_notify()
-            return completed_reply(reply, "unlock")
+            return completed_reply(reply, "unlock", affected_resources=node_keys)
 
     def kickout(self, user_id, command):
         """

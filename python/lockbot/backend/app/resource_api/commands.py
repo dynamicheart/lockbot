@@ -41,6 +41,7 @@ from lockbot.backend.app.resource_api.traffic import credential_budget, resource
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import ResourceActor, require_resource_actor, reverify_actor
 from lockbot.core.base_bot import AcquisitionLimitExceeded
+from lockbot.core.command_result import capture_result
 from lockbot.core.handler import (
     BINDING_COMMANDS,
     CommandNotAllowed,
@@ -322,14 +323,15 @@ def execute_command_via_api(
             request.state.agent_event["all_owned_resources"] = text.lower() in {"free", "unlock"}
             try:
                 request.state.agent_event["stage"] = "dispatching"
-                raw_reply = execute_text_command(
-                    actor.external_user_id,
-                    text,
-                    bot,
-                    allowed_commands=AGENT_ALLOWED_COMMANDS,
-                    acquisition_limit=RESOURCE_API_MAX_HELD_PER_IDENTITY,
-                    source="api",
-                )
+                with capture_result() as result:
+                    raw_reply = execute_text_command(
+                        actor.external_user_id,
+                        text,
+                        bot,
+                        allowed_commands=AGENT_ALLOWED_COMMANDS,
+                        acquisition_limit=RESOURCE_API_MAX_HELD_PER_IDENTITY,
+                        source="api",
+                    )
             except AcquisitionLimitExceeded:
                 request.state.agent_event["stage"] = "rejected"
                 raise errors.identity_cap_reached(RESOURCE_API_MAX_HELD_PER_IDENTITY) from None
@@ -382,7 +384,13 @@ def execute_command_via_api(
 
             # The bot method has released the state lock by now, so this send cannot
             # extend a critical section. Still inside the lease, so a drain waits for it.
-            if should_notify(word) and bot_row.resource_api_notify_enabled:
+            if (
+                result.committed
+                and result.operation == canonical_command(word)
+                and result.affected_resources != ()
+                and should_notify(word)
+                and bot_row.resource_api_notify_enabled
+            ):
                 notify_group(
                     bot,
                     bot_id=bot_id,
@@ -392,6 +400,7 @@ def execute_command_via_api(
                     agent_label=body.agent_label,
                     purpose=body.purpose,
                     task_category=body.task_category,
+                    affected_resources=result.affected_resources,
                     target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
                 )
 

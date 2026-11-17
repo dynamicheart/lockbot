@@ -177,7 +177,7 @@ class QueueBot(NodeBot):
             reply = self.adapter.build_reply(self._msg_with_usage("success.booking_added"), [user_id])
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            return reply
+            return completed_reply(reply, "book", reaction_safe=False)
 
     def take(self, user_id, command):
         """

@@ -1,7 +1,6 @@
 """English (en) message translations for lockbot."""
 
 MESSAGES = {
-    "help.personal_panel_short": "My resources ",
     "help.personal_panel": "My resources · allocations and reservations ",
     "help.personal_panel_hint": (
         "First visit or a new device: ask your IM-bound Agent to open your resource panel, from a local CLI or server. "
@@ -251,8 +250,15 @@ MESSAGES = {
         "❌[Agent authorization not found]\n\nNo authorization of yours on this bot matches {binding_id}."
     ),
     # ── API-originated group notifications ──
-    "notify.api_mutation": ("🤖[Agent API operation]\n\nUser: {actor}\nCommand: {command}\n\n"),
-    "notify.api_alias": ("🤖[Agent API label update]\n\nUser: {actor}\nCommand: {command}\n\n"),
+    "notify.api_mutation": ("🤖[Agent API operation] {outcome}\n\nUser: {actor}\nRequest: {command}\n\n"),
+    "notify.api_alias": ("🤖[Agent API label update] {outcome}\n\nUser: {actor}\nRequest: {command}\n\n"),
+    "notify.api_outcome.lock": "Exclusive lock confirmed",
+    "notify.api_outcome.slock": "Shared lock confirmed",
+    "notify.api_outcome.unlock": "Hold or booking removed",
+    "notify.api_outcome.book": "Added to the booking queue",
+    "notify.api_outcome.alias": "Label change saved",
+    "notify.api_affected": "\nAffected resources: {resources}",
+    "notify.api_affected_more": " and {count} more",
     "notify.api_coalesced": ("(+{count} other Agent API operations in the last few seconds)\n"),
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": "⚠️ Bot {bot_name}(ID:{bot_id}) is not running. "  # noqa: E501

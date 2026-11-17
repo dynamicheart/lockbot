@@ -1,8 +1,8 @@
 """Safe API-operation notices with bounded trailing delivery.
 
 The first notice retains synchronous behavior. Later events in the ten-second window
-are sent by a bounded worker even if no further API call arrives. Notifications describe
-operations, never infer successful acquisition from HTTP 200, and never replay commands.
+are sent by a bounded worker even if no further API call arrives. The command route
+announces confirmed mutations only. Delivery never replays commands.
 """
 
 from __future__ import annotations
@@ -132,7 +132,17 @@ def should_notify(command_word):
 
 
 def notify_group(
-    bot, *, bot_id, command, actor_id, command_word, agent_label=None, purpose=None, task_category=None, target=None
+    bot,
+    *,
+    bot_id,
+    command,
+    actor_id,
+    command_word,
+    agent_label=None,
+    purpose=None,
+    task_category=None,
+    affected_resources=None,
+    target=None,
 ):
     """Return true only for an accepted immediate send; false also includes queued notices.
 
@@ -149,7 +159,14 @@ def notify_group(
     public_command = redact_command_text(public_command)
     key = "notify.api_alias" if word == "alias" else "notify.api_mutation"
     try:
-        text = t(key, config=bot.config, actor=actor_id, command=public_command).rstrip()
+        outcome = t(f"notify.api_outcome.{word}", config=bot.config)
+        text = t(key, config=bot.config, actor=actor_id, command=public_command, outcome=outcome).rstrip()
+        if affected_resources:
+            resources = ", ".join(affected_resources[:12])
+            remaining = len(affected_resources) - 12
+            if remaining > 0:
+                resources += t("notify.api_affected_more", config=bot.config, count=remaining)
+            text += t("notify.api_affected", config=bot.config, resources=resources)
         category = TASK_CATEGORIES.get(task_category)
         if category:
             text += t("notify.api_task_category", config=bot.config, category=category)

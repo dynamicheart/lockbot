@@ -1,7 +1,6 @@
 """Chinese (zh) message translations for lockbot."""
 
 MESSAGES = {
-    "help.personal_panel_short": "我的资源 ",
     "help.personal_panel": "我的资源 · 查看本人占用与预约 ",
     "help.personal_panel_hint": (
         "首次使用或换设备：在你已完成 IM 绑定的 Agent 中说“打开我的资源台”（本机 CLI 或服务器均可），"
@@ -224,8 +223,15 @@ MESSAGES = {
     "binding.revoked_one": ("✅【Agent授权已撤销】\n\n已撤销你的授权（参考编号：{binding_id}）。"),
     "binding.not_found": ("❌【未找到Agent授权】\n\n当前机器人下没有属于你的授权 {binding_id}。"),
     # ── API-originated group notifications ──
-    "notify.api_mutation": ("🤖【Agent API操作】\n\n用户：{actor}\n命令：{command}\n\n"),
-    "notify.api_alias": ("🤖【Agent API备注更新】\n\n用户：{actor}\n命令：{command}\n\n"),
+    "notify.api_mutation": ("🤖【Agent API操作】{outcome}\n\n用户：{actor}\n请求：{command}\n\n"),
+    "notify.api_alias": ("🤖【Agent API备注更新】{outcome}\n\n用户：{actor}\n请求：{command}\n\n"),
+    "notify.api_outcome.lock": "已确认独占锁定",
+    "notify.api_outcome.slock": "已确认共享锁定",
+    "notify.api_outcome.unlock": "已释放占用或取消预约",
+    "notify.api_outcome.book": "已加入预约队列",
+    "notify.api_outcome.alias": "已保存备注",
+    "notify.api_affected": "\n实际释放或取消：{resources}",
+    "notify.api_affected_more": "，另有 {count} 项",
     "notify.api_coalesced": ("（最近几秒另有 {count} 次 Agent API 操作）\n"),
     # ── Webhook: bot not running ──
     "webhook.bot_not_running": (
