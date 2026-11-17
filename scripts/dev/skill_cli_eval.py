@@ -439,6 +439,7 @@ class Fixture(continuity.Fixture):
             if scenario == "intent-write-unknown" and bot == 7:
                 expected = intent.EXPECTED[scenario][1]
                 return {"status": 504 if intent.equivalent(args.get("command"), expected) else 409}
+            default_duration = intent.SHORT_DEFAULT_DURATION if scenario in intent.SHORT_DEFAULT_SCENARIOS else None
             match = next(
                 (
                     expected
@@ -447,7 +448,7 @@ class Fixture(continuity.Fixture):
                     and (scenario not in intent.SHORT_PROMPTS or case == scenario)
                     and (case != "intent-release" or case == scenario)
                     and identifier == bot
-                    and intent.equivalent(args.get("command"), expected)
+                    and intent.equivalent(args.get("command"), expected, default_duration=default_duration)
                 ),
                 None,
             )

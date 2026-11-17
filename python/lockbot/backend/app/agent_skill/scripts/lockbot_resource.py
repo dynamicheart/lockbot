@@ -1666,14 +1666,19 @@ class Client:
             ceiling = rules.get("effective_max_lock_duration_seconds")
             if type(ceiling) is int and ceiling >= 0 and seconds > ceiling:
                 raise ClientError("group_default_duration_exceeds_limit")
-            duration = f"{seconds}s"
         if operation == "claim":
             if context["bot"]["type"] not in {"QUEUE", "QUEUE_DEVICE"} or len(nodes) != 1 or len(devices) > 1:
                 raise ClientError("claim_requires_one_queued_resource")
             if duration is not None:
                 raise ClientError("claim_uses_booked_duration")
-        elif operation != "release" and (
-            not duration or not re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?)[smhd]", duration) or float(duration[:-1]) <= 0
+        elif (
+            operation != "release"
+            and not use_group_duration
+            and (
+                not duration
+                or not re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?)[smhd]", duration)
+                or float(duration[:-1]) <= 0
+            )
         ):
             raise ClientError("explicit_positive_duration_required")
         if operation == "release" and duration is not None:

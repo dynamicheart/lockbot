@@ -829,7 +829,7 @@ def test_allocation_with_missing_duration_uses_authenticated_group_default(case,
     result = case.client.command(operation, ["node-a"], [], None)
     assert result["verified"] and result["duration_source"] == "group-default"
     (sent,) = commands(case)
-    assert json.loads(sent[3])["command"] == f"{operation} node-a 123s"
+    assert json.loads(sent[3])["command"] == f"{operation} node-a"
 
 
 @pytest.mark.parametrize(

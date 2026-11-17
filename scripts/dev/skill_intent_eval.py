@@ -39,6 +39,7 @@ SHORT_MACHINE_IDS = {
     "intent-book-tail": (19,),
 }
 SHORT_DEFAULT_DURATION = 10_800
+SHORT_DEFAULT_SCENARIOS = {"intent-lock-tail", "intent-lock-tail-list"}
 
 PROMPTS = {
     **SHORT_PROMPTS,
@@ -90,10 +91,12 @@ def bot_type(scenario, bot):
     return "DEVICE" if bot == 7 or scenario in MODEL_SCENARIOS else "QUEUE"
 
 
-def equivalent(command, expected):
+def equivalent(command, expected, *, default_duration=None):
     if not isinstance(command, str):
         return False
     actual_parts, expected_parts = command.split(), expected.split()
+    if default_duration is not None and len(actual_parts) == 2 and len(expected_parts) == 3:
+        actual_parts.append(f"{default_duration}s")
     if len(actual_parts) != len(expected_parts) or actual_parts[0] != expected_parts[0]:
         return False
     if sorted(actual_parts[1].split(",")) != sorted(expected_parts[1].split(",")):
@@ -288,6 +291,7 @@ def score(scenario, requests, tools, final):
         }
     if scenario in EXPECTED:
         bot, command = EXPECTED[scenario]
+        default_duration = SHORT_DEFAULT_DURATION if scenario in SHORT_DEFAULT_SCENARIOS else None
         expected_suffix = f"/api/bots/{bot}/commands"
         unknown = scenario == "intent-write-unknown"
         operation = {"intent-release": "release", "intent-renew": "renew", "intent-claim": "claim"}.get(scenario)
@@ -295,7 +299,7 @@ def score(scenario, requests, tools, final):
             len(attempts) == 1
             and len(posts) == 1
             and posts[0]["url"].endswith(expected_suffix)
-            and equivalent(posts[0].get("command"), command)
+            and equivalent(posts[0].get("command"), command, default_duration=default_duration)
             and posts[0]["status"] == (504 if unknown else 200)
             and (operation is None or attempts[0]["args"].get("operation") == operation)
         )
@@ -303,7 +307,7 @@ def score(scenario, requests, tools, final):
             any(row["status"] == 200 and row["url"].endswith(f"/api/bots/{bot}/resources") for row in part)
             for part in (requests[: requests.index(posts[0])], requests[requests.index(posts[0]) + 1 :])
         )
-        if scenario in {"intent-lock-tail", "intent-lock-tail-list"}:
+        if scenario in SHORT_DEFAULT_SCENARIOS:
             used_cli_default = bool(
                 attempts
                 and "duration" not in attempts[0]["args"]
