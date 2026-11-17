@@ -75,7 +75,7 @@ with subprocess.Popen(
         return json.loads(reply["result"]["content"][0]["text"])
 
     if phase == 1:
-        assert call("install_lockbot", url="http://192.0.2.10:8155/api/agent-skill/lockbot-resource-agent.zip")["installed"]
+        assert call("install_lockbot", url="http://192.0.2.10:8155/api/agent-skill/lockbot-agent.zip")["installed"]
         assert call("run_lockbot", action="discover")["result"]
         if case["scenario"] == "reset-personal-key":
             result = call("run_lockbot", action="key-challenge", purpose="reset", authorized=True)["result"]
@@ -104,7 +104,7 @@ def run_matrix(tmp_path, monkeypatch, scenario, *models, timeout=15):
     artifacts.mkdir()
     manifest = skill.skill_artifacts()[2]
     (artifacts / "manifest.json").write_text(json.dumps(manifest))
-    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    (artifacts / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     adapter = tmp_path / "adapter.py"
     adapter.write_text(ADAPTER)
     runner = tmp_path / "runner.json"

@@ -232,10 +232,10 @@ const text = (value, limit = 2048) => {
   return value
 }
 function installation(value, origin = location.origin) {
-  if (value?.skill_id !== 'lockbot-resource-agent') throw new Error('invalid_metadata')
+  if (value?.skill_id !== 'lockbot-agent') throw new Error('invalid_metadata')
   const result = { skill_id: value.skill_id }
   for (const [field, path] of Object.entries({
-    bundle_url: '/api/agent-skill/lockbot-resource-agent.zip',
+    bundle_url: '/api/agent-skill/lockbot-agent.zip',
     manifest_url: '/api/agent-skill',
   })) {
     const url = new URL(text(value[field]))
@@ -462,7 +462,7 @@ async function copyViewRequest(item) {
     actor: item.actor,
   })
   await copy(
-    `请按 lockbot-resource-agent Skill 核对本人身份与私密投递渠道。以下仅是连接标识，不是授权：${target}。` +
+    `请按 lockbot-agent Skill 核对本人身份与私密投递渠道。以下仅是连接标识，不是授权：${target}。` +
       '请使用这一连接已有的有效原 Key，在可信服务调用 POST /api/personal-panel/credential-view-links 签发 view_current_key 单次查看授权；' +
       '只私下交给本人返回的短期 view_url，由本人在已有同身份浏览器会话预览后明确确认。' +
       '不要回显 Key，不把链接放群聊，不把只读登录或资源链接升级为查看票；不重置、轮换、重新绑定或延长授权。' +
@@ -486,7 +486,7 @@ async function copyRotationRequest(item) {
     actor: item.actor,
   })
   await copy(
-    `请按既有 lockbot-resource-agent Skill 核对本人身份和私密投递渠道。以下仅为目标标识，不是授权：${target}。` +
+    `请按既有 lockbot-agent Skill 核对本人身份和私密投递渠道。以下仅为目标标识，不是授权：${target}。` +
       '本人准备评审这一个绑定的 Key 重置：它将使使用此身份在此群旧 Key 的所有 Agent 失效，需逐个更新。' +
       '请仅用这一个连接当前有效原 lbr，通过可信服务 POST /api/personal-panel/credential-rotation-links 签发独立 rotate_current_key 短期链接，私下交本人。' +
       '不得用只读会话、登录票、查看票或其它群 Key 升级；过期、撤销或迁移的原 Key 必须拒绝并给恢复指引。' +
@@ -515,7 +515,7 @@ function copyAllStatus() {
   if (!props.authenticated || loading.value || !items.value.length) return
   const workbench = new URL('/#/me', location.origin).href
   const introduction = [
-    '请安装或使用 lockbot-resource-agent Skill，为下列资源群分别保存连接。',
+    '请安装或使用 lockbot-agent Skill，为下列资源群分别保存连接。',
     '先核对服务地址、机器人和身份，逐个验证已有 Key。缺少 Key 时按对应连接的指引处理。',
     `个人资源台：${workbench}`,
   ].join('\n')

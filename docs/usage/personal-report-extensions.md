@@ -1,7 +1,7 @@
 # Personal report extensions
 
 A deployment can expose reviewed local reporters through the same
-`lockbot-resource-agent` Skill. Enable them only on the native identity
+`lockbot-agent` Skill. Enable them only on the native identity
 provider with an issuer equal to the configured panel origin.
 
 Add `agent_report_extensions` to the private panel configuration. Each entry

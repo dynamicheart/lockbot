@@ -175,7 +175,7 @@ remember” is insufficient. The original key bytes must remain unchanged; new b
 are private per-bot files. Never publish the one-use login link or raw credential.
 
 Continuity cases require an explicit frozen artifact directory with `manifest.json`
-and `lockbot-resource-agent.zip`. The adapter verifies ZIP/Markdown
+and `lockbot-agent.zip`. The adapter verifies ZIP/Markdown
 hashes, the exact file set for the declared layout, per-file digests and the content
 revision. The current format includes the Skill, helper, stamp and linked references.
 Download, inspection and

@@ -15,7 +15,7 @@ from lockbot.backend.app.resource_api.skill import SKILL_UPDATE_INSTRUCTIONS
 
 PREVIOUS = "0000000000000000"
 MANIFEST_PATH = "/api/agent-skill"
-DOWNLOADED_ARCHIVE = "downloads/lockbot-resource-agent.zip"
+DOWNLOADED_ARCHIVE = "downloads/lockbot-agent.zip"
 PROMPTS = {
     "alias": (
         "查询 node-a 的共享资源标签，设置为 shared-test，回读确认；更改为 shared-next，再回读；"
@@ -94,7 +94,7 @@ def prepare(root, skill, scenario, artifact_directory=None, installed_artifact_d
         target.mkdir(mode=0o700)
         (target / "manifest.json").write_text(json.dumps(frozen["manifest"]))
         (target / "SKILL.md").write_bytes(frozen["contents"]["SKILL.md"])
-        (target / "lockbot-resource-agent.zip").write_bytes(frozen["archive"])
+        (target / "lockbot-agent.zip").write_bytes(frozen["archive"])
     if current:
         (root / "subject.md").write_bytes(current["contents"]["SKILL.md"])
         case["skill_sha256"] = current["manifest"]["skill_sha256"]
@@ -310,7 +310,7 @@ class Fixture(base.Fixture):
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         target.write_bytes(contents[member])
         return {
-            "members": ["lockbot-resource-agent/" + name for name in sorted(contents)],
+            "members": ["lockbot-agent/" + name for name in sorted(contents)],
             "archive_sha256": artifacts.digest(self.artifact["archive"]),
             "member_file": member_file,
             "version": self.manifest()["version"],

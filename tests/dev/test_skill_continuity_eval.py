@@ -38,18 +38,18 @@ def write_test_artifact(directory, markdown, helper=b"# Synthetic helper fixture
             "scripts/lockbot_cli.py": helper,
             "installation.json": json.dumps(stamp).encode(),
         }.items():
-            archive.writestr("lockbot-resource-agent/" + name, content)
+            archive.writestr("lockbot-agent/" + name, content)
     archive = stream.getvalue()
     (directory / "SKILL.md").write_bytes(markdown)
-    (directory / "lockbot-resource-agent.zip").write_bytes(archive)
+    (directory / "lockbot-agent.zip").write_bytes(archive)
     (directory / "manifest.json").write_text(
         json.dumps(
             {
-                "skill_id": "lockbot-resource-agent",
+                "skill_id": "lockbot-agent",
                 "version": stamp["version"],
                 "skill_sha256": stamp["files"]["SKILL.md"],
                 "installation": {
-                    "name": "lockbot-resource-agent",
+                    "name": "lockbot-agent",
                     "download_url": base.BUNDLE_PATH,
                     "sha256": hashlib.sha256(archive).hexdigest(),
                 },
@@ -380,7 +380,7 @@ def test_installer_rejects_a_directory_that_local_discovery_cannot_load(case):
     arguments = {
         "url": base.ORIGIN + base.BUNDLE_PATH,
         "sha256": fixture.manifest()["installation"]["sha256"],
-        "destination": ".skills/lockbot-resource-agent",
+        "destination": ".skills/lockbot-agent",
     }
     blocked = fixture.call("install_skill", arguments)
     assert blocked["blocked"] and blocked["error"] == "destination_outside_skill_catalog"
@@ -388,7 +388,7 @@ def test_installer_rejects_a_directory_that_local_discovery_cannot_load(case):
     catalog = fixture.call("discover_local_state", {})
     assert catalog["installed_skills"] == []
     assert catalog["supported_skill_catalogs"] == blocked["supported_skill_catalogs"]
-    destination = catalog["supported_skill_catalogs"][0] + "/lockbot-resource-agent"
+    destination = catalog["supported_skill_catalogs"][0] + "/lockbot-agent"
     installed = fixture.call("install_skill", {**arguments, "destination": destination})
     assert installed["installed"]
     assert fixture.call("discover_local_state", {})["installed_skills"][0]["path"] == destination + "/SKILL.md"
@@ -415,7 +415,7 @@ def test_markdown_only_installation_is_explicitly_blocked(tmp_path):
 def test_complete_bundle_tampering_blocks_before_any_install(case):
     fixture = case("recover")
     artifact = fixture.root / "artifacts"
-    with (artifact / "lockbot-resource-agent.zip").open("ab") as stream:
+    with (artifact / "lockbot-agent.zip").open("ab") as stream:
         stream.write(b"corrupted")
     with pytest.raises(evaluation.artifacts.ArtifactBlocked, match="digest"):
         evaluation.Fixture(fixture.root)
@@ -435,7 +435,7 @@ def test_production_builder_complete_package_is_accepted_when_available(tmp_path
     directory.mkdir()
     (directory / "SKILL.md").write_bytes(markdown)
     (directory / "manifest.json").write_text(json.dumps(manifest))
-    (directory / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    (directory / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     root = tmp_path / "production-case"
     evaluation.prepare(root, directory / "SKILL.md", "recover", directory)
     fixture = evaluation.Fixture(root)
@@ -454,8 +454,8 @@ def test_rehashed_markdown_only_zip_is_still_blocked(case):
     directory = fixture.root / "artifacts"
     stream = io.BytesIO()
     with zipfile.ZipFile(stream, "w") as archive:
-        archive.writestr("lockbot-resource-agent/SKILL.md", fixture.markdown)
-    (directory / "lockbot-resource-agent.zip").write_bytes(stream.getvalue())
+        archive.writestr("lockbot-agent/SKILL.md", fixture.markdown)
+    (directory / "lockbot-agent.zip").write_bytes(stream.getvalue())
     meta = json.loads((directory / "manifest.json").read_text())
     meta["installation"]["sha256"] = hashlib.sha256(stream.getvalue()).hexdigest()
     (directory / "manifest.json").write_text(json.dumps(meta))

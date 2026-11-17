@@ -26,23 +26,23 @@ def load(directory):
     try:
         directory = Path(directory)
         raw = {}
-        for name in ("manifest.json", "lockbot-resource-agent.zip"):
+        for name in ("manifest.json", "lockbot-agent.zip"):
             path = directory / name
             if path.is_symlink() or not path.is_file() or path.stat().st_size > LIMIT:
                 raise ArtifactBlocked("complete_artifact_required")
             raw[name] = path.read_bytes()
         meta = json.loads(raw["manifest.json"])
         descriptor = meta["installation"]
-        if meta["skill_id"] != "lockbot-resource-agent" or descriptor["name"] != "lockbot-resource-agent":
+        if meta["skill_id"] != "lockbot-agent" or descriptor["name"] != "lockbot-agent":
             raise ArtifactBlocked("unexpected_package_identity")
-        if descriptor["download_url"] != "/api/agent-skill/lockbot-resource-agent.zip":
+        if descriptor["download_url"] != "/api/agent-skill/lockbot-agent.zip":
             raise ArtifactBlocked("unexpected_download_path")
-        if digest(raw["lockbot-resource-agent.zip"]) != descriptor["sha256"]:
+        if digest(raw["lockbot-agent.zip"]) != descriptor["sha256"]:
             raise ArtifactBlocked("artifact_digest_mismatch")
         prefix = descriptor["name"] + "/"
         reference_paths = REFERENCE_PATHS if meta.get("package_format") == BUNDLE_FORMAT else ()
         expected = {*FILES, *reference_paths}
-        with zipfile.ZipFile(io.BytesIO(raw["lockbot-resource-agent.zip"])) as archive:
+        with zipfile.ZipFile(io.BytesIO(raw["lockbot-agent.zip"])) as archive:
             entries = archive.infolist()
             if len(entries) != len(expected) or {entry.filename for entry in entries} != {
                 prefix + item for item in expected
@@ -73,7 +73,7 @@ def load(directory):
             raise ArtifactBlocked("artifact_revision_mismatch")
         if stamp["files"] != {name: digest(contents[name]) for name in expected - {"installation.json"}}:
             raise ArtifactBlocked("artifact_file_digest_mismatch")
-        return {"manifest": meta, "archive": raw["lockbot-resource-agent.zip"], "contents": contents}
+        return {"manifest": meta, "archive": raw["lockbot-agent.zip"], "contents": contents}
     except ArtifactBlocked:
         raise
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError, zipfile.BadZipFile) as error:

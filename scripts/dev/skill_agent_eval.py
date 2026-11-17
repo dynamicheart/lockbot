@@ -31,7 +31,7 @@ OTHER = "http://192.0.2.11:8155"
 KEY = "lbr_" + hashlib.sha256(b"lockbot-public-evaluation-primary-canary").hexdigest()
 OTHER_KEY = "lbr_" + hashlib.sha256(b"lockbot-public-evaluation-other-canary").hexdigest()
 SKILL_PATH = "/api/agent-skill/SKILL.md"
-BUNDLE_PATH = "/api/agent-skill/lockbot-resource-agent.zip"
+BUNDLE_PATH = "/api/agent-skill/lockbot-agent.zip"
 BUNDLE_HASH_ERROR = "Bundle SHA-256 mismatch; no files installed"
 RESOURCE_LINKS = {"resources": "/api/agent/resources", "commands": "/api/agent/commands"}
 INSTANCE = "11111111-1111-4111-8111-111111111111"
@@ -92,7 +92,7 @@ def bot_resource_path(path, bot_id):
 def bundle(markdown):
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
-        entry = zipfile.ZipInfo("lockbot-resource-agent/SKILL.md", (1980, 1, 1, 0, 0, 0))
+        entry = zipfile.ZipInfo("lockbot-agent/SKILL.md", (1980, 1, 1, 0, 0, 0))
         archive.writestr(entry, markdown.encode())
     return output.getvalue()
 
@@ -132,7 +132,7 @@ def prepare(root, skill, scenario, *, source=None, artifacts=None):
         package = root / "frozen-artifacts"
         package.mkdir(mode=0o700)
         save_json(package / "manifest.json", frozen["manifest"])
-        (package / "lockbot-resource-agent.zip").write_bytes(frozen["archive"])
+        (package / "lockbot-agent.zip").write_bytes(frozen["archive"])
     (root / "subject.md").write_text(markdown)
     (root / "prompt.txt").write_text(
         SCENARIOS[scenario].format(url=ORIGIN + skill_path, zip_url=ORIGIN + BUNDLE_PATH, body=markdown)
@@ -204,7 +204,7 @@ class Fixture:
             "version": digest(self.markdown.encode())[:16],
             "skill_sha256": digest(self.markdown.encode()),
             "installation": {
-                "name": "lockbot-resource-agent",
+                "name": "lockbot-agent",
                 "download_url": BUNDLE_PATH,
                 "sha256": digest(self.archive),
             },
@@ -212,7 +212,7 @@ class Fixture:
             "service_id": "lockbot.resource-api",
             "instance_id": INSTANCE,
             "api_version": "1",
-            "skill_id": "lockbot-resource-agent",
+            "skill_id": "lockbot-agent",
             "credential_scheme": "lbr_bot_scoped",
             "skill_url": self.skill_path,
             "context_url": "/api/agent/context",
@@ -223,7 +223,7 @@ class Fixture:
     def inspect_archive(self, args):
         # Inspect only the exact archive served by the fixture.
         path = self.path(args["path"])
-        if path != self.workspace / "downloads/lockbot-resource-agent.zip":
+        if path != self.workspace / "downloads/lockbot-agent.zip":
             raise ValueError("Not a fixture archive")
         if path.read_bytes() != self.archive:
             raise ValueError(BUNDLE_HASH_ERROR)
@@ -234,7 +234,7 @@ class Fixture:
             target.write_bytes(data)
         skill_file = "downloads/package/SKILL.md"
         return {
-            "members": [f"lockbot-resource-agent/{name}" for name in sorted(contents)],
+            "members": [f"lockbot-agent/{name}" for name in sorted(contents)],
             "skill_file": skill_file,
             **self.text_page(self.path(skill_file)),
         }
@@ -255,11 +255,11 @@ class Fixture:
         if url.path == "/api/agent-skill":
             return {"status": 200, "body": self.manifest()}
         if url.path == BUNDLE_PATH:
-            document = self.workspace / "downloads/lockbot-resource-agent.zip"
+            document = self.workspace / "downloads/lockbot-agent.zip"
             document.parent.mkdir(mode=0o700, exist_ok=True)
             data = self.archive + (b"corrupted" if self.case["scenario"] == "bad-bundle" else b"")
             document.write_bytes(data)
-            return {"status": 200, "download_file": "downloads/lockbot-resource-agent.zip", "sha256": digest(data)}
+            return {"status": 200, "download_file": "downloads/lockbot-agent.zip", "sha256": digest(data)}
         headers = {k.lower(): v for k, v in args.get("headers", {}).items()}
         if headers.get("authorization") != "Bearer " + KEY:
             return {"status": 401, "error": "Invalid fixture credential"}

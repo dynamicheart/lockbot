@@ -189,7 +189,7 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
     assert hashlib.sha256(bundle).hexdigest() == installation["sha256"]
     with ZipFile(io.BytesIO(bundle)) as archive:
         archive.extractall(tmp_path)
-    script = tmp_path / "lockbot-resource-agent/scripts/lockbot_cli.py"
+    script = tmp_path / "lockbot-agent/scripts/lockbot_cli.py"
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.setenv("no_proxy", "127.0.0.1")

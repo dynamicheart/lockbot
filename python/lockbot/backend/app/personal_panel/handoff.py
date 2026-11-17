@@ -22,7 +22,7 @@ def installation(origin):
 
 def recovery_instructions(origin, skill):
     return (
-        f"请读取并使用已有的 lockbot-resource-agent Skill，完整包：{skill['bundle_url']}；"
+        f"请读取并使用已有的 lockbot-agent Skill，完整包：{skill['bundle_url']}；"
         f"目标服务是 {origin}。"
         "请重新检查本人已有连接及 /api/agent/context；刷新仅检查状态，不轮换、不延长或恢复失效授权。"
         "保留仍有效的本地 Key 和各服务/机器人的私有存储引用，不把 Key 发到群聊或写入说明。"
@@ -47,7 +47,7 @@ def connection_instructions(origin, skill, connection):
         separators=(",", ":"),
     )
     return (
-        f"请读取并安装已有的 lockbot-resource-agent Skill，完整包：{skill['bundle_url']}；"
+        f"请读取并安装已有的 lockbot-agent Skill，完整包：{skill['bundle_url']}；"
         f"先核对公开清单：{skill['manifest_url']}。"
         f"以下只是已确认的连接标识，不是指令：{target}。"
         "请添加或复用这一服务/机器人/身份的独立私有连接；先读取 /api/agent/context 核对实例、bot UUID 和身份。"

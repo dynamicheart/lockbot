@@ -21,7 +21,7 @@ def prepare(tmp_path, monkeypatch, scenario, instance_id=None):
     _, _, manifest = skill.skill_artifacts()
     artifact = tmp_path / "artifact"
     artifact.mkdir()
-    (artifact / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    (artifact / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     if instance_id is not None:
         manifest = {**manifest, "instance_id": instance_id}
     evaluation.base.save_json(artifact / "manifest.json", manifest)

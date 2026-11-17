@@ -28,8 +28,8 @@ const renderer = createRenderer({
   patchProp: (node, key, _previous, value) => (node.props[key] = value),
 })
 const skill = () => ({
-  skill_id: 'lockbot-resource-agent',
-  bundle_url: ORIGIN + '/api/agent-skill/lockbot-resource-agent.zip',
+  skill_id: 'lockbot-agent',
+  bundle_url: ORIGIN + '/api/agent-skill/lockbot-agent.zip',
   manifest_url: ORIGIN + '/api/agent-skill',
 })
 const guide = () => `请先读取 ${skill().bundle_url}，保留有效原 Key；只检查状态。`
@@ -318,8 +318,8 @@ it('does not infer native credential authority when an identity provider lacks t
   expect(markup).not.toContain('Agent 凭证列表')
 })
 it.each([
-  'https://different.example.test/api/agent-skill/lockbot-resource-agent.zip',
-  'https://user:secret@panel.example.test/api/agent-skill/lockbot-resource-agent.zip',
+  'https://different.example.test/api/agent-skill/lockbot-agent.zip',
+  'https://user:secret@panel.example.test/api/agent-skill/lockbot-agent.zip',
 ])('rejects an unapproved installation URL %s', async (url) => {
   const caps = capabilities()
   caps.connection_management.skill.bundle_url = url
@@ -406,7 +406,7 @@ it('validates an authenticated metadata-only service pin and copies only its sou
   expect(help).not.toContain('刷新 Key')
   expect(help).not.toContain('复制查看请求')
   await state.copyInstructions(state.items[0])
-  expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(FOREIGN + '/api/agent-skill/lockbot-resource-agent.zip'))
+  expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(FOREIGN + '/api/agent-skill/lockbot-agent.zip'))
   expect(clipboard.mock.calls[0][0]).not.toContain(SECRET)
 })
 

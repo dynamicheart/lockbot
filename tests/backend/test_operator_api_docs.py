@@ -25,7 +25,7 @@ def test_resource_skill_does_not_distribute_detailed_note_authorization(client):
         b"lba1",
         b"task_notes:read",
     )
-    response = client.get("/api/agent-skill/lockbot-resource-agent.zip")
+    response = client.get("/api/agent-skill/lockbot-agent.zip")
     assert response.status_code == 200
     with zipfile.ZipFile(io.BytesIO(response.content)) as zipped:
         for name in zipped.namelist():

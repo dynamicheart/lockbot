@@ -244,7 +244,7 @@ flowchart LR
 
 | 入口 | 用途 |
 |---|---|
-| `GET /api/agent-skill/lockbot-resource-agent.zip` | 完整安装包，包含操作说明和 CLI |
+| `GET /api/agent-skill/lockbot-agent.zip` | 完整安装包，包含操作说明和 CLI |
 | `GET /api/agent-skill` | 版本、下载地址及摘要 |
 | `GET /api/public-docs/op` | OP 运维接口文档 |
 

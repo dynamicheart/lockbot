@@ -6,7 +6,7 @@ Unchecked work below is proposed, not an advertised protocol.
 
 ## User experience
 
-Install `lockbot-resource-agent` once. The same Skill handles resource queries,
+Install `lockbot-agent` once. The same Skill handles resource queries,
 permitted resource commands and the optional personal dashboard. Adding another
 service or group adds a privately stored connection, not another Skill. A private
 registry can distribute that same package; it is not a separate personal-dashboard
@@ -118,7 +118,7 @@ makes its former read path unavailable.
 
 ## Private operational guidance
 
-Use the same `lockbot-resource-agent` installation and the same personal
+Use the same `lockbot-agent` installation and the same personal
 dashboard. A private deployment may add a **runbook reference** for a verified
 resource, such as device-specific process recovery guidance. Operators maintain
 the runbook text, resource matching and local configuration in a private
@@ -191,10 +191,10 @@ package compatibility independently for each saved connection.
 
 ### Distribute the same Skill from a private registry
 
-1. Start with the reviewed `lockbot-resource-agent` ZIP from an approved
+1. Start with the reviewed `lockbot-agent` ZIP from an approved
    deployment or release. If using a deployment's manifest, check the same-origin
    installation URL and verify the returned ZIP against its declared SHA-256.
-2. Publish the complete package under `lockbot-resource-agent` in the private
+2. Publish the complete package under `lockbot-agent` in the private
    registry. Preserve the archive bytes when the registry supports ZIP upload.
    If the registry takes a directory, keep `SKILL.md`, the helper, the
    installation stamp and all bundled files together. Record the package revision

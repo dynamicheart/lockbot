@@ -1,5 +1,5 @@
 ---
-name: lockbot-resource-agent
+name: lockbot-agent
 description: >
   Connect to a LockBot resource group, find saved connections, check shared compute,
   lock or book nodes and GPU cards, release holdings, or open the personal workbench.

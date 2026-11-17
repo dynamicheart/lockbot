@@ -70,7 +70,7 @@ def skill_artifacts():
 @lru_cache(maxsize=4)
 def _skill_artifacts(origin):
     folder = "agent_skill"
-    skill_id = "lockbot-resource-agent"
+    skill_id = "lockbot-agent"
     download_url = f"/api/agent-skill/{skill_id}.zip"
     markdown = files("lockbot.backend.app").joinpath(f"{folder}/SKILL.md").read_bytes()
     canonical_markdown = markdown
@@ -194,8 +194,8 @@ def _download(request, content, media_type, filename=None):
     return Response(content=content, media_type=media_type, headers=headers)
 
 
-@router.get("/lockbot-resource-agent.zip", response_class=Response)
+@router.get("/lockbot-agent.zip", response_class=Response)
 @limiter.limit("60/minute")
 def namespaced_skill_zip(request: Request):
     """Install alongside other Lockbot implementations without replacing their skill."""
-    return _download(request, installation_bundle(), "application/zip", "lockbot-resource-agent.zip")
+    return _download(request, installation_bundle(), "application/zip", "lockbot-agent.zip")

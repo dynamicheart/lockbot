@@ -111,7 +111,7 @@ python scripts/dev/skill_eval_matrix.py run \
 ```
 
 Repeat `--suite` or `--case` to select their union. Without a selection, the matrix
-runs all four suites. Supply `manifest.json` and `lockbot-resource-agent.zip` rendered
+runs all four suites. Supply `manifest.json` and `lockbot-agent.zip` rendered
 for `http://192.0.2.10:8155`. The full matrix additionally needs `--panel-artifacts`
 with the same portable release rendered for `https://lockbot.example.test` and
 `--installed-artifacts` with a distinct older revision rendered for the same synthetic

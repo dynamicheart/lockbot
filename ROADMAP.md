@@ -108,7 +108,7 @@ Workbench localization was merged in [#255](https://github.com/dynamicheart/lock
 
 ## Unified resource Skill follow-up
 
-[#164](https://github.com/dynamicheart/lockbot/issues/164) keeps one `lockbot-resource-agent` package for native connections and the optional personal dashboard. The public package supports scoped extension discovery, caller-authorized report reads, and portable integrity checks. The implementation and configuration of private adapters remain outside the public repository. The isolated multi-service regression exercised distinct origins, instances, groups, and credential references with independent fresh sessions. The real-account and distribution items are tracked above. [Design and protocol boundaries](docs/design/unified-resource-agent-skill.md).
+[#164](https://github.com/dynamicheart/lockbot/issues/164) keeps one `lockbot-agent` package for native connections and the optional personal dashboard. The public package supports scoped extension discovery, caller-authorized report reads, and portable integrity checks. The implementation and configuration of private adapters remain outside the public repository. The isolated multi-service regression exercised distinct origins, instances, groups, and credential references with independent fresh sessions. The real-account and distribution items are tracked above. [Design and protocol boundaries](docs/design/unified-resource-agent-skill.md).
 
 ## Explicitly deferred
 

@@ -35,7 +35,7 @@ def freeze(source, destination, expected_origin):
     manifest = artifact["manifest"]
     onboarding.save_json(destination / "manifest.json", manifest)
     (destination / "SKILL.md").write_bytes(artifact["contents"]["SKILL.md"])
-    (destination / "lockbot-resource-agent.zip").write_bytes(artifact["archive"])
+    (destination / "lockbot-agent.zip").write_bytes(artifact["archive"])
     return {
         "revision": manifest["version"],
         "sha256": manifest["installation"]["sha256"],

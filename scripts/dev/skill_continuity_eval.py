@@ -96,7 +96,7 @@ def prepare(root, skill, scenario, artifact_directory=None):
     base.save_json(root / "browser.json", {"authenticated": False, "bookmarks": [], "delivered": False})
     if artifact is not None:
         (root / "artifacts").mkdir(mode=0o700)
-        for filename in ("manifest.json", "lockbot-resource-agent.zip"):
+        for filename in ("manifest.json", "lockbot-agent.zip"):
             target = root / "artifacts" / filename
             target.write_bytes((artifact_directory / filename).read_bytes())
             target.chmod(0o600)
@@ -401,12 +401,12 @@ class Fixture(base.Fixture):
                 else:
                     path = self.path(args["path"])
                     if (
-                        path != self.workspace / "downloads/lockbot-resource-agent.zip"
+                        path != self.workspace / "downloads/lockbot-agent.zip"
                         or path.read_bytes() != self.archive
                     ):
                         raise artifacts.ArtifactBlocked("not_the_verified_download")
                     result = {
-                        "members": ["lockbot-resource-agent/" + name for name in sorted(artifacts.FILES)],
+                        "members": ["lockbot-agent/" + name for name in sorted(artifacts.FILES)],
                         "content": self.markdown,
                         "version": self.manifest()["version"],
                     }
@@ -425,7 +425,7 @@ class Fixture(base.Fixture):
                 "installed_skills": [
                     {
                         "path": str(path.relative_to(self.workspace)),
-                        "name": "lockbot-resource-agent",
+                        "name": "lockbot-agent",
                         "version": self.manifest()["version"] if self.artifact else None,
                         "helper_path": str((path.parent / "scripts/lockbot_cli.py").relative_to(self.workspace))
                         if (path.parent / "scripts/lockbot_cli.py").is_file()

@@ -739,7 +739,7 @@ def deployment_fragments(base, package_format=BUNDLE_FORMAT):
                 "Deployment API addresses (use the verified context links for the bot scope):",
                 f"- Manifest: `GET {base}/api/agent-skill`",
                 f"- Context: `GET {base}/api/agent/context`",
-                f"- Complete installation ZIP: `{base}/api/agent-skill/lockbot-resource-agent.zip`",
+                f"- Complete installation ZIP: `{base}/api/agent-skill/lockbot-agent.zip`",
                 "- Read resources and send commands using the same-origin links returned by context.",
                 "  The personal Key identifies its bot.",
             ]
@@ -990,7 +990,7 @@ class Client:
         if (
             result.get("service_id") != SERVICE
             or result.get("api_version") != API_VERSION
-            or result.get("skill_id") != "lockbot-resource-agent"
+            or result.get("skill_id") != "lockbot-agent"
             or not isinstance(result.get("instance_id"), str)
             or not result["instance_id"]
             or not re.fullmatch(r"[a-f0-9]{16}", str(result.get("version", "")))

@@ -1,6 +1,6 @@
 # Resource Agent helper and complete installation bundle
 
-The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_cli.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-resource-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
+The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_cli.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
 
 Existing API routes, personal keys and the legacy ZIP URL/root (`lockbot-agent-api`) remain supported. The public manifest points to the complete installation ZIP, which includes `SKILL.md`. Operator bundles remain separate and use operator credentials.
 
@@ -96,7 +96,7 @@ Use that verified helper from the project root:
 ```sh
 python3 -I -S /path/to/verified/lockbot_cli.py install \
   --origin https://resources.example.test \
-  --destination "$PWD/.agents/skills/lockbot-resource-agent"
+  --destination "$PWD/.agents/skills/lockbot-agent"
 ```
 
 Replace the example origin with the same approved service. The installer fetches and

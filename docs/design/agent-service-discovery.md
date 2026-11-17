@@ -25,7 +25,7 @@
 | `instance_id` | 当前数据库持久保存的非秘密实例标识；普通重启、升级不变 |
 | `server_version` | 安装的软件版本 |
 | `api_version` | API 合约主版本，当前为 `1` |
-| `skill_id` | 本平台独立 skill 名称 `lockbot-resource-agent` |
+| `skill_id` | 本平台独立 skill 名称 `lockbot-agent` |
 | `version` / `skill_sha256` | skill 内容版本和完整摘要；比较是否一致，不按版本号大小排序 |
 
 manifest 返回更新说明和下载地址。Agent 在任务开始和重新连接后检查一次；API 响应也携带服务、API、软件和 skill 版本头，发现 skill 变更后，在下一次资源变更操作前重新获取并校验说明。更新 skill 不撤销 key，不重新申请锁，也不要求重新绑定。
@@ -46,7 +46,7 @@ Agent 的私有凭据记录按“用户认可的服务地址 + 实例 ID + bot U
 
 对已发布的 401 错误，保留原 HTTP 状态码和字符串 `detail`，新增顶层 `code` 和 `context_url`：有效 key 访问其他现存 bot 时为 `wrong_bot`，无效或撤销 key 为 `credential_invalid`。Agent 使用自省接口恢复正确操作链接，不再扫描编号。原有结构化业务错误仍使用 `detail.code`；skill 同时说明两种兼容格式。
 
-当前下载入口为 `GET /api/agent-skill/lockbot-resource-agent.zip`，`SKILL.md` 在 ZIP 内。Agent 通过公开清单的 `installation` 获取下载地址和完整性摘要。
+当前下载入口为 `GET /api/agent-skill/lockbot-agent.zip`，`SKILL.md` 在 ZIP 内。Agent 通过公开清单的 `installation` 获取下载地址和完整性摘要。
 
 ## 逐项验收
 

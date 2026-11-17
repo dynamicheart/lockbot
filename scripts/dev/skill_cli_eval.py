@@ -271,7 +271,7 @@ class Fixture(continuity.Fixture):
 
     @property
     def installation(self):
-        return self.workspace / "skills/lockbot-resource-agent"
+        return self.workspace / "skills/lockbot-agent"
 
     @property
     def saved_connection(self):

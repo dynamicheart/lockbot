@@ -157,7 +157,7 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
             env = dict(os.environ, NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
             bootstrap = tmp_path / "bootstrap.py"
             with ZipFile(BytesIO(archive)) as package:
-                bootstrap.write_bytes(package.read("lockbot-resource-agent/scripts/lockbot_cli.py"))
+                bootstrap.write_bytes(package.read("lockbot-agent/scripts/lockbot_cli.py"))
 
             def cli(script, *args, code=0):
                 result = subprocess.run(

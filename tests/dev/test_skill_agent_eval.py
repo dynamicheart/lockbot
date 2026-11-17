@@ -60,7 +60,7 @@ def frozen_package(tmp_path, monkeypatch):
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
     (artifacts / "manifest.json").write_text(json.dumps(skill.skill_artifacts()[2]))
-    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    (artifacts / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     return artifacts
 
 
@@ -90,11 +90,11 @@ def test_frozen_zip_fixture_preserves_candidate_bytes_and_references(tmp_path, f
     download = fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
     assert download["sha256"] == original["installation"]["sha256"]
     assert (fixture.workspace / download["download_file"]).read_bytes() == (
-        frozen_package / "lockbot-resource-agent.zip"
+        frozen_package / "lockbot-agent.zip"
     ).read_bytes()
     inspected = fixture.call("inspect_archive", {"path": download["download_file"]})
     contents = evaluation.load(frozen_package)["contents"]
-    assert inspected["members"] == [f"lockbot-resource-agent/{name}" for name in sorted(contents)]
+    assert inspected["members"] == [f"lockbot-agent/{name}" for name in sorted(contents)]
     assert not (fixture.workspace / "skills").exists()
     for name, data in contents.items():
         assert (fixture.workspace / "downloads/package" / name).read_bytes() == data
@@ -162,7 +162,7 @@ def test_zip_first_input_can_be_inspected_before_installation(tmp_path, subject)
     response = fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
     assert response["sha256"] == fixture.manifest()["installation"]["sha256"]
     inspected = fixture.call("inspect_archive", {"path": response["download_file"]})
-    assert inspected["members"] == ["lockbot-resource-agent/SKILL.md"]
+    assert inspected["members"] == ["lockbot-agent/SKILL.md"]
     assert inspected["content"] == fixture.markdown
     assert not (fixture.workspace / "skills").exists()
     # Binary archive artifacts must not be mistaken for a model-runner protocol error.
