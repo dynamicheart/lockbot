@@ -29,6 +29,7 @@ COLD_REQUEST = "cold-install-allocate"
 COLD_INVENTORY = "intent-model-p800-whole-machine"
 COLD_COMMAND = intent.EXPECTED[COLD_INVENTORY][1]
 PANEL_ORIGIN = "https://lockbot.example.test"
+PANEL_FIXTURE_VERSION = 8
 PANEL_ISSUE = "/api/personal-panel/links"
 RECOVER = "/api/agent/bindings/recover"
 ACTIONS = (
@@ -94,7 +95,12 @@ def prepare(root, artifact, scenario):
         case = json.loads(case_path.read_text())
         base.save_json(
             case_path,
-            {**case, "origin": PANEL_ORIGIN, "panel_ticket": "synthetic-panel-ticket-evaluation-only"},
+            {
+                **case,
+                "origin": PANEL_ORIGIN,
+                "panel_ticket": "synthetic-panel-ticket-evaluation-only",
+                "fixture_version": PANEL_FIXTURE_VERSION,
+            },
         )
         (root / "prompt.txt").write_text(continuity.PROMPTS["panel"].replace(base.ORIGIN, PANEL_ORIGIN))
     if scenario in FIRST_CONTACT:
@@ -739,9 +745,10 @@ def tools(root):
     public_tools = []
     if scenario == "panel":
         actions = (*actions, "panel-link")
-        public_tools.extend(
-            tool for tool in continuity.continuity_tools() if tool["name"] in {"deliver_private_link", "browser_home"}
-        )
+        browser_tools = {tool["name"]: tool for tool in continuity.continuity_tools()}
+        browser_home = browser_tools["browser_home"]
+        browser_home["description"] += " The local-state action of run_lockbot lists saved browser bookmarks."
+        public_tools.extend([browser_tools["deliver_private_link"], browser_home])
     if scenario in FIRST_CONTACT:
         public_tools.append(
             {
