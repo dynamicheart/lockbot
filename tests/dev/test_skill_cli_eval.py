@@ -342,13 +342,21 @@ def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tm
     assert not evaluation.score(fixture.root, final)["checks"]["one_retry_with_same_selector"]
 
 
-def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch):
+def test_installed_main_fits_one_read_and_verified_references_remain_pageable(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "no-key")
     assert fixture.call("read_lockbot_skill", {"offset": 0})["error"] == "verified_package_required"
     first = install(fixture)
-    second = fixture.call("read_lockbot_skill", {"offset": first["next_offset"]})
     markdown = (fixture.installation / "SKILL.md").read_text()
-    assert first["content"] + second["content"] == markdown[: second["next_offset"]]
+    assert first["content"] == markdown
+    assert first["next_offset"] is None
+    reference = "references/resource-operations.md"
+    page = fixture.call("read_lockbot_skill", {"offset": 0, "reference": reference})
+    assert page["next_offset"] is not None
+    text = page["content"]
+    while page["next_offset"] is not None:
+        page = fixture.call("read_lockbot_skill", {"offset": page["next_offset"], "reference": reference})
+        text += page["content"]
+    assert text == (fixture.installation / reference).read_text()
 
 
 @pytest.mark.parametrize(

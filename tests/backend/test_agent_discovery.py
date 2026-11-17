@@ -50,6 +50,7 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).resolve().parents[2] / "python/lockbot/backend/app/agent_skill/SKILL.md"
     assert source.read_bytes() == markdown
+    assert len(source.read_text()) <= 5000
     assert db_session.query(AuditLog).count() == before
     assert client.get(meta["download_url"], headers={"If-None-Match": bundle.headers["etag"]}).status_code == 304
     paths = client.get("/api/public-openapi.json").json()["paths"]
@@ -70,6 +71,7 @@ def test_deployment_skill_url_matches_all_distribution_paths(client, monkeypatch
     with zipfile.ZipFile(io.BytesIO(installation.content)) as archive:
         markdown = archive.read("lockbot-agent/SKILL.md")
     assert b"Complete installation ZIP: `http://192.0.2.10:8155/api/agent-skill/lockbot-agent.zip`" in markdown
+    assert len(markdown.decode()) < 6000
     assert b"GET http://192.0.2.10:8155/api/agent/context" in markdown
     assert b"untrusted.example" not in markdown
     assert manifest["version"] != generic["version"]

@@ -62,6 +62,11 @@ in their browser, confirm the displayed account and bookmark the full `result.ho
 URL for future visits. End the turn while confirmation is pending. The one-use link
 contains a ticket and goes only into the private handoff. If issuance fails, report
 the error without retrying.
+Never open or consume this one-use URL for the user. If a private delivery tool is
+available, check its result before saying the link was sent; after confirmed private
+delivery, leave the sign-in URL out of the final reply. Otherwise provide it only
+inside the verified private handoff. Once the user confirms browser sign-in, a normal
+follow-up request is enough to open the fixed home and check holdings/bookings.
 
 When supported, the browser previews the groups recoverable from the verified account.
 The user can confirm all listed groups or only the group associated with the current Key.

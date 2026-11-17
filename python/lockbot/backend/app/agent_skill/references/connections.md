@@ -29,6 +29,13 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
+A link or pasted Skill alone authorizes inspection only: read the public manifest,
+explain the Skill, and wait for an explicit installation request. Use the full
+supplied URL, the complete installation ZIP named in pasted text, or one unambiguous
+approved connection. Ask for the original URL only if no approved origin is known;
+reference example hosts are placeholders. Verify the installed files and reload
+the Skill. For installation only, stop there without enrolling or allocating.
+
 For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
 alone: it contains `SKILL.md`, `references/`, `scripts/lockbot_cli.py` and `installation.json`.
 One installation can serve multiple independently approved connections when its verified
@@ -39,6 +46,9 @@ URLs alone do not require replacing the package; old servers remain conservative
 A ZIP URL does not automatically install in every client. Use its installer or verify the
 manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
 supported; the helper is the recommended fixed path, not a new server requirement.
+If a previously installed helper rejects the archive layout, use the client's
+installer for the checked ZIP, then use the helper in the new package. Failed or
+unavailable installation remains unverified.
 
 Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
@@ -51,12 +61,24 @@ identity; report the returned `outcome`, not an assumption that a new account wa
 If the user requests a resource on the identified service and has no valid saved Key, run
 `key-challenge --origin "$ORIGIN" --authorized` for chat confirmation on a
 server that advertises `chat_credential_challenges`. This requests a short-lived
-confirmation command. The user's chat action completes the sign-in. Use the confirmation sentence from
-[the setup workflow](../SKILL.md#install-or-connect). Use the saved `enrollment_dir` with
+confirmation command. The user's chat action completes the sign-in.
+Quote the CLI's `user_instruction_zh` for Chinese or `user_instruction` for English
+verbatim. For other languages, translate `user_instruction` and preserve the exact
+`bind_command`. The verified chat confirmation identifies the bot.
+Use the saved `enrollment_dir` with
 `finish-enrollment` to verify and save the connection after confirmation. If no
 Key is active for that user and bot, the same confirmation creates one and
 reports `outcome: created`. If an active Key cannot be recovered, report that
 result and keep it valid.
+After confirmation, use the service's `outcome` to say the original sign-in was
+restored or a new connection was established. If omitted, say the account is connected.
+
+When a normal follow-up requests resources on that service, run `connections` and
+check its unfinished request with `enrollment-status`. The local `pending` label
+can remain after chat confirmation. When the server reports `confirmed`, run
+`finish-enrollment` using the SAME enrollment directory to verify and store that
+sign-in, then fulfill the current request. Do not require a special confirmation
+phrase from the user or request another code just because the local label is pending.
 
 Use `key-challenge --origin "$ORIGIN" --purpose reset --authorized` after the user
 explicitly chooses to invalidate the old Key and acknowledges that other Agents sharing

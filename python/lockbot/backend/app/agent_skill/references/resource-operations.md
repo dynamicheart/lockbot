@@ -91,6 +91,19 @@ Renewal still requires the amount of time to add. Claim uses the original booked
 Releasing a holding ends that lease; it does not automatically create a booking or put
 the former holder in a queue. A separate booking needs its own user authorization.
 
+### Own resources and reminder requests
+
+For holdings or bookings, query every saved authorized group and compare the exact
+verified actor. Keep cards, current holdings and queued bookings separate. A current
+holder's remaining lease time is not the queued user's expiry or a guaranteed start;
+describe `queue_estimate` as an estimate and any reported claim window as a claim window.
+
+For an expiry-reminder request, first read the user's current resources.
+`next_event_kind: own_early_warning` describes the bot's existing scheduled group
+warning. Explain that schedule without claiming a new reminder was created or delivered.
+An expiry timestamp alone does not prove a warning is enabled. The resource API cannot
+create personal timers; state that limit when no existing warning is reported.
+
 ### Interpret instants separately from human display time
 
 Lease `start_time`, `expires_at`, snapshot `captured_at` and `next_event_at` are absolute
@@ -134,6 +147,18 @@ because a query failed, a queue estimate changed, or a cached record still says 
 
 ### Renew only for necessary active work, and verify the result
 
+For a NEW explicit chat-style `lock` or `slock` targeting the user's existing
+holding, freshly verify exact ownership, group relock policy and allocation mode.
+In the SAME mode, translate to `command --operation renew`: the server wire operation
+remains `lock`/`slock`, adding time rather than setting a new total. Pass the requested
+increment with `--duration`. If omitted by the user, read the live positive
+`bot_rules.default_duration_seconds` and pass that increment explicitly; unlike a
+new acquisition, CLI `renew` requires a duration. If no usable default is available,
+ask for the increment. Stop if renewal is forbidden, ownership/mode is uncertain,
+or the request changes allocation mode. This translation never authorizes renewal
+from polling, time passage, or a previous unknown write outcome. Forbidding an implicit
+retry is different from denying a fresh explicit user request.
+
 Before the stop deadline, refresh context once and verify current ownership and this task's
 lease. Renew only if renewal is allowed and active work actually needs more time; never renew
 indefinitely just to retain capacity. Leave enough margin for request latency and any
@@ -163,6 +188,18 @@ starting and do not promise unattended acquisition/renewal. Lockbot records leas
 it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's responsibility.
 
 ## Choose resources and release promptly
+
+Finding resources is read-only. A later duration-only lock request can select a
+uniquely established machine from the actual conversation; do not invent a target.
+Resolve short IDs through exact inventory IDs, aliases or intentionally shared IPv4
+suffixes, not guessed private addresses or model names inferred from group titles.
+
+A node-only `lock`, `slock` or `book` follows chat semantics. In a card group, select
+ALL observed cards on that node and enumerate every `--device` in one CLI command.
+Do not silently choose one card or ask which card when the node target already
+specifies all of them. Check supported operations and the entire selection; a conflict
+or shortfall is not permission to pick a subset. Whole-node groups use `--whole-node`.
+Explicit per-card requests never become whole-node allocations or switch groups.
 
 - Request only the resources needed for the next task stage, shortly before using them.
   When several suitable machines/cards are free, prefer consecutive machine IDs or
