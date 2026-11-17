@@ -21,9 +21,14 @@ grants out of replies, command arguments, Skill files and shared memory.
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-**First connection or missing Key.** When the user authorizes a code on the approved
-service, run `key-challenge --origin "$ORIGIN" --authorized`. Chat confirmation
-identifies the bot and restores the user's existing Key or creates their first Key.
+**First connection or missing Key.** If the user asks to use an identified LockBot
+service (for example, to request a machine), look for a saved connection first. If
+none exists, run `key-challenge --origin "$ORIGIN" --authorized` and give the user
+the single chat confirmation step returned by the CLI. The request to use the
+service authorizes this step even when the user does not mention a Key or a code.
+Chat confirmation identifies the bot and restores the existing Key or creates a
+first Key. After confirmation, finish the connection and continue the original request.
+For an installation-only request, stop after verifying the installation.
 
 **Explicit Key reset.** Once the user requests invalidation and acknowledges that other
 Agents sharing the old Key must replace it, run

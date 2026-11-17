@@ -38,6 +38,37 @@ def run(fixture, action, **kwargs):
     return fixture.call("run_lockbot", {"action": action, **kwargs})
 
 
+def test_ordinary_user_installs_and_requests_a_machine_without_key_instructions(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, evaluation.COLD_REQUEST)
+    request = (fixture.root / "prompt.txt").read_text().splitlines()[0]
+    assert request == "帮我安装这个 Skill，申请一台 P800 机器用两小时。"
+    assert run(fixture, "local-state")["result"]["seed_key_file_present"] is False
+    assert install(fixture)["installed"]
+    challenge = run(fixture, "key-challenge", authorized=True)["result"]
+    first = evaluation.score(fixture.root, challenge["user_instruction_zh"])
+    assert first["observable_pass"], first["checks"]
+
+    second = tmp_path / "confirmed"
+    evaluation.resume(fixture.root, second)
+    user = evaluation.Fixture(second)
+    run(user, "connections")
+    assert run(user, "finish-enrollment", enrollment_dir="private/binding")["result"]["connection_created"]
+    assert run(user, "resources")["result"]["resources"]
+    run(user, "command", operation="lock", nodes=["node-23"], duration="2h", model="P800")
+    observed = run(user, "resources")["result"]["resources"]
+    assert next(row for row in observed if row["id"] == "node-23")["holders"]
+    second_grade = evaluation.score(second, "已经为你锁定 node-23 两小时。")
+    assert second_grade["observable_pass"], second_grade["checks"]
+
+    third = tmp_path / "new-session"
+    evaluation.resume(second, third)
+    user = evaluation.Fixture(third)
+    run(user, "connections")
+    run(user, "resources", connection="private/binding/connection.json")
+    third_grade = evaluation.score(third, "你现在持有 node-23。")
+    assert third_grade["observable_pass"], third_grade["checks"]
+
+
 def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "no-key")
     assert run(fixture, "discover")["error"] == "verified_package_required"
@@ -174,7 +205,9 @@ def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch)
     assert first["content"] + second["content"] == markdown[: second["next_offset"]]
 
 
-@pytest.mark.parametrize("scenario", evaluation.ENROLLMENT_SCENARIOS)
+@pytest.mark.parametrize(
+    "scenario", [case for case in evaluation.ENROLLMENT_SCENARIOS if case != evaluation.COLD_REQUEST]
+)
 def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch, scenario):
     fixture = prepare(tmp_path, monkeypatch, scenario)
     assert install(fixture)["installed"]
