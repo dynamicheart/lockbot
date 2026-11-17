@@ -17,7 +17,7 @@ npm run build
 
 在选定的测试实例配置 `LOCKBOT_TRACE_REVIEW_DIR` 指向一个位于前端静态目录之外的私有目录。运行 `npm run build -- --online`，将 `dist/online.html` 安装到该目录并命名为 `viewer.html`。使用同源的 LockBot 超级管理员会话打开 `/dev/trace-review`，页面约每 8 秒读取一次摘要。生产实例可继续沿用默认配置。
 
-评测启动后运行发布工具。它每 2 秒查一次新增结果，按测例终态原子更新文件，待矩阵生成后退出。
+评测启动后用 Python 3.10 或更新版本运行发布工具。它每 2 秒查一次新增结果，按测例终态原子更新文件，待矩阵生成后退出。
 
 ```sh
 python3 publish_snapshot.py /private/matrix-evidence /private/staging/latest.json --follow
