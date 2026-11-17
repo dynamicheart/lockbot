@@ -86,9 +86,8 @@ def prepare(root, artifact, scenario):
         {
             **case,
             "coherent_snapshot": b"coherent_resource_snapshot" in helper,
+            "resource_aggregation": b'"resources-all"' in helper and b'"--mine"' in helper,
             "fixture_version": 18
-            if scenario in intent.CONTEXT_REMINDERS
-            else 16
             if scenario in intent.PROMPTS or scenario == COLD_REQUEST
             else 15
             if scenario in intent.CONVERSATIONAL_PROMPTS or scenario in {"intent-my-locks", "intent-my-books"}
@@ -175,6 +174,17 @@ def prepare(root, artifact, scenario):
             path = private / f"group-{identifier}.key"
             path.write_text(key)
             path.chmod(0o600)
+            if Fixture(root).case.get("resource_aggregation"):
+                (private / "connections").mkdir(mode=0o700, exist_ok=True)
+                catalog = private / "connections" / f"group-{identifier}"
+                catalog.mkdir(mode=0o700)
+                base.save_json(
+                    catalog / "connection.json",
+                    {
+                        **json.loads((private / f"group-{identifier}.json").read_text()),
+                        "key_file": f"../../group-{identifier}.key",
+                    },
+                )
     if scenario == "recover":
         (root / "prompt.txt").write_text("看看我能申请什么资源？")
     if scenario in SAVED_LOGIN_SCENARIOS:
@@ -661,6 +671,28 @@ class Fixture(continuity.Fixture):
                             else {}
                         ),
                         **(
+                            {"resource_observation": intent.observation_identity(result["body"])}
+                            if self.case.get("fixture_version", 0) >= 18
+                            and request.method == "GET"
+                            and path.endswith("/resources")
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {
+                                "context_observation": {
+                                    "actor": result["body"].get("actor"),
+                                    "instance_id": result["body"].get("server", {}).get("instance_id"),
+                                    "bot_uuid": result["body"].get("bot", {}).get("uuid"),
+                                    "bot_id": result["body"].get("bot", {}).get("id"),
+                                }
+                            }
+                            if self.case.get("fixture_version", 0) >= 18
+                            and path == "/api/agent/context"
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
                             {
                                 "selector": parse_qs(args["body"]).get("query", [""])[0],
                                 "metrics_grant_used": headers.get("Authorization")
@@ -713,6 +745,12 @@ class Fixture(continuity.Fixture):
             return {"error": "verified_package_required"}
         if action not in ACTIONS and not (
             (action in ("connections", "context", "command") and self.case["scenario"] in intent.PROMPTS)
+            or (
+                action == "resources-all"
+                and self.case.get("fixture_version", 0) >= 18
+                and self.case.get("resource_aggregation")
+                and self.case["scenario"] in intent.PROMPTS
+            )
             or (action == "command" and self.case["scenario"] == COLD_REQUEST)
             or (
                 action == "connections"
@@ -724,13 +762,28 @@ class Fixture(continuity.Fixture):
         ):
             return {"error": "unsupported_fixture_action"}
         argv = [action]
-        if action == "connections" and self.case["scenario"] in intent.PROMPTS:
+        aggregate = self.case.get("fixture_version", 0) >= 18 and self.case.get("resource_aggregation")
+        if action == "connections" and self.case["scenario"] in intent.PROMPTS and not aggregate:
             return {"result": {"groups": list(intent.group_ids(self.case["scenario"]))}}
         if action in ("context", "resources", "command") and self.case["scenario"] in intent.PROMPTS:
             identifier = intent.group_ids(self.case["scenario"]).get(args.get("group"))
+            connection = private / f"group-{identifier}.json"
+            if aggregate and isinstance(args.get("connection"), str):
+                supplied = Path(args["connection"])
+                supplied = supplied if supplied.is_absolute() else self.workspace / supplied
+                matches = {
+                    (private / "connections" / f"group-{bot}" / "connection.json").resolve(): bot
+                    for bot in intent.group_ids(self.case["scenario"]).values()
+                }
+                identifier = matches.get(supplied.resolve())
+                connection = supplied
             if identifier is None:
                 return {"error": "group_required"}
-            argv = ["--connection", str(private / f"group-{identifier}.json"), action]
+            argv = ["--connection", str(connection), action]
+            if action == "resources" and args.get("mine") is True and aggregate:
+                argv += ["--mine"]
+            if action == "resources" and args.get("exact_lease_times") is True and aggregate:
+                argv += ["--exact-lease-times"]
             if action == "command":
                 if "requested_group" in args:
                     if not self.case.get("group_constraint"):
@@ -754,8 +807,21 @@ class Fixture(continuity.Fixture):
                     argv += ["--model", args["model"]]
                 if "minimum_model_count" in args:
                     argv += ["--minimum-model-count", str(args["minimum_model_count"])]
+        elif action == "resources-all" and aggregate:
+            if args.get("mine") is True:
+                argv += ["--mine"]
+            if args.get("exact_lease_times") is True:
+                argv += ["--exact-lease-times"]
+            if "directory" in args:
+                selected = Path(args["directory"])
+                selected = selected if selected.is_absolute() else self.workspace / selected
+                if not selected.resolve().is_relative_to(private.resolve()):
+                    return {"error": "unknown_private_catalog"}
+                argv += ["--directory", str(selected)]
         elif action == "connections":
-            if self.case["scenario"] not in SAVED_LOGIN_SCENARIOS:
+            if aggregate and self.case["scenario"] in intent.PROMPTS:
+                pass
+            elif self.case["scenario"] not in SAVED_LOGIN_SCENARIOS:
                 argv += ["--directory", str(private)]
         elif action == "discover":
             argv += ["--origin", self.origin, "--destination", str(private / "service.json")]
@@ -972,6 +1038,20 @@ def tools(root):
             "minimum": 1,
             "description": "Exact number of requested cards to select together in one command.",
         }
+    if is_intent and case.get("fixture_version", 0) >= 18 and case.get("resource_aggregation"):
+        actions = (*actions, "resources-all")
+        extra.update(
+            mine={
+                "type": "boolean",
+                "description": "For resources/resources-all: separate only your holdings/bookings.",
+            },
+            exact_lease_times={"type": "boolean", "description": "Include precise own lease times when requested."},
+            connection={
+                "type": "string",
+                "description": "Private connection locator returned by connections/resources-all.",
+            },
+            directory={"type": "string", "description": "Optional explicit private catalog for resources-all."},
+        )
     if is_intent and case.get("group_constraint"):
         extra["requested_group"] = {
             "type": "string",
@@ -1183,6 +1263,121 @@ def score_panel(fixture, requests, final):
     return checks
 
 
+def verified_catalog_reads(fixture, tools, requests):
+    """Interpret actual aggregate results only with matching scoped wire evidence.
+
+    Derived rows are observations for existing graders, not extra tool calls.
+    Keep the original trace and its real invocation/request counts unchanged.
+    """
+    if fixture.case.get("fixture_version", 0) < 18:
+        return tools
+    expanded = []
+    groups = {identifier: name for name, identifier in intent.group_ids(fixture.case["scenario"]).items()}
+    for event in tools:
+        expanded.append(event)
+        action = event.get("args", {}).get("action")
+        if action == "resources-all":
+            candidates = event.get("result", {}).get("result", {}).get("groups", [])
+        elif action == "resources" and event.get("args", {}).get("connection"):
+            snapshot = event.get("result", {}).get("result", {})
+            context = snapshot.get("context", {})
+            candidates = [
+                {
+                    "snapshot": snapshot,
+                    "identity": {
+                        "origin": fixture.origin,
+                        "instance_id": context.get("server", {}).get("instance_id"),
+                        "actor": context.get("actor"),
+                        "bot": context.get("bot", {}),
+                    },
+                }
+            ]
+        else:
+            continue
+        span = event.get("http_request_span")
+        argv = event.get("argv", [])
+        if not argv or not str(argv[0]).endswith("/scripts/lockbot_cli.py") or action not in argv:
+            continue
+        if not isinstance(span, list) or len(span) != 2 or not all(type(value) is int for value in span):
+            continue
+        if not 0 <= span[0] <= span[1] <= len(requests):
+            continue
+        wire = requests[span[0] : span[1]]
+        for candidate in candidates:
+            snapshot, identity = candidate.get("snapshot", {}), candidate.get("identity", {})
+            identifier = identity.get("bot", {}).get("id")
+            if identifier not in groups:
+                continue
+            pinned = json.loads((fixture.workspace / f"private/group-{identifier}.json").read_text())
+            expected = {
+                "actor": pinned["actor"],
+                "instance_id": pinned["instance_id"],
+                "bot_uuid": pinned["bot_uuid"],
+                "bot_id": identifier,
+            }
+            context = snapshot.get("context", {})
+            if (
+                identity.get("origin") != pinned["approved_origin"]
+                or identity.get("actor") != expected["actor"]
+                or identity.get("instance_id") != expected["instance_id"]
+                or identity.get("bot", {}).get("uuid") != expected["bot_uuid"]
+                or not isinstance(snapshot.get("captured_at"), str)
+                or ("actor" in snapshot and snapshot["actor"] != expected["actor"])
+                or ("bot_id" in snapshot and snapshot["bot_id"] != identifier)
+                or (
+                    context
+                    and (
+                        context.get("actor") != expected["actor"]
+                        or context.get("bot", {}).get("uuid") != expected["bot_uuid"]
+                        or context.get("server", {}).get("instance_id") != expected["instance_id"]
+                    )
+                )
+            ):
+                continue
+            observed = {
+                **snapshot,
+                "context": context
+                or {
+                    "server": {"instance_id": expected["instance_id"]},
+                    "bot": identity["bot"],
+                    "actor": expected["actor"],
+                },
+                "actor": expected["actor"],
+                "bot_id": identifier,
+            }
+            stamp = intent.observation_identity(observed)
+            matching = [
+                row
+                for row in wire
+                if row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present")
+                and (
+                    row.get("resource_bot") == identifier
+                    or row.get("url", "").endswith(f"/api/bots/{identifier}/resources")
+                )
+                and row.get("resource_observation", {}).get("captured_at") == stamp["captured_at"]
+            ]
+            if not any(
+                row.get("resource_observation") == stamp
+                or (
+                    row.get("resource_observation", {}).get("instance_id") is None
+                    and any(before.get("context_observation") == expected for before in wire[: wire.index(row)])
+                )
+                for row in matching
+            ):
+                continue
+            expanded.append(
+                {
+                    "tool": "run_lockbot",
+                    "args": {"action": "resources", "group": groups[identifier]},
+                    "result": {"result": observed},
+                    "derived_from_catalog_read": True,
+                }
+            )
+    return expanded
+
+
 def prior_observed_groups(root, fixture, final):
     """Reuse discovery from an acknowledged, successful preceding turn only.
 
@@ -1233,7 +1428,10 @@ def prior_observed_groups(root, fixture, final):
         if not score(source, previous["text"])["observable_pass"]:
             return set()
         observed = {}
-        for event in (json.loads(line) for line in trace.decode().splitlines()):
+        calls = [json.loads(line) for line in trace.decode().splitlines()]
+        http = source / "cli-http.jsonl"
+        source_requests = [json.loads(line) for line in http.read_text().splitlines()] if http.is_file() else []
+        for event in verified_catalog_reads(Fixture(source), calls, source_requests):
             args, result = event.get("args", {}), event.get("result", {}).get("result", {})
             group = args.get("group")
             if event.get("tool") != "run_lockbot" or args.get("action") != "resources" or group not in intent.GROUP_IDS:
@@ -1243,7 +1441,15 @@ def prior_observed_groups(root, fixture, final):
             context = result.get("context", {})
             if (
                 result.get("bot_id") == identifier
-                and isinstance(result.get("resources"), list)
+                and (
+                    isinstance(result.get("resources"), list)
+                    or (
+                        result.get("scope") == "own"
+                        and isinstance(result.get("holdings"), list)
+                        and isinstance(result.get("bookings"), list)
+                        and scenario in getattr(intent, "CONTEXT_REMINDERS", {})
+                    )
+                )
                 and result.get("actor") == context.get("actor") == pinned.get("actor")
                 and context.get("server", {}).get("instance_id") == pinned.get("instance_id")
                 and context.get("bot", {}).get("uuid") == pinned.get("bot_uuid")
@@ -1369,12 +1575,29 @@ def score(root, final):
             intent.score(
                 scenario,
                 requests,
-                cli_tools,
+                verified_catalog_reads(fixture, cli_tools, requests),
                 final,
                 phase=phase,
                 prior_groups=prior_observed_groups(root, fixture, final),
             )
         )
+        aggregate_calls = [row for row in cli_tools if row.get("args", {}).get("action") == "resources-all"]
+        if aggregate_calls:
+            checks["catalog_read_complete"] = all(
+                row.get("result", {}).get("result", {}).get("complete") is True for row in aggregate_calls
+            )
+        if fixture.case.get("fixture_version", 0) >= 18:
+            own_scope = scenario in intent.OWN_RESOURCE_PROMPTS or scenario in getattr(intent, "CONTEXT_REMINDERS", {})
+            find_only = scenario in {"intent-find-p800", "intent-model-find"} or (
+                scenario == "intent-context-lock-day" and phase == 1
+            )
+            if find_only and not own_scope:
+                checks["full_inventory_scope_read"] = set(intent.group_ids(scenario)) <= {
+                    row.get("args", {}).get("group")
+                    for row in verified_catalog_reads(fixture, cli_tools, requests)
+                    if row.get("args", {}).get("action") == "resources"
+                    and isinstance(row.get("result", {}).get("result", {}).get("resources"), list)
+                }
     elif scenario == "recover":
         recovered = private / "groups" / continuity.SECOND_UUID
         key = recovered / "key"

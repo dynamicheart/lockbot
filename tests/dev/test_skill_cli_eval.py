@@ -54,7 +54,7 @@ def test_preinstalled_catalog_uses_exact_verified_metadata_without_private_state
     frontmatter = fixture.artifact["contents"]["SKILL.md"].decode().split("---", 2)[1].strip()
     assert frontmatter in context
     assert "read_lockbot_skill(offset=0)" in context
-    assert fixture.case["fixture_version"] == 17
+    assert fixture.case["fixture_version"] == 18
     for private in (str(fixture.workspace), fixture.origin, evaluation.GROUP, evaluation.base.KEY, "demo-user"):
         assert private not in context
     assert "# LockBot Resource Agent" not in context
@@ -130,7 +130,7 @@ def test_native_continuation_preserves_catalog_or_historical_context_bytes(tmp_p
 @pytest.mark.parametrize("bot", [7, 8])
 def test_booking_fixture_matches_public_api_without_lease_fields(tmp_path, monkeypatch, bot):
     fixture = prepare(tmp_path, monkeypatch, "intent-my-books")
-    assert fixture.case["fixture_version"] == 17
+    assert fixture.case["fixture_version"] == 18
     result = run(fixture, "resources", group=evaluation.intent.CARDS if bot == 7 else evaluation.intent.MACHINES)
     resources = result["result"]["resources"]
     booked = resources[0]["devices"][2] if bot == 7 else resources[1]
@@ -214,7 +214,9 @@ def test_short_prompts_use_saved_environment(tmp_path, monkeypatch, scenario, op
     prompt = (fixture.root / "prompt.txt").read_text()
     assert prompt == evaluation.intent.SHORT_PROMPTS[scenario]
     assert not (fixture.root / "cli-http.jsonl").exists()
-    groups = run(fixture, "connections")["result"]["groups"]
+    catalog = run(fixture, "connections")["result"]
+    assert len(catalog["connections"]) == 2
+    groups = evaluation.intent.group_ids(scenario)
     for group in groups:
         assert run(fixture, "resources", group=group)["result"]["resources"]
 
