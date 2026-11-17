@@ -296,7 +296,7 @@ against the actual reference pages and current rules.
 The packaged CLI backend regression runs with:
 
 ```sh
-PYTHONPATH=python:tests:tests/support pytest -q tests/backend/test_packaged_cli_traffic.py
+PYTHONPATH=python:tests:tests/support pytest -q tests/backend/test_packaged_cli_traffic.py tests/backend/test_manifest_traffic.py
 ```
 
 It exercises immediate consecutive queries, one lock and immediate verification on
@@ -304,6 +304,15 @@ fictional resources, then checks the separate per-credential read budget. Its te
 evidence includes the actual CLI arguments, complete responses and HTTP statuses.
 The trace exporter accepts that evidence with `--regression EVIDENCE_JSON` alongside
 the model matrix and records the tested package version on the regression entry.
+
+The manifest regression uses an isolated real route limiter and two authenticated
+users behind the same transport IP. Each CLI invocation still verifies the public
+manifest anonymously before sending a Key. The manifest allows 6000 requests per
+IP per minute; the independently metered ZIP download remains at 60. This avoids
+an aggregate 60-request identity-check bottleneck while retaining finite public
+bounds. Per-credential read/write limits remain 120/30 by default. The test also
+checks quota isolation, the manifest ceiling and the separate download ceiling;
+it is not a production capacity benchmark.
 
 ## Own resources, reminders and contextual follow-ups
 

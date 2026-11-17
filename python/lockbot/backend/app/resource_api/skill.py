@@ -24,6 +24,10 @@ from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/agent-skill", tags=["Public API"])
+# Every packaged-CLI invocation checks this cached public identity before sending
+# a Key. Allow shared NATs to carry many independent credential budgets; keep a
+# finite anonymous bound and a separate, lower allowance for archive downloads.
+PUBLIC_MANIFEST_RATE_LIMIT = "6000/minute"
 INSTALLATION_INSTRUCTIONS = (
     "A shared manifest or ZIP link is not an installation request. If the user only shared a link, "
     "explain what the Skill does and wait for an explicit request before downloading the ZIP, "
@@ -178,7 +182,7 @@ def installation_bundle():
 
 
 @router.get("")
-@limiter.limit("60/minute")
+@limiter.limit(PUBLIC_MANIFEST_RATE_LIMIT)
 def skill_manifest(request: Request, response: Response, db: Session = Depends(get_db)):
     """Discover the skill version, relative URLs and ZIP SHA-256; no API key required."""
     return public_skill_manifest(request, response, db)
