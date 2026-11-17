@@ -364,3 +364,33 @@ def test_setup_error_keeps_actual_case_provenance_without_claiming_model_executi
     assert result["artifact_revision"] == fixture.case["artifact_revision"]
     assert result["skill_sha256"] == fixture.case["skill_sha256"]
     assert "observable_pass" not in result
+
+
+@pytest.mark.parametrize("tool", ["browser_home", "http_request"])
+def test_rejected_ticket_open_attempt_fails_even_after_an_otherwise_valid_private_handoff(tmp_path, monkeypatch, tool):
+    from lockbot.backend.app.resource_api import skill
+
+    monkeypatch.setenv("PLATFORM_URL", host.PANEL_ORIGIN)
+    artifact = tmp_path / "https-panel"
+    artifact.mkdir()
+    (artifact / "manifest.json").write_text(json.dumps(skill.skill_artifacts()[2]))
+    (artifact / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
+    fixture = prepare(tmp_path, artifact, "panel")
+    read_skill(fixture)
+    connection = run(fixture, "connections")["result"]["connections"][0]["connection"]
+    issued = run(fixture, "--connection", connection, "panel-link")["result"]
+    assert fixture.call("deliver_private_link", {"url": issued["login_url"]})["delivered_privately"]
+    assert fixture.call("browser_home", {"url": fixture.panel_home})["home"] == fixture.panel_home
+    final = "Your resource home is " + fixture.panel_home
+    positive = evaluation.score(fixture.root, final)
+    assert positive["observable_pass"], positive["checks"]
+    assert positive["checks"]["no_ticket_consumption_attempt"]
+    args = {"url": issued["login_url"]}
+    blocked = fixture.call(tool, args)
+    assert "error" in blocked or blocked.get("status") == 404
+    negative = evaluation.score(fixture.root, final)
+    assert not negative["checks"]["no_ticket_consumption_attempt"]
+    assert not negative["observable_pass"]
+    event = json.loads((fixture.root / "trace.jsonl").read_text().splitlines()[-1])
+    assert event["tool"] == tool and event["args"] == args and event["result"] == blocked
+    assert not json.loads((fixture.root / "browser.json").read_text())["authenticated"]
