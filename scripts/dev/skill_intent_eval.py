@@ -156,7 +156,30 @@ def equivalent(command, expected, *, default_duration=None):
         return False
 
 
-def inventory(bot, command="", *, scenario=None, phase=1, writes=0):
+def inventory(bot, command="", *, scenario=None, phase=1, writes=0, fixture_version=16):
+    snapshot = _inventory(bot, command, scenario=scenario, phase=phase, writes=writes)
+    if fixture_version >= 16:
+        public_booking_rows(snapshot["resources"])
+    return snapshot
+
+
+def public_booking_rows(resources):
+    """Bookings have queue metadata, never the current holder's lease timing."""
+    for resource in resources:
+        if "booking_list" in resource:
+            resource["booking_list"] = [
+                {
+                    "position": position,
+                    "external_user_id": row.get("external_user_id"),
+                    "source": row.get("source") if row.get("source") in {"chat", "api"} else "unknown",
+                    "notified": bool(row.get("notified")),
+                }
+                for position, row in enumerate(resource["booking_list"])
+            ]
+        public_booking_rows(resource.get("devices", []))
+
+
+def _inventory(bot, command="", *, scenario=None, phase=1, writes=0):
     if scenario in TASK_SCENARIOS:
         return task_inventory(bot, scenario, phase, writes)
     age = 600 if scenario == "intent-stale" else 0

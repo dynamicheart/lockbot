@@ -430,3 +430,13 @@ requested section still fail. Mixed-role prose remains a semantic-review task;
 observable success does not certify queue start times, booking expiry, or any other
 explanation. Historical native results are preserved; a read-only regrade is separate
 from a new paid model run.
+
+Fixture version 16 corrects the public booking payload for all newly prepared CLI
+intent and cold-install inventories. Unclaimed bookings carry only zero-based
+`position`, `external_user_id`, `source` and `notified`, matching the backend's
+QUEUE and QUEUE_DEVICE serialization. A requested booking duration is not a lease
+expiry, remaining time, or guaranteed start time. Holder timing remains available
+through the CLI's formatted `remaining_time`. Fixtures at version 15 and below
+retain their original simulated booking fields for historical replay; those old
+fields must not be treated as evidence of the real service contract. Historical
+model answers and grades are not rewritten by this fixture correction.

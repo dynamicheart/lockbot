@@ -85,7 +85,9 @@ def prepare(root, artifact, scenario):
         {
             **case,
             "coherent_snapshot": b"coherent_resource_snapshot" in helper,
-            "fixture_version": 15
+            "fixture_version": 16
+            if scenario in intent.PROMPTS or scenario == COLD_REQUEST
+            else 15
             if scenario in intent.CONVERSATIONAL_PROMPTS or scenario in {"intent-my-locks", "intent-my-books"}
             else 14
             if scenario in intent.PUBLIC_IP_ALIAS_PROMPTS
@@ -512,7 +514,9 @@ class Fixture(continuity.Fixture):
                 return {"status": 409}
             if resource == "/api/bots/7/resources" and method == "GET":
                 command = json.loads(state.read_text()) if state.exists() else ""
-                snapshot = intent.inventory(8, command, scenario=COLD_INVENTORY)
+                snapshot = intent.inventory(
+                    8, command, scenario=COLD_INVENTORY, fixture_version=self.case["fixture_version"]
+                )
                 snapshot["bot_id"] = 7
                 snapshot["resources"] = [row for row in snapshot["resources"] if row["id"] != "node-21"]
                 machine = next(row for row in snapshot["resources"] if row["id"] == intent.MATCHING_MACHINE)
@@ -558,7 +562,14 @@ class Fixture(continuity.Fixture):
         if path == f"/api/bots/{bot}/resources" and method == "GET":
             command = json.loads(state.read_text()) if state.exists() else ""
             writes = command.get("writes", 0) if isinstance(command, dict) else 0
-            snapshot = intent.inventory(bot, command, scenario=scenario, phase=self.case["phase"], writes=writes)
+            snapshot = intent.inventory(
+                bot,
+                command,
+                scenario=scenario,
+                phase=self.case["phase"],
+                writes=writes,
+                fixture_version=self.case["fixture_version"],
+            )
             return {"status": 200, "body": snapshot}
         if path == f"/api/bots/{bot}/commands" and method == "POST":
             if scenario in intent.TASK_SCENARIOS:

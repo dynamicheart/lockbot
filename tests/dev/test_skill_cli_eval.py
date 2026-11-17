@@ -3,10 +3,12 @@
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from lockbot.backend.app.resource_api import skill
+from lockbot.backend.app.resource_api.snapshot import build_resources
 
 DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev"
 sys.path.insert(0, str(DIRECTORY))
@@ -44,6 +46,63 @@ def install(fixture):
 
 def run(fixture, action, **kwargs):
     return fixture.call("run_lockbot", {"action": action, **kwargs})
+
+
+@pytest.mark.parametrize("bot", [7, 8])
+def test_booking_fixture_matches_public_api_without_lease_fields(tmp_path, monkeypatch, bot):
+    fixture = prepare(tmp_path, monkeypatch, "intent-my-books")
+    assert fixture.case["fixture_version"] == 16
+    result = run(fixture, "resources", group=evaluation.intent.CARDS if bot == 7 else evaluation.intent.MACHINES)
+    resources = result["result"]["resources"]
+    booked = resources[0]["devices"][2] if bot == 7 else resources[1]
+    now = datetime.now(timezone.utc)
+    # Actual allocator state may carry requested duration and notification time.
+    # Neither becomes an unclaimed booking's lease expiry in the public payload.
+    state = {
+        "status": "exclusive",
+        "current_users": [{"user_id": "neighbor", "start_time": int(now.timestamp()), "duration": 7200}],
+        "booking_list": [{"user_id": "demo-user", "start_time": int(now.timestamp()), "duration": 14400}],
+    }
+    actual = build_resources(
+        captured_at=now,
+        state={"machine": [{**state, "dev_id": 3}] if bot == 7 else state},
+        bot_type="QUEUE_DEVICE" if bot == 7 else "QUEUE",
+        platform="infoflow",
+        caller_id="demo-user",
+    )[0]
+    actual = actual["devices"][0] if bot == 7 else actual
+    assert booked["booking_list"] == actual["booking_list"]
+    own = resources[0]["devices"][1] if bot == 7 else resources[0]
+    assert own["holders"][0]["remaining_time"] == "2h"
+    assert set(booked["booking_list"][0]) == {"position", "external_user_id", "source", "notified"}
+
+
+@pytest.mark.parametrize(
+    ("scenario", "command"),
+    [
+        ("intent-book-tail", evaluation.intent.EXPECTED["intent-book-tail"][1]),
+        ("intent-model-p800-whole-machine", evaluation.intent.WHOLE_MACHINE_BOOKING),
+        ("intent-claim", ""),
+        ("intent-book", evaluation.intent.EXPECTED["intent-book"][1]),
+    ],
+)
+def test_all_intent_booking_builders_preserve_legacy_replay_without_fabricating_new_expiry(scenario, command):
+    historical = evaluation.intent.inventory(8, command, scenario=scenario, fixture_version=15)
+    current = evaluation.intent.inventory(8, command, scenario=scenario, fixture_version=16)
+    old_rows = [row for node in historical["resources"] for row in node.get("booking_list", [])]
+    new_rows = [row for node in current["resources"] for row in node.get("booking_list", [])]
+    assert old_rows and new_rows
+    assert all("remaining_seconds" in row and "expires_at" in row for row in old_rows)
+    assert all(set(row) == {"position", "external_user_id", "source", "notified"} for row in new_rows)
+    assert [row["external_user_id"] for row in old_rows] == [row["external_user_id"] for row in new_rows]
+
+
+def test_historical_cli_fixture_retains_old_booking_payload(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-my-books")
+    evaluation.base.save_json(fixture.root / "case.json", {**fixture.case, "fixture_version": 15})
+    replay = evaluation.Fixture(fixture.root)
+    snapshot = run(replay, "resources", group=evaluation.intent.MACHINES)["result"]
+    assert "expires_at" in snapshot["resources"][1]["booking_list"][0]
 
 
 @pytest.mark.parametrize(
