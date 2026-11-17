@@ -38,6 +38,14 @@ h1{font-size:17px;letter-spacing:-.02em}
 .nav-heading{font-size:12px;font-weight:750;color:var(--ink);padding:9px 9px 5px}
 .case-group h3{font-size:11px;font-weight:650;color:var(--muted);padding:6px 9px 3px}
 .case-group+.case-group{margin-top:6px}
+.case-choice .model-name{flex:1}
+.case-choice .icon{width:13px;height:13px;color:var(--muted);transition:transform .18s ease}
+.case-choice[aria-expanded=true] .icon{transform:rotate(90deg)}
+.case-run-panel{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .22s ease,opacity .16s ease}
+.case-run-panel[data-expanded=true]{grid-template-rows:1fr;opacity:1}
+.case-run-panel[data-enter]{animation:reveal-case-runs .22s ease both}
+.case-run-clip{min-height:0;overflow:hidden}
+@keyframes reveal-case-runs{from{grid-template-rows:0fr;opacity:0}to{grid-template-rows:1fr;opacity:1}}
 .case-runs{margin:3px 0 8px 14px;padding:1px 0 2px 8px;border-left:1px solid #cdd9ea}
 .case-runs-heading{padding:4px 8px 2px;color:var(--muted);font-size:11px}
 .case-runs .choice{min-height:30px;padding:5px 8px;font-size:12px}
@@ -145,6 +153,10 @@ summary::-webkit-details-marker{display:none}
 .payload-bar button:hover,.payload-bar button[aria-pressed=true]{background:var(--selected);color:#184b9d}
 .payload-format{display:flex;gap:3px}
 .payload-empty,.evidence-note,.empty-session{color:var(--muted);font-size:12px;padding:8px 12px}
+.run-summary{margin:20px 24px;padding:16px;max-width:640px;border:1px solid var(--line);border-radius:8px}
+.run-summary h4{font-size:14px;margin-bottom:8px}
+.run-summary p,.run-summary li{font-size:13px;color:var(--muted)}
+.run-summary ul{margin:8px 0 0;padding-left:18px}
 .payload-empty{background:var(--soft);border-radius:7px}
 .trace-inspect>.evidence-note{padding:24px 17px}
 .format-label{font-size:11px;color:var(--muted);padding:0 5px}
@@ -221,11 +233,9 @@ summary::-webkit-details-marker{display:none}
 .outline-row small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:11px;line-height:1.5;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
 .outline-row strong{font-weight:inherit}
 .browse-footer{border-top:1px solid var(--line);padding:5px 12px;font-size:10px;color:var(--muted);display:flex;gap:14px;background:#fafbfd;min-height:26px}
-body.focus-mode .layout{grid-template-columns:minmax(0,1fr)}
-body.focus-mode .sidebar{display:none}
 @media(min-width:721px){body{height:100dvh;overflow:hidden;display:flex;flex-direction:column}.app-header{position:static;flex:none}.layout{flex:1;min-height:0;width:100%;grid-template-rows:minmax(0,1fr)}.sidebar{position:static;align-self:stretch;height:auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}#review{height:100%;min-height:0;display:flex;flex-direction:column}.run-overview,.tabs{flex:none}#content{flex:1;min-height:0}.chat-outline,.trace-tree{border-right:1px solid var(--line)}.trace-inspect{border-left:0}.browse-footer{flex:none}}
 @media(max-width:1050px) and (min-width:721px){.layout{grid-template-columns:180px minmax(0,1fr)}.chat-workspace,.trace-workspace{grid-template-columns:204px minmax(0,1fr)}.chat-transcript{padding-inline:14px}.counts{font-size:11px}}
-@media(max-width:720px){.head{padding:0 12px}.layout{padding:8px;display:block}.mobile-pick{padding-bottom:8px}.run-overview{padding:12px 10px 0}.tabs{padding:0 10px;gap:14px}.view-actions #focus-toggle{display:none}.chat-workspace{display:block}.chat-outline{display:none}.chat-transcript{overflow:visible;padding:0 12px 16px}.trace-workspace{display:block;height:auto}.trace-tree{max-height:270px}.trace-inspect-header{position:static}.trace-inspect{overflow:visible}.timeline.trace-view,.timeline.chat-workspace{overflow:visible}.browse-footer{flex-wrap:wrap;gap:3px 12px}.chat-transcript .bubble{padding-left:0}.chat-transcript .user .bubble{margin-left:0}.chat-transcript .activity-group{margin-left:0}}
+@media(max-width:720px){.head{padding:0 12px}.layout{padding:8px;display:block}.mobile-pick{padding-bottom:8px}.run-overview{padding:12px 10px 0}.tabs{padding:0 10px;gap:14px}.chat-workspace{display:block}.chat-outline{display:none}.chat-transcript{overflow:visible;padding:0 12px 16px}.trace-workspace{display:block;height:auto}.trace-tree{max-height:270px}.trace-inspect-header{position:static}.trace-inspect{overflow:visible}.timeline.trace-view,.timeline.chat-workspace{overflow:visible}.browse-footer{flex-wrap:wrap;gap:3px 12px}.chat-transcript .bubble{padding-left:0}.chat-transcript .user .bubble{margin-left:0}.chat-transcript .activity-group{margin-left:0}}
 
 
 /* Reading first: secondary navigation is opt-in. */
@@ -358,6 +368,7 @@ function scenarioGroups() {
 }
 let cases = Object.keys(data.cases);
 let activeCase, activeIndex, activeTab, activeStep, failureOnly;
+let caseRunsOpen = true;
 let imported = false;
 const online = location.pathname === '/dev/trace-review';
 function defaultRun(key) {
@@ -365,7 +376,9 @@ function defaultRun(key) {
 }
 function readRoute() {
   const route = new URLSearchParams(location.hash.slice(1));
-  activeCase = cases.includes(route.get('case')) ? route.get('case') : cases.includes('create') ? 'create' : cases[0];
+  const key = cases.includes(route.get('case')) ? route.get('case') : cases.includes('create') ? 'create' : cases[0];
+  if (activeCase !== key) caseRunsOpen = true;
+  activeCase = key;
   activeIndex = Number(route.get('run') ?? defaultRun(activeCase));
   activeTab = route.get('view') === 'steps' ? 'events' : 'chat';
   activeStep = Number(route.get('step'));
@@ -383,7 +396,7 @@ const caseName = key => data.labels && Object.hasOwn(data.labels,key) ? data.lab
 const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
 function badge(state) { return node('span',statusNames[state],'badge '+state); }
 function resetSelection() { activeStep = 0; failureOnly = false; }
-function pickCase(key) { activeCase = key; activeIndex = 0; resetSelection(); draw(); }
+function pickCase(key, animate = false) { activeCase = key; activeIndex = 0; caseRunsOpen = true; resetSelection(); draw(animate); }
 function pickRun(index) { activeIndex = index; resetSelection(); draw(); }
 readRoute();
 addEventListener('hashchange',()=>{readRoute(); draw();});
@@ -530,11 +543,13 @@ function duration(info) {
 }
 const toolNames = new Map([
   ['install_lockbot','安装 Skill'], ['read_lockbot_skill','读取 Skill'], ['run_lockbot','LockBot CLI'],
+  ['inspect_lockbot','检查 Skill 链接'], ['deliver_private_link','私下交付登录链接'], ['browser_home','打开资源台'],
 ]);
 const actionNames = new Map([
   ['local-state','检查本地状态'], ['connections','查找已保存连接'], ['discover','发现服务'],
   ['enroll','开始绑定'], ['key-challenge','申请群内确认码'], ['enrollment-status','检查绑定状态'],
   ['finish-enrollment','完成绑定'], ['init','保存连接'], ['recover','找回已有连接'], ['resources','查询资源'],
+  ['panel-link','生成资源台登录链接'], ['command','执行资源命令'],
 ]);
 function stepLabel(step) { return actionNames.get(step[1]) || step[1] || toolNames.get(step[0]) || step[0] || '工具调用'; }
 function stepGlyph(step,info) {
@@ -903,7 +918,7 @@ function eventsView(content,trial) {
 }
 function renderRecord(trial) {
   const items = [
-    ['来源',imported ? '本地 JSON' : online ? '在线合成测例摘要' : '',null],
+    ['来源',imported ? '本地 JSON' : online ? '在线合成测例' : '',null],
     ['名称',data.title,'data-title'],
     ['版本',data.version,'version'],
     ['测例说明',data.criteria?.[activeCase],'criterion'],
@@ -918,7 +933,7 @@ function renderRecord(trial) {
   }
   select('record-meta').hidden = !items.length;
 }
-function draw() {
+function draw(animateCase = false) {
   const all = data.cases[activeCase];
   if(!all[activeIndex]) activeIndex = 0;
   const trial = all[activeIndex];
@@ -942,21 +957,41 @@ function draw() {
       if (count) count.title = '通过 / 已判定';
       const selected = activeCase === key;
       const item = node('div');
-      const button = choice(caseName(key),count,selected,()=>pickCase(key));
+      const panel = selected ? node('div',null,'case-run-panel') : null;
+      const button = choice(caseName(key),count,selected,()=>{
+        if (!panel) {
+          pickCase(key,true);
+          return;
+        }
+        caseRunsOpen = !caseRunsOpen;
+        panel.removeAttribute('data-enter');
+        panel.dataset.expanded = caseRunsOpen;
+        panel.inert = !caseRunsOpen;
+        button.setAttribute('aria-expanded',caseRunsOpen);
+      });
+      button.classList.add('case-choice');
+      button.prepend(icon('right'));
+      button.setAttribute('aria-expanded',selected && caseRunsOpen);
       button.dataset.navKind = 'case';
       item.append(button);
-      if (selected) {
+      if (panel) {
         const runs = node('div',null,'case-runs');
-        runs.id = 'run-nav';
+        panel.id = 'run-nav';
+        panel.dataset.expanded = caseRunsOpen;
+        panel.inert = !caseRunsOpen;
+        if (animateCase) panel.setAttribute('data-enter','');
         runs.setAttribute('role','group');
         runs.setAttribute('aria-label',caseName(key)+'的模型结果');
-        button.setAttribute('aria-controls',runs.id);
+        button.setAttribute('aria-controls',panel.id);
         runs.append(node('p','模型结果','case-runs-heading'),...all.map((row,index)=>{
           const model = choice(modelLabel(row,index),row.state ? badge(row.state) : null,activeIndex===index,()=>pickRun(index));
           model.dataset.navKind = 'run';
           return model;
         }));
-        item.append(runs);
+        const clip = node('div',null,'case-run-clip');
+        clip.append(runs);
+        panel.append(clip);
+        item.append(panel);
       }
       group.append(item);
     }
@@ -989,7 +1024,7 @@ function draw() {
   const duration = timings.reduce((seconds,row)=>seconds+row.duration_seconds,0);
   const summary = [turns && '各阶段轮数 '+turns, timings.length && duration.toFixed(1)+' 秒',
     simulated && simulated+' 次模拟人工操作'].filter(Boolean).join(' · ');
-  const isSummary = online && !imported && trial.sessions.length === 0;
+  const isSummary = trial.sessions.length === 0;
   select('counts').textContent = isSummary ? summary :
     trial.sessions.length+' 个会话'+toolCount+confirmed+elapsed;
   select('chat-tab').setAttribute('aria-pressed',activeTab==='chat');
@@ -997,10 +1032,23 @@ function draw() {
   const content = select('content');
   content.classList.remove('trace-view','chat-workspace');
   content.replaceChildren();
+  document.querySelector('.tabs').hidden = isSummary;
   select('expand-tools').hidden = activeTab!=='chat';
   select('outline-toggle').hidden = activeTab!=='chat';
   select('expand-tools').textContent = '展开调用';
-  if (isSummary) content.append(node('p','这条在线记录仅包含阶段摘要。完整记录可通过本地 JSON 查看。','evidence-note'));
+  if (isSummary) {
+    const report = node('section',null,'run-summary');
+    report.append(node('h4','运行摘要'),node('p',trial.note || '本次运行未采集对话。'));
+    const list = node('ul');
+    for (const row of phases) {
+      const details = [Number.isInteger(row.turns) && row.turns+' 轮',
+        Number.isFinite(row.duration_seconds) && row.duration_seconds.toFixed(1)+' 秒',
+        row.simulated_user_actions && row.simulated_user_actions+' 次模拟人工操作'].filter(Boolean);
+      if (details.length) list.append(node('li',['阶段 '+row.phase,...details].join(' · ')));
+    }
+    if (list.childNodes.length) report.append(list);
+    content.append(report);
+  }
   else if (activeTab==='chat') chatView(content,trial); else eventsView(content,trial);
   if (!content.childNodes.length) content.append(node('p','没有对话记录','evidence-note'));
   writeRoute();
@@ -1019,12 +1067,6 @@ expandTools.onclick = ()=>{
   for (const group of groups) group.open = open;
   expandTools.textContent = open ? '收起调用' : '展开调用';
 };
-const focus = node('button','专注阅读','quiet-button');
-focus.id='focus-toggle'; focus.type='button'; focus.setAttribute('aria-pressed','false');
-focus.onclick = ()=>{
-  const on = document.body.classList.toggle('focus-mode');
-  focus.setAttribute('aria-pressed',on); focus.textContent = on ? '显示导航' : '专注阅读';
-};
 const outlineToggle = node('button','目录','quiet-button');
 outlineToggle.id = 'outline-toggle'; outlineToggle.type = 'button';
 outlineToggle.setAttribute('aria-pressed','false');
@@ -1033,7 +1075,7 @@ outlineToggle.onclick = ()=>{
   outlineToggle.setAttribute('aria-pressed',on);
   outlineToggle.textContent = on ? '收起目录' : '目录';
 };
-viewActions.append(outlineToggle,expandTools,focus);
+viewActions.append(outlineToggle,expandTools);
 document.querySelector('.tabs').append(viewActions);
 select('load-file').prepend(icon('file'));
 select('chat-tab').prepend(icon('chat'));
@@ -1141,7 +1183,10 @@ if (online) {
         const selectedModel = data.cases[activeCase]?.[activeIndex]?.model;
         data = candidate;
         cases = Object.keys(data.cases);
-        if (!cases.includes(activeCase)) activeCase = cases[0];
+        if (!cases.includes(activeCase)) {
+          activeCase = cases[0];
+          caseRunsOpen = true;
+        }
         activeIndex = Math.max(0, data.cases[activeCase].findIndex(run=>run.model===selectedModel));
         draw();
       }

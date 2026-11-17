@@ -6,9 +6,16 @@ from hashlib import sha256
 from pathlib import Path
 
 TOOL_LABELS = {
+    "inspect_lockbot": "检查 Skill 链接",
     "install_lockbot": "安装完整 Skill",
     "read_lockbot_skill": "读取 Skill",
     "run_lockbot": "运行 LockBot CLI",
+    "deliver_private_link": "私下交付登录链接",
+    "browser_home": "打开资源台固定入口",
+}
+CONFIRMATIONS = {
+    "chat_binding_confirmation": "测试程序模拟一次群内确认。",
+    "browser_consent": "测试程序模拟一次浏览器确认。",
 }
 SKILL_REFERENCES = {
     "references/connections.md",
@@ -27,6 +34,8 @@ ACTIONS = {
     "init",
     "recover",
     "resources",
+    "panel-link",
+    "command",
 }
 SECRET_FIELDS = re.compile(
     r"(?i)(\b(?:authorization|api[_ -]?key|access[_ -]?token|password|credential|proof|ticket)\s*[:=]\s*)"
@@ -114,7 +123,7 @@ def tool_steps(lines: str, phase: int):
                 version = result.get("version")
                 if isinstance(version, str) and re.fullmatch("[a-f0-9]{16}", version):
                     output["version"] = version
-        else:
+        elif name == "run_lockbot":
             action = params.get("action")
             if isinstance(action, str) and action in ACTIONS:
                 arguments["action"] = label = action
@@ -131,7 +140,7 @@ def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict]) -> 
     root = root.resolve()
     sessions = []
     try:
-        for row in rows:
+        for index, row in enumerate(rows):
             phase = row.get("phase")
             if phase not in {1, 2, 3} or "evidence" not in row:
                 continue
@@ -158,10 +167,12 @@ def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict]) -> 
             if response.is_file():
                 final = json.loads(read_local(response, root, 65_536))["text"]
                 session.append({"role": "assistant", "text": clean_text(final)})
-            if phase == 1 and any(
-                "chat_binding_confirmation" in other.get("simulated_user_actions", []) for other in rows
-            ):
-                session.append({"role": "human", "text": "测试程序模拟一次群内确认。"})
+            if index + 1 < len(rows):
+                actions = rows[index + 1].get("simulated_user_actions", [])
+                if isinstance(actions, list):
+                    session.extend(
+                        {"role": "human", "text": text} for action, text in CONFIRMATIONS.items() if action in actions
+                    )
             sessions.append(session)
     except (OSError, KeyError, TypeError, ValueError):
         # Retain the summary if an optional detail cannot be projected safely.
