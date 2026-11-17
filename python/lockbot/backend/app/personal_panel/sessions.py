@@ -82,9 +82,12 @@ class PanelSessions:
         sessions = self.db.execute("DELETE FROM panel_sessions WHERE expires<=?", (now,)).rowcount
         return {"tickets": tickets, "sessions": sessions}
 
-    def issue(self, grant):
+    def issue(self, grant, recovered=()):
         """Issue a two-minute, single-use handoff for a verified binding."""
-        encoded = self._grant_json(grant)
+        proofs = [self._grant_json(value) for value in (grant, *recovered)]
+        if len(proofs) > MAX_GRANTS or len(set(proofs)) != len(proofs):
+            raise ValueError("Invalid binding set")
+        encoded = proofs[0] if len(proofs) == 1 else "[" + ",".join(proofs) + "]"
         ticket = secrets.token_urlsafe(32)
         with self._transaction():
             now = time.time()
@@ -96,6 +99,9 @@ class PanelSessions:
 
     def peek(self, ticket):
         """Inspect a ticket without logging in or consuming it (safe prefetch)."""
+        return self.peek_grants(ticket)[0]
+
+    def peek_grants(self, ticket):
         digest = self._digest(ticket)
         with self.lock:
             row = self.db.execute(
@@ -103,9 +109,14 @@ class PanelSessions:
             ).fetchone()
         if row is None:
             raise ValueError("Invalid or expired handoff")
-        return json.loads(row[0])
+        return self._ticket_grants(row[0])
 
-    def consume(self, ticket, current_cookie=None, mode="replace"):
+    @staticmethod
+    def _ticket_grants(value):
+        grants = json.loads(value)
+        return grants if isinstance(grants, list) else [grants]
+
+    def consume(self, ticket, current_cookie=None, mode="replace", *, include_recovered=False):
         """Consume proof and rotate the cookie atomically.
 
         Replacement retains only the newly proven binding. Explicit append
@@ -125,7 +136,8 @@ class PanelSessions:
             ).fetchone()
             if row is None:
                 raise ValueError("Invalid or expired handoff")
-            grant = json.loads(row[0])
+            proven = self._ticket_grants(row[0])
+            selected = proven if include_recovered else proven[:1]
             grants = []
             if mode == "append":
                 existing = self.db.execute(
@@ -136,10 +148,9 @@ class PanelSessions:
                 grants = json.loads(existing[0])
             # Only exact binding duplicates collapse; subjects are never merged
             # across issuer/platform/realm or inferred from matching strings.
-            if grant not in grants:
-                if len(grants) >= MAX_GRANTS:
-                    raise ValueError("Session binding limit reached")
-                grants.append(grant)
+            grants.extend(grant for grant in selected if grant not in grants)
+            if len(grants) > MAX_GRANTS:
+                raise ValueError("Session binding limit reached")
             self.db.execute("DELETE FROM panel_tickets WHERE digest=?", (digest,))
             self.db.execute("DELETE FROM panel_sessions WHERE digest=?", (current_digest,))
             self.db.execute(

@@ -13,11 +13,41 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import deployment_fragments
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+    BUNDLE_FORMAT,
+    REFERENCE_PATHS,
+    SCRIPT_PATH,
+    content_version,
+    deployment_fragments,
+)
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/agent-skill", tags=["Public API"])
+INSTALLATION_INSTRUCTIONS = (
+    "A shared manifest or ZIP link is not an installation request. If the user only shared a link, "
+    "explain what the Skill does and wait for an explicit request before downloading the ZIP, "
+    "writing files, or binding an account. For an authorized installation, download the same-origin ZIP once "
+    "to a writable location in the requested scope and verify it against installation.sha256. Stop if the "
+    "checksum does not match. Reuse the verified local ZIP for inspection, the client's installer and any "
+    "manual installation step instead of fetching it again. "
+    "Verify the installed files and whether the client loads the Skill. If the supported location is protected, "
+    "report the installation as blocked and give the client-specific manual step. An unpacked copy elsewhere "
+    "does not count as installed. If the user also authorized saving the service, run the verified bundled CLI "
+    "with Python 3.10+ using discover --origin <approved-service> --destination <new-private-file>. "
+    "If that command cannot complete, report that the service was not saved instead of writing a substitute file."
+)
+SKILL_UPDATE_INSTRUCTIONS = (
+    "Verify any prior command with an authenticated resource read. Do not replay the command. "
+    "On the same approved origin, fetch manifest_url and its installation.download_url without credentials. "
+    "Compare the ZIP with installation.sha256, then read the complete SKILL.md from the verified archive. "
+    "If you loaded it for this task, send its version on the next authenticated read "
+    "in X-Lockbot-Client-Skill-Version. "
+    "Keep the installed Skill, connections and Keys intact while awaiting approval. "
+    "When installation is authorized, install the verified ZIP using the client installer, reload it and keep "
+    "existing connections. Never rebind for an update. "
+    "Use the updated Skill before sending another resource mutation."
+)
 
 
 def _deployment_origin():
@@ -45,12 +75,14 @@ def _skill_artifacts(origin):
     if origin:
         for marker, rendered in deployment_fragments(origin).items():
             markdown = markdown.replace(marker.encode(), rendered.encode(), 1)
-    script = files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes()
-    extras = {"scripts/lockbot_resource.py": script}
-    version = hashlib.sha256(markdown + b"\0" + script).hexdigest()[:16]
+    resources = files("lockbot.backend.app")
+    script = resources.joinpath(f"{folder}/{SCRIPT_PATH}").read_bytes()
+    references = {path: resources.joinpath(f"{folder}/{path}").read_bytes() for path in REFERENCE_PATHS}
+    extras = {SCRIPT_PATH: script, **references}
+    version = content_version(markdown, script, references)
     package = {
-        "package_format": "canonical-origin-v1",
-        "package_version": hashlib.sha256(canonical_markdown + b"\0" + script).hexdigest()[:16],
+        "package_format": BUNDLE_FORMAT,
+        "package_version": content_version(canonical_markdown, script, references),
     }
     stamp = {
         **package,
@@ -76,10 +108,11 @@ def _skill_artifacts(origin):
                 "name": skill_id,
                 "download_url": f"{prefix}/{skill_id}.zip",
                 "sha256": hashlib.sha256(installation).hexdigest(),
+                "instructions": INSTALLATION_INSTRUCTIONS,
             },
             "version": version,
             **package,
-            "skill_url": f"{prefix}/SKILL.md",
+            "skill_url": f"{prefix}/{skill_id}.zip",
             "download_url": f"{prefix}/{name}.zip",
             "skill_sha256": hashlib.sha256(markdown).hexdigest(),
             "sha256": hashlib.sha256(bundle).hexdigest(),
@@ -116,15 +149,8 @@ def client_skill_notice(request):
         "package_status": package_status,
         "reported_version": reported,
         "manifest_url": "/api/agent-skill",
-        "skill_url": "/api/agent-skill/SKILL.md",
-        "instructions": None
-        if status == "current" or package_status == "current"
-        else (
-            "Before the next resource mutation, check the manifest on this same approved origin, "
-            "verify and load the latest Skill. If you load the full updated instructions for this task, "
-            "report that revision on the next authenticated read in X-Lockbot-Client-Skill-Version. "
-            "Update an installed copy only within the user's authorized setup. Do not rebind or retry the last command."
-        ),
+        "skill_url": metadata["skill_url"],
+        "instructions": None if status == "current" or package_status == "current" else SKILL_UPDATE_INSTRUCTIONS,
     }
 
 
@@ -169,13 +195,6 @@ def _download(request, content, media_type, filename=None):
     if filename:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return Response(content=content, media_type=media_type, headers=headers)
-
-
-@router.get("/SKILL.md", response_class=Response, responses={200: {"content": {"text/markdown": {}}}})
-@limiter.limit("60/minute")
-def skill_markdown(request: Request):
-    """Read the same instructions contained in the downloadable ZIP."""
-    return _download(request, skill_artifacts()[0], "text/markdown")
 
 
 @router.get("/lockbot-agent-api.zip", response_class=Response, responses={200: {"content": {"application/zip": {}}}})

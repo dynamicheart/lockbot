@@ -21,7 +21,17 @@ MESSAGES = {
     "notify.api_purpose": "\nNote: {purpose}",
     "notify.api_agent_label": "\nAgent: {label}",
     "help.agent_skill": "Agent usage: ",
-    "help.agent_lock_hint": "Install this Skill with your Agent: {url}",
+    "help.agent_lock_hint": "LockBot Skill installation manifest: {url}",
+    "public_docs.agent_api_intro": "Use a personal Agent Key bound in a group to operate your resources in that group.",
+    "public_docs.resource_queries": "To query resources, start with `GET /api/agent/context`, "
+    "then open `GET /api/agent/resources` for the query example.",
+    "public_docs.resource_query_example": (
+        "### Query using a personal Agent Key\n\n"
+        "Set `LOCKBOT_ORIGIN` to the approved service address and load `LOCKBOT_AGENT_KEY` from private storage. "
+        "The first request returns the identity and group for that Key. Verify them before running the second request. "
+        "The response lists resources, holders and queues for that group. Both requests use the same Key.\n\n"
+        "{commands}"
+    ),
     "public_docs.title": "LockBot API documentation",
     "public_docs.schema": "Combined OpenAPI schema",
     "public_docs.agent.title": "Agent API",
@@ -228,7 +238,7 @@ MESSAGES = {
     "alias.disabled": "User alias command is not enabled for this bot",
     # ── Identity binding (agent API enrollment) ──
     "binding.agent_usage_hint": (
-        "Agent usage: {url}\nSend this bundle link to your Agent to read, install, and help with binding."
+        "LockBot Skill installation manifest: {url}\nOn first use, ask your Agent to verify and install the bundle."
     ),
     "binding.unavailable": ("❌[Agent authorization unavailable]\n\nAgent authorization is unavailable on this bot."),
     "binding.failed": ("❌[Agent authorization failed]\n\nCould not process this command. Please try again later."),
@@ -245,6 +255,10 @@ MESSAGES = {
         "✅[Agent authorized]\n\nYour Agents share the saved key.\n\n"
         "View authorization: bindings\nRevoke authorization: unbind"
     ),
+    "binding.challenge_unavailable": "No current Key is available. Return to your Agent.",
+    "binding.challenge_created": "A personal Key was created. Return to the Agent that requested the code.",
+    "binding.challenge_recover_confirmed": "Key recovery confirmed. Return to the Agent that requested the code.",
+    "binding.challenge_reset_confirmed": "Key reset confirmed. The old Key is invalid. Return to your Agent.",
     "binding.already_bound": (
         "ℹ️[Already authorized]\n\nYou already authorized bot ID: {bot_id}. Your A"
         "gents should share the saved key. This new key was not activated."

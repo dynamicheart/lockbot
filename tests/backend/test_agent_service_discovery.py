@@ -12,7 +12,7 @@ import pytest
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.resource_api.discovery import ensure_instance_id
 from lockbot.backend.app.resource_api.resources import snapshot_cache
-from lockbot.backend.app.resource_api.skill import _skill_artifacts
+from lockbot.backend.app.resource_api.skill import REFERENCE_PATHS, _skill_artifacts
 from lockbot.backend.app.resource_auth import service
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.backend.app.settings.models import SiteSetting
@@ -52,6 +52,7 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
                 root + "/SKILL.md",
                 root + "/scripts/lockbot_resource.py",
                 root + "/installation.json",
+                *(root + "/" + name for name in REFERENCE_PATHS),
             }
             markdown = zipped.read(zipped.namelist()[0])
             assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
@@ -172,6 +173,10 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     script = markdown.parent / "scripts/lockbot_resource.py"
     script.parent.mkdir()
     script.write_bytes(files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes())
+    for relative in REFERENCE_PATHS:
+        reference = markdown.parent / relative
+        reference.parent.mkdir(exist_ok=True)
+        reference.write_bytes(files("lockbot.backend.app").joinpath("agent_skill", relative).read_bytes())
     monkeypatch.setattr("lockbot.backend.app.resource_api.skill.files", lambda package: tmp_path)
     _skill_artifacts.cache_clear()
     context = client.get("/api/agent/context", headers=api["headers"])
@@ -179,8 +184,12 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     assert after["instance_id"] == before["instance_id"]
     assert after["version"] != before["version"]
     assert context.headers["x-lockbot-skill-version"] == after["version"]
-    text = client.get(after["skill_url"], headers={"If-None-Match": '"' + before["skill_sha256"] + '"'})
-    assert text.status_code == 200 and hashlib.sha256(text.content).hexdigest() == after["skill_sha256"]
+    download = client.get(
+        after["installation"]["download_url"],
+        headers={"If-None-Match": '"' + before["installation"]["sha256"] + '"'},
+    )
+    assert download.status_code == 200
+    assert hashlib.sha256(download.content).hexdigest() == after["installation"]["sha256"]
 
 
 def test_public_schema_authenticates_context_but_not_manifest_or_downloads(client):
@@ -189,6 +198,21 @@ def test_public_schema_authenticates_context_but_not_manifest_or_downloads(clien
     assert paths["/api/agent-skill"]["get"]["security"] == []
     assert paths["/api/agent-skill/lockbot-resource-agent.zip"]["get"]["security"] == []
     assert "AgentContextResponse" in json.dumps(paths["/api/agent/context"])
+
+
+@pytest.mark.parametrize(
+    ("language", "heading"),
+    [("zh-CN", "用个人 Agent Key 查询资源"), ("en-US,en;q=0.9", "Query using a personal Agent Key")],
+)
+def test_public_docs_explain_context_then_read_only_resource_query(client, language, heading):
+    schema = client.get("/api/public-openapi.json", headers={"Accept-Language": language}).raise_for_status().json()
+    context = schema["paths"]["/api/agent/context"]["get"]
+    resources = schema["paths"]["/api/agent/resources"]["get"]
+    assert context["security"] == resources["security"] == [{"AgentKey": []}]
+    assert heading in resources["description"]
+    example = resources["description"].split("```sh\n", 1)[1]
+    assert example.index("/api/agent/context") < example.index("/api/agent/resources")
+    assert example.count("Authorization: Bearer $LOCKBOT_AGENT_KEY") == 2
 
 
 def test_new_context_uses_the_shared_credential_read_budget(client, api, monkeypatch):

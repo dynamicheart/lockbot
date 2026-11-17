@@ -22,7 +22,7 @@ from __future__ import annotations
 import secrets
 import threading
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 
@@ -48,6 +48,14 @@ class PendingCollision(Exception):
 
 
 @dataclass(frozen=True)
+class CredentialReceipt:
+    bot_id: int
+    binding_id: str | None
+    generation: int | None
+    created: bool = False
+
+
+@dataclass(frozen=True)
 class PendingBinding:
     """An issued-but-unconfirmed binding.
 
@@ -65,6 +73,8 @@ class PendingBinding:
     #: Agent-declared label, carried through to the durable row for the chat listing.
     label: str | None = None
     credential_encrypted: str | None = None
+    purpose: str = "bind"
+    receipt: CredentialReceipt | None = None
 
     def is_expired(self, now: datetime | None = None) -> bool:
         return (now or _utcnow()) >= self.bind_expires_at
@@ -83,6 +93,7 @@ class PendingBindingStore(ABC):
         credential_encrypted: str | None = None,
         source: str = "",
         label: str | None = None,
+        purpose: str = "bind",
         window_seconds: int,
         max_total: int,
         max_per_source: int,
@@ -117,8 +128,8 @@ class PendingBindingStore(ABC):
         """
 
     @abstractmethod
-    def finalize(self, token: str) -> None:
-        """Drop a reserved record for good, freeing its cap slot. Called after the commit."""
+    def finalize(self, token: str, *, receipt: CredentialReceipt | None = None) -> None:
+        """Consume a code after commit, retaining any receipt until the original deadline."""
 
     @abstractmethod
     def restore(self, token: str) -> None:
@@ -178,6 +189,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
         credential_encrypted: str | None = None,
         source: str = "",
         label: str | None = None,
+        purpose: str = "bind",
         window_seconds: int,
         max_total: int,
         max_per_source: int,
@@ -193,6 +205,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
             source=source,
             label=label,
             credential_encrypted=credential_encrypted,
+            purpose=purpose,
         )
         with self._lock:
             self._prune_locked(now)
@@ -223,7 +236,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
                 # No live record, or one already being confirmed by someone else.
                 return None
             record = self._by_id.get(binding_id)
-            if record is None or record.is_expired(now):
+            if record is None or record.receipt is not None or record.is_expired(now):
                 return None
             # Mark in flight WITHOUT removing from _by_id / _by_code: the record keeps its cap
             # slot and keeps its id/code reserved against new issuance until finalize/restore.
@@ -232,7 +245,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
             self._tokens[token] = binding_id
             return record, token
 
-    def finalize(self, token: str) -> None:
+    def finalize(self, token: str, *, receipt: CredentialReceipt | None = None) -> None:
         with self._lock:
             binding_id = self._tokens.pop(token, None)
             if binding_id is None:
@@ -240,7 +253,10 @@ class InProcessPendingBindingStore(PendingBindingStore):
             # The durable row committed; the record is no longer outstanding, so drop it and
             # free its cap slot and id/code reservation.
             self._reserved.discard(binding_id)
-            self._drop_locked(binding_id)
+            if receipt is None:
+                self._drop_locked(binding_id)
+            else:
+                self._by_id[binding_id] = replace(self._by_id[binding_id], receipt=receipt)
 
     def restore(self, token: str) -> None:
         with self._lock:

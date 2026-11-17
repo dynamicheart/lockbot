@@ -30,11 +30,9 @@ const renderer = createRenderer({
 const skill = () => ({
   skill_id: 'lockbot-resource-agent',
   bundle_url: ORIGIN + '/api/agent-skill/lockbot-resource-agent.zip',
-  markdown_url: ORIGIN + '/api/agent-skill/SKILL.md',
   manifest_url: ORIGIN + '/api/agent-skill',
 })
-const guide = () =>
-  `请先读取 ${skill().bundle_url} 和 ${skill().markdown_url}，保留有效原 Key；只检查状态。`
+const guide = () => `请先读取 ${skill().bundle_url}，保留有效原 Key；只检查状态。`
 const capabilities = () => ({
   connection_management: {
     version: 1,
@@ -59,7 +57,7 @@ const row = (name = 'Group one') => ({
   },
   expires_at: null,
   credential_recovery_health: 'legacy_missing',
-  instructions: `请安装 ${skill().bundle_url}，正文 ${skill().markdown_url}。连接 ${name} / alice / fixture-bot-uuid。Key 单独私下提供。`,
+  instructions: `请安装 ${skill().bundle_url}。连接 ${name} / alice / fixture-bot-uuid。Key 单独私下提供。`,
 })
 const list = (rows = [row()]) => ({
   schema_version: 1,
@@ -122,7 +120,7 @@ it('copies a deployment-pinned secret-free Skill instruction only on an explicit
   await state.copyInstructions(state.items[0])
   expect(clipboard).toHaveBeenCalledWith(row().instructions)
   expect(clipboard.mock.calls[0][0]).toContain(skill().bundle_url)
-  expect(clipboard.mock.calls[0][0]).toContain(skill().markdown_url)
+  expect(clipboard.mock.calls[0][0]).not.toContain('/SKILL.md')
   expect(clipboard.mock.calls[0][0]).not.toContain('not-an-installation-origin')
   for (const [, options] of fetchMock.mock.calls)
     expect(options).toMatchObject({

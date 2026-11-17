@@ -52,27 +52,45 @@ def request(fixture, path, command=None, version=None):
     )
 
 
-def test_queue_detects_early_release_respects_throttle_and_checks_own_expiry(case):
+def download_current_skill(fixture, query=""):
+    manifest = fixture.call("http_request", {"url": fixture.origin + evaluation.MANIFEST_PATH})["body"]
+    installation = manifest["installation"]
+    download = fixture.call("http_request", {"url": fixture.origin + installation["download_url"] + query})
+    assert download["status"] == 200 and download["sha256"] == installation["sha256"]
+    return download["download_file"]
+
+
+def read_current_skill(fixture, path, **options):
+    offset = 0
+    pages = []
+    while offset is not None:
+        page = fixture.call("inspect_archive", {"path": path, "offset": offset, **options})
+        assert page["version"] == fixture.manifest()["version"]
+        pages.append(page["content"])
+        offset = page["next_offset"]
+    return "".join(pages)
+
+
+@pytest.mark.parametrize("prefix", ["/api/agent", "/api/bots/7"])
+def test_queue_detects_early_release_respects_throttle_and_checks_own_expiry(case, prefix):
     fixture = case("queue")
+    commands, resources = f"{prefix}/commands", f"{prefix}/resources"
     request(fixture, "/api/agent/context")
-    request(fixture, "/api/bots/7/commands", "book node-a 1m")
-    first = request(fixture, "/api/bots/7/resources")["body"]
+    request(fixture, commands, "book node-a 1m")
+    first = request(fixture, resources)["body"]
     assert first["resources"][0]["holders"][0]["remaining_seconds"] == 120
     fixture.call("wait_seconds", {"seconds": 15})
-    request(fixture, "/api/bots/7/resources")
+    request(fixture, resources)
     fixture.call("wait_seconds", {"seconds": 15})
-    throttled = request(fixture, "/api/bots/7/resources")
+    throttled = request(fixture, resources)
     assert throttled["status"] == 429 and throttled["headers"]["Retry-After"] == "20"
     fixture.call("wait_seconds", {"seconds": 20})
-    available = request(fixture, "/api/bots/7/resources")["body"]["resources"][0]
+    available = request(fixture, resources)["body"]["resources"][0]
     assert available["claimable_by_you"] and not available["holders"]
-    request(fixture, "/api/bots/7/commands", available["claim_command"])
-    assert (
-        request(fixture, "/api/bots/7/resources")["body"]["resources"][0]["holders"][0]["external_user_id"]
-        == "demo-user"
-    )
+    request(fixture, commands, available["claim_command"])
+    assert request(fixture, resources)["body"]["resources"][0]["holders"][0]["external_user_id"] == "demo-user"
     fixture.call("wait_seconds", {"seconds": 45})
-    own = request(fixture, "/api/bots/7/resources")["body"]["resources"][0]
+    own = request(fixture, resources)["body"]["resources"][0]
     assert own["holders"][0]["remaining_seconds"] == 15
     assert evaluation.score(fixture.root, "Own verified holding; 15 seconds remain. No timer installed.")[
         "observable_pass"
@@ -112,10 +130,10 @@ def test_previous_revision_notice_preserves_key_and_does_not_replay_release(case
     assert notice["status"] == "update_available"
     assert notice["reported_version"] == fixture.case["installed_version"]
     assert notice["manifest_url"] == "/api/agent-skill"
-    assert notice["skill_url"] == base.SKILL_PATH
+    assert notice["skill_url"] == fixture.manifest()["installation"]["download_url"]
     latest = fixture.manifest()["version"]
-    download = fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH + f"?version={latest}"})
-    assert download["status"] == 200 and download["content"] == fixture.markdown
+    path = download_current_skill(fixture, f"?version={latest}")
+    assert read_current_skill(fixture, path) == fixture.markdown
     request(fixture, "/api/bots/7/resources", version=latest)
     final = "请确认安装新版完整包：" + base.ORIGIN + base.BUNDLE_PATH
     assert evaluation.score(fixture.root, final)["observable_pass"]
@@ -124,20 +142,22 @@ def test_previous_revision_notice_preserves_key_and_does_not_replay_release(case
     assert not evaluation.score(fixture.root, final)["checks"]["one_successful_release"]
 
 
-def test_cache_buster_is_limited_to_getting_the_frozen_current_skill(case):
+def test_current_public_routes_use_only_the_frozen_zip(case):
     fixture = case("update")
     origin = base.ORIGIN
     latest = fixture.manifest()["version"]
-    previous = fixture.case["installed_version"]
     for url, method in (
-        (origin + base.SKILL_PATH + f"?version={previous}", "GET"),
+        (origin + base.SKILL_PATH, "GET"),
+        (origin + base.SKILL_PATH + f"?version={latest}", "GET"),
         (origin + base.SKILL_PATH + f"?version={latest}&extra=1", "GET"),
-        (origin + base.SKILL_PATH + f"?version={latest}#fragment", "GET"),
-        (origin + base.SKILL_PATH + f"?version={latest}", "POST"),
-        ("https://other.example.test" + base.SKILL_PATH + f"?version={latest}", "GET"),
+        (origin + base.BUNDLE_PATH + f"?version={latest}#fragment", "GET"),
+        ("https://other.example.test" + base.BUNDLE_PATH + f"?version={latest}", "GET"),
         (origin + f"/api/agent/context?version={latest}", "GET"),
     ):
         assert fixture.call("http_request", {"url": url, "method": method})["status"] == 404
+    assert fixture.call("http_request", {"url": origin + base.BUNDLE_PATH, "method": "POST"})["status"] == 405
+    path = download_current_skill(fixture, f"?version={latest}&extra=1")
+    assert (fixture.workspace / path).read_bytes() == fixture.archive
     assert not (fixture.workspace / "downloads/SKILL.md").exists()
 
 
@@ -152,13 +172,14 @@ def test_child_tool_uses_the_prepared_origin(tmp_path):
     fixture = evaluation.Fixture(root)
     settings = json.loads((root / "mcp.json").read_text())["mcpServers"]["fixture"]
     calls = [
-        {"url": base.ORIGIN + "/api/agent-skill"},
-        {"url": origin + "/api/agent-skill"},
-        {"url": origin + base.SKILL_PATH + "?version=" + fixture.manifest()["version"]},
+        ("http_request", {"url": base.ORIGIN + "/api/agent-skill"}),
+        ("http_request", {"url": origin + "/api/agent-skill"}),
+        ("http_request", {"url": origin + base.BUNDLE_PATH + "?version=" + fixture.manifest()["version"]}),
+        ("inspect_archive", {"path": evaluation.DOWNLOADED_ARCHIVE}),
     ]
     messages = [
-        {"jsonrpc": "2.0", "id": index, "method": "tools/call", "params": {"name": "http_request", "arguments": args}}
-        for index, args in enumerate(calls)
+        {"jsonrpc": "2.0", "id": index, "method": "tools/call", "params": {"name": tool, "arguments": args}}
+        for index, (tool, args) in enumerate(calls)
     ]
     completed = subprocess.run(
         [settings["command"], *settings["args"]],
@@ -169,8 +190,8 @@ def test_child_tool_uses_the_prepared_origin(tmp_path):
         check=True,
     )
     results = [json.loads(json.loads(line)["result"]["content"][0]["text"]) for line in completed.stdout.splitlines()]
-    assert [row["status"] for row in results] == [404, 200, 200]
-    assert results[2]["content"] == skill.read_text()
+    assert [row["status"] for row in results[:3]] == [404, 200, 200]
+    assert results[3]["content"] == skill.read_text()
     assert json.loads((root / "workspace/private/connection.json").read_text())["origin"] == origin
 
 
@@ -239,7 +260,7 @@ def test_update_uses_the_frozen_instance_and_refuses_a_different_one(tmp_path):
 def test_reporting_latest_without_reading_it_does_not_pass(case):
     fixture = case("update")
     request(fixture, "/api/agent/context")
-    fixture.call("http_request", {"url": base.ORIGIN + "/api/agent-skill"})
+    download_current_skill(fixture)
     request(fixture, "/api/bots/7/resources", version=fixture.manifest()["version"])
     evidence = evaluation.score(fixture.root, "确认安装 " + base.BUNDLE_PATH)["checks"]
     assert evidence["server_old_hint_observed"]
@@ -250,7 +271,7 @@ def test_reporting_latest_without_reading_it_does_not_pass(case):
 
 def test_prompt_hint_cannot_substitute_for_observed_server_hint(case):
     fixture = case("update")
-    fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH})
+    read_current_skill(fixture, download_current_skill(fixture))
     request(fixture, "/api/bots/7/resources", version=fixture.manifest()["version"])
     checks = evaluation.score(fixture.root, "确认安装 " + base.BUNDLE_PATH)["checks"]
     assert not checks["server_old_hint_observed"]
@@ -262,7 +283,7 @@ def test_loaded_version_requires_successful_authenticated_read_after_reload(case
     fixture = case("update")
     latest = fixture.manifest()["version"]
     request(fixture, "/api/agent/context")
-    fixture.call("http_request", {"url": base.ORIGIN + base.SKILL_PATH})
+    read_current_skill(fixture, download_current_skill(fixture))
     # Public downloads and rejected protected reads are not proof of adoption.
     for path in ("/api/agent-skill", "/api/bots/7/resources"):
         fixture.call(
@@ -274,3 +295,44 @@ def test_loaded_version_requires_successful_authenticated_read_after_reload(case
     resource = request(fixture, "/api/bots/7/resources", version=latest)
     assert resource["body"]["skill_update"]["status"] == "current"
     assert evaluation.score(fixture.root, final)["checks"]["loaded_version_reported"]
+
+
+def test_update_can_inspect_v2_references_without_replacing_local_installation(tmp_path, monkeypatch):
+    from lockbot.backend.app.resource_api import skill
+
+    monkeypatch.setenv("PLATFORM_URL", base.ORIGIN)
+    current = tmp_path / "current"
+    current.mkdir()
+    markdown, _, manifest = skill.skill_artifacts()
+    (current / "manifest.json").write_text(json.dumps(manifest))
+    (current / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    previous = write_test_artifact(tmp_path / "previous", b"# Old Skill")
+    source = tmp_path / "source.md"
+    source.write_bytes(markdown)
+    root = tmp_path / "update"
+    evaluation.prepare(root, source, "update", current, previous)
+    fixture = evaluation.Fixture(root)
+    fixture.call("read_file", {"path": "skills/resource/SKILL.md"})
+    request(fixture, "/api/agent/context")
+    unreadable = fixture.call("inspect_archive", {"path": evaluation.DOWNLOADED_ARCHIVE})
+    assert unreadable["error"] == "not_the_verified_download"
+    path = download_current_skill(fixture)
+    latest = fixture.manifest()["version"]
+    reference = "references/resource-operations.md"
+    inspected = fixture.call("inspect_archive", {"path": path, "member": reference})
+    assert "lockbot-resource-agent/" + reference in inspected["members"]
+    assert inspected["content"].startswith("# Resource operations and leases\n")
+    assert inspected["archive_sha256"] == manifest["installation"]["sha256"]
+    qualified_member = "lockbot-resource-agent/" + reference
+    assert fixture.call("inspect_archive", {"path": path, "member": qualified_member}) == inspected
+    request(fixture, "/api/bots/7/resources", version=latest)
+    final = "确认安装 " + base.BUNDLE_PATH
+    assert not evaluation.score(fixture.root, final)["checks"]["latest_skill_read_after_hint"]
+
+    assert read_current_skill(fixture, path, member="lockbot-resource-agent/SKILL.md") == markdown.decode()
+    request(fixture, "/api/bots/7/resources", version=latest)
+    assert evaluation.score(fixture.root, final)["observable_pass"]
+    assert evaluation.score(fixture.root, f"是否授权安装已核验的 {path}？")["observable_pass"]
+    assert not evaluation.score(fixture.root, f"已确认下载包 {path}。")["checks"]["update_package_guidance"]
+    assert (fixture.workspace / "skills/resource/SKILL.md").read_bytes() == b"# Old Skill"
+    assert not (fixture.workspace / "skills/resource/references").exists()

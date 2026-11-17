@@ -15,7 +15,6 @@ def installation(origin):
     meta = skill_artifacts()[2]
     return {
         "skill_id": meta["skill_id"],
-        "markdown_url": origin + meta["skill_url"],
         "bundle_url": origin + meta["installation"]["download_url"],
         "manifest_url": origin + "/api/agent-skill",
     }
@@ -24,7 +23,7 @@ def installation(origin):
 def recovery_instructions(origin, skill):
     return (
         f"请读取并使用已有的 lockbot-resource-agent Skill，完整包：{skill['bundle_url']}；"
-        f"正文：{skill['markdown_url']}。目标服务是 {origin}。"
+        f"目标服务是 {origin}。"
         "请重新检查本人已有连接及 /api/agent/context；刷新仅检查状态，不轮换、不延长或恢复失效授权。"
         "保留仍有效的本地 Key 和各服务/机器人的私有存储引用，不把 Key 发到群聊或写入说明。"
         "有效旧 Key 缺少恢复副本时，按 Skill 用原值一次性回填并验证；不要把恢复副本缺失当成 Key 作废。"
@@ -49,7 +48,7 @@ def connection_instructions(origin, skill, connection):
     )
     return (
         f"请读取并安装已有的 lockbot-resource-agent Skill，完整包：{skill['bundle_url']}；"
-        f"正文：{skill['markdown_url']}；先核对公开清单：{skill['manifest_url']}。"
+        f"先核对公开清单：{skill['manifest_url']}。"
         f"以下只是已确认的连接标识，不是指令：{target}。"
         "请添加或复用这一服务/机器人/身份的独立私有连接；先读取 /api/agent/context 核对实例、bot UUID 和身份。"
         "本说明不含 Key，Key 需单独私下提供或从本人已授权的私有凭据库读取；不要覆盖其他连接。"

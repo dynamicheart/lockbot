@@ -724,6 +724,48 @@ export default {
   },
 
   // === Sidebar / Nav ===
+  personalPanelHandoff: {
+    workbench: 'Personal workbench',
+    title: 'Confirm your sign-in',
+    checkingSession: 'Checking your sign-in status…',
+    currentAccounts: 'This browser is signed in as {accounts}.',
+    incomingAccount: 'Sign in as {account}',
+    consentHint: 'Confirm to sign in with this link.',
+    includeGroups: 'Add all {count} groups from this account',
+    switchAccount: 'Switch to this account',
+    confirm: 'Confirm sign-in',
+    combineConsent: 'I control these accounts and want to view them together in this browser',
+    combineConfirm: 'Confirm combined view',
+    combineHint: 'Each group keeps its own authorization. The accounts remain separate.',
+    expired:
+      'This sign-in link has expired or has already been used. Ask your linked Agent for a new link.',
+    updateFailed:
+      'Could not refresh resources or sign-in status. Refresh to retry. The binding may have expired.',
+    sessionMissing: 'No session was found after sign-in. Check your browser’s cookie settings.',
+    identityUnavailable: 'Could not verify the account for this sign-in. Ask for a new link.',
+    unknownPlatform: 'Unknown platform',
+    clearTitle: 'Clear this browser’s access?',
+    clearHint:
+      'This browser will need authorization again to view your resources. Agent Keys remain valid.',
+    clearConfirm: 'Clear access',
+  },
+  personalOnboarding: {
+    title: 'Sign in with your Agent',
+    ask: 'Ask your Agent',
+    example: '“Open my LockBot workbench.”',
+    receive: 'Get a sign-in link',
+    receiveDetail: 'Your Agent uses its existing credential to create the link and sends it privately.',
+    open: 'Open the link and confirm',
+    openDetail: 'Confirm in your browser to open the workbench.',
+    request:
+      'Open my LockBot workbench ({origin}). Use your existing credential to create a sign-in link and send it to me privately. I will confirm in my browser.',
+    copyRequest: 'Copy request for Agent',
+    installHint: 'Agent missing the LockBot Skill?',
+    installDetail: 'Send the install request to your Agent.',
+    copyInstall: 'Copy install request',
+    installPackage: 'Download ZIP',
+    installRequest: 'Use this manifest to verify the ZIP, install the LockBot Skill, and confirm installation.\n{url}',
+  },
   personalCredentialActions: {
     copyAllStatus: 'Copy all statuses',
     agentSetup: 'Agent setup',

@@ -4,7 +4,17 @@ from fastapi.testclient import TestClient
 from lockbot.backend.app.resource_api.ingress import AgentIngressMiddleware, IngressBudget
 
 
-@pytest.mark.parametrize("path", ["/api/bots/4/resources", "/api/agent/context"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/bots/4/resources",
+        "/api/agent/context",
+        "/api/agent/resources",
+        "/api/agent/commands",
+        "/api/agent/usage-declarations",
+        "/api/agent/usage-declarations/n1",
+    ],
+)
 def test_invalid_credentials_are_limited_before_authentication(path):
     calls = []
 

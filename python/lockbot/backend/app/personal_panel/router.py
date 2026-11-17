@@ -161,6 +161,7 @@ def create_panel(
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
         browser_post = request.method == "POST" and request.url.path.rsplit("/", 1)[-1] not in (
             "links",
+            "account-links",
             "credential-view-links",
             "credential-rotation-links",
         )
@@ -213,6 +214,7 @@ def create_panel(
                     "connection_management": {
                         "version": 1,
                         "list_path": request.url.path.rsplit("/", 1)[0] + "/connections",
+                        "account_issue_path": request.url.path.rsplit("/", 1)[0] + "/account-links",
                         "skill": skill,
                         "recovery_instructions": recovery_guide,
                         "refresh_semantics": "revalidate_only",
@@ -249,8 +251,7 @@ def create_panel(
             ),
         }
 
-    @app.post("/links")
-    def issue(request: Request):
+    def issue_handoff(request, *, recover_groups):
         auth = request.headers.get("authorization", "")
         if request.headers.get("origin") or not auth.startswith("Bearer ") or not 0 < len(auth[7:]) <= 8192:
             raise HTTPException(401, "A bound agent credential is required")
@@ -267,8 +268,24 @@ def create_panel(
             raise HTTPException(401, "Binding unavailable") from None
         if not grant or not valid(grant):
             raise HTTPException(401, "Binding unavailable")
-        token = sessions.issue(grant)
+        try:
+            recovered = provider.recover_panel_grants(grant) if recover_groups else ()
+            token = sessions.issue(grant, recovered)
+        except ProviderError:
+            raise HTTPException(403, "Binding changed") from None
+        except ValueError:
+            raise HTTPException(409, "Too many bindings for one browser login") from None
         return dict(home=origin + "/#/me", login_url=origin + "/#/me?ticket=" + token, expires_in=120)
+
+    @app.post("/links")
+    def issue(request: Request):
+        return issue_handoff(request, recover_groups=False)
+
+    @app.post("/account-links")
+    def issue_account(request: Request):
+        if not native_connections:
+            raise HTTPException(404)
+        return issue_handoff(request, recover_groups=True)
 
     @app.post("/credential-view-links")
     def issue_credential_view(request: Request):
@@ -472,30 +489,44 @@ def create_panel(
             "expires_in": max(0, deadline - time.time()),
         }
 
-    def inspect_ticket(token):
+    def inspect_ticket(token, *, include_recovered=False):
         try:
-            grant = sessions.peek(token)
+            grants = sessions.peek_grants(token)
         except ValueError:
             raise HTTPException(410, "Login link expired or used") from None
-        if not valid(grant):
+        if not valid(grants[0]):
             raise HTTPException(403, "Binding expired or revoked")
-        return grant
+        names = None
+        if include_recovered and len(grants) > 1:
+            if not native_connections:
+                raise HTTPException(403, "Unsupported handoff scope")
+            try:
+                names = provider.panel_account_groups(grants)
+            except ProviderError:
+                raise HTTPException(403, "A connection changed. Get a new sign-in link.") from None
+        return grants[0], names
 
     @app.post("/preview")
     async def preview(request: Request):
         data = await fields(request, ["ticket"])
-        return {"identity": public_identity(inspect_ticket(data["ticket"]))}
+        grant, names = inspect_ticket(data["ticket"], include_recovered=True)
+        return {"identity": public_identity(grant), **({"groups": names} if names else {})}
 
     @app.post("/login")
     async def login(request: Request):
         data = await fields(request, ["ticket", "mode"])
-        inspect_ticket(data["ticket"])
-        if data["mode"] not in ("append", "replace"):
+        mode = data["mode"]
+        if mode not in ("append", "replace", "append_account", "replace_account"):
             raise HTTPException(400)
-        if data["mode"] == "append" and not live(request):
+        mode, _, suffix = mode.partition("_")
+        include_recovered = suffix == "account"
+        inspect_ticket(data["ticket"], include_recovered=include_recovered)
+        if mode == "append" and not live(request):
             raise HTTPException(401)
         try:
-            cookie = sessions.consume(data["ticket"], request.cookies.get(cookie_name), mode=data["mode"])
+            cookie = sessions.consume(
+                data["ticket"], request.cookies.get(cookie_name), mode=mode, include_recovered=include_recovered
+            )
         except ValueError:
             raise HTTPException(410, "Login link or session invalid") from None
         response = JSONResponse({"authenticated": True})

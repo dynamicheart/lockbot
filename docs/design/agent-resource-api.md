@@ -88,7 +88,7 @@ QUEUE 的 `book` 只登记排队。资源空闲且轮到自己时，Agent 仍须
 
 ## 4. 不同 bot 的命令
 
-Agent 首次接入时读取 `GET /api/bots/{bot_id}/resources`。响应中的 `bot_type`、`supported_operations` 和 `command_examples` 提供该 bot 的能力和实际资源名称示例。
+Agent 首次接入时读取 `GET /api/agent/resources`。响应中的 `bot_type`、`supported_operations` 和 `command_examples` 提供该 bot 的能力和实际资源名称示例。
 
 | 类型 | 常用操作 | 示例 |
 |---|---|---|
@@ -107,7 +107,7 @@ NODE、DEVICE 不支持 `book`；QUEUE 不支持 `slock`。卡号从 0 开始，
 ### 5.1 一次请求完成申请和用途登记
 
 ```http
-POST /api/bots/{bot_id}/commands
+POST /api/agent/commands
 Authorization: Bearer <Agent Key>
 Content-Type: application/json
 
@@ -244,7 +244,7 @@ flowchart LR
 
 | 入口 | 用途 |
 |---|---|
-| `GET /api/agent-skill/SKILL.md` | Agent 可直接读取的操作说明 |
+| `GET /api/agent-skill/lockbot-resource-agent.zip` | 完整安装包，包含操作说明和 CLI |
 | `GET /api/agent-skill/lockbot-agent-api.zip` | 可安装的 skill 包 |
 | `GET /api/agent-skill` | 版本、下载地址及摘要 |
 | `GET /api/public-docs/op` | OP 运维接口文档 |

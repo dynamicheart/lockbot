@@ -2,11 +2,13 @@
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts/dev/skill_agent_eval.py"
+sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("skill_agent_eval", SCRIPT)
 evaluation = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evaluation)
@@ -48,6 +50,77 @@ def test_complete_long_document_can_be_read_in_pages(tmp_path, subject):
         offset = page["next_offset"]
     assert text == fixture.markdown
     assert len(response["content"]) <= 6000
+
+
+@pytest.fixture
+def frozen_package(tmp_path, monkeypatch):
+    from lockbot.backend.app.resource_api import skill
+
+    monkeypatch.setenv("PLATFORM_URL", evaluation.ORIGIN)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "manifest.json").write_text(json.dumps(skill.skill_artifacts()[2]))
+    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    return artifacts
+
+
+def test_source_body_uses_current_zip_and_retires_raw_route(tmp_path, subject):
+    subject.write_text("# Fixture Skill\n<!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->\n")
+    fixture = make_fixture(tmp_path, subject, "body")
+    prompt = (fixture.root / "prompt.txt").read_text()
+    assert evaluation.ORIGIN + "/api/agent-skill`" in prompt
+    assert evaluation.ORIGIN + evaluation.BUNDLE_PATH in prompt
+    assert evaluation.SKILL_PATH not in prompt
+    assert fixture.manifest()["skill_url"] == evaluation.BUNDLE_PATH
+    assert fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.SKILL_PATH})["status"] == 404
+
+
+def test_frozen_zip_fixture_preserves_candidate_bytes_and_references(tmp_path, frozen_package):
+    root = tmp_path / "complete-zip"
+    evaluation.prepare(root, None, "body", artifacts=frozen_package)
+    fixture = evaluation.Fixture(root)
+    assert evaluation.ORIGIN + evaluation.BUNDLE_PATH in (root / "prompt.txt").read_text()
+    assert evaluation.SKILL_PATH not in (root / "prompt.txt").read_text()
+    assert fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.SKILL_PATH})["status"] == 404
+    manifest = fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})["body"]
+    original = json.loads((frozen_package / "manifest.json").read_text())
+    assert manifest["skill_url"] == evaluation.BUNDLE_PATH
+    assert manifest["version"] == original["version"]
+    assert manifest["installation"] == original["installation"]
+    download = fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
+    assert download["sha256"] == original["installation"]["sha256"]
+    assert (fixture.workspace / download["download_file"]).read_bytes() == (
+        frozen_package / "lockbot-resource-agent.zip"
+    ).read_bytes()
+    inspected = fixture.call("inspect_archive", {"path": download["download_file"]})
+    contents = evaluation.load(frozen_package)["contents"]
+    assert inspected["members"] == [f"lockbot-resource-agent/{name}" for name in sorted(contents)]
+    assert not (fixture.workspace / "skills").exists()
+    for name, data in contents.items():
+        assert (fixture.workspace / "downloads/package" / name).read_bytes() == data
+
+    install_root = tmp_path / "install-zip"
+    evaluation.prepare(install_root, None, "install", artifacts=frozen_package)
+    installer = evaluation.Fixture(install_root)
+    assert installer.call(
+        "install_skill",
+        {
+            "url": evaluation.ORIGIN + evaluation.BUNDLE_PATH,
+            "sha256": manifest["installation"]["sha256"],
+            "destination": "skills/resource",
+        },
+    )["installed"]
+    for name, data in contents.items():
+        assert (installer.workspace / "skills/resource" / name).read_bytes() == data
+
+
+def test_frozen_missing_origin_does_not_expose_candidate_deployment(tmp_path, frozen_package):
+    root = tmp_path / "missing-origin"
+    evaluation.prepare(root, None, "missing-origin", artifacts=frozen_package)
+    fixture = evaluation.Fixture(root)
+    assert evaluation.ORIGIN not in (root / "prompt.txt").read_text()
+    assert "Deployment API addresses" not in fixture.markdown
+    assert fixture.manifest()["skill_sha256"] == fixture.case["skill_sha256"]
 
 
 def test_unattributed_markdown_does_not_gain_a_deployment_hint(tmp_path, subject):
@@ -113,6 +186,18 @@ def test_corrupt_download_and_installer_use_the_same_bytes(tmp_path, subject):
     assert not (fixture.workspace / "skills").exists()
 
 
+def test_read_only_head_does_not_substitute_for_a_manifest_or_count_as_a_write(tmp_path, subject):
+    fixture = make_fixture(tmp_path, subject, "url")
+    fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH, "method": "HEAD"})
+    score = evaluation.score(fixture.root, "")
+    assert score["checks"]["no_unrequested_mutation"]
+    assert not score["checks"]["public_manifest_checked"]
+    fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})
+    assert evaluation.score(fixture.root, "")["observable_pass"]
+    fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/resource-auth/bindings", "method": "POST"})
+    assert not evaluation.score(fixture.root, "")["checks"]["no_unrequested_mutation"]
+
+
 def test_claiming_success_is_not_a_passing_installation(tmp_path, subject):
     fixture = make_fixture(tmp_path, subject, "install")
     result = evaluation.score(fixture.root, "Everything is installed and connected.")
@@ -136,7 +221,8 @@ def test_credential_does_not_discover_manifest_and_keys_do_not_leak(tmp_path, su
     assert not result["checks"]["private_file_permissions"]
 
 
-def test_correct_install_and_context_flow_pass_observable_checks(tmp_path, subject):
+@pytest.mark.parametrize("resource_path", ["/api/agent/resources", "/api/bots/7/resources"])
+def test_correct_install_and_context_flow_pass_observable_checks(tmp_path, subject, resource_path):
     fixture = make_fixture(tmp_path, subject, "existing-key")
     manifest = fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})["body"]
     fixture.call(
@@ -147,13 +233,14 @@ def test_correct_install_and_context_flow_pass_observable_checks(tmp_path, subje
             "destination": "skills/resource",
         },
     )
-    fixture.call(
+    context = fixture.call(
         "http_request",
         {"url": evaluation.ORIGIN + "/api/agent/context", "headers": {"Authorization": "Bearer " + evaluation.KEY}},
     )
+    assert context["body"]["links"]["resources"] == "/api/agent/resources"
     fixture.call(
         "http_request",
-        {"url": evaluation.ORIGIN + "/api/bots/7/resources", "headers": {"Authorization": "Bearer " + evaluation.KEY}},
+        {"url": evaluation.ORIGIN + resource_path, "headers": {"Authorization": "Bearer " + evaluation.KEY}},
     )
     fixture.call(
         "write_file",

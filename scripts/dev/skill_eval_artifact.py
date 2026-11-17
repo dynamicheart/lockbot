@@ -7,6 +7,8 @@ import stat
 import zipfile
 from pathlib import Path
 
+from lockbot.backend.app.agent_skill.scripts.lockbot_resource import BUNDLE_FORMAT, REFERENCE_PATHS, content_version
+
 FILES = {"SKILL.md", "scripts/lockbot_resource.py", "installation.json"}
 LIMIT = 1024 * 1024
 
@@ -24,7 +26,7 @@ def load(directory):
     try:
         directory = Path(directory)
         raw = {}
-        for name in ("manifest.json", "SKILL.md", "lockbot-resource-agent.zip"):
+        for name in ("manifest.json", "lockbot-resource-agent.zip"):
             path = directory / name
             if path.is_symlink() or not path.is_file() or path.stat().st_size > LIMIT:
                 raise ArtifactBlocked("complete_artifact_required")
@@ -35,30 +37,41 @@ def load(directory):
             raise ArtifactBlocked("unexpected_package_identity")
         if descriptor["download_url"] != "/api/agent-skill/lockbot-resource-agent.zip":
             raise ArtifactBlocked("unexpected_download_path")
-        if (
-            digest(raw["lockbot-resource-agent.zip"]) != descriptor["sha256"]
-            or digest(raw["SKILL.md"]) != meta["skill_sha256"]
-        ):
+        if digest(raw["lockbot-resource-agent.zip"]) != descriptor["sha256"]:
             raise ArtifactBlocked("artifact_digest_mismatch")
         prefix = descriptor["name"] + "/"
+        reference_paths = REFERENCE_PATHS if meta.get("package_format") == BUNDLE_FORMAT else ()
+        expected = {*FILES, *reference_paths}
         with zipfile.ZipFile(io.BytesIO(raw["lockbot-resource-agent.zip"])) as archive:
             entries = archive.infolist()
-            if len(entries) != 3 or {entry.filename for entry in entries} != {prefix + item for item in FILES}:
+            if len(entries) != len(expected) or {entry.filename for entry in entries} != {
+                prefix + item for item in expected
+            }:
                 raise ArtifactBlocked("complete_helper_bundle_required")
             if sum(entry.file_size for entry in entries) > LIMIT or any(
                 stat.S_ISLNK(entry.external_attr >> 16) for entry in entries
             ):
                 raise ArtifactBlocked("unsafe_bundle")
-            contents = {name: archive.read(prefix + name) for name in FILES}
+            contents = {name: archive.read(prefix + name) for name in expected}
         stamp = json.loads(contents["installation.json"])
-        if contents["SKILL.md"] != raw["SKILL.md"] or not contents["scripts/lockbot_resource.py"]:
+        if digest(contents["SKILL.md"]) != meta["skill_sha256"] or not contents["scripts/lockbot_resource.py"]:
+            raise ArtifactBlocked("artifact_markdown_or_helper_mismatch")
+        legacy_snapshot = directory / "SKILL.md"
+        if legacy_snapshot.is_symlink() or (
+            legacy_snapshot.exists()
+            and (legacy_snapshot.stat().st_size > LIMIT or legacy_snapshot.read_bytes() != contents["SKILL.md"])
+        ):
             raise ArtifactBlocked("artifact_markdown_or_helper_mismatch")
         if stamp["service_id"] != "lockbot.resource-api" or stamp["api_version"] != "1":
             raise ArtifactBlocked("unsupported_bundle_protocol")
-        revision = digest(contents["SKILL.md"] + b"\0" + contents["scripts/lockbot_resource.py"])[:16]
+        revision = content_version(
+            contents["SKILL.md"],
+            contents["scripts/lockbot_resource.py"],
+            {name: contents[name] for name in reference_paths},
+        )
         if stamp["version"] != meta["version"] or meta["version"] != revision:
             raise ArtifactBlocked("artifact_revision_mismatch")
-        if stamp["files"] != {name: digest(contents[name]) for name in FILES - {"installation.json"}}:
+        if stamp["files"] != {name: digest(contents[name]) for name in expected - {"installation.json"}}:
             raise ArtifactBlocked("artifact_file_digest_mismatch")
         return {"manifest": meta, "archive": raw["lockbot-resource-agent.zip"], "contents": contents}
     except ArtifactBlocked:

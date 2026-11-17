@@ -35,10 +35,13 @@ from lockbot.backend.app.database import Base, SessionLocal, engine
 from lockbot.backend.app.platform_applications.router import router as platform_applications_router
 from lockbot.backend.app.resource_api.activity import install_activity_middleware
 from lockbot.backend.app.resource_api.activity import router as activity_router
+from lockbot.backend.app.resource_api.commands import agent_router as agent_commands_router
 from lockbot.backend.app.resource_api.commands import router as resource_commands_router
 from lockbot.backend.app.resource_api.operator import router as operator_router
+from lockbot.backend.app.resource_api.resources import agent_router as agent_resources_router
 from lockbot.backend.app.resource_api.resources import router as resources_router
 from lockbot.backend.app.resource_api.skill import router as skill_router
+from lockbot.backend.app.resource_api.usage import agent_router as agent_usage_router
 from lockbot.backend.app.resource_api.usage import router as usage_router
 from lockbot.backend.app.resource_auth.router import router as resource_auth_router
 from lockbot.backend.app.settings.router import router as settings_router
@@ -775,6 +778,9 @@ def create_app() -> FastAPI:
 
     app.include_router(discovery_router)
     app.include_router(resource_auth_router)
+    app.include_router(agent_resources_router)
+    app.include_router(agent_commands_router)
+    app.include_router(agent_usage_router)
     app.include_router(resource_commands_router)
     app.include_router(resources_router)
     app.include_router(usage_router)
@@ -845,6 +851,14 @@ def create_app() -> FastAPI:
                         used_schemes.add(scheme)
                     detail["tags"] = [localized_titles.get(group, group)]
                     detail["security"] = [{scheme: []}] if scheme else []
+                    if path == "/api/agent/resources" and method == "get":
+                        commands = (
+                            "```sh\n"
+                            'curl -H "Authorization: Bearer $LOCKBOT_AGENT_KEY" "$LOCKBOT_ORIGIN/api/agent/context"\n'
+                            'curl -H "Authorization: Bearer $LOCKBOT_AGENT_KEY" "$LOCKBOT_ORIGIN/api/agent/resources"\n'
+                            "```"
+                        )
+                        detail["description"] = t("public_docs.resource_query_example", lang=lang, commands=commands)
                     public_paths.setdefault(path, {})[method] = detail
 
         # Include EVERY schema reachable from the public paths by following ``$ref`` transitively,
@@ -878,10 +892,9 @@ def create_app() -> FastAPI:
             "tags": [
                 {
                     "name": "Agent API",
-                    "description": (
-                        "个人资源操作：Authorization: Bearer lbr_…"
-                        "。身份由用户在群中绑定确认，只操作本人资源；不支持强制释放他人资源。"
-                    ),
+                    "description": t("public_docs.agent_api_intro", lang=lang)
+                    + "\n\n"
+                    + t("public_docs.resource_queries", lang=lang),
                 },
                 {
                     "name": "Agent 绑定",
@@ -941,7 +954,10 @@ def create_app() -> FastAPI:
             document["tags"] = [
                 {
                     "name": localized_titles[name],
-                    "description": t(f"public_docs.{localized_groups[name]}.description", lang=lang),
+                    "description": (
+                        t(f"public_docs.{localized_groups[name]}.description", lang=lang)
+                        + ("\n\n" + t("public_docs.resource_queries", lang=lang) if name == "Agent API" else "")
+                    ),
                 }
                 for name in localized_groups
                 if name in used_tags

@@ -10,6 +10,7 @@ import sys
 import threading
 import urllib.parse
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +35,8 @@ def write_private(path, content):
 @pytest.fixture
 def case(tmp_path):
     markdown, archive, meta = skill.skill_artifacts()
+    installation_archive = skill.installation_bundle()
+    assert hashlib.sha256(installation_archive).hexdigest() == meta["installation"]["sha256"]
     root = tmp_path / meta["name"]
     with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
         zipped.extractall(tmp_path)
@@ -41,10 +44,12 @@ def case(tmp_path):
         requests=[],
         manifest={
             **meta,
+            "installation": dict(meta["installation"]),
             "service_id": helper.SERVICE,
             "api_version": "1",
             "instance_id": "instance-a",
             "context_url": "/api/agent/context",
+            "enrollment_url": "/api/resource-auth/bindings",
         },
         bot_uuid="bot-a",
         actor={"platform": "infoflow", "external_user_id": "alice"},
@@ -56,15 +61,21 @@ def case(tmp_path):
         bot_type="NODE",
         context_count=0,
         grant_fail=False,
+        metrics_rows=None,
+        metrics_status=200,
         command_status=200,
         command_applies=True,
         resources_fail=False,
         context_denied=False,
+        binding_status="pending",
+        challenge_read_status=200,
+        binding_create_status=201,
         resource_devices=None,
         accelerators=None,
         node_access=None,
         resource_age=0,
-        retry=False,
+        readback_age=None,
+        retry_after=None,
         forbidden=False,
         version_header=None,
         package_header=None,
@@ -91,11 +102,35 @@ def case(tmp_path):
             body, status, extra = {}, 200, {}
             if self.path == "/api/agent-skill":
                 body = state.manifest
+            elif self.path == "/api/resource-auth/bindings" and self.command == "POST":
+                status = state.binding_create_status
+                body = {
+                    "binding_id": "b" * 22,
+                    "credential": KEY,
+                    "bind_code": "ACDEFGHJ",
+                    "bind_expires_at": "2030-01-01T00:10:00Z",
+                }
+            elif self.path == "/api/resource-auth/bindings/" + "b" * 22:
+                body = {"binding_id": "b" * 22, "status": state.binding_status}
+            elif self.path == helper.CREDENTIAL_CHALLENGE_PATH and self.command == "POST":
+                purpose = json.loads(raw)["purpose"]
+                body = {
+                    "challenge_id": "c" * 22,
+                    "proof": "lbp_" + "C" * 43,
+                    "bind_code": ("REC-" if purpose == "recover" else "RST-") + "ACDEFGHJ",
+                    "bind_expires_at": "2030-01-01T00:10:00Z",
+                }
+            elif self.path == helper.CREDENTIAL_CHALLENGE_PATH + "/" + "c" * 22:
+                assert self.headers.get("Authorization") == "Bearer lbp_" + "C" * 43
+                status = state.challenge_read_status
+                body = {"status": state.binding_status}
+                if state.binding_status == "confirmed":
+                    body["credential"] = KEY
             elif self.path == state.manifest["installation"]["download_url"]:
-                content = skill.installation_bundle()
                 self.send_response(200)
+                self.send_header("Content-Length", str(len(installation_archive)))
                 self.end_headers()
-                self.wfile.write(content)
+                self.wfile.write(installation_archive)
                 return
             elif self.path == "/api/agent/context":
                 state.context_count += 1
@@ -107,13 +142,13 @@ def case(tmp_path):
                         "instance_id": state.manifest["instance_id"],
                         "api_version": "1",
                     },
-                    "bot": {"id": 7, "uuid": state.bot_uuid, "type": state.bot_type},
+                    "bot": {"id": 7, "uuid": state.bot_uuid, "name": "Compute team", "type": state.bot_type},
                     "actor": state.actor,
                     "agent_access_enabled": True,
                     "bot_rules": {"forbid_relock": state.forbidden, "allow_user_alias": state.allow_alias},
                     "usage_privacy": {"public_task_categories": {"unit_testing": "Unit testing"}},
                     "links": {"resources": "/api/bots/7/resources", "commands": "/api/bots/7/commands"},
-                    "skill": meta,
+                    "skill": state.manifest,
                     "utilization": {
                         "configuration": {
                             "type": "prometheus",
@@ -149,11 +184,14 @@ def case(tmp_path):
                 else:
                     status = 404
             elif self.path == "/api/bots/7/resources":
-                if state.resources_fail and any(path.endswith("commands") for path, *_ in state.requests):
+                after_command = any(path.endswith("commands") for path, *_ in state.requests)
+                if state.resources_fail and after_command:
                     status = 503
                 body = {
                     "captured_at": captured.isoformat(),
-                    "age_seconds": state.resource_age,
+                    "age_seconds": state.readback_age
+                    if after_command and state.readback_age is not None
+                    else state.resource_age,
                     "bot_id": 7,
                     "health": "running",
                     "supported_operations": ["lock", "slock", "book", "unlock"],
@@ -176,9 +214,9 @@ def case(tmp_path):
                     body["supported_operations"].append("alias")
                     body["aliases_observed_at"] = captured.isoformat()
                     body["resources"][0]["alias"] = state.alias
-                if state.retry:
-                    state.retry = False
-                    status, extra = 429, {"Retry-After": "2"}
+                if state.retry_after is not None:
+                    status, extra = 429, {"Retry-After": state.retry_after}
+                    state.retry_after = None
                 if state.redirect:
                     status, extra = 302, {"Location": base + "/credential-sink"}
             elif self.path == "/api/bots/7/commands":
@@ -204,6 +242,9 @@ def case(tmp_path):
 
                 query = urllib.parse.parse_qs(raw.decode())["query"][0]
                 validate_query(query, {"host-a"})
+                status = state.metrics_status
+                if status == 429:
+                    extra = {"Retry-After": "40"}
                 if state.grant_fail and self.headers.get("Authorization") == "Bearer metrics-grant-1":
                     status = 401
                 body = {
@@ -222,6 +263,8 @@ def case(tmp_path):
                         ],
                     },
                 }
+                if state.metrics_rows is not None:
+                    body["data"]["result"] = state.metrics_rows
             else:
                 status = 404
             self.send_response(status)
@@ -263,6 +306,103 @@ def commands(case):
     return [row for row in case.state.requests if row[0].endswith("commands")]
 
 
+@pytest.mark.parametrize("age", [6, -1, None, True, "0"])
+def test_resource_mutation_refuses_stale_or_unverifiable_inventory(case, age):
+    case.state.resource_age = age
+    with pytest.raises(helper.ClientError, match="resource_snapshot_stale_or_unverifiable"):
+        case.client.command("lock", ["node-a"], [], "2m")
+    assert not commands(case)
+
+
+@pytest.mark.parametrize(("age", "expected"), [(0, True), (6, False), (None, False)])
+def test_resource_query_reports_write_freshness_without_hiding_snapshot(case, age, expected):
+    case.state.resource_age = age
+    result = subprocess.run(
+        [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH), "--connection", str(case.path), "resources"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    snapshot = json.loads(result.stdout)["result"]
+    assert snapshot["snapshot_fresh_for_write"] is expected
+    assert snapshot["resources"][0]["id"] == "node-a"
+    assert not commands(case)
+
+
+def test_resource_mutation_does_not_claim_success_from_stale_readback(case):
+    case.state.readback_age = 6
+    with pytest.raises(helper.ClientError, match="mutation_not_confirmed_read_resources_do_not_replay"):
+        case.client.command("book", ["node-a"], [], "2m")
+    assert len(commands(case)) == 1
+
+
+def test_packaged_command_checks_the_user_named_group_before_writing(case):
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--group",
+            "Another team",
+            "--duration",
+            "2m",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert json.loads(result.stderr)["error"] == "selected_connection_does_not_match_requested_group"
+    assert not commands(case)
+    assert not any(path.endswith("/resources") for path, *_ in case.state.requests)
+    assert case.client.command("lock", ["node-a"], [], "2m", group="Compute team")["verified"]
+
+
+def test_packaged_command_rejects_ambiguous_multi_node_card_selection(case):
+    case.state.bot_type = "DEVICE"
+    project = case.tmp / "project"
+    project.mkdir()
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--node",
+            "node-b",
+            "--device",
+            "0",
+            "--device",
+            "1",
+            "--duration",
+            "30m",
+        ],
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "multi_node_device_selection_requires_explicit_same_devices" in result.stderr
+    assert not commands(case)
+
+
 def test_local_whole_machine_hardware_is_scoped_fallback_metadata(case, monkeypatch, capsys):
     note = {
         "source": "Operator inventory",
@@ -295,14 +435,27 @@ def test_local_whole_machine_hardware_is_scoped_fallback_metadata(case, monkeypa
     invalid = {**note, "accelerators": [{"model": "P900", "count": True}]}
     write_private(path, {**notes, "nodes": {"node-a": invalid}})
     assert "local_hardware_note" not in read_row()
-    path.unlink()
-    path.mkdir()
-    assert "local_hardware_note" not in read_row()
-    path.rmdir()
     write_private(path, notes)
     case.state.bot_type = "DEVICE"
     assert "local_hardware_note" not in read_row()
     assert not commands(case)
+
+
+def test_hardware_guard_prefers_registered_inventory_to_verified_local_notes(case):
+    notes = {
+        "version": 1,
+        "scope": {key: case.connection[key] for key in ("approved_origin", "instance_id", "bot_uuid")},
+        "nodes": {"node-a": {"source": "Owner inventory", "accelerators": [{"model": "P800", "count": 2}]}},
+    }
+    write_private(case.path.with_name(case.path.name + ".node-hardware.json"), notes)
+    case.state.accelerators = [{"model": "P900", "count": 2}]
+    with pytest.raises(helper.ClientError, match="selected_resource_model_unverified_or_insufficient"):
+        case.client.command("lock", ["node-a"], [], "2m", model="p800", minimum_model_count=2)
+    assert not commands(case)
+    case.state.accelerators = None
+    result = case.client.command("lock", ["node-a"], [], "2m", model="p800", minimum_model_count=2)
+    assert result["verified"]
+    assert len(commands(case)) == 1
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Private metadata requires POSIX file locking")
@@ -399,6 +552,106 @@ def test_node_access_metadata_keeps_identical_node_ids_separate_between_connecti
     assert saved["scope"]["instance_id"] == "instance-b" and saved["scope"]["bot_uuid"] == "bot-b"
     assert saved["nodes"]["node-a"]["host"] == "second.example.test"
     assert first.node_access.path.read_bytes() == before
+
+
+def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    assert helper.main(["connections"]) == 0
+    assert json.loads(capsys.readouterr().out)["result"] == {
+        "connections": [],
+        "pending_enrollments": [],
+        "unavailable_count": 0,
+    }
+
+    root = tmp_path / ".lockbot/connections"
+    root.mkdir(mode=0o700, parents=True)
+    for folder, port in (("primary", 8155), ("recovered/test", 8002)):
+        directory = root / folder
+        directory.mkdir(mode=0o700, parents=True)
+        write_private(
+            directory / "connection.json",
+            {
+                "approved_origin": f"http://192.0.2.10:{port}",
+                "instance_id": str(port),
+                "bot_uuid": "same-bot-name",
+                "key_file": "not-present.key",
+                "extra": KEY,
+            },
+        )
+    user_catalog = helper.connection_catalog("user")
+    (user_catalog / "same").mkdir(mode=0o700, parents=True)
+    user_catalog.chmod(0o700)
+    write_private(
+        user_catalog / "same/connection.json",
+        json.loads((root / "primary/connection.json").read_text()),
+    )
+    unsafe = root / "unsafe"
+    unsafe.mkdir()
+    (unsafe / "connection.json").symlink_to(root / "primary/connection.json")
+
+    assert helper.main(["connections"]) == 0
+    output = capsys.readouterr().out
+    assert KEY not in output
+    assert "not-present.key" not in output
+    listing = json.loads(output)["result"]
+    assert listing["unavailable_count"] == 1
+    assert [(row["scope"], row["origin"]) for row in listing["connections"]] == [
+        ("project", "http://192.0.2.10:8155"),
+        ("project", "http://192.0.2.10:8002"),
+        ("user", "http://192.0.2.10:8155"),
+    ]
+    assert helper.main(["connections", "--directory", str(root)]) == 0
+    project = json.loads(capsys.readouterr().out)["result"]["connections"]
+    assert {Path(row["connection"]).parent.name for row in project} == {"primary", "test"}
+
+    root.chmod(0o755)
+    assert helper.main(["connections"]) == 2
+    assert "private_connection_directory_required" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("scope", "expected"), [(None, "user"), ("project", "project")])
+def test_init_saves_to_default_user_or_explicit_project_catalog(case, monkeypatch, scope, expected):
+    monkeypatch.chdir(case.tmp)
+    monkeypatch.setattr(Path, "home", lambda: case.tmp / "home")
+    key = case.tmp / "resource.key"
+    original = key.read_bytes()
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    kwargs = {} if scope is None else {"scope": scope}
+    initialized = client.initialize(key, None, **kwargs)
+    saved = Path(initialized["connection"])
+    assert saved.parent.parent == helper.connection_catalog(expected).resolve()
+    assert json.loads(saved.read_text())["key_file"] == str(key)
+    assert key.read_bytes() == original
+    items = helper.listed_connections()["connections"]
+    assert [(item["scope"], item["connection"]) for item in items] == [(expected, str(saved))]
+
+
+@pytest.mark.parametrize(("scope", "expected"), [(None, "user"), ("project", "project")])
+def test_enrollment_defaults_to_user_or_explicit_project_catalog(case, monkeypatch, scope, expected):
+    monkeypatch.chdir(case.tmp)
+    monkeypatch.setattr(Path, "home", lambda: case.tmp / "home")
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    kwargs = {} if scope is None else {"scope": scope}
+    pending = client.enroll(None, "Compute team", **kwargs)
+    direction = Path(pending["enrollment_dir"])
+    assert direction.parent == helper.connection_catalog(expected).resolve()
+    assert (direction / "key").stat().st_mode & 0o777 == 0o600
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        client.enroll(None, "Compute team", **kwargs)
+    listing = helper.listed_connections()
+    assert listing["connections"] == []
+    assert listing["pending_enrollments"] == [
+        {
+            "origin": case.base,
+            "instance_id": "instance-a",
+            "target_group": "Compute team",
+            "enrollment_dir": str(direction),
+            "status": "pending",
+            "bind_expires_at": pending["bind_expires_at"],
+            "scope": expected,
+        }
+    ]
 
 
 def test_service_discovery_precedes_key_and_redacts_context(case):
@@ -526,7 +779,7 @@ def test_http_200_reply_without_state_effect_is_not_success(case):
 
 def test_bounded_read_retry_and_redirect_protection(case):
     context = case.client.context()
-    case.state.retry = True
+    case.state.retry_after = "2"
     assert case.client.resources(context)["resources"]
     assert case.delays == [2]
     case.state.redirect = True
@@ -545,6 +798,79 @@ def test_metrics_refreshes_grant_once_and_never_sends_resource_key(case):
     assert case.state.context_count == 2
     query = urllib.parse.parse_qs(metrics[0][3].decode())["query"][0]
     assert "host" in query and "node=~" in query and "process_info" not in query
+
+
+@pytest.mark.parametrize(
+    "success,age,percent,status,other_status",
+    [
+        ("1", 8, "0", "ok", "missing"),
+        ("1", 100, "42", "stale", "missing"),
+        ("0", 8, "42", "failed", "failed"),
+        ("1", None, "42", "missing", "missing"),
+        ("1", 8, None, "missing", "missing"),
+        ("1", -100, "42", "invalid", "invalid"),
+        ("1", 8, "NaN", "invalid", "missing"),
+    ],
+)
+def test_metrics_reports_sample_health_without_turning_unknown_into_zero(
+    case, success, age, percent, status, other_status
+):
+    now = helper.time.time()
+
+    def sample(name, value, **labels):
+        return {"metric": {"__name__": "lockbot_" + name, "node": "host-a", **labels}, "value": [now, value]}
+
+    rows = [
+        sample("collector_success", success, collector="accelerator"),
+        sample("collector_success", "1", collector="host"),
+        sample("sample_timestamp_seconds", str(now - 1), collector="host"),
+        sample("host_cpu_utilization_percent", "15"),
+        sample("accelerator_memory_total_bytes", "8000", device="0"),
+        sample("accelerator_memory_total_bytes", "8000", device="1"),
+    ]
+    if age is not None:
+        rows.append(sample("sample_timestamp_seconds", str(now - age), collector="accelerator"))
+    if percent is not None:
+        rows.append(sample("accelerator_utilization_percent", percent, device="0"))
+    case.state.metrics_rows = rows
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "metrics",
+            "--node",
+            "node-a",
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+        timeout=15,
+    )
+    result = json.loads(completed.stdout)["result"]
+
+    assert result["data"]["data"]["result"] == rows
+    reading = result["utilization"][0]
+    assert (reading["node"], reading["source_node"]) == ("node-a", "host-a")
+    assert reading["cpu"]["percent"] == 15
+    first, second = reading["cards"]
+    assert first["status"] == status
+    assert first["percent"] == (0 if status == "ok" else None)
+    assert second["percent"] is None
+    assert second["status"] == other_status
+    if age is not None and age >= 0:
+        assert first["sample_age_seconds"] == pytest.approx(age, abs=2)
+
+
+@pytest.mark.parametrize("status,retry_after", [(429, 40), (503, None)])
+def test_metrics_preserves_source_errors_and_does_not_retry_them(case, status, retry_after):
+    case.state.metrics_status = status
+    with pytest.raises(helper.ClientError) as error:
+        case.client.metrics(["node-a"])
+    assert error.value.status == status
+    assert error.value.retry_after_seconds == retry_after
+    assert sum(row[0] == "/metrics/api/v1/query" for row in case.state.requests) == 1
 
 
 @pytest.mark.parametrize("change", ["unapproved", "unsupported", "unmapped"])
@@ -581,22 +907,6 @@ def test_request_and_private_file_budgets(case):
     case.path.chmod(0o644)
     with pytest.raises(helper.ClientError, match="permissions"):
         helper.Client(case.path)
-
-
-@pytest.mark.skipif(not hasattr(os, "O_NONBLOCK"), reason="Requires non-blocking file open")
-def test_private_metadata_checks_file_type_without_a_blocking_open(tmp_path, monkeypatch):
-    path = tmp_path / "private-note"
-    path.mkdir()
-    open_file = os.open
-
-    def check_flags(candidate, flags):
-        assert candidate == path
-        assert flags & os.O_NONBLOCK
-        return open_file(candidate, flags)
-
-    monkeypatch.setattr(helper.os, "open", check_flags)
-    with pytest.raises(helper.ClientError, match="private_file_"):
-        helper.private_bytes(path)
 
 
 def test_cli_argument_error_does_not_echo_pasted_key(capsys):
@@ -669,6 +979,21 @@ def test_write_transport_failure_is_not_retried(case):
     assert len(writes) == 1
 
 
+def test_write_freshness_excludes_time_waiting_for_rate_limit(case):
+    clock = [case.client.clock()]
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    case.client.clock = lambda: clock[0]
+    case.client.sleep = sleep
+    case.state.retry_after = "10"
+    result = case.client.command("lock", ["node-a"], [], "2m")
+
+    assert result["verified_snapshot"]["snapshot_fresh_for_write"] is True
+    assert len(commands(case)) == 1
+
+
 def test_bootstrap_refuses_digest_mismatch_without_creating_directory(case):
     case.state.manifest["installation"]["sha256"] = "0" * 64
     target = case.tmp / "bad-install"
@@ -677,14 +1002,94 @@ def test_bootstrap_refuses_digest_mismatch_without_creating_directory(case):
     assert not target.exists()
 
 
+def test_install_failure_keeps_target_absent_and_allows_retry(case, monkeypatch):
+    target = case.tmp / "new-install"
+    write_bytes = Path.write_bytes
+    written = []
+
+    def fail_after_first_write(path, content):
+        assert not target.exists()
+        if written:
+            raise OSError("simulated interrupted disk write")
+        written.append(path)
+        return write_bytes(path, content)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "write_bytes", fail_after_first_write)
+        with pytest.raises(helper.ClientError, match="install_write_failed"):
+            helper.Client(approved_origin=case.base).install(target)
+    assert written and not written[0].exists()
+    assert not target.exists()
+    assert not list(case.tmp.glob(".lockbot-install-*"))
+
+    result = helper.Client(approved_origin=case.base).install(target)
+    assert result["client_reload_required"] is True
+    assert helper.installed_version(target) == result["version"]
+
+
+def test_overlapping_installs_publish_one_complete_bundle(case, monkeypatch):
+    target = case.tmp / "new-install"
+    barrier = threading.Barrier(2, timeout=5)
+    write_bytes = Path.write_bytes
+
+    def write_and_sync(path, content):
+        result = write_bytes(path, content)
+        if path.name == "installation.json":
+            barrier.wait()
+        return result
+
+    def install():
+        try:
+            return helper.Client(approved_origin=case.base).install(target)["version"]
+        except helper.ClientError as exc:
+            return exc.code
+
+    monkeypatch.setattr(Path, "write_bytes", write_and_sync)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: install(), range(2)))
+
+    assert sorted(results) == sorted([case.state.manifest["version"], "install_destination_must_be_new"])
+    assert helper.installed_version(target) == case.state.manifest["version"]
+    assert not list(case.tmp.glob(".lockbot-install-*"))
+
+
 def test_response_body_limit_is_enforced(case):
     case.state.manifest["padding"] = "x" * (helper.MAX_BYTES + 1)
     with pytest.raises(helper.ClientError, match="response_too_large"):
         case.client.discover()
 
 
-def test_missing_retry_after_does_not_guess_backoff():
-    assert helper.Client._retry_after("") > 30
+@pytest.mark.parametrize("header", ["", "forty seconds", "-1"])
+def test_invalid_retry_after_does_not_guess_backoff(header):
+    assert helper.Client._retry_after(header) is None
+
+
+def test_packaged_cli_returns_server_delay_without_replaying_a_write(case):
+    case.state.retry_after = "40"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            str(case.root / helper.SCRIPT_PATH),
+            "--connection",
+            str(case.path),
+            "command",
+            "--operation",
+            "lock",
+            "--node",
+            "node-a",
+            "--duration",
+            "2m",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert completed.returncode == 2
+    assert json.loads(completed.stderr) == {"error": "http_429", "retry_mutation": False, "retry_after_seconds": 40}
+    assert not commands(case)
+    assert sum(row[0].endswith("/resources") for row in case.state.requests) == 1
 
 
 def test_book_refuses_preexisting_owned_booking_without_post(case):
@@ -763,6 +1168,254 @@ def test_packaged_cli_runs_without_site_packages_and_redacts_credentials(case):
     payload = json.loads(result.stdout)
     assert payload["result"]["bot"]["uuid"] == "bot-a"
     assert KEY not in result.stdout + result.stderr and "metrics-grant-1" not in result.stdout
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="requires POSIX named pipes")
+def test_packaged_cli_rejects_a_connection_pipe_without_waiting(case):
+    catalog = case.tmp / "private-catalog"
+    catalog.mkdir(mode=0o700)
+    fifo = catalog / "connection.json"
+    os.mkfifo(fifo, 0o600)
+    cli = [sys.executable, "-I", "-S", str(case.root / helper.SCRIPT_PATH)]
+
+    listed = subprocess.run(
+        [*cli, "connections", "--directory", str(catalog)], capture_output=True, text=True, timeout=5, check=True
+    )
+    assert json.loads(listed.stdout)["result"] == {
+        "connections": [],
+        "pending_enrollments": [],
+        "unavailable_count": 1,
+    }
+    selected = subprocess.run(
+        [*cli, "--connection", str(fifo), "context"], capture_output=True, text=True, timeout=5, check=False
+    )
+    assert selected.returncode == 2
+    assert json.loads(selected.stderr)["error"] == "private_file_permissions_or_size"
+    assert not case.state.requests
+
+
+@pytest.mark.parametrize("group", ["Chat group", None])
+def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case, group):
+    catalog = case.tmp / "private-catalog"
+    catalog.mkdir(mode=0o700)
+    directory = catalog / "enrollment"
+
+    def cli(*args, ok=True):
+        completed = subprocess.run(
+            [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert KEY not in completed.stdout + completed.stderr
+        assert completed.returncode == (0 if ok else 2), completed.stderr
+        return json.loads(completed.stdout)["result"] if ok else json.loads(completed.stderr)
+
+    start = ("enroll", "--origin", case.base, "--destination", str(directory))
+    if group is not None:
+        start += ("--group", group)
+    assert cli(*start, ok=False)["error"] == "invalid_cli_arguments"
+    assert not case.state.requests
+    assert cli(*start, "--authorized")["bind_command"] == "bind ACDEFGHJ"
+    assert (directory.stat().st_mode & 0o777) == 0o700
+    assert ((directory / "key").stat().st_mode & 0o777) == 0o600
+    assert cli(*start, "--authorized", ok=False)["error"] == "enrollment_directory_exists"
+    listing = cli("connections", "--directory", str(catalog))
+    pending = listing["pending_enrollments"][0]
+    assert pending["target_group"] == group and pending["status"] == "pending"
+    assert "binding_id" not in pending and "bind_command" not in pending
+    finish = ("finish-enrollment", "--enrollment-dir", pending["enrollment_dir"])
+    assert cli(*finish)["status"] == "pending"
+    assert not (directory / "connection.json").exists()
+    assert all("Authorization" not in row[2] for row in case.state.requests)
+    case.state.binding_status = "confirmed"
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
+    if group is not None:
+        assert cli(*finish)["status"] == "bot_name_confirmation_required"
+        assert not (directory / "connection.json").exists()
+        finish += ("--confirm-bot-name", "Compute team")
+    connection = cli(*finish)["connection"]
+    listing = cli("connections", "--directory", pending["enrollment_dir"])
+    assert listing["pending_enrollments"] == [] and listing["connections"][0]["connection"] == connection
+    assert cli("--connection", connection, "context")["bot"]["uuid"] == "bot-a"
+    assert cli(*finish, ok=False)["error"] == "enrollment_connection_exists"
+    assert sum(row[1] == "POST" for row in case.state.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("group_args", "error_code", "enrollment_requests"),
+    [(("--group", ""), "invalid_enrollment_group", 0), ((), "http_403", 1)],
+)
+def test_packaged_cli_guides_new_connections_away_from_compatibility_enroll(
+    case, group_args, error_code, enrollment_requests
+):
+    cli = [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH)]
+    help_text = subprocess.run([*cli, "--help"], capture_output=True, text=True, timeout=5, check=True).stdout
+    assert "Recover or create a personal Key" in help_text
+    assert "Compatibility binding for older services" in help_text
+    case.state.binding_create_status = 403
+    reply = subprocess.run(
+        [
+            *cli,
+            "enroll",
+            "--origin",
+            case.base,
+            "--destination",
+            str(case.tmp / "attempt"),
+            "--authorized",
+            *group_args,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    assert reply.returncode == 2
+    error = json.loads(reply.stderr)
+    assert error["error"] == error_code
+    assert not error["retry_mutation"]
+    assert "key-challenge" in error["next_step"]
+    assert [row[0] for row in case.state.requests if row[1] == "POST"] == [
+        "/api/resource-auth/bindings"
+    ] * enrollment_requests
+
+
+def test_packaged_cli_rejects_new_legacy_binding_before_creating_state(case):
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
+    directory = case.tmp / "enrollment"
+    cli = [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH)]
+    options = ["--origin", case.base, "--scope", "project", "--authorized", "--destination", str(directory)]
+    rejected = subprocess.run([*cli, "enroll", *options], capture_output=True, text=True, timeout=5, check=False)
+    assert rejected.returncode == 2
+    error = json.loads(rejected.stderr)
+    assert error["error"] == "use_key_challenge" and not error["retry_mutation"]
+    assert error["next_command"] == ["key-challenge", *options]
+    assert not directory.exists()
+    assert all(row[1] != "POST" for row in case.state.requests)
+
+    issued = subprocess.run([*cli, *error["next_command"]], capture_output=True, text=True, timeout=5, check=True)
+    assert json.loads(issued.stdout)["result"]["bind_command"] == "bind REC-ACDEFGHJ"
+    assert [row[0] for row in case.state.requests if row[1] == "POST"] == [helper.CREDENTIAL_CHALLENGE_PATH]
+    assert (directory / "enrollment.json").is_file()
+
+
+def test_unnamed_enrollment_reuses_pending_slot_and_allows_another_after_confirmation(case, monkeypatch):
+    monkeypatch.chdir(case.tmp)
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    first = client.enroll(None, scope="project")
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        client.enroll(None, scope="project")
+    case.state.binding_status = "confirmed"
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    assert client.check_enrollment(*helper.enrollment_state(first["enrollment_dir"]), finish=True)["connection_created"]
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    second = client.enroll(None, scope="project")
+    assert second["enrollment_dir"] != first["enrollment_dir"]
+    assert sum(row[1] == "POST" for row in case.state.requests) == 2
+
+
+@pytest.mark.parametrize("purpose", [None, "reset"])
+def test_packaged_key_challenge_resumes_without_group_or_visible_proof(case, purpose):
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
+    directory = case.tmp / "challenge"
+    start = ("key-challenge", "--origin", case.base, "--destination", str(directory), "--authorized")
+    if purpose is not None:
+        start += ("--purpose", purpose)
+
+    def cli(*args):
+        completed = subprocess.run(
+            [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH), *args],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        assert KEY not in completed.stdout + completed.stderr and "lbp_" not in completed.stdout + completed.stderr
+        return json.loads(completed.stdout)["result"]
+
+    issued = cli(*start)
+    assert issued["target_group"] is None and issued["purpose"] == (purpose or "recover")
+    assert issued["bind_command"].startswith("bind RST-" if purpose == "reset" else "bind REC-")
+    assert issued["user_instruction"] == (
+        "In the group you want to connect, use your own chat account to @mention the LockBot robot "
+        f"and send `{issued['bind_command']}`."
+    )
+    assert issued["user_instruction_zh"] == (
+        f"请用你本人的聊天账号，在要连接的群里 @LockBot 机器人，并发送 `{issued['bind_command']}`。"
+    )
+    assert (directory / "proof").stat().st_mode & 0o777 == 0o600
+    prior_requests = list(case.state.requests)
+    pending = cli("connections", "--directory", str(directory))["pending_enrollments"]
+    assert case.state.requests == prior_requests
+    assert pending[0]["purpose"] == (purpose or "recover") and pending[0]["target_group"] is None
+    finish = ("finish-enrollment", "--enrollment-dir", pending[0]["enrollment_dir"])
+    if purpose == "reset":
+        assert pending[0]["status_source"] == "local"
+        assert pending[0]["next_command"] == ["enrollment-status", *finish[1:]]
+    else:
+        assert "next_command" not in pending[0]
+    waiting = cli(*finish)
+    assert waiting["status"] == "pending"
+    assert "chat_action" not in waiting and "next_command" not in waiting
+    assert not (directory / "key").exists()
+    case.state.binding_status = "confirmed"
+    status = cli("enrollment-status", *finish[1:])
+    assert status["status"] == "confirmed" and not status["connection_created"]
+    if purpose == "reset":
+        assert status["chat_action"] == "reset_applied"
+        assert status["next_command"] == list(finish)
+        assert "run next_command now" in status["next_step"]
+    else:
+        assert "chat_action" not in status and "next_command" not in status
+    assert not (directory / "key").exists()
+    assert cli(*finish)["connection_created"]
+    assert cli(*finish)["connection_created"]
+    assert (directory / "key").read_text() == KEY
+    assert cli("--connection", str(directory / "connection.json"), "context")["bot"]["uuid"] == "bot-a"
+    posts = [json.loads(body) for path, method, _, body in case.state.requests if method == "POST"]
+    assert posts == [{"purpose": purpose or "recover"}]
+
+
+def test_expired_recovery_can_restart_in_project_without_reusing_proof(case, monkeypatch):
+    monkeypatch.chdir(case.tmp)
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
+    first = helper.Client(approved_origin=case.base, root=case.root).enroll(None, scope="project", purpose="recover")
+    directory, pending = helper.enrollment_state(first["enrollment_dir"])
+    case.state.challenge_read_status = 404
+    status = helper.Client(approved_origin=case.base, root=case.root).check_enrollment(directory, pending)
+    assert status["status"] == "unavailable"
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        helper.Client(approved_origin=case.base, root=case.root).enroll(None, scope="project", purpose="recover")
+    assert len([row for row in case.state.requests if row[1] == "POST"]) == 1
+
+    pending["bind_expires_at"] = "2000-01-01T00:00:00Z"
+    write_private(directory / "enrollment.json", pending)
+    proof = (directory / "proof").read_bytes()
+    status = helper.Client(approved_origin=case.base, root=case.root).check_enrollment(directory, pending, finish=True)
+    assert status["status"] == "expired" and not status["connection_created"]
+    assert helper.pending_enrollment_record(directory)["status"] == "expired"
+    second = helper.Client(approved_origin=case.base, root=case.root).enroll(None, scope="project", purpose="recover")
+    assert second["enrollment_dir"] != first["enrollment_dir"]
+    assert (directory / "proof").read_bytes() == proof
+    assert not (directory / "key").exists()
+    assert len([row for row in case.state.requests if row[1] == "POST"]) == 2
+
+
+def test_enrollment_does_not_replay_uncertain_request(case):
+    case.state.binding_create_status = 503
+    directory = case.tmp / "enrollment"
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    with pytest.raises(helper.ClientError, match="mutation_outcome_unknown"):
+        client.enroll(directory, "Compute team")
+    with pytest.raises(helper.ClientError, match="enrollment_directory_exists"):
+        client.enroll(directory, "Compute team")
+    path, state = helper.enrollment_state(directory)
+    assert client.check_enrollment(path, state)["status"] == "request_outcome_unknown"
+    listing = helper.listed_connections(directory)["pending_enrollments"]
+    assert len(listing) == 1 and listing[0]["status"] == "request_outcome_unknown"
+    assert not (path / "key").exists() and not (path / "connection.json").exists()
+    assert sum(row[1] == "POST" for row in case.state.requests) == 1
 
 
 @pytest.mark.parametrize("field,value", [("external_user_id", "bob"), ("platform", "feishu")])
