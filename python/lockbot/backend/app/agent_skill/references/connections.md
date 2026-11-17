@@ -36,6 +36,12 @@ approved connection. Ask for the original URL only if no approved origin is know
 reference example hosts are placeholders. Verify the installed files and reload
 the Skill. For installation only, stop there without enrolling or allocating.
 
+For a bare ZIP, reading archive members without extracting or executing them may
+locate its manifest or discovery URL. That inspection is not an installation or
+an integrity check. Verify the advertised full-archive digest before extraction,
+execution or using credentials; never claim hash verification from a manifest
+read alone.
+
 For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
 alone: it contains `SKILL.md`, `references/`, `scripts/lockbot_cli.py` and `installation.json`.
 One installation can serve multiple independently approved connections when its verified

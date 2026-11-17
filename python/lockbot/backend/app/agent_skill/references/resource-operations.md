@@ -53,6 +53,20 @@ persistence or exclude another user's concurrent update.
 
 ## Read current bot rules and manage the lease lifecycle
 
+For usage questions, explain from these instructions without requesting sign-in
+or reading credentials. `book` joins a FIFO queue; it does not reserve a calendar
+start time. Its requested usage duration begins when the booking is claimed, not
+when it enters the queue. `claim` and `renew` are CLI operations mapped to the
+server's `lock`; their absence from `supported_operations` does not by itself
+make those CLI operations unavailable.
+
+For inventory replies, use the exact IDs and observed hardware from
+`inventory_overview` when present, checking raw resources for required details.
+Card ID `0` is valid: never renumber the list for presentation or infer an omitted
+model. Its grouped physical state is not a permission or allocation guarantee.
+For a duration-only request, use the uniquely selected conversational target or
+ask which resource; even one idle machine does not establish the user's intent.
+
 On services advertising `coherent_resource_snapshot`, `resources` includes `context`
 with the verified identity, `bot_rules` and task-category choices from the same request.
 It does not issue view links, metrics grants or personal-report capabilities. Do not

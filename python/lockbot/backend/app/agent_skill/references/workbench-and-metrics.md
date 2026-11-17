@@ -51,7 +51,11 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json panel-link
 ```
 
 Run this command once in a verified private one-to-one session with the bound user
-and their authorization to receive the link. That can include an authenticated private
+and their authorization to receive the link. A request such as “打开个人资源台”
+authorizes the necessary first-sign-in handoff in that verified private session;
+do not ask the user to repeat permission or recite a confirmation phrase. This does
+not authorize a public channel, another identity, consuming the ticket for the human,
+or browser-only identity merging. A verified private session can include an authenticated
 CLI or server-Agent session where the caller is proven to own the binding. If private
 delivery is unavailable, give the fixed workbench address and direct the user to a
 verified private chat.

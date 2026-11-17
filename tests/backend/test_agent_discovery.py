@@ -50,7 +50,9 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).resolve().parents[2] / "python/lockbot/backend/app/agent_skill/SKILL.md"
     assert source.read_bytes() == markdown
-    assert len(source.read_text()) <= 5000
+    # Leave room for concrete interaction rules while retaining a single default
+    # 6,000-character read after deployment links are rendered below.
+    assert len(source.read_text()) <= 5500
     assert db_session.query(AuditLog).count() == before
     assert client.get(meta["download_url"], headers={"If-None-Match": bundle.headers["etag"]}).status_code == 304
     paths = client.get("/api/public-openapi.json").json()["paths"]
