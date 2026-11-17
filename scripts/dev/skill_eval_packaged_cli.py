@@ -8,6 +8,7 @@ import runpy
 import urllib.error
 from pathlib import Path, PurePosixPath
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 USER_ROOT = PurePosixPath("/synthetic-user")
 SKILL_ROOT = USER_ROOT / "skills"
@@ -29,13 +30,61 @@ def enabled(case):
     return case.get("fixture_family") == "onboarding" and case.get("fixture_version") == 7
 
 
+def public_routing(fixture, args, known_paths):
+    """New prepared-case policy; archived cases keep their original HTTP behavior."""
+    if fixture.case.get("http_policy_version", 1) < 2:
+        return None
+    url = urlsplit(args["url"])
+    if f"{url.scheme}://{url.netloc}" != fixture.origin or url.query or url.fragment:
+        return {"status": 404, "error": "No such fixture route"}
+    if url.path == "/":
+        if args.get("method", "GET").upper() not in {"GET", "HEAD"}:
+            return {"status": 405, "error": "Method not allowed"}
+        return {
+            "status": 200,
+            "content_type": "text/html; charset=utf-8",
+            "body": "<!doctype html><html><head><title>LockBot</title></head><body>LockBot</body></html>",
+        }
+    if url.path not in known_paths:
+        return {"status": 404, "error": "No such fixture route"}
+    return None
+
+
 class PackagedCliHost:
-    def __init__(self, fixture):
+    def __init__(self, fixture, *, artifact=None, options=None):
+        self.artifact = artifact if artifact is not None else fixture.frozen
+        self.options = OPTIONS if options is None else options
         self.fixture = fixture
         self.workspace = fixture.workspace
         self.user = self.workspace / "client-user"
         self.skills = self.user / "skills"
         self.private = self.user / "lockbot"
+
+    def tool_descriptors(self):
+        return [
+            {
+                "name": "discover_local_state",
+                "description": (
+                    "Inspect the synthetic user Skill catalog and private file names; never reads native host state."
+                ),
+                "inputSchema": {"type": "object", "properties": {}, "required": [], "additionalProperties": False},
+            },
+            {
+                "name": "run_lockbot",
+                "description": "Run only the verified installed packaged CLI with its script path and argv array. "
+                "Supports help and these offline fixture actions: " + ", ".join(self.options) + ". "
+                "All HTTP and file paths stay inside the synthetic fixture; no shell or arbitrary Python.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "script": {"type": "string"},
+                        "argv": {"type": "array", "items": {"type": "string"}, "maxItems": 48},
+                    },
+                    "required": ["script", "argv"],
+                    "additionalProperties": False,
+                },
+            },
+        ]
 
     def path(self, name):
         if not isinstance(name, str) or not name or "\0" in name or "\\" in name:
@@ -73,12 +122,12 @@ class PackagedCliHost:
         return value
 
     def verified(self, destination):
-        if self.fixture.frozen is None or destination.parent != self.skills:
+        if self.artifact is None or destination.parent != self.skills:
             return False
         try:
             return all(
                 self.path(str(SKILL_ROOT / destination.name / name)).read_bytes() == content
-                for name, content in self.fixture.frozen["contents"].items()
+                for name, content in self.artifact["contents"].items()
             )
         except (OSError, ValueError):
             return False
@@ -124,12 +173,12 @@ class PackagedCliHost:
                     raise ValueError("Unexpected positional CLI argument")
                 action = item
                 execution["cli_action"] = action
-                if action not in OPTIONS:
+                if action not in self.options:
                     raise ValueError("Unsupported fixture CLI action")
                 result.append(action)
                 index += 1
                 continue
-            allowed = {"--connection"} if action is None else OPTIONS[action]
+            allowed = {"--connection"} if action is None else self.options[action]
             if option in SWITCHES and (action is not None or option == "--help") and not equals:
                 result.append(option)
                 index += 1
@@ -193,6 +242,8 @@ class PackagedCliHost:
     def open(self, request, timeout):
         # The only opener given to the packaged CLI is the synthetic fixture.
         args = {"url": request.full_url, "method": request.method, "headers": dict(request.header_items())}
+        if request.data is not None:
+            args["body"] = request.data.decode("utf-8")
         result = self.fixture.http(args)
         self.fixture.record("http_request", args, result, source="packaged_cli")
         if "download_file" in result:
@@ -219,6 +270,7 @@ class PackagedCliHost:
         previous = Path.cwd()
         with (
             patch("urllib.request.build_opener", return_value=self),
+            patch("sys.argv", [str(script), *argv]),
             patch.dict(os.environ, {"LOCKBOT_HOME": str(self.private)}),
             contextlib.redirect_stdout(stdout),
             contextlib.redirect_stderr(stderr),

@@ -4,11 +4,13 @@
 import argparse
 import copy
 import hashlib
+import io
 import json
 import os
 import re
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 
 from publish_snapshot import CASES, LEGACY_IDS, MAX_SNAPSHOT_BYTES, phase_metrics, snapshot
@@ -403,7 +405,13 @@ def bind_semantic_phase(directory, plan, review, finding, suite, scenario, pair,
         raise ValueError("Semantic review matrix row digest does not match")
     if row.get("evidence") is not None and directory / row["evidence"] != location:
         raise ValueError("Actual matrix evidence does not match the reviewed phase")
-    artifact_name = "panel" if (suite, scenario) == ("cli", "panel") else "current"
+    panel = (suite, scenario) == ("cli", "panel") or (
+        (suite, scenario) == ("continuity", "panel")
+        and row.get("fixture_family") == "continuity"
+        and row.get("fixture_version") == 11
+        and row.get("artifact_kind") == "panel"
+    )
+    artifact_name = "panel" if panel else "current"
     artifact = plan["artifacts"][artifact_name]
     if row.get("artifact_revision") != artifact.get("revision"):
         raise ValueError("Semantic review matrix artifact revision does not match")
@@ -436,6 +444,22 @@ def bind_semantic_phase(directory, plan, review, finding, suite, scenario, pair,
         if (location / "case.json").exists():
             case = json.loads(semantic_bytes(location / "case.json", directory))
             subject = semantic_bytes(location / "subject.md", directory)
+            if suite == "continuity" and row.get("fixture_family") == "continuity" and row.get("fixture_version") == 11:
+                if any(
+                    case.get(key) != row.get(key)
+                    for key in ("fixture_family", "fixture_version", "artifact_kind", "artifact_revision", "origin")
+                ):
+                    raise ValueError("Continuity review source does not match its actual versioned client state")
+                archive_bytes = semantic_bytes(frozen / "lockbot-agent.zip", directory)
+                if hashlib.sha256(archive_bytes).hexdigest() != artifact["sha256"]:
+                    raise ValueError("Continuity review archive changed")
+                with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+                    entry = archive.getinfo("lockbot-agent/installation.json")
+                    if entry.file_size > 65536:
+                        raise ValueError("Continuity deployment metadata exceeds its limit")
+                    stamp = json.loads(archive.read(entry))
+                if stamp.get("deployment_origin") != case.get("origin"):
+                    raise ValueError("Continuity review deployment origin does not match its frozen package")
             if (
                 case.get("scenario") != scenario
                 or case.get("phase", 1) != phase

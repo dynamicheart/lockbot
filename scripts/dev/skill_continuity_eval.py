@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import skill_agent_eval as base
+import skill_continuity_host as host_v11
 import skill_eval_artifact as artifacts
 from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     ClientError,
@@ -18,6 +19,7 @@ from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     private_bytes,
     private_json,
 )
+from skill_eval_packaged_cli import public_routing
 
 SECOND_KEY = base.OTHER_KEY  # Synthetic second bot key, never a second service's key here.
 SECOND_UUID = "33333333-3333-4333-8333-333333333333"
@@ -50,8 +52,16 @@ PROMPTS = {
 }
 
 
-def prepare(root, skill, scenario, artifact_directory=None):
+def prepare(root, skill, scenario, artifact_directory=None, *, fixture_version=None):
     artifact = artifacts.load(artifact_directory) if artifact_directory is not None else None
+    if fixture_version is not None and (
+        fixture_version != host_v11.VERSION or scenario not in host_v11.SCENARIOS or artifact is None
+    ):
+        raise ValueError("Continuity v11 requires a complete artifact and a supported saved-state scenario")
+    if fixture_version == host_v11.VERSION and scenario == "panel":
+        deployment = json.loads(artifact["contents"]["installation.json"]).get("deployment_origin", "")
+        if urlsplit(deployment).scheme != "https":
+            raise artifacts.ArtifactBlocked("https_panel_artifact_required")
     source = artifact["contents"]["SKILL.md"] if artifact else None
     base.prepare(
         root,
@@ -60,8 +70,8 @@ def prepare(root, skill, scenario, artifact_directory=None):
         source=source.decode() if source else None,
     )
     case = json.loads((root / "case.json").read_text())
-    fixture_version = PROJECT_ENROLLMENT_VERSION if scenario in WITHOUT_KEY else 7 if scenario == "telemetry" else 6
-    case.update(fixture_version=fixture_version, scenario=scenario, phase=1)
+    legacy_version = PROJECT_ENROLLMENT_VERSION if scenario in WITHOUT_KEY else 7 if scenario == "telemetry" else 6
+    case.update(fixture_version=legacy_version, scenario=scenario, phase=1)
     base.save_json(root / "case.json", case)
     (root / "prompt.txt").write_text(PROMPTS[scenario])
     system = base.SYSTEM
@@ -85,6 +95,23 @@ def prepare(root, skill, scenario, artifact_directory=None):
         case["skill_sha256"] = artifact["manifest"]["skill_sha256"]
         base.save_json(root / "case.json", case)
     configure(root)
+    if fixture_version == host_v11.VERSION:
+        stamp = json.loads(artifact["contents"]["installation.json"])
+        case = json.loads((root / "case.json").read_text())
+        case.update(
+            fixture_family="continuity",
+            fixture_version=host_v11.VERSION,
+            http_policy_version=2,
+            skill_path=artifact["manifest"]["skill_url"],
+            origin=stamp["deployment_origin"],
+            artifact_revision=artifact["manifest"]["version"],
+            artifact_kind="panel" if scenario == "panel" else "current",
+            approved_metrics_origin=METRICS_ORIGIN,
+        )
+        if scenario == "panel":
+            case["panel_ticket"] = host_v11.PANEL_TICKET
+        base.save_json(root / "case.json", case)
+        host_v11.prepare_client(root, Fixture)
 
 
 def configure(root):
@@ -121,6 +148,9 @@ def resume(previous, destination):
         "Prior conversation is unavailable."
     )
     configure(destination)
+    if host_v11.enabled(case):
+        shutil.copy2(previous / "setup-trace.jsonl", destination / "setup-trace.jsonl")
+        (destination / "system.txt").write_text(host_v11.model_system(Fixture(destination), fresh=True))
 
 
 def human_confirm(root):
@@ -150,6 +180,26 @@ class Fixture(base.Fixture):
             self.archive = self.artifact["archive"]
             if self.markdown.encode() != self.artifact["contents"]["SKILL.md"]:
                 raise artifacts.ArtifactBlocked("fixture_subject_artifact_mismatch")
+        if host_v11.enabled(self.case):
+            if self.artifact is None:
+                raise artifacts.ArtifactBlocked("complete_artifact_required")
+            self.frozen = self.artifact
+            self.host = host_v11.ContinuityHost(self)
+
+    @property
+    def second_uuid(self):
+        return SECOND_UUID
+
+    def tool_catalog(self):
+        if not host_v11.enabled(self.case):
+            return super().tool_catalog()
+        common = ORIGINAL_TOOLS()
+        common[0]["inputSchema"]["properties"]["body"] = {"type": "string"}
+        return (
+            common
+            + self.host.tool_descriptors()
+            + [tool for tool in continuity_tools() if tool["name"] != "discover_local_state"]
+        )
 
     @property
     def panel_home(self):
@@ -179,6 +229,8 @@ class Fixture(base.Fixture):
         return result
 
     def installed_skill_files(self):
+        if host_v11.enabled(self.case):
+            return list(self.host.skills.glob("*/SKILL.md"))
         return [path for catalog in SKILL_CATALOGS for path in self.workspace.glob(f"{catalog}/**/SKILL.md")]
 
     def enrollment_identity(self):
@@ -187,12 +239,82 @@ class Fixture(base.Fixture):
         return "synthetic-pending-id", "TESTCODE"
 
     def http(self, args):
+        if not host_v11.enabled(self.case):
+            return self._continuity_http(args)
+        path = urlsplit(args["url"]).path
+        issuing = (
+            args["url"] == self.origin + "/api/personal-panel/links" and args.get("method", "GET").upper() == "POST"
+        )
+        if issuing and (self.case["phase"] != 1 or (self.root / "panel-ticket-issued").exists()):
+            return {"status": 409, "error": "Private handoff already issued or not authorized in this phase"}
+        result = self._continuity_http(args)
+        if result.get("status") != 200:
+            return result
+        if path == "/api/agent/context":
+            result["body"]["actor"]["platform"] = "infoflow"
+            result["body"]["skill"] = self.manifest()
+        elif path.endswith("/resources") and "resources" in result.get("body", {}):
+            from datetime import datetime, timezone
+
+            from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
+
+            captured = datetime.now(timezone.utc)
+            context = self.http({**args, "url": self.origin + "/api/agent/context", "method": "GET"})["body"]
+            owner = {
+                "user_id": "demo-user",
+                "source": "api",
+                "start_time": int(captured.timestamp()) - 60,
+                "duration": 3600,
+            }
+            resources = build_resources(
+                bot_type="NODE",
+                state={
+                    PANEL_HOLDING: {"status": "exclusive", "current_users": [owner], "booking_list": []},
+                    PANEL_BOOKING: {"status": "idle", "current_users": [], "booking_list": [owner]},
+                },
+                captured_at=captured,
+                platform="infoflow",
+                caller_id="demo-user",
+            )
+            result["body"] = {
+                "captured_at": captured.isoformat(),
+                "age_seconds": 0,
+                "bot_id": context["bot"]["id"],
+                "bot_type": context["bot"]["type"],
+                "actor": context["actor"],
+                "context": context,
+                "resources": scrub_private(resources),
+            }
+        if issuing:
+            (self.root / "panel-ticket-issued").touch(mode=0o600)
+        return result
+
+    def _continuity_http(self, args):
         url = urlsplit(args["url"])
         method = args.get("method", "GET").upper()
         if self.case["scenario"] == "telemetry":
             if args["url"] == METRICS_URL:
                 return self.metrics_query(args, method)
-            if method != "GET":
+            if method != "GET" and not host_v11.enabled(self.case):
+                return {"status": 405}
+        if host_v11.enabled(self.case):
+            known = {
+                "/api/agent-skill",
+                base.BUNDLE_PATH,
+                self.skill_path,
+                "/api/agent/context",
+                "/api/agent/resources",
+                "/api/bots/7/resources",
+                "/api/bots/8/resources",
+                "/api/agent/bindings",
+                "/api/agent/bindings/recover",
+                "/api/personal-panel/capabilities",
+                "/api/personal-panel/links",
+            }
+            routed = public_routing(self, args, known)
+            if routed is not None:
+                return routed
+            if self.case["scenario"] == "telemetry" and method != "GET":
                 return {"status": 405}
         if f"{url.scheme}://{url.netloc}" != self.origin or url.query or url.fragment:
             return {"status": 404, "error": "No such fixture route"}
@@ -354,6 +476,11 @@ class Fixture(base.Fixture):
         return {"status": 200, "body": {"status": "success", "data": {"resultType": "vector", "result": rows}}}
 
     def call(self, name, args):
+        if host_v11.enabled(self.case):
+            if name not in {"deliver_private_link", "browser_home"}:
+                return super().call(name, args)
+            if name == "deliver_private_link" and not (self.root / "panel-ticket-issued").exists():
+                return self.record(name, args, {"error": "No actual CLI handoff has been issued"})
         if name in ("install_skill", "inspect_archive"):
             try:
                 if self.artifact is None:
@@ -531,6 +658,15 @@ def pending_enrollment_saved(workspace, origin, instance, binding):
 
 def score(root, final):
     fixture = Fixture(root)
+    if host_v11.enabled(fixture.case):
+        return host_v11.score(
+            fixture,
+            final,
+            keys=(base.KEY, SECOND_KEY, PENDING_KEY),
+            metrics_url=METRICS_URL,
+            metrics_grants=METRICS_GRANTS,
+            metrics_names=METRICS_SAMPLES,
+        )
     trace = (
         [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
         if (root / "trace.jsonl").exists()
@@ -792,16 +928,19 @@ def score(root, final):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["prepare", "resume", "human-confirm", "serve", "score"])
+    parser.add_argument("action", choices=["prepare", "resume", "human-confirm", "serve", "score", "bootstrap-v11"])
     parser.add_argument("root", type=Path)
     parser.add_argument("--skill", type=Path)
     parser.add_argument("--scenario", choices=PROMPTS)
+    parser.add_argument("--fixture-version", type=int, choices=(host_v11.VERSION,))
     parser.add_argument("--artifacts", type=Path, help="Frozen manifest.json and complete installation ZIP")
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     args = parser.parse_args()
     if args.action == "prepare":
-        prepare(args.root, args.skill, args.scenario, args.artifacts)
+        prepare(args.root, args.skill, args.scenario, args.artifacts, fixture_version=args.fixture_version)
+    elif args.action == "bootstrap-v11":
+        host_v11.bootstrap(Fixture(args.root))
     elif args.action == "resume":
         resume(args.root, args.destination)
     elif args.action == "human-confirm":

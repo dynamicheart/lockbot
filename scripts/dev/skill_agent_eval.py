@@ -26,7 +26,7 @@ from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     deployment_fragments,
 )
 from skill_eval_artifact import ArtifactBlocked, installed_service_origin, load
-from skill_eval_packaged_cli import SKILL_ROOT, PackagedCliHost, enabled
+from skill_eval_packaged_cli import SKILL_ROOT, PackagedCliHost, enabled, public_routing
 
 ORIGIN = "http://192.0.2.10:8155"
 OTHER = "http://192.0.2.11:8155"
@@ -144,7 +144,7 @@ def prepare(root, skill, scenario, *, source=None, artifacts=None, fixture_versi
         root / "case.json",
         {
             "fixture_version": fixture_version,
-            **({"fixture_family": "onboarding"} if fixture_version == 7 else {}),
+            **({"fixture_family": "onboarding", "http_policy_version": 2} if fixture_version == 7 else {}),
             "scenario": scenario,
             "skill_sha256": frozen["manifest"]["skill_sha256"] if frozen else digest(markdown.encode()),
             "subject_sha256": digest(markdown.encode()),
@@ -183,6 +183,9 @@ class Fixture:
         self.frozen = load(root / "frozen-artifacts") if self.case.get("frozen_artifact") else None
         self.archive = self.frozen["archive"] if self.frozen else bundle(self.markdown)
         self.host = PackagedCliHost(self) if enabled(self.case) else None
+
+    def tool_catalog(self):
+        return onboarding_tools(self)
 
     def text_page(self, path, offset=0):
         content = path.read_text()
@@ -252,6 +255,22 @@ class Fixture:
         }
 
     def http(self, args):
+        if self.host is not None:
+            known = {
+                "/api/agent-skill",
+                BUNDLE_PATH,
+                self.skill_path,
+                "/api/agent/context",
+                RESOURCE_LINKS["resources"],
+                "/api/bots/7/resources",
+                "/api/agent/bindings",
+                "/api/agent/bindings/recover",
+            }
+            if self.case.get("fixture_family") == "continuity":
+                known.add("/api/bots/8/resources")
+            routed = public_routing(self, args, known)
+            if routed is not None:
+                return routed
         url = urlsplit(args["url"])
         method = args.get("method", "GET").upper()
         recovery = (
@@ -342,6 +361,8 @@ class Fixture:
 
     def record(self, name, args, result, **execution):
         with (self.root / "trace.jsonl").open("a") as trace:
+            if self.host is not None:
+                os.fchmod(trace.fileno(), 0o600)
             trace.write(
                 json.dumps({"tool": name, "args": args, "result": result, **execution}, ensure_ascii=False) + "\n"
             )
@@ -474,36 +495,7 @@ def tools():
 
 
 def onboarding_tools(fixture):
-    catalog = tools()
-    if fixture.host is None:
-        return catalog
-    catalog.extend(
-        [
-            {
-                "name": "discover_local_state",
-                "description": (
-                    "Inspect the synthetic user Skill catalog and private file names; never reads native host state."
-                ),
-                "inputSchema": schema({}, []),
-            },
-            {
-                "name": "run_lockbot",
-                "description": (
-                    "Run only the verified installed packaged CLI with its script path and argv array. "
-                    "Supports help, discover, init, recover, connections, context, resources and resources-all. "
-                    "All HTTP and file paths stay inside the synthetic fixture; no shell or arbitrary Python."
-                ),
-                "inputSchema": schema(
-                    {
-                        "script": {"type": "string"},
-                        "argv": {"type": "array", "items": {"type": "string"}, "maxItems": 48},
-                    },
-                    ["script", "argv"],
-                ),
-            },
-        ]
-    )
-    return catalog
+    return tools() + (fixture.host.tool_descriptors() if fixture.host else [])
 
 
 def serve(root):
@@ -521,7 +513,7 @@ def serve(root):
                     "serverInfo": {"name": "isolated-skill-fixture", "version": "1"},
                 }
             elif method == "tools/list":
-                result = {"tools": onboarding_tools(fixture)}
+                result = {"tools": fixture.tool_catalog()}
             elif method == "tools/call":
                 params = request["params"]
                 value = fixture.call(params["name"], params.get("arguments", {}))

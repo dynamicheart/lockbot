@@ -56,7 +56,14 @@ def prepare(root, suite, scenario, artifacts):
         onboarding.prepare(root, None, scenario, artifacts=current, fixture_version=7)
         return onboarding.score
     if suite == "continuity":
-        continuity.prepare(root, source, scenario, current)
+        artifact = artifacts / "panel" if scenario == "panel" else current
+        continuity.prepare(
+            root,
+            artifact / "SKILL.md",
+            scenario,
+            artifact,
+            fixture_version=continuity.host_v11.VERSION if scenario in continuity.host_v11.SCENARIOS else None,
+        )
         return continuity.score
     if suite == "consultation":
         consultation.prepare(root, current, scenario)
@@ -77,6 +84,16 @@ def evaluate_phase(root, metadata, command, grader, limits):
     result = onboarding.evaluate(root, command, metadata["model"], grader, **limits)
     case = json.loads((root / "case.json").read_text())
     result.update(metadata, fixture_version=case["fixture_version"], skill_sha256=case["skill_sha256"])
+    if case.get("fixture_family") == "onboarding" and case["fixture_version"] == 7:
+        result.update(fixture_family="onboarding", http_policy_version=case.get("http_policy_version", 1))
+    if continuity.host_v11.enabled(case):
+        result.update(
+            http_policy_version=case.get("http_policy_version", 1),
+            fixture_family="continuity",
+            artifact_kind=case["artifact_kind"],
+            artifact_revision=case["artifact_revision"],
+            origin=case["origin"],
+        )
     onboarding.save_json(root / "result.json", result)
     return result
 
@@ -93,6 +110,12 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     case = output / suite / scenario / f"{number:03d}"
     case.mkdir(mode=0o700, parents=True)
     metadata = {"suite": suite, "scenario": scenario, "client": client, "model": model, "artifact_revision": revision}
+    if suite == "continuity" and scenario in continuity.host_v11.SCENARIOS:
+        metadata.update(
+            fixture_family="continuity",
+            fixture_version=continuity.host_v11.VERSION,
+            artifact_kind="panel" if scenario == "panel" else "current",
+        )
     first = case / "phase-1"
     first_metadata = {
         **metadata,
@@ -102,6 +125,14 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     }
     try:
         grader = prepare(first, suite, scenario, output / "artifacts")
+        if suite == "continuity" and scenario in continuity.host_v11.SCENARIOS:
+            case_metadata = json.loads((first / "case.json").read_text())
+            metadata.update(
+                origin=case_metadata["origin"],
+                artifact_revision=case_metadata["artifact_revision"],
+                skill_sha256=case_metadata["skill_sha256"],
+            )
+            first_metadata.update(metadata)
         result = evaluate_phase(first, first_metadata, command, grader, limits)
     except Exception:
         first.mkdir(mode=0o700, exist_ok=True)
@@ -207,7 +238,7 @@ def run_matrix(output, cases, runners, artifacts, workers, limits, preflight_tim
         onboarding.save_json(output / "preflight.json", probes)
         pending = {}
         for index, ((suite, scenario), (number, runner)) in enumerate(plan):
-            artifact = "panel" if (suite, scenario) == ("cli", "panel") else "current"
+            artifact = "panel" if scenario == "panel" and suite in {"cli", "continuity"} else "current"
             probe = probes[number - 1]
             if probe["status"] != "ready":
                 row = {
@@ -278,10 +309,10 @@ def main():
         for scenario in scenarios
         if (not args.suite and not args.case) or suite in args.suite or f"{suite}:{scenario}" in args.case
     ]
-    panel = ("cli", "panel") in cases
+    panel = any(scenario == "panel" and suite in {"cli", "continuity"} for suite, scenario in cases)
     update = ("operations", "update") in cases
     if panel and args.panel_artifacts is None:
-        run.error("cli:panel requires --panel-artifacts")
+        run.error("cli:panel and continuity:panel require --panel-artifacts")
     if update and args.installed_artifacts is None:
         run.error("operations:update requires --installed-artifacts")
     pairs = {(client, model) for client, model, _ in args.runner}

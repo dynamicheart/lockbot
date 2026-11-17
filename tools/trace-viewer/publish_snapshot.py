@@ -375,7 +375,13 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_plann
         if row.get("status") == "blocked_by_model_preflight":
             preflight[pair] = row.get("preflight_status")
             continue
-        artifact = artifacts.get("panel", {}) if case == "cli:panel" else artifacts["current"]
+        panel = case == "cli:panel" or (
+            case == "continuity:panel"
+            and row.get("fixture_family") == "continuity"
+            and row.get("fixture_version") == 11
+            and row.get("artifact_kind") == "panel"
+        )
+        artifact = artifacts.get("panel", {}) if panel else artifacts["current"]
         if artifact.get("revision") and row.get("artifact_revision") != artifact["revision"]:
             continue
         result = results.setdefault((case, pair), {})
