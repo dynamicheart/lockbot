@@ -346,9 +346,11 @@ def _inventory(bot, command="", *, scenario=None, phase=1, writes=0):
     }
 
 
-def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
+def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture_version=18):
     if scenario in TASK_SCENARIOS:
-        return task_score(scenario, phase, requests, tools, final, prior_groups=prior_groups)
+        return task_score(
+            scenario, phase, requests, tools, final, prior_groups=prior_groups, fixture_version=fixture_version
+        )
     attempts = [row for row in tools if row["args"].get("action") == "command"]
     reads = [row for row in requests if row["url"].endswith("/resources") and row["status"] == 200]
     posts = [row for row in requests if row["method"] == "POST"]
@@ -356,7 +358,10 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
     groups = group_ids(scenario)
     resource_paths = {f"bots/{bot}/resources" for bot in groups.values()}
     inspected = tools if not attempts else tools[: tools.index(attempts[0])]
-    if scenario in MODEL_SCENARIOS or scenario in SHORT_PROMPTS.keys() - {"intent-lock-duration-only"}:
+    singular_find = fixture_version >= 19 and scenario == "intent-find-p800"
+    if not singular_find and (
+        scenario in MODEL_SCENARIOS or scenario in SHORT_PROMPTS.keys() - {"intent-lock-duration-only"}
+    ):
         checks["both_candidate_groups_examined"] = set(groups) <= {
             row["args"].get("group")
             for row in inspected
@@ -401,6 +406,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
             checks["cli_reported_verified_result"] = bool(
                 attempts and attempts[-1]["result"].get("result", {}).get("verified")
             )
+        explicit_target = scenario in {"intent-exact", "intent-release", "intent-book", "intent-write-unknown"}
         checks["agent_read_inventory_before_target_selection"] = bool(
             attempts
             and any(
@@ -410,6 +416,8 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
                 for row in tools[: tools.index(attempts[0])]
             )
         )
+        if fixture_version >= 19 and explicit_target:
+            checks["agent_read_inventory_before_target_selection"] = checks["verified_before_and_after"]
         if scenario in WHOLE_MACHINE_MODELS:
             model = WHOLE_MACHINE_MODELS[scenario].lower()
             checks["whole_machine_result_reported"] = (
@@ -458,7 +466,11 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
                 re.search(r"(?:选|锁|哪|目标|指定).{0,10}(?:机器|节点|资源|台)", final)
             )
         elif scenario == "intent-find-p800":
-            checks["whole_p800_candidate_reported"] = "node-23" in final and "p800" in final.lower()
+            checks["whole_p800_candidate_reported"] = (
+                verified_p800_candidate(tools, final)
+                if fixture_version >= 19
+                else "node-23" in final and "p800" in final.lower()
+            )
         elif scenario == "intent-model-find":
             checks["both_models_reported"] = all(
                 token in final.lower() for token in ("node-10", "node-20", "p800", "p900")
@@ -608,7 +620,59 @@ def task_inventory(bot, scenario, phase, writes):
     return snapshot
 
 
-def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
+def reminder_clarification(final):
+    """Accept a genuine missing-target question, never a timer/warning promise."""
+    question = re.search(
+        r"(?:哪台|哪个|哪些|什么).{0,24}(?:机器|资源|提醒|到期)|(?:机器|资源|提醒).{0,24}(?:哪台|哪个|哪些)"
+        r"|which.{0,40}(?:machine|resource|remind)",
+        final,
+        re.I,
+    )
+    if not question or not re.search(r"[?？]|请.{0,8}(?:指定|告诉|选)", final):
+        return False
+    if re.search(r"node-\d+|\d+\s*(?:分钟|小时|秒|minutes?|hours?)", final, re.I):
+        return False
+    for clause in re.split(r"[。！？?，,;；\n]", final):
+        if re.search(r"不能|无法|不会(?:自动|主动)|尚未|未设置|没有|cannot|can't|not (?:set|create)", clause, re.I):
+            continue
+        if re.search(r"提醒|通知|预警|计时|remind|warn|notif|timer", clause, re.I) and not re.search(
+            question.re, clause
+        ):
+            return False
+        if re.search(
+            r"(?:已|会|将|准时|到期).{0,16}(?:提醒|通知|预警)|(?:提醒|预警).{0,12}(?:已|设置|开启)"
+            r"|(?:I(?:'ll| will)|already|scheduled|created).{0,30}(?:remind|warn|notif|timer)",
+            clause,
+            re.I,
+        ):
+            return False
+    return True
+
+
+def verified_p800_candidate(tools, final):
+    """A singular find needs one fresh, idle whole machine with observed hardware."""
+    if "p800" not in final.lower():
+        return False
+    mentioned = reported_nodes(final)
+    for row in tools:
+        if row.get("args", {}).get("action") != "resources" or row["args"].get("group") != MACHINES:
+            continue
+        snapshot = row.get("result", {}).get("result", {})
+        age = snapshot.get("age_seconds")
+        if not snapshot.get("captured_at") or type(age) not in {int, float} or not 0 <= age <= 30:
+            continue
+        for node in snapshot.get("resources", []):
+            if node.get("id") not in mentioned or node.get("lock_status") != "idle" or node.get("holders"):
+                continue
+            if any(
+                str(card.get("model", "")).lower() == "p800" and type(card.get("count")) is int and card["count"] > 0
+                for card in node.get("accelerators", [])
+            ):
+                return True
+    return False
+
+
+def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixture_version=18):
     writes = [row for row in tools if row["args"].get("action") == "command"]
     posts = [row for row in requests if row["method"] == "POST"]
     inspected = tools if not writes else tools[: tools.index(writes[0])]
@@ -628,7 +692,14 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
         }
     if scenario == "intent-install-then-how-use" and phase == 2:
         return {"zero_write_attempts": not writes and not posts, "answer_present": bool(final.strip())}
-    checks = {"both_candidate_groups_examined": set(GROUP_IDS) <= groups_read}
+    if (
+        fixture_version >= 19
+        and scenario in {"intent-reminder-configured", "intent-reminder-unavailable"}
+        and reminder_clarification(final)
+    ):
+        return {"zero_write_attempts": not writes and not posts, "clarification_without_unverified_reminder": True}
+    required_groups = {MACHINES} if fixture_version >= 19 and scenario == "intent-context-lock-day" else set(GROUP_IDS)
+    checks = {"both_candidate_groups_examined": required_groups <= groups_read}
     if expected:
         writes, _ = command_attempts(tools)
         bot, command, operation = expected
@@ -662,7 +733,11 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
             checks["own_bookings_reported"] = reported_nodes(claims) == {"node-10", "node-21"}
             checks["holdings_not_confused_with_bookings"] = explicit_cards(claims, "node-10") <= {3}
         elif scenario == "intent-context-lock-day":
-            checks["whole_p800_candidate_reported"] = "node-23" in final and "p800" in final.lower()
+            checks["whole_p800_candidate_reported"] = (
+                verified_p800_candidate(tools, final)
+                if fixture_version >= 19
+                else "node-23" in final and "p800" in final.lower()
+            )
         elif scenario == "intent-install-then-query":
             checks["answer_present"] = bool(final.strip())
         elif scenario in IP_TAIL_PROMPTS:

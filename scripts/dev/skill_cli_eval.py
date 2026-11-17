@@ -69,7 +69,9 @@ ENROLLMENT_SCENARIOS = ("approved-enrollment", *CHALLENGE_PROMPTS)
 SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *FIRST_CONTACT, *intent.PROMPTS)
 
 
-def prepare(root, artifact, scenario):
+def prepare(root, artifact, scenario, *, fixture_version=18):
+    if fixture_version not in {18, 19}:
+        raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
         seed_scenario = "recover"
@@ -245,6 +247,9 @@ def prepare(root, artifact, scenario):
         base.save_json(
             case_path, {**case, "fixture_version": max(SKILL_CATALOG_FIXTURE_VERSION, case["fixture_version"])}
         )
+    if fixture_version >= 19 and (scenario in intent.PROMPTS or scenario == COLD_REQUEST):
+        case = json.loads(case_path.read_text())
+        base.save_json(case_path, {**case, "fixture_version": fixture_version})
     (root / "system.txt").write_text(system)
     configure(root)
 
@@ -343,6 +348,10 @@ def resume(source, destination):
         return
     if fixture.binding_status() != "pending":
         raise ValueError("An approved enrollment must have issued a code before simulated human confirmation")
+    if fixture.case["scenario"] == COLD_REQUEST and fixture.case.get("fixture_version", 0) >= 19:
+        continue_conversation(source, destination, "群里确认了，继续吧")
+        base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
+        return
     continuity.resume(source, destination)
     if reset:
         case = json.loads((destination / "case.json").read_text())
@@ -1292,11 +1301,14 @@ def verified_catalog_reads(fixture, tools, requests):
     expanded = []
     groups = {identifier: name for name, identifier in intent.group_ids(fixture.case["scenario"]).items()}
     for event in tools:
-        expanded.append(event)
         action = event.get("args", {}).get("action")
+        if not (fixture.case.get("fixture_version", 0) >= 19 and action == "resources"):
+            expanded.append(event)
         if action == "resources-all":
             candidates = event.get("result", {}).get("result", {}).get("groups", [])
-        elif action == "resources" and event.get("args", {}).get("connection"):
+        elif action == "resources" and (
+            event.get("args", {}).get("connection") or fixture.case.get("fixture_version", 0) >= 19
+        ):
             snapshot = event.get("result", {}).get("result", {})
             context = snapshot.get("context", {})
             candidates = [
@@ -1394,6 +1406,36 @@ def verified_catalog_reads(fixture, tools, requests):
                 }
             )
     return expanded
+
+
+def confirmed_request_history(root, fixture, final):
+    """Require the runner's acknowledgement of the authentic preceding request."""
+    try:
+        name = fixture.case["parent_fixture_directory"]
+        if not isinstance(name, str) or Path(name).name != name:
+            return False
+        source = root.parent / name
+        previous = json.loads((source / "response.json").read_text())
+        prior_case = json.loads((source / "case.json").read_text())
+        conversation = (root / "conversation.json").read_bytes()
+        response = json.loads((root / "response.json").read_text())
+        return (
+            prior_case.get("scenario") == COLD_REQUEST
+            and prior_case.get("phase") == 1
+            and prior_case.get("skill_sha256") == fixture.case.get("skill_sha256")
+            and base.digest((source / "trace.jsonl").read_bytes()) == fixture.case.get("parent_evidence_digest")
+            and (root / "system.txt").read_bytes() == (source / "system.txt").read_bytes()
+            and tools(root) == tools(source)
+            and json.loads(conversation)
+            == [
+                {"role": "user", "content": (source / "prompt.txt").read_text()},
+                {"role": "assistant", "content": previous["text"]},
+            ]
+            and response.get("text") == final
+            and response.get("conversation_sha256") == base.digest(conversation)
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def prior_observed_groups(root, fixture, final):
@@ -1597,6 +1639,7 @@ def score(root, final):
                 final,
                 phase=phase,
                 prior_groups=prior_observed_groups(root, fixture, final),
+                fixture_version=fixture.case.get("fixture_version", 0),
             )
         )
         aggregate_calls = [row for row in cli_tools if row.get("args", {}).get("action") == "resources-all"]
@@ -1609,7 +1652,8 @@ def score(root, final):
             find_only = scenario in {"intent-find-p800", "intent-model-find"} or (
                 scenario == "intent-context-lock-day" and phase == 1
             )
-            if find_only and not own_scope:
+            singular_find = scenario == "intent-find-p800" or (scenario == "intent-context-lock-day" and phase == 1)
+            if find_only and not own_scope and not (fixture.case["fixture_version"] >= 19 and singular_find):
                 checks["full_inventory_scope_read"] = set(intent.group_ids(scenario)) <= {
                     row.get("args", {}).get("group")
                     for row in verified_catalog_reads(fixture, cli_tools, requests)
@@ -1683,6 +1727,8 @@ def score(root, final):
     elif enrollment_phase in {2, 3}:
         checks.update(no_mutation=not posts, connection_created=(enrollment / "connection.json").exists())
         if scenario == COLD_REQUEST and phase == 2:
+            if fixture.case.get("fixture_version", 0) >= 19:
+                checks["original_request_in_native_history"] = confirmed_request_history(root, fixture, final)
             checks.pop("no_mutation")
             commands = [row for row in posts if row.get("command")]
             checks["exactly_one_correct_cli_write"] = (
@@ -1769,6 +1815,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
+    parser.add_argument("--fixture-version", type=int, choices=(18, 19), default=18)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")
@@ -1777,7 +1824,7 @@ def main():
     if sys.version_info < (3, 10):  # noqa: UP036 - fail before starting an eval with an unsupported CLI interpreter
         parser.error("Use Python 3.10 or newer to run the packaged Lockbot CLI.")
     if args.action == "prepare":
-        prepare(args.root, args.artifact, args.scenario)
+        prepare(args.root, args.artifact, args.scenario, fixture_version=args.fixture_version)
     elif args.action == "resume":
         resume(args.root, args.destination)
     elif args.action == "confirm-panel":
