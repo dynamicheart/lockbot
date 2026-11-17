@@ -69,7 +69,9 @@ def skill_artifacts():
 
 @lru_cache(maxsize=4)
 def _skill_artifacts(origin):
-    folder, name, prefix = "agent_skill", "lockbot-agent-api", "/api/agent-skill"
+    folder = "agent_skill"
+    skill_id = "lockbot-resource-agent"
+    download_url = f"/api/agent-skill/{skill_id}.zip"
     markdown = files("lockbot.backend.app").joinpath(f"{folder}/SKILL.md").read_bytes()
     canonical_markdown = markdown
     if origin:
@@ -95,27 +97,26 @@ def _skill_artifacts(origin):
         },
     }
     extras["installation.json"] = json.dumps(stamp, sort_keys=True, separators=(",", ":")).encode()
-    bundle = _zip_skill(markdown, name, extras)
-    skill_id = "lockbot-resource-agent"
-    installation = _zip_skill(markdown, skill_id, extras)
+    bundle = _zip_skill(markdown, skill_id, extras)
+    bundle_sha256 = hashlib.sha256(bundle).hexdigest()
     return (
         markdown,
         bundle,
         {
-            "name": name,
+            "name": skill_id,
             "skill_id": skill_id,
             "installation": {
                 "name": skill_id,
-                "download_url": f"{prefix}/{skill_id}.zip",
-                "sha256": hashlib.sha256(installation).hexdigest(),
+                "download_url": download_url,
+                "sha256": bundle_sha256,
                 "instructions": INSTALLATION_INSTRUCTIONS,
             },
             "version": version,
             **package,
-            "skill_url": f"{prefix}/{skill_id}.zip",
-            "download_url": f"{prefix}/{name}.zip",
+            "skill_url": download_url,
+            "download_url": download_url,
             "skill_sha256": hashlib.sha256(markdown).hexdigest(),
-            "sha256": hashlib.sha256(bundle).hexdigest(),
+            "sha256": bundle_sha256,
             "size_bytes": len(bundle),
             "issues_url": "https://github.com/dynamicheart/lockbot/issues",
         },
@@ -173,11 +174,7 @@ def public_skill_manifest(request, response, db):
 
 
 def installation_bundle():
-    markdown, bundle, meta = skill_artifacts()
-    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-        prefix = meta["name"] + "/"
-        extras = {path[len(prefix) :]: archive.read(path) for path in archive.namelist() if path != prefix + "SKILL.md"}
-    return _zip_skill(markdown, meta["skill_id"], extras)
+    return skill_artifacts()[1]
 
 
 @router.get("")
@@ -195,14 +192,6 @@ def _download(request, content, media_type, filename=None):
     if filename:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     return Response(content=content, media_type=media_type, headers=headers)
-
-
-@router.get("/lockbot-agent-api.zip", response_class=Response, responses={200: {"content": {"application/zip": {}}}})
-@limiter.limit("60/minute")
-def skill_zip(request: Request):
-    """Download a versioned, deterministic skill bundle without credentials or runtime data."""
-    _, bundle, manifest = skill_artifacts()
-    return _download(request, bundle, "application/zip", f"lockbot-agent-api-{manifest['version']}.zip")
 
 
 @router.get("/lockbot-resource-agent.zip", response_class=Response)

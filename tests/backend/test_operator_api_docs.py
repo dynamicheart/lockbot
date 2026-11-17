@@ -25,16 +25,12 @@ def test_resource_skill_does_not_distribute_detailed_note_authorization(client):
         b"lba1",
         b"task_notes:read",
     )
-    prefix = "/api/agent-skill"
-    markdown = client.get(prefix + "/SKILL.md")
-    assert markdown.status_code == 404
-    for bundle in ("lockbot-agent-api.zip", "lockbot-resource-agent.zip"):
-        response = client.get(prefix + "/" + bundle)
-        assert response.status_code == 200
-        with zipfile.ZipFile(io.BytesIO(response.content)) as zipped:
-            for name in zipped.namelist():
-                for marker in private_contracts:
-                    assert marker not in zipped.read(name)
+    response = client.get("/api/agent-skill/lockbot-resource-agent.zip")
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zipped:
+        for name in zipped.namelist():
+            for marker in private_contracts:
+                assert marker not in zipped.read(name)
 
 
 def test_public_resource_history_uses_operator_credentials_not_personal_keys(client):

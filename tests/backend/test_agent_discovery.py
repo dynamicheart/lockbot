@@ -22,43 +22,42 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     manifest = client.get("/api/agent-skill")
     assert manifest.status_code == 200
     meta = manifest.json()
-    installation = client.get(meta["skill_url"])
+    assert meta["skill_url"] == meta["download_url"] == meta["installation"]["download_url"]
+    assert meta["download_url"] == "/api/agent-skill/lockbot-resource-agent.zip"
     bundle = client.get(meta["download_url"])
-    assert installation.status_code == bundle.status_code == 200
-    assert installation.headers["content-type"] == bundle.headers["content-type"] == "application/zip"
-    assert meta["skill_url"] == meta["installation"]["download_url"]
+    assert bundle.status_code == 200
+    assert bundle.headers["content-type"] == "application/zip"
     instructions = meta["installation"]["instructions"]
     assert "wait for an explicit request before downloading" in instructions
     assert "Reuse the verified local ZIP" in instructions
     assert "report the installation as blocked" in instructions
     assert "discover --origin <approved-service> --destination <new-private-file>" in instructions
-    assert hashlib.sha256(installation.content).hexdigest() == meta["installation"]["sha256"]
-    assert hashlib.sha256(bundle.content).hexdigest() == meta["sha256"]
+    assert hashlib.sha256(bundle.content).hexdigest() == meta["sha256"] == meta["installation"]["sha256"]
     assert len(bundle.content) == meta["size_bytes"]
-    assert meta["version"] in bundle.headers["content-disposition"]
+    assert bundle.headers["content-disposition"] == 'attachment; filename="lockbot-resource-agent.zip"'
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
         assert set(archive.namelist()) == {
-            "lockbot-agent-api/SKILL.md",
-            "lockbot-agent-api/scripts/lockbot_resource.py",
-            "lockbot-agent-api/installation.json",
-            *("lockbot-agent-api/" + name for name in REFERENCE_PATHS),
+            "lockbot-resource-agent/SKILL.md",
+            "lockbot-resource-agent/scripts/lockbot_resource.py",
+            "lockbot-resource-agent/installation.json",
+            *("lockbot-resource-agent/" + name for name in REFERENCE_PATHS),
         }
-        markdown = archive.read("lockbot-agent-api/SKILL.md")
-    with zipfile.ZipFile(io.BytesIO(installation.content)) as archive:
-        assert archive.read("lockbot-resource-agent/SKILL.md") == markdown
+        markdown = archive.read("lockbot-resource-agent/SKILL.md")
         for name in REFERENCE_PATHS:
             assert archive.read("lockbot-resource-agent/" + name)
             assert f"({name})".encode() in markdown
     assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
-    legacy = client.get("/api/agent-skill/SKILL.md", follow_redirects=False)
-    assert legacy.status_code == 404 and "location" not in legacy.headers
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).resolve().parents[2] / "python/lockbot/backend/app/agent_skill/SKILL.md"
     assert source.read_bytes() == markdown
     assert db_session.query(AuditLog).count() == before
     assert client.get(meta["download_url"], headers={"If-None-Match": bundle.headers["etag"]}).status_code == 304
     paths = client.get("/api/public-openapi.json").json()["paths"]
-    assert all(p in paths for p in ["/api/agent-skill", meta["skill_url"], meta["download_url"]])
+    assert "/api/agent-skill" in paths and meta["download_url"] in paths
+    for obsolete in ("/api/agent-skill/SKILL.md", "/api/agent-skill/lockbot-agent-api.zip"):
+        response = client.get(obsolete, follow_redirects=False)
+        assert response.status_code == 404 and "location" not in response.headers
+        assert obsolete not in paths
 
 
 def test_deployment_skill_url_matches_all_distribution_paths(client, monkeypatch):

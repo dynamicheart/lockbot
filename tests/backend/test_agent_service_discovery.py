@@ -35,7 +35,7 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
     response = client.get("/api/agent-skill")
     meta = response.json()
     assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
-    assert meta["name"] == "lockbot-agent-api"  # published compatibility fields stay intact
+    assert meta["name"] == meta["skill_id"] == meta["installation"]["name"] == "lockbot-resource-agent"
     assert meta["service_id"] == "lockbot.resource-api"
     assert meta["credential_scheme"] == "lbr_bot_scoped" and meta["api_version"] == "1"
     assert meta["server_version"] == client.get("/api/public-openapi.json").json()["info"]["version"]
@@ -43,20 +43,20 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
     assert client.get("/api/agent-skill").json()["instance_id"] == meta["instance_id"]
     db_session.expire_all()
     assert db_session.get(SiteSetting, "resource_api_instance_id").value == meta["instance_id"]
-    assert meta["skill_id"] == "lockbot-resource-agent"
-    for descriptor, root in [(meta, "lockbot-agent-api"), (meta["installation"], meta["skill_id"])]:
-        bundle = client.get(descriptor["download_url"])
-        assert hashlib.sha256(bundle.content).hexdigest() == descriptor["sha256"]
-        with zipfile.ZipFile(io.BytesIO(bundle.content)) as zipped:
-            assert set(zipped.namelist()) == {
-                root + "/SKILL.md",
-                root + "/scripts/lockbot_resource.py",
-                root + "/installation.json",
-                *(root + "/" + name for name in REFERENCE_PATHS),
-            }
-            markdown = zipped.read(zipped.namelist()[0])
-            assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
-            assert b"name: lockbot-resource-agent" in markdown
+    assert meta["download_url"] == meta["installation"]["download_url"]
+    bundle = client.get(meta["download_url"])
+    assert hashlib.sha256(bundle.content).hexdigest() == meta["sha256"] == meta["installation"]["sha256"]
+    root = meta["skill_id"]
+    with zipfile.ZipFile(io.BytesIO(bundle.content)) as zipped:
+        assert set(zipped.namelist()) == {
+            root + "/SKILL.md",
+            root + "/scripts/lockbot_resource.py",
+            root + "/installation.json",
+            *(root + "/" + name for name in REFERENCE_PATHS),
+        }
+        markdown = zipped.read(zipped.namelist()[0])
+        assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
+        assert b"name: lockbot-resource-agent" in markdown
 
 
 @pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE"], indirect=True)
