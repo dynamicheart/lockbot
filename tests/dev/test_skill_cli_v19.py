@@ -258,3 +258,36 @@ def test_cold_history_must_match_observed_request_system_and_tools(tmp_path, mon
         response.pop("conversation_sha256")
         evaluation.base.save_json(second / "response.json", response)
     assert not evaluation.confirmed_request_history(second, evaluation.Fixture(second), final)
+
+
+def test_single_candidate_survives_real_conversation_state_and_live_command(tmp_path, monkeypatch):
+    first = versioned(tmp_path, monkeypatch, "intent-context-lock-day")
+    run(first, "resources", group=evaluation.intent.MACHINES)
+    answer = "node-23是空闲P800整机。"
+    assert evaluation.score(first.root, answer)["observable_pass"]
+    evaluation.base.save_json(first.root / "response.json", {"text": answer})
+    second = tmp_path / "phase-2"
+    evaluation.resume(first.root, second)
+    assert (second / "prompt.txt").read_text() == "lock 一天"
+    user = evaluation.Fixture(second)
+    result = run(
+        user,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation="lock",
+        nodes=["node-23"],
+        whole_node=True,
+        duration="1d",
+        model="P800",
+    )
+    assert result["result"]["verified"]
+    final = "node-23已锁一天。"
+    evaluation.base.save_json(
+        second / "response.json",
+        {
+            "text": final,
+            "conversation_sha256": evaluation.base.digest((second / "conversation.json").read_bytes()),
+        },
+    )
+    grade = evaluation.score(second, final)
+    assert grade["observable_pass"], grade
