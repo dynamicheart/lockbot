@@ -11,12 +11,12 @@ description: >
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. Use `connections`, then its `--connection` with `resources` or `command`. Keep verified service/instance/bot/actor scopes separate. No Keys/grants in replies, arguments, Skill/shared memory. Use private user storage (`LOCKBOT_HOME`); project scope only on request.
+Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use a returned private locator with `--connection` for `resources/command`. Keep verified service/instance/bot/actor separate. No Keys/grants in replies, args, Skills/memory. Private user storage (`LOCKBOT_HOME`); project scope only on request.
 
 ## Everyday requests
 
 - Questions/find are READ ONLY: read eligible groups, report choices, stop. Follow-ups like “lock 一天”/“用完了释放吧” use the uniquely selected conversational target; clarify real ambiguity only.
-- “我能申请什么”: `recover` once from a verified seed when supported; reuse verified groups and read their own connections. “我lock/book了哪些”: check ALL saved authorized groups; match actor exactly and separate holdings/cards/bookings. Bookings are not ownership; holder time is not booking expiry/guaranteed start. Label estimates/claim windows.
+- “我能申请什么”: `recover` once from a verified seed if supported, then `resources-all`. For “我lock/book了哪些”, add `--mine`: separate holdings/cards/bookings. Booking is not ownership; holder time isn't booking expiry/guaranteed start. Label estimates/claim windows.
 - “到时间提醒”: read own resources FIRST. `next_event_kind: own_early_warning` is an existing group warning, not a new timer or proof of delivery. Expiry alone doesn't prove a warning. This API cannot create personal timers.
 - Reply briefly with `remaining_time`; deadlines use `--exact-lease-times`. Missing time is UNKNOWN, never unlimited. Hide Key/paths; group names only for ambiguity.
 

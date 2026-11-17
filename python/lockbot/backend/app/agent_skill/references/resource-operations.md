@@ -65,6 +65,17 @@ allocator lock, so the CLI verifies that observation without a redundant follow-
 Older services without this capability retain the explicit context/readback flow.
 Rules can change; later ownership checks still require a new resource observation.
 
+`resources-all` reads the existing private user connection catalog in one CLI invocation.
+It verifies every service/instance/bot/actor separately and retains each group's private
+connection locator. Use `--directory` only for an explicitly selected private catalog;
+do not pass `--connection` to aggregation. It neither enrolls nor recovers credentials
+and does not update local address caches. A two-group coherent read uses four GETs,
+not one HTTP request. The existing bounded CLI request/deadline budget applies to the
+whole invocation. If any connection is unread, stale or unfinished, `complete:false`
+and `unread` describe the gaps. Report partial results honestly; use the returned
+locator for a focused read where appropriate, never infer that unread groups are empty.
+To recover additional authorized groups, use the verified seed recovery flow first.
+
 | `bot_rules` field | Meaning |
 |---|---|
 | `forbid_relock` | Defaults to false for every bot type. When true, do not renew lock/slock or book a resource you currently hold. |
@@ -93,8 +104,11 @@ the former holder in a queue. A separate booking needs its own user authorizatio
 
 ### Own resources and reminder requests
 
-For holdings or bookings, query every saved authorized group and compare the exact
-verified actor. Keep cards, current holdings and queued bookings separate. A current
+For holdings or bookings, use `resources-all --mine` (or `resources --mine` with one
+selected connection). The CLI matches the exact verified actor and separates `holdings`
+from `bookings`, retaining node, alias, card/model and applicable remaining time or queue
+rank. Unknown fields stay null; bookings never inherit a holder's expiry. Check every
+saved authorized group and retain partial-result warnings. A current
 holder's remaining lease time is not the queued user's expiry or a guaranteed start;
 describe `queue_estimate` as an estimate and any reported claim window as a claim window.
 
