@@ -1,4 +1,4 @@
-/* global scenarioGroups, data, select, node, actionNames, isFailed, choice, caseName, modelLabel, badge, pickCase, pickRun, icon, readRoute, draw, online, imported, cases, activeCase:writable, activeIndex:writable, activeTab:writable, openStep */
+/* global scenarioGroups, data, select, node, actionNames, isFailed, choice, caseName, modelLabel, badge, pickCase, pickRun, icon, readRoute, draw, online, imported, cases, activeCase:writable, activeIndex:writable, activeTab:writable, openStep, datasetId, routeDataset, switchDatasetRoute */
 /* exported diagnosticDownload, callStatusDot, toolTitle, runEfficiency, renderCaseNavigation, notifyReviewParent, selectedRuns, reviewBusy, userNavigation */
 const selectedRuns = new Map();
 const expandedCases = new Set();
@@ -161,6 +161,7 @@ function reviewContext(scope = 'run', caseId = activeCase) {
   const trial = data.cases[caseId]?.[activeIndex] ?? data.cases[caseId]?.[0];
   return {
     scope,
+    ...(online && !imported && datasetId ? {dataset_id:datasetId} : {}),
     case_id: caseId,
     case_name: caseName(caseId),
     run_index: scope === 'case' ? null : activeIndex,
@@ -296,16 +297,18 @@ addEventListener('message', event => {
     reviewBusy = message.open === true;
   } else if (message?.type === 'lockbot-trace-set-route' && message.route && typeof message.route === 'object') {
     const route = new URLSearchParams();
+    if (/^[a-f0-9]{64}$/.test(message.route.dataset_id || '')) route.set('dataset_id', message.route.dataset_id);
     if (typeof message.route.case === 'string' && message.route.case.length <= 256) route.set('case', message.route.case);
     if (/^\d{1,5}$/.test(message.route.run)) route.set('run', message.route.run);
     if (message.route.view === 'steps') route.set('view', 'steps');
     if (/^\d{1,5}$/.test(message.route.step)) route.set('step', message.route.step);
+    if (online && routeDataset(route) !== datasetId) { switchDatasetRoute(route, false); return; }
     if (location.hash.slice(1) !== route.toString()) {
       history.replaceState(null, '', '#' + route);
       readRoute();
       if (cases.includes(activeCase) && !document.querySelector('.layout').hidden) draw();
     }
-  } else if (message?.type === 'lockbot-trace-locate' && message.run_id === reviewContext().run_id) {
+  } else if (message?.type === 'lockbot-trace-locate' && message.run_id === reviewContext().run_id && (message.dataset_id ?? null) === (datasetId ?? null)) {
     const parts = String(message.anchor).split(':');
     if(parts[0]==='message' && activeTab!=='chat') {
       activeTab='chat';

@@ -110,6 +110,7 @@ function routeFields(query) {
     if (/^\d{1,5}$/.test(String(query[key] ?? ''))) fields[key] = String(query[key])
   }
   if (query.view === 'steps') fields.view = 'steps'
+  if (typeof query.dataset_id === 'string' && /^[a-f0-9]{64}$/.test(query.dataset_id)) fields.dataset_id = query.dataset_id
   return fields
 }
 const viewerUrl = ref('/dev/trace-review?raw=true&embedded=true#' + new URLSearchParams(routeFields(route.query)))
@@ -126,7 +127,8 @@ function validContext(value) {
     (value.scope === 'case' ? value.run_index === null : Number.isInteger(value.run_index) && value.run_index >= 0 && value.run_index <= 10000) &&
     (value.run_id === null || /^[a-f0-9]{64}$/.test(value.run_id)) &&
     typeof value.case_name === 'string' && value.case_name.length <= 512 &&
-    typeof value.model === 'string' && value.model.length <= 512
+    typeof value.model === 'string' && value.model.length <= 512 &&
+    (value.dataset_id == null || (typeof value.dataset_id === 'string' && /^[a-f0-9]{64}$/.test(value.dataset_id)))
 }
 async function loadComments(context) {
   const generation = ++requestGeneration
@@ -137,7 +139,7 @@ async function loadComments(context) {
   }
   try {
     const response = await api.get('/dev/trace-review/comments', {
-      params: { case_id: context.case_id, run_index: context.run_index, raw: true },
+      params: { case_id: context.case_id, run_index: context.run_index, raw: true, dataset_id: context.dataset_id },
       _silent: true,
     })
     if (generation === requestGeneration) comments.value = response.data.comments
@@ -151,7 +153,10 @@ function receive(event) {
   if (event.origin !== location.origin || event.source !== viewer.value?.contentWindow) return
   const message = event.data
   if (!message || typeof message !== 'object') return
-  if (message.type === 'lockbot-trace-route' && validContext(message.context)) {
+  if (message.type === 'lockbot-trace-select-dataset' && message.route && typeof message.route === 'object') {
+    if (message.route.dataset_id != null && (typeof message.route.dataset_id !== 'string' || !/^[a-f0-9]{64}$/.test(message.route.dataset_id))) return
+    router.push({ path: '/agent-traces', query: routeFields(message.route) })
+  } else if (message.type === 'lockbot-trace-route' && validContext(message.context)) {
     const previous = current.value
     current.value = message.context
     const next = routeFields(message.route || {})
@@ -160,13 +165,13 @@ function receive(event) {
       requestedRoute = serialized
       router[message.navigation === 'push' ? 'push' : 'replace']({ path: '/agent-traces', query: next }).finally(() => { if (requestedRoute === serialized) requestedRoute = '' })
     }
-    if (reviewOpen.value && previous?.run_id !== current.value.run_id && !draft.value) {
+    if (reviewOpen.value && (previous?.run_id !== current.value.run_id || previous?.dataset_id !== current.value.dataset_id) && !draft.value) {
       loadComments(current.value)
     }
   } else if (message.type === 'lockbot-trace-comment' && validContext(message.context)) {
     if (typeof message.anchor !== 'string' || message.anchor.length > 160 ||
         typeof message.quote !== 'string' || message.quote.length > 4000) return
-    if (draft.value.trim() && (draftContext.value?.case_id !== message.context.case_id || draftContext.value?.scope !== message.context.scope || draftContext.value?.run_id !== message.context.run_id || draftContext.value?.anchor !== message.anchor || draftContext.value?.quote !== message.quote)) {
+    if (draft.value.trim() && (draftContext.value?.dataset_id !== message.context.dataset_id || draftContext.value?.case_id !== message.context.case_id || draftContext.value?.scope !== message.context.scope || draftContext.value?.run_id !== message.context.run_id || draftContext.value?.anchor !== message.anchor || draftContext.value?.quote !== message.quote)) {
       reviewOpen.value = true
       saveError.value = '上次的评论草稿还在，请先保存，或导出后清空草稿。'
       return
@@ -199,7 +204,7 @@ async function save() {
     await api.post('/dev/trace-review/comments', {
       scope: context.scope || 'run', subject: reviewSubject.value,
       case_id: context.case_id, run_index: context.run_index, run_id: context.run_id,
-      raw: true, anchor: context.anchor, quote: context.quote, body: draft.value,
+      dataset_id: context.dataset_id, raw: true, anchor: context.anchor, quote: context.quote, body: draft.value,
     }, { _silent: true })
     draft.value = ''
     saved.value = true
@@ -215,7 +220,8 @@ async function save() {
 async function resolve(comment) {
   try {
     await api.patch('/dev/trace-review/comments/' + comment.id,
-      { status: comment.status === 'resolved' ? 'open' : 'resolved' }, { _silent: true })
+      { status: comment.status === 'resolved' ? 'open' : 'resolved' },
+      { params: { dataset_id: comment.dataset_id }, _silent: true })
     await loadComments(current.value)
   } catch {
     loadError.value = '未能更新评论状态，请重试。'
@@ -223,7 +229,7 @@ async function resolve(comment) {
 }
 function locate(comment) {
   reviewOpen.value = false
-  send({ type: 'lockbot-trace-locate', run_id: comment.run_id, anchor: comment.anchor })
+  send({ type: 'lockbot-trace-locate', run_id: comment.run_id, dataset_id: comment.dataset_id, anchor: comment.anchor })
 }
 function clearDraft() { draft.value = ''; saved.value = false; saveError.value = '' }
 watch(draft, value => { if (value) saved.value = false })

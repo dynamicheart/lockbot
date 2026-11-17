@@ -20,6 +20,8 @@ h1,h2,h3,p,pre{margin:0}
 .app-header{background:var(--paper);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:4}
 .brand{display:flex;gap:10px;align-items:center;min-width:0}
 .header-end{display:flex;align-items:center;gap:12px;flex:none}
+#dataset-picker{font-size:12px;color:var(--muted)}
+#dataset-select{max-width:min(34vw,320px);padding:5px;border:1px solid var(--line);border-radius:5px;background:var(--paper);color:var(--text)}
 .live-status{display:flex;align-items:center;gap:6px;color:var(--muted);white-space:nowrap;font-size:12px}
 .live-status::before{content:"";width:6px;height:6px;border-radius:50%;background:#3e9367}
 .live-status[hidden]{display:none}
@@ -312,7 +314,7 @@ __REVIEW_STYLES__
   <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
   <line x1="16" y1="8" x2="16" y2="3.5" stroke="#409eff" stroke-width="1.8" stroke-linecap="round"/>
   <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
-</svg></div><div><h1>LockBot 轨迹浏览器</h1></div></a><div class="header-end"><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
+</svg></div><div><h1>LockBot 轨迹浏览器</h1></div></a><div class="header-end"><label id="dataset-picker" hidden>评测批次 <select id="dataset-select" aria-label="评测批次"></select></label><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
 <div class="layout">
 <aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例及模型结果"></nav></section></aside>
 <div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整测例侧栏宽度"></div>
@@ -373,6 +375,20 @@ let cases = Object.keys(data.cases);
 let activeCase, activeIndex, activeTab, activeStep, failureOnly;
 let imported = false;
 const online = location.pathname === '/dev/trace-review';
+function routeDataset(route) {
+  const value = route.get('dataset_id');
+  return /^[a-f0-9]{64}$/.test(value || '') ? value : null;
+}
+const datasetId = routeDataset(new URLSearchParams(location.hash.slice(1)));
+function switchDatasetRoute(route, notifyParent = true) {
+  if (notifyParent && parent !== window) {
+    parent.postMessage({type:'lockbot-trace-select-dataset', route:Object.fromEntries(route)}, location.origin);
+    return;
+  }
+  history.replaceState(null, '', '#' + route);
+  location.reload();
+}
+
 function defaultRun(key) {
   const runs = data.cases[key];
   const direct = key === 'create' ? runs.findIndex(run => run.direct) : -1;
@@ -393,6 +409,7 @@ function readRoute() {
 }
 function writeRoute() {
   const route = new URLSearchParams({case:activeCase,run:activeIndex});
+  if (online && datasetId) route.set('dataset_id', datasetId);
   if (activeTab==='events') {
     route.set('view','steps');
     if (activeStep) route.set('step',activeStep);
@@ -408,6 +425,7 @@ function pickCase(key) { if(activeCase===key) return; activeCase = key; activeIn
 function pickRun(index) { activeIndex = index; selectedRuns.set(activeCase,index); resetSelection(); userNavigation=true; draw(); }
 readRoute();
 addEventListener('hashchange',()=>{
+  if (online && routeDataset(new URLSearchParams(location.hash.slice(1))) !== datasetId) { location.reload(); return; }
   if (online && !imported && document.querySelector('.layout').hidden) return;
   readRoute();
   draw();
@@ -1061,12 +1079,51 @@ select('trace-file').onchange = async (event)=>{
     event.target.value = '';
   }
 };
+async function loadDatasets() {
+  const token = localStorage.getItem('lockbot_token');
+  if (!token) return;
+  try {
+    const response = await fetch('/api/dev/trace-review/datasets', {
+      headers:{Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error',
+      signal:AbortSignal.timeout(6000)
+    });
+    if (!response.ok || localStorage.getItem('lockbot_token') !== token) return;
+    const payload = await response.json();
+    if (!Array.isArray(payload.datasets) || !payload.datasets.every(item =>
+      typeof item?.dataset_id === 'string' && /^[a-f0-9]{64}$/.test(item.dataset_id) && typeof item.title === 'string')) return;
+    const picker = select('dataset-select');
+    const legacy = node('option', '历史看板');
+    legacy.value = '';
+    const options = payload.datasets.map(item => {
+      const option = node('option', item.title);
+      option.value = item.dataset_id;
+      return option;
+    });
+    if (datasetId && !payload.datasets.some(item => item.dataset_id === datasetId)) {
+      const unavailable = node('option', '此批次尚未发布');
+      unavailable.value = datasetId;
+      options.push(unavailable);
+    }
+    picker.replaceChildren(legacy, ...options);
+    picker.value = datasetId || '';
+    picker.onchange = () => {
+      const route = new URLSearchParams();
+      if (picker.value) route.set('dataset_id', picker.value);
+      switchDatasetRoute(route);
+    };
+    select('dataset-picker').hidden = false;
+  } catch { /* A failed index read must not switch the selected immutable dataset. */ }
+}
 __REVIEW_BUNDLE__
 if (!online) draw();
 if (online) {
   const layout = document.querySelector('.layout');
   const raw = new URLSearchParams(location.search).get('raw') === 'true';
-  const snapshotUrl = '/api/dev/trace-review/snapshot' + (raw ? '?raw=true' : '');
+  const snapshotParams = new URLSearchParams();
+  if (raw) snapshotParams.set('raw', 'true');
+  if (datasetId) snapshotParams.set('dataset_id', datasetId);
+  const snapshotUrl = '/api/dev/trace-review/snapshot?' + snapshotParams;
+
   layout.hidden = true;
   let lastSnapshot = '';
   let currentToken = '';
@@ -1081,6 +1138,8 @@ if (online) {
     if (currentToken !== token) {
       hideSnapshot();
       currentToken = token;
+      select('dataset-picker').hidden = true;
+      if (token) loadDatasets();
     }
     if (!token) {
       reportStatus('请先登录 LockBot 超级管理员，再打开此页面。');
@@ -1108,7 +1167,7 @@ if (online) {
       if ((reviewBusy && !layout.hidden) || !window.getSelection()?.isCollapsed || inspector.open) return;
       if (snapshot !== lastSnapshot) {
         const candidate = JSON.parse(snapshot);
-        if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw')) throw new Error();
+        if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw') || (candidate.dataset_id ?? null) !== datasetId) throw new Error();
         const firstSnapshot = !lastSnapshot;
         lastSnapshot = snapshot;
         const selectedIndex = activeIndex;
