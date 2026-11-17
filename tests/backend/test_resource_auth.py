@@ -734,7 +734,7 @@ def test_chat_key_recovery_defaults_to_original_and_reset_requires_its_own_code(
     reply = chat_hook("bind", recovery["bind_code"], bot_id=bot_id)
     assert old not in reply and "找回" in reply
     response = client.get(url, headers=_auth(recovery["proof"]))
-    assert response.json() == {"status": "confirmed", "credential": old}
+    assert response.json() == {"status": "confirmed", "credential": old, "outcome": "recovered"}
     assert response.headers["cache-control"] == "no-store"
 
     reply = chat_hook("bind", reset["bind_code"], bot_id=bot_id)
