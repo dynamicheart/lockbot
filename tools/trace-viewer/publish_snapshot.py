@@ -133,6 +133,11 @@ LEGACY_IDS = {
 }
 MODELS = {
     "claude-opus-4-8": "Claude Opus 4.8",
+    "DeepSeek-V4.1-Flash": "DeepSeek V4.1 Flash",
+    "GLM-5.3": "GLM-5.3",
+    "Kimi K3": "Kimi K3",
+    "MiniMax-M3": "MiniMax-M3",
+    "official:gpt-6.1-sol": "GPT-6.1 Sol",
     "Claude Sonnet 5.5": "Claude Sonnet 5.5",
     "deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
     "glm-5.3": "GLM-5.3",
@@ -269,7 +274,12 @@ def model_name(pair, number):
 def phase_metrics(phases, evidence):
     observed = []
     for row in phases:
-        if row["status"] not in {"completed", "timeout"}:
+        if row["status"] in {
+            "blocked_by_phase_1",
+            "blocked_by_phase_2",
+            "blocked_by_phase_3",
+            "blocked_by_model_preflight",
+        }:
             continue
         metrics = {"phase": row["phase"]}
         turns = row.get("model_turns")
@@ -316,8 +326,12 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_plann
     tested_models = {(row["client"], row["model"]): index for index, row in enumerate(plan["runners"], 1)}
     results = {}
     preflight = {}
-    for line in progress.split("\n")[:-1]:
-        row = json.loads(line)
+    rows = [json.loads(line) for line in progress.split("\n")[:-1]]
+    if (evidence / "matrix.json").is_file():
+        matrix = json.loads(read_local(evidence / "matrix.json", evidence, MAX_PROGRESS_BYTES))
+        if isinstance(matrix.get("results"), list):
+            rows = matrix["results"]
+    for row in rows:
         case = f"{row.get('suite')}:{row.get('scenario')}"
         pair = (row.get("client"), row.get("model"))
         if case not in review_cases or pair not in tested_models:
@@ -390,7 +404,7 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_plann
                 criteria[safe_id] = clean_text(instruction)
             trial = {
                 "case": safe_id,
-                "model": model_name(pair, model_number),
+                "model": f"{pair[0]} · {pair[1]}" if raw else model_name(pair, model_number),
                 "state": state,
                 "note": note,
                 "sessions": sessions,
@@ -405,7 +419,7 @@ def snapshot(evidence: Path, *, include_dialogue=False, raw=False, include_plann
         cases["model-preflight"] = [
             {
                 "case": "model-preflight",
-                "model": model_name(pair, number),
+                "model": f"{pair[0]} · {pair[1]}" if raw else model_name(pair, number),
                 "state": "pass" if preflight[pair] == "ready" else "blocked",
                 "note": PREFLIGHT_NOTES.get(preflight[pair], "模型未通过预检"),
                 "sessions": [],

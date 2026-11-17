@@ -54,3 +54,40 @@ The administrator navigation exposes the configured trace viewer in a Vue/Vite d
 评论接口每次检查当前超级管理员身份。评论保存在私有目录的 `review-comments.sqlite3`，更新轨迹或部署看板时必须保留此文件。保存失败保留浏览器草稿；记录变更时返回 409，不把旧草稿自动挂到新记录。评论可以标记处理状态。
 
 离线 HTML 的评论不会上传。请导出评论文件；Vue 页面中的本机草稿和已保存到测试服务的评论会分别提示。
+
+## 保留历史评论的本地合并
+
+多个安装包版本的结果可以追加到同一份私有看板。先取回测试实例当前实际的
+`raw.json` 和 `latest.json` 作为基线；只追加已有 `matrix.json` 的终态运行，
+活动运行继续显示为计划。以下命令仅生成本地文件，不会上传或修改评论数据库。
+
+```sh
+python3 merge_snapshots.py \
+  --base-raw /private/board-base/raw.json \
+  --base-latest /private/board-base/latest.json \
+  --plan /private/current-run/run.json \
+  --matrix /private/native-pilot \
+  --matrix /private/current-run \
+  --probe /private/connectivity-check \
+  --output /private/merged-board --follow
+```
+
+`--plan` 为当前评测提供安装包版本和客户端清单；目录中的全部 80 个行为测例
+都追加一条明确的计划记录，不代表已经执行或通过。实际运行在各自终态后作为
+独立记录追加，失败和旧结果不会被覆盖。连接预检另列，不计为 Skill 行为通过。
+不需要连接预检记录时省略 `--probe`，不需要等待时省略 `--follow`。
+
+合并器保留基线的顶层 `version`、已有记录内容和数组位置；这些字段参与评论
+锚点摘要，改变任意一项都会使旧评论失效。新记录用自身的 `package_version`
+和 `source_run` 标明来源。重新运行命令会检查此前已合并记录的全部锚点，
+并按来源去重追加，输入顺序变化也不会移动已有记录。
+
+存在 `manual-semantic-review.json` 时，只有与实际 `response.json` 文件 SHA-256
+匹配的复核才会追加为单独记录。它不会改写原始运行的判定；局部语义核对通过
+仍保留为待验收，不能推断整轮通过。
+
+`aggregation.json` 记录等待的运行、各文件字节数、SHA-256 和已保留的评论锚点
+数量。两份输出通过 v1 结构检查后才替换本地文件，摘要限制 1 MiB，原始版
+限制 32 MiB；超限时报错，不截断原始证据。原始版另外保留原生客户端协议
+事件，以及失败阶段已经记录的部分回复。所有输出均为 `0600`，部署时仍需
+使用已有授权流程，并保留服务端的 `review-comments.sqlite3`。

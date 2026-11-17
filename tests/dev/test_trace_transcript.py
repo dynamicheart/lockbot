@@ -136,3 +136,46 @@ def test_skill_tool_steps_project_page_metadata_without_document_contents():
     serialized = json.dumps(projected)
     for secret in ("lbr_", "private.example.test", "/private/"):
         assert secret not in serialized
+
+
+def test_failed_native_phase_retains_partial_reply_complete_wire_and_phase_four(tmp_path):
+    location = "cli/reset-personal-key/001/phase-4"
+    folder = tmp_path / location
+    folder.mkdir(parents=True)
+    subject = "Synthetic Skill"
+    digest = sha256(subject.encode()).hexdigest()
+    (folder / "subject.md").write_text(subject)
+    (folder / "case.json").write_text(
+        json.dumps({"scenario": "reset-personal-key", "phase": 4, "skill_sha256": digest})
+    )
+    (folder / "prompt.txt").write_text("Actual phase four")
+    record = {
+        "direction": "receive",
+        "message": {
+            "method": "item/completed",
+            "params": {"item": {"type": "agentMessage", "text": "Actual partial native reply /private/path"}},
+        },
+    }
+    (folder / "codex-native.jsonl").write_text(json.dumps(record) + "\n")
+    rows = [
+        {"phase": 3, "evidence": "unavailable"},
+        {"phase": 4, "evidence": location, "skill_sha256": digest, "status": "runner_error"},
+    ]
+    sessions = synthetic_sessions(tmp_path, "reset-personal-key", 1, rows, raw=True)
+    assert len(sessions) == 1
+    assert sessions[0][0]["text"] == "Actual phase four"
+    assert sessions[0][1]["evidence"][0]["output"]["events"] == [record]
+    assert sessions[0][2]["text"] == "Actual partial native reply /private/path"
+    assert "runner_error" in sessions[0][-1]["text"]
+
+
+def test_nonzero_tool_exit_is_exported_as_failure():
+    record = {"tool": "run_lockbot", "args": {"action": "resources"}, "result": {"exit_code": 2}}
+    assert tool_steps(json.dumps(record), 1, raw=True)["steps"][0][-1] == "失败"
+
+
+def test_raw_native_diagnostics_preserve_actual_error_text(tmp_path):
+    error = "Synthetic authentication failure /private/client/path"
+    (tmp_path / "native-ducc.stderr").write_text(error)
+    evidence = projection["native_evidence"](tmp_path, tmp_path.resolve())
+    assert evidence[0]["evidence"][0]["output"]["text"] == error

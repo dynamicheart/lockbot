@@ -124,7 +124,12 @@ def tool_steps(lines: str, phase: int, *, raw=False):
         result = event.get("result", {})
         if not isinstance(params, dict) or not isinstance(result, dict):
             raise ValueError("Invalid tool event fields")
-        failed = bool(result.get("error"))
+        failed = (
+            bool(result.get("error"))
+            or result.get("isError") is True
+            or (type(result.get("exit_code")) is int and result["exit_code"] != 0)
+            or (type(result.get("status")) is int and result["status"] >= 400)
+        )
         status = "失败" if failed else "已返回"
         arguments = {}
         output = {"status": status}
@@ -174,16 +179,80 @@ def tool_steps(lines: str, phase: int, *, raw=False):
     return {"role": "tools", "steps": steps, "evidence": evidence, "total": len(records)}
 
 
+def native_records(directory, root):
+    for name in ("codex-native.jsonl", "native-ducc.jsonl"):
+        path = directory / name
+        if path.is_file():
+            records = []
+            for line in read_local(path, root, MAX_TRACE_BYTES).splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    records.append(json.loads(line))
+                except ValueError:
+                    # An interrupted final wire line is evidence too, not a reason
+                    # to discard the completed preceding events or the phase.
+                    records.append({"unparsed_native_line": line})
+            yield name, records
+
+
+def native_evidence(directory, root):
+    """Keep the complete native wire records in private raw exports only."""
+    events = [
+        {
+            "role": "tools",
+            "total": 1,
+            "steps": [["native_client_protocol", name, "原生客户端证据", "已记录"]],
+            "evidence": [{"input": {"file": name}, "output": {"events": records}}],
+        }
+        for name, records in native_records(directory, root)
+    ]
+    for name in ("codex-native.stderr", "native-ducc.stderr", "runner.stderr"):
+        path = directory / name
+        if path.is_file() and path.stat().st_size:
+            events.append(
+                {
+                    "role": "tools",
+                    "total": 1,
+                    "steps": [["native_client_stderr", name, "原生客户端诊断", "已记录"]],
+                    "evidence": [
+                        {"input": {"file": name}, "output": {"text": read_local(path, root, MAX_TRACE_BYTES)}}
+                    ],
+                }
+            )
+    return events
+
+
+def native_partial_replies(directory, root):
+    replies = []
+    for name, records in native_records(directory, root):
+        for record in records:
+            if name == "codex-native.jsonl":
+                message = record.get("message", {})
+                if record.get("direction") != "receive" or message.get("method") != "item/completed":
+                    continue
+                item = message.get("params", {}).get("item", {})
+                text = item.get("text") if item.get("type") == "agentMessage" else None
+            else:
+                message = record.get("message", {})
+                if record.get("type") != "assistant":
+                    continue
+                text = "".join(p.get("text", "") for p in message.get("content", []) if p.get("type") == "text")
+            if isinstance(text, str) and text:
+                replies.append({"role": "assistant", "text": text})
+    return replies
+
+
 def synthetic_sessions(
     root: Path, case: str, runner: int, rows: list[dict], *, suite="cli", raw=False
 ) -> list[list[dict]]:
     """Use the expected synthetic evidence files and redact by default."""
     root = root.resolve()
     sessions = []
-    try:
-        for index, row in enumerate(rows):
+    for index, row in enumerate(rows):
+        try:
             phase = row.get("phase")
-            if phase not in {1, 2, 3} or "evidence" not in row:
+            if type(phase) is not int or not 1 <= phase <= 4 or "evidence" not in row:
                 continue
             location = Path(suite, case, f"{runner:03d}", f"phase-{phase}")
             if row["evidence"] != location.as_posix():
@@ -215,10 +284,17 @@ def synthetic_sessions(
                         session.append(
                             {"role": "missing", "text": f"已展示 {len(calls['steps'])} / {calls['total']} 次工具调用。"}
                         )
+            if raw:
+                session.extend(native_evidence(directory, root))
             response = directory / "response.json"
             if response.is_file():
                 final = json.loads(read_local(response, root, 65_536))["text"]
                 session.append({"role": "assistant", "text": final if raw else clean_text(final)})
+            elif raw:
+                session.extend(native_partial_replies(directory, root))
+                session.append(
+                    {"role": "missing", "text": "未记录最终答复；阶段状态：" + str(row.get("status", "unknown"))}
+                )
             if index + 1 < len(rows):
                 actions = rows[index + 1].get("simulated_user_actions", [])
                 if isinstance(actions, list):
@@ -226,7 +302,7 @@ def synthetic_sessions(
                         {"role": "human", "text": text} for action, text in CONFIRMATIONS.items() if action in actions
                     )
             sessions.append(session)
-    except (OSError, KeyError, TypeError, ValueError):
-        # Retain the summary if an optional detail cannot be projected safely.
-        return []
+        except (OSError, KeyError, TypeError, ValueError):
+            # One unavailable phase must not erase earlier verified dialogue.
+            continue
     return sessions
