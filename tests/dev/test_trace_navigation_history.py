@@ -18,7 +18,9 @@ def test_new_runs_do_not_open_plan_placeholders_or_semantic_copies():
     functions = []
     for name in ("defaultRun", "modelLabel"):
         functions.append(re.search(r"function " + name + r"\([^\n]*\) \{.*?\n\}", source, re.S)[0])
-    script = "\n".join(functions) + """
+    script = (
+        "\n".join(functions)
+        + """
 const data = {cases: {
   example: [{model:'plan', state:'pending', source_run:'plan:example'},
     {model:'model-a', state:'pass', source_run:'matrix:old'},
@@ -36,6 +38,7 @@ console.log(JSON.stringify({
   other:modelLabel(data.cases.other[0],0,'other'), unchanged:JSON.stringify(data)===before,
 }));
 """
+    )
     result = subprocess.run([node, "-e", script], capture_output=True, text=True, check=True, timeout=10)
     assert json.loads(result.stdout) == {
         "latest": 2,
