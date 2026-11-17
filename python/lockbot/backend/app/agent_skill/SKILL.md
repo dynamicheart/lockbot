@@ -28,7 +28,7 @@ Run bundled `scripts/lockbot_cli.py` by absolute path, Python 3.10+, from the pr
 2. Node-only `lock/slock/book`: whole-node groups use `--whole-node`; card groups enumerate ALL observed `--device`s in ONE command. No silent subset: report conflicts/shortfalls. Never turn card requests into whole nodes/change groups. Different card sets need separate node commands; stop on uncertainty.
 3. Verify support; preserve chat operation/mode. Lock idle matches with empty queues; book only with queue authorization. New lock/slock/book: omit `--duration` if unspecified for the live default; ask if unavailable. `claim`: idle `claimable_by_you`, ORIGINAL booked duration, omit duration. `release`: exact holding/booking, no duration/rebooking.
 4. A NEW explicit lock/slock on a fresh verified own holding in the SAME mode maps to CLI `renew`: ADD requested time or verified live group default (else ask), only if relock allowed. Never renew from polling/time passage/uncertain writes. Mixed/unknown modes stop.
-5. Send ONCE; require `verified` + `verified_snapshot`, not HTTP success. Unknown/refused writes: read/report, NO replay/alternate target/HTTP bypass. Honor `Retry-After`. Updates/incompatibility block writes until verified matching instructions load; preserve connections, no rebind.
+5. ONE POST maximum; require `verified` + `verified_snapshot`. Fix proven zero-HTTP argument errors locally. Sent/uncertain writes: read/report, NO replay/alternate target/HTTP bypass. Honor `Retry-After`. Updates/incompatibility block writes until matching instructions load; no rebind.
 
 ## Install or connect
 
