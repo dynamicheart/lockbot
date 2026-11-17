@@ -588,10 +588,15 @@ def pending_enrollment_record(directory):
         raise ValueError
     if re.search(r"\b(?:lbr_|lbp_|lbk_|lbc1\.)", " ".join(value for value in entry.values() if value is not None)):
         raise ValueError
-    if purpose == "reset" and entry["status"] == "pending":
+    if status == "pending":
         entry["status_source"] = "local"
         entry["next_command"] = ["enrollment-status", "--enrollment-dir", str(path)]
-        entry["next_step"] = "Check whether the group already applied the reset. This command only reads its status."
+        entry["next_step"] = (
+            "Check whether the group already applied the reset. This command only reads its status."
+            if purpose == "reset"
+            else "Check the service status after chat confirmation. "
+            "If confirmed, finish this enrollment and continue the request."
+        )
     return entry
 
 

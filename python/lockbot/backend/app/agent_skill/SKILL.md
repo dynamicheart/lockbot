@@ -27,8 +27,13 @@ none exists, run `key-challenge --origin "$ORIGIN" --authorized` and give the us
 the single chat confirmation step returned by the CLI. The request to use the
 service authorizes this step even when the user does not mention a Key or a code.
 Chat confirmation identifies the bot and restores the existing Key or creates a
-first Key. After confirmation, finish the connection and continue the original request.
-For an installation-only request, stop after verifying the installation.
+first Key. For an installation-only request, stop after verifying the installation.
+
+**When the user returns from the group.** Use `connections` to find the unfinished
+request, then run `enrollment-status` with its enrollment directory. The local
+`pending` label can remain after the user has confirmed in chat. If the service
+reports `confirmed`, run `finish-enrollment` with the same directory and continue
+the original task. The group confirmation already provided authorization.
 
 **Explicit Key reset.** Once the user requests invalidation and acknowledges that other
 Agents sharing the old Key must replace it, run
