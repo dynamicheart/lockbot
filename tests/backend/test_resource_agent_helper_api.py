@@ -65,7 +65,7 @@ def test_helper_real_api_init_acquire_renew_release(client, api, tmp_path):
 
 
 @pytest.mark.parametrize("scope", ["explicit", "user", "project"])
-def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, tmp_path, monkeypatch, scope):
+def test_helper_key_recovery_creates_key_after_verified_chat_confirmation(client, api, tmp_path, monkeypatch, scope):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
     root = installed_bundle(tmp_path)
@@ -73,10 +73,13 @@ def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, 
     session = helper.Client(approved_origin="http://testserver", **options)
     directory = tmp_path / "enrollment" if scope == "explicit" else None
     options_for_scope = {"scope": "project"} if scope == "project" else {}
-    pending = session.enroll(directory, "resbot-NODE", **options_for_scope)
+    pending = session.enroll(directory, purpose="recover", **options_for_scope)
+    assert pending["target_group"] is None
+    assert pending["bind_command"].startswith("bind REC-")
     path, state = helper.enrollment_state(pending["enrollment_dir"])
     session = helper.Client(approved_origin=state["approved_origin"], **options)
     assert session.check_enrollment(path, state, finish=True)["status"] == "pending"
+    assert not (path / "key").exists()
     service.handle_chat_binding(
         platform=PLATFORM,
         external_user_id="new-agent-user",
@@ -87,6 +90,7 @@ def test_helper_enrollment_real_api_and_verified_chat_confirmation(client, api, 
     session = helper.Client(approved_origin=state["approved_origin"], **options)
     confirmed = session.check_enrollment(path, state, finish=True)
     assert confirmed["connection_created"]
+    assert confirmed["outcome"] == "created"
     assert confirmed["bot"]["id"] == api["bot_id"]
     if scope != "explicit":
         assert helper.listed_connections()["connections"][0]["connection"] == confirmed["connection"]
