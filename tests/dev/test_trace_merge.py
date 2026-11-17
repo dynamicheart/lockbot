@@ -181,3 +181,91 @@ def test_semantic_review_is_hash_bound_and_appended_without_changing_original(tm
     with pytest.raises(ValueError, match="does not match"):
         merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source])
     assert merge.load(output / "raw.json") == current
+
+
+def test_uncertain_correction_sidecar_appends_without_mutating_published_review(tmp_path):
+    raw, latest = baseline(tmp_path)
+    source, _ = matrix(tmp_path, terminal=True)
+    response = source / "cli/link-only/001/phase-1/response.json"
+    finding = {
+        "case": "link-only",
+        "run": "001",
+        "semantic_status": "fail",
+        "note": "Prior classification",
+        "response_sha256": sha256(response.read_bytes()).hexdigest(),
+    }
+    write(source / "manual-semantic-review.json", {"scope": "Original", "findings": [finding]})
+    output = tmp_path / "merged"
+    merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source])
+    before = merge.load(output / "raw.json")
+    old = before["cases"]["link-only"][-1]
+    corrected = {
+        **finding,
+        "semantic_status": "uncertain",
+        "reason": "fixture_conflict",
+        "note": "Fixture injected a field absent from the real API; do not attribute this to the model.",
+    }
+    write(
+        source / "manual-semantic-review-correction.json",
+        {"kind": "correction", "scope": "Fixture correction", "findings": [corrected]},
+    )
+    write(
+        source / "manual-semantic-review-independent.json",
+        {
+            "scope": "Independent",
+            "findings": [{**finding, "semantic_status": "uncertain", "note": "Independently uncertain"}],
+        },
+    )
+    merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source])
+    after = merge.load(output / "raw.json")
+    merge.assert_preserved(before, after, True)
+    correction = next(
+        t for t in after["cases"]["link-only"] if t.get("source_run", "").startswith("semantic-correction:")
+    )
+    assert correction["state"] == "pending"
+    assert correction["semantic_status"] == "uncertain" and correction["semantic_reason"] == "fixture_conflict"
+    assert correction["corrects_source_runs"] == [old["source_run"]]
+    assert "不能据此归因于模型" in correction["note"]
+    assert any(
+        t.get("semantic_status") == "uncertain" and "Independently" in t.get("note", "")
+        for t in after["cases"]["link-only"]
+    )
+    stable = (output / "raw.json").read_bytes()
+    merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source])
+    assert (output / "raw.json").read_bytes() == stable
+
+
+def test_independent_reviews_schema_binds_timeout_without_inventing_final_reply(tmp_path):
+    raw, latest = baseline(tmp_path)
+    source, _ = matrix(tmp_path, terminal=True)
+    location = source / "cli/link-only/001/phase-1"
+    (location / "response.json").unlink()
+    write(location / "result.json", {"status": "timeout", "duration_seconds": 180})
+    review = {
+        "scope": "Independent",
+        "reviews": [
+            {
+                "suite": "cli",
+                "scenario": "link-only",
+                "client": "training13-codex",
+                "model": "official:gpt-6.1-sol",
+                "status": "timeout",
+                "evidence": str(location),
+                "response_sha256": None,
+                "semantic_status": "uncertain",
+                "finding_code": "NO_FINAL_REPLY",
+                "reason": "No final reply; semantic outcome unknown",
+            }
+        ],
+    }
+    write(source / "manual-semantic-review-independent.json", review)
+    output = tmp_path / "merged"
+    merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source])
+    trial = merge.load(output / "raw.json")["cases"]["link-only"][-1]
+    assert trial["state"] == "pending" and trial["semantic_status"] == "uncertain"
+    assert trial["terminal_result_sha256"] == sha256((location / "result.json").read_bytes()).hexdigest()
+    assert trial["sessions"][0][-1]["role"] == "missing"
+    assert not any(event["role"] == "assistant" for event in trial["sessions"][0])
+    write(location / "response.json", {"text": "Unexpected later response"})
+    with pytest.raises(ValueError, match="absent response"):
+        merge.aggregate(raw, latest, output, plan=source / "run.json", matrices=[source])

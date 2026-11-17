@@ -82,8 +82,11 @@ python3 merge_snapshots.py \
 和 `source_run` 标明来源。重新运行命令会检查此前已合并记录的全部锚点，
 并按来源去重追加，输入顺序变化也不会移动已有记录。
 
-存在 `manual-semantic-review.json` 时，只有与实际 `response.json` 文件 SHA-256
-匹配的复核才会追加为单独记录。它不会改写原始运行的判定；局部语义核对通过
+存在 `manual-semantic-review*.json` 时，只有与实际 `response.json` 文件 SHA-256
+匹配的复核才会追加为单独记录。`semantic_status` 支持 `pass`、`fail` 和
+`uncertain`；不确定结论保持待验收。更正侧车文件使用 `kind: "correction"`，
+关联同一答复已有的语义记录，仅追加，不改写原记录或评论。夹具冲突使用
+`reason: "fixture_conflict"` 并保持 `semantic_status: "uncertain"`，不能归因于模型。它不会改写原始运行的判定；局部语义核对通过
 仍保留为待验收，不能推断整轮通过。
 
 `aggregation.json` 记录等待的运行、各文件字节数、SHA-256 和已保留的评论锚点

@@ -180,14 +180,57 @@ def add_probe(data, directory, raw):
 
 
 def add_semantic_reviews(data, directory, raw):
-    path = directory / "manual-semantic-review.json"
-    if not path.is_file():
-        return
+    canonical = directory / "manual-semantic-review.json"
+    paths = ([canonical] if canonical.is_file() else []) + sorted(
+        path for path in directory.glob("manual-semantic-review*.json") if path != canonical
+    )
+    for path in paths:
+        add_semantic_review(data, directory, path, raw)
+
+
+def semantic_findings(review):
+    if "findings" in review:
+        return review["findings"]
+    findings = []
+    for item in review["reviews"]:
+        evidence = Path(item["evidence"])
+        code = item.get("finding_code")
+        finding = {
+            "suite": item["suite"],
+            "case": item["scenario"],
+            "run": evidence.parent.name,
+            "client": item["client"],
+            "model": item["model"],
+            "evidence": str(evidence),
+            "response_sha256": item.get("response_sha256"),
+            "semantic_status": item["semantic_status"],
+            "status": item["status"],
+            "note": item["reason"],
+        }
+        if code:
+            finding["finding_code"] = code
+        if code == "FIXTURE_CONFLICT":
+            finding["reason"] = "fixture_conflict"
+        elif code == "NO_FINAL_REPLY":
+            finding["reason"] = "no_final_reply"
+        if item.get("exact_excerpt"):
+            finding["note"] += "\n实际摘录：" + item["exact_excerpt"]
+        findings.append(finding)
+    return findings
+
+
+def add_semantic_review(data, directory, path, raw):
     review, plan = load(path), load(directory / "run.json")
     version = plan["artifacts"]["current"]["package_version"]
-    for finding in review["findings"]:
+    kind = review.get("kind", "review")
+    if kind not in {"review", "correction"}:
+        raise ValueError("Unknown semantic review kind")
+    for finding in semantic_findings(review):
         matches = [
-            (suite, scenario) for key in CASES for suite, scenario in [key.split(":", 1)] if scenario == finding["case"]
+            (suite, scenario)
+            for key in CASES
+            for suite, scenario in [key.split(":", 1)]
+            if scenario == finding["case"] and finding.get("suite", suite) == suite
         ]
         if len(matches) != 1 or not str(finding["run"]).isdigit():
             raise ValueError("Ambiguous semantic review case")
@@ -197,32 +240,73 @@ def add_semantic_reviews(data, directory, raw):
             raise ValueError("Unknown semantic review runner")
         location = directory / suite / scenario / f"{number:03d}" / "phase-1"
         response = location / "response.json"
-        if hashlib.sha256(response.read_bytes()).hexdigest() != finding["response_sha256"]:
-            raise ValueError("Semantic review does not match the actual response file")
         case = LEGACY_IDS.get(scenario, scenario) if suite == "cli" else f"{suite}-{scenario}"
         pair = plan["runners"][number - 1]
-        prompt, answer = (location / "prompt.txt").read_text(), load(response)["text"]
-        if finding["semantic_status"] not in {"pass", "fail"}:
+        if any(finding.get(key, pair[key]) != pair[key] for key in ("client", "model")):
+            raise ValueError("Semantic review runner does not match the observed client/model")
+        if "evidence" in finding and Path(finding["evidence"]).resolve() != location.resolve():
+            raise ValueError("Semantic review evidence does not match its phase")
+        if finding["semantic_status"] not in {"pass", "fail", "uncertain"}:
             raise ValueError("Unknown semantic review status")
+        prompt = (location / "prompt.txt").read_text()
+        session = [{"role": "user", "text": prompt if raw else clean_prompt(prompt)}]
+        terminal_digest = None
+        if finding.get("response_sha256") is None:
+            result_path = location / "result.json"
+            result = load(result_path)
+            if (
+                response.exists()
+                or finding["semantic_status"] != "uncertain"
+                or finding.get("status") in {None, "completed"}
+                or result.get("status") != finding["status"]
+            ):
+                raise ValueError("An absent response requires matching terminal evidence and an uncertain review")
+            terminal_digest = hashlib.sha256(result_path.read_bytes()).hexdigest()
+            session.append(
+                {"role": "missing", "text": "没有最终答复，不能推断语义通过或失败；阶段状态：" + result["status"]}
+            )
+        else:
+            if hashlib.sha256(response.read_bytes()).hexdigest() != finding["response_sha256"]:
+                raise ValueError("Semantic review does not match the actual response file")
+            answer = load(response)["text"]
+            session.append({"role": "assistant", "text": answer if raw else clean_text(answer)})
+        reason = finding.get("reason")
+        if reason == "fixture_conflict" and finding["semantic_status"] != "uncertain":
+            raise ValueError("Fixture conflicts must remain uncertain rather than blame the model")
+        prefix = "semantic-correction:" if kind == "correction" else "semantic:"
+        source = prefix + fingerprint({"finding": finding, "scope": review.get("scope")})
+        corrections = [
+            trial["source_run"]
+            for trial in data["cases"].get(case, [])
+            if kind == "correction"
+            and trial.get("source_run", "").startswith("semantic:")
+            and trial.get("response_sha256") == finding["response_sha256"]
+        ]
+        if kind == "correction" and not corrections:
+            raise ValueError("Semantic correction has no matching prior reviewed response")
+        note = "仅复核这条实际答复，不代表整轮通过。原始运行记录保持不变。\n"
+        if kind == "correction":
+            note = "追加更正，已有记录与评论保持不变。\n"
+        if reason == "fixture_conflict":
+            note += "夹具与真实接口存在冲突，结论待核对；不能据此归因于模型。\n"
         append_trial(
             data,
             case,
             {
                 "case": case,
-                "model": f"{pair['client']} · {pair['model']} · 语义复核",
+                "model": f"{pair['client']} · {pair['model']} · "
+                + ("语义更正" if kind == "correction" else "语义复核"),
                 "state": "fail" if finding["semantic_status"] == "fail" else "pending",
-                "source_run": "semantic:" + fingerprint({"finding": finding, "scope": review.get("scope")}),
+                "source_run": source,
+                **({"semantic_reason": reason} if reason else {}),
+                **({"corrects_source_runs": corrections} if corrections else {}),
                 "package_version": version,
-                "response_sha256": finding["response_sha256"],
+                "response_sha256": finding.get("response_sha256"),
+                **({"terminal_result_sha256": terminal_digest} if terminal_digest else {}),
+                **({"finding_code": finding["finding_code"]} if finding.get("finding_code") else {}),
                 "semantic_status": finding["semantic_status"],
-                "note": "仅复核这条实际答复，不代表整轮通过。原始运行记录保持不变。\n"
-                + (finding["note"] if raw else clean_text(finding["note"])),
-                "sessions": [
-                    [
-                        {"role": "user", "text": prompt if raw else clean_prompt(prompt)},
-                        {"role": "assistant", "text": answer if raw else clean_text(answer)},
-                    ]
-                ],
+                "note": note + (finding["note"] if raw else clean_text(finding["note"])),
+                "sessions": [session],
             },
         )
 
