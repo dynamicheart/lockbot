@@ -271,6 +271,7 @@
       </section>
 
       <section v-if="form.platform.toLowerCase() === 'feishu'" class="agent-settings-group">
+        <div class="agent-settings-title">{{ $t('feishu.queryPanelGroup') }}</div>
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-reaction-replies">
             {{ $t('feishu.reactionReplies') }}
@@ -297,6 +298,7 @@
             :aria-label="$t('feishu.queryPanel')"
           />
         </div>
+        <p class="agent-setting-hint">{{ $t('feishu.queryPanelHint') }}</p>
       </section>
 
       <!-- Advanced Config -->
@@ -950,8 +952,18 @@ async function handleSubmit() {
   padding: 28px 32px;
 }
 .agent-settings {
-  margin: 24px 0;
+  margin: 20px 0 16px;
   padding: 0;
+}
+.agent-settings-group {
+  margin: 0 0 20px;
+}
+.agent-setting-hint {
+  max-width: 560px;
+  margin: 6px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  line-height: 1.6;
 }
 .agent-settings-title {
   margin-bottom: 8px;

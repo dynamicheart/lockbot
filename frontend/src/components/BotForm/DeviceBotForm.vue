@@ -375,12 +375,15 @@ watch(
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .device-card-header-left {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1;
+  min-width: 0;
 }
 .node-index {
   width: 22px;
@@ -413,11 +416,29 @@ watch(
   cursor: grabbing;
 }
 .node-name-input {
-  width: 180px;
+  flex: 0 1 140px;
+  min-width: 90px;
 }
 .alias-input {
-  width: 140px;
-  flex-shrink: 0;
+  flex: 1 1 220px;
+  min-width: 120px;
+}
+@media (max-width: 600px) {
+  .device-card-header-left {
+    flex-wrap: wrap;
+    flex-basis: 100%;
+  }
+  .node-name-input {
+    flex: 1 1 100px;
+  }
+  .alias-input {
+    order: 2;
+    flex-basis: 100%;
+    margin-left: 46px;
+  }
+  .device-card-header-right {
+    margin-left: auto;
+  }
 }
 .device-count-badge {
   background: var(--el-color-primary-light-9);

@@ -1,17 +1,23 @@
 <template>
   <section v-if="authenticated || supported || loading || error" class="native-connections">
     <div v-if="authenticated" class="connection-toolbar">
+      <p class="scope">{{ $t('personalCredentialActions.introduction') }}</p>
       <div class="credential-actions">
+        <button v-if="skill" class="connection-button primary" @click="addGroupOpen = true">
+          <Plus class="action-icon" aria-hidden="true" />{{
+            $t('personalCredentialActions.addGroup')
+          }}
+        </button>
+        <button class="connection-button" :disabled="loading" @click="refresh">
+          <Refresh class="action-icon" aria-hidden="true" />刷新状态
+        </button>
         <button
           v-if="items.length"
-          class="connection-button primary"
+          class="connection-button subtle"
           :disabled="loading"
           @click="copyAllStatus"
         >
           {{ $t('personalCredentialActions.copyAllStatus') }}
-        </button>
-        <button v-if="authenticated" class="connection-button" :disabled="loading" @click="refresh">
-          刷新状态
         </button>
         <span v-if="feedbackTarget === 'all'" class="copy-status" role="status">{{
           feedback
@@ -22,13 +28,14 @@
     <p v-if="error" role="alert" class="connection-warning">{{ error }}</p>
     <p v-if="unavailable" class="connection-warning">部分绑定已失效或不可用。</p>
     <p v-if="!items.length && authenticated && !error && !loading" class="scope">
-      暂无可管理的机器群 Key。请通过该群已绑定的 Agent 添加凭证。
+      {{ $t('personalCredentialActions.empty') }}
     </p>
     <table v-if="items.length" class="credential-table" aria-label="Agent 凭证列表">
       <thead>
         <tr>
           <th scope="col">资源群</th>
           <th scope="col">绑定身份</th>
+          <th scope="col">凭证查看</th>
           <th scope="col">操作</th>
         </tr>
       </thead>
@@ -43,6 +50,21 @@
                 <template v-if="item.expires_at"> · {{ expiryText(item.expires_at) }}</template>
               </small>
             </td>
+            <td class="credential-status">
+              <span v-if="canViewKey(item)" class="credential-state available">{{
+                $t('personalCredentialActions.viewAvailable')
+              }}</span>
+              <span v-else class="credential-state">{{
+                $t('personalCredentialActions.keyUnavailable')
+              }}</span>
+              <small>{{
+                $t(
+                  canViewKey(item)
+                    ? 'personalCredentialActions.viewHint'
+                    : 'personalCredentialActions.noViewHint'
+                )
+              }}</small>
+            </td>
             <td class="credential-controls">
               <div class="credential-actions">
                 <button
@@ -53,9 +75,6 @@
                 >
                   {{ $t('personalCredentialActions.requestKey') }}
                 </button>
-                <span v-else class="key-unavailable">{{
-                  $t('personalCredentialActions.keyUnavailable')
-                }}</span>
                 <button class="connection-button" aria-haspopup="dialog" @click="openDetails(item)">
                   {{ $t('personalCredentialActions.agentSetup') }}
                 </button>
@@ -65,6 +84,24 @@
         </template>
       </tbody>
     </table>
+    <el-dialog
+      v-model="addGroupOpen"
+      :title="$t('personalCredentialActions.addGroup')"
+      width="min(480px, calc(100% - 24px))"
+      append-to-body
+      align-center
+    >
+      <p>{{ $t('personalCredentialActions.addGroupHint') }}</p>
+      <blockquote class="add-group-prompt">打开个人资源台</blockquote>
+      <p class="scope">{{ $t('personalCredentialActions.addGroupConfirm') }}</p>
+      <span v-if="feedbackTarget === 'add'" class="copy-status" role="status">{{ feedback }}</span>
+      <template #footer>
+        <el-button @click="addGroupOpen = false">关闭</el-button>
+        <el-button type="primary" @click="copyAddRequest">{{
+          $t('personalOnboarding.copyRequest')
+        }}</el-button>
+      </template>
+    </el-dialog>
     <el-dialog
       v-model="detailsOpen"
       :title="
@@ -90,6 +127,7 @@
             </div>
           </div>
           <template v-else>
+            <p class="scope">{{ $t('personalCredentialActions.setupHint') }}</p>
             <div class="credential-actions">
               <button
                 class="connection-button primary"
@@ -191,6 +229,7 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Plus, Refresh } from '@element-plus/icons-vue'
 import PersonalAgentActivity from './PersonalAgentActivity.vue'
 import { credentialAgentActivity } from '../utils/agentActivity'
 
@@ -209,6 +248,7 @@ const feedback = ref('')
 const feedbackTarget = ref('')
 const selectedId = ref('')
 const detailsOpen = ref(false)
+const addGroupOpen = ref(false)
 const showKeyHelp = ref(false)
 const selectedItem = computed(() => items.value.find(({ id }) => id === selectedId.value))
 function openDetails(item, keyHelp = false) {
@@ -536,6 +576,9 @@ function copyConnectionRecovery(item) {
 function copyRecovery() {
   return copy(recoveryGuide.value, undefined, 'recovery')
 }
+function copyAddRequest() {
+  return copy('打开个人资源台', undefined, 'add')
+}
 function healthText(value) {
   return (
     {
@@ -580,7 +623,13 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .connection-toolbar {
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+.connection-toolbar > .scope {
+  max-width: 480px;
+  line-height: 1.6;
 }
 .credential-table {
   width: 100%;
@@ -600,7 +649,10 @@ onBeforeUnmount(() => {
   width: 245px;
 }
 .credential-table thead th:nth-child(2) {
-  width: 32%;
+  width: 25%;
+}
+.credential-table thead th:nth-child(3) {
+  width: 205px;
 }
 .credential-table th,
 .credential-table td {
@@ -619,9 +671,30 @@ onBeforeUnmount(() => {
   display: block;
   margin-top: 3px;
 }
-.key-unavailable {
+.credential-status small {
+  display: block;
+  margin-top: 5px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+}
+.credential-state {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--el-fill-color-light);
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.credential-state.available {
+  color: var(--el-color-success-dark-2);
+  background: var(--el-color-success-light-9);
+}
+.add-group-prompt {
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: var(--el-fill-color-light);
+  border-left: 3px solid var(--el-color-primary);
+  color: var(--el-text-color-primary);
 }
 .credential-dialog {
   --line: var(--el-border-color);
@@ -662,7 +735,7 @@ onBeforeUnmount(() => {
   padding-block: 6px;
   color: var(--muted);
 }
-@media (max-width: 580px) {
+@media (max-width: 800px) {
   .credential-table thead {
     position: absolute;
     width: 1px;
@@ -694,12 +767,18 @@ onBeforeUnmount(() => {
   .credential-table .credential-controls {
     grid-column: 1 / -1;
   }
+  .credential-table .credential-status {
+    grid-column: 1 / -1;
+  }
 }
 .connection-warning {
   color: var(--lb-color-warning, #a46914);
   margin: 0;
 }
 .connection-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: var(--el-bg-color);
   border: 1px solid var(--line);
   color: inherit;
@@ -708,6 +787,14 @@ onBeforeUnmount(() => {
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+.connection-button.subtle {
+  border-color: transparent;
+  color: var(--el-text-color-secondary);
+}
+.action-icon {
+  width: 14px;
+  height: 14px;
 }
 .connection-button.primary {
   color: var(--accent);

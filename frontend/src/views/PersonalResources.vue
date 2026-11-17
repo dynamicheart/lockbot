@@ -24,25 +24,25 @@
           </router-link>
           <PersonalWorkbenchPlugins
             v-if="session.authenticated"
-            ref="pluginsDialog"
-            :show-trigger="tab !== 'connections'"
             :inventory="session.workbench_plugins"
             :groups="groups"
             :metric-sources="utilizationGroups"
             :loading="resourceLoading"
           />
           <el-dropdown
-            v-if="session.authenticated && tab === 'connections'"
+            v-if="session.authenticated"
             trigger="click"
             @command="handleCredentialAction"
           >
-            <el-button>{{ t('personalWorkbench.more') }}</el-button>
+            <el-button
+              class="workbench-more"
+              :aria-label="t('personalWorkbench.more')"
+              :icon="MoreFilled"
+              text
+            />
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="plugins">{{
-                  t('personalWorkbench.plugins.title')
-                }}</el-dropdown-item>
-                <el-dropdown-item divided command="clear" :disabled="busy">
+                <el-dropdown-item command="clear" :disabled="busy">
                   {{ t('personalWorkbench.clearBrowser') }}
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -737,9 +737,14 @@
             </div>
           </div>
           <p v-else class="group-meta group-pending">本次未取得资源数据</p>
-          <el-button v-if="fresh(group)" text type="primary" @click="openGroup(group)"
-            >查看群内明细</el-button
+          <el-button
+            v-if="fresh(group) && entries(group).length"
+            text
+            type="primary"
+            @click="openGroup(group)"
+            >查看我的占用与预约</el-button
           >
+          <p v-else-if="fresh(group)" class="scope">你在本群没有占用或预约。</p>
         </section>
         <p v-if="!groups.length && !initialResourceLoading" class="empty">
           {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
@@ -750,18 +755,6 @@
           :authenticated="session.authenticated"
           :scope-key="identityScope(session.identities)"
         />
-        <details class="credential-access-help">
-          <summary>如何添加其他机器群的 Key</summary>
-          <p class="scope">
-            在已绑定该群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
-            <a
-              href="/api/agent-skill/lockbot-agent.zip"
-              target="_blank"
-              rel="noopener noreferrer"
-              >{{ t('personalOnboarding.installPackage') }}</a
-            >
-          </p>
-        </details>
       </template>
     </main>
     <el-dialog
@@ -808,6 +801,7 @@ import {
   CopyDocument,
   Cpu,
   Monitor,
+  MoreFilled,
   Refresh,
 } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
@@ -878,9 +872,7 @@ const browserAccounts = computed(() =>
 const groups = ref([])
 const guidanceDialog = ref(null)
 let guidanceRead = null
-const pluginsDialog = ref(null)
 function handleCredentialAction(command) {
-  if (command === 'plugins') pluginsDialog.value?.open()
   if (command === 'clear') run(confirmLogout)
 }
 const ticket = ref(null)

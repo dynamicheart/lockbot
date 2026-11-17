@@ -194,9 +194,9 @@ export default {
   },
   feishu: {
     queryPanelGroup: 'Feishu group messages',
-    queryPanel: 'Update query panel in place',
+    queryPanel: 'Update the existing query message',
     queryPanelHint:
-      'Update full resource queries in this group. Command results and reminders stay unchanged; unavailable edits fall back to ordinary replies.',
+      'Repeated queries update the earlier resource message without moving it to the bottom of the chat. Turn this off for a new reply each time. Command results and reminders are unchanged; unavailable edits fall back to ordinary replies.',
 
     unboundGreeting: 'Show setup guidance when joining a group',
     unboundGreetingHelp:
@@ -767,12 +767,23 @@ export default {
     installRequest: 'Use this manifest to verify the ZIP, install the LockBot Skill, and confirm installation.\n{url}',
   },
   personalCredentialActions: {
+    introduction:
+      'Manage authorized resource groups here. Ask your Agent to query or request resources.',
+    addGroup: 'Add resource group',
+    addGroupHint: 'Ask an Agent that can access the target resource group:',
+    addGroupConfirm: 'Open its workbench link, check the account, and confirm adding access.',
+    empty: 'No authorized resource groups yet. Choose “Add resource group” to begin.',
+    viewAvailable: 'Viewing request available',
+    viewHint: 'The original Agent must authorize viewing separately.',
+    noViewHint: 'Ask the original Agent to check viewing access or recover the connection.',
+    setupHint:
+      'Send setup instructions to the Agent that needs this group. They contain no Key; viewing or resetting requires separate authorization.',
     copyAllStatus: 'Copy all statuses',
-    agentSetup: 'Agent setup',
+    agentSetup: 'Set up another Agent',
     copyInstructions: 'Copy setup instructions',
     details: 'Connection details',
     requestKey: 'Get Key viewing link',
-    keyUnavailable: 'Key unavailable',
+    keyUnavailable: 'Not viewable here',
     keyRequestInstructions:
       'Send the request to the Agent for this group and open the link it returns.',
     copyKeyRequest: 'Copy viewing request',
@@ -1027,19 +1038,18 @@ export default {
       'You’ll need to authorize this browser again to view personal resources. Agent keys stay valid.',
     clearBrowserConfirm: 'Clear access',
     plugins: {
-      title: 'Loaded plugins',
+      title: 'Extensions',
       reporterTitle: 'External resources',
       reporterDescription: 'Show your allocations and reservations from other LockBot services.',
-      reporterLoaded:
-        'The service has loaded {count} resource reporting plugin | The service has loaded {count} resource reporting plugins',
-      reporterNotLoaded: 'The service has no resource reporting plugins',
-      reporterVisible: 'Sources visible to this session',
-      reporterUnknown: 'No external source identified for this session',
-      loadingSources: 'Loading resource sources',
+      reporterLoaded: 'Enabled',
+      reporterNotLoaded: 'Not enabled',
+      reporterVisible: 'Connected',
+      reporterUnknown: 'Not detected',
+      loadingSources: 'Loading',
       metricsTitle: 'Utilization sources',
       metricsDescription: 'See node and device utilization in authorized resource details.',
-      metricsConfigured: 'A utilization source is configured for resources you hold',
-      metricsUnavailable: 'No utilization source for resources you hold',
+      metricsConfigured: 'Source available',
+      metricsUnavailable: 'No source available',
     },
   },
   personalAgentActivity: {
@@ -1049,7 +1059,8 @@ export default {
     unnamed: 'Unnamed client',
     sourceIp: 'Last source IP {ip}',
     lastSeen: 'Last seen',
-    ipHelp: 'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
+    ipHelp:
+      'LockBot reports the source IP it observes. This may be a proxy or a shared network address.',
   },
 
   agentActivity: {
