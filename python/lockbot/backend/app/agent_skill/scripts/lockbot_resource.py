@@ -1169,6 +1169,8 @@ class Client:
             raise ClientError("enrollment_requires_new_connection")
         group = enrollment_group(group) if group is not None else None
         label = normalize_agent_label(agent_label) if agent_label is not None else None
+        if purpose == "bind" and "chat_credential_challenges" in self.discover().get("capabilities", ()):
+            raise ClientError("use_key_challenge")
         if directory is None:
             target = (group or "") if purpose == "bind" else "\0" + purpose
             name = "enrollment-" + hashlib.sha256((self.base + "\0" + target).encode()).hexdigest()[:32]
@@ -2249,7 +2251,13 @@ def main(argv=None):
         return 0
     except ClientError as exc:
         output = {"error": exc.code, "retry_mutation": False}
-        if args.action == "enroll" and exc.code in {"invalid_enrollment_group", "http_403"}:
+        if args.action == "enroll" and exc.code == "use_key_challenge":
+            command = ["key-challenge", "--origin", args.origin, "--scope", args.scope, "--authorized"]
+            if args.destination:
+                command.extend(["--destination", args.destination])
+            output["next_command"] = command
+            output["next_step"] = "Run next_command to request a code. The user's chat confirmation identifies the bot."
+        elif args.action == "enroll" and exc.code in {"invalid_enrollment_group", "http_403"}:
             output["next_step"] = (
                 "Use key-challenge on services that advertise chat_credential_challenges. "
                 "The user's chat confirmation identifies the bot."

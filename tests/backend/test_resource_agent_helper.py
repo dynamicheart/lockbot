@@ -1230,6 +1230,7 @@ def test_packaged_enrollment_waits_for_chat_and_confirms_actual_bot(case, group)
     assert not (directory / "connection.json").exists()
     assert all("Authorization" not in row[2] for row in case.state.requests)
     case.state.binding_status = "confirmed"
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
     if group is not None:
         assert cli(*finish)["status"] == "bot_name_confirmation_required"
         assert not (directory / "connection.json").exists()
@@ -1278,6 +1279,25 @@ def test_packaged_cli_guides_new_connections_away_from_compatibility_enroll(
     assert [row[0] for row in case.state.requests if row[1] == "POST"] == [
         "/api/resource-auth/bindings"
     ] * enrollment_requests
+
+
+def test_packaged_cli_rejects_new_legacy_binding_before_creating_state(case):
+    case.state.manifest["capabilities"] = ["chat_credential_challenges"]
+    directory = case.tmp / "enrollment"
+    cli = [sys.executable, "-S", str(case.root / helper.SCRIPT_PATH)]
+    options = ["--origin", case.base, "--scope", "project", "--authorized", "--destination", str(directory)]
+    rejected = subprocess.run([*cli, "enroll", *options], capture_output=True, text=True, timeout=5, check=False)
+    assert rejected.returncode == 2
+    error = json.loads(rejected.stderr)
+    assert error["error"] == "use_key_challenge" and not error["retry_mutation"]
+    assert error["next_command"] == ["key-challenge", *options]
+    assert not directory.exists()
+    assert all(row[1] != "POST" for row in case.state.requests)
+
+    issued = subprocess.run([*cli, *error["next_command"]], capture_output=True, text=True, timeout=5, check=True)
+    assert json.loads(issued.stdout)["result"]["bind_command"] == "bind REC-ACDEFGHJ"
+    assert [row[0] for row in case.state.requests if row[1] == "POST"] == [helper.CREDENTIAL_CHALLENGE_PATH]
+    assert (directory / "enrollment.json").is_file()
 
 
 def test_unnamed_enrollment_reuses_pending_slot_and_allows_another_after_confirmation(case, monkeypatch):
