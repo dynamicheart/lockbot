@@ -8,10 +8,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from importlib.util import find_spec
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -23,6 +24,7 @@ from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, Insta
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.feishu.models import FeishuApplication, FeishuGroupRoute, FeishuReceivedMessage
+from lockbot.backend.app.feishu.registration import registrations
 from lockbot.backend.app.feishu.service import application_identity
 from lockbot.backend.app.platform_applications.service import credentials_for, runtime_guard
 from lockbot.backend.app.rate_limit import limiter
@@ -79,6 +81,11 @@ class ApplicationUpdate(BaseModel):
     @classmethod
     def validate_secret(cls, value):
         return ApplicationCreate.required_secret(value) if value is not None else value
+
+
+class RegistrationStart(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1, max_length=128)
 
 
 def _application_audit(db, user, request, app, action):
@@ -366,6 +373,62 @@ def create_application(
         row.app_id, secret=body.app_secret.get_secret_value(), credential_guard=runtime_guard(row)
     )
     return {"id": row.id, "name": row.name, "app_id": row.app_id, "transport": row.transport}
+
+
+@router.post("/application-registrations", status_code=202)
+@limiter.limit("8/minute")
+def start_application_registration(
+    body: RegistrationStart, request: Request, response: Response, user: User = Depends(require_super_admin)
+):
+    response.headers["Cache-Control"] = "no-store"
+    if find_spec("lark_oapi") is None:
+        raise HTTPException(503, "Feishu registration requires the Feishu SDK")
+    return registrations.start((user.id, user.effective_token_version), body.name)
+
+
+@router.get("/application-registrations/{registration_id}")
+def application_registration_status(
+    registration_id: str, response: Response, user: User = Depends(require_super_admin)
+):
+    response.headers["Cache-Control"] = "no-store"
+    return registrations.status(registration_id, (user.id, user.effective_token_version))
+
+
+@router.delete("/application-registrations/{registration_id}", status_code=204)
+def cancel_application_registration(registration_id: str, user: User = Depends(require_super_admin)):
+    registrations.cancel(registration_id, (user.id, user.effective_token_version))
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/application-registrations/{registration_id}/import", status_code=201)
+@limiter.limit("8/minute")
+def import_application_registration(
+    registration_id: str,
+    request: Request,
+    response: Response,
+    user: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    response.headers["Cache-Control"] = "no-store"
+    owner = user.id, user.effective_token_version
+    values, imported = registrations.begin_import(registration_id, owner)
+    if imported is not None:
+        return imported
+    name, app_id, secret = values
+    try:
+        body = ApplicationCreate(name=name, app_id=app_id, app_secret=SecretStr(secret))
+        application = create_application(body, request, user, db)
+    except ValidationError:
+        registrations.finish_import(registration_id, owner)
+        raise HTTPException(502, "Feishu returned invalid application credentials") from None
+    except HTTPException as exc:
+        registrations.finish_import(registration_id, owner, retry=exc.status_code == 502)
+        raise
+    except Exception:
+        registrations.finish_import(registration_id, owner)
+        raise HTTPException(500, "Feishu application import failed") from None
+    registrations.finish_import(registration_id, owner, application=application)
+    return application
 
 
 @router.post("/applications/{application_id}/connect")

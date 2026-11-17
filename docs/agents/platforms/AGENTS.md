@@ -23,6 +23,8 @@ The [illustrated Infoflow guide](../../usage/infoflow-setup.md) shows the LockBo
 
 Follow the [illustrated Feishu guide](../../usage/feishu-setup.md) for the initial setup and consult the [integration guide](../../usage/feishu.md) for deployment details. The current integration model uses one enterprise self-built application for multiple resource groups, each explicitly mapped to an independent resource bot. Super administrators manage the application and authorize group routes; ordinary bot administration does not grant access to other people's private Agent notes.
 
+For a new application, a super administrator can start Scan to connect from Site settings → Message platforms → Feishu applications. The operator confirms the intended enterprise and permissions in Feishu, verifies publication and availability, and then imports the confirmed application into Lockbot. The receiver and group route are configured separately. For an existing application, use its approved credentials in Add application.
+
 1. In Feishu Open Platform, select the correct enterprise and create/select a self-built app. Add bot capability. Obtain App ID and App Secret from **Credentials and Basic Information**; an arbitrary Lockbot application name is only a management label. Never display a plaintext secret in screenshots.
 2. Configure the intended app availability and data scopes. Use the following application-identity scopes for the complete group-management experience:
 

@@ -2,7 +2,12 @@
   <section class="feishu-applications">
     <div class="panel-heading">
       <h3>{{ $t('feishu.applications') }}</h3>
-      <el-button @click="openCreate">{{ $t('feishu.add') }}</el-button>
+      <div>
+        <el-button @click="openCreate">{{ $t('feishu.add') }}</el-button>
+        <el-button type="primary" @click="registrationOpen = true">{{
+          $t('feishu.scan.title')
+        }}</el-button>
+      </div>
     </div>
     <el-table v-loading="loading" :data="applications" :empty-text="$t('feishu.none')">
       <el-table-column prop="name" :label="$t('feishu.name')" />
@@ -47,6 +52,11 @@
         </template>
       </el-table-column>
     </el-table>
+    <FeishuRegistrationDialog
+      v-if="registrationOpen"
+      @closed="registrationOpen = false"
+      @imported="load"
+    />
     <el-dialog
       v-model="dialog"
       :title="$t(editingId ? 'feishu.editApplication' : 'feishu.add')"
@@ -182,9 +192,11 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import api from '../utils/api'
 import { QuestionFilled } from '@element-plus/icons-vue'
+import FeishuRegistrationDialog from './FeishuRegistrationDialog.vue'
 
 const { t } = useI18n()
 const applications = ref([])
+const registrationOpen = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const operations = reactive({})
