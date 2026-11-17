@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 from time import sleep
 
+from synthetic_transcript import synthetic_sessions
+
 CASES = {
     "cli:recover-original-key": "找回原 Key",
     "cli:approved-enrollment-no-group": "首次创建 Key",
@@ -56,7 +58,7 @@ def verdict(phases):
     return "pass", "已完成全部测试阶段"
 
 
-def snapshot(evidence: Path):
+def snapshot(evidence: Path, *, include_dialogue=False):
     plan = json.loads((evidence / "run.json").read_text())
     if plan.get("simulation_only") is not True:
         raise ValueError("Only synthetic matrix exports can be published")
@@ -110,18 +112,25 @@ def snapshot(evidence: Path):
                     "model": model,
                     "state": state,
                     "note": note,
-                    "sessions": [],
+                    "sessions": (
+                        synthetic_sessions(evidence, case.split(":", 1)[1], model_number, phases)
+                        if include_dialogue
+                        else []
+                    ),
                     "metrics": {"phases": observed},
                 }
             )
-    return {"schema": 1, "title": "在线评测 · 合成测例摘要", "version": version, "labels": labels, "cases": cases}
+    title = "在线评测 · 合成测例" if include_dialogue else "在线评测 · 合成测例摘要"
+    return {"schema": 1, "title": title, "version": version, "labels": labels, "cases": cases}
 
 
-def publish(evidence: Path, target: Path):
-    data = snapshot(evidence)
+def publish(evidence: Path, target: Path, *, include_dialogue=False):
+    data = snapshot(evidence, include_dialogue=include_dialogue)
     if not data["cases"]:
         return None
     content = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False).encode() + b"\n"
+    if len(content) > 1_048_576:
+        raise ValueError("Online trace snapshot exceeds its 1 MiB limit")
     if target.exists() and target.read_bytes() == content:
         return False
     fd, name = tempfile.mkstemp(dir=target.parent)
@@ -142,6 +151,9 @@ def main():
     parser.add_argument("evidence", type=Path)
     parser.add_argument("target", type=Path)
     parser.add_argument("--follow", action="store_true", help="Refresh the snapshot every 2 seconds until matrix.json")
+    parser.add_argument(
+        "--include-dialogue", action="store_true", help="Include deidentified synthetic chat and tool steps"
+    )
     parser.add_argument("--on-update", type=Path, help="Private JSON argv array for transferring the snapshot")
     args = parser.parse_args()
     if args.on_update:
@@ -159,7 +171,7 @@ def main():
         if args.follow and not (args.evidence / "progress.jsonl").is_file():
             sleep(2)
             continue
-        updated = publish(args.evidence, args.target)
+        updated = publish(args.evidence, args.target, include_dialogue=args.include_dialogue)
         if transport and updated is not None and (updated or not transfer_started):
             subprocess.run([*transport, str(args.target)], check=True)
             transfer_started = True
