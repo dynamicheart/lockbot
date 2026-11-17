@@ -227,8 +227,8 @@ def test_packaged_aggregate_shares_request_budget_without_a_resource_count_cap(a
     result = aggregate.run("resources-all")["result"]
     assert result["complete"] is False and result["catalog_connections"] == 8
     assert result["http_requests"] == len(server.events) == 12
-    assert len(result["groups"]) == 6 and len(result["unread"]) == 2
-    assert all(row["error"] == "request_budget_exhausted" for row in result["unread"])
+    assert len(result["groups"]) == 6
+    assert result["unread"] == [{"error": "request_budget_exhausted", "count": 2}]
     assert sum(path == "/api/agent-skill" for path, *_ in server.events) == 6
 
 
@@ -361,3 +361,78 @@ def test_aggregate_ages_observations_at_completion_without_counting_pre_read_wai
         assert report["complete"] is True
         assert holder["remaining_time"] == "<1m"
     assert all(method == "GET" for state in (first, second) for _, method, _ in state.events)
+
+
+def test_aggregate_catalog_truncation_is_explicit_and_unread_output_stays_bounded(aggregate):
+    module = _aggregate_module(aggregate)
+    server = aggregate.server(1)
+    for number in range(module.MAX_CATALOG_RECORDS + 4):
+        aggregate.record(server, str(number))
+    result = aggregate.run("resources-all")["result"]
+    assert result["complete"] is False and result["catalog_count_exact"] is False
+    assert result["catalog_scan"]["records_examined"] <= module.MAX_CATALOG_RECORDS
+    assert result["catalog_scan"]["bytes_reserved"] <= module.MAX_CATALOG_BYTES
+    assert result["catalog_scan"]["directory_entries_examined"] <= module.MAX_CATALOG_ENTRIES
+    assert result["unread"][0]["error"] == "catalog_scan_incomplete"
+    assert result["unread"][0]["remaining_records"] == "unknown"
+    assert len(result["unread"]) <= module.MAX_CALLS + 1
+    assert len(server.events) <= module.MAX_CALLS
+
+
+def _aggregate_module(aggregate):
+    spec = importlib.util.spec_from_file_location("bounded_catalog_helper", aggregate.script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_catalog_byte_budget_does_not_change_default_connections_semantics(aggregate):
+    module = _aggregate_module(aggregate)
+    server = aggregate.server(1)
+    aggregate.record(server, "first")
+    aggregate.record(server, "second")
+    budget = module.CatalogScanBudget(60, lambda: 0, size=16385)
+    limited = module.listed_connections(aggregate.catalog, scan_budget=budget)
+    assert len(limited["connections"]) == 1
+    assert limited["scan"]["complete"] is False
+    assert limited["scan"]["reasons"] == ["byte_budget"]
+    assert limited["scan"]["bytes_reserved"] == 16385
+    unlimited = module.listed_connections(aggregate.catalog)
+    assert len(unlimited["connections"]) == 2 and "scan" not in unlimited
+    assert server.events == []
+
+
+def test_aggregate_catalog_scan_obeys_deadline_before_opening_any_key(aggregate, monkeypatch):
+    module = _aggregate_module(aggregate)
+    server = aggregate.server(1)
+    for number in range(65):
+        aggregate.record(server, str(number))
+    reads = []
+    original = module.private_json
+
+    def read(path):
+        reads.append(path)
+        return original(path)
+
+    monkeypatch.setattr(module, "private_json", read)
+    result = module.resources_all(aggregate.catalog, root=aggregate.script.parents[1], clock=lambda: len(reads))[
+        "result"
+    ]
+    assert len(reads) <= 60 and server.events == []
+    assert result["complete"] is False and result["catalog_count_exact"] is False
+    assert "deadline" in result["catalog_scan"]["reasons"]
+    assert len(result["unread"]) <= module.MAX_CALLS + 1
+    assert result["http_requests"] == 0
+
+
+def test_aggregate_limits_unrelated_directory_traversal(aggregate, monkeypatch):
+    module = _aggregate_module(aggregate)
+    for number in range(10):
+        (aggregate.catalog / f"unrelated-{number}").write_text("not a connection")
+    budget = module.CatalogScanBudget
+    monkeypatch.setattr(module, "CatalogScanBudget", lambda deadline, clock: budget(deadline, clock, entries=3))
+    result = module.resources_all(aggregate.catalog, root=aggregate.script.parents[1])["result"]
+    assert result["complete"] is False and result["catalog_count_exact"] is False
+    assert result["catalog_scan"]["reasons"] == ["directory_entry_budget"]
+    assert result["catalog_scan"]["directory_entries_examined"] == 3
+    assert result["unread"][0]["error"] == "catalog_scan_incomplete"

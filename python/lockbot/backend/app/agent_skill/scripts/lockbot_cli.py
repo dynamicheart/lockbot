@@ -40,6 +40,9 @@ CREDENTIAL_CHALLENGE_PATH = "/api/resource-auth/credential-challenges"
 RECOVERY_PATH = "/api/agent/bindings/recover"
 MAX_BYTES = 1024 * 1024
 MAX_CALLS = 12
+MAX_CATALOG_RECORDS = 256
+MAX_CATALOG_ENTRIES = 4096
+MAX_CATALOG_BYTES = 4 * 1024 * 1024
 MAX_RESOURCE_SNAPSHOT_AGE = 5.0
 METRICS = (
     "lockbot_accelerator_utilization_percent",
@@ -489,7 +492,80 @@ def new_catalog_entry(scope, name=None):
     return root.resolve() / (name or secrets.token_hex(16))
 
 
-def listed_connections(directory=None):
+class CatalogScanTruncated(Exception):
+    pass
+
+
+class CatalogScanBudget:
+    """Local discovery limits, independent of resource allocation allowances."""
+
+    def __init__(
+        self, deadline, clock, *, records=MAX_CATALOG_RECORDS, entries=MAX_CATALOG_ENTRIES, size=MAX_CATALOG_BYTES
+    ):
+        self.deadline, self.clock = deadline, clock
+        self.record_limit, self.entry_limit, self.byte_limit = records, entries, size
+        self.records = self.entries = self.bytes = self.candidates = 0
+        self.reasons = []
+
+    def stop(self, reason):
+        if reason not in self.reasons:
+            self.reasons.append(reason)
+        raise CatalogScanTruncated
+
+    def check(self):
+        if self.clock() >= self.deadline:
+            self.stop("deadline")
+
+    def paths(self, root):
+        found = {"connection.json": [], "enrollment.json": []}
+        stack = [(root, 0)]
+        try:
+            while stack:
+                directory, depth = stack.pop()
+                self.check()
+                with os.scandir(directory) as entries:
+                    for entry in entries:
+                        self.check()
+                        if self.entries >= self.entry_limit:
+                            self.stop("directory_entry_budget")
+                        self.entries += 1
+                        if entry.name in found:
+                            if self.candidates >= self.record_limit:
+                                self.stop("record_budget")
+                            self.candidates += 1
+                            found[entry.name].append(Path(entry.path))
+                        elif depth < 2 and entry.is_dir(follow_symlinks=False):
+                            stack.append((Path(entry.path), depth + 1))
+        except CatalogScanTruncated:
+            pass
+        except OSError:
+            if "directory_unavailable" not in self.reasons:
+                self.reasons.append("directory_unavailable")
+        return sorted(found["connection.json"]), sorted(found["enrollment.json"])
+
+    def reserve(self, path):
+        self.check()
+        if self.records >= self.record_limit:
+            self.stop("record_budget")
+        self.records += 1
+        # private_bytes rejects larger files without reading them. Reserve the
+        # maximum possible read, so oversized or changing files remain bounded.
+        size = 16385
+        if self.bytes + size > self.byte_limit:
+            self.stop("byte_budget")
+        self.bytes += size
+
+    def summary(self):
+        return {
+            "complete": not self.reasons,
+            "reasons": self.reasons,
+            "records_examined": self.records,
+            "bytes_reserved": self.bytes,
+            "directory_entries_examined": self.entries,
+        }
+
+
+def listed_connections(directory=None, *, scan_budget=None):
     """List connections and resumable enrollments without opening their Key files."""
     if directory is not None:
         catalogs = [("custom", Path(directory))]
@@ -508,10 +584,15 @@ def listed_connections(directory=None):
         except FileNotFoundError:
             continue
         root = root.resolve()
-        paths = catalog_records(root, "connection.json")
+        if scan_budget:
+            paths, pending_paths = scan_budget.paths(root)
+        else:
+            paths, pending_paths = catalog_records(root, "connection.json"), catalog_records(root, "enrollment.json")
         completed = set()
         for path in paths:
             try:
+                if scan_budget:
+                    scan_budget.reserve(path)
                 if path.resolve() != path:
                     raise ValueError
                 record = private_json(path)
@@ -524,18 +605,29 @@ def listed_connections(directory=None):
                     raise ValueError
                 connections.append({**entry, "scope": scope})
                 completed.add(path.parent)
+            except CatalogScanTruncated:
+                break
             except (ClientError, OSError, KeyError, RuntimeError, ValueError):
                 unavailable_count += 1
-        for path in catalog_records(root, "enrollment.json"):
+        for path in pending_paths:
             if path.parent in completed:
                 continue
             try:
+                if scan_budget:
+                    scan_budget.reserve(path)
                 if path.resolve() != path:
                     raise ValueError
                 enrollments.append({**pending_enrollment_record(path.parent), "scope": scope})
+            except CatalogScanTruncated:
+                break
             except (ClientError, OSError, KeyError, RuntimeError, ValueError):
                 unavailable_count += 1
-    return {"connections": connections, "pending_enrollments": enrollments, "unavailable_count": unavailable_count}
+        if scan_budget and scan_budget.reasons:
+            break
+    result = {"connections": connections, "pending_enrollments": enrollments, "unavailable_count": unavailable_count}
+    if scan_budget:
+        result["scan"] = scan_budget.summary()
+    return result
 
 
 def catalog_records(root, filename):
@@ -2244,20 +2336,33 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
     deadline, calls, clients = clock() + 60, 0, []
     observations = []
     snapshots, unread = [], []
+    scan_budget = CatalogScanBudget(deadline, clock)
+
+    def gap(item):
+        if len(unread) < MAX_CALLS:
+            unread.append(item)
+        elif unread[-1].get("error") == "additional_unread_records":
+            unread[-1]["count"] += item.get("count", 1)
+        else:
+            unread.append({"error": "additional_unread_records", "count": item.get("count", 1)})
+
     try:
-        catalog = listed_connections(directory)
+        catalog = listed_connections(directory, scan_budget=scan_budget)
     except (ClientError, OSError, ValueError, KeyError, TypeError, RuntimeError):
         catalog = {"connections": [], "pending_enrollments": [], "unavailable_count": 1}
+    scan = catalog.get("scan", {**scan_budget.summary(), "complete": False})
+    if not scan["complete"]:
+        gap({"error": "catalog_scan_incomplete", "scan": scan, "remaining_records": "unknown"})
     if catalog["unavailable_count"]:
-        unread.append({"error": "catalog_records_unavailable", "count": catalog["unavailable_count"]})
+        gap({"error": "catalog_records_unavailable", "count": catalog["unavailable_count"]})
     for pending in catalog["pending_enrollments"]:
-        unread.append({"enrollment": pending, "error": "enrollment_unfinished"})
+        gap({"enrollment": pending, "error": "enrollment_unfinished"})
     if not catalog["connections"] and not unread:
         unread.append({"error": "no_saved_connections"})
-    for locator in catalog["connections"]:
+    for index, locator in enumerate(catalog["connections"]):
         if calls >= MAX_CALLS or clock() >= deadline:
-            unread.append({"connection": locator, "error": "request_budget_exhausted"})
-            continue
+            gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
+            break
         client = None
         try:
             client = Client(locator["connection"], root=root, opener=opener, clock=clock)
@@ -2289,7 +2394,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
             )
             observations.append((client, snapshot, locator))
         except ClientError as error:
-            unread.append(
+            gap(
                 {
                     "connection": locator,
                     "error": error.code,
@@ -2301,7 +2406,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                 }
             )
         except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
-            unread.append({"connection": locator, "error": "invalid_server_or_local_data"})
+            gap({"connection": locator, "error": "invalid_server_or_local_data"})
         finally:
             if client:
                 calls = client.calls
@@ -2319,7 +2424,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
             and snapshot["age_seconds"] <= MAX_RESOURCE_SNAPSHOT_AGE
         )
         if snapshot["snapshot_fresh_for_write"] is not True:
-            unread.append({"connection": locator, "error": "stale_or_unverifiable_snapshot"})
+            gap({"connection": locator, "error": "stale_or_unverifiable_snapshot"})
         if not exact_lease_times:
             if mine:
                 format_lease_times(
@@ -2335,6 +2440,8 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                 "groups": snapshots,
                 "unread": unread,
                 "catalog_connections": len(catalog["connections"]),
+                "catalog_count_exact": scan["complete"],
+                "catalog_scan": scan,
                 "http_requests": calls,
             },
             "update_required": any(client.needs_update for client in clients),
