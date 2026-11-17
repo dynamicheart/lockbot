@@ -137,10 +137,10 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
 
 def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "panel")
-    monkeypatch.setattr(evaluation.base, "tools", lambda: evaluation.tools(fixture.root))
-    assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= {
-        tool["name"] for tool in evaluation.base.tools()
-    }
+    tools = {tool["name"]: tool for tool in evaluation.tools(fixture.root)}
+    assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= tools.keys()
+    assert "local-state" in tools["browser_home"]["description"]
+    assert fixture.case["fixture_version"] == evaluation.PANEL_FIXTURE_VERSION
     assert install(fixture)["installed"]
     assert run(fixture, "init")["result"]["connection_created"]
     assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []
