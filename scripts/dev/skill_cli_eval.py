@@ -494,7 +494,7 @@ class Fixture(continuity.Fixture):
             raise urllib.error.HTTPError(request.full_url, result["status"], "fixture refused", {}, payload)
         return payload
 
-    def run_cli(self, args):
+    def run_cli(self, args, execution):
         installed = self.artifact is not None and all(
             (self.installation / name).is_file() and (self.installation / name).read_bytes() == content
             for name, content in self.artifact["contents"].items()
@@ -648,7 +648,9 @@ class Fixture(continuity.Fixture):
                     "next_step": "Run connections to find the pending enrollment.",
                 }
             argv += ["--enrollment-dir", str(directory)]
-        script = runpy.run_path(str(self.installation / "scripts/lockbot_resource.py"))
+        script_path = self.installation / "scripts/lockbot_resource.py"
+        script = runpy.run_path(str(script_path))
+        execution["argv"] = [str(script_path), *argv]
         stdout, stderr = io.StringIO(), io.StringIO()
         with (
             patch("urllib.request.build_opener", return_value=self),
@@ -663,9 +665,10 @@ class Fixture(continuity.Fixture):
         payload = stdout.getvalue() if code == 0 else stderr.getvalue()
         return json.loads(payload.replace(str(self.workspace) + "/", ""))
 
-    def record(self, name, args, result):
+    def record(self, name, args, result, **execution):
+        event = {"tool": name, "args": args, "result": result, **execution}
         with (self.root / "trace.jsonl").open("a") as trace:
-            trace.write(json.dumps({"tool": name, "args": args, "result": result}, ensure_ascii=False) + "\n")
+            trace.write(json.dumps(event, ensure_ascii=False) + "\n")
         return result
 
     def call(self, name, args):
@@ -712,7 +715,9 @@ class Fixture(continuity.Fixture):
                 return {"error": "verified_package_required"}
             return self.record(name, args, self.text_page(path, offset))
         if name == "run_lockbot":
-            return self.record(name, args, self.run_cli(args))
+            execution = {}
+            result = self.run_cli(args, execution)
+            return self.record(name, args, result, **execution)
         if name == "install_lockbot" and self.case["scenario"] in FIRST_CONTACT:
             return self.record(name, args, {"error": "unknown_download_url"})
         return {"error": "unsupported_tool"}

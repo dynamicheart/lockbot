@@ -102,6 +102,11 @@ def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path,
         (fixture.origin + evaluation.base.BUNDLE_PATH, False),
     ]
     assert run(fixture, "connections")["result"]["connections"][0]["connection"].endswith("/connection.json")
+    events = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
+    assert "argv" not in events[0]
+    assert events[-1]["args"] == {"action": "connections"}
+    assert Path(events[-1]["argv"][0]).name == "lockbot_resource.py"
+    assert events[-1]["argv"][1:] == ["connections"]
     assert run(fixture, "resources")["result"]["resources"]
     final = "已安装并查询资源。"
     assert evaluation.score(fixture.root, final)["observable_pass"]
