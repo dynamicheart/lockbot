@@ -1,17 +1,16 @@
 ---
 name: lockbot-agent
 description: >
-  Connect to a LockBot resource group, find saved connections, check shared compute,
-  lock/book nodes and GPU cards, release holdings, explain expiry warnings or open the workbench.
-  Uses the LockBot Resource API (lockbot.resource-api) with scoped lbr_ credentials.
-  The user confirms new enrollment in their group chat.
+  Use LockBot to find available compute, lock/book nodes and GPU cards,
+  release holdings, explain expiry warnings or open the workbench.
+  Reuse saved access; the user confirms first sign-in in chat.
 ---
 
 # LockBot
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use its private locator as `--connection` for `resources/command`. Keep verified service/instance/bot/actor separate. No Keys/grants in replies, args, Skills/memory. Private user storage (`LOCKBOT_HOME`); project scope only on request.
+Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use its private locator as `--connection` for `resources/command`. Keep verified service/instance/bot/actor separate. No Keys/grants in replies, args, Skills/memory. Use CLI default user storage; no invented `--destination`/`--directory` paths. `LOCKBOT_HOME` overrides storage for requested isolation; project scope only on request.
 
 ## Everyday requests
 

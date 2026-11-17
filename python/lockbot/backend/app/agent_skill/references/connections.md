@@ -7,6 +7,13 @@ absolute path and substitute the actual connection or enrollment paths before ru
 `<subcommand> --help` describes the arguments. Select an existing private connection
 with `--connection <file>` before the subcommand.
 
+Omit `--destination` and `--directory` for normal setup and recovery: the CLI uses
+the user's default catalog, which later sessions can discover. `--scope user`
+alone does not make an explicitly supplied project path a user-catalog location.
+The `/private/...` paths below illustrate an explicit operator-selected override,
+not a location to invent for an ordinary user. Use storage overrides only when
+the user requested isolation or selected a destination.
+
 ```sh
 python3 "$LOCKBOT_CLI" --help
 python3 "$LOCKBOT_CLI" command --help
