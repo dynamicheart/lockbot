@@ -1,10 +1,51 @@
 import json
 import subprocess
 import sys
+from hashlib import sha256
 from pathlib import Path
 from time import monotonic, sleep
 
 SCRIPT = Path(__file__).resolve().parents[2] / "tools/trace-viewer/publish_snapshot.py"
+
+
+def test_link_only_publishes_available_synthetic_dialogue_without_raw_urls(tmp_path):
+    scenario = "link-only"
+    runner = {"client": "fixture", "model": "deepseek-v4.1-flash"}
+    plan = {
+        "simulation_only": True,
+        "artifacts": {"current": {"package_version": "0123456789abcdef"}},
+        "cases": [f"cli:{scenario}"],
+        "runners": [runner],
+    }
+    (tmp_path / "run.json").write_text(json.dumps(plan))
+    location = f"cli/{scenario}/001/phase-1"
+    folder = tmp_path / location
+    folder.mkdir(parents=True)
+    subject = "Synthetic Skill"
+    digest = sha256(subject.encode()).hexdigest()
+    row = {"scenario": scenario, "phase": 1, "skill_sha256": digest}
+    (folder / "subject.md").write_text(subject)
+    (folder / "case.json").write_text(json.dumps(row))
+    url = "https://private.example.test/api/agent-skill"
+    (folder / "prompt.txt").write_text(f"请看这个链接 {url}")
+    (folder / "response.json").write_text(json.dumps({"text": "这是 Skill 下载入口。"}, ensure_ascii=False))
+    (folder / "trace.jsonl").write_text(
+        json.dumps({"tool": "inspect_lockbot", "args": {"url": url}, "result": {"url": url}}) + "\n"
+    )
+    (tmp_path / "progress.jsonl").write_text(
+        json.dumps(
+            {**row, **runner, "suite": "cli", "evidence": location, "status": "completed", "observable_pass": True}
+        )
+        + "\n"
+    )
+    output = tmp_path / "latest.json"
+    subprocess.run([sys.executable, str(SCRIPT), str(tmp_path), str(output), "--include-dialogue"], check=True)
+    raw = output.read_text()
+    (session,) = json.loads(raw)["cases"][scenario][0]["sessions"]
+    assert [event["role"] for event in session] == ["user", "tools", "assistant"]
+    assert session[1]["steps"][0][0] == "inspect_lockbot"
+    assert session[2]["text"] == "这是 Skill 下载入口。"
+    assert url not in raw
 
 
 def test_snapshot_waits_for_complete_case_and_excludes_private_input(tmp_path):
