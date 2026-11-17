@@ -3,7 +3,7 @@
     <iframe ref="viewer" :src="viewerUrl" title="Agent 轨迹" @load="synchronize" />
     <el-drawer v-model="reviewOpen" title="评审评论" :size="drawerWidth" :close-on-click-modal="false">
       <template v-if="draftContext">
-        <p class="review-context">{{ draftContext.case_name }} · {{ draftContext.scope === 'case' ? '测例点评' : draftContext.model }}</p>
+        <p class="review-context">{{ draftContext.case_name }} · {{ isUiComment(draftContext) ? '界面点评' : draftContext.scope === 'case' ? '测例点评' : draftContext.model }}</p>
         <p v-if="draftContext.anchor !== 'run'" class="review-field">{{ draftContext.field_label }}</p>
         <blockquote v-if="draftContext.quote">{{ draftContext.quote }}</blockquote>
         <el-select v-if="draftContext.scope === 'case'" v-model="reviewSubject" :disabled="saving" aria-label="点评内容类别" class="review-subject">
@@ -45,6 +45,14 @@
         <div class="review-comment-meta"><span>{{ comment.author }} · {{ localTime(comment.created_at) }}</span></div>
         <blockquote v-if="comment.quote">{{ comment.quote }}</blockquote>
         <p>{{ comment.body }}</p>
+        <el-button link @click="resolve(comment)">{{ comment.status === 'resolved' ? '重新打开' : '标记已处理' }}</el-button>
+      </article>
+      <div v-if="uiComments.length" class="review-list-heading">界面点评 · 所有批次共用</div>
+      <article v-for="comment in uiComments" :key="comment.id" class="review-comment">
+        <div class="review-comment-meta"><span>{{ comment.author }} · {{ localTime(comment.created_at) }}</span></div>
+        <blockquote v-if="comment.quote">{{ comment.quote }}</blockquote>
+        <p>{{ comment.body }}</p>
+        <el-button link type="primary" @click="locate(comment)">定位界面</el-button>
         <el-button link @click="resolve(comment)">{{ comment.status === 'resolved' ? '重新打开' : '标记已处理' }}</el-button>
       </article>
       <div class="review-list-heading">
@@ -187,13 +195,21 @@ function receive(event) {
     loadComments(message.context)
   }
 }
-const caseComments = computed(() => comments.value.filter(comment => comment.scope === 'case' &&
+function isUiComment(comment) {
+  return typeof comment.anchor === 'string' && comment.anchor.startsWith('ui:')
+}
+function inCurrentDataset(comment) {
+  return (comment.dataset_id ?? null) === (current.value?.dataset_id ?? null)
+}
+const uiComments = computed(() => comments.value.filter(comment => isUiComment(comment) &&
+  comment.case_id === current.value?.case_id && (showResolved.value || comment.status !== 'resolved')))
+const caseComments = computed(() => comments.value.filter(comment => !isUiComment(comment) && comment.scope === 'case' &&
   comment.case_id === current.value?.case_id && (showResolved.value || comment.status !== 'resolved')))
 const currentComments = computed(() => comments.value.filter(comment =>
-  comment.scope !== 'case' && comment.raw && comment.run_id === current.value?.run_id &&
+  !isUiComment(comment) && inCurrentDataset(comment) && comment.scope !== 'case' && comment.raw && comment.run_id === current.value?.run_id &&
   (showResolved.value || comment.status !== 'resolved')))
 const historicalComments = computed(() => comments.value.filter(comment =>
-  comment.scope !== 'case' && comment.raw && comment.case_id === current.value?.case_id && comment.run_id !== current.value?.run_id))
+  !isUiComment(comment) && inCurrentDataset(comment) && comment.scope !== 'case' && comment.raw && comment.case_id === current.value?.case_id && comment.run_id !== current.value?.run_id))
 async function save() {
   const context = draftContext.value
   if (!context?.server_backed || !draft.value.trim()) return
@@ -229,7 +245,9 @@ async function resolve(comment) {
 }
 function locate(comment) {
   reviewOpen.value = false
-  send({ type: 'lockbot-trace-locate', run_id: comment.run_id, dataset_id: comment.dataset_id, anchor: comment.anchor })
+  send(isUiComment(comment)
+    ? { type: 'lockbot-trace-locate', anchor: comment.anchor }
+    : { type: 'lockbot-trace-locate', run_id: comment.run_id, dataset_id: comment.dataset_id, anchor: comment.anchor })
 }
 function clearDraft() { draft.value = ''; saved.value = false; saveError.value = '' }
 watch(draft, value => { if (value) saved.value = false })

@@ -180,7 +180,7 @@ function notifyReviewParent() {
   userNavigation = false;
 }
 function requestReview(anchor, quote = '', fieldLabel = '', options = {}) {
-  let scope = options.scope || (anchor === 'case' || anchor.startsWith('ui:') ? 'case' : 'run');
+  let scope = options.scope || (anchor === 'case' ? 'case' : 'run');
   let subject = options.subject || (anchor.startsWith('ui:') ? 'interface' : fieldLabel === '判定标准' ? 'grading' : 'general');
   if (anchor.startsWith('message:')) {
     const [, session, entry] = anchor.split(':');
@@ -288,6 +288,32 @@ selectionComment.onclick = () => {
 document.addEventListener('pointerup', showSelectionComment);
 document.addEventListener('keyup', event => { if (event.key !== 'Escape') showSelectionComment(event); });
 
+function locateReview(message) {
+  const anchor = typeof message.anchor === 'string' ? message.anchor : '';
+  const ui = /^ui:(case-title|run-title|counts|chat-tab|event-tab|case-nav|payload-tab)$/.test(anchor);
+  if (anchor.startsWith('ui:') && !ui) return;
+  if (!ui && (message.run_id !== reviewContext().run_id ||
+      (message.dataset_id ?? null) !== (datasetId ?? null))) return;
+  const parts = String(message.anchor).split(':');
+  if(parts[0]==='message' && activeTab!=='chat') {
+    activeTab='chat';
+    draw();
+  } else if(parts[0]==='tool') {
+    const entry=data.cases[activeCase]?.[activeIndex]?.sessions[Number(parts[1])]?.[Number(parts[2])];
+    const toolIndex=Number(parts[3]);
+    if(entry?.role==='tools' && entry.steps[toolIndex]) openStep(entry.steps[toolIndex],entry.evidence?.[toolIndex],parts.slice(0,4).join(':')+':name');
+  }
+  const marked = [...document.querySelectorAll('[data-review-anchor]')]
+    .find(element => element.dataset.reviewAnchor === message.anchor);
+  const target = ui ? marked || select(parts[1]) : marked || select('case-title');
+  if (target) {
+    target.closest('details')?.setAttribute('open', '');
+    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    target.classList.add('review-highlight');
+    setTimeout(() => target.classList.remove('review-highlight'), 1800);
+  }
+}
+
 addEventListener('message', event => {
   if (event.origin !== location.origin || event.source !== parent || parent === window) return;
   const message = event.data;
@@ -308,24 +334,8 @@ addEventListener('message', event => {
       readRoute();
       if (cases.includes(activeCase) && !document.querySelector('.layout').hidden) draw();
     }
-  } else if (message?.type === 'lockbot-trace-locate' && message.run_id === reviewContext().run_id && (message.dataset_id ?? null) === (datasetId ?? null)) {
-    const parts = String(message.anchor).split(':');
-    if(parts[0]==='message' && activeTab!=='chat') {
-      activeTab='chat';
-      draw();
-    } else if(parts[0]==='tool') {
-      const entry=data.cases[activeCase]?.[activeIndex]?.sessions[Number(parts[1])]?.[Number(parts[2])];
-      const toolIndex=Number(parts[3]);
-      if(entry?.role==='tools' && entry.steps[toolIndex]) openStep(entry.steps[toolIndex],entry.evidence?.[toolIndex],parts.slice(0,4).join(':')+':name');
-    }
-    const target = [...document.querySelectorAll('[data-review-anchor]')]
-      .find(element => element.dataset.reviewAnchor === message.anchor) || select('case-title');
-    if (target) {
-      target.closest('details')?.setAttribute('open', '');
-      target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      target.classList.add('review-highlight');
-      setTimeout(() => target.classList.remove('review-highlight'), 1800);
-    }
+  } else if (message?.type === 'lockbot-trace-locate') {
+    locateReview(message);
   }
 });
 
