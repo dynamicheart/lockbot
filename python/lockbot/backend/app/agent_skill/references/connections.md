@@ -50,6 +50,12 @@ If a previously installed helper rejects the archive layout, use the client's
 installer for the checked ZIP, then use the helper in the new package. Failed or
 unavailable installation remains unverified.
 
+Install the Skill in the client's supported user-level Skill directory by default.
+Use project scope only on explicit request. Verify that the client actually discovers
+and loads the installed Skill; an unpacked ZIP in an arbitrary directory is not enough.
+Keep the client's existing authentication configuration while isolating LockBot test
+storage with `LOCKBOT_HOME`.
+
 Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
 For an ordinary new-environment restore, use the approved origin from the verified
