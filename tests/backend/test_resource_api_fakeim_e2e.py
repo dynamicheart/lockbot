@@ -12,10 +12,12 @@ import json
 import logging
 import re
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
+from contextlib import closing
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -24,7 +26,10 @@ import uvicorn
 from fake_adapter import VALID_SIGNATURE, FakeAdapter, encode_message
 from lockbot.backend.app.bots.manager import BotManager
 from lockbot.backend.app.bots.models import Bot
+from lockbot.backend.app.database import get_db
 from lockbot.core.platforms.registry import register_adapter, unregister_adapter
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 ACTOR = "alice"
 INFOFLOW_FIELDS = ("fromuserid", "atuserids", '"body"', '"header"', "toid", "message")
@@ -148,9 +153,34 @@ def _all_sinks(resp, bot, tmp_path, bot_id, caplog, db_session):
     return [resp.text, _command_log(tmp_path, bot_id), caplog.text, json.dumps(bot.adapter.sent), audit]
 
 
+@pytest.fixture
+def published_cli_app(client, fakeim_api, db_session, tmp_path, monkeypatch):
+    # The loopback Uvicorn server and TestClient share the app but run on different
+    # threads. A file-backed database lets overlapping requests use separate
+    # SQLite connections while keeping the state seeded by the fake IM fixture.
+    path = tmp_path / "published-cli.sqlite3"
+    with closing(sqlite3.connect(path)) as snapshot:
+        db_session.connection().connection.driver_connection.backup(snapshot)
+
+    engine = create_engine(f"sqlite:///{path}")
+    sessions = sessionmaker(bind=engine, autoflush=False)
+
+    def override_get_db():
+        with sessions() as session:
+            yield session
+
+    monkeypatch.setitem(client.app.dependency_overrides, get_db, override_get_db)
+    monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", sessions)
+    try:
+        yield client, fakeim_api
+    finally:
+        engine.dispose()
+
+
 def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command(
-    client, fakeim_api, tmp_path, monkeypatch
+    published_cli_app, tmp_path, monkeypatch
 ):
+    client, fakeim_api = published_cli_app
     bot_id, bot = fakeim_api["bot_id"], fakeim_api["bot"]
 
     installation = client.get("/api/agent-skill").raise_for_status().json()["installation"]
