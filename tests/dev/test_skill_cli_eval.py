@@ -101,9 +101,11 @@ def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path,
         (fixture.origin + "/api/agent-skill", False),
         (fixture.origin + evaluation.base.BUNDLE_PATH, False),
     ]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"][0]["connection"].endswith("/connection.json")
     assert run(fixture, "resources")["result"]["resources"]
-    assert evaluation.score(fixture.root, "已安装并查询资源。")["observable_pass"]
+    final = "已安装并查询资源。"
+    assert evaluation.score(fixture.root, final)["observable_pass"]
+    assert not evaluation.score(fixture.root, final + " private/connections/connection.json")["observable_pass"]
 
 
 @pytest.mark.parametrize("scenario", ["install-from-link", "install-from-zip", "install-with-key"])
@@ -116,17 +118,20 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
     path = "/api/agent-skill" if scenario == "install-from-link" else evaluation.base.BUNDLE_PATH
     assert "manifest" in fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + path})
     assert install(fixture)["installed"]
-    assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
+    checks = evaluation.score(fixture.root, "已安装。")["checks"]
     if scenario == "install-with-key":
-        assert run(fixture, "init")["result"]["connection_created"]
+        assert checks["service_saved"] and not checks["resource_read"]
+        assert run(fixture, "connections")["result"]["connections"][0]["instance_id"] == instance_id
         assert run(fixture, "resources")["result"]["resources"]
     else:
+        assert not checks["service_saved"]
         assert run(fixture, "discover")["result"]["instance_id"] == instance_id
     grade = evaluation.score(fixture.root, "已安装、验证并保存连接。")
     assert grade["observable_pass"], grade["checks"]
 
-    filename = "seed.json" if scenario == "install-with-key" else "service.json"
-    saved_path = fixture.workspace / "private" / filename
+    saved_path = (
+        fixture.saved_connection if scenario == "install-with-key" else fixture.workspace / "private/service.json"
+    )
     saved = json.loads(saved_path.read_text())
     evaluation.base.save_json(saved_path, {**saved, "instance_id": "wrong-instance"})
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
@@ -142,7 +147,7 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
     assert "local-state" in tools["browser_home"]["description"]
     assert fixture.case["fixture_version"] == evaluation.PANEL_FIXTURE_VERSION
     assert install(fixture)["installed"]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []
     with pytest.raises(ValueError, match="confirm browser consent"):
         evaluation.resume(fixture.root, tmp_path / "too-early")
@@ -181,7 +186,7 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
 def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "telemetry")
     assert install(fixture)["installed"]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "resources")["result"]["resources"][0]["holders"]
     result = run(fixture, "metrics", nodes=["node-a"])["result"]
     assert result["verification"] == "query_response_only"

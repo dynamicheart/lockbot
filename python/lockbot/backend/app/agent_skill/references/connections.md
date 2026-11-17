@@ -96,7 +96,10 @@ has passed. A binding confirmed before expiry can still be finished. For an expl
 enrollment directory outside the two catalogs, use `connections --directory <directory>`.
 Verify the live identity with `context`
 using the chosen record. By default, `init`, `key-challenge` and `recover` save under the
-current user's private `~/.config/lockbot/connections/` catalog. Select
+current user's private `~/.lockbot/connections/` catalog. For isolated tests set
+`LOCKBOT_HOME` to an absolute directory. Default reads and writes use only its
+`connections/` catalog while the variable is set. Without the override, `connections`
+also discovers earlier user and project connection catalogs. Select
 `--scope project` to save under `.lockbot/connections/`, or give an explicit
 `--destination` for a separately managed path. `init` keeps an existing Key file at
 its supplied path; newly enrolled and recovered Keys stay beside their connection

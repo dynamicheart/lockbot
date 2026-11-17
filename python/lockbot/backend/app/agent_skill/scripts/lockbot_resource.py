@@ -430,7 +430,16 @@ def private_json(path):
 def connection_catalog(scope):
     if scope == "project":
         return Path(".lockbot/connections")
-    return Path.home() / ".config/lockbot/connections"
+    override = os.environ.get("LOCKBOT_HOME")
+    if not override:
+        return Path.home() / ".lockbot/connections"
+    try:
+        path = Path(override).expanduser()
+    except RuntimeError as exc:
+        raise ClientError("invalid_lockbot_home") from exc
+    if not path.is_absolute():
+        raise ClientError("invalid_lockbot_home")
+    return path / "connections"
 
 
 def private_directory(path, error):
@@ -458,11 +467,14 @@ def new_catalog_entry(scope, name=None):
 
 def listed_connections(directory=None):
     """List connections and resumable enrollments without opening their Key files."""
-    catalogs = (
-        [("custom", Path(directory))]
-        if directory is not None
-        else [(scope, connection_catalog(scope)) for scope in ("project", "user")]
-    )
+    if directory is not None:
+        catalogs = [("custom", Path(directory))]
+    else:
+        catalogs = [("user", connection_catalog("user"))]
+        if not os.environ.get("LOCKBOT_HOME"):
+            catalogs.extend(
+                [("user", Path.home() / ".config/lockbot/connections"), ("project", connection_catalog("project"))]
+            )
     connections = []
     enrollments = []
     unavailable_count = 0

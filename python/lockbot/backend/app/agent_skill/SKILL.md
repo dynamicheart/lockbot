@@ -101,14 +101,14 @@ stop after `resources`. Use `command --help` for all write arguments.
    A failed or unavailable installation remains unverified.
 3. Use Python 3.10+ and the bundled CLI. Resolve `scripts/lockbot_resource.py`
    relative to this `SKILL.md` and run it by absolute path from the project directory.
-   Run `--help` or `<subcommand> --help` for arguments and examples. With authorization to
-   save the service, run `discover --destination <new-private-file>`. When the user gives
-   you a Key file, run `init --key-file` first to save a verified connection, then pass
-   that connection to resource commands. The service resolves the bot from the Key.
-4. If the user asks to save a credential in this project, run from the project root and
-   select `--scope project` for `init`, `key-challenge` or `recover`. Use only the project's
-   catalog for a project-only setup. Default writes go to the system user's private
-   catalog. Choose the command options yourself and report where the connection was saved.
+   Run `connections` to find the user's existing sign-in. With authorization to save
+   the service, run `discover --destination <new-private-file>`. During an explicit
+   credential import, use `init --key-file` with the privately supplied file.
+4. Save connections in the current user's private catalog by default. Respect
+   `LOCKBOT_HOME` when set. Use `--scope project` only for a requested project-only setup.
+   Handle credential locations internally. In ordinary replies, say what is connected
+   and what the user needs to do. Ask the user to confirm in their group or browser
+   when needed.
 5. To restore access, first look for an existing connection or personal Key on the
    approved service. Use it to recover other eligible groups without asking for names.
    A failed recovery stops at reporting the result. For an explicitly authorized reset,
@@ -120,9 +120,9 @@ stop after `resources`. Use `command --help` for all write arguments.
    A confirmed reset has already taken effect. If the user asks to continue in a new
    session, their request and `chat_action: reset_applied` authorize saving the result.
    Run `finish-enrollment` directly without asking them to confirm the reset again.
-6. In a new session run `connections` from the project root. Prefer the project catalog
-   `.lockbot/connections/` over `~/.config/lockbot/connections/`. For project-only lookup,
-   use `connections --directory .lockbot/connections`.
+6. In a new session run `connections` to reuse saved sign-ins. With `LOCKBOT_HOME`,
+   the default lookup reads only that catalog. For explicit project-only lookup, use
+   `connections --directory .lockbot/connections`.
    - For a status request, run `resources` with the matching path from `result.connections`.
      If multiple services match and the user has not selected one, show their addresses
      and ask which to use.

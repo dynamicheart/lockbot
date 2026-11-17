@@ -597,9 +597,9 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
     listing = json.loads(output)["result"]
     assert listing["unavailable_count"] == 1
     assert [(row["scope"], row["origin"]) for row in listing["connections"]] == [
+        ("user", "http://192.0.2.10:8155"),
         ("project", "http://192.0.2.10:8155"),
         ("project", "http://192.0.2.10:8002"),
-        ("user", "http://192.0.2.10:8155"),
     ]
     assert helper.main(["connections", "--directory", str(root)]) == 0
     project = json.loads(capsys.readouterr().out)["result"]["connections"]
@@ -608,6 +608,33 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
     root.chmod(0o755)
     assert helper.main(["connections"]) == 2
     assert "private_connection_directory_required" in capsys.readouterr().err
+
+
+def test_lockbot_home_isolates_existing_catalogs_and_new_sign_ins(case, monkeypatch):
+    monkeypatch.chdir(case.tmp)
+    home = case.tmp / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.delenv("LOCKBOT_HOME", raising=False)
+    legacy = home / ".config/lockbot/connections"
+    legacy.mkdir(mode=0o700, parents=True)
+    write_private(legacy / "connection.json", case.connection)
+    assert helper.connection_catalog("user") == home / ".lockbot/connections"
+    assert [row["connection"] for row in helper.listed_connections()["connections"]] == [
+        str(legacy / "connection.json")
+    ]
+
+    test_home = case.tmp / "isolated"
+    monkeypatch.setenv("LOCKBOT_HOME", str(test_home))
+    assert helper.listed_connections()["connections"] == []
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    saved = Path(client.initialize(case.tmp / "resource.key", None)["connection"])
+    assert saved.parent.parent == test_home / "connections"
+    assert [row["connection"] for row in helper.listed_connections()["connections"]] == [str(saved)]
+    assert (legacy / "connection.json").exists()
+
+    monkeypatch.setenv("LOCKBOT_HOME", "relative-profile")
+    with pytest.raises(helper.ClientError, match="invalid_lockbot_home"):
+        helper.listed_connections()
 
 
 @pytest.mark.parametrize(("scope", "expected"), [(None, "user"), ("project", "project")])
