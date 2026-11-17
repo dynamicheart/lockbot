@@ -134,7 +134,12 @@ def run_matrix(tmp_path, monkeypatch, scenario, *models, timeout=15):
     for client, model in models:
         command.extend(("--runner", client, model, str(runner)))
     run = subprocess.run(
-        command, capture_output=True, text=True, timeout=30, env={**os.environ, "PYTHONPATH": str(ROOT / "python")}
+        command,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": "python"},
     )
     assert run.returncode == 1, (run.stdout, run.stderr)
     return output, json.loads((output / "matrix.json").read_text())

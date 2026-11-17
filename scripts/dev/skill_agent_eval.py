@@ -553,6 +553,12 @@ def read_runner(path):
 
 
 def _call_runner(root, command, request, timeout):
+    environment = os.environ.copy()
+    if "PYTHONPATH" in environment:
+        # Adapters and their fixture tools inherit this path after changing into the case directory.
+        environment["PYTHONPATH"] = os.pathsep.join(
+            str(Path(entry).resolve()) for entry in environment["PYTHONPATH"].split(os.pathsep)
+        )
     try:
         process = subprocess.Popen(
             command,
@@ -561,6 +567,7 @@ def _call_runner(root, command, request, timeout):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=root,
+            env=environment,
             start_new_session=True,
         )
     except OSError as error:
