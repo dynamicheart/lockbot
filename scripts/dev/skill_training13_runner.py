@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import queue
+import re
 import shlex
 import subprocess
 import sys
@@ -51,6 +52,20 @@ class RunnerError(Exception):
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def model_identity(requested):
+    """Translate only Mixin's official panel namespace to its native wire slug.
+
+    Mixin 0.7.5 routes gpt-* to its official OAuth transport, while panel model
+    IDs prepend official:. Custom catalog slugs must remain byte-for-byte intact.
+    """
+    if requested.startswith("official:"):
+        transport = requested.removeprefix("official:")
+        if not re.fullmatch(r"gpt-[A-Za-z0-9_.-]+", transport):
+            raise ValueError("Unsupported official model identity")
+        return transport, "official"
+    return requested, "gateway"
 
 
 def save(path, value):
@@ -228,6 +243,8 @@ def context_source(request, root, system, connection_hash):
         for key, value in {
             "adapter": "training13-codex-app-server-v1",
             "model": request["model"],
+            "transport_model": model_identity(request["model"])[0],
+            "model_source": model_identity(request["model"])[1],
             "system_sha256": digest(system.encode()),
             "connection_sha256": connection_hash,
             "prompt_sha256": digest(expected[0]["content"].encode()),
@@ -308,6 +325,7 @@ def run(request, connection, timeout):
     system = Path(request["system_file"]).read_text()
     if not isinstance(request["model"], str) or not request["model"]:
         raise ValueError("An explicit model is required")
+    transport_model, model_source = model_identity(request["model"])
     if any(type(request.get(key)) is not int or request[key] < 1 for key in ("max_turns", "output_tokens")):
         raise ValueError("max_turns and output_tokens must be positive integers")
     connection_hash = digest(json.dumps(connection, sort_keys=True).encode())
@@ -329,7 +347,7 @@ def run(request, connection, timeout):
         )
         native.send({"method": "initialized"})
         common = {
-            "model": request["model"],
+            "model": transport_model,
             "modelProvider": PROVIDER,
             "approvalPolicy": "never",
             "sandbox": "read-only",
@@ -362,7 +380,7 @@ def run(request, connection, timeout):
                     "allowProviderModelFallback": False,
                 },
             )
-        if started.get("model") != request["model"] or started.get("modelProvider") != PROVIDER:
+        if started.get("model") != transport_model or started.get("modelProvider") != PROVIDER:
             raise RunnerError("native_model_mismatch", "Native client changed the requested model/provider")
         if started.get("instructionSources"):
             raise RunnerError("native_isolation_failure", "Ambient instruction sources were loaded")
@@ -452,6 +470,8 @@ def run(request, connection, timeout):
             {
                 "adapter": "training13-codex-app-server-v1",
                 "model": request["model"],
+                "transport_model": transport_model,
+                "model_source": model_source,
                 "provider": PROVIDER,
                 "remote_home": remote_home,
                 "thread_id": thread_id,
@@ -473,7 +493,9 @@ def run(request, connection, timeout):
             "usage": {"input_tokens": usage.get("inputTokens"), "output_tokens": usage.get("outputTokens")},
             "limits_enforcement": limits,
             "native_thread_id": thread_id,
-            "model": started["model"],
+            "model": request["model"],
+            "transport_model": started["model"],
+            "model_source": model_source,
             "provider": started["modelProvider"],
         }
         if context:

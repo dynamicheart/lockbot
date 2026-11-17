@@ -116,7 +116,7 @@ def case(tmp_path, phase="phase-1"):
         json.dumps({"mcpServers": {"fixture": {"command": sys.executable, "args": [str(fixture)]}}})
     )
     return root, {
-        "model": "official:test",
+        "model": "official:gpt-test",
         "prompt_file": str(root / "prompt.txt"),
         "system_file": str(root / "system.txt"),
         "mcp_config": str(root / "mcp.json"),
@@ -140,7 +140,9 @@ def test_real_subprocess_bridge_retains_trace_and_structured_mcp_result(tmp_path
     native(monkeypatch, tmp_path)
     response = runner.run(request, CONNECTION, 5)
     assert response["text"] == "Done."
-    assert response["model"] == "official:test"
+    assert response["model"] == "official:gpt-test"
+    assert response["transport_model"] == "gpt-test"
+    assert response["model_source"] == "official"
     assert response["turns"] is None
     assert "conversation_sha256" not in response
     metadata = json.loads((root / "native-session.json").read_text())
@@ -286,3 +288,21 @@ def test_unrelated_mcp_server_rejected_before_native_start(tmp_path, monkeypatch
     with pytest.raises(ValueError, match="Only the supplied fixture"):
         runner.run(request, CONNECTION, 5)
     assert not (root / "codex-native.jsonl").exists()
+
+
+@pytest.mark.parametrize(
+    "requested,transport,source",
+    [
+        ("official:gpt-6.1-sol", "gpt-6.1-sol", "official"),
+        ("gpt-6.1-terra-baidu-oneapi", "gpt-6.1-terra-baidu-oneapi", "gateway"),
+        ("gpt-6.1-sol", "gpt-6.1-sol", "gateway"),
+    ],
+)
+def test_requested_identity_and_native_transport_are_explicit(requested, transport, source):
+    assert runner.model_identity(requested) == (transport, source)
+
+
+@pytest.mark.parametrize("requested", ["official:", "official:other:model", "official:custom", "official:gpt-test bad"])
+def test_unrecognized_official_id_cannot_fall_back_to_another_transport(requested):
+    with pytest.raises(ValueError, match="Unsupported official model identity"):
+        runner.model_identity(requested)

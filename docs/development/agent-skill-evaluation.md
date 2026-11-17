@@ -166,7 +166,14 @@ and strict host verification. The runner creates a private temporary Codex home 
 working directory in the container. It does not read, copy or change the user's
 Codex credentials or default configuration. Its provider uses the existing trusted
 container loopback gateway; verify the chosen full model ID and source separately
-before a live run.
+before a live run. Mixin's panel identity `official:gpt-6.1-sol` uses the
+native transport slug `gpt-6.1-sol`; the `official:` prefix is not a wire model ID.
+The adapter translates this explicit official namespace and checks the exact
+transport model returned by Codex. Responses and session evidence keep `model`
+as the requested identity, alongside `transport_model`, `model_source` and the
+native `provider` alias. Custom catalog IDs pass through unchanged. A panel
+catalog entry alone is not a gateway connectivity result; verify the transport
+with one bounded probe before native acceptance.
 
 Only the supplied local fixture subprocess is exposed as native dynamic tools.
 Its MCP envelopes, including errors and structured content, pass through the bridge.
