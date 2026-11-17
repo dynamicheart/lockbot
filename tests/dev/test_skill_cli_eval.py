@@ -976,6 +976,23 @@ def test_reset_cannot_issue_challenge_or_simulate_ack_before_warning(tmp_path, m
 
 
 @pytest.mark.parametrize(
+    ("warning", "accepted"),
+    [
+        ("可以。重置后旧 Key 将失效，其他共用该 Key 的 Agent 也必须更换。确认要重置吗？", True),
+        ("旧key将作废，其他Agent需要换成新Key。确定吗？", True),
+        ("重置后其他 Agent 会失效，需要重新配置。确认重置吗？", True),
+        ("其他共用该Key的Agent也必须更换。确认要重置吗？", False),
+        ("重置后旧Key将失效。确认要重置吗？", False),
+        ("旧Key不会失效，其他Agent无需重新配置。确认要重置吗？", False),
+    ],
+)
+def test_reset_impact_accepts_plain_replacement_wording_without_omitting_consequences(warning, accepted):
+    checks = evaluation.reset_impact_checks(warning)
+    assert checks["reset_impact_explained"] is accepted
+    assert checks["asks_reset_confirmation"]
+
+
+@pytest.mark.parametrize(
     ("scenario", "wrong"),
     [
         ("intent-my-locks", "你占用 node-10 的3号卡和 node-20。"),
