@@ -76,6 +76,20 @@ def _post(client, api, command):
     return client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": command})
 
 
+@pytest.mark.parametrize("bound_route", [False, True])
+def test_command_observations_and_errors_are_not_http_cacheable(client, api, bound_route):
+    path = "/api/agent/commands" if bound_route else f"/api/bots/{api['bot_id']}/commands"
+    denied = client.post(path, json={"command": "query"})
+    assert denied.status_code == 401
+    invalid = client.post(path, headers=api["headers"], json={"command": ""})
+    assert invalid.status_code == 422
+    success = client.post(path, headers=api["headers"], json={"command": "lock n1 1h"})
+    assert success.status_code == 200, success.text
+    assert success.json()["resource_snapshot"]["resources"]
+    for response in (denied, invalid, success):
+        assert response.headers["Cache-Control"] == "no-store"
+
+
 class TestAllowedOperations:
     def test_query_succeeds_and_returns_text(self, client, api):
         resp = _post(client, api, "query")
