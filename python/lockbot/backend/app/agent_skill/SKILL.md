@@ -26,11 +26,14 @@ service (for example, to request a machine), look for a saved connection first. 
 none exists, run `key-challenge --origin "$ORIGIN" --authorized` and give the user
 the single chat confirmation step returned by the CLI. The request to use the
 service authorizes this step even when the user does not mention a Key or a code.
-Chat confirmation identifies the bot and restores the existing Key or creates a
-first Key. For an installation-only request, stop after verifying the installation.
+Chat confirmation identifies the bot. Describe the step as connecting the account.
+After confirmation, use the service's `outcome` to say the original sign-in was restored
+or a new connection was established. If the service omits the outcome, say the account
+is connected. For installation only, stop after verifying the installation.
 
-**When the user returns from the group.** Use `connections` to find the unfinished
-request, then run `enrollment-status` with its enrollment directory. The local
+**Continue after group confirmation.** Use `connections` to find an unfinished request
+when the user asks to continue or makes a relevant request such as “帮我看看资源”.
+Check it with `enrollment-status` using its enrollment directory. The local
 `pending` label can remain after the user has confirmed in chat. If the service
 reports `confirmed`, run `finish-enrollment` with the same directory and continue
 the original task. The group confirmation already provided authorization.
@@ -56,11 +59,9 @@ Use the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
 stop after `resources`. Use `command --help` for all write arguments.
 
-When reporting a verified lease, give the remaining time in minutes, hours or days
-by default (for example, “约 2 小时后到期”). Use the post-operation snapshot for
-acquisition, claim and renewal. Give just that relative expiry in the default
-summary, once for resources that expire together. Reserve calendar timestamps
-for explicit requests for an exact deadline.
+Use the CLI's formatted `remaining_time` for status, acquisition, claim and renewal
+(for example, `2h 30m` becomes “约 2 小时 30 分钟后到期”). State each shared deadline once.
+Use `resources --exact-lease-times` for an exact deadline or a timed stop or renewal.
 
 - **Already signed into the workbench:** open the bookmarked fixed URL in one step.
   If the bookmark is not available to your tools, append `/#/me` to the selected
@@ -73,7 +74,8 @@ for explicit requests for an exact deadline.
   For this handoff, read only the instructions relevant to sign-in and the selected
   connection. Use a saved connection, or run `init` directly when the user already
   supplied an approved origin and a private Key file. `init` verifies the service.
-  Check holdings and bookings in the browser after the user confirms.
+  When the browser session is authenticated at the fixed entry, check holdings and
+  bookings there. A normal follow-up request is enough to resume.
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
@@ -153,9 +155,16 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    **Stop without calling `command`** if the snapshot stays stale, the target is ambiguous,
    or the requested hardware model cannot be verified. A node alias or group title does
    not prove its model. Pass `--model` so the CLI rechecks the chosen hardware before writing.
-   If a name may refer to multiple groups or the user asks you to
-   choose, check each eligible authorized group's live resources before asking or choosing.
-3. An idle match with an empty queue supports `lock` even if `claimable_by_you` is false.
+   Find the environment through saved, verified connections. If the user gives a short
+   identifier such as `lock 19`, match it against the exact node ID, registered alias,
+   or the last octet of an IPv4 address reported in authorized inventory. Resolve each
+   identifier in a comma-separated list. Check eligible groups and ask only about
+   candidates that remain ambiguous.
+3. Preserve the requested operation (`lock`, `slock`, or `book`). When a lock or
+   booking omits a duration, check the selected group's `bot_rules.default_duration_seconds`
+   with `context`. Use the verified default if it is supported. When the user gives
+   only a duration, use a uniquely selected resource from the current conversation or
+   ask which resource they mean. An idle match with an empty queue supports `lock` even if `claimable_by_you` is false.
    A booking is a queue position. A lock or claim creates a lease.
    For a claim, match a booking marked `claimable_by_you` and omit the
    duration. For a renewal, pass the time to add to the existing lease. Release only the

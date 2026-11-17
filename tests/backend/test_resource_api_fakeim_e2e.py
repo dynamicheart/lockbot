@@ -245,7 +245,8 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
                     assert not (directory / "key").exists()
                 finished = cli(*finish)
                 assert finished["connection_created"]
-                assert finished.get("outcome") == ("created" if creates_key else None)
+                expected_outcome = ("created" if creates_key else "recovered") if purpose == "recover" else None
+                assert finished.get("outcome") == expected_outcome
                 key = (directory / "key").read_text()
                 assert key not in resp.text + json.dumps(bot.adapter.sent)
                 assert code not in resp.text + json.dumps(bot.adapter.sent)
@@ -261,7 +262,7 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
                     ).raise_for_status()
                 else:
                     assert (key == old_key) == (purpose == "recover")
-                snapshot = cli(*connection, "resources")
+                snapshot = cli(*connection, "resources", "--exact-lease-times")
                 holder = next(resource for resource in snapshot["resources"] if resource["id"] == "n1")["holders"][0]
                 assert holder["external_user_id"] == ACTOR
                 if creates_key:

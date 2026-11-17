@@ -67,6 +67,30 @@ def metric_number(value):
     return number if math.isfinite(number) else None
 
 
+def format_lease_times(snapshot):
+    """Replace raw holder expiry fields with a display time after verification."""
+    age = metric_number(snapshot.get("age_seconds"))
+    for node in snapshot.get("resources", []):
+        for resource in (node, *node.get("devices", [])):
+            for holder in resource.get("holders", []):
+                remaining = metric_number(holder.pop("remaining_seconds", None))
+                holder.pop("expires_at", None)
+                if remaining is None or age is None or age < 0:
+                    holder["remaining_time"] = None
+                    continue
+                seconds = remaining - age
+                if seconds <= 0:
+                    text = "due now"
+                elif seconds < 60:
+                    text = "<1m"
+                else:
+                    hours, minutes = divmod(math.ceil(seconds / 60), 60)
+                    days, hours = divmod(hours, 24)
+                    units = ((days, "d"), (hours, "h")) if days else ((hours, "h"), (minutes, "m"))
+                    text = " ".join(f"{value}{unit}" for value, unit in units if value)
+                holder["remaining_time"] = text
+
+
 def utilization_sample(values, success, stamps, now, stale_seconds):
     """Classify a utilization reading using its collector's own timestamp."""
     stamp = stamps[0] if len(stamps) == 1 else None
@@ -1355,8 +1379,8 @@ class Client:
         key = response.get("credential")
         if status != "confirmed" or not isinstance(key, str) or not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", key):
             raise ClientError("invalid_credential_challenge_result")
-        if purpose == "recover" and response.get("outcome") == "created":
-            result["outcome"] = "created"
+        if purpose == "recover" and response.get("outcome") in ("created", "recovered"):
+            result["outcome"] = response["outcome"]
         self.secrets.append(key)
         if purpose == "reset":
             result["chat_action"] = "reset_applied"
@@ -2138,7 +2162,9 @@ def main(argv=None):
     catalog = sub.add_parser("connections", help="List project and user connections plus unfinished enrollments")
     catalog.add_argument("--directory", help="Read only this private connection catalog")
     sub.add_parser("context", help="Verify the selected connection's identity, bot and rules")
-    sub.add_parser("resources", help="Read the selected bot's current resources and queue")
+    resources = sub.add_parser("resources", help="Read the selected bot's current resources and queue")
+    exact_times_help = "Include precise lease timestamps and seconds for scheduling or an exact deadline."
+    resources.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
     recovery.add_argument("--destination", help="Explicit new private directory for separate group connections")
     recovery.add_argument("--scope", choices=["user", "project"], default="user")
@@ -2187,6 +2213,7 @@ def main(argv=None):
         "--duration", help="Lease for lock/book or time to add on renew, e.g. 30m. Omit for claim/release."
     )
     command.add_argument("--metadata-file", help="Private JSON: task_category, purpose, agent_label only")
+    command.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     command = sub.add_parser("metrics", help="Read current utilization for exact nodes from an approved source")
     command.add_argument(
         "--node", action="append", required=True, help="Exact node ID from resources. Repeat as needed."
@@ -2278,6 +2305,8 @@ def main(argv=None):
             )
         else:
             result = client.metrics(args.node)
+        if args.action in {"resources", "command"} and not args.exact_lease_times:
+            format_lease_times(result if args.action == "resources" else result["verified_snapshot"])
         print(
             json.dumps(
                 client.redacted({"result": result, "update_required": client.needs_update}),

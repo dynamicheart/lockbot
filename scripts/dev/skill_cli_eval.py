@@ -57,8 +57,8 @@ FIRST_CONTACT = {
 SAVED_LOGIN_SCENARIOS = {"install-with-key", "panel", "telemetry"}
 CHALLENGE_PROMPTS = {
     COLD_REQUEST: "帮我安装这个 Skill，申请一台 P800 机器用两小时。",
-    "approved-enrollment-no-group": "装一下这个 Skill，帮我连上 LockBot。我先看看资源，先不申请。",
-    "recover-original-key": "我在另一台机器上用过 LockBot，帮我装好这个 Skill，恢复以前的登录。",
+    "approved-enrollment-no-group": "装一下这个 Skill，帮我看看有哪些资源。",
+    "recover-original-key": "装一下这个 Skill，帮我看看有哪些资源。",
     "reset-personal-key": (
         "装一下这个 Skill，帮我重置 LockBot 的登录。我知道其他用这个登录的 Agent 要重新连接，确认重置。"
     ),
@@ -208,7 +208,7 @@ def resume(source, destination):
             raise ValueError("The simulated user must confirm browser consent before resuming")
         continuity.resume(source, destination)
         (destination / "system.txt").write_text((source / "system.txt").read_text())
-        (destination / "prompt.txt").write_text("我已经登录并收藏了。帮我打开个人资源台，看看我在用和预约了什么。")
+        (destination / "prompt.txt").write_text("看看我在用和预约了什么。")
         configure(destination)
         return
     if fixture.uses_challenge and fixture.case["phase"] == 2:
@@ -232,12 +232,9 @@ def resume(source, destination):
     continuity.resume(source, destination)
     (destination / "system.txt").write_text((source / "system.txt").read_text())
     if fixture.case["scenario"] == COLD_REQUEST:
-        prompt = "群里已经确认了。继续帮我申请一台 P800 机器，用两小时。"
-    elif fixture.challenge_purpose == "reset":
-        prompt = "我已经在群里确认刚才的重置了。帮我看看现在有哪些资源。"
+        prompt = "继续帮我申请一台 P800 机器，用两小时。"
     else:
-        target = "机器人所在的群" if fixture.uses_challenge else GROUP
-        prompt = f"我在{target}确认了。帮我看看有哪些资源。"
+        prompt = "帮我看看有哪些资源。"
     (destination / "prompt.txt").write_text(prompt)
     base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
     configure(destination)
@@ -353,6 +350,8 @@ class Fixture(continuity.Fixture):
                     result["credential"] = self.enrolled_key
                     if self.case["scenario"] in {COLD_REQUEST, "approved-enrollment-no-group"}:
                         result["outcome"] = "created"
+                    elif self.case["scenario"] == "recover-original-key":
+                        result["outcome"] = "recovered"
                 return {"status": 200, "body": result}
         status = self.binding_status()
         old_key_active = self.case["scenario"] in {"recover-original-key", "reset-personal-key"} and (

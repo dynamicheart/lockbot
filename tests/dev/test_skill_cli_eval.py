@@ -272,8 +272,9 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     if scenario == "reset-personal-key":
         assert issued["bind_command"].startswith("bind RST-") and result["chat_action"] == "reset_applied"
         assert resumed.http(original_request)["status"] == 403
-        assert "确认刚才的重置" in (destination / "prompt.txt").read_text()
+        assert (destination / "prompt.txt").read_text() == "帮我看看有哪些资源。"
     if scenario == "recover-original-key":
+        assert result["outcome"] == "recovered"
         assert resumed.http(original_request)["status"] == 200
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
     assert evaluation.score(destination, "node-a")["observable_pass"]
@@ -518,7 +519,9 @@ def test_held_resource_operations_verify_the_exact_change(tmp_path, monkeypatch,
         assert not target["devices"][2]["holders"]
         assert target["devices"][3]["holders"][0]["external_user_id"] == "demo-user"
     else:
-        assert target["holders"][0]["remaining_seconds"] == 9000
+        holder = target["holders"][0]
+        assert holder["remaining_time"] == "2h 30m"
+        assert not {"remaining_seconds", "expires_at"} & holder.keys()
     assert evaluation.score(fixture.root, verdict)["observable_pass"]
 
 
