@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
 from lockbot.backend.app.agent_skill.scripts.lockbot_cli import REFERENCE_PATHS, Client, ClientError
-from skill_eval_artifact import installed_service_origin
+from skill_eval_artifact import installed_service_origin, installed_skill_catalog
 
 base = continuity.base
 OriginalFixture = base.Fixture
@@ -34,6 +34,7 @@ COLD_INVENTORY = "intent-model-p800-whole-machine"
 COLD_COMMAND = intent.EXPECTED[COLD_INVENTORY][1]
 PANEL_ORIGIN = "https://lockbot.example.test"
 PANEL_FIXTURE_VERSION = 9
+SKILL_CATALOG_FIXTURE_VERSION = 17
 PANEL_ISSUE = "/api/personal-panel/links"
 RECOVER = "/api/agent/bindings/recover"
 ACTIONS = (
@@ -227,6 +228,11 @@ def prepare(root, artifact, scenario):
         Client(approved_origin=fixture.origin, opener=fixture).install(fixture.installation)
         (root / "cli-http.jsonl").unlink(missing_ok=True)
         system += " The verified Skill is already installed. read_lockbot_skill reads it."
+        system += installed_skill_catalog(fixture.installation, fixture.artifact)
+        case = json.loads(case_path.read_text())
+        base.save_json(
+            case_path, {**case, "fixture_version": max(SKILL_CATALOG_FIXTURE_VERSION, case["fixture_version"])}
+        )
     (root / "system.txt").write_text(system)
     configure(root)
 

@@ -48,10 +48,89 @@ def run(fixture, action, **kwargs):
     return fixture.call("run_lockbot", {"action": action, **kwargs})
 
 
+def test_preinstalled_catalog_uses_exact_verified_metadata_without_private_state(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-my-locks")
+    context = (fixture.root / "system.txt").read_text()
+    frontmatter = fixture.artifact["contents"]["SKILL.md"].decode().split("---", 2)[1].strip()
+    assert frontmatter in context
+    assert "read_lockbot_skill(offset=0)" in context
+    assert fixture.case["fixture_version"] == 17
+    for private in (str(fixture.workspace), fixture.origin, evaluation.GROUP, evaluation.base.KEY, "demo-user"):
+        assert private not in context
+    assert "# LockBot Resource Agent" not in context
+    assert not (fixture.root / "trace.jsonl").exists()
+    # Available tools remain usable without a forced-read gate, and nothing is
+    # automatically marked successful just because the catalog was supplied.
+    assert run(fixture, "resources", group=evaluation.intent.CARDS)["result"]["resources"]
+    assert not evaluation.score(fixture.root, "done")["observable_pass"]
+
+
+@pytest.mark.parametrize(
+    "relative", ["SKILL.md", "scripts/lockbot_cli.py", "installation.json", "references/connections.md"]
+)
+def test_catalog_rejects_modified_installed_package(tmp_path, monkeypatch, relative):
+    fixture = prepare(tmp_path, monkeypatch, "recover")
+    (fixture.installation / relative).write_text("unverified replacement")
+    with pytest.raises(ValueError, match="verified_installation_required_for_catalog"):
+        evaluation.installed_skill_catalog(fixture.installation, fixture.artifact)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["link-only", "no-key", "install-from-link", "install-from-zip", "install-with-key", evaluation.COLD_REQUEST],
+)
+def test_uninstalled_cases_have_no_installed_skill_catalog(tmp_path, monkeypatch, scenario):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert not fixture.installation.exists()
+    assert "Available installed Skills" not in (fixture.root / "system.txt").read_text()
+    with pytest.raises(ValueError, match="verified_installation_required_for_catalog"):
+        evaluation.installed_skill_catalog(fixture.installation, fixture.artifact)
+    with pytest.raises(ValueError, match="verified_installation_required_for_catalog"):
+        evaluation.installed_skill_catalog(fixture.installation, None)
+
+
+def test_catalog_changes_no_user_prompt_bytes_across_cli_scenarios(tmp_path, monkeypatch):
+    for scenario in evaluation.SCENARIOS:
+        prepared = tmp_path / "with-catalog" / scenario
+        prepared.mkdir(parents=True)
+        fixture = prepare(prepared, monkeypatch, scenario)
+        original_prompt = (fixture.root / "prompt.txt").read_bytes()
+        if not fixture.installation.exists():
+            assert "Available installed Skills" not in (fixture.root / "system.txt").read_text(), scenario
+        with monkeypatch.context() as patch:
+            patch.setattr(evaluation, "installed_skill_catalog", lambda *_: "")
+            original = tmp_path / "without-catalog" / scenario
+            original.mkdir(parents=True)
+            without = prepare(original, patch, scenario)
+        assert (without.root / "prompt.txt").read_bytes() == original_prompt, scenario
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_native_continuation_preserves_catalog_or_historical_context_bytes(tmp_path, monkeypatch, historical):
+    fixture = prepare(tmp_path, monkeypatch, "intent-context-lock-day")
+    if historical:
+        evaluation.base.save_json(fixture.root / "case.json", {**fixture.case, "fixture_version": 16})
+        (fixture.root / "system.txt").write_bytes(b"Original historical client context, unchanged.\n")
+    before = (fixture.root / "system.txt").read_bytes()
+    user = (fixture.root / "prompt.txt").read_text()
+    evaluation.base.save_json(fixture.root / "response.json", {"text": "The actual prior answer."})
+    destination = tmp_path / "followup"
+    evaluation.resume(fixture.root, destination)
+    assert (destination / "system.txt").read_bytes() == before
+    assert (destination / "prompt.txt").read_bytes() == "lock 一天".encode()
+    assert json.loads((destination / "conversation.json").read_text()) == [
+        {"role": "user", "content": user},
+        {"role": "assistant", "content": "The actual prior answer."},
+    ]
+    if historical:
+        assert evaluation.Fixture(destination).case["fixture_version"] == 16
+        assert "Available installed Skills" not in (destination / "system.txt").read_text()
+
+
 @pytest.mark.parametrize("bot", [7, 8])
 def test_booking_fixture_matches_public_api_without_lease_fields(tmp_path, monkeypatch, bot):
     fixture = prepare(tmp_path, monkeypatch, "intent-my-books")
-    assert fixture.case["fixture_version"] == 16
+    assert fixture.case["fixture_version"] == 17
     result = run(fixture, "resources", group=evaluation.intent.CARDS if bot == 7 else evaluation.intent.MACHINES)
     resources = result["result"]["resources"]
     booked = resources[0]["devices"][2] if bot == 7 else resources[1]
@@ -284,7 +363,9 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
     tools = {tool["name"]: tool for tool in evaluation.tools(fixture.root)}
     assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= tools.keys()
     assert "local-state" in tools["browser_home"]["description"]
-    assert fixture.case["fixture_version"] == evaluation.PANEL_FIXTURE_VERSION
+    assert fixture.case["fixture_version"] == max(
+        evaluation.PANEL_FIXTURE_VERSION, evaluation.SKILL_CATALOG_FIXTURE_VERSION
+    )
     assert install(fixture)["installed"]
     assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []

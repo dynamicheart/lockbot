@@ -92,3 +92,43 @@ def installed_service_origin(directory, artifact, origin):
         )
     except (OSError, ValueError, KeyError, TypeError):
         return False
+
+
+def installed_skill_catalog(directory, artifact):
+    """Expose only public routing metadata from an intact, verified installation."""
+    try:
+        origin = json.loads(artifact["contents"]["installation.json"])["deployment_origin"]
+        if not installed_service_origin(directory, artifact, origin):
+            raise ArtifactBlocked("verified_installation_required_for_catalog")
+        text = artifact["contents"]["SKILL.md"].decode("utf-8")
+        lines = text.splitlines()
+        if not lines or lines[0] != "---":
+            raise ArtifactBlocked("skill_catalog_metadata_missing")
+        frontmatter = lines[1 : lines.index("---", 1)]
+        fields = {}
+        for key in ("name", "description"):
+            starts = [i for i, line in enumerate(frontmatter) if line.startswith(key + ":")]
+            if len(starts) != 1:
+                raise ArtifactBlocked("skill_catalog_metadata_missing")
+            start = starts[0]
+            end = start + 1
+            while end < len(frontmatter) and frontmatter[end].startswith((" ", "\t")):
+                end += 1
+            block = frontmatter[start:end]
+            value = block[0].split(":", 1)[1].strip()
+            if not value or (value in {">", ">-", ">+", "|", "|-", "|+"} and not any(block[1:])):
+                raise ArtifactBlocked("skill_catalog_metadata_missing")
+            fields[key] = "\n".join(block)
+        return (
+            "\n\nAvailable installed Skills (verified package metadata):\n"
+            + fields["name"]
+            + "\n"
+            + fields["description"]
+            + "\nInstructions: read_lockbot_skill(offset=0).\n"
+            "Skill use: If an available Skill clearly applies to the user's task, read its instructions "
+            "before using its workflow. Read linked references only when needed."
+        )
+    except ArtifactBlocked:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, UnicodeError) as error:
+        raise ArtifactBlocked("verified_installation_required_for_catalog") from error

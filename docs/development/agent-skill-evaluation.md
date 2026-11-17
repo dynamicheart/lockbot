@@ -149,6 +149,30 @@ contains a failed or unfinished check, and 2 means the command or its inputs wer
 Manual review and live acceptance remain separate. Keep the output directory private and
 publish a sanitized summary.
 
+## Installed Skill discovery in CLI fixtures
+
+CLI fixture version 17 supplies an installed-Skill catalog only after the complete
+package has been verified and installed. It contains the actual frontmatter name
+and description, a `read_lockbot_skill(offset=0)` locator, and a shared instruction
+to read an applicable Skill before using its workflow. It supplies no scenario
+targets, expected actions, answers, or private connection state. Reading remains
+the Agent's decision: tools are not gated on it, and metadata does not produce a
+passing grade. User prompts and existing continuation context remain unchanged.
+
+Link-only and installation cases have no installed catalog before installation.
+The installer returns the verified document when installation succeeds. Archived
+fixture versions retain their original context; do not silently add this catalog
+when replaying an earlier run. Consultation fixtures separately expose verified
+documents and do not claim those packages are installed.
+
+Both native adapters intentionally disable ambient host Skill discovery. Ducc
+uses `--disable-slash-commands` and no built-in tools; the Codex adapter uses
+`skip_host_skill_discovery` and isolated dynamic tools. The catalog replaces the
+missing discovery context while keeping isolation. This evaluates a native
+client using the fixture-backed Skill workflow, rather than end-to-end discovery
+through each client's ordinary installation paths. A missing document read is a
+useful diagnostic, not by itself proof that the Skill body is ineffective.
+
 ## Native training13 Codex adapter
 
 `scripts/dev/skill_training13_runner.py` implements the runner protocol through
