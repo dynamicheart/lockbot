@@ -420,6 +420,11 @@ class Fixture:
                 raise ValueError("Unknown tool")
         except (ValueError, KeyError, OSError, TypeError, zipfile.BadZipFile) as error:
             result = {"error": str(error)}
+        if self.host is not None:
+            visible = self.host.virtual(result)
+            if visible != result:
+                execution["raw_result"] = result
+            result = visible
         return self.record(name, args, result, **execution)
 
 
@@ -792,7 +797,8 @@ def score(root, final):
         "skill_sha256": case["skill_sha256"],
         "checks": checks,
         "observable_pass": all(checks.values()),
-        "tool_calls": len(trace),
+        "tool_calls": sum(row.get("source") != "packaged_cli" for row in trace) if fixture.host else len(trace),
+        **({"cli_http_requests": sum(row.get("source") == "packaged_cli" for row in trace)} if fixture.host else {}),
         "manual_review_required": [
             "Installation recommendation and explanation",
             "Accurate final claims and missing prerequisites",

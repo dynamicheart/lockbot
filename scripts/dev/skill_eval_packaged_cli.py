@@ -64,6 +64,12 @@ class PackagedCliHost:
             for physical, logical in ((self.user, USER_ROOT), (self.workspace, PurePosixPath("."))):
                 if value == str(physical) or value.startswith(str(physical) + "/"):
                     return str(logical / Path(value).relative_to(physical))
+            for physical, logical in (
+                (self.user, USER_ROOT),
+                (self.workspace, "/synthetic-workspace"),
+                (self.fixture.root, "/synthetic-fixture"),
+            ):
+                value = value.replace(str(physical), str(logical))
         return value
 
     def verified(self, destination):
@@ -226,9 +232,10 @@ class PackagedCliHost:
                     code = error.code
             finally:
                 os.chdir(previous)
+        execution["stdout"], execution["stderr"] = stdout.getvalue(), stderr.getvalue()
         content = stdout.getvalue() if code == 0 else stderr.getvalue()
         try:
-            value = self.virtual(json.loads(content))
+            value = json.loads(content)
         except ValueError:
             return {
                 "exit_code": code,

@@ -417,3 +417,33 @@ def test_v7_resource_wire_has_current_api_identity_and_capture_fields_without_ha
         {"url": evaluation.ORIGIN + "/api/agent/resources", "headers": {"Authorization": "Bearer " + evaluation.KEY}},
     )["body"]
     assert old == {"resources": [{"resource_id": "node-a", "holders": []}]}
+
+
+def test_model_errors_neutralize_embedded_case_paths_but_keep_private_raw_evidence(tmp_path, frozen_package):
+    fixture = prepare(tmp_path, frozen_package, "missing-origin")
+    result = fixture.call("read_file", {"path": "not-present.txt"})
+    assert str(fixture.root) not in result["error"]
+    assert "missing-origin" not in result["error"]
+    assert "/synthetic-workspace/not-present.txt" in result["error"]
+    event = json.loads((fixture.root / "trace.jsonl").read_text().splitlines()[-1])
+    assert event["result"] == result
+    assert str(fixture.workspace) in event["raw_result"]["error"]
+    legacy = prepare(tmp_path, frozen_package, "missing-origin", version=6)
+    old = legacy.call("read_file", {"path": "not-present.txt"})
+    assert str(legacy.root) in old["error"]  # Preserve historical error bytes/behavior.
+
+
+def test_real_cli_outputs_remain_exact_in_execution_metadata_only(tmp_path, frozen_package):
+    fixture = prepare(tmp_path, frozen_package)
+    install(fixture)
+    result = run(fixture, "init", "--origin", evaluation.ORIGIN, "--key-file", "private/current.key")
+    assert result["result"]["connection"].startswith("/synthetic-user/")
+    event = json.loads((fixture.root / "trace.jsonl").read_text().splitlines()[-1])
+    assert event["result"] == result
+    assert str(fixture.workspace) in event["raw_result"]["result"]["connection"]
+    assert str(fixture.workspace) in event["stdout"]
+    assert event["argv"][0].startswith(str(fixture.workspace))
+    grade = evaluation.score(fixture.root, "Connection created.")
+    trace = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
+    assert grade["tool_calls"] == sum(row.get("source") != "packaged_cli" for row in trace)
+    assert grade["cli_http_requests"] == sum(row.get("source") == "packaged_cli" for row in trace)
