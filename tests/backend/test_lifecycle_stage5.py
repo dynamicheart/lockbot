@@ -61,9 +61,7 @@ def test_resources_can_be_queried_immediately_before_and_after_lock(client, api)
     path = f"/api/bots/{api['bot_id']}/resources"
     assert client.get(path, headers=api["headers"]).status_code == 200
     assert client.get(path, headers=api["headers"]).status_code == 200
-    locked = client.post(
-        f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": "lock n1 1h"}
-    )
+    locked = client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": "lock n1 1h"})
     assert locked.status_code == 200
     snapshot = client.get(path, headers=api["headers"])
     assert snapshot.status_code == 200

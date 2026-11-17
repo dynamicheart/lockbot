@@ -24,6 +24,7 @@ from lockbot.backend.app.config import (
 #: Fixed one-minute window. The budgets are expressed per minute.
 _WINDOW_SECONDS = 60.0
 
+
 class _CredentialBudget:
     """Sliding-window request budget keyed on ``(credential_id, kind)``.
 

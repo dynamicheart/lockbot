@@ -400,10 +400,7 @@ class Fixture(base.Fixture):
                     }
                 else:
                     path = self.path(args["path"])
-                    if (
-                        path != self.workspace / "downloads/lockbot-agent.zip"
-                        or path.read_bytes() != self.archive
-                    ):
+                    if path != self.workspace / "downloads/lockbot-agent.zip" or path.read_bytes() != self.archive:
                         raise artifacts.ArtifactBlocked("not_the_verified_download")
                     result = {
                         "members": ["lockbot-agent/" + name for name in sorted(artifacts.FILES)],
