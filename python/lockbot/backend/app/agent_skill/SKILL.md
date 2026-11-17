@@ -86,6 +86,13 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
   available choices. Read the inventory, report a suitable machine, and stop. Finding
   a match does not authorize locking or booking it. A follow-up such as “lock 一天”
   authorizes locking the uniquely selected machine for that duration.
+- **My resources:** check every saved, authorized group. Separate current holdings
+  from queued bookings, including individual cards; match the verified actor exactly.
+- **Expiry reminders:** for “到时间提醒我”, first read the user's current resources.
+  `next_event_kind: own_early_warning` describes the bot's existing scheduled group
+  warning. Explain that schedule without claiming a new reminder was created or delivered.
+  An expiry timestamp alone does not prove a warning is enabled. The resource API cannot
+  create personal timers; state that limit when no existing warning is reported.
 - **Acquire now:** a request such as “申请一台 P800 用两小时” asks for a lease now.
   Use `lock` on an idle match with an empty queue. If no match qualifies, report that
   and ask if the user wants to queue. Send `book` only after the user requests or
