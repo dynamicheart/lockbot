@@ -31,7 +31,17 @@ def prepare(tmp_path, name="phase-1"):
     (root / "prompt.txt").write_text("lock 19")
     (root / "system.txt").write_text("Use fixture tools only.")
     (root / "mcp.json").write_text(json.dumps({"mcpServers": {"fixture": {"command": "synthetic-fixture"}}}))
-    executable = tmp_path / "fake-ducc"
+    (tmp_path / "bin").mkdir(exist_ok=True)
+    (tmp_path / "settings.json").write_text(
+        json.dumps(
+            {
+                "apiKeyHelper": "synthetic-helper",
+                "env": {"ANTHROPIC_BASE_URL": "https://model.example.test", "SYNTHETIC_TOKEN": "not-a-real-token"},
+                "hooks": {"SessionStart": [{"command": "must-not-run"}]},
+            }
+        )
+    )
+    executable = tmp_path / "bin/fake-ducc"
     executable.write_text(FAKE)
     executable.chmod(0o700)
     request = {
@@ -71,9 +81,21 @@ def test_native_client_receives_only_current_prompt_and_explicit_fixture_tools(t
     assert args[args.index("--max-turns") + 1] == "8"
     assert observed["output_tokens"] == "256"
     assert "--strict-mcp-config" in args and "--resume" not in args
+    settings = json.loads(Path(args[args.index("--settings") + 1]).read_text())
+    assert settings["apiKeyHelper"] == "synthetic-helper"
+    assert settings["env"]["ANTHROPIC_BASE_URL"] == "https://model.example.test"
+    assert settings["disableAllHooks"] and settings["hooks"] == {}
+    assert "not-a-real-token" not in (root / "native-invocation.json").read_text()
+    assert "SessionStart" in json.loads((tmp_path / "settings.json").read_text())["hooks"]
     events = (root / "native-ducc.jsonl").read_text()
     assert '"tool_use"' in events and '"action": "resources"' in events
-    for name in ("native-ducc.jsonl", "native-ducc.stderr", "native-session.json", "native-invocation.json"):
+    for name in (
+        "native-ducc.jsonl",
+        "native-ducc.stderr",
+        "native-session.json",
+        "native-invocation.json",
+        "native-ducc-settings.json",
+    ):
         assert (root / name).stat().st_mode & 0o777 == 0o600
 
 
@@ -133,3 +155,31 @@ def test_missing_or_unusable_native_evidence_is_rejected():
         runner.parse_ducc('{"type":"assistant"}')
     with pytest.raises(ValueError):
         runner.parse_ducc(json.dumps({"type": "result", "result": "done", "session_id": "bad", "num_turns": 1}))
+
+
+def test_explicit_managed_template_is_preserved_and_only_private_copy_disables_hooks(tmp_path):
+    root = tmp_path / "phase"
+    root.mkdir()
+    source = tmp_path / "custom-settings.json"
+    original = {
+        "apiKeyHelper": "managed-helper",
+        "env": {"CUSTOM_PROVIDER": "preserved"},
+        "permissions": {"allow": ["fixture-tool"]},
+        "hooks": {"SessionStart": ["skip"]},
+    }
+    source.write_text(json.dumps(original))
+    before = source.read_bytes()
+    generated = runner.invocation_settings("unused-native-executable", root, source)
+    copied = json.loads(generated.read_text())
+    assert copied["apiKeyHelper"] == original["apiKeyHelper"]
+    assert copied["env"] == original["env"] and copied["permissions"] == original["permissions"]
+    assert copied["disableAllHooks"] is True and copied["hooks"] == {}
+    assert source.read_bytes() == before and generated.stat().st_mode & 0o777 == 0o600
+
+
+def test_missing_managed_configuration_never_starts_native_client(tmp_path):
+    root, executable, request = prepare(tmp_path)
+    (tmp_path / "settings.json").unlink()
+    code, result = execute(root, executable, request)
+    assert code != 0 and result["kind"] == "native_runner_error"
+    assert not (root / "observed.json").exists()

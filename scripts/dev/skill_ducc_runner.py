@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import uuid
@@ -22,6 +23,22 @@ def digest(data):
 def private_write(path, text):
     path.write_text(text)
     path.chmod(0o600)
+
+
+def invocation_settings(executable, root, selected=None):
+    """Retain the wrapper's authentication and proxy while disabling hooks locally."""
+    binary = Path(shutil.which(executable) or executable).expanduser().resolve()
+    source = Path(selected).expanduser().resolve() if selected else binary.parent.parent / "settings.json"
+    settings = json.loads(source.read_text())
+    if not isinstance(settings, dict) or not isinstance(settings.get("env", {}), dict):
+        raise ValueError("invalid_ducc_managed_settings")
+    # An inline --settings object replaces ducc's injected settings, including
+    # apiKeyHelper. Start from its managed template; never rewrite that template.
+    settings["disableAllHooks"] = True
+    settings["hooks"] = {}
+    destination = root / "native-ducc-settings.json"
+    private_write(destination, json.dumps(settings, ensure_ascii=False))
+    return destination
 
 
 def previous_session(request, root, system):
@@ -63,7 +80,7 @@ def previous_session(request, root, system):
     return session
 
 
-def ducc_command(executable, request, system, session):
+def ducc_command(executable, request, system, session, settings):
     config = json.loads(Path(request["mcp_config"]).read_text())
     servers = config.get("mcpServers")
     if not isinstance(servers, dict) or any(not name or not name.replace("_", "").isalnum() for name in servers):
@@ -85,7 +102,7 @@ def ducc_command(executable, request, system, session):
         "--permission-mode",
         "dontAsk",
         "--settings",
-        '{"disableAllHooks":true}',
+        str(settings),
         "--setting-sources",
         "user",
         "--disable-slash-commands",
@@ -123,7 +140,7 @@ def parse_ducc(stdout):
     return {"text": result["result"], "turns": turns, "native_client": "ducc", "native_session_id": session}, session
 
 
-def run_ducc(request, executable):
+def run_ducc(request, executable, managed_settings=None):
     root = Path.cwd()
     prompt = Path(request["prompt_file"]).read_text()
     system = Path(request["system_file"]).read_text()
@@ -131,7 +148,8 @@ def run_ducc(request, executable):
     for key in ("max_turns", "output_tokens"):
         if type(request.get(key)) is not int or request[key] <= 0:
             raise ValueError("invalid_" + key)
-    command = ducc_command(executable, request, system, session)
+    settings = invocation_settings(executable, root, managed_settings)
+    command = ducc_command(executable, request, system, session, settings)
     # Native sessions are indexed by the original project directory. The
     # absolute MCP configuration still targets the new phase's fixture.
     native_cwd = root.parent / "phase-1" if session else root
@@ -180,11 +198,14 @@ def run_ducc(request, executable):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ducc", default="ducc", help="Native executable; authentication remains client-managed")
+    parser.add_argument(
+        "--managed-settings", help="Optional managed settings template for a nonstandard ducc installation"
+    )
     args = parser.parse_args(argv)
     os.umask(0o077)
     try:
         request = json.load(sys.stdin)
-        result, status = run_ducc(request, args.ducc)
+        result, status = run_ducc(request, args.ducc, args.managed_settings)
     except UnsupportedContext as error:
         result, status = {"text": "", "kind": "unsupported_context", "reason": str(error)}, 0
     except (OSError, ValueError, KeyError, TypeError) as error:

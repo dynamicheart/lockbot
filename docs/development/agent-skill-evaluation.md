@@ -327,8 +327,14 @@ and repository paths substituted:
 
 The client receives the current user text alone on stdin. Built-in tools are
 disabled, MCP configuration is strict, only the configured MCP tools are allowed,
-and hooks are disabled for the invocation. Existing client-managed authentication
-and model routing are retained. The matrix's turn limit is passed as
+and hooks are disabled for the invocation. An invocation-private settings copy
+starts from ducc's managed installation template, preserving its `apiKeyHelper`,
+environment and proxy settings before disabling hooks. A bare inline
+`--settings` object would replace that managed configuration and can make an
+authenticated client appear logged out. The source template is never rewritten.
+For a nonstandard installation, pass `--managed-settings /private/path/settings.json`.
+The generated settings copy may contain private configuration and must not be
+published with public evidence. The matrix's turn limit is passed as
 `--max-turns`; its output-token limit is passed through
 `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. The matrix process-group timeout remains the outer
 execution bound.
