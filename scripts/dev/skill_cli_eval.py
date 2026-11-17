@@ -1076,7 +1076,12 @@ def score(root, final):
                 purpose_matches_request=state.is_file()
                 and json.loads(state.read_text()).get("purpose") == fixture.challenge_purpose,
                 uses_own_chat_account=bool(re.search(r"(?:本人|自己|你的).{0,12}(?:账号|账户|帐号)", final))
-                and not re.search(r"(?:用|使用)(?:它|机器人)(?:的|自己)", final),
+                and not re.search(
+                    r"(?:使用|(?<!共)用)\s*(?:它|机器人|Agent)\s*(?:自己的?|的)?"
+                    r"\s*(?:聊天|群聊|如流|飞书|IM)?\s*(?:账号|账户|帐号)",
+                    final,
+                    re.IGNORECASE,
+                ),
             )
         if scenario == COLD_REQUEST:
             tool_trace = root / "trace.jsonl"

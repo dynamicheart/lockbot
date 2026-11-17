@@ -224,8 +224,12 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     assert evaluation.score(fixture.root, instruction)["observable_pass"]
     if fixture.uses_challenge:
         assert not evaluation.score(fixture.root, "请先提供群名")["checks"]["manual_group_confirmation"]
-        confused = instruction + " 用它自己的聊天账号发送。"
-        assert not evaluation.score(fixture.root, confused)["checks"]["uses_own_chat_account"]
+        if scenario == "reset-personal-key":
+            with_shared_key_warning = instruction + " 确认后旧 Key 会失效，其他共用它的 Agent 需要换成新 Key。"
+            assert evaluation.score(fixture.root, with_shared_key_warning)["checks"]["uses_own_chat_account"]
+        for account in ("它自己的聊天账号", "机器人的群聊账号", "Agent 的飞书账号"):
+            confused = f"{instruction} 使用{account}发送。"
+            assert not evaluation.score(fixture.root, confused)["checks"]["uses_own_chat_account"]
     original_request = {
         "url": fixture.origin + "/api/agent/context",
         "method": "GET",
