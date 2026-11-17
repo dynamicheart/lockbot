@@ -547,12 +547,12 @@ class CatalogScanBudget:
         self.check()
         if self.records >= self.record_limit:
             self.stop("record_budget")
-        self.records += 1
         # private_bytes rejects larger files without reading them. Reserve the
         # maximum possible read, so oversized or changing files remain bounded.
         size = 16385
         if self.bytes + size > self.byte_limit:
             self.stop("byte_budget")
+        self.records += 1
         self.bytes += size
 
     def summary(self):
@@ -1619,18 +1619,37 @@ class Client:
             for key, value in expected.items()
         ):
             raise ClientError("resource_snapshot_identity_mismatch")
-        for field, identity in (("actor", context["actor"]), ("bot", context["bot"]), ("server", context["server"])):
-            if field not in snapshot and not (coherent and field == "actor"):
-                continue  # Older resource payloads can omit identity fields.
-            reported = snapshot.get(field)
-            required = {"platform", "external_user_id"} if coherent and field == "actor" else set()
-            if not isinstance(reported, dict) or any(
-                (key in reported or key in required) and reported.get(key) != value
-                for key, value in identity.items()
-                if key
-                in {"platform", "external_user_id", "id", "uuid", "type", "instance_id", "service_id", "api_version"}
-            ):
+        scopes = [snapshot]
+        if coherent:
+            if not isinstance(snapshot["context"], dict):
                 raise ClientError("resource_snapshot_identity_mismatch")
+            scopes.append(snapshot["context"])
+        for reported_scope in scopes:
+            for field, identity in (
+                ("actor", context["actor"]),
+                ("bot", context["bot"]),
+                ("server", context["server"]),
+            ):
+                if field not in reported_scope and not (coherent and field == "actor"):
+                    continue  # Older resource payloads can omit identity fields.
+                reported = reported_scope.get(field)
+                required = {"platform", "external_user_id"} if coherent and field == "actor" else set()
+                if not isinstance(reported, dict) or any(
+                    (key in reported or key in required) and reported.get(key) != value
+                    for key, value in identity.items()
+                    if key
+                    in {
+                        "platform",
+                        "external_user_id",
+                        "id",
+                        "uuid",
+                        "type",
+                        "instance_id",
+                        "service_id",
+                        "api_version",
+                    }
+                ):
+                    raise ClientError("resource_snapshot_identity_mismatch")
         generation = self.node_access.invalidate() if self.node_access else None
         if generation:
             nodes = self._current_node_access(snapshot, context, self.clock() - started)
@@ -2440,7 +2459,7 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                 "groups": snapshots,
                 "unread": unread,
                 "catalog_connections": len(catalog["connections"]),
-                "catalog_count_exact": scan["complete"],
+                "catalog_count_exact": scan["complete"] and catalog["unavailable_count"] == 0,
                 "catalog_scan": scan,
                 "http_requests": calls,
             },

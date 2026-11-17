@@ -107,7 +107,7 @@ def aggregate(tmp_path):
                     if self.path == "/api/agent/context":
                         body = context
                     else:
-                        if not state.coherent:
+                        if not state.coherent and "context" not in state.extra:
                             body.pop("context")
                         for field in state.omit_identity:
                             body.pop(field, None)
@@ -262,6 +262,7 @@ def test_packaged_aggregate_unreadable_record_is_reported_without_its_content(ag
     record.chmod(0o600)
     result = aggregate.run("resources-all")["result"]
     assert result["complete"] is False and len(result["groups"]) == 1
+    assert result["catalog_count_exact"] is False
     assert result["unread"] == [{"error": "catalog_records_unavailable", "count": 1}]
 
 
@@ -397,6 +398,7 @@ def test_catalog_byte_budget_does_not_change_default_connections_semantics(aggre
     assert limited["scan"]["complete"] is False
     assert limited["scan"]["reasons"] == ["byte_budget"]
     assert limited["scan"]["bytes_reserved"] == 16385
+    assert limited["scan"]["records_examined"] == 1
     unlimited = module.listed_connections(aggregate.catalog)
     assert len(unlimited["connections"]) == 2 and "scan" not in unlimited
     assert server.events == []
@@ -436,3 +438,25 @@ def test_aggregate_limits_unrelated_directory_traversal(aggregate, monkeypatch):
     assert result["catalog_scan"]["reasons"] == ["directory_entry_budget"]
     assert result["catalog_scan"]["directory_entries_examined"] == 3
     assert result["unread"][0]["error"] == "catalog_scan_incomplete"
+
+
+@pytest.mark.parametrize("mine", [False, True])
+@pytest.mark.parametrize("field", ["actor", "bot", "server"])
+def test_legacy_explicit_nested_context_conflicts_are_not_hidden_by_projection(aggregate, mine, field):
+    server = aggregate.server(1)
+    server.coherent = False
+    nested = {
+        "actor": dict(server.actor),
+        "bot": {"id": 1, "uuid": "bot-1", "type": "QUEUE"},
+        "server": {"instance_id": server.instance, "service_id": "lockbot.resource-api", "api_version": "1"},
+    }
+    nested[field] = {
+        "actor": {"platform": "infoflow", "external_user_id": "other-user"},
+        "bot": {"id": 999, "uuid": "other-bot", "type": "QUEUE"},
+        "server": {"instance_id": "other-instance", "service_id": "lockbot.resource-api", "api_version": "1"},
+    }[field]
+    server.extra["context"] = nested
+    aggregate.record(server, "legacy")
+    result = aggregate.run("resources-all", *(["--mine"] if mine else []))["result"]
+    assert result["complete"] is False and result["groups"] == []
+    assert result["unread"][0]["error"] == "resource_snapshot_identity_mismatch"
