@@ -61,7 +61,12 @@ python3 "/path/to/skill/scripts/lockbot_cli.py" --connection "/path/to/connectio
 ```
 
 Use the matching private file listed by `connections`. Replace the
-example node and cards with the exact IDs from the inventory. For a status question,
+example node and cards with the exact IDs from the inventory. A node-only `lock 19`,
+`slock 19 4h` or `book 19` selects the whole node in a whole-node group, or all its
+cards in a card group, matching the chat command. For cards, enumerate every observed
+device ID in one command; do not silently choose a subset or ask for card numbers
+already implied by the node target. Verify that the group supports the operation.
+For a status question,
 stop after `resources`. Its `context` includes identity, current rules and task-category
 choices; do not issue separate `discover` or `context` calls for the same ordinary read.
 `command` verifies its returned `verified_snapshot`; do not immediately read again just
