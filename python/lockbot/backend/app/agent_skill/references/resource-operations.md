@@ -211,13 +211,19 @@ stopped, release only this task's still-owned resources where appropriate, and r
 the normal fair queue if more work remains. Never continue through expiry while retrying.
 If ownership cannot be confirmed because reads fail or are too stale, pause until verified.
 
-On Agent exit, cancellation or a long pause, clean up this task's workload and allocations.
+For a workload the user asked the Agent to execute or manage, clean up that
+workload and its allocations on Agent exit, cancellation or a long pause.
 A timer in a sleeping or exited Agent cannot reliably stop a remote GPU job: arrange deadline
 enforcement in the task's runner, or stop work before becoming unavailable.
 After sleep/restart, refresh context and live state before resuming; saved memory is not a
 lease. If you cannot run timers, keep polling or stop your workload reliably, say so before
 starting and do not promise unattended acquisition/renewal. Lockbot records leases and queues;
 it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's responsibility.
+
+A resource-management request such as “lock 19” or “book 19” hands the requested
+lease or queue entry to the user. Finishing the chat turn is not workload
+completion: leave that allocation intact. Release it only on the user's release
+request, or as part of the separately authorized Agent-managed workload above.
 
 ## Choose resources and release promptly
 
@@ -239,11 +245,14 @@ Explicit per-card requests never become whole-node allocations or switch groups.
   When several suitable machines/cards are free, prefer consecutive machine IDs or
   contiguous card indexes for multi-resource tasks. Do not reserve extra machines merely
   to obtain a consecutive block, or assume consecutive names imply hardware locality.
-- Set an explicit lease duration that fits the work. Avoid unnecessarily long locks or
+- Use the requested duration. For a new lock/slock/book without one, omit
+  `--duration` and use the verified live group default; do not invent a duration
+  or ask unnecessarily. A renewal still needs an explicit increment or the
+  separately documented verified live default. Avoid unnecessarily long locks or
   reserving capacity "just in case". Only when renewal is permitted, renew long-running tasks in bounded increments
   while actively using the resources, after verifying current ownership and remaining time.
   Repeated `lock` adds time; never renew on every poll or blindly retry a renewal.
-- On completion, cancellation, failure that stops resource use, or a long pause, promptly
+- For an Agent-managed workload, on completion, cancellation, failure that stops resource use, or a long pause, promptly
   release this task's resources and cancel its unneeded bookings. Do not wait for expiry.
   Query afterwards to confirm. Specify exact resources/cards so another Agent sharing
   the user's key keeps its own active work.
