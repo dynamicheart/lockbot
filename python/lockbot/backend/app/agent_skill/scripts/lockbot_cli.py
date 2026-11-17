@@ -1432,6 +1432,74 @@ class Client:
         context = self._read_context(with_resources=True)
         return self.resources_with_hardware_notes(context)
 
+    def own_inventory(self, *, exact_lease_times=False):
+        """Project only the verified actor's holdings and queued bookings."""
+        context = self._read_context(with_resources=True)
+        snapshot = self.resources_with_hardware_notes(context)
+        if not exact_lease_times:
+            format_lease_times(snapshot)
+        actor = context["actor"]
+        holdings, bookings = [], []
+        if not isinstance(snapshot.get("resources"), list):
+            raise ClientError("invalid_resource_summary")
+        for node in snapshot["resources"]:
+            if not isinstance(node, dict) or not isinstance(node.get("id"), str):
+                raise ClientError("invalid_resource_summary")
+            cards = node.get("devices")
+            if cards is not None and not isinstance(cards, list):
+                raise ClientError("invalid_resource_summary")
+            for unit in cards if cards is not None else [node]:
+                if not isinstance(unit, dict) or not isinstance(unit.get("holders"), list):
+                    raise ClientError("invalid_resource_summary")
+                entry = {
+                    "node": node["id"],
+                    "alias": node.get("alias"),
+                    "device": unit.get("id") if cards is not None else None,
+                    "allocation": "card" if cards is not None else "whole_node",
+                    "model": unit.get("dev_model") if cards is not None else None,
+                    "accelerators": node.get("accelerators") if cards is None else None,
+                }
+                for field, destination in (("holders", holdings), ("booking_list", bookings)):
+                    rows = unit.get(field, [])
+                    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                        raise ClientError("invalid_resource_summary")
+                    own = self._own(
+                        [row for row in rows if row.get("platform", actor["platform"]) == actor["platform"]],
+                        actor["external_user_id"],
+                    )
+                    if own is None:
+                        continue
+                    if field == "holders":
+                        timing = (
+                            {key: own.get(key) for key in ("remaining_seconds", "expires_at")}
+                            if exact_lease_times
+                            else {"remaining_time": own.get("remaining_time")}
+                        )
+                        destination.append({**entry, "mode": unit.get("lock_status"), **timing})
+                    else:
+                        position = own.get("position")
+                        destination.append(
+                            {
+                                **entry,
+                                # The holder's mode/time do not describe an unclaimed booking.
+                                "mode": None,
+                                "queue_rank": position + 1 if type(position) is int and position >= 0 else None,
+                                "claimable_by_you": unit.get("claimable_by_you")
+                                if type(unit.get("claimable_by_you")) is bool
+                                else None,
+                            }
+                        )
+        return {
+            **{key: value for key, value in snapshot.items() if key != "resources"},
+            "context": context,
+            "actor": actor,
+            "bot_id": context["bot"]["id"],
+            "bot_type": context["bot"]["type"],
+            "scope": "own",
+            "holdings": holdings,
+            "bookings": bookings,
+        }
+
     def resources(self, context):
         prepared = self._prepared_resources
         self._prepared_resources = None
@@ -2225,6 +2293,7 @@ def main(argv=None):
     catalog.add_argument("--directory", help="Read only this private connection catalog")
     sub.add_parser("context", help="Verify the selected connection's identity, bot and rules")
     resources = sub.add_parser("resources", help="Read the selected bot's current resources and queue")
+    resources.add_argument("--mine", action="store_true", help="Separate only your verified holdings and bookings")
     exact_times_help = "Include precise lease timestamps and seconds for scheduling or an exact deadline."
     resources.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
@@ -2342,7 +2411,7 @@ def main(argv=None):
         elif args.action == "context":
             result = client.context()
         elif args.action == "resources":
-            result = client.inventory()
+            result = client.own_inventory(exact_lease_times=args.exact_lease_times) if args.mine else client.inventory()
         elif args.action == "recover":
             result = client.recover(args.destination, scope=args.scope)
         elif args.action == "resource-guidance":
