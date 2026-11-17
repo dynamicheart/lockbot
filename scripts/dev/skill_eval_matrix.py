@@ -53,7 +53,7 @@ def prepare(root, suite, scenario, artifacts):
         cli.prepare(root, artifacts / "panel" if scenario == "panel" else current, scenario)
         return cli.score
     if suite == "onboarding":
-        onboarding.prepare(root, None, scenario, artifacts=current)
+        onboarding.prepare(root, None, scenario, artifacts=current, fixture_version=7)
         return onboarding.score
     if suite == "continuity":
         continuity.prepare(root, source, scenario, current)

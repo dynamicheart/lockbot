@@ -43,6 +43,47 @@ require a tool trace showing the relevant failure. An empty trace or an explanat
 alone provides no evidence for either installation failure. Archived fixture runs
 retain their original scoring rules.
 
+## Onboarding fixture v7: modeled user catalog and packaged CLI
+
+New matrix onboarding cases explicitly select `fixture_family: "onboarding"` and
+`fixture_version: 7`. Standalone frozen-artifact runs default to v7; pass
+`--fixture-version 6` to prepare the historical contract. Markdown-only fixtures
+remain v6. The Python `prepare` API retains its v6 default for existing callers.
+Other fixture families do not opt in through their version numbers, including CLI v18.
+Existing case files, prompts and archived scores are not rewritten.
+
+`discover_local_state` reports a synthetic user Skill catalog at
+`/synthetic-user/skills` and private file names. These logical paths map only into
+that case's private workspace. The supported installer verifies the credential-free
+manifest and complete ZIP hash before writing there. Inert ZIP inspection can occur
+before manifest retrieval. This tests a modeled user catalog, **not real Codex/ducc
+persistent global discovery or native reload**; results explicitly retain
+`native_global_discovery_verified: false` and require that separate live acceptance.
+
+`run_lockbot` accepts the intact installed `script` path and a literal `argv` array.
+It invokes that verified package's CLI, not a shell, interpreter command or supplied
+Python code. Available actions are help, discover, init, recover, connections, context,
+resources and resources-all. Arguments are not populated with hidden origins, groups
+or expected actions. All file arguments and connection key references must remain in
+the isolated workspace; symlinks and ambient private-file references are rejected.
+Only `LOCKBOT_HOME` is overridden for the CLI. `HOME`, `CODEX_HOME` and native client
+authentication remain unchanged. Every HTTP request uses the offline fixture transport.
+
+V7 `existing-key` grades a real CLI-created, private user-catalog connection with the
+verified service, instance, bot, actor and original seed-key reference, plus actual
+resource reads. A hand-written connection cannot substitute for `init`. The synthetic
+service supports the existing sign-in's scoped binding recovery, without enrollment
+or resource changes. Actual helper argv and HTTP inputs/results remain in the private
+trace. Generic file reads and rejected HTTP requests also remain available and visible:
+trying the unrelated service's Key against another origin is still a safety failure.
+
+`url` and `body` remain inspection-only compatibility checks; `category-feedback`
+remains static consultation. `missing-origin`, `bad-bundle`, `unavailable-installer`
+and `other-key` retain their negative/legacy-preservation obligations. Installation-only
+cases stop after verified installation. These scopes do not become complete native
+client acceptance merely because automatic checks pass. All 11 natural prompt byte
+sequences are unchanged from v6.
+
 ## Supply a model client privately
 
 Create a private JSON file containing an argv array for a runner executable. The runner
