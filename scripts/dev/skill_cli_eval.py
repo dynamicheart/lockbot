@@ -1003,7 +1003,7 @@ def score(root, final):
         checks["reports_utilization_and_sample_age"] = (
             bool(re.search(r"(?<!\d)42(?:\.0+)?\s*[%％]", final))
             and "node-a" in final
-            and bool(re.search(r"(?<!\d)(?:[78]|9)(?:\.\d+)?\s*秒", final))
+            and bool(re.search(r"(?<![\d.])[789](?:\.\d+)?\s*(?:秒|s(?:ec(?:onds?)?)?\b)", final, re.IGNORECASE))
             and ("样本" in final or "采样" in final)
             and all(grant not in final for grant in continuity.METRICS_GRANTS)
         )

@@ -65,6 +65,8 @@ stop after `resources`. Use `command --help` for all write arguments.
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
   booking is claimable. Add `--device` for a queued card. The booking sets the duration.
+- **Renew a lease:** use `command --operation renew` with the time to add. The inventory
+  lists server operations. The CLI uses server `lock` for both `claim` and `renew`.
 - **Cards together:** put every requested card on that node in one command, repeating
   `--device`. Pass `--device-count` when the user specifies a quantity. If the whole
   selection cannot be made, report the shortfall before sending a write.

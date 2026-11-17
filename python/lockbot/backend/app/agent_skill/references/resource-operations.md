@@ -67,7 +67,7 @@ These rules can change; `/resources` and the actual command result remain author
 | `max_lock_duration_seconds` | Configured maximum remaining lease duration after acquisition/renewal; `-1` means unlimited. |
 | `duration_limit_exempt`, `effective_max_lock_duration_seconds` | Caller-specific duration exemption and effective ceiling (`-1` unlimited). This exempts neither renewal restrictions nor resource-count limits; the exemption list is never disclosed. |
 | `queue_claim_window_seconds` | Time to claim when it is your turn; null for non-queue types. |
-| `supported_operations`, `allow_user_alias` | Operations supported by the type and whether alias editing is enabled. A listed operation does not bypass `agent_access_enabled` or other policy checks. |
+| `supported_operations`, `allow_user_alias` | Server operations and whether alias editing is enabled. The CLI maps `claim` and `renew` to `lock`, and `release` to `unlock`. Access and policy checks still apply. |
 | `request_budget.read_per_minute`, `request_budget.write_per_minute` | Actual deployed per-key read/write budgets shared by all the user's Agents. Other endpoint/IP limits can also apply. |
 | `poll_minimum_seconds.active`, `.booking`, `.discovery` | Server-advertised polling guidance in seconds. Agents can choose an interval suited to the task. |
 | `api_max_machines_per_user` | The separate existing API machine-count ceiling, including held/booked machines; several cards on one machine count once here. A card quota does not redefine this machine limit. |

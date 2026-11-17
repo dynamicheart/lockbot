@@ -191,6 +191,8 @@ def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tm
     grade = evaluation.score(fixture.root, final)
     assert grade["observable_pass"], grade["checks"]
 
+    assert evaluation.score(fixture.root, "node-a 利用率 42%，样本新鲜度约 8.1s。")["observable_pass"]
+    assert not evaluation.score(fixture.root, "node-a 利用率 42%，样本新鲜度约 28.9s。")["observable_pass"]
     assert not evaluation.score(fixture.root, "node-a 利用率 42%，现在查询。")["observable_pass"]
     assert run(fixture, "metrics", nodes=["node-a"])["result"]
     assert not evaluation.score(fixture.root, final)["checks"]["one_retry_with_same_selector"]
