@@ -4,18 +4,18 @@
 
 ## 用户需要提供什么
 
-用户只需提供本平台的地址或 Agent skill 链接，并在对应群中确认一次绑定码。申请绑定码本来就不需要 `bot_id`；哪个群里的机器人确认了绑定，授权就属于哪个 bot。
+首次使用时，用户可以转发完整 Skill ZIP 的链接，并直接说「帮我安装这个 Skill，查一下还有哪些可用机器」。需要首次绑定时，Agent 会给出一条群内确认指令。用户在机器人所在群发送这条指令即可。
 
 首次接入流程如下：
 
 1. Agent 不带凭据读取该地址的 `/api/agent-skill`，确认平台身份与 API 版本。
-2. Agent 使用此平台、此实例的已存 key；没有时，调用原有绑定接口并请用户到群中确认。
+2. Agent 先找与服务和实例匹配的已保存连接。需要绑定时，调用 `POST /api/resource-auth/credential-challenges` 并把 CLI 返回的群内确认指令交给用户。确认后找回已有 Key，首次使用则创建 Key。重置需要用户明确提出并确认旧 Key 将失效。
 3. Agent 带自己的 key 调用 `GET /api/agent/context`，取得已绑定的 bot、身份和操作链接。
 4. 继续调用原来的资源及命令接口。`bot_id` 由 Agent 根据服务器返回值填写，用户不用查编号。
 
 自省接口只返回这份 key 已经授权的一个 bot，不开放匿名机器人列表，不扩大权限。机器人停止时仍可识别所属 bot；访问开关关闭时返回关闭状态，不因此要求用户重新绑定。
 
-用户只发来 `SKILL.md` 链接时，Agent 先读取说明即可完成本次接入。长期使用时建议通过客户端支持的方式安装 `lockbot-resource-agent`，但持久安装需要用户已授权，且不能覆盖其他平台的 skill。客户端不支持安装或热加载时，应说明限制，并在每次任务重新读取最新说明；服务端提供版本和下载入口，不假装能替客户端完成安装。
+只收到 Skill 链接时，Agent 读取公开清单并介绍 Skill。用户要求安装时，根据清单里的 `installation.download_url` 下载并校验完整 ZIP，使用客户端支持的安装方式。只要求安装时，校验安装后结束。客户端不支持安装或热加载时，应说明实际状态。
 
 ## 平台、API 与 skill 版本各自表达什么
 
@@ -34,7 +34,7 @@ API 1 允许新增可选字段、响应头和端点；保留已发布路径、�
 
 ## 与其他 Lockbot 平台隔离
 
-有的实现使用 `/api/infoflow-auth/challenges` 及 JWT token，允许一份 token 调用多个 bot。那属于另一套协议。本平台使用 `/api/resource-auth/bindings` 和 `lbr_` key，授权范围是一个用户、一个 bot。不能因为产品名字或命令 URL 相同就套用另一套说明。
+有的实现使用 `/api/infoflow-auth/challenges` 及 JWT token，允许一份 token 调用多个 bot。那属于另一套协议。本平台通过群内确认发放 `lbr_` Key，授权范围是一个用户、一个 bot。不能因为产品名字或命令 URL 相同就套用另一套说明。
 
 Agent 的私有凭据记录按“用户认可的服务地址 + 实例 ID + bot UUID”区分。首次绑定后，不需要先知道 bot UUID：直接凭新 key 调用自省，取得 UUID 后补充到凭据记录；查找已有凭据时先匹配地址和实例。skill 使用独立名称，与其他平台并存。不覆盖其他 skill，不读取、迁移或删除别的平台 token，也不把未标注来源的旧 token 向不同服务器试一遍。已存记录来源不明时，只向用户确认它属于哪个平台。
 
@@ -46,7 +46,7 @@ Agent 的私有凭据记录按“用户认可的服务地址 + 实例 ID + bot U
 
 对已发布的 401 错误，保留原 HTTP 状态码和字符串 `detail`，新增顶层 `code` 和 `context_url`：有效 key 访问其他现存 bot 时为 `wrong_bot`，无效或撤销 key 为 `credential_invalid`。Agent 使用自省接口恢复正确操作链接，不再扫描编号。原有结构化业务错误仍使用 `detail.code`；skill 同时说明两种兼容格式。
 
-旧版 `name`、下载 URL、ZIP 根目录、摘要字段和 Markdown 地址继续可用。新安装者使用 manifest 中的 `installation` 下载独立命名的 ZIP。2.10.0 服务尚无自省能力，已有明确 bot 配置的旧客户端仍可工作；缺少配置时提示升级发现能力，不冒用另一套平台的接口。
+当前下载入口为 `GET /api/agent-skill/lockbot-resource-agent.zip`，`SKILL.md` 在 ZIP 内。Agent 通过公开清单的 `installation` 获取下载地址和完整性摘要。
 
 ## 逐项验收
 
@@ -55,7 +55,7 @@ Agent 的私有凭据记录按“用户认可的服务地址 + 实例 ID + bot U
 - [x] API 暴露平台、实例、API 和 skill 版本；内容变化时重新获取并校验 skill。
 - [x] skill 独立命名，凭据按服务地址、实例和 bot UUID 隔离，不复用其他平台的 token。
 - [x] 说明读取、持久安装与自动更新各自由谁完成，保留客户端不支持安装时的使用方式。
-- [x] 旧 manifest 字段、下载路径与 ZIP 根目录继续可用；无效凭证不返回用户和 bot 信息。
+- [x] 公开清单提供完整 ZIP 下载地址和摘要。无效凭证不返回用户和 bot 信息。
 
 实现和回归测试随修复 Issue #3 的 PR 提交。勾选表示代码与测试已覆盖，正式服务的可用性仍以发布、部署版本为准。
 

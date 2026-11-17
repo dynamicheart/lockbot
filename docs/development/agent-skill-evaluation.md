@@ -164,17 +164,19 @@ separately in #153; server authorization remains the enforcement boundary for al
 
 ## Copyable first-contact instruction
 
-A client that never opens a bare URL cannot see the installation instructions inside it.
-Provide an explicit instruction as well as the deployment link, for example:
+Attach the complete Skill ZIP URL and ask in the same terms a user would use.
 
-> Please read and install this Skill: `<deployment Skill URL>`. I will use it regularly.
-> Save this service address locally and keep each service/bot key in the private credential
-> store. Do not enroll or request resources yet.
+> Please install this Skill.
 
-This is a suggested user request. The client still controls its installation and approval
-flow. Use the public manifest to identify the complete ZIP and verify its digest. The
-package contains the Markdown instructions, helper, references and integrity metadata.
-A ZIP does not automatically register itself with every client.
+From a clean workspace, exercise a separate first-use case with the same ZIP URL.
+
+> Please install this Skill and get me a P800 machine for two hours.
+
+The Agent must discover the prerequisites and relay the chat confirmation instruction
+if needed. After the simulated confirmation, verify that it finishes the original request
+and can find the saved connection in a fresh session. For installation alone, verify the
+actual files, the service address and discovery by the client. The client controls how the
+verified ZIP is registered.
 
 Attach each dated evaluation matrix to the PR that changes the Skill, bound to its commit,
 Skill hash, fixture/scenario version and runner conditions. Append new results after changes;
