@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from contextlib import closing
+from datetime import datetime
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -200,9 +201,10 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
             capture_output=True,
             text=True,
             timeout=10,
-            check=True,
+            check=False,
         )
         assert not re.search(r"\b(?:lbr|lbp)_[A-Za-z0-9_-]{32,}", completed.stdout + completed.stderr)
+        assert completed.returncode == 0, completed.stderr
         return json.loads(completed.stdout)["result"]
 
     with socket.socket() as listener:
@@ -245,7 +247,8 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
                     assert not (directory / "key").exists()
                 finished = cli(*finish)
                 assert finished["connection_created"]
-                assert finished.get("outcome") == ("created" if creates_key else None)
+                expected_outcome = ("created" if creates_key else "recovered") if purpose == "recover" else None
+                assert finished.get("outcome") == expected_outcome
                 key = (directory / "key").read_text()
                 assert key not in resp.text + json.dumps(bot.adapter.sent)
                 assert code not in resp.text + json.dumps(bot.adapter.sent)
@@ -256,16 +259,17 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
                 if creates_key:
                     old_key = key
                     old_auth = {"Authorization": f"Bearer {old_key}"}
-                    client.post(
-                        f"/api/bots/{bot_id}/commands", headers=old_auth, json={"command": "lock n1 1h"}
-                    ).raise_for_status()
+                    acquired = cli(*connection, "command", "--operation", "lock", "--node", "n1", "--whole-node")
+                    assert acquired["verified"] and acquired["duration_source"] == "group-default"
                 else:
                     assert (key == old_key) == (purpose == "recover")
-                snapshot = cli(*connection, "resources")
+                snapshot = cli(*connection, "resources", "--exact-lease-times")
                 holder = next(resource for resource in snapshot["resources"] if resource["id"] == "n1")["holders"][0]
                 assert holder["external_user_id"] == ACTOR
                 if creates_key:
                     original_expiry = holder["expires_at"]
+                    duration = datetime.fromisoformat(original_expiry) - datetime.fromisoformat(holder["start_time"])
+                    assert duration.total_seconds() == context["bot_rules"]["default_duration_seconds"]
                 else:
                     assert holder["expires_at"] == original_expiry
 

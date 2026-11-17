@@ -38,6 +38,57 @@ def run(fixture, action, **kwargs):
     return fixture.call("run_lockbot", {"action": action, **kwargs})
 
 
+@pytest.mark.parametrize(
+    ("scenario", "operation", "nodes", "duration", "final"),
+    [
+        ("intent-lock-tail", "lock", ["node-19"], None, "19 已锁三小时。"),
+        (
+            "intent-lock-tail-list",
+            "lock",
+            ["node-22", "node-21", "node-20", "node-19"],
+            "3h",
+            "四台机器都已锁三小时。",
+        ),
+        (
+            "intent-lock-tail-list-4h",
+            "lock",
+            ["node-11", "node-12", "node-13", "node-14"],
+            "240m",
+            "四台机器都已锁四小时。",
+        ),
+        ("intent-book-tail", "book", ["node-19"], "4h", "已预约 19，使用四小时。"),
+        ("intent-shared-tail", "slock", ["node-19"], "4h", "19 的 0 号卡已共享锁定四小时。"),
+        ("intent-lock-duration-only", None, [], None, "你要锁哪台机器？"),
+        ("intent-find-p800", None, [], None, "node-23 是空闲的 P800 整机。"),
+        ("intent-ambiguous-tail", None, [], None, "加速卡群还是整机队列群，你想锁哪个群里的机器？"),
+    ],
+)
+def test_short_prompts_use_saved_environment(tmp_path, monkeypatch, scenario, operation, nodes, duration, final):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    prompt = (fixture.root / "prompt.txt").read_text()
+    assert prompt == evaluation.intent.SHORT_PROMPTS[scenario]
+    assert not (fixture.root / "cli-http.jsonl").exists()
+    groups = run(fixture, "connections")["result"]["groups"]
+    for group in groups:
+        assert run(fixture, "resources", group=group)["result"]["resources"]
+
+    if operation:
+        group = evaluation.intent.CARDS if operation == "slock" else evaluation.intent.MACHINES
+        kwargs = {"devices": ["0"]} if operation == "slock" else {"whole_node": True}
+        if duration is not None:
+            kwargs["duration"] = duration
+        if scenario == "intent-lock-tail-list":
+            rules = run(fixture, "context", group=group)["result"]["bot_rules"]
+            assert rules["default_duration_seconds"] == 10_800
+        response = run(fixture, "command", group=group, operation=operation, nodes=nodes, **kwargs)
+        assert response.get("result", {}).get("verified"), response
+        if duration is None:
+            assert response["result"]["duration_source"] == "group-default"
+
+    grade = evaluation.score(fixture.root, final)
+    assert grade["observable_pass"], grade["checks"]
+
+
 def test_ordinary_user_installs_and_requests_a_machine_without_key_instructions(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, evaluation.COLD_REQUEST)
     request = (fixture.root / "prompt.txt").read_text().splitlines()[0]
@@ -101,12 +152,32 @@ def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path,
         (fixture.origin + "/api/agent-skill", False),
         (fixture.origin + evaluation.base.BUNDLE_PATH, False),
     ]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"][0]["connection"].endswith("/connection.json")
+    events = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
+    assert "argv" not in events[0]
+    assert events[-1]["args"] == {"action": "connections"}
+    assert Path(events[-1]["argv"][0]).name == "lockbot_resource.py"
+    assert events[-1]["argv"][1:] == ["connections"]
     assert run(fixture, "resources")["result"]["resources"]
-    assert evaluation.score(fixture.root, "已安装并查询资源。")["observable_pass"]
+    final = "已安装并查询资源。"
+    assert evaluation.score(fixture.root, final)["observable_pass"]
+    assert not evaluation.score(fixture.root, final + " private/connections/connection.json")["observable_pass"]
 
 
-@pytest.mark.parametrize("scenario", ["install-from-link", "install-from-zip", "install-with-key"])
+def test_zip_only_install_needs_no_separate_service_record(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "install-from-zip")
+    assert not evaluation.score(fixture.root, "已安装。")["observable_pass"]
+    assert install(fixture)["installed"]
+    assert not (fixture.workspace / "private/service.json").exists()
+    grade = evaluation.score(fixture.root, "已安装。")
+    assert grade["observable_pass"], grade["checks"]
+    assert grade["checks"]["installation_verified"] and grade["checks"]["no_authenticated_calls"]
+
+    run(fixture, "enroll", group=evaluation.GROUP, authorized=True)
+    assert not evaluation.score(fixture.root, "已安装。")["checks"]["no_extra_writes"]
+
+
+@pytest.mark.parametrize("scenario", ["install-from-link", "install-with-key"])
 @pytest.mark.parametrize("instance_id", [evaluation.base.INSTANCE, "d709dca8-cd10-4602-a415-f480a63349be"])
 def test_first_contact_requires_verified_install_and_complete_private_connection(
     tmp_path, monkeypatch, scenario, instance_id
@@ -116,17 +187,20 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
     path = "/api/agent-skill" if scenario == "install-from-link" else evaluation.base.BUNDLE_PATH
     assert "manifest" in fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + path})
     assert install(fixture)["installed"]
-    assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
+    checks = evaluation.score(fixture.root, "已安装。")["checks"]
     if scenario == "install-with-key":
-        assert run(fixture, "init")["result"]["connection_created"]
+        assert checks["service_saved"] and not checks["resource_read"]
+        assert run(fixture, "connections")["result"]["connections"][0]["instance_id"] == instance_id
         assert run(fixture, "resources")["result"]["resources"]
     else:
+        assert not checks["service_saved"]
         assert run(fixture, "discover")["result"]["instance_id"] == instance_id
     grade = evaluation.score(fixture.root, "已安装、验证并保存连接。")
     assert grade["observable_pass"], grade["checks"]
 
-    filename = "seed.json" if scenario == "install-with-key" else "service.json"
-    saved_path = fixture.workspace / "private" / filename
+    saved_path = (
+        fixture.saved_connection if scenario == "install-with-key" else fixture.workspace / "private/service.json"
+    )
     saved = json.loads(saved_path.read_text())
     evaluation.base.save_json(saved_path, {**saved, "instance_id": "wrong-instance"})
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
@@ -142,7 +216,7 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
     assert "local-state" in tools["browser_home"]["description"]
     assert fixture.case["fixture_version"] == evaluation.PANEL_FIXTURE_VERSION
     assert install(fixture)["installed"]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []
     with pytest.raises(ValueError, match="confirm browser consent"):
         evaluation.resume(fixture.root, tmp_path / "too-early")
@@ -181,7 +255,7 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
 def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "telemetry")
     assert install(fixture)["installed"]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "resources")["result"]["resources"][0]["holders"]
     result = run(fixture, "metrics", nodes=["node-a"])["result"]
     assert result["verification"] == "query_response_only"
@@ -249,8 +323,9 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     if scenario == "reset-personal-key":
         assert issued["bind_command"].startswith("bind RST-") and result["chat_action"] == "reset_applied"
         assert resumed.http(original_request)["status"] == 403
-        assert "确认刚才的重置" in (destination / "prompt.txt").read_text()
+        assert (destination / "prompt.txt").read_text() == "帮我看看有哪些资源。"
     if scenario == "recover-original-key":
+        assert result["outcome"] == "recovered"
         assert resumed.http(original_request)["status"] == 200
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
     assert evaluation.score(destination, "node-a")["observable_pass"]
@@ -495,7 +570,9 @@ def test_held_resource_operations_verify_the_exact_change(tmp_path, monkeypatch,
         assert not target["devices"][2]["holders"]
         assert target["devices"][3]["holders"][0]["external_user_id"] == "demo-user"
     else:
-        assert target["holders"][0]["remaining_seconds"] == 9000
+        holder = target["holders"][0]
+        assert holder["remaining_time"] == "2h 30m"
+        assert not {"remaining_seconds", "expires_at"} & holder.keys()
     assert evaluation.score(fixture.root, verdict)["observable_pass"]
 
 

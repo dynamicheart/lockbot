@@ -77,6 +77,7 @@ def case(tmp_path):
         readback_age=None,
         retry_after=None,
         forbidden=False,
+        duration_rules={},
         version_header=None,
         package_header=None,
         profile="lockbot-v1",
@@ -145,7 +146,11 @@ def case(tmp_path):
                     "bot": {"id": 7, "uuid": state.bot_uuid, "name": "Compute team", "type": state.bot_type},
                     "actor": state.actor,
                     "agent_access_enabled": True,
-                    "bot_rules": {"forbid_relock": state.forbidden, "allow_user_alias": state.allow_alias},
+                    "bot_rules": {
+                        "forbid_relock": state.forbidden,
+                        "allow_user_alias": state.allow_alias,
+                        **state.duration_rules,
+                    },
                     "usage_privacy": {"public_task_categories": {"unit_testing": "Unit testing"}},
                     "links": {"resources": "/api/bots/7/resources", "commands": "/api/bots/7/commands"},
                     "skill": state.manifest,
@@ -627,9 +632,9 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
     listing = json.loads(output)["result"]
     assert listing["unavailable_count"] == 1
     assert [(row["scope"], row["origin"]) for row in listing["connections"]] == [
+        ("user", "http://192.0.2.10:8155"),
         ("project", "http://192.0.2.10:8155"),
         ("project", "http://192.0.2.10:8002"),
-        ("user", "http://192.0.2.10:8155"),
     ]
     assert helper.main(["connections", "--directory", str(root)]) == 0
     project = json.loads(capsys.readouterr().out)["result"]["connections"]
@@ -638,6 +643,33 @@ def test_project_catalog_finds_multiple_services_without_reading_keys(tmp_path, 
     root.chmod(0o755)
     assert helper.main(["connections"]) == 2
     assert "private_connection_directory_required" in capsys.readouterr().err
+
+
+def test_lockbot_home_isolates_existing_catalogs_and_new_sign_ins(case, monkeypatch):
+    monkeypatch.chdir(case.tmp)
+    home = case.tmp / "home"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.delenv("LOCKBOT_HOME", raising=False)
+    legacy = home / ".config/lockbot/connections"
+    legacy.mkdir(mode=0o700, parents=True)
+    write_private(legacy / "connection.json", case.connection)
+    assert helper.connection_catalog("user") == home / ".lockbot/connections"
+    assert [row["connection"] for row in helper.listed_connections()["connections"]] == [
+        str(legacy / "connection.json")
+    ]
+
+    test_home = case.tmp / "isolated"
+    monkeypatch.setenv("LOCKBOT_HOME", str(test_home))
+    assert helper.listed_connections()["connections"] == []
+    client = helper.Client(approved_origin=case.base, root=case.root)
+    saved = Path(client.initialize(case.tmp / "resource.key", None)["connection"])
+    assert saved.parent.parent == test_home / "connections"
+    assert [row["connection"] for row in helper.listed_connections()["connections"]] == [str(saved)]
+    assert (legacy / "connection.json").exists()
+
+    monkeypatch.setenv("LOCKBOT_HOME", "relative-profile")
+    with pytest.raises(helper.ClientError, match="invalid_lockbot_home"):
+        helper.listed_connections()
 
 
 @pytest.mark.parametrize(("scope", "expected"), [(None, "user"), ("project", "project")])
@@ -788,6 +820,41 @@ def test_metadata_categories_and_identity_are_validated_before_write(case, metad
 def test_acquisition_requires_explicit_positive_duration(case, duration):
     with pytest.raises(helper.ClientError, match="duration"):
         case.client.command("lock", ["node-a"], [], duration)
+    assert not commands(case)
+
+
+@pytest.mark.parametrize("operation", ["lock", "slock", "book"])
+def test_allocation_with_missing_duration_uses_authenticated_group_default(case, operation):
+    case.state.duration_rules = {"default_duration_seconds": 123, "effective_max_lock_duration_seconds": 180}
+    result = case.client.command(operation, ["node-a"], [], None)
+    assert result["verified"] and result["duration_source"] == "group-default"
+    (sent,) = commands(case)
+    assert json.loads(sent[3])["command"] == f"{operation} node-a"
+
+
+@pytest.mark.parametrize(
+    ("rules", "error"),
+    [
+        ({"default_duration_seconds": True}, "group_default_duration_unavailable"),
+        ({"default_duration_seconds": "120"}, "group_default_duration_unavailable"),
+        ({"default_duration_seconds": 0}, "group_default_duration_unavailable"),
+        (
+            {"default_duration_seconds": 120, "effective_max_lock_duration_seconds": 60},
+            "group_default_duration_exceeds_limit",
+        ),
+    ],
+)
+def test_invalid_group_default_stops_before_write(case, rules, error):
+    case.state.duration_rules = rules
+    with pytest.raises(helper.ClientError, match=error):
+        case.client.command("lock", ["node-a"], [], None)
+    assert not commands(case)
+
+
+def test_renewal_requires_its_own_duration_even_with_valid_group_default(case):
+    case.state.duration_rules["default_duration_seconds"] = 120
+    with pytest.raises(helper.ClientError, match="explicit_positive_duration_required"):
+        case.client.command("renew", ["node-a"], [], None)
     assert not commands(case)
 
 

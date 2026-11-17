@@ -19,25 +19,33 @@ GROUPS = {
         "link-only": "只分享 Skill 链接",
         "install-from-link": "从发现链接安装",
         "install-from-zip": "从 ZIP 链接安装",
-        "install-with-key": "安装并使用已有 Key",
+        "install-with-key": "安装后用已有登录查询",
         "no-key": "没有 Key 时保存服务",
         "approved-enrollment": "用户授权后绑定",
-        "approved-enrollment-no-group": "首次创建 Key",
-        "recover-original-key": "找回原 Key",
-        "reset-personal-key": "明确要求重置 Key",
+        "approved-enrollment-no-group": "首次连接 LockBot",
+        "recover-original-key": "恢复以前的登录",
+        "reset-personal-key": "重置 LockBot 登录",
     },
     "查询与工作台": {
         "recover": "新会话续用已保存的连接",
         "panel": "打开个人资源台",
         "telemetry": "查询利用率并刷新授权",
+        "intent-find-p800": "找台空闲 P800 机器",
         "intent-query": "查找两张空闲 P800 卡",
         "intent-model-find": "跨群查找空闲 P800 或 P900",
     },
     "资源操作": {
+        "intent-lock-tail": "按 IP 尾号锁定一台机器",
+        "intent-lock-tail-list": "按 IP 尾号批量锁定整机",
+        "intent-lock-tail-list-4h": "批量锁定四小时",
+        "intent-lock-duration-only": "只有时长时确认目标",
+        "intent-book-tail": "按 IP 尾号预约机器",
+        "intent-shared-tail": "按 IP 尾号共享锁定",
+        "intent-ambiguous-tail": "跨群同尾号时确认目标",
         "intent-exact": "锁定指定加速卡",
         "intent-ambiguous": "澄清同名节点",
         "intent-choose": "代选同机加速卡并锁定",
-        "intent-whole": "整机群内请求单卡",
+        "intent-whole": "整机群内请求按卡锁定",
         "intent-book": "预约整机",
         "intent-claim": "按原时长领取预约",
         "intent-model-allocate": "跨群按型号选卡并锁定",
@@ -162,7 +170,7 @@ def phase_metrics(phases):
     return observed
 
 
-def snapshot(evidence: Path, *, include_dialogue=False):
+def snapshot(evidence: Path, *, include_dialogue=False, raw=False):
     evidence = evidence.resolve()
     plan = json.loads(read_local(evidence / "run.json", evidence, MAX_METADATA_BYTES))
     if plan.get("simulation_only") is not True:
@@ -229,7 +237,9 @@ def snapshot(evidence: Path, *, include_dialogue=False):
                     "state": state,
                     "note": note,
                     "sessions": (
-                        synthetic_sessions(evidence, scenario, model_number, phases) if include_dialogue else []
+                        synthetic_sessions(evidence, scenario, model_number, phases, raw=raw)
+                        if include_dialogue or raw
+                        else []
                     ),
                     "metrics": {"phases": phase_metrics(phases)},
                 }
@@ -249,16 +259,20 @@ def snapshot(evidence: Path, *, include_dialogue=False):
             if pair in preflight
         ]
     title = "在线评测 · 合成测例" if include_dialogue else "在线评测 · 合成测例摘要"
-    return {"schema": 1, "title": title, "version": version, "labels": labels, "groups": groups, "cases": cases}
+    data = {"schema": 1, "title": title, "version": version, "labels": labels, "groups": groups, "cases": cases}
+    if raw:
+        data.update(title="LockBot Skill · 原始评测轨迹", visibility="raw")
+    return data
 
 
-def publish(evidence: Path, target: Path, *, include_dialogue=False):
-    data = snapshot(evidence, include_dialogue=include_dialogue)
+def publish(evidence: Path, target: Path, *, include_dialogue=False, raw=False):
+    data = snapshot(evidence, include_dialogue=include_dialogue, raw=raw)
     if not data["cases"]:
         return None
-    content = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False).encode() + b"\n"
-    if len(content) > MAX_SNAPSHOT_BYTES:
-        raise ValueError("Online trace snapshot exceeds its 1 MiB limit")
+    content = json.dumps(data, ensure_ascii=False, indent=None if raw else 2, allow_nan=False).encode() + b"\n"
+    max_bytes = 32 * 1024 * 1024 if raw else MAX_SNAPSHOT_BYTES
+    if len(content) > max_bytes:
+        raise ValueError(f"Trace snapshot exceeds its {max_bytes // 1024**2} MiB limit")
     if target.exists() and target.read_bytes() == content:
         return False
     fd, name = tempfile.mkstemp(dir=target.parent)
@@ -279,11 +293,17 @@ def main():
     parser.add_argument("evidence", type=Path)
     parser.add_argument("target", type=Path)
     parser.add_argument("--follow", action="store_true", help="Refresh the snapshot every 2 seconds until matrix.json")
-    parser.add_argument(
+    content_mode = parser.add_mutually_exclusive_group()
+    content_mode.add_argument(
+        "--raw-local", action="store_true", help="Export full tool evidence to a private local file"
+    )
+    content_mode.add_argument(
         "--include-dialogue", action="store_true", help="Include deidentified synthetic chat and tool steps"
     )
     parser.add_argument("--on-update", type=Path, help="Private JSON argv array for transferring the snapshot")
     args = parser.parse_args()
+    if args.raw_local and args.on_update:
+        parser.error("--raw-local writes a local file; transfer it through the private reviewer deployment")
     if args.on_update:
         transport = json.loads(args.on_update.read_text())
         if (
@@ -299,7 +319,7 @@ def main():
         if args.follow and not (args.evidence / "progress.jsonl").is_file():
             sleep(2)
             continue
-        updated = publish(args.evidence, args.target, include_dialogue=args.include_dialogue)
+        updated = publish(args.evidence, args.target, include_dialogue=args.include_dialogue, raw=args.raw_local)
         if transport and updated is not None and (updated or not transfer_started):
             subprocess.run([*transport, str(args.target)], check=True)
             transfer_started = True

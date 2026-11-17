@@ -399,7 +399,11 @@ function resetSelection() { activeStep = 0; failureOnly = false; }
 function pickCase(key, animate = false) { activeCase = key; activeIndex = 0; caseRunsOpen = true; resetSelection(); draw(animate); }
 function pickRun(index) { activeIndex = index; resetSelection(); draw(); }
 readRoute();
-addEventListener('hashchange',()=>{readRoute(); draw();});
+addEventListener('hashchange',()=>{
+  if (online && !imported && document.querySelector('.layout').hidden) return;
+  readRoute();
+  draw();
+});
 function choice(text, meta, pressed, action) {
   const button = node('button',null,'choice');
   button.type = 'button';
@@ -515,12 +519,21 @@ function evidenceField(label,value) {
   field.append(box);
   return field;
 }
-function renderStepEvidence(container,info) {
+function renderStepEvidence(container,step,info) {
+  const fields = [];
+  if (Array.isArray(info?.argv)) {
+    fields.push(evidenceField('实际执行参数（argv）',info.argv));
+  } else if (step[0]==='run_lockbot') {
+    const command = node('section',null,'evidence-section');
+    command.append(node('p','CLI 子命令','payload-text-key'),node('code',step[1] || '未采集'));
+    command.append(node('p','该记录未采集实际执行参数。','payload-empty'));
+    fields.push(command);
+  }
   if (!info) {
-    container.replaceChildren(node('p','这条记录只保存了步骤概要。','payload-empty'));
+    container.replaceChildren(...fields,node('p','这条记录只保存了步骤概要。','payload-empty'));
     return;
   }
-  const fields = [evidenceField('输入',info.input),evidenceField('输出',info.output)];
+  fields.push(evidenceField('输入',info.input),evidenceField('输出',info.output));
   if (info.error != null) {
     const error = evidenceField('错误',info.error);
     error.classList.add('payload-error');
@@ -577,7 +590,7 @@ function openStep(step,info) {
   if (tool) meta.append(node('span',tool));
   if (status || isFailed(step,info)) meta.append(statusChip(step,info));
   if (duration(info)) meta.append(node('span',duration(info),'trace-duration'));
-  renderStepEvidence(select('inspector-fields'),info);
+  renderStepEvidence(select('inspector-fields'),step,info);
   select('inspector-fields').scrollTop = 0;
   inspector.showModal();
 }
@@ -854,7 +867,7 @@ function eventsView(content,trial) {
     position.textContent = (index+1)+' / '+visible.length;
     prev.disabled = index===0;
     next.disabled = index===visible.length-1;
-    renderStepEvidence(fields,item.info);
+    renderStepEvidence(fields,item.step,item.info);
     if (!banner.isConnected) panel.replaceChildren(banner,fields);
     panel.scrollTop = 0;
     if (origin==='arrow') {
@@ -1135,9 +1148,11 @@ select('trace-file').onchange = async (event)=>{
     event.target.value = '';
   }
 };
-draw();
+if (!online) draw();
 if (online) {
   const layout = document.querySelector('.layout');
+  const raw = new URLSearchParams(location.search).get('raw') === 'true';
+  const snapshotUrl = '/api/dev/trace-review/snapshot' + (raw ? '?raw=true' : '');
   layout.hidden = true;
   let lastSnapshot = '';
   let currentToken = '';
@@ -1158,9 +1173,9 @@ if (online) {
       return;
     }
     try {
-      const response = await fetch('/api/dev/trace-review/snapshot', {
+      const response = await fetch(snapshotUrl, {
         headers: {Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error',
-        signal:AbortSignal.timeout(6000)
+        signal:AbortSignal.timeout(raw ? 30000 : 6000)
       });
       if (imported || localStorage.getItem('lockbot_token') !== token) return;
       if (response.status === 401 || response.status === 403) {
@@ -1170,7 +1185,7 @@ if (online) {
       }
       if (response.status === 404) {
         hideSnapshot();
-        reportStatus('等待首个测例结果。');
+        reportStatus(raw ? '尚未上传原始轨迹。' : '等待首个测例结果。');
         return;
       }
       if (!response.ok) throw new Error();
@@ -1178,20 +1193,26 @@ if (online) {
       if (imported || localStorage.getItem('lockbot_token') !== token) return;
       if (snapshot !== lastSnapshot) {
         const candidate = JSON.parse(snapshot);
-        if (!validRecord(candidate)) throw new Error();
+        if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw')) throw new Error();
+        const firstSnapshot = !lastSnapshot;
         lastSnapshot = snapshot;
         const selectedModel = data.cases[activeCase]?.[activeIndex]?.model;
         data = candidate;
         cases = Object.keys(data.cases);
-        if (!cases.includes(activeCase)) {
-          activeCase = cases[0];
-          caseRunsOpen = true;
+        if (firstSnapshot) {
+          readRoute();
+        } else {
+          if (!cases.includes(activeCase)) {
+            activeCase = cases[0];
+            caseRunsOpen = true;
+          }
+          activeIndex = Math.max(0,data.cases[activeCase].findIndex(run=>run.model===selectedModel));
         }
-        activeIndex = Math.max(0, data.cases[activeCase].findIndex(run=>run.model===selectedModel));
         draw();
       }
       layout.hidden = false;
       reportStatus('');
+      select('live-status').textContent = raw ? '原始轨迹' : '自动更新';
       select('live-status').hidden = false;
     } catch {
       reportStatus('暂时无法读取在线结果，稍后重试。',true);
@@ -1199,7 +1220,7 @@ if (online) {
   }
   async function refreshSnapshot() {
     await pollSnapshot();
-    if (!imported) setTimeout(refreshSnapshot, 8000);
+    if (!imported) setTimeout(refreshSnapshot, raw ? 60000 : 8000);
   }
   refreshSnapshot();
 }

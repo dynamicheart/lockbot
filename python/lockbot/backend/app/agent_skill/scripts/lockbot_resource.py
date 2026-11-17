@@ -67,6 +67,30 @@ def metric_number(value):
     return number if math.isfinite(number) else None
 
 
+def format_lease_times(snapshot):
+    """Replace raw holder expiry fields with a display time after verification."""
+    age = metric_number(snapshot.get("age_seconds"))
+    for node in snapshot.get("resources", []):
+        for resource in (node, *node.get("devices", [])):
+            for holder in resource.get("holders", []):
+                remaining = metric_number(holder.pop("remaining_seconds", None))
+                holder.pop("expires_at", None)
+                if remaining is None or age is None or age < 0:
+                    holder["remaining_time"] = None
+                    continue
+                seconds = remaining - age
+                if seconds <= 0:
+                    text = "due now"
+                elif seconds < 60:
+                    text = "<1m"
+                else:
+                    hours, minutes = divmod(math.ceil(seconds / 60), 60)
+                    days, hours = divmod(hours, 24)
+                    units = ((days, "d"), (hours, "h")) if days else ((hours, "h"), (minutes, "m"))
+                    text = " ".join(f"{value}{unit}" for value, unit in units if value)
+                holder["remaining_time"] = text
+
+
 def utilization_sample(values, success, stamps, now, stale_seconds):
     """Classify a utilization reading using its collector's own timestamp."""
     stamp = stamps[0] if len(stamps) == 1 else None
@@ -430,7 +454,16 @@ def private_json(path):
 def connection_catalog(scope):
     if scope == "project":
         return Path(".lockbot/connections")
-    return Path.home() / ".config/lockbot/connections"
+    override = os.environ.get("LOCKBOT_HOME")
+    if not override:
+        return Path.home() / ".lockbot/connections"
+    try:
+        path = Path(override).expanduser()
+    except RuntimeError as exc:
+        raise ClientError("invalid_lockbot_home") from exc
+    if not path.is_absolute():
+        raise ClientError("invalid_lockbot_home")
+    return path / "connections"
 
 
 def private_directory(path, error):
@@ -458,11 +491,14 @@ def new_catalog_entry(scope, name=None):
 
 def listed_connections(directory=None):
     """List connections and resumable enrollments without opening their Key files."""
-    catalogs = (
-        [("custom", Path(directory))]
-        if directory is not None
-        else [(scope, connection_catalog(scope)) for scope in ("project", "user")]
-    )
+    if directory is not None:
+        catalogs = [("custom", Path(directory))]
+    else:
+        catalogs = [("user", connection_catalog("user"))]
+        if not os.environ.get("LOCKBOT_HOME"):
+            catalogs.extend(
+                [("user", Path.home() / ".config/lockbot/connections"), ("project", connection_catalog("project"))]
+            )
     connections = []
     enrollments = []
     unavailable_count = 0
@@ -1343,8 +1379,8 @@ class Client:
         key = response.get("credential")
         if status != "confirmed" or not isinstance(key, str) or not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", key):
             raise ClientError("invalid_credential_challenge_result")
-        if purpose == "recover" and response.get("outcome") == "created":
-            result["outcome"] = "created"
+        if purpose == "recover" and response.get("outcome") in ("created", "recovered"):
+            result["outcome"] = response["outcome"]
         self.secrets.append(key)
         if purpose == "reset":
             result["chat_action"] = "reset_applied"
@@ -1352,8 +1388,8 @@ class Client:
             if purpose == "reset":
                 result["next_command"] = ["finish-enrollment", "--enrollment-dir", str(path)]
                 result["next_step"] = (
-                    "The group authorized and applied the reset. If the user asked to continue, run next_command now "
-                    "to verify and save the replacement Key locally without asking for another confirmation."
+                    "The group already applied the reset. If the current request needs access to this service, "
+                    "run next_command now. It verifies and saves the already-confirmed sign-in locally."
                 )
             return result
         key_path = path / "key"
@@ -1621,13 +1657,28 @@ class Client:
             raise ClientError("explicit_device_selection_required")
         if any(not re.fullmatch(r"0|[1-9][0-9]{0,4}", device) for device in devices):
             raise ClientError("invalid_device")
+        use_group_duration = duration is None and operation in {"lock", "slock", "book"}
+        if use_group_duration:
+            rules = context.get("bot_rules")
+            seconds = rules.get("default_duration_seconds") if isinstance(rules, dict) else None
+            if type(seconds) is not int or seconds <= 0:
+                raise ClientError("group_default_duration_unavailable")
+            ceiling = rules.get("effective_max_lock_duration_seconds")
+            if type(ceiling) is int and ceiling >= 0 and seconds > ceiling:
+                raise ClientError("group_default_duration_exceeds_limit")
         if operation == "claim":
             if context["bot"]["type"] not in {"QUEUE", "QUEUE_DEVICE"} or len(nodes) != 1 or len(devices) > 1:
                 raise ClientError("claim_requires_one_queued_resource")
             if duration is not None:
                 raise ClientError("claim_uses_booked_duration")
-        elif operation != "release" and (
-            not duration or not re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?)[smhd]", duration) or float(duration[:-1]) <= 0
+        elif (
+            operation != "release"
+            and not use_group_duration
+            and (
+                not duration
+                or not re.fullmatch(r"(?:[0-9]+(?:\.[0-9]+)?)[smhd]", duration)
+                or float(duration[:-1]) <= 0
+            )
         ):
             raise ClientError("explicit_positive_duration_required")
         if operation == "release" and duration is not None:
@@ -1731,6 +1782,7 @@ class Client:
             raise ClientError("mutation_not_confirmed_read_resources_do_not_replay") from exc
         return {
             "command_result": result,
+            **({"duration_source": "group-default"} if use_group_duration else {}),
             "verified_snapshot": after,
             "verified": True,
             "verification": "observed_state_only",
@@ -2126,7 +2178,9 @@ def main(argv=None):
     catalog = sub.add_parser("connections", help="List project and user connections plus unfinished enrollments")
     catalog.add_argument("--directory", help="Read only this private connection catalog")
     sub.add_parser("context", help="Verify the selected connection's identity, bot and rules")
-    sub.add_parser("resources", help="Read the selected bot's current resources and queue")
+    resources = sub.add_parser("resources", help="Read the selected bot's current resources and queue")
+    exact_times_help = "Include precise lease timestamps and seconds for scheduling or an exact deadline."
+    resources.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
     recovery.add_argument("--destination", help="Explicit new private directory for separate group connections")
     recovery.add_argument("--scope", choices=["user", "project"], default="user")
@@ -2172,9 +2226,12 @@ def main(argv=None):
         "--minimum-model-count", type=int, help="Require this many accelerators of --model on each selected whole node."
     )
     command.add_argument(
-        "--duration", help="Lease for lock/book or time to add on renew, e.g. 30m. Omit for claim/release."
+        "--duration",
+        help="Lease for lock/slock/book or time to add on renew (e.g. 30m). Omit to use the group default for "
+        "lock/slock/book, the booked duration for claim, or no duration for release.",
     )
     command.add_argument("--metadata-file", help="Private JSON: task_category, purpose, agent_label only")
+    command.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     command = sub.add_parser("metrics", help="Read current utilization for exact nodes from an approved source")
     command.add_argument(
         "--node", action="append", required=True, help="Exact node ID from resources. Repeat as needed."
@@ -2266,6 +2323,8 @@ def main(argv=None):
             )
         else:
             result = client.metrics(args.node)
+        if args.action in {"resources", "command"} and not args.exact_lease_times:
+            format_lease_times(result if args.action == "resources" else result["verified_snapshot"])
         print(
             json.dumps(
                 client.redacted({"result": result, "update_required": client.needs_update}),

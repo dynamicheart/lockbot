@@ -79,9 +79,10 @@ not evict existing holdings/bookings, but can prevent new acquisitions. When ren
 forbidden, claiming cannot exceed the original booked duration. Releasing does not let you
 jump ahead of other bookers. If an older service omits these new rule fields, do not assume
 the restrictions exist; follow its actual replies, timing fields and verified holdings.
-The `2h` values in command examples are examples, not a recommendation: use the actual
-caller-effective maximum, defaults, booked duration and task need. If the configured default
-exceeds the effective ceiling, request a valid explicit shorter duration.
+For a `lock`, `slock`, or `book` request with no time specified, omit `--duration`.
+The CLI verifies the current default and lets the selected group apply its configured duration.
+If the default is missing or exceeds the effective ceiling, the CLI stops before writing.
+Renewal still requires the amount of time to add. Claim uses the original booked duration.
 
 ### Interpret instants separately from human display time
 
@@ -91,7 +92,13 @@ offset; do not interpret them as the Agent machine's local time. Unix epoch valu
 lease durations do not change with timezone. Never add eight hours to an epoch or relabel
 an existing UTC timestamp as `+08:00` when calculating ownership, renewal or stop deadlines.
 
-For human-facing absolute deadlines, use the user's requested or saved timezone.
+The CLI formats the verified lease time after accounting for snapshot age. Use
+`remaining_time` in user-facing replies, such as “约 2 小时后到期” for `2h`, or
+“约 2 天后到期” for `2d`. A booking has a requested duration and a queue position
+until claimed. Refresh when a reliable remaining time is needed and unavailable.
+
+Reserve absolute deadlines for explicit requests. When requested, use the user's
+requested or saved timezone.
 Do not infer a timezone from language: a Chinese conversation does not imply UTC+08:00.
 If no preference is known, use an explicitly available user-client/browser timezone;
 otherwise state UTC with its full date and offset, and offer a timezone preference.
@@ -104,8 +111,8 @@ the deadline as uncertain instead of guessing extra authorized time.
 
 ### Keep a conservative local stop deadline
 
-Record a local monotonic timestamp before and after each resource read. Use the
-verified lease's server `expires_at`, snapshot `captured_at` and `age_seconds` to estimate
+Read with `resources --exact-lease-times`. Record a local monotonic timestamp
+before and after each resource read. Use the verified lease's server `expires_at`, snapshot `captured_at` and `age_seconds` to estimate
 remaining time without trusting the Agent computer's UTC clock. A conservative calculation
 is `remaining = max(0, expires_at - captured_at - age_seconds - request_elapsed)` and
 `stop_deadline = received_monotonic + remaining`. Subtracting the full request elapsed time
