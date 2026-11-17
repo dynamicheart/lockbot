@@ -28,11 +28,17 @@ from lockbot.backend.app.resource_api.privacy import visible_declarations
 from lockbot.backend.app.resource_api.task_categories import TASK_CATEGORIES, TaskCategoryInput, validate_task_category
 from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_auth.authority import authority_guard
-from lockbot.backend.app.resource_auth.dependencies import ResourceActor, require_resource_actor, reverify_actor
+from lockbot.backend.app.resource_auth.dependencies import (
+    ResourceActor,
+    require_agent_resource_actor,
+    require_resource_actor,
+    reverify_actor,
+)
 from lockbot.backend.app.resource_auth.models import ResourceBinding
 from lockbot.core.platforms.registry import normalize_platform_name
 
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
+agent_router = APIRouter(prefix="/api/agent", tags=["Public API"])
 
 
 class UsageDeclaration(Base):
@@ -331,7 +337,7 @@ def prune_actor_usage(db, bot, actor):
         db.commit()
 
 
-@router.put("/{bot_id}/usage-declarations/{resource_id}")
+@router.put("/{bot_id}/usage-declarations/{resource_id}", deprecated=True)
 @limiter.limit("30/minute")
 def put_usage(
     bot_id: int,
@@ -407,7 +413,7 @@ def put_usage(
         raise errors.admission_http_error(exc, bot_id) from None
 
 
-@router.get("/{bot_id}/usage-declarations")
+@router.get("/{bot_id}/usage-declarations", deprecated=True)
 @limiter.limit("60/minute")
 def get_usage(
     bot_id: int,
@@ -440,7 +446,7 @@ def get_usage(
         raise errors.admission_http_error(exc, bot_id) from None
 
 
-@router.delete("/{bot_id}/usage-declarations/{resource_id}")
+@router.delete("/{bot_id}/usage-declarations/{resource_id}", deprecated=True)
 @limiter.limit("30/minute")
 def delete_usage(
     bot_id: int,
@@ -502,3 +508,39 @@ def delete_usage(
             return {"deleted": True}
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
+
+
+@agent_router.get("/usage-declarations")
+def get_agent_usage(
+    request: Request,
+    actor: ResourceActor = Depends(require_agent_resource_actor),
+    db: Session = Depends(get_db),
+):
+    """Read declarations within the personal key's bot and privacy scope."""
+    return get_usage(bot_id=actor.bot_id, request=request, actor=actor, db=db)
+
+
+@agent_router.put("/usage-declarations/{resource_id}")
+def put_agent_usage(
+    request: Request,
+    body: UsageInput,
+    resource_id: str = Path(min_length=1, max_length=128),
+    actor: ResourceActor = Depends(require_agent_resource_actor),
+    db: Session = Depends(get_db),
+):
+    """Update the bound user's declaration for a held or booked resource."""
+    return put_usage(bot_id=actor.bot_id, request=request, body=body, resource_id=resource_id, actor=actor, db=db)
+
+
+@agent_router.delete("/usage-declarations/{resource_id}")
+def delete_agent_usage(
+    request: Request,
+    resource_id: str = Path(min_length=1, max_length=128),
+    if_match: str | None = Header(default=None, max_length=128),
+    actor: ResourceActor = Depends(require_agent_resource_actor),
+    db: Session = Depends(get_db),
+):
+    """Delete a declaration with the same conditional cleanup contract as the legacy route."""
+    return delete_usage(
+        bot_id=actor.bot_id, request=request, resource_id=resource_id, if_match=if_match, actor=actor, db=db
+    )

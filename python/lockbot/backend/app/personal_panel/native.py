@@ -150,6 +150,16 @@ class NativeProvider:
         self.session_factory = config.get("session_factory") or SessionLocal
         self.guidance = None
 
+    def owns_handoff_grant(self, grant):
+        # Reserve a separate realm for local-Key sign-ins in an external panel.
+        # The exact binding still has to pass validate() against the local DB.
+        realm = grant.get("realm")
+        return (
+            grant.get("issuer") == self.config["issuer"]
+            and isinstance(realm, str)
+            and realm.startswith('["local-key-handoff",')
+        )
+
     @staticmethod
     def _instance_id(db: Session):
         row = db.get(SiteSetting, "resource_api_instance_id")
@@ -181,6 +191,8 @@ class NativeProvider:
             if not isinstance(pin, dict) or pin.get("platform") != row.platform or not _text(pin.get("realm")):
                 raise ProviderError("identity_namespace_mismatch")
             realm = _namespace("instance", instance, "attested", pin["realm"])
+        if self.config.get("local_key_handoff") is True:
+            realm = _namespace("local-key-handoff", realm)
         generation = row.credential_generation
         if not isinstance(generation, int) or generation < 0:
             raise ProviderError("credential_invalid")
@@ -223,6 +235,61 @@ class NativeProvider:
             return True
         except Exception:
             return False
+
+    def _account_namespace(self, db, row):
+        from lockbot.backend.app.resource_api.discovery import _binding_namespace
+
+        pin = self.config.get("trusted_realms", {}).get(row.bound_bot_uuid)
+        realm = pin.get("realm") if isinstance(pin, dict) else None
+        return _binding_namespace(db, row.bound_bot_id, row.platform), realm
+
+    def recover_panel_grants(self, seed):
+        """Prove other bot bindings using their own recoverable credentials."""
+        with self.session_factory() as db:
+            row = self._validated(db, seed)
+            namespace = self._account_namespace(db, row)
+            candidates = (
+                db.query(ResourceBinding)
+                .filter(
+                    ResourceBinding.platform == row.platform,
+                    ResourceBinding.external_user_id == row.external_user_id,
+                    ResourceBinding.bound_bot_id != row.bound_bot_id,
+                    ResourceBinding.revoked_at.is_(None),
+                )
+                .order_by(ResourceBinding.bound_bot_id, ResourceBinding.id)
+            )
+            recovered, seen = [], {row.bound_bot_id}
+            for binding in candidates:
+                if binding.bound_bot_id in seen or self._account_namespace(db, binding) != namespace:
+                    continue
+                key = credentials.recover_credential(binding)
+                if key is None:
+                    continue
+                authenticated = service.authenticate_for_any_bot(db, token=key)
+                if authenticated is None or authenticated.id != binding.id:
+                    continue
+                try:
+                    recovered.append(self._grant(db, authenticated))
+                except ProviderError:
+                    continue
+                seen.add(binding.bound_bot_id)
+            return recovered
+
+    def panel_account_groups(self, grants):
+        """Recheck each grant and its IM namespace before showing or admitting it."""
+        with self.session_factory() as db:
+            primary = self._validated(db, grants[0])
+            namespace = self._account_namespace(db, primary)
+            names = [db.get(Bot, primary.bound_bot_id).name]
+            for grant in grants[1:]:
+                row = self._validated(db, grant)
+                if (row.platform, row.external_user_id) != (
+                    primary.platform,
+                    primary.external_user_id,
+                ) or self._account_namespace(db, row) != namespace:
+                    raise ProviderError("identity_namespace_mismatch")
+                names.append(db.get(Bot, row.bound_bot_id).name)
+            return names
 
     def connection(self, grant):
         """Inspect exactly one proven native binding, never enumerate its user's bots."""

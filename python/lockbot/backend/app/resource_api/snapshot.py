@@ -117,6 +117,7 @@ def build_resources(
                 devices.append(
                     {
                         "id": dev.get("dev_id"),
+                        "dev_model": dev.get("dev_model"),
                         "lock_status": dev.get("status", "idle"),
                         "holders": _holders(dev, captured_at, platform),
                     }

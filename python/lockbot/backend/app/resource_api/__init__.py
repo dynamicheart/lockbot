@@ -2,9 +2,9 @@
 
 Two routes, deliberately complementary rather than overlapping:
 
-- ``POST /api/bots/{bot_id}/commands`` — one mutation language, an allowlisted free-text
+- ``POST /api/agent/commands`` — one mutation language, an allowlisted free-text
   command, executed through the same dispatcher chat uses.
-- ``GET /api/bots/{bot_id}/resources`` — one structured read, the authoritative view an
+- ``GET /api/agent/resources`` — one structured read, the authoritative view an
   agent verifies against.
 
 The contract is deliberately "mutate, then read". A mutation response reports what the bot

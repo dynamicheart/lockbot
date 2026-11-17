@@ -1,4 +1,6 @@
 # ruff: noqa: F811
+import io
+import zipfile
 from datetime import datetime
 
 import pytest
@@ -20,8 +22,8 @@ def test_binding_noop_hints_use_trusted_site_url_and_saved_gate(action, argument
     db_session.merge(SiteSetting(key="platform_url", value="https://trusted.example"))
     db_session.commit()
     text = chat_hook(action, argument, bot_id=bot_id)
-    assert "https://trusted.example/api/agent-skill/lockbot-resource-agent.zip" in text
-    assert ("把安装包链接发给你的 Agent" if lang == "zh" else "Send this bundle link") in text
+    assert "https://trusted.example/api/agent-skill\n" in text
+    assert ("明确请你的 Agent" if lang == "zh" else "ask your Agent to verify") in text
     row.resource_auth_enabled = False
     db_session.commit()
     assert "https://trusted.example" not in chat_hook(action, argument, bot_id=bot_id)
@@ -86,12 +88,17 @@ def test_documented_lock_free_and_queue_examples_change_actual_state(api, client
 
 
 def test_public_command_docs_have_named_examples_and_grammar(client):
-    op = client.get("/api/public-openapi.json").json()["paths"]["/api/bots/{bot_id}/commands"]["post"]
+    op = client.get("/api/public-openapi.json").json()["paths"]["/api/agent/commands"]["post"]
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"node_lock", "device_lock", "queue_book", "release_or_cancel"} <= examples.keys()
+    bundle = client.get("/api/agent-skill/lockbot-resource-agent.zip").content
+    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
+        instructions = "\n".join(archive.read(name).decode() for name in archive.namelist() if name.endswith(".md"))
     for word in ["free node1", "book node1 2h", "dev0-3", "queue_claim_window_seconds"]:
         assert word in op["description"]
-        assert word in client.get("/api/agent-skill/SKILL.md").text
+    assert "command --operation lock" in instructions
+    assert "command --operation release" in instructions
+    assert "POST `/api/agent/commands`" not in instructions
 
 
 def test_active_authorizations_paginate_without_hiding_unseen_keys(api, client, db_session):
@@ -157,13 +164,14 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
     groups = {item["name"] for item in schema["tags"]}
     assert groups == {"Agent API", "OP API", "Configuration API", "Agent 绑定", "Skill 下载"}
     paths = schema["paths"]
-    assert paths["/api/bots/{bot_id}/commands"]["post"]["security"] == [{"AgentKey": []}]
-    assert paths["/api/bots/{bot_id}/resources"]["get"]["tags"] == ["Agent API"]
+    assert paths["/api/agent/commands"]["post"]["security"] == [{"AgentKey": []}]
+    assert paths["/api/agent/resources"]["get"]["tags"] == ["Agent API"]
     for path, method in [("/api/bots/{bot_id}/opkick", "post"), ("/api/bots/{bot_id}/locked-users", "get")]:
         assert paths[path][method]["tags"] == ["OP API"]
         assert paths[path][method]["security"] == [{"OpApiKey": []}]
     assert paths["/api/resource-auth/bindings"]["post"]["security"] == []
-    assert paths["/api/agent-skill/SKILL.md"]["get"]["security"] == []
+    assert "/api/agent-skill/SKILL.md" not in paths
+    assert paths["/api/agent-skill/lockbot-resource-agent.zip"]["get"]["security"] == []
     configuration = "/api/bots/{bot_id}/configuration-access"
     for path, method in [(configuration, "get"), (configuration, "put"), (configuration + "/preview", "post")]:
         assert paths[path][method]["tags"] == ["Configuration API"]

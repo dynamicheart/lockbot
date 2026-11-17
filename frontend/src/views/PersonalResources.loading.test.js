@@ -3,7 +3,9 @@ import { createRenderer, nextTick, ssrContextKey } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { createI18n } from 'vue-i18n'
+import en from '../i18n/en'
 import zhCN from '../i18n/zh-CN'
+import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import PersonalResources from './PersonalResources.vue'
 
 const renderer = createRenderer({
@@ -34,14 +36,14 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 const response = (data, ok = true) => ({ ok, status: ok ? 200 : 503, json: async () => data })
-function mount() {
+function mount(locale = 'zh-CN') {
   app = renderer.createApp({ ...PersonalResources, render: () => null })
   router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/me/:view?/:selection?', component: { render: () => null } }],
   })
   app.use(router)
-  app.use(createI18n({ legacy: false, locale: 'zh-CN', messages: { 'zh-CN': zhCN } }))
+  app.use(createI18n({ legacy: false, locale, messages: { 'zh-CN': zhCN, en } }))
   app.provide(ssrContextKey, {})
   if (initialPath) return router.replace(initialPath).then(mountView)
   return mountView()
@@ -84,6 +86,59 @@ it('does not load protected reports for an unauthenticated session', async () =>
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(state.resourcesReady).toBe(false)
 })
+
+it.each([true, false])(
+  'previews recovered groups and submits the chosen scope (%s)',
+  async (include) => {
+    let signedIn = false
+    const identity = { issuer: 'https://test.example', subject: 'owner', platform: 'infoflow' }
+    const fetch = vi.fn(async (url) => {
+      if (url.endsWith('/preview')) return response({ identity, groups: ['开发组', '测试组'] })
+      if (url.endsWith('/login')) {
+        signedIn = true
+        return response({ authenticated: true })
+      }
+      if (url.endsWith('/session')) return response({ authenticated: signedIn, identities: [] })
+      return response({ groups: [] })
+    })
+    vi.stubGlobal('fetch', fetch)
+    const state = await mount()
+    await flush()
+    pendingPanelTicket.value = 'simulated-browser-handoff'
+    await vi.waitFor(() => expect(state.ticket?.groups).toEqual(['开发组', '测试组']))
+    expect(fetch.mock.calls.some(([url]) => url.endsWith('/login'))).toBe(false)
+    expect(state.includeRecovered).toBe(true)
+    state.includeRecovered = include
+    await state.login('replace')
+    const [, login] = fetch.mock.calls.find(([url]) => url.endsWith('/login'))
+    expect(JSON.parse(login.body)).toEqual({
+      mode: include ? 'replace_account' : 'replace',
+      ticket: 'simulated-browser-handoff',
+    })
+  }
+)
+
+it.each([
+  ['zh-CN', '登录链接已过期或已使用，请回到已绑定的 Agent 重新获取。'],
+  [
+    'en',
+    'This sign-in link has expired or has already been used. Ask your linked Agent for a new link.',
+  ],
+])('explains an expired handoff in the active locale (%s)', async (locale, message) => {
+  const fetch = vi.fn(async (url) =>
+    url.endsWith('/preview')
+      ? { ...response({}, false), status: 410 }
+      : response({ authenticated: false, identities: [] })
+  )
+  vi.stubGlobal('fetch', fetch)
+  const state = await mount(locale)
+  await vi.waitFor(() => expect(state.initialized).toBe(true))
+  pendingPanelTicket.value = 'expired-handoff'
+  await vi.waitFor(() => expect(state.error).toBe(message))
+  expect(state.ticket).toBeNull()
+  expect(fetch.mock.calls.some(([url]) => url.endsWith('/login'))).toBe(false)
+})
+
 it('ends resource loading and shows an error when a reporter request fails', async () => {
   vi.stubGlobal(
     'fetch',

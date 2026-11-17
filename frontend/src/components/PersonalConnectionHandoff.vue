@@ -164,14 +164,7 @@
                   :href="(item.skill || skill).bundle_url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  >下载 Skill</a
-                >
-                ·
-                <a
-                  :href="(item.skill || skill).markdown_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  >SKILL.md</a
+                  >{{ $t('personalOnboarding.installPackage') }}</a
                 >
               </p>
               <p class="scope">实例 {{ item.instance_id }} · bot {{ item.bot.uuid }}</p>
@@ -243,7 +236,6 @@ function installation(value, origin = location.origin) {
   const result = { skill_id: value.skill_id }
   for (const [field, path] of Object.entries({
     bundle_url: '/api/agent-skill/lockbot-resource-agent.zip',
-    markdown_url: '/api/agent-skill/SKILL.md',
     manifest_url: '/api/agent-skill',
   })) {
     const url = new URL(text(value[field]))
@@ -285,16 +277,8 @@ function connection(row, pins = null) {
   )
     throw new Error('invalid_metadata')
   const instructions = text(row.instructions, 12000)
-  if (
-    !instructions.includes(sourceSkill.bundle_url) ||
-    !instructions.includes(sourceSkill.markdown_url)
-  )
-    throw new Error('invalid_metadata')
-  if (
-    pins &&
-    (!text(row.recovery_instructions, 12000).includes(sourceSkill.bundle_url) ||
-      !row.recovery_instructions.includes(sourceSkill.markdown_url))
-  )
+  if (!instructions.includes(sourceSkill.bundle_url)) throw new Error('invalid_metadata')
+  if (pins && !text(row.recovery_instructions, 12000).includes(sourceSkill.bundle_url))
     throw new Error('invalid_metadata')
   // Explicit projection: unexpected credential, digest or provider fields are
   // never retained in the page or copied into another Agent's instruction.

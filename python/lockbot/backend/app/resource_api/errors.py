@@ -28,6 +28,8 @@ def install_agent_validation_errors(app):
     from fastapi.responses import JSONResponse
 
     routes = {
+        "/api/agent/commands",
+        "/api/agent/usage-declarations/{resource_id}",
         "/api/bots/{bot_id}/commands",
         "/api/bots/{bot_id}/usage-declarations/{resource_id}",
     }

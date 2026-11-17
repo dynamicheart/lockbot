@@ -6,11 +6,21 @@ group, and the resource snapshot reflects it — with no Infoflow payload shape 
 Infoflow field name anywhere in any response or anything the adapter sent.
 """
 
+import hashlib
+import io
 import json
 import logging
+import re
+import socket
+import subprocess
+import sys
+import threading
+import time
 from unittest.mock import patch
+from zipfile import ZipFile
 
 import pytest
+import uvicorn
 from fake_adapter import VALID_SIGNATURE, FakeAdapter, encode_message
 from lockbot.backend.app.bots.manager import BotManager
 from lockbot.backend.app.bots.models import Bot
@@ -136,6 +146,104 @@ def _all_sinks(resp, bot, tmp_path, bot_id, caplog, db_session):
 
     audit = "".join(f"{r.action}{r.detail}{r.target_name}" for r in db_session.query(AuditLog).all())
     return [resp.text, _command_log(tmp_path, bot_id), caplog.text, json.dumps(bot.adapter.sent), audit]
+
+
+def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command(
+    client, fakeim_api, tmp_path, monkeypatch
+):
+    bot_id, bot = fakeim_api["bot_id"], fakeim_api["bot"]
+
+    installation = client.get("/api/agent-skill").raise_for_status().json()["installation"]
+    bundle = client.get(installation["download_url"]).raise_for_status().content
+    assert hashlib.sha256(bundle).hexdigest() == installation["sha256"]
+    with ZipFile(io.BytesIO(bundle)) as archive:
+        archive.extractall(tmp_path)
+    script = tmp_path / "lockbot-resource-agent/scripts/lockbot_resource.py"
+    project = tmp_path / "project"
+    project.mkdir()
+    monkeypatch.setenv("no_proxy", "127.0.0.1")
+
+    def cli(*args):
+        completed = subprocess.run(
+            [sys.executable, "-I", "-S", str(script), *args],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        assert not re.search(r"\b(?:lbr|lbp)_[A-Za-z0-9_-]{32,}", completed.stdout + completed.stderr)
+        return json.loads(completed.stdout)["result"]
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        origin = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        server = uvicorn.Server(uvicorn.Config(client.app, lifespan="off", access_log=False, log_level="warning"))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+        thread.start()
+        try:
+            for _ in range(50):
+                if server.started:
+                    break
+                assert thread.is_alive()
+                time.sleep(0.05)
+            assert server.started
+
+            old_key = None
+            old_auth = None
+            for creates_key, extra in [(True, ()), (False, ()), (False, ("--purpose", "reset"))]:
+                purpose, prefix = ("reset", "RST-") if extra else ("recover", "REC-")
+                issued = cli("key-challenge", "--origin", origin, "--authorized", "--scope", "project", *extra)
+                assert issued["purpose"] == purpose and issued["target_group"] is None
+                command, code = issued["bind_command"].split()
+                assert command == "bind" and code.startswith(prefix)
+                pending = cli("connections", "--directory", ".lockbot/connections")["pending_enrollments"]
+                assert [entry["purpose"] for entry in pending] == [purpose]
+                directory = project / pending[0]["enrollment_dir"]
+                finish = ("finish-enrollment", "--enrollment-dir", str(directory))
+                assert cli(*finish)["status"] == "pending"
+                assert not (directory / "key").exists()
+                if old_auth is not None:
+                    assert client.get("/api/agent/context", headers=old_auth).status_code == 200
+
+                resp = _confirm_via_webhook(client, bot_id, code).raise_for_status()
+                if purpose == "reset":
+                    assert client.get("/api/agent/context", headers=old_auth).status_code == 401
+                    status = cli("enrollment-status", *finish[1:])
+                    assert status["chat_action"] == "reset_applied"
+                    assert status["next_command"] == list(finish)
+                    assert not (directory / "key").exists()
+                finished = cli(*finish)
+                assert finished["connection_created"]
+                assert finished.get("outcome") == ("created" if creates_key else None)
+                key = (directory / "key").read_text()
+                assert key not in resp.text + json.dumps(bot.adapter.sent)
+                assert code not in resp.text + json.dumps(bot.adapter.sent)
+                assert (directory / "key").stat().st_mode & 0o777 == 0o600
+                connection = ("--connection", str(directory / "connection.json"))
+                context = cli(*connection, "context")
+                assert context["bot"]["id"] == bot_id and context["actor"]["external_user_id"] == ACTOR
+                if creates_key:
+                    old_key = key
+                    old_auth = {"Authorization": f"Bearer {old_key}"}
+                    client.post(
+                        f"/api/bots/{bot_id}/commands", headers=old_auth, json={"command": "lock n1 1h"}
+                    ).raise_for_status()
+                else:
+                    assert (key == old_key) == (purpose == "recover")
+                snapshot = cli(*connection, "resources")
+                holder = next(resource for resource in snapshot["resources"] if resource["id"] == "n1")["holders"][0]
+                assert holder["external_user_id"] == ACTOR
+                if creates_key:
+                    original_expiry = holder["expires_at"]
+                else:
+                    assert holder["expires_at"] == original_expiry
+
+            assert client.get("/api/agent/context", headers=old_auth).status_code == 401
+        finally:
+            server.should_exit = True
+            thread.join(timeout=10)
+            assert not thread.is_alive()
 
 
 # PLACEHOLDER_REDACTION

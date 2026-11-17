@@ -125,6 +125,7 @@ def create_panel(
     allow_private_http=False,
     metadata_adapter=None,
     metadata_pins=None,
+    native_handoff=None,
 ):
     upstream = panel_origin(origin, allow_private_http)
     secure = upstream.scheme == "https"
@@ -146,6 +147,17 @@ def create_panel(
             raise ValueError("Metadata adapter requires a non-native provider and a callable descriptor")
         metadata_pins = pinned_services(list(metadata_pins or {}), metadata_pins, allow_private_http)
     metadata_available = metadata_adapter is not None
+    if native_handoff is not None and (
+        native_connections
+        or not metadata_available
+        or type(native_handoff) is not NativeProvider
+        or native_handoff.config.get("issuer") != origin
+        or native_handoff.config.get("local_key_handoff") is not True
+        or origin in metadata_pins
+        or len(metadata_pins) >= 16
+    ):
+        raise ValueError("Local Key handoff requires an external metadata provider and space for a dedicated local pin")
+    account_provider = provider if native_connections else native_handoff
     rotation_enabled = native_connections and provider.config.get("allow_credential_rotation") is True
     rotation_links = CredentialViews(sessions, purpose="rotate_link") if rotation_enabled else None
     rotation_intents = CredentialViews(sessions, purpose="rotate_intent") if rotation_enabled else None
@@ -161,6 +173,7 @@ def create_panel(
             return JSONResponse({"detail": "Origin mismatch"}, status_code=403)
         browser_post = request.method == "POST" and request.url.path.rsplit("/", 1)[-1] not in (
             "links",
+            "account-links",
             "credential-view-links",
             "credential-rotation-links",
         )
@@ -179,10 +192,15 @@ def create_panel(
         )
         return response
 
+    def provider_for(grant):
+        if native_handoff is not None and native_handoff.owns_handoff_grant(grant):
+            return native_handoff
+        return provider
+
     def valid(grant):
         # A source failure must not grant access or disclose the upstream exception.
         try:
-            return bool(provider.validate(grant))
+            return bool(provider_for(grant).validate(grant))
         except Exception:
             raise HTTPException(503, "Identity provider unavailable") from None
 
@@ -199,6 +217,16 @@ def create_panel(
                         "metadata_available": True,
                         "credential_disclosure_supported": False,
                         "refresh_semantics": "revalidate_only",
+                        **(
+                            {
+                                "native_key_handoff": {
+                                    "version": 1,
+                                    "account_issue_path": request.url.path.rsplit("/", 1)[0] + "/account-links",
+                                }
+                            }
+                            if native_handoff is not None
+                            else {}
+                        ),
                     }
                 }
                 if metadata_available
@@ -213,6 +241,7 @@ def create_panel(
                     "connection_management": {
                         "version": 1,
                         "list_path": request.url.path.rsplit("/", 1)[0] + "/connections",
+                        "account_issue_path": request.url.path.rsplit("/", 1)[0] + "/account-links",
                         "skill": skill,
                         "recovery_instructions": recovery_guide,
                         "refresh_semantics": "revalidate_only",
@@ -249,8 +278,7 @@ def create_panel(
             ),
         }
 
-    @app.post("/links")
-    def issue(request: Request):
+    def issue_handoff(request, *, recover_groups):
         auth = request.headers.get("authorization", "")
         if request.headers.get("origin") or not auth.startswith("Bearer ") or not 0 < len(auth[7:]) <= 8192:
             raise HTTPException(401, "A bound agent credential is required")
@@ -261,14 +289,31 @@ def create_panel(
             if len(recent) >= 120:
                 raise HTTPException(429, headers={"Retry-After": "60"})
             recent.append(now)
+        authenticator = account_provider if recover_groups else provider
         try:
-            grant = provider.authenticate(auth[7:])
+            grant = authenticator.authenticate(auth[7:])
         except Exception:
             raise HTTPException(401, "Binding unavailable") from None
-        if not grant or not valid(grant):
+        if not grant or provider_for(grant) is not authenticator or not valid(grant):
             raise HTTPException(401, "Binding unavailable")
-        token = sessions.issue(grant)
+        try:
+            recovered = authenticator.recover_panel_grants(grant) if recover_groups else ()
+            token = sessions.issue(grant, recovered)
+        except ProviderError:
+            raise HTTPException(403, "Binding changed") from None
+        except ValueError:
+            raise HTTPException(409, "Too many bindings for one browser login") from None
         return dict(home=origin + "/#/me", login_url=origin + "/#/me?ticket=" + token, expires_in=120)
+
+    @app.post("/links")
+    def issue(request: Request):
+        return issue_handoff(request, recover_groups=False)
+
+    @app.post("/account-links")
+    def issue_account(request: Request):
+        if account_provider is None:
+            raise HTTPException(404)
+        return issue_handoff(request, recover_groups=True)
 
     @app.post("/credential-view-links")
     def issue_credential_view(request: Request):
@@ -472,30 +517,44 @@ def create_panel(
             "expires_in": max(0, deadline - time.time()),
         }
 
-    def inspect_ticket(token):
+    def inspect_ticket(token, *, include_recovered=False):
         try:
-            grant = sessions.peek(token)
+            grants = sessions.peek_grants(token)
         except ValueError:
             raise HTTPException(410, "Login link expired or used") from None
-        if not valid(grant):
+        if not valid(grants[0]):
             raise HTTPException(403, "Binding expired or revoked")
-        return grant
+        names = None
+        if include_recovered and len(grants) > 1:
+            if account_provider is None or provider_for(grants[0]) is not account_provider:
+                raise HTTPException(403, "Unsupported handoff scope")
+            try:
+                names = account_provider.panel_account_groups(grants)
+            except ProviderError:
+                raise HTTPException(403, "A connection changed. Get a new sign-in link.") from None
+        return grants[0], names
 
     @app.post("/preview")
     async def preview(request: Request):
         data = await fields(request, ["ticket"])
-        return {"identity": public_identity(inspect_ticket(data["ticket"]))}
+        grant, names = inspect_ticket(data["ticket"], include_recovered=True)
+        return {"identity": public_identity(grant), **({"groups": names} if names else {})}
 
     @app.post("/login")
     async def login(request: Request):
         data = await fields(request, ["ticket", "mode"])
-        inspect_ticket(data["ticket"])
-        if data["mode"] not in ("append", "replace"):
+        mode = data["mode"]
+        if mode not in ("append", "replace", "append_account", "replace_account"):
             raise HTTPException(400)
-        if data["mode"] == "append" and not live(request):
+        mode, _, suffix = mode.partition("_")
+        include_recovered = suffix == "account"
+        inspect_ticket(data["ticket"], include_recovered=include_recovered)
+        if mode == "append" and not live(request):
             raise HTTPException(401)
         try:
-            cookie = sessions.consume(data["ticket"], request.cookies.get(cookie_name), mode=data["mode"])
+            cookie = sessions.consume(
+                data["ticket"], request.cookies.get(cookie_name), mode=mode, include_recovered=include_recovered
+            )
         except ValueError:
             raise HTTPException(410, "Login link or session invalid") from None
         response = JSONResponse({"authenticated": True})
@@ -566,8 +625,9 @@ def create_panel(
             raise unavailable(401)
         items = []
         for grant in grants:
+            owner = provider_for(grant)
             try:
-                if metadata_available:
+                if metadata_available and owner is provider:
                     from .metadata import project
 
                     raw = metadata_adapter.describe_connection(dict(grant))
@@ -575,12 +635,12 @@ def create_panel(
                         continue
                     item = project(raw, grant, metadata_pins)
                 else:
-                    item = provider.connection(grant)
+                    item = owner.connection(grant)
             except ProviderError:
                 raise unavailable(403) from None
             except Exception:
                 raise HTTPException(503, {"code": "connection_metadata_unavailable"}) from None
-            source = item["service_origin"] if metadata_available else origin
+            source = item.get("service_origin", origin)
             source_skill = installation(source) if metadata_available else skill
             item.update(id=connection_id(grant), identity=public_identity(grant), service_origin=source)
             item["instructions"] = connection_instructions(source, source_skill, item)
@@ -598,7 +658,7 @@ def create_panel(
         if metadata_available:
             if not items:
                 raise unavailable(403)
-            used = {item["service_origin"] for item in items}
+            used = {item["service_origin"]: item["instance_id"] for item in items}
             return {
                 "schema_version": 2,
                 "connections": items,
@@ -606,7 +666,7 @@ def create_panel(
                 "service_pins": [
                     {
                         "origin": source,
-                        "instance_id": metadata_pins[source],
+                        "instance_id": used[source],
                         "service_id": "lockbot.resource-api",
                         "api_version": "1",
                     }
@@ -720,7 +780,15 @@ def create_panel(
     def report_selector(*parts):
         return hashlib.sha256(json.dumps(parts, separators=(",", ":"), sort_keys=True).encode()).hexdigest()[:32]
 
+    def report_sources(grant):
+        owner = provider_for(grant)
+        # Existing reporter registrations are scoped to the configured provider.
+        return (provider, *reporters) if owner is provider else (owner,)
+
+    report_selectors = (provider, *reporters, native_handoff)
+
     def read_groups(grant, source):
+        identity_source = source is provider_for(grant)
         try:
             data = source.report(grant)
         except Exception:
@@ -729,7 +797,7 @@ def create_panel(
             raise HTTPException(403, "Binding changed")
         for group in data:
             group = {field: value for field, value in group.items() if field != "utilization"}
-            if native_connections and source is provider:
+            if native_connections and identity_source:
                 if group.get("status") == "ok" and any(
                     row.get("kind") == "hold" for row in group.get("allocations", [])
                 ):
@@ -757,10 +825,10 @@ def create_panel(
                 grant["realm"],
                 grant["subject"],
                 group.get("group_id", group["label"]),
-                grant["scope"] if source is provider else "",
+                grant["scope"] if identity_source else "",
             )
             group_selector = report_selector(
-                next(index for index, reporter in enumerate((provider, *reporters)) if reporter is source),
+                next(index for index, reporter in enumerate(report_selectors) if reporter is source),
                 key[1:],
             )
             allocations = group.get("allocations")
@@ -786,8 +854,8 @@ def create_panel(
                     detail_id=group_selector,
                     identity=public_identity(grant),
                     source={
-                        "kind": "identity_provider" if source is provider else "reporter",
-                        "label": "登录服务" if source is provider else getattr(source, "label", "外部报表"),
+                        "kind": "identity_provider" if identity_source else "reporter",
+                        "label": "登录服务" if identity_source else getattr(source, "label", "外部报表"),
                     },
                 ),
             )
@@ -799,7 +867,7 @@ def create_panel(
             raise HTTPException(401)
         groups = {}
         for grant in grants:
-            for source in (provider, *reporters):
+            for source in report_sources(grant):
                 for key, group in read_groups(grant, source):
                     groups.setdefault(key, group)
         # Loading a later group can take time. Recheck earlier grants before releasing the combined response.
@@ -837,7 +905,7 @@ def create_panel(
             return json.dumps({"event": event, **payload}, ensure_ascii=True) + "\n"
 
         async def stream():
-            jobs = [(grant, source) for grant in grants for source in (provider, *reporters)]
+            jobs = [(grant, source) for grant in grants for source in report_sources(grant)]
             yield line("start", total=len(jobs))
             pending = {}
             next_index = 0

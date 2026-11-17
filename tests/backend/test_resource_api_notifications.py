@@ -209,11 +209,13 @@ class TestReadsDoNotAnnounce:
     @pytest.mark.parametrize(
         "command", ["lock n1,n2 2h", "slock n1 1h", "unlock n1", "alias n1 this-label-is-too-long"]
     )
-    def test_a_business_rejection_does_not_announce(self, client, api, command):
+    @pytest.mark.parametrize("key_scoped", [False, True])
+    def test_a_business_rejection_does_not_announce(self, client, api, command, key_scoped):
         bot = api["bot"]
         bot.lock("other-user", "lock n1 1h")
         state = deepcopy(bot.state.bot_state)
-        response = _post(client, api, command)
+        path = "/api/agent/commands" if key_scoped else f"/api/bots/{api['bot_id']}/commands"
+        response = client.post(path, headers=api["headers"], json={"command": command})
         assert response.status_code == 200
         assert "❌" in response.json()["reply"]
         assert bot.state.bot_state == state

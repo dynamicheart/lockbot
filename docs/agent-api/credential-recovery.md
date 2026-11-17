@@ -5,6 +5,57 @@ verified IM principal for discovering and recovering that principal's other live
 keys on the same service instance. Usernames supplied in a request cannot select
 another identity. Feishu bindings are grouped only when their verified routes identify the same application and tenant; missing route or tenant evidence stays bot-scoped. Resource operations still require the destination group's key.
 
+## Recovery and reset through chat
+
+The user identifies the service when the Agent has no approved connection. The
+user selects the robot by sending a one-time command in its existing group.
+Group names, group IDs and bot IDs are never required as user inputs. The chat
+event supplies the verified sender and bot. Keep service and platform identity
+scopes independent, including private upstream providers.
+
+| User intent | Agent and user steps | Expected result |
+| --- | --- | --- |
+| Use or migrate existing access | Find a saved connection or a privately supplied Key. Verify it, then recover eligible stored Keys on that instance. | Reuse the same Keys and save each verified connection. Skip chat confirmation when an existing Key already provides proof. |
+| Find my Key or connect without a saved Key | Issue one recovery challenge on the approved service. Ask the user to send its code to the robot in the group they want to connect. | The Agent retrieves the original Key if it is recoverable. If no Key is active for the verified sender and bot, the server creates one and returns `outcome: created`. If an active Key has no readable copy, it stays valid. |
+| Reset a lost or compromised Key | Explain that Agents sharing this Key will need an update. With explicit reset authorization, issue a reset challenge. The user sends its reset command in the robot's group. | Atomically invalidate the old Key and issue its replacement for the authenticated sender and bot. Retain other bindings, leases and bookings. |
+
+A missing Key defaults to recovery. After the user explicitly authorizes reset, the
+Agent can request a reset code. Both use `@bot bind <code>` in the chosen group.
+Recovery codes start with `REC-` and reset codes with `RST-`. The purpose is
+stored at issuance and the chat reply names the confirmed action.
+A normal bind or recovery confirmation cannot authorize reset. Return credential
+material only to the initiating Agent through proof of possession of the original
+private challenge secret. Chat replies acknowledge the action without sending
+the Key. The code and public challenge ID alone grant no API credential access.
+Store the result privately and verify its live context before use. P800 renewal
+continues to use its own issuer and shared credential.
+
+Before exposing the proposed chat recovery and reset flows, verify the following:
+
+- A fresh Agent with no local Key can recover the same value after chat proof.
+  The existing Agent still authenticates. A missing ciphertext never rotates the
+  Key, and the newly issued enrollment credential remains inert.
+- With no active binding, the verified recovery confirmation creates one Key.
+  Another recovery with the same sender and bot returns that Key.
+- An explicitly confirmed reset invalidates the original credential, keeps the
+  verified identity and resource state, and leaves another bot's Key valid.
+- Expired, mismatched-purpose, replayed and concurrently used codes do not
+  disclose values or reset credentials twice. Changing bot authority or revoking
+  the selected binding before retrieval prevents credential delivery.
+- A connection can resume after a new Agent session using its private challenge
+  state. A lost or uncertain reset response requires fresh proof and state
+  reconciliation before considering another reset.
+
+On deployments advertising `chat_credential_challenges`, issue a code with
+`key-challenge --origin <approved-origin> --authorized`. For a user-approved reset
+add `--purpose reset`. After the user confirms, run `finish-enrollment --enrollment-dir <path>`.
+The service applies the reset during group confirmation. The finish command retrieves
+the result and saves the connection locally.
+The result is available through the issuing service until the code deadline.
+The binding generation must still match. A service restart clears outstanding
+codes and receipts. After an unavailable reset result, use fresh recovery proof
+to retrieve the current Key before considering another reset.
+
 ## Credential authority
 
 A holder of one live personal key can recover the same principal's stored keys
@@ -65,16 +116,16 @@ A digest is irreversible. If a key is genuinely unavailable from all authorized
 local stores and recoverable copies, or disclosure/compromised authorization is
 suspected, explain the supported human-confirmed flow before proposing revocation.
 Routine releases, Skill updates, new Agent installation and missing recovery material
-alone are not reasons to reset. Recovery itself never rotates or re-enrolls.
+alone are not reasons to reset. Recovery preserves an active binding and can
+create one when the verified sender and bot have none.
 
-Ask for explicit user confirmation identifying the service, bot and affected scope.
+Ask for explicit user authorization identifying the service and explaining the affected scope. The user selects the bot through chat confirmation.
 All Agents sharing the revoked group key lose access and need private configuration
 with the replacement key. The verified human can use chat `bindings` and
 `unbind <short-id>` in that bot's group to revoke their own binding, then confirm
 a fresh `bind <code>`. The authorized owner can instead revoke all personal resource
 bindings for the bot through the existing management flow; that broader action must
-be explicitly identified. There is no routine Agent reset endpoint, and `lbk_`
-operator API-key reset is a separate credential type.
+be explicitly identified. The chat reset challenge requires a verified chat confirmation. The `lbk_` operator API key has its own separate reset flow.
 
 Credential revocation does not itself release, migrate or recreate existing locks
 or queues. Explain those resource consequences separately and obtain authorization

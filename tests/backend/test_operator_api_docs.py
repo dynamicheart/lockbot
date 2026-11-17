@@ -27,9 +27,7 @@ def test_resource_skill_does_not_distribute_detailed_note_authorization(client):
     )
     prefix = "/api/agent-skill"
     markdown = client.get(prefix + "/SKILL.md")
-    assert markdown.status_code == 200
-    for marker in private_contracts:
-        assert marker not in markdown.content
+    assert markdown.status_code == 404
     for bundle in ("lockbot-agent-api.zip", "lockbot-resource-agent.zip"):
         response = client.get(prefix + "/" + bundle)
         assert response.status_code == 200
@@ -46,10 +44,11 @@ def test_public_resource_history_uses_operator_credentials_not_personal_keys(cli
         assert route["tags"] == ["OP API"]
         assert route["security"] == [{"OpApiKey": []}]
     for path, method in (
-        ("/api/bots/{bot_id}/resources", "get"),
-        ("/api/bots/{bot_id}/commands", "post"),
+        ("/api/agent/resources", "get"),
         ("/api/agent/context", "get"),
     ):
         route = doc["paths"][path][method]
         assert route["tags"] == ["Agent API"]
         assert route["security"] == [{"AgentKey": []}]
+    assert "/api/bots/{bot_id}/resources" not in doc["paths"]
+    assert "/api/bots/{bot_id}/commands" not in doc["paths"]

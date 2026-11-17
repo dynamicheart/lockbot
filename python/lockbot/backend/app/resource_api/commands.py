@@ -39,7 +39,12 @@ from lockbot.backend.app.resource_api.observability import record_api_command
 from lockbot.backend.app.resource_api.task_categories import TaskCategoryInput, TaskCategoryNotice
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
 from lockbot.backend.app.resource_auth.authority import authority_guard
-from lockbot.backend.app.resource_auth.dependencies import ResourceActor, require_resource_actor, reverify_actor
+from lockbot.backend.app.resource_auth.dependencies import (
+    ResourceActor,
+    require_agent_resource_actor,
+    require_resource_actor,
+    reverify_actor,
+)
 from lockbot.core.base_bot import AcquisitionLimitExceeded
 from lockbot.core.command_result import capture_result
 from lockbot.core.handler import (
@@ -54,6 +59,7 @@ from lockbot.core.platforms.registry import normalize_platform_name
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
+agent_router = APIRouter(prefix="/api/agent", tags=["Public API"])
 
 #: Canonical command words an agent credential may reach. Personal operations only: nothing
 #: here can evict, preempt, or enroll.
@@ -68,7 +74,7 @@ PRE_REJECTED_COMMANDS = frozenset({"take", "kickout", "kicklock"}) | frozenset(B
 
 COMMAND_GUIDE = """## Resource command reference
 
-Send JSON to `POST /api/bots/{bot_id}/commands` using the personal Bearer key. Obtain the
+Send JSON to `POST /api/agent/commands` using the personal Bearer key. Obtain the
 real resource IDs, device indexes and `supported_operations` from `GET /resources` first.
 The examples below use placeholder resources; replace them with those returned by your bot.
 
@@ -130,7 +136,7 @@ Successful `lock` / `slock` / `book` with either optional field automatically re
 that resource's Agent name and purpose in the same API call. No second request is needed.
 A failed acquisition does not change the current task. Other commands (including `free`)
 never publish these private fields in group notifications. To change a task later without changing
-the lease, optionally call `PUT /api/bots/{bot_id}/usage-declarations/node1`:
+the lease, optionally call `PUT /api/agent/usage-declarations/node1`:
 
 ```json
 {"purpose":"Develop feature X","agent_label":"dev-agent","ttl_seconds":3600}
@@ -145,22 +151,22 @@ per card; use `devices[].resource_id` for manual usage updates (e.g. `node1:dev0
 
 ### Actual HTTP call
 
-Use the trusted server address and bot ID supplied by the user. Load the key privately
+Use the trusted server address. The personal key selects its bound bot; no bot ID is needed. Load the key privately
 from the user's credential store; never put it in URLs, logs, shared files or shell history.
-For example, after assigning `base_url`, `bot_id` and `key` securely in the Agent process:
+For example, after assigning `base_url` and `key` securely in the Agent process:
 
 ```python
 import requests
 session = requests.Session()
 session.headers["Authorization"] = "Bearer " + key
 response = session.post(
-    f"{base_url}/api/bots/{bot_id}/commands",
+    f"{base_url}/api/agent/commands",
     json={"command": "lock node1 2h", "agent_label": "dev-agent", "purpose": "Develop feature X"},
     timeout=15,
 )
 response.raise_for_status()
 # Honour Retry-After / next_event_at for subsequent checks; a POST reply is not proof.
-state = session.get(f"{base_url}/api/bots/{bot_id}/resources", timeout=15)
+state = session.get(f"{base_url}/api/agent/resources", timeout=15)
 state.raise_for_status()
 # Match state.json()["actor"] against the resource's holders, then use the resource.
 ```
@@ -247,6 +253,7 @@ class CommandResponse(BaseModel):
 
 @router.post(
     "/{bot_id}/commands",
+    deprecated=True,
     response_model=CommandResponse,
     response_model_exclude_none=True,
     summary="Execute a personal resource command",
@@ -440,3 +447,20 @@ def _leading_word(text: str) -> str:
     """The command word as typed, lowercased. Empty text means `query`, as in chat."""
     match = re.match(r"^(\w+)", text, re.I)
     return match.group(1).lower() if match else "query"
+
+
+@agent_router.post(
+    "/commands",
+    response_model=CommandResponse,
+    response_model_exclude_none=True,
+    summary="Execute a personal resource command",
+    description=COMMAND_GUIDE,
+)
+def execute_agent_command(
+    body: Annotated[CommandRequest, Body(openapi_examples=COMMAND_EXAMPLES)],
+    request: Request,
+    actor: ResourceActor = Depends(require_agent_resource_actor),
+    db: Session = Depends(get_db),
+) -> CommandResponse:
+    """Execute as the bound identity without accepting a caller-selected bot."""
+    return execute_command_via_api(bot_id=actor.bot_id, body=body, request=request, actor=actor, db=db)

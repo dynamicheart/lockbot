@@ -66,7 +66,7 @@ of this evaluation. Respect `max_turns`, output-token and per-run spending limit
 one JSON object on stdout, exiting nonzero for authentication/provider/client failures:
 
 ```json
-{"text": "Agent final response", "usage": {"input_tokens": 0, "output_tokens": 0}}
+{"text": "Agent final response", "turns": 3, "usage": {"input_tokens": 0, "output_tokens": 0}}
 ```
 
 Keep runner configuration, model credentials and raw transcripts outside Git. Supply
@@ -89,11 +89,64 @@ Use a new output directory for each attempt. The process-group deadline stops th
 runner and its children. Failed infrastructure is reported separately from completed
 model behavior. Do not retry indefinitely or switch models silently.
 
-The repository template's deployment marker is rendered using a synthetic documentation-range IP origin.
-The report records the resulting Markdown SHA-256. This measures that exact instruction
-snapshot and runner; it is not a production deployment or an enrollment test. The fixture
-bundle currently contains Markdown only. Helper packaging and client-specific hot reload
-require separate distribution and integration tests.
+The `--skill` form renders the repository template with a synthetic documentation-range IP
+origin and uses a Markdown-only fixture bundle. Use `--artifacts` to test a frozen complete
+ZIP. The report records the resulting Markdown SHA-256. Client-specific detection and hot
+reload require separate integration tests.
+
+## Run a parallel client and model matrix
+
+List the `suite:scenario` selections with `python scripts/dev/skill_eval_matrix.py list`.
+Register each client and model pair with `--runner CLIENT MODEL ARGV_JSON` using the
+adapter protocol above. Run from an installed development environment on macOS or Linux.
+
+```sh
+python scripts/dev/skill_eval_matrix.py run \
+  --artifacts /private/evaluation/frozen-release \
+  --runner Codex MODEL_NAME /private/evaluation/codex-runner.json \
+  --runner Claude MODEL_NAME /private/evaluation/claude-runner.json \
+  --case cli:approved-enrollment --suite onboarding \
+  --workers 4 --timeout 180 --max-turns 28 \
+  --output /private/evaluation/matrix-001
+```
+
+Repeat `--suite` or `--case` to select their union. Without a selection, the matrix
+runs all four suites. Supply `manifest.json` and `lockbot-resource-agent.zip` rendered
+for `http://192.0.2.10:8155`. The full matrix additionally needs `--panel-artifacts`
+with the same portable release rendered for `https://lockbot.example.test` and
+`--installed-artifacts` with a distinct older revision rendered for the same synthetic
+instance as the current release. The runner saves validated copies before launching clients.
+
+`--workers` caps simultaneous client sessions. Each case receives an independent
+fixture, model process and evidence directory. For cases with a follow-up session,
+the scheduler checks the first phase, injects simulated consent where applicable and
+uses the fixture's resume function to keep only durable state. A failed first phase
+records the second as `blocked_by_phase_1`.
+
+Before scheduling cases, the matrix runs one short connectivity probe per client/model
+pair through its configured adapter. A usable reply admits the pair to the matrix.
+The probe uses no fixture tools and has a separate `--preflight-timeout` limit of 45
+seconds by default. `preflight.json` records connectivity results and timing. Blocked
+pairs are recorded as `blocked_by_model_preflight` and have no behavior verdict.
+A timeout during a case remains a case timeout even when the connectivity probe passed.
+
+`cli:recover-original-key`, `cli:approved-enrollment-no-group`, and
+`cli:reset-personal-key` exercise recovering an existing Key, creating a first Key,
+and an explicitly authorized reset. Each case checks the group confirmation command
+and who should send it, then starts a new session after simulated confirmation to
+save the expected Key. A third session receives a read-only request and must find and
+use its explicit path from `connections`. Reading the completed enrollment again is counted
+as an extra read. The adapter may report its actual turn count as `turns`. The report
+keeps that count, session phases, and simulated user actions such as chat binding or
+browser consent separate. An unavailable turn count is recorded as null.
+
+Follow `progress.jsonl` during a run. The final `matrix.json` orders results by case,
+configured client/model pair and phase. It records which artifact and fixture produced
+each result. It distinguishes observable checks, adapter failures, timeouts and fixture
+errors. Exit code 0 means all observable checks passed, 1 means the completed matrix
+contains a failed or unfinished check, and 2 means the command or its inputs were invalid.
+Manual review and live acceptance remain separate. Keep the output directory private and
+publish a sanitized summary.
 
 ## Review and iterate
 
@@ -118,10 +171,10 @@ Provide an explicit instruction as well as the deployment link, for example:
 > Save this service address locally and keep each service/bot key in the private credential
 > store. Do not enroll or request resources yet.
 
-This is a suggested user request, not an instruction to bypass the client's installation
-or approval mechanism. When distributing the complete ZIP, keep the manifest and Markdown
-entry points readable and make the install instruction identify the full package. A ZIP
-does not automatically register itself with every client.
+This is a suggested user request. The client still controls its installation and approval
+flow. Use the public manifest to identify the complete ZIP and verify its digest. The
+package contains the Markdown instructions, helper, references and integrity metadata.
+A ZIP does not automatically register itself with every client.
 
 Attach each dated evaluation matrix to the PR that changes the Skill, bound to its commit,
 Skill hash, fixture/scenario version and runner conditions. Append new results after changes;

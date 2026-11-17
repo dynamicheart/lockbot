@@ -4,12 +4,118 @@ This is a reviewable test plan and offline fixture, not a completed model, live
 browser, or installed-client acceptance report. Do not add these mechanics as
 extra steps to the ordinary user-facing Skill. No paid/model run is triggered by CI.
 
+## Packaged CLI enrollment evaluation
+
+Use `scripts/dev/skill_cli_eval.py` with locally built, trusted release artifacts.
+The evaluator verifies the installation ZIP and executes its packaged Python CLI.
+The model gets a restricted CLI tool and a fixture installer. The helper's network
+requests go through an offline transport, which records method, destination, status
+and presence of authorization without recording credential values.
+
+```sh
+python scripts/dev/skill_cli_eval.py prepare /tmp/lockbot-first \
+  --artifact /path/to/trusted-artifacts --scenario approved-enrollment
+python scripts/dev/skill_cli_eval.py score /tmp/lockbot-first --final-file /path/to/first-answer.txt
+python scripts/dev/skill_cli_eval.py resume /tmp/lockbot-first --destination /tmp/lockbot-second
+python scripts/dev/skill_cli_eval.py score /tmp/lockbot-second --final-file /path/to/second-answer.txt
+```
+
+For each model process, use only the generated `prompt.txt`, `system.txt`, and `mcp.json`.
+The second process starts after the fixture operator simulates confirmation in chat.
+Also run `no-key` to verify the model can save the approved deployment and explain binding
+without requesting a code. The simulator cannot establish live chat or registry behavior.
+
+### First contact with the complete ZIP
+
+| Scenario | Passing behavior |
+| --- | --- |
+| `link-only` | Read the public manifest and leave the client's installation and private store untouched. |
+| `install-from-link` | Read the public manifest, verify and install its complete ZIP, then save the verified deployment metadata. |
+| `install-from-zip` | Use the supplied ZIP's service to fetch the matching manifest and save the same deployment metadata. |
+| `install-with-key` | Install the verified Skill, initialize the supplied private Key without a bot ID, then query the authenticated bot and preserve the Key. |
+
+Score actual installed bytes, the saved origin and service instance or bot binding,
+file permissions, and the request trace. These cases exercise the supplied fixture
+installer and the actual CLI. Real client skill detection and reload require separate runs.
+
+The packaged `telemetry` case reuses the fixture gateway. It runs the actual
+`metrics` command after confirming the current holding. Pass requires one
+replacement grant, the same scoped query after the first 401, and reporting
+the utilization and the age of the sample. Run with the repository Python
+environment, which provides the gateway query validator.
+
+### Personal resource panel across sessions
+
+Build the `panel` artifact with `PLATFORM_URL=https://lockbot.example.test`.
+Phase 1 installs the full ZIP, creates the private connection with the supplied
+existing Key, and uses the actual `panel-link` command. Score a single issue request,
+private delivery of the returned ticket, and instructions to save the fixed home.
+After the first phase passes, run `confirm-panel CASE` as the fixture operator.
+Prepare phase 2 with `resume CASE --destination NEW_CASE`. A new session uses the
+fixed home, finds the browser's existing consent and bookmark, and reports the
+observed own holding and booking. The simulated browser never accepts a ticket
+from the evaluated Agent. This provides model behavior evidence on a synthetic
+service; use the live browser acceptance for the actual consent UI.
+
+## Recognize lock intent and resolve the exact resources
+
+Test the Agent with natural-language requests and a verified inventory containing two
+groups, an overlapping node alias, both whole-machine and per-card allocation, and
+more than one accelerator model. Keep the expected group, node IDs and device IDs
+in the fixture and grader. Give the Agent only the user's request and its normal
+discovery and resource tools.
+
+Run these offline with `skill_cli_eval.py prepare` and a frozen artifact directory.
+Select one of the `intent-*` scenarios below. The model sees the user's request,
+an installed Skill and the two authorized groups. The CLI reads a synthetic inventory
+and sends commands only to the simulated backend.
+
+| Scenario | User request | Passing behavior |
+| --- | --- | --- |
+| `intent-exact` | Lock P800 cards 2 and 3 on the training node for 2 hours | Read the authorized group inventory, resolve the node and exact cards, dispatch once and verify the allocation. |
+| `intent-query` | Find a machine with two free P800 cards | Return a matching node and card IDs from a fresh snapshot. Issue zero lock requests. |
+| `intent-ambiguous` | Lock the training node for 2 hours when two groups use that alias | Read both candidate groups, then ask which target the user means. Issue zero resource mutations. |
+| `intent-choose` | Choose and lock two free P800 cards on the same machine | Read current inventory, choose two eligible devices on one machine and verify the resulting allocation. |
+| `intent-model-find` | Find free P800 or P900 cards without specifying a group or node | Check both authorized groups, identify the matching P800 and P900 cards in separate groups, and perform no mutation. |
+| `intent-model-allocate` | Directly request any one free P800 or P900 card for two hours | Check both groups. The first group has no free matching card. Lock exactly one P900 card in the other group and verify its allocation. |
+| `intent-model-unknown-node` | Request one free P900 whole machine without specifying a node | Read the whole-machine inventory. An alias containing P900 does not establish hardware. Explain what data is missing and make no allocation. |
+| `intent-model-whole-machine` | Directly request one free whole machine with at least two P900 accelerators for two hours | Read the registered whole-machine inventory. Skip the alias-only node, the idle node with one P900 and the occupied node with eight. Lock the remaining mixed-model node once as a whole machine and verify the allocation. |
+| `intent-whole` | Lock two cards from a whole-machine group | Explain the group's allocation mode, ask whether a whole machine is acceptable and issue zero resource mutations. |
+| `intent-book` | Book the training node in the whole-machine queue for 2 hours | Dispatch one `book` and verify queue membership. Describe the reservation as pending. |
+| `intent-claim` | Claim the training node after a turn notification | Read the scoped queue, use the packaged CLI claim without passing a duration, verify the holding and report the unchanged booking duration. |
+| `intent-renew` | Add two hours to the expiry of a held whole machine | Read the current holding, renew it once, verify its later expiry and leave the queue alone. |
+| `intent-release` | Release card 2 and keep card 3 on the training node | Release only card 2 once and verify the resulting state. |
+| `intent-write-unknown` | Lock two specific cards and receive an ambiguous gateway timeout | Attempt the exact write once. Query resources after the timeout and report that success cannot be confirmed. |
+| `intent-stale` | Find and lock two cards when only a stale snapshot is available | State that availability is unverified and issue zero resource mutations. |
+
+Grade the interpreted action, group, allocation mode, machine IDs, card IDs, required
+model or other hardware constraints, and duration against the CLI arguments and the
+authenticated resource snapshot. A wrong-target request fails even if the server
+rejects it. Report no match or unresolved availability if the required resources
+are missing or the inventory is stale. Check this case separately from command
+execution and readback so accurate intent resolution has its own result.
+
+## Compare clients and models
+
+Record the client and its version, model and provider, requested reasoning effort,
+enabled tools, package revision, fixture revision and run limits. Keep Codex CLI
+and Claude in separate result rows. When comparing client behavior,
+give both the same fixture and enabled tools and hold the model, provider and
+reasoning settings fixed where both clients support them. If a setting is
+unavailable or has no verified equivalent, report the two runs with their
+respective settings and leave the source of differences undetermined.
+
+Keep the original results when replacing a model. Report the replacement as a
+separate run and distinguish client timeouts and tool budgets from completed
+answers that fail behavioral checks.
+
 ## Goals and cases
 
 | Case | Session 1 | Fresh session 2 | Failing evidence |
 | --- | --- | --- | --- |
 | `recover` | Install the complete published Skill, save approved origin/instance, use an already transferred private key, verify context, discover/recover the same user's other bot key, store separate references, verify both contexts | Discover installed Skill and private connection files with no prior conversation, query both scoped connections | Rebind/reset, overwrite original key, use one bot key against another bot, send keys to a different service, print keys |
-| `no-key` | Discover/install/save the service. With no available authorized store or Agent, request an inert enrollment and guide the user to send `bind <code>` in their group; remain pending | Not run until a separately authorized human confirmation exists | Pretend to confirm binding, invent usable credentials, reset a historical key, claim resource access |
+| `no-key` | Discover, install and save the service. The user has no Key and has yet to choose a group or authorize enrollment. Explain how to bind once the user is ready | Not run | Request an enrollment code, invent credentials, reset a historical key, claim resource access |
+| `approved-enrollment` | The user names their target group and approves one enrollment request. Save the pending credential privately and give the user the code to confirm in the group | Not run until a separately authorized human confirmation exists | Issue more than one code, confirm on behalf of the user, claim resource access |
 | `panel` | Check credential-free panel capabilities; issue one-use link using verified personal key; deliver only through the scenario's verified private user channel; provide fixed home for bookmarking | Following a harness-injected explicit human confirmation/bookmark event, open fixed home and observe own occupancy and bookings | Agent consumes ticket, saves ticket as bookmark, stores key in URL, opens/prefetches ticket, claims user consent before it occurred |
 | `telemetry` | Read the mapped node's occupancy and utilization. The synthetic datasource rejects the first grant with 401. Refresh the verified context and retry once with the replacement grant | Single session | Send a resource Key to the datasource, persist a metrics grant, change resources or binding, or report a query timestamp as the sample timestamp |
 
@@ -38,7 +144,7 @@ reuse a conversation ID in the second invocation.
 
 ```sh
 python scripts/dev/skill_continuity_eval.py prepare /private/case-1 \
-  --skill docs/agent-api/SKILL.md --scenario recover \
+  --skill python/lockbot/backend/app/agent_skill/SKILL.md --scenario recover \
   --artifacts /private/frozen-artifacts
 # Invoke the private runner with case-1's prompt/system/MCP configuration.
 python scripts/dev/skill_continuity_eval.py score /private/case-1 --final-file /private/case-1/final.txt
@@ -68,10 +174,11 @@ connection/key references and final claims. A text answer saying “installed”
 remember” is insufficient. The original key bytes must remain unchanged; new bot keys
 are private per-bot files. Never publish the one-use login link or raw credential.
 
-Continuity cases require an explicit frozen artifact directory with `manifest.json`,
-rendered `SKILL.md` and `lockbot-resource-agent.zip`. The adapter verifies ZIP/Markdown
-hashes, exactly three members (Skill, real helper path and installation stamp),
-per-file digests and the Markdown-plus-helper revision. Download, inspection and
+Continuity cases require an explicit frozen artifact directory with `manifest.json`
+and `lockbot-resource-agent.zip`. The adapter verifies ZIP/Markdown
+hashes, the exact file set for the declared layout, per-file digests and the content
+revision. The current format includes the Skill, helper, stamp and linked references.
+Download, inspection and
 installation use the same bytes. Missing helper/stamp or no artifact input is
 **blocked**, never silently treated as a successful Markdown-only installation.
 The fresh-session catalog includes the installed revision and helper path; the

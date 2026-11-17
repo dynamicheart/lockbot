@@ -18,7 +18,17 @@ MESSAGES = {
     "notify.api_purpose": "\n备注：{purpose}",
     "notify.api_agent_label": "\nAgent：{label}",
     "help.agent_skill": "Agent 使用：",
-    "help.agent_lock_hint": "让 Agent 安装 Skill：{url}",
+    "help.agent_lock_hint": "LockBot Skill 安装清单：{url}",
+    "public_docs.agent_api_intro": "使用在群内完成绑定的个人 Agent Key，操作该群中属于你自己的资源。",
+    "public_docs.resource_queries": "查询资源先用 `GET /api/agent/context` 核对绑定，再展开 "
+    "`GET /api/agent/resources` 查看查询示例。",
+    "public_docs.resource_query_example": (
+        "### 用个人 Agent Key 查询资源\n\n"
+        "`LOCKBOT_ORIGIN` 填已确认的服务地址，从私有凭证存储加载 `LOCKBOT_AGENT_KEY`。"
+        "第一条请求返回 Key 绑定的身份和群，核对后再发第二条请求，读取该群的资源、占用和队列。"
+        "两条请求使用同一个 Key。\n\n"
+        "{commands}"
+    ),
     "public_docs.title": "LockBot API 文档",
     "public_docs.schema": "完整 OpenAPI 定义",
     "public_docs.agent.title": "Agent API",
@@ -210,7 +220,7 @@ MESSAGES = {
     "alias.clear_ok": "✅ 已清除 {node_key} 的备注\n\n",
     "alias.disabled": "该机器人未开启用户自助设置备注功能",
     # ── Identity binding (agent API enrollment) ──
-    "binding.agent_usage_hint": "Agent 使用：{url}\n把安装包链接发给你的 Agent，读取并安装后协助完成绑定。",
+    "binding.agent_usage_hint": "LockBot Skill 安装清单：{url}\n首次使用时，明确请你的 Agent 校验安装包并安装。",
     "binding.unavailable": ("❌【Agent授权不可用】\n\n当前机器人暂不支持 Agent 授权。"),
     "binding.failed": ("❌【Agent授权失败】\n\n授权命令处理失败，请稍后重试。"),
     "binding.enrollment_disabled": ("❌【Agent访问未开启】\n\n当前机器人未允许 Agent 访问，请联系管理人开启。"),
@@ -222,6 +232,10 @@ MESSAGES = {
     "binding.confirmed": (
         "✅【Agent授权成功】\n\n同一人的多个 Agent 请共用已保存的 key。\n\n查看授权：bindings\n撤销授权：unbind"
     ),
+    "binding.challenge_unavailable": "此请求没有可用的有效 Key。请回到发起请求的 Agent 查看下一步。",
+    "binding.challenge_created": "已创建个人 Key。请回到发起请求的 Agent。",
+    "binding.challenge_recover_confirmed": "已确认找回 Key。请回到发起请求的 Agent。",
+    "binding.challenge_reset_confirmed": "已确认重置 Key，旧 Key 已失效。请回到发起请求的 Agent。",
     "binding.already_bound": (
         "ℹ️【已有Agent授权】\n\n你已授权机器人 ID：{bot_id}，请让自己的 Agent 共用已保存的 key。此次新 key 未激活"
         "。\n\n需要更换 key 时，请先发送 unbind，再重新绑定。"

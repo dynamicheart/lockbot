@@ -69,7 +69,9 @@
       </nav>
       <div class="page-heading">
         <div class="workbench-heading-text">
-          <h1 ref="pageTitle" tabindex="-1">{{ ticket ? '确认登录身份' : title }}</h1>
+          <h1 ref="pageTitle" tabindex="-1">
+            {{ ticket ? t('personalPanelHandoff.title') : title }}
+          </h1>
           <p v-if="detail?.resource && detail.groupLabel && !ticket" class="scope">
             {{ detail.groupLabel }}
           </p>
@@ -108,44 +110,85 @@
       />
       <section v-if="!initialized" class="panel session-loading" role="status">
         <el-skeleton :rows="2" animated />
-        <p class="scope">正在验证登录状态…</p>
+        <p class="scope">{{ t('personalPanelHandoff.checkingSession') }}</p>
       </section>
       <section v-else-if="ticket" class="panel">
         <p v-if="session.authenticated">
-          当前浏览器已登录 {{ session.identities.map(identityLabel).join('、') }}。
+          {{ t('personalPanelHandoff.currentAccounts', { accounts: browserAccounts }) }}
         </p>
-        <p>本次登录账号 {{ identityLabel(ticket.identity) }}</p>
-        <p class="scope">确认后才会使用本次登录链接。</p>
+        <p>
+          {{
+            t('personalPanelHandoff.incomingAccount', { account: identityLabel(ticket.identity) })
+          }}
+        </p>
+        <p class="scope">{{ t('personalPanelHandoff.consentHint') }}</p>
+        <template v-if="ticket.groups.length > 1">
+          <el-checkbox v-model="includeRecovered" :disabled="busy">
+            {{ $t('personalPanelHandoff.includeGroups', { count: ticket.groups.length }) }}
+          </el-checkbox>
+          <ul class="handoff-groups">
+            <li v-for="(group, index) in ticket.groups" :key="index">{{ group }}</li>
+          </ul>
+        </template>
         <div class="actions">
           <el-button type="primary" :loading="busy" @click="run(() => login('replace'))">{{
-            session.authenticated ? '切换为本次身份' : '确认登录'
+            t(
+              session.authenticated
+                ? 'personalPanelHandoff.switchAccount'
+                : 'personalPanelHandoff.confirm'
+            )
           }}</el-button>
-          <el-button :disabled="busy" @click="ticket = null">取消</el-button>
+          <el-button :disabled="busy" @click="ticket = null">{{ t('common.cancel') }}</el-button>
         </div>
         <template v-if="session.authenticated">
-          <el-checkbox v-model="combine" :disabled="busy"
-            >我控制上述账号，选择仅在此浏览器合看</el-checkbox
-          >
-          <el-button v-if="combine" :loading="busy" @click="run(() => login('append'))"
-            >确认在此浏览器合看</el-button
-          >
-          <p class="scope">各群授权分别生效，合看不会将账号认定为同一员工。</p>
+          <el-checkbox v-model="combine" :disabled="busy">
+            {{ t('personalPanelHandoff.combineConsent') }}
+          </el-checkbox>
+          <el-button v-if="combine" :loading="busy" @click="run(() => login('append'))">
+            {{ t('personalPanelHandoff.combineConfirm') }}
+          </el-button>
+          <p class="scope">{{ t('personalPanelHandoff.combineHint') }}</p>
         </template>
       </section>
-      <section v-else-if="!session.authenticated" class="panel">
-        <p>
-          <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
-            >Agent 使用说明（SKILL.md）</a
-          >
-        </p>
-        <p>
-          首次使用或换设备时，在你已完成 IM 绑定的 Agent 中说“打开我的资源台”。本机 CLI 和服务器上的
-          Agent 均可使用，取得链接后在此浏览器打开并确认登录。
-        </p>
-        <p class="scope">
-          登录后，当前浏览器会保留登录状态。收藏本页，下次直接打开；会话失效时再通过已绑定的 Agent
-          登录。
-        </p>
+      <section v-else-if="!session.authenticated" class="panel panel-onboarding">
+        <h2>{{ $t('personalOnboarding.title') }}</h2>
+        <figure class="panel-onboarding-flow">
+          <img src="/workbench-onboarding.webp" alt="" width="1392" height="464" />
+          <ol>
+            <li>
+              <strong>{{ $t('personalOnboarding.ask') }}</strong>
+              <p>{{ $t('personalOnboarding.example') }}</p>
+            </li>
+            <li>
+              <strong>{{ $t('personalOnboarding.receive') }}</strong>
+              <p>{{ $t('personalOnboarding.receiveDetail') }}</p>
+            </li>
+            <li>
+              <strong>{{ $t('personalOnboarding.open') }}</strong>
+              <p>{{ $t('personalOnboarding.openDetail') }}</p>
+            </li>
+          </ol>
+        </figure>
+        <div class="panel-onboarding-actions">
+          <el-button type="primary" @click="copyOnboardingRequest">
+            {{ $t('personalOnboarding.copyRequest') }}
+          </el-button>
+        </div>
+        <div class="panel-onboarding-install">
+          <el-icon class="panel-onboarding-install-icon" aria-hidden="true"><Box /></el-icon>
+          <div class="panel-onboarding-install-copy">
+            <strong>{{ $t('personalOnboarding.installHint') }}</strong>
+            <p>{{ $t('personalOnboarding.installDetail') }}</p>
+          </div>
+          <div class="panel-onboarding-install-actions">
+            <el-button :icon="CopyDocument" @click="copyInstallRequest">
+              {{ $t('personalOnboarding.copyInstall') }}
+            </el-button>
+            <a :href="skillPackagePath" download>
+              {{ $t('personalOnboarding.installPackage') }}
+            </a>
+          </div>
+        </div>
         <PersonalConnectionHandoff :authenticated="false" />
       </section>
       <template v-else-if="detailPage">
@@ -711,8 +754,11 @@
           <summary>如何添加其他机器群的 Key</summary>
           <p class="scope">
             在已绑定该群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
-            <a href="/api/agent-skill/SKILL.md" target="_blank" rel="noopener noreferrer"
-              >Agent 使用说明</a
+            <a
+              href="/api/agent-skill/lockbot-resource-agent.zip"
+              target="_blank"
+              rel="noopener noreferrer"
+              >{{ t('personalOnboarding.installPackage') }}</a
             >
           </p>
         </details>
@@ -755,10 +801,20 @@ import {
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { ArrowRight, Calendar, Cpu, Monitor, Refresh } from '@element-plus/icons-vue'
+import {
+  ArrowRight,
+  Box,
+  Calendar,
+  CopyDocument,
+  Cpu,
+  Monitor,
+  Refresh,
+} from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
 import { formatNodeAccess } from '../utils/nodeAccess'
+import { useHelpers } from '../utils/helpers'
 import { formatResourceTime, parseResourceTime } from '../utils/resourceTime'
+import { platformLabel } from '../utils/platformDisplay'
 import LockbotWordmark from '../components/LockbotWordmark.vue'
 import PersonalWorkbenchPlugins from '../components/PersonalWorkbenchPlugins.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'
@@ -770,7 +826,17 @@ import PersonalConnectionHandoff from '../components/PersonalConnectionHandoff.v
 import PersonalCredentialView from '../components/PersonalCredentialView.vue'
 import PersonalCredentialRotation from '../components/PersonalCredentialRotation.vue'
 
-const { t } = useI18n()
+const { copyText } = useHelpers()
+const { t, locale } = useI18n()
+const skillPackagePath = '/api/agent-skill/lockbot-resource-agent.zip'
+function copyOnboardingRequest() {
+  copyText(t('personalOnboarding.request', { origin: window.location.origin }))
+}
+function copyInstallRequest() {
+  copyText(
+    t('personalOnboarding.installRequest', { url: window.location.origin + '/api/agent-skill' })
+  )
+}
 const tabs = computed(() => [
   { id: 'mine', label: t('personalWorkbench.myAllocations'), path: '/me' },
   { id: 'groups', label: t('personalWorkbench.resourceGroups'), path: '/me/groups' },
@@ -806,6 +872,9 @@ watch(
   }
 )
 const session = ref({ authenticated: false, identities: [] })
+const browserAccounts = computed(() =>
+  new Intl.ListFormat(locale.value).format(session.value.identities.map(identityLabel))
+)
 const groups = ref([])
 const guidanceDialog = ref(null)
 let guidanceRead = null
@@ -816,6 +885,7 @@ function handleCredentialAction(command) {
 }
 const ticket = ref(null)
 const combine = ref(false)
+const includeRecovered = ref(false)
 const error = ref('')
 const busy = ref(false)
 const initialized = ref(false)
@@ -1376,11 +1446,11 @@ function bookingPosition(allocation) {
 function queued(allocation) {
   return ['reservation', 'queue', 'queued'].includes(allocation.kind)
 }
-function platformName(value) {
-  return { infoflow: '如流 / Infoflow', feishu: '飞书 / Feishu' }[value] || value || '未知平台'
-}
 function identityLabel(identity) {
-  return `${platformName(identity?.platform)} · ${identity?.subject || ''}`
+  const platform = identity?.platform
+    ? platformLabel(identity.platform, t)
+    : t('personalPanelHandoff.unknownPlatform')
+  return `${platform} · ${identity?.subject || ''}`
 }
 function groupCounts(group) {
   if (!fresh(group)) return []
@@ -1452,9 +1522,11 @@ async function api(path, body, signal) {
   const response = await request(path, body, signal)
   if (!response.ok)
     throw new Error(
-      response.status === 410
-        ? '登录链接已过期或已使用，请回到已绑定的 Agent 重新获取。'
-        : '无法更新资源或登录状态，请稍后刷新；绑定也可能已失效。'
+      t(
+        response.status === 410
+          ? 'personalPanelHandoff.expired'
+          : 'personalPanelHandoff.updateFailed'
+      )
     )
   return response.json()
 }
@@ -1619,12 +1691,12 @@ async function refresh() {
 }
 
 async function login(mode) {
-  await api('login', { ticket: ticket.value.token, mode })
+  const account = includeRecovered.value && ticket.value.groups.length > 1
+  await api('login', { ticket: ticket.value.token, mode: account ? `${mode}_account` : mode })
   ticket.value = null
   combine.value = false
   await refresh()
-  if (!session.value.authenticated)
-    throw new Error('登录后未检测到会话，请检查浏览器 Cookie 设置。')
+  if (!session.value.authenticated) throw new Error(t('personalPanelHandoff.sessionMissing'))
 }
 async function confirmLogout() {
   try {
@@ -1662,9 +1734,13 @@ watch([pendingPanelTicket, busy, initialized], ([incoming, running, ready]) => {
   void run(async () => {
     const preview = await api('preview', { ticket: incoming })
     if (!preview.identity || typeof preview.identity !== 'object')
-      throw new Error('无法确认待登录身份，请重新获取链接。')
+      throw new Error(t('personalPanelHandoff.identityUnavailable'))
     combine.value = false
-    ticket.value = { token: incoming, identity: preview.identity }
+    const groups = Array.isArray(preview.groups)
+      ? preview.groups.filter((name) => typeof name === 'string')
+      : []
+    includeRecovered.value = groups.length > 1
+    ticket.value = { token: incoming, identity: preview.identity, groups }
   })
 })
 onUnmounted(() => {
@@ -1682,6 +1758,11 @@ onMounted(async () => {
 <style scoped src="../assets/styles/personal-panel.css"></style>
 
 <style scoped>
+.handoff-groups {
+  margin: 0 0 12px;
+  padding-inline-start: 24px;
+  overflow-wrap: anywhere;
+}
 .guidance-summary {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

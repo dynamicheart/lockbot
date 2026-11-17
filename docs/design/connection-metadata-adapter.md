@@ -74,3 +74,19 @@ portability across services is not solved here; following the correct source lin
 must not be confused with implementing a portable multi-service package updater.
 Private adapter implementation, upstream credentials and deployment verification are
 separate operator work. No private adapter or service address is bundled here.
+
+
+## Optional same-origin Key sign-in
+
+Set `"local_key_handoff": true` in the panel configuration to let this
+deployment's native Resource API Keys sign in alongside the external provider.
+Reserve one of the 16 origin pins for the local service by keeping this panel's
+origin out of the external adapter's pins. Keep the existing state file and
+external provider configuration. Existing browser sessions remain valid.
+
+The v2 capability includes `native_key_handoff` with version 1 and a fixed
+`/api/personal-panel/account-links` endpoint. An Agent uses that endpoint for
+native Keys from this deployment. A browser user can choose to add the identity
+to their current session. Each provider validates its own grants, and external
+metadata and reports receive only external grants. The panel still advertises
+v2 metadata and leaves credential viewing and rotation disabled.
