@@ -349,6 +349,8 @@ class Fixture(continuity.Fixture):
                 snapshot = intent.inventory(8, command, scenario=COLD_INVENTORY)
                 snapshot["bot_id"] = 7
                 snapshot["resources"] = [row for row in snapshot["resources"] if row["id"] != "node-21"]
+                machine = next(row for row in snapshot["resources"] if row["id"] == intent.MATCHING_MACHINE)
+                machine["accelerators"] = [{"model": "P800", "count": 8}]
                 return {"status": 200, "body": snapshot}
         if authorized and method == "GET":
             if path == "/api/agent/context":
@@ -569,8 +571,9 @@ class Fixture(continuity.Fixture):
                 "--operation",
                 args.get("operation", ""),
             ]
-            for target in args.get("nodes", []):
-                argv += ["--node", target]
+            for field in ("node", "device"):
+                for target in args.get(field + "s", []):
+                    argv += ["--" + field, target]
             if "duration" in args:
                 argv += ["--duration", args["duration"]]
             if "model" in args:
