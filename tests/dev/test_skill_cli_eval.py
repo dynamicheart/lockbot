@@ -178,15 +178,26 @@ def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch)
 def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch, scenario):
     fixture = prepare(tmp_path, monkeypatch, scenario)
     assert install(fixture)["installed"]
-    enrollment = {} if scenario == "approved-enrollment-no-group" else {"group": evaluation.GROUP}
-    action = "enroll" if enrollment else "key-challenge"
-    issued = run(fixture, action, authorized=True, **enrollment)["result"]
-    assert issued["target_group"] == enrollment.get("group")
+    options = {"purpose": fixture.challenge_purpose} if fixture.uses_challenge else {"group": evaluation.GROUP}
+    action = "key-challenge" if fixture.uses_challenge else "enroll"
+    issued = run(fixture, action, authorized=True, **options)["result"]
+    assert issued["target_group"] == options.get("group")
     assert run(fixture, "finish-enrollment")["result"]["status"] == "pending"
-    instruction = f"在{enrollment.get('group', '机器人所在的群')} @机器人并发送 {issued['bind_command']}"
+    instruction = issued["user_instruction_zh"]
+    if not fixture.uses_challenge:
+        instruction += f" 在{evaluation.GROUP}发送。"
     assert evaluation.score(fixture.root, instruction)["observable_pass"]
-    if not enrollment:
+    if fixture.uses_challenge:
         assert not evaluation.score(fixture.root, "请先提供群名")["checks"]["manual_group_confirmation"]
+        confused = instruction + " 用它自己的聊天账号发送。"
+        assert not evaluation.score(fixture.root, confused)["checks"]["uses_own_chat_account"]
+    original_request = {
+        "url": fixture.origin + "/api/agent/context",
+        "method": "GET",
+        "headers": {"Authorization": "Bearer " + evaluation.base.KEY},
+    }
+    if scenario == "reset-personal-key":
+        assert fixture.http(original_request)["status"] == 200
     destination = tmp_path / "fresh-session"
     evaluation.resume(fixture.root, destination)
     resumed = evaluation.Fixture(destination)
@@ -194,10 +205,24 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     pending = run(resumed, "connections")["result"]["pending_enrollments"]
     result = run(resumed, "finish-enrollment", enrollment_dir=pending[0]["enrollment_dir"])["result"]
     assert result["connection_created"]
-    if not enrollment:
+    if scenario == "approved-enrollment-no-group":
         assert issued["bind_command"].startswith("bind REC-") and result["outcome"] == "created"
+    if scenario == "reset-personal-key":
+        assert issued["bind_command"].startswith("bind RST-") and result["chat_action"] == "reset_applied"
+        assert resumed.http(original_request)["status"] == 403
+    if scenario == "recover-original-key":
+        assert resumed.http(original_request)["status"] == 200
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
     assert evaluation.score(destination, "node-a")["observable_pass"]
+    if fixture.uses_challenge:
+        later = tmp_path / "later-session"
+        evaluation.resume(destination, later)
+        reader = evaluation.Fixture(later)
+        assert reader.case["phase"] == 3
+        assert not evaluation.score(later, "node-a")["observable_pass"]
+        assert run(reader, "connections")["result"]["connections"]
+        assert run(reader, "resources")["result"]["resources"][0]["id"] == "node-a"
+        assert evaluation.score(later, "node-a")["observable_pass"]
 
 
 def test_packaged_cli_recovers_and_uses_other_group(tmp_path, monkeypatch):

@@ -77,12 +77,20 @@ with subprocess.Popen(
     if phase == 1:
         assert call("install_lockbot", url="http://192.0.2.10:8155/api/agent-skill/lockbot-resource-agent.zip")["installed"]
         assert call("run_lockbot", action="discover")["result"]
-        result = call("run_lockbot", action="enroll", group="验证群", authorized=True)["result"]
-        answer = "在验证群发送 " + result["bind_command"]
-    else:
+        if case["scenario"] == "reset-personal-key":
+            result = call("run_lockbot", action="key-challenge", purpose="reset", authorized=True)["result"]
+            answer = result["user_instruction_zh"]
+        else:
+            result = call("run_lockbot", action="enroll", group="验证群", authorized=True)["result"]
+            answer = "在验证群发送 " + result["bind_command"]
+    elif phase == 2:
         pending = call("run_lockbot", action="connections")["result"]["pending_enrollments"]
         finished = call("run_lockbot", action="finish-enrollment", enrollment_dir=pending[0]["enrollment_dir"])
         assert finished["result"]["connection_created"]
+        assert call("run_lockbot", action="resources")["result"]["resources"]
+        answer = "node-a"
+    else:
+        assert call("run_lockbot", action="connections")["result"]["connections"]
         assert call("run_lockbot", action="resources")["result"]["resources"]
         answer = "node-a"
     tools.stdin.close()
@@ -157,6 +165,18 @@ def test_concurrent_matrix_keeps_next_session_state_and_report_order(tmp_path, m
         json.loads((first / "response.json").read_text())["pid"]
         != json.loads((second / "response.json").read_text())["pid"]
     )
+
+
+def test_reset_matrix_runs_a_third_read_only_session(tmp_path, monkeypatch):
+    output, report = run_matrix(
+        tmp_path, monkeypatch, "cli:reset-personal-key", ("Client A", "ok"), ("Client B", "bad")
+    )
+    passing, failing = report["results"][:3], report["results"][3:]
+    assert [r["phase"] for r in passing] == [1, 2, 3]
+    assert all(r["observable_pass"] for r in passing)
+    assert [r["simulated_user_actions"] for r in passing] == [[], ["chat_binding_confirmation"], []]
+    assert len({json.loads((output / r["evidence"] / "response.json").read_text())["pid"] for r in passing}) == 3
+    assert [r["status"] for r in failing] == ["completed", "blocked_by_phase_1", "blocked_by_phase_1"]
 
 
 def test_matrix_reports_adapter_timeout_and_bad_protocol_separately(tmp_path, monkeypatch):

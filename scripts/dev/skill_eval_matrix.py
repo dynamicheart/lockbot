@@ -97,9 +97,14 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     rows = [result]
     if scenario not in SECOND_PHASE.get(suite, ()):
         return rows
+    fresh_read = suite == "cli" and scenario in cli.CHALLENGE_PROMPTS
     second_metadata = {**metadata, "phase": 2, "simulated_user_actions": []}
+    third_metadata = {**metadata, "phase": 3, "simulated_user_actions": []}
     if not result.get("observable_pass"):
-        return [*rows, {**second_metadata, "status": "blocked_by_phase_1"}]
+        rows.append({**second_metadata, "status": "blocked_by_phase_1"})
+        if fresh_read:
+            rows.append({**third_metadata, "status": "blocked_by_phase_1"})
+        return rows
     second = case / "phase-2"
     second_metadata["evidence"] = second.relative_to(output).as_posix()
     try:
@@ -113,6 +118,18 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
     except Exception:
         second.mkdir(mode=0o700, exist_ok=True)
         rows.append(fixture_error(second, second_metadata))
+    if not fresh_read:
+        return rows
+    if not rows[-1].get("observable_pass"):
+        return [*rows, {**third_metadata, "status": "blocked_by_phase_2"}]
+    third = case / "phase-3"
+    third_metadata["evidence"] = third.relative_to(output).as_posix()
+    try:
+        cli.resume(second, third)
+        rows.append(evaluate_phase(third, third_metadata, command, grader, limits))
+    except Exception:
+        third.mkdir(mode=0o700, exist_ok=True)
+        rows.append(fixture_error(third, third_metadata))
     return rows
 
 

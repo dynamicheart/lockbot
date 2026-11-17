@@ -130,10 +130,12 @@ seconds by default. `preflight.json` records connectivity results and timing. Bl
 pairs are recorded as `blocked_by_model_preflight` and have no behavior verdict.
 A timeout during a case remains a case timeout even when the connectivity probe passed.
 
-`cli:approved-enrollment-no-group` exercises the default Key recovery flow for a
-first-time user. The case checks that the Agent supplies the exact group confirmation
-command without selecting a group and continues in a fresh session after simulated
-confirmation. The adapter may report its actual turn count as `turns`. The report
+`cli:recover-original-key`, `cli:approved-enrollment-no-group`, and
+`cli:reset-personal-key` exercise recovering an existing Key, creating a first Key,
+and an explicitly authorized reset. Each case checks the group confirmation command
+and who should send it, then starts a new session after simulated confirmation to
+save the expected Key. A third session receives a read-only request and must find and
+use the saved connection. The adapter may report its actual turn count as `turns`. The report
 keeps that count, session phases, and simulated user actions such as chat binding or
 browser consent separate. An unavailable turn count is recorded as null.
 
