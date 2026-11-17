@@ -32,8 +32,10 @@ function toolActivityLabel(steps, evidence = []) {
   const internal = evidence.filter(info => info?.source === 'packaged_cli').length;
   const diagnostics = steps.filter(step => ['native_client_diagnostic', 'native_client_protocol',
     'native_client_stderr'].includes(step[0])).length;
+  if (diagnostics === steps.length && diagnostics) return '客户端诊断';
   return internal ? (steps.length - internal - diagnostics) + ' 次模型工具调用 · ' + internal + ' 次 CLI 内部 HTTP' +
     (diagnostics ? ' · ' + diagnostics + ' 项客户端诊断' : '') :
+    diagnostics ? (steps.length - diagnostics) + ' 次工具调用 · ' + diagnostics + ' 项客户端诊断' :
     steps.length + ' 次工具调用';
 }
 

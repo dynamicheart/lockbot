@@ -160,7 +160,11 @@ const trial={sessions:[[{role:'tools',steps,evidence,total:2}]],metrics:{phases:
  phase:1,model_tool_calls:1,cli_calls:1,cli_http_requests:1,model_http_requests:0,http_requests:1} ]}};
 console.log(JSON.stringify({label:toolActivityLabel(steps,evidence),title:toolTitle(steps[0],evidence[0]),
  efficiency:runEfficiency(trial),legacy:toolActivityLabel([steps[1]],[evidence[1]]),
- diagnostic:toolActivityLabel([...steps,['native_client_diagnostic','stderr','诊断','已记录']],[...evidence,{}])}));
+ diagnostic:toolActivityLabel([...steps,['native_client_diagnostic','stderr','诊断','已记录']],[...evidence,{}]),
+ diagnosticOnly:toolActivityLabel([['native_client_diagnostic','wire','诊断','已记录']], [{}]),
+ protocolOnly:toolActivityLabel([['native_client_protocol','wire','诊断','已记录'],
+ ['native_client_stderr','stderr','诊断','已记录']], [{},{}]),
+ legacyWithDiagnostic:toolActivityLabel([steps[1],['native_client_diagnostic','wire','诊断','已记录']], [{},{}])}));
 """
     )
     assert observed == {
@@ -169,6 +173,9 @@ console.log(JSON.stringify({label:toolActivityLabel(steps,evidence),title:toolTi
         "efficiency": "模型工具 1 次 · CLI 1 次 · HTTP 1 次",
         "legacy": "1 次工具调用",
         "diagnostic": "1 次模型工具调用 · 1 次 CLI 内部 HTTP · 1 项客户端诊断",
+        "diagnosticOnly": "客户端诊断",
+        "protocolOnly": "客户端诊断",
+        "legacyWithDiagnostic": "1 次工具调用 · 1 项客户端诊断",
     }
     viewer = VIEWER.read_text()
     assert "toolActivityLabel(entry.steps,entry.evidence)" in viewer

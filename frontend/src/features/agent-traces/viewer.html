@@ -856,7 +856,8 @@ function eventsView(content,trial) {
     entry.role==='tools' ? entry.steps.map((step,i)=>({id:++id,step,info:entry.evidence?.[i],anchor:'tool:'+s+':'+e+':'+i+':name'})) : []));
   const steps = sessions.flat();
   const errors = steps.filter(item=>isFailed(item.step,item.info));
-  const activityLabel = steps.some(item=>item.info?.source === 'packaged_cli') ?
+  const activityLabel = steps.some(item=>item.info?.source === 'packaged_cli' ||
+    ['native_client_diagnostic','native_client_protocol','native_client_stderr'].includes(item.step[0])) ?
     toolActivityLabel(steps.map(item=>item.step),steps.map(item=>item.info)) : '工具调用 · '+steps.length;
   heading.textContent = activityLabel;
   const only = node('button','仅异常 '+errors.length,'quiet-button trace-toggle');
