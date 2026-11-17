@@ -1531,18 +1531,29 @@ class Client:
             or capability.get("transport") != transport
             or not isinstance(management, dict)
             or type(management.get("version")) is not int
-            or management["version"] != 1
-            or management.get("list_path") != "/api/personal-panel/connections"
         ):
+            raise ClientError("native_personal_panel_unavailable")
+        account_path = "/api/personal-panel/account-links"
+        if management["version"] == 1 and management.get("list_path") == "/api/personal-panel/connections":
+            if management.get("account_issue_path") == account_path:
+                issue_path = account_path
+        elif management["version"] == 2:
+            native_handoff = management.get("native_key_handoff")
+            if (
+                not isinstance(native_handoff, dict)
+                or type(native_handoff.get("version")) is not int
+                or native_handoff["version"] != 1
+                or native_handoff.get("account_issue_path") != account_path
+            ):
+                raise ClientError("native_personal_panel_unavailable")
+            issue_path = account_path
+        else:
             raise ClientError("native_personal_panel_unavailable")
         context = self._read_context()
         if context.get("agent_access_enabled") is not True:
             raise ClientError("agent_access_disabled")
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
-        account_path = management.get("account_issue_path")
-        if account_path == "/api/personal-panel/account-links":
-            issue_path = account_path
         issued = self._request(self.base + issue_path, token=self.key, method="POST", readonly=False)
         login_url = issued.get("login_url")
         expires_in = issued.get("expires_in")

@@ -1,13 +1,25 @@
 """Optional metadata never converts a reporter/browser session into key authority."""
 
+# ruff: noqa: F811
+
+import json
+import sqlite3
+from contextlib import closing
 from copy import deepcopy
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from lockbot.backend.app.personal_panel.router import create_panel
+from lockbot.backend.app.personal_panel.native import NativeProvider
+from lockbot.backend.app.personal_panel.router import COOKIE, create_panel
+from lockbot.backend.app.resource_api.discovery import ensure_instance_id
+from lockbot.backend.app.resource_auth.models import ResourceBinding
+from sqlalchemy import URL, create_engine
+from sqlalchemy.orm import sessionmaker
 
 from backend.test_personal_panel_http import Directory, issue, post
+from backend.test_resource_api_resources import api  # noqa: F401
 
 ORIGIN = "https://bot.example.test"
 SOURCE = "https://resource.example.test"
@@ -181,3 +193,96 @@ def test_upstream_recovery_health_can_be_unknown_without_guessing(env):
     assert response.status_code == 200
     assert response.json()["connections"][0]["credential_recovery_health"] == "unknown"
     assert response.json()["connections"][0]["identity_revision"] is None
+
+
+@pytest.fixture
+def native_db(api, db_session, tmp_path):
+    # The stream validates a grant while another worker reads its report. Give
+    # those sessions separate connections as the deployed file-backed DB does.
+    ensure_instance_id(db_session)
+    db_session.rollback()
+    path = tmp_path / "native.db"
+    with db_session.get_bind().connect() as source, closing(sqlite3.connect(path)) as destination:
+        source.connection.driver_connection.backup(destination)
+
+    engine = create_engine(URL.create("sqlite", database=str(path)))
+    try:
+        yield sessionmaker(bind=engine)
+    finally:
+        engine.dispose()
+
+
+def test_native_login_preserves_existing_external_browser_authority(api, native_db, tmp_path):
+    external, adapter = Directory(), Adapter()
+    native = NativeProvider({"issuer": ORIGIN, "session_factory": native_db, "local_key_handoff": True})
+    state_file = tmp_path / "sessions.db"
+    reporter_calls = []
+
+    class Reporter:
+        def report(self, grant):
+            reporter_calls.append(grant.copy())
+            return [{"label": "Private report", "status": "ok", "allocations": []}]
+
+    def mount(**kwargs):
+        app = FastAPI()
+        app.mount(
+            "/me",
+            create_panel(
+                ORIGIN,
+                state_file,
+                external,
+                reporters=(Reporter(),),
+                metadata_adapter=adapter,
+                metadata_pins={SOURCE: "native-instance"},
+                **kwargs,
+            ),
+        )
+        return app
+
+    before = mount()
+    previous_agent, previous_browser = TestClient(before, base_url=ORIGIN), TestClient(before, base_url=ORIGIN)
+    login(previous_agent, previous_browser)
+    previous_groups = previous_browser.get("/me/resources").json()["groups"]
+    old_cookie = previous_browser.cookies.get(COOKIE)
+    assert [group["label"] for group in previous_groups] == ["GPU A", "Private report"]
+
+    upgraded = mount(native_handoff=native)
+    agent, browser = TestClient(upgraded, base_url=ORIGIN), TestClient(upgraded, base_url=ORIGIN)
+    browser.cookies.set(COOKIE, old_cookie, domain="bot.example.test", path="/")
+    assert browser.get("/me/resources").json()["groups"] == previous_groups
+    management = browser.get("/me/capabilities").json()["connection_management"]
+    assert management["version"] == 2
+    assert management["credential_disclosure_supported"] is False
+    assert management["native_key_handoff"] == {"version": 1, "account_issue_path": "/me/account-links"}
+    local_key = api["headers"]["Authorization"][7:]
+    grant = native.authenticate(local_key)
+    external.bindings["spoof"] = grant
+    assert agent.post("/me/links", headers={"Authorization": "Bearer spoof"}).status_code == 401
+    assert agent.post("/me/account-links", headers={"Authorization": "Bearer a-secret"}).status_code == 401
+    assert agent.post("/me/credential-view-links", headers=api["headers"]).status_code == 404
+    result = agent.post("/me/account-links", headers=api["headers"])
+    assert result.status_code == 200 and local_key not in result.text
+    ticket = result.json()["login_url"].split("?ticket=", 1)[1]
+    assert post(browser, "preview", {"ticket": ticket}).json()["identity"]["issuer"] == ORIGIN
+    assert post(browser, "login", {"ticket": ticket, "mode": "append_account"}).status_code == 200
+    assert len(browser.get("/me/session").json()["identities"]) == 2
+
+    connections = browser.get("/me/connections").json()
+    assert connections["schema_version"] == 2
+    assert {row["service_origin"] for row in connections["connections"]} == {SOURCE, ORIGIN}
+    assert {pin["origin"] for pin in connections["service_pins"]} == {SOURCE, ORIGIN}
+    groups = browser.get("/me/resources").json()["groups"]
+    assert groups[:2] == previous_groups
+    assert [group["identity"]["issuer"] for group in groups[2:]] == [ORIGIN]
+    batches = [json.loads(line) for line in browser.get("/me/resources-stream").iter_lines()]
+    assert batches[-1]["event"] == "complete", batches
+    assert {g["detail_id"] for batch in batches if batch["event"] == "batch" for g in batch["groups"]} == {
+        g["detail_id"] for g in groups
+    }
+    assert adapter.calls and reporter_calls
+    assert all(grant["ref"] == "a" for grant in adapter.calls + reporter_calls)
+
+    with native_db.begin() as db:
+        row = db.query(ResourceBinding).filter_by(external_user_id="alice").one()
+        row.revoked_at = datetime.now(timezone.utc)
+    assert browser.get("/me/resources").json()["groups"] == previous_groups
