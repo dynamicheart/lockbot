@@ -164,11 +164,14 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    or the last octet of an IPv4 address reported in authorized inventory. Resolve each
    identifier in a comma-separated list. Check eligible groups and ask only about
    candidates that remain ambiguous.
-3. Preserve the requested operation (`lock`, `slock`, or `book`). When a lock or
-   booking omits a duration, check the selected group's `bot_rules.default_duration_seconds`
-   with `context`. Use the verified default if it is supported. When the user gives
-   only a duration, use a uniquely selected resource from the current conversation or
-   ask which resource they mean. An idle match with an empty queue supports `lock` even if `claimable_by_you` is false.
+3. Preserve the requested operation (`lock`, `slock`, or `book`). A direct command such
+   as `lock 19` requests the lock once the live inventory resolves the exact node.
+   In a group that allocates whole nodes, a node target with no requested cards selects
+   that whole node. Pass `--whole-node` for it. If the request omits duration, omit
+   `--duration` for `lock`, `slock`, or `book` and let the CLI verify and use the group's
+   current default. Ask for duration if the service cannot supply a usable default.
+   When the user gives only a duration, use a uniquely selected resource from the
+   current conversation or ask which resource they mean. An idle match with an empty queue supports `lock` even if `claimable_by_you` is false.
    A booking is a queue position. A lock or claim creates a lease.
    For a claim, match a booking marked `claimable_by_you` and omit the
    duration. For a renewal, pass the time to add to the existing lease. Release only the

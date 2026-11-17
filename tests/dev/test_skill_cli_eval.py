@@ -41,7 +41,7 @@ def run(fixture, action, **kwargs):
 @pytest.mark.parametrize(
     ("scenario", "operation", "nodes", "duration", "final"),
     [
-        ("intent-lock-tail", "lock", ["node-19"], "180m", "19 已锁三小时。"),
+        ("intent-lock-tail", "lock", ["node-19"], None, "19 已锁三小时。"),
         (
             "intent-lock-tail-list",
             "lock",
@@ -75,11 +75,15 @@ def test_short_prompts_use_saved_environment(tmp_path, monkeypatch, scenario, op
     if operation:
         group = evaluation.intent.CARDS if operation == "slock" else evaluation.intent.MACHINES
         kwargs = {"devices": ["0"]} if operation == "slock" else {"whole_node": True}
-        if scenario in {"intent-lock-tail", "intent-lock-tail-list"}:
+        if duration is not None:
+            kwargs["duration"] = duration
+        if scenario == "intent-lock-tail-list":
             rules = run(fixture, "context", group=group)["result"]["bot_rules"]
             assert rules["default_duration_seconds"] == 10_800
-        response = run(fixture, "command", group=group, operation=operation, nodes=nodes, duration=duration, **kwargs)
+        response = run(fixture, "command", group=group, operation=operation, nodes=nodes, **kwargs)
         assert response.get("result", {}).get("verified"), response
+        if duration is None:
+            assert response["result"]["duration_source"] == "group-default"
 
     grade = evaluation.score(fixture.root, final)
     assert grade["observable_pass"], grade["checks"]

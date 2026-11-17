@@ -753,7 +753,10 @@ def tools(root):
                 "type": "boolean",
                 "description": "True only if the user requested or approved entire nodes.",
             },
-            "duration": {"type": "string", "description": "Explicit duration such as 30m or 2h."},
+            "duration": {
+                "type": "string",
+                "description": "User-requested duration, such as 30m or 2h. Omit if unspecified.",
+            },
         }
         if allows_commands
         else {}

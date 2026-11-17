@@ -79,9 +79,10 @@ not evict existing holdings/bookings, but can prevent new acquisitions. When ren
 forbidden, claiming cannot exceed the original booked duration. Releasing does not let you
 jump ahead of other bookers. If an older service omits these new rule fields, do not assume
 the restrictions exist; follow its actual replies, timing fields and verified holdings.
-The `2h` values in command examples are examples, not a recommendation: use the actual
-caller-effective maximum, defaults, booked duration and task need. If the configured default
-exceeds the effective ceiling, request a valid explicit shorter duration.
+For a `lock`, `slock`, or `book` request with no time specified, omit `--duration`.
+The CLI reads the authenticated group's current default and sends that duration explicitly.
+If the default is missing or exceeds the effective ceiling, the CLI stops before writing.
+Renewal still requires the amount of time to add. Claim uses the original booked duration.
 
 ### Interpret instants separately from human display time
 

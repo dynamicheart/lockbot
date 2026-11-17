@@ -1657,6 +1657,16 @@ class Client:
             raise ClientError("explicit_device_selection_required")
         if any(not re.fullmatch(r"0|[1-9][0-9]{0,4}", device) for device in devices):
             raise ClientError("invalid_device")
+        use_group_duration = duration is None and operation in {"lock", "slock", "book"}
+        if use_group_duration:
+            rules = context.get("bot_rules")
+            seconds = rules.get("default_duration_seconds") if isinstance(rules, dict) else None
+            if type(seconds) is not int or seconds <= 0:
+                raise ClientError("group_default_duration_unavailable")
+            ceiling = rules.get("effective_max_lock_duration_seconds")
+            if type(ceiling) is int and ceiling >= 0 and seconds > ceiling:
+                raise ClientError("group_default_duration_exceeds_limit")
+            duration = f"{seconds}s"
         if operation == "claim":
             if context["bot"]["type"] not in {"QUEUE", "QUEUE_DEVICE"} or len(nodes) != 1 or len(devices) > 1:
                 raise ClientError("claim_requires_one_queued_resource")
@@ -1767,6 +1777,7 @@ class Client:
             raise ClientError("mutation_not_confirmed_read_resources_do_not_replay") from exc
         return {
             "command_result": result,
+            **({"duration_source": "group-default"} if use_group_duration else {}),
             "verified_snapshot": after,
             "verified": True,
             "verification": "observed_state_only",
@@ -2210,7 +2221,9 @@ def main(argv=None):
         "--minimum-model-count", type=int, help="Require this many accelerators of --model on each selected whole node."
     )
     command.add_argument(
-        "--duration", help="Lease for lock/book or time to add on renew, e.g. 30m. Omit for claim/release."
+        "--duration",
+        help="Lease for lock/slock/book or time to add on renew (e.g. 30m). Omit to use the group default for "
+        "lock/slock/book, the booked duration for claim, or no duration for release.",
     )
     command.add_argument("--metadata-file", help="Private JSON: task_category, purpose, agent_label only")
     command.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)

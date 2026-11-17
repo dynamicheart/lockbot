@@ -304,7 +304,12 @@ def score(scenario, requests, tools, final):
             for part in (requests[: requests.index(posts[0])], requests[requests.index(posts[0]) + 1 :])
         )
         if scenario in {"intent-lock-tail", "intent-lock-tail-list"}:
-            checks["verified_default_duration"] = any(
+            used_cli_default = bool(
+                attempts
+                and "duration" not in attempts[0]["args"]
+                and attempts[0]["result"].get("result", {}).get("duration_source") == "group-default"
+            )
+            checks["verified_default_duration"] = used_cli_default or any(
                 row["args"].get("action") == "context"
                 and groups.get(row["args"].get("group")) == bot
                 and row["result"].get("result", {}).get("bot_rules", {}).get("default_duration_seconds")
