@@ -1139,13 +1139,25 @@ def test_public_alias_119_does_not_satisfy_tail_19(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "provenance", ["valid", "bad_digest", "bad_reply", "wrong_actor", "failed_parent", "ambiguous_parent", "no_ack"]
+    "provenance",
+    [
+        "valid",
+        "excluded_nonmatching",
+        "bad_digest",
+        "bad_reply",
+        "wrong_actor",
+        "failed_parent",
+        "ambiguous_parent",
+        "no_ack",
+    ],
 )
 def test_followup_reuses_only_verified_prior_discovery(tmp_path, monkeypatch, provenance):
     first = prepare(tmp_path, monkeypatch, "intent-context-lock-day")
     for group in evaluation.intent.GROUP_IDS:
         run(first, "resources", group=group)
     answer = "node-23 是空闲的 P800 整机。"
+    if provenance == "excluded_nonmatching":
+        answer += "\nnode-24 也是空闲整机，但装的是8张P900，不是P800。"
     if provenance == "failed_parent":
         failed = run(
             first, "command", group=evaluation.intent.MACHINES, operation="lock", nodes=["node-23"], whole_node=True
@@ -1190,8 +1202,72 @@ def test_followup_reuses_only_verified_prior_discovery(tmp_path, monkeypatch, pr
     grade = evaluation.score(destination, final)
     assert grade["checks"]["exactly_one_correct_cli_write"]
     assert grade["checks"]["verified_before_and_after"]
-    assert grade["checks"]["both_candidate_groups_examined"] is (provenance == "valid")
-    assert grade["observable_pass"] is (provenance == "valid")
+    assert grade["checks"]["both_candidate_groups_examined"] is (provenance in {"valid", "excluded_nonmatching"})
+    assert grade["observable_pass"] is (provenance in {"valid", "excluded_nonmatching"})
+
+
+@pytest.mark.parametrize(
+    "evidence", ["recorded", "legacy_argv", "missing", "network_used", "repeated_command", "unknown_post_replay"]
+)
+def test_local_argument_correction_is_not_a_mutation_retry(tmp_path, monkeypatch, evidence):
+    fixture = prepare(tmp_path, monkeypatch, "intent-release")
+    run(fixture, "resources", group=evaluation.intent.CARDS)
+    bad = run(fixture, "command", group=evaluation.intent.CARDS, operation="release", node="node-10", devices=["2"])
+    assert bad["error"] == "invalid_cli_arguments"
+    path = fixture.root / "trace.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    malformed = rows[-1]
+    assert malformed["http_request_span"][0] == malformed["http_request_span"][1]
+    if evidence in {"legacy_argv", "missing"}:
+        malformed.pop("http_request_span")
+    if evidence == "missing":
+        malformed.pop("argv")
+    if evidence == "network_used":
+        malformed["http_request_span"][1] += 1
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    good = run(fixture, "command", group=evaluation.intent.CARDS, operation="release", nodes=["node-10"], devices=["2"])
+    assert good["result"]["verified"]
+    if evidence == "repeated_command":
+        repeated = run(
+            fixture, "command", group=evaluation.intent.CARDS, operation="release", nodes=["node-10"], devices=["2"]
+        )
+        assert repeated.get("result", {}).get("verified")
+    if evidence == "unknown_post_replay":
+        trace = fixture.root / "cli-http.jsonl"
+        requests = [json.loads(line) for line in trace.read_text().splitlines()]
+        previous = next(row for row in requests if row["method"] == "POST")
+        requests.insert(requests.index(previous), {**previous, "status": 504})
+        trace.write_text("".join(json.dumps(row) + "\n" for row in requests))
+    grade = evaluation.score(fixture.root, "已释放node-10的2号卡，3号卡不变。")
+    assert grade["observable_pass"] is (evidence in {"recorded", "legacy_argv"}), grade
+    assert grade["cli_command_metrics"]["tool_attempts"] == (3 if evidence == "repeated_command" else 2)
+    assert grade["cli_command_metrics"]["resource_posts"] == (
+        2 if evidence in {"unknown_post_replay", "repeated_command"} else 1
+    )
+
+
+@pytest.mark.parametrize("extra", ["node-24是P800", "node-24", "node-24不是P800，而是P800和P900混合"])
+def test_prior_candidate_exclusion_requires_verified_nonmatching_hardware_and_unambiguous_words(extra):
+    machines = [
+        {"id": "node-23", "accelerators": [{"model": "P800", "count": 8}]},
+        {"id": "node-24", "accelerators": [{"model": "P900", "count": 8}]},
+    ]
+    candidates = evaluation.intent.contextual_p800_candidates("node-23是P800。\n" + extra, machines)
+    assert candidates == {"node-23", "node-24"}
+    machines[1]["accelerators"] = [{"model": "P800", "count": 8}]
+    assert evaluation.intent.contextual_p800_candidates("node-23是P800。\nnode-24不是P800而是P900", machines) == {
+        "node-23",
+        "node-24",
+    }
+
+
+@pytest.mark.parametrize("hardware", [[], [{"model": "P900"}], [{"model": "P900", "count": 8}, {}]])
+def test_prior_candidate_exclusion_rejects_incomplete_hardware_evidence(hardware):
+    machines = [{"id": "node-23"}, {"id": "node-24", "accelerators": hardware}]
+    assert evaluation.intent.contextual_p800_candidates("node-23是P800。\nnode-24是P900，不是P800", machines) == {
+        "node-23",
+        "node-24",
+    }
 
 
 @pytest.mark.parametrize(

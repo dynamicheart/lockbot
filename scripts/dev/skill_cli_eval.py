@@ -904,7 +904,11 @@ class Fixture(continuity.Fixture):
             return self.record(name, args, self.text_page(path, offset))
         if name == "run_lockbot":
             execution = {}
+            http_trace = self.root / "cli-http.jsonl"
+            before = len(http_trace.read_text().splitlines()) if http_trace.is_file() else 0
             result = self.run_cli(args, execution)
+            after = len(http_trace.read_text().splitlines()) if http_trace.is_file() else 0
+            execution["http_request_span"] = [before, after]
             return self.record(name, args, result, **execution)
         if name == "install_lockbot" and self.case["scenario"] in FIRST_CONTACT:
             return self.record(name, args, {"error": "unknown_download_url"})
@@ -1239,9 +1243,7 @@ def prior_observed_groups(root, fixture, final):
                 observed[group] = result
         if scenario == "intent-context-lock-day":
             machines = observed.get(intent.MACHINES, {}).get("resources", [])
-            mentioned = intent.reported_nodes(previous["text"])
-            # Multiple whole-machine mentions do not establish a unique referent.
-            if {node["id"] for node in machines} & mentioned != {intent.MATCHING_MACHINE}:
+            if intent.contextual_p800_candidates(previous["text"], machines) != {intent.MATCHING_MACHINE}:
                 return set()
         return set(observed)
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -1477,6 +1479,14 @@ def score(root, final):
     else:
         checks.update(no_mutation=not posts, answer_present=bool(final.strip()))
     result = {"checks": checks, "observable_pass": all(checks.values()), "phase": phase, "simulation_only": True}
+    if scenario in intent.PROMPTS:
+        attempts, corrections = intent.command_attempts(cli_tools)
+        result["cli_command_metrics"] = {
+            "tool_attempts": len(attempts) + corrections,
+            "pre_http_argument_corrections": corrections,
+            "mutation_attempts": len(attempts),
+            "resource_posts": len(posts),
+        }
     if scenario in {
         "intent-my-locks",
         "intent-my-books",

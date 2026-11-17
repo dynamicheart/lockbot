@@ -358,6 +358,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=()):
             if row["args"].get("action") == "resources" and "result" in row["result"]
         }
     if scenario in EXPECTED:
+        attempts, _ = command_attempts(tools)
         bot, command = EXPECTED[scenario]
         default_duration = SHORT_DEFAULT_DURATION if scenario in SHORT_DEFAULT_SCENARIOS else None
         expected_suffix = f"/api/bots/{bot}/commands"
@@ -619,6 +620,7 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
         return {"zero_write_attempts": not writes and not posts, "answer_present": bool(final.strip())}
     checks = {"both_candidate_groups_examined": set(GROUP_IDS) <= groups_read}
     if expected:
+        writes, _ = command_attempts(tools)
         bot, command, operation = expected
         checks["exactly_one_correct_cli_write"] = (
             len(writes) == len(posts) == 1
@@ -665,6 +667,68 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=()):
                 for row in inspected
             )
     return checks
+
+
+def command_attempts(tools):
+    """Separate proven pre-HTTP argument corrections from mutation attempts.
+
+    Only an initial prefix can be a correction. Network errors and every later
+    command remain attempts, irrespective of the outcome or a retry hint.
+    """
+    attempts = [row for row in tools if row["args"].get("action") == "command"]
+    corrections = 0
+    for row in attempts:
+        result = row.get("result", {})
+        if result.get("error") != "invalid_cli_arguments" or result.get("retry_mutation") is not False:
+            break
+        span = row.get("http_request_span")
+        if isinstance(span, list) and len(span) == 2:
+            no_http = all(type(value) is int and value >= 0 for value in span) and span[0] == span[1]
+        else:
+            # Older traces have no HTTP span. The packaged parser requires
+            # --node before constructing a client: this exact missing argument
+            # is independently known to stop before any HTTP request.
+            argv = row.get("argv", [])
+            no_http = (
+                isinstance(argv, list)
+                and argv
+                and str(argv[0]).endswith("/scripts/lockbot_cli.py")
+                and "command" in argv
+                and "--node" not in argv
+            )
+        if not no_http:
+            break
+        corrections += 1
+    return attempts[corrections:], corrections
+
+
+def contextual_p800_candidates(answer, machines):
+    """Keep ambiguous mentions unless live hardware and prose both exclude them."""
+    mentioned = reported_nodes(answer) & {node["id"] for node in machines}
+    for node in machines:
+        hardware = node.get("accelerators", [])
+        if not hardware or any(
+            not isinstance(row.get("model"), str)
+            or not row["model"].strip()
+            or type(row.get("count")) is not int
+            or row["count"] <= 0
+            for row in hardware
+        ):
+            continue
+        models = {row["model"].strip().lower() for row in hardware}
+        if node["id"] not in mentioned or not models or "p800" in models:
+            continue
+        pattern = r"(?<![A-Za-z0-9_-])" + re.escape(node["id"]) + r"(?![A-Za-z0-9_-])"
+        statements = [text.lower() for text in re.split(r"[\n。]", answer) if re.search(pattern, text)]
+        # A bare extra node or a positive P800 claim stays ambiguous. An explicit
+        # nonmatching model/negation must agree with the verified inventory.
+        if statements and all(
+            any(model in text for model in models)
+            and "p800" not in re.sub(r"(?:不是|并非|非|not\s+(?:an?\s+)?)\s*p800", "", text)
+            for text in statements
+        ):
+            mentioned.remove(node["id"])
+    return mentioned
 
 
 def observation_identity(snapshot):
