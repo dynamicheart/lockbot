@@ -303,7 +303,7 @@ __REVIEW_STYLES__
 </style>
 </head>
 <body>
-<header class="app-header"><div class="head"><a class="brand" href="/#/bots" target="_top" aria-label="返回 LockBot 工作台"><div class="mark"><svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="32" height="32">
+<header class="app-header"><div class="head"><a class="brand" href="/#/bots" target="_top" aria-label="LockBot 轨迹浏览器，返回工作台"><div class="mark"><svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="32" height="32">
   <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
   <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
   <rect x="5" y="8" width="22" height="19" rx="4" fill="#e6f0ff" stroke="#409eff" stroke-width="1.8"/>
@@ -314,7 +314,7 @@ __REVIEW_STYLES__
   <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
   <line x1="16" y1="8" x2="16" y2="3.5" stroke="#409eff" stroke-width="1.8" stroke-linecap="round"/>
   <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
-</svg></div><div><h1>LockBot 轨迹浏览器</h1></div></a><div class="header-end"><label id="dataset-picker" hidden>评测批次 <select id="dataset-select" aria-label="评测批次"></select></label><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
+</svg></div><div><h1>LockBot<span class="brand-description"> 轨迹浏览器</span></h1></div></a><div class="header-end"><label id="dataset-picker" hidden><span id="dataset-caption">评测批次 </span><select id="dataset-select" aria-label="评测批次"></select></label><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button" aria-label="打开本地 JSON 轨迹文件"><span class="control-full">打开本地 JSON</span><span class="control-compact" aria-hidden="true">JSON</span></button></div></div><p id="load-status" class="load-status" role="status"></p></header>
 <div class="layout">
 <aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例及模型结果"></nav></section></aside>
 <div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整测例侧栏宽度"></div>
@@ -327,7 +327,7 @@ __REVIEW_STYLES__
 <script type="application/json" id="trace-data">__TRACE_PAYLOAD__</script>
 <script>
 let data = JSON.parse(document.getElementById('trace-data').textContent);
-const statusNames = {pass:'通过',pending:'待核对',timeout:'超时',blocked:'环境阻塞',fail:'检查未通过'};
+const statusNames = {pass:'检查通过',pending:'待核对',timeout:'超时',blocked:'环境阻塞',fail:'检查未通过'};
 const select = (id) => document.getElementById(id);
 const node = (tag, text, className) => {
   const el = document.createElement(tag);
@@ -419,7 +419,22 @@ function writeRoute() {
 }
 const caseName = key => data.labels && Object.hasOwn(data.labels,key) ? data.labels[key] || key : key;
 const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
-function badge(state) { return node('span',statusNames[state],'badge '+state); }
+function trialStatus(trial) {
+  if (trial.source_run?.startsWith('semantic:')) {
+    if (trial.state === 'fail') return '阶段复核未通过';
+    return trial.semantic_status === 'uncertain' ? '阶段复核不确定' : '阶段复核已记录';
+  }
+  if (trial.source_run?.startsWith('matrix:') && ['pass','fail'].includes(trial.state)) {
+    return trial.state === 'pass' ? '自动检查通过' : '自动检查未通过';
+  }
+  return statusNames[trial.state] || '';
+}
+function badge(trial) {
+  const result = node('span',trialStatus(trial),'badge '+trial.state);
+  result.title = trial.source_run?.startsWith('semantic:') ? '仅此条阶段复核的结果，完整验收需查看实际对话与其他记录。' :
+    '仅此条记录的检查结果；独立语义复核单列，不代表完整验收通过。';
+  return result;
+}
 function resetSelection() { activeStep = 0; failureOnly = false; }
 function pickCase(key) { if(activeCase===key) return; activeCase = key; activeIndex = selectedRuns.get(key) ?? defaultRun(key); resetSelection(); userNavigation=true; draw(); }
 function pickRun(index) { activeIndex = index; selectedRuns.set(activeCase,index); resetSelection(); userNavigation=true; draw(); }
@@ -439,11 +454,24 @@ function choice(text, meta, pressed, action) {
   button.addEventListener('click',action);
   return button;
 }
+function displayModelName(model) {
+  const aliases = {
+    'training13-codex · official:gpt-6.1-sol':'GPT-6.1 Sol',
+    'ducc · DeepSeek-V4.1-Flash':'DeepSeek V4.1 Flash',
+    'ducc · GLM-5.3':'GLM 5.3',
+    'ducc · Kimi K3':'Kimi K3',
+    'ducc · MiniMax-M3':'MiniMax M3',
+  };
+  for (const [raw,name] of Object.entries(aliases)) {
+    if (model === raw || model?.startsWith(raw + ' · ')) return name + model.slice(raw.length);
+  }
+  return model;
+}
 function modelLabel(trial,index,key=activeCase) {
-  const label = trial.model || '运行 '+String(index+1).padStart(2,'0');
+  const label = displayModelName(trial.model) || '运行 '+String(index+1).padStart(2,'0');
   const runs = data.cases[key] || [];
-  if (!trial.model || runs.filter(run => run.model === trial.model).length < 2) return label;
-  const number = runs.slice(0,index+1).filter(run => run.model === trial.model).length;
+  if (!trial.model || runs.filter(run => displayModelName(run.model) === label).length < 2) return label;
+  const number = runs.slice(0,index+1).filter(run => displayModelName(run.model) === label).length;
   return label + ' · 记录 ' + number;
 }
 function jsonPreview(value) {
@@ -953,7 +981,11 @@ function draw(animateCase = false) {
     group.append(...options);
     return [group];
   }));
-  select('run-select').replaceChildren(...all.map((row,index)=>new Option([modelLabel(row,index),statusNames[row.state]].filter(Boolean).join(' · '),index,false,index===activeIndex)));
+  select('run-select').replaceChildren(...all.map((row,index)=>{
+    const option = new Option([modelLabel(row,index),trialStatus(row)].filter(Boolean).join(' · '),index,false,index===activeIndex);
+    option.title = row.model || '';
+    return option;
+  }));
   select('run-select').setAttribute('aria-label',caseName(activeCase)+'的模型与结果');
   select('case-title').textContent = caseName(activeCase);
   const description = select('case-description');
@@ -971,8 +1003,10 @@ function draw(animateCase = false) {
   }
   select('case-spec').hidden=!description.childNodes.length;
   const runTitle = select('run-title');
-  runTitle.replaceChildren(node('span',modelLabel(trial,activeIndex)));
-  if (trial.state) runTitle.append(badge(trial.state));
+  const modelTitle = node('span',modelLabel(trial,activeIndex));
+  modelTitle.title = trial.model || '';
+  runTitle.replaceChildren(modelTitle);
+  if (trial.state) runTitle.append(badge(trial));
   const phases = Array.isArray(trial.metrics?.phases) ? trial.metrics.phases : [];
   const isSummary = trial.sessions.length === 0;
   select('counts').textContent = runEfficiency(trial);

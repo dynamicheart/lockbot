@@ -128,8 +128,7 @@ function renderCaseNavigation() {
         };
         row.append(toggle);
       }
-      const state = multi ? node('span', runs.filter(run => run.state === 'pass').length + '/' + runs.length, 'meta') :
-        runs[0].state ? badge(runs[0].state) : null;
+      const state = !multi && runs[0].state ? badge(runs[0]) : null;
       const button = choice(caseName(key), state, activeCase === key, () => pickCase(key));
       button.dataset.navKind = 'case';
       row.append(button);
@@ -139,12 +138,13 @@ function renderCaseNavigation() {
         list.setAttribute('role', 'group');
         list.setAttribute('aria-label', caseName(key) + '的模型');
         list.append(...runs.map((run, index) => {
-          const button = choice(modelLabel(run, index, key), run.state ? badge(run.state) : null,
+          const button = choice(modelLabel(run, index, key), run.state ? badge(run) : null,
             activeCase === key && activeIndex === index, () => {
               activeCase = key;
               pickRun(index);
             });
           button.dataset.navKind = 'run';
+          button.title = run.model || '';
           return button;
         }));
         item.append(list);

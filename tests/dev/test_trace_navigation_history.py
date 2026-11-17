@@ -16,7 +16,7 @@ def test_new_runs_do_not_open_plan_placeholders_or_semantic_copies():
     viewer = Path(__file__).resolve().parents[2] / "frontend/src/features/agent-traces/viewer.html"
     source = viewer.read_text()
     functions = []
-    for name in ("defaultRun", "modelLabel"):
+    for name in ("defaultRun", "displayModelName", "modelLabel"):
         functions.append(re.search(r"function " + name + r"\([^\n]*\) \{.*?\n\}", source, re.S)[0])
     script = (
         "\n".join(functions)
