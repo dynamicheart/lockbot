@@ -440,3 +440,24 @@ through the CLI's formatted `remaining_time`. Fixtures at version 15 and below
 retain their original simulated booking fields for historical replay; those old
 fields must not be treated as evidence of the real service contract. Historical
 model answers and grades are not rewritten by this fixture correction.
+
+Native Codex isolation has a version-specific limitation. The installed training13
+Codex 0.165.0 `thread/start`, `thread/fork` and `turn/start` schemas expose no
+"dynamic tools only" policy. Dynamic tools are additive. The matching upstream
+[tool plan](https://github.com/openai/codex/blob/rust-v0.165.0/codex-rs/core/src/tools/spec_plan.rs#L1276)
+can register MCP resource helpers for code-mode-only models even without configured
+servers, and other utility tools depend on native model capabilities. The
+[configuration schema](https://github.com/openai/codex/blob/rust-v0.165.0/codex-rs/core/config.schema.json)
+does not supply a general built-in tool allowlist. Existing disabled features and
+empty environment/server configuration do not prove complete tool exclusion.
+
+The adapter therefore still interrupts every unapproved built-in tool event. Such
+a run is a runner isolation failure, not a model task pass or evidence that host
+secrets were read. A rejected fixture `read_file` request also demonstrates an
+attempt, not a successful host read. Supporting a stricter native tool catalog
+requires an upstream-supported exclusion policy and native verification; this
+adapter does not silently whitelist resource-list helpers or claim that an empty
+configured server table proves an empty effective catalog. Failing runner stdout
+and stderr are retained privately at mode 0600. Aggregate results preserve the
+recognized `native_isolation_failure` as `error_type` while keeping `runner_error`
+and `observable_pass: false`; private diagnostic text is not copied into results.

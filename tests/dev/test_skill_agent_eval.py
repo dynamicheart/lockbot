@@ -21,6 +21,8 @@ SPEC.loader.exec_module(evaluation)
         ("unsupported_context", 1, "unsupported_context"),
         ("error_output_limit", 1, "budget_exhausted"),
         ("timeout", 1, "timeout"),
+        ("native_isolation_failure", 1, "runner_error"),
+        ("unknown_diagnostic_kind", 1, "runner_error"),
     ],
 )
 def test_native_runner_limitations_are_distinct_from_model_failures(tmp_path, kind, exit_code, status):
@@ -32,9 +34,29 @@ def test_native_runner_limitations_are_distinct_from_model_failures(tmp_path, ki
     response, result = evaluation._call_runner(tmp_path, command, {}, timeout=5)
     assert response is None
     assert result["status"] == status
+    assert (tmp_path / "runner.stdout").stat().st_mode & 0o077 == 0
+    assert json.loads((tmp_path / "runner.stdout").read_text())["kind"] == kind
+    if kind == "native_isolation_failure":
+        assert result["error_type"] == kind
+        assert result["observable_pass"] is False
     if status == "unsupported_context":
         assert result["observable_pass"] is False
         assert result["context_consumed"] is False
+
+
+def test_failed_runner_keeps_private_raw_diagnostics_without_trusting_unknown_kinds(tmp_path):
+    (tmp_path / "runner.stdout").write_text("old")
+    (tmp_path / "runner.stdout").chmod(0o644)
+    command = [
+        sys.executable,
+        "-c",
+        "import sys;print('not JSON diagnostic');print('private stderr',file=sys.stderr);raise SystemExit(1)",
+    ]
+    response, result = evaluation._call_runner(tmp_path, command, {}, timeout=5)
+    assert response is None and result == {"status": "runner_error", "exit_code": 1}
+    assert (tmp_path / "runner.stdout").read_text() == "not JSON diagnostic\n"
+    assert (tmp_path / "runner.stderr").read_text() == "private stderr\n"
+    assert all((tmp_path / name).stat().st_mode & 0o077 == 0 for name in ("runner.stdout", "runner.stderr"))
 
 
 @pytest.fixture

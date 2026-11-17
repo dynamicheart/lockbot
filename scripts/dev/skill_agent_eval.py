@@ -577,10 +577,15 @@ def _call_runner(root, command, request, timeout):
             os.killpg(process.pid, signal.SIGKILL)
         process.communicate()
         return None, {"status": "timeout"}
-    if stderr:
-        path = root / "runner.stderr"
-        path.write_text(stderr)
-        path.chmod(0o600)
+    # A failing native adapter emits its structured diagnostic on stdout. Keep
+    # both streams private, including malformed output, without publishing the
+    # potentially sensitive error text in the aggregate result.
+    for name, content in (("runner.stdout", stdout), ("runner.stderr", stderr)):
+        if content:
+            descriptor = os.open(root / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "w") as stream:
+                stream.write(content)
     try:
         response = json.loads(stdout)
     except ValueError:
@@ -590,7 +595,9 @@ def _call_runner(root, command, request, timeout):
         return None, {"status": "unsupported_context", "observable_pass": False, "context_consumed": False}
     if process.returncode:
         result = {"status": "runner_error", "exit_code": process.returncode}
-        if kind in ("error_max_turns", "error_max_budget_usd", "error_output_limit"):
+        if kind == "native_isolation_failure":
+            result.update(error_type=kind, observable_pass=False)
+        elif kind in ("error_max_turns", "error_max_budget_usd", "error_output_limit"):
             result.update(status="budget_exhausted", budget_kind=kind)
         elif kind == "timeout":
             result["status"] = "timeout"

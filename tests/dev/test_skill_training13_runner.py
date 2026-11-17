@@ -71,6 +71,9 @@ for line in sys.stdin:
    'delta':'X'*100 if mode=='output-limit' else 'Done.'}})
   reply(m,{'turn':{'id':turn}})
   if mode=='timeout':time.sleep(20)
+  elif mode=='builtin-mcp':
+   send({'method':'item/started','params':{'threadId':tid,'item':{'type':'mcpToolCall',
+    'tool':'list_mcp_resources','arguments':{}}}})
   elif mode=='failed':
    send({'method':'turn/completed','params':{'threadId':tid,
     'turn':{'id':turn,'status':'failed','error':{'message':'synthetic provider failure'}}}})
@@ -213,6 +216,7 @@ def test_context_rejects_tampering_before_new_turn(tmp_path, monkeypatch, tamper
     "mode,kind",
     [
         ("forbidden", "native_isolation_failure"),
+        ("builtin-mcp", "native_isolation_failure"),
         ("failed", "native_turn_failed"),
         ("model-mismatch", "native_model_mismatch"),
         ("output-limit", "error_output_limit"),
@@ -230,6 +234,8 @@ def test_native_failures_never_become_success(tmp_path, monkeypatch, mode, kind)
     assert not (root / "native-session.json").exists()
     if mode != "model-mismatch":
         assert '"method": "turn/interrupt"' in (root / "codex-native.jsonl").read_text()
+    if mode == "builtin-mcp":
+        assert '"method": "tools/call"' not in (root / "fixture-native.jsonl").read_text()
 
 
 def test_turn_budget_stops_before_fixture_tool_execution(tmp_path, monkeypatch):
