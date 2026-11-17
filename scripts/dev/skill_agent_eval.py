@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -226,7 +227,7 @@ class Fixture:
             "capabilities": ["credential_context", "namespaced_skill", "skill_version_headers"],
         }
         if self.host is not None:
-            result["capabilities"].append("own_binding_recovery")
+            result["capabilities"].extend(("own_binding_recovery", "coherent_resource_snapshot"))
             result["bindings_url"] = "/api/agent/bindings"
             result["binding_recovery_url"] = "/api/agent/bindings/recover"
         return result
@@ -304,6 +305,20 @@ class Fixture:
                 },
             }
         if bot_resource_path(url.path, 7) == "/api/bots/7/resources":
+            if self.host is not None:
+                context = self.http({**args, "url": self.origin + "/api/agent/context", "method": "GET"})["body"]
+                return {
+                    "status": 200,
+                    "body": {
+                        "captured_at": datetime.now(timezone.utc).isoformat(),
+                        "age_seconds": 0,
+                        "bot_id": 7,
+                        "bot_type": "NODE",
+                        "actor": context["actor"],
+                        "context": context,
+                        "resources": [{"id": "node-a", "lock_status": "idle", "holders": [], "booking_list": []}],
+                    },
+                }
             return {"status": 200, "body": {"resources": [{"resource_id": "node-a", "holders": []}]}}
         return {"status": 404, "error": "No such fixture route"}
 

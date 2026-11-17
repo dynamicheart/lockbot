@@ -58,7 +58,12 @@ def test_real_cli_init_default_user_scope_and_resources_are_observed(tmp_path, f
     assert record["actor"]["external_user_id"] == "demo-user"
     assert Path(record["key_file"]) == fixture.workspace / "private/current.key"
     assert path.stat().st_mode & 0o077 == 0
-    assert run(fixture, "--connection", connection, "resources")["result"]["resources"]
+    snapshot = run(fixture, "--connection", connection, "resources")["result"]
+    assert snapshot["resources"] == [{"id": "node-a", "lock_status": "idle", "holders": [], "booking_list": []}]
+    assert snapshot["context"]["actor"]["external_user_id"] == "demo-user"
+    assert snapshot["bot_id"] == 7 and snapshot["bot_type"] == "NODE"
+    assert snapshot["snapshot_fresh_for_write"] is True
+    assert snapshot["age_seconds"] >= 0
     assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "resources-all")["exit_code"] == 0
     score = evaluation.score(fixture.root, "Installed and queried the scoped resources.")
@@ -392,3 +397,23 @@ def test_new_matrix_onboarding_preparation_explicitly_selects_only_onboarding_v7
     case = json.loads((root / "case.json").read_text())
     assert (case["fixture_family"], case["fixture_version"]) == ("onboarding", 7)
     assert evaluation.Fixture(root).host is not None
+
+
+def test_v7_resource_wire_has_current_api_identity_and_capture_fields_without_hardware(tmp_path, frozen_package):
+    from datetime import datetime, timezone
+
+    fixture = prepare(tmp_path, frozen_package)
+    result = fixture.call(
+        "http_request",
+        {"url": evaluation.ORIGIN + "/api/agent/resources", "headers": {"Authorization": "Bearer " + evaluation.KEY}},
+    )["body"]
+    assert (datetime.now(timezone.utc) - datetime.fromisoformat(result["captured_at"])).total_seconds() < 5
+    assert result["age_seconds"] == 0
+    assert result["context"]["bot"]["uuid"] == evaluation.BOT_UUID
+    assert result["resources"] == [{"id": "node-a", "lock_status": "idle", "holders": [], "booking_list": []}]
+    legacy = prepare(tmp_path, frozen_package, version=6)
+    old = legacy.call(
+        "http_request",
+        {"url": evaluation.ORIGIN + "/api/agent/resources", "headers": {"Authorization": "Bearer " + evaluation.KEY}},
+    )["body"]
+    assert old == {"resources": [{"resource_id": "node-a", "holders": []}]}
