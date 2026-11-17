@@ -264,3 +264,42 @@ the CLI instead of demanding an extra resource GET. Deterministic regressions
 retain the unadvertised old-service flow and ensure an advertised but incomplete
 response fails closed. Fixture HTTP counts describe real packaged-helper requests,
 not an artificially downgraded protocol or actual production concurrency testing.
+
+### Native ducc runner
+
+`scripts/dev/skill_ducc_runner.py` invokes the installed ducc client with the
+matrix's model, system instructions, and absolute MCP configuration. For example,
+a private runner argv file can contain the following, with absolute interpreter
+and repository paths substituted:
+
+```json
+["/path/to/python", "/path/to/repo/scripts/dev/skill_ducc_runner.py", "--ducc", "/path/to/ducc"]
+```
+
+The client receives the current user text alone on stdin. Built-in tools are
+disabled, MCP configuration is strict, only the configured MCP tools are allowed,
+and hooks are disabled for the invocation. Existing client-managed authentication
+and model routing are retained. The matrix's turn limit is passed as
+`--max-turns`; its output-token limit is passed through
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS`. The matrix process-group timeout remains the outer
+execution bound.
+
+Each phase saves the native JSONL tool events, stderr, exact invocation, and
+native session metadata as private `0600` evidence files. These files must remain
+outside Git. The response includes the client's final answer and reported turn
+count; a budget error or missing native final result cannot count as success.
+
+For contextual second phases, the adapter verifies that `conversation.json`
+contains exactly the previous phase's observed user/assistant pair, matches its
+supplied digest, and matches the adapter's native session metadata, model, and
+system instructions. It then uses native `--resume` with `--fork-session`, retaining
+the original project directory for session lookup while loading the new phase's
+absolute MCP configuration. No target or prior answer is concatenated into the
+new user prompt. Arbitrary histories without the matching original native session
+return `unsupported_context` without a model call. Non-contextual phases start
+fresh sessions.
+
+Process-mock regressions verify this adapter contract without calling a model.
+They do not prove live client authentication, upstream model availability, or a
+successful model evaluation. Run the normal native preflight and retain its real
+JSONL before claiming those results.
