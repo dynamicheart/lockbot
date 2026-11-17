@@ -56,11 +56,14 @@ Use the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
 stop after `resources`. Use `command --help` for all write arguments.
 
-- **Already signed into the workbench:** open the full bookmarked `/#/me` URL with
-  authorized browser access. Reply with the address and what the page shows.
-- **Needs to sign into the workbench:** use `panel-link` after verifying private
-  delivery is authorized, then give the user the returned `result.login_url` in that
-  private reply. The user opens and confirms it. Use `result.home` for return visits.
+- **Already signed into the workbench:** open the bookmarked fixed URL in one step.
+  If the bookmark is not available to your tools, append `/#/me` to the selected
+  connection's verified service origin. Pass the full URL on the first browser call
+  and include it with the page findings in your reply. Skip `panel-link`.
+- **Needs to sign into the workbench:** use `panel-link` once with authorization for private
+  delivery. In your final reply, give the user the private login link or confirm its private
+  delivery. Tell them to open it and confirm the account, then bookmark `result.home`
+  (include its full address). Wait for their confirmation before using the workbench.
 - **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
   report what is unavailable. Use `book` only when the user requests or accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
