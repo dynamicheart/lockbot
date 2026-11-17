@@ -88,6 +88,8 @@ Use `resources --exact-lease-times` for an exact deadline or a timed stop or ren
   authorizes locking the uniquely selected machine for that duration.
 - **My resources:** check every saved, authorized group. Separate current holdings
   from queued bookings, including individual cards; match the verified actor exactly.
+  A holder's remaining time is not the booking's expiry or a guaranteed start time.
+  Describe `queue_estimate` as an estimate, and a reported claim window as a claim window.
 - **Expiry reminders:** for “到时间提醒我”, first read the user's current resources.
   `next_event_kind: own_early_warning` describes the bot's existing scheduled group
   warning. Explain that schedule without claiming a new reminder was created or delivered.
