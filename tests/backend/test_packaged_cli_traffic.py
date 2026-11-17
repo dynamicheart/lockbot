@@ -88,6 +88,7 @@ def packaged_cli(client, api, tmp_path, monkeypatch):
                 "action": action,
                 "argv": list(arguments),
                 "exit_code": code,
+                "output": output,
                 "http": transport.events[start:],
             }
         )
