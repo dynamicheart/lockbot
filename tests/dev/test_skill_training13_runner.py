@@ -2,6 +2,9 @@
 
 import importlib.util
 import json
+import os
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -134,7 +137,7 @@ def native(monkeypatch, tmp_path, mode="normal"):
     monkeypatch.setattr(
         runner,
         "connection_argv",
-        lambda c, h: [sys.executable, str(script), mode, str(tmp_path / "native-thread.json")],
+        lambda c, h, **kwargs: [sys.executable, str(script), mode, str(tmp_path / "native-thread.json")],
     )
 
 
@@ -249,7 +252,7 @@ def test_turn_budget_stops_before_fixture_tool_execution(tmp_path, monkeypatch):
 
 
 def test_ssh_command_uses_only_isolated_authless_loopback_provider():
-    argv = runner.connection_argv(CONNECTION, runner.REMOTE_PREFIX + "abc123")
+    argv = runner.connection_argv(CONNECTION, runner.REMOTE_PREFIX + "a" * 32)
     assert "StrictHostKeyChecking=yes" in argv
     assert "BatchMode=yes" in argv
     assert "GlobalKnownHostsFile=/dev/null" in argv
@@ -264,7 +267,7 @@ def test_ssh_command_uses_only_isolated_authless_loopback_provider():
     with pytest.raises(ValueError):
         runner.connection_argv(CONNECTION, "/home/agent/.codex")
     with pytest.raises(ValueError):
-        runner.connection_argv({**CONNECTION, "base_url": "https://example.test/v1"}, runner.REMOTE_PREFIX + "abc")
+        runner.connection_argv({**CONNECTION, "base_url": "https://example.test/v1"}, runner.REMOTE_PREFIX + "a" * 32)
 
 
 def test_noncontext_followup_uses_fresh_home_and_no_native_history(tmp_path, monkeypatch):
@@ -312,3 +315,66 @@ def test_requested_identity_and_native_transport_are_explicit(requested, transpo
 def test_unrecognized_official_id_cannot_fall_back_to_another_transport(requested):
     with pytest.raises(ValueError, match="Unsupported official model identity"):
         runner.model_identity(requested)
+
+
+@pytest.mark.parametrize(
+    "home",
+    [
+        "/var/tmp/lockbot-skill-codex-abc",
+        "/var/tmp/lockbot-skill-codex-" + "g" * 32,
+        "/var/tmp/lockbot-skill-codex-" + "a" * 32 + "/../other",
+        "/home/agent/.codex",
+    ],
+)
+def test_storage_prefix_requires_an_exact_private_uuid(home):
+    with pytest.raises(ValueError, match="Invalid isolated remote directory"):
+        runner.connection_argv(CONNECTION, home)
+
+
+def test_legacy_tmp_home_requires_explicit_verified_context():
+    legacy = runner.LEGACY_REMOTE_PREFIX + "a" * 32
+    with pytest.raises(ValueError, match="Invalid isolated remote directory"):
+        runner.connection_argv(CONNECTION, legacy)
+    argv = runner.connection_argv(CONNECTION, legacy, allow_legacy_home=True)
+    assert "Legacy native home is unavailable" in argv[-1]
+
+
+def test_launcher_uses_private_temp_storage_and_rejects_missing_legacy_or_symlink(tmp_path):
+    new = runner.REMOTE_PREFIX + "b" * 32
+    code = shlex.split(runner.connection_argv(CONNECTION, new)[-1])[2]
+    home = tmp_path / "native-home"
+    probe = (
+        "import os,pathlib,sqlite3,json; p=pathlib.Path(os.environ['CODEX_HOME']); "
+        "db=sqlite3.connect(p/'probe.sqlite'); db.execute('create table proof(value)'); "
+        "db.execute('insert into proof values (1)'); db.commit(); "
+        "print(json.dumps({'home':str(p),'tmp':os.environ['TMPDIR'], "
+        "'openai_env_present':'OPENAI_API_KEY' in os.environ,"
+        "'value':db.execute('select value from proof').fetchone()[0]}))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(home), sys.executable, "-c", probe],
+        env={**os.environ, "OPENAI_API_KEY": "synthetic-sentinel"},
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    observed = json.loads(result.stdout)
+    assert observed == {"home": str(home), "tmp": str(home / "tmp"), "openai_env_present": False, "value": 1}
+    assert (home / "tmp").stat().st_mode & 0o777 == 0o700
+    assert (home / "probe.sqlite").stat().st_mode & 0o777 == 0o600
+    link = tmp_path / "linked-home"
+    link.symlink_to(home, target_is_directory=True)
+    assert (
+        subprocess.run(
+            [sys.executable, "-c", code, str(link), sys.executable, "-c", "pass"], capture_output=True
+        ).returncode
+        != 0
+    )
+    legacy = runner.LEGACY_REMOTE_PREFIX + "b" * 32
+    old_code = shlex.split(runner.connection_argv(CONNECTION, legacy, allow_legacy_home=True)[-1])[2]
+    missing = tmp_path / "archived-old-home"
+    result = subprocess.run(
+        [sys.executable, "-c", old_code, str(missing), sys.executable, "-c", "pass"], text=True, capture_output=True
+    )
+    assert result.returncode != 0 and "Legacy native home is unavailable" in result.stderr
+    assert not missing.exists()

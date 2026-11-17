@@ -22,7 +22,8 @@ import uuid
 from pathlib import Path
 
 PROVIDER = "skill_eval_mixin"
-REMOTE_PREFIX = "/tmp/lockbot-skill-codex-"
+REMOTE_PREFIX = "/var/tmp/lockbot-skill-codex-"
+LEGACY_REMOTE_PREFIX = "/tmp/lockbot-skill-codex-"
 DISABLED_FEATURES = (
     "shell_tool",
     "unified_exec",
@@ -159,14 +160,15 @@ class JsonProcess:
         self.stderr.close()
 
 
-def connection_argv(connection, remote_home):
+def connection_argv(connection, remote_home, *, allow_legacy_home=False):
     """Use only an explicitly configured container entry point and strict host verification."""
     required = ("host", "user", "identity_file", "known_hosts")
     if any(not isinstance(connection.get(key), str) or not connection[key] for key in required):
         raise ValueError("Connection requires host, user, identity_file and known_hosts")
     if any(connection[key].startswith("-") or "\0" in connection[key] for key in required):
         raise ValueError("Invalid SSH connection field")
-    if not remote_home.startswith(REMOTE_PREFIX) or not remote_home[len(REMOTE_PREFIX) :].isalnum():
+    legacy = bool(re.fullmatch(re.escape(LEGACY_REMOTE_PREFIX) + r"[a-f0-9]{32}", remote_home))
+    if not re.fullmatch(re.escape(REMOTE_PREFIX) + r"[a-f0-9]{32}", remote_home) and not (allow_legacy_home and legacy):
         raise ValueError("Invalid isolated remote directory")
     # Authentication is handled by the trusted loopback Mixin gateway. Never copy
     # or link the user's real Codex auth.json or config into this private home.
@@ -190,12 +192,16 @@ def connection_argv(connection, remote_home):
         # JSON strings, booleans and the empty table are also TOML expressions.
         argv.extend(["-c", key + "=" + ("{}" if value == {} else json.dumps(value))])
     launcher = (
-        "import os,sys; from pathlib import Path; "
-        "p=Path(sys.argv[1]); p.mkdir(mode=0o700,exist_ok=True); "
+        "import os,sys; from pathlib import Path; os.umask(0o077); "
+        "p=Path(sys.argv[1]); "
+        + ("assert p.is_dir(), 'Legacy native home is unavailable'; " if legacy else "")
+        + "p.mkdir(mode=0o700,exist_ok=True); "
         "assert p.resolve()==p and p.stat().st_uid==os.geteuid() and p.stat().st_mode & 0o777==0o700; "
         "c=p/'workspace'; c.mkdir(mode=0o700,exist_ok=True); "
         "assert c.resolve()==c and c.stat().st_uid==os.geteuid() and c.stat().st_mode & 0o777==0o700; os.chdir(c); "
-        "os.environ['CODEX_HOME']=str(p); "
+        "t=p/'tmp'; t.mkdir(mode=0o700,exist_ok=True); "
+        "assert t.resolve()==t and t.stat().st_uid==os.geteuid() and t.stat().st_mode & 0o777==0o700; "
+        "os.environ['TMPDIR']=str(t); os.environ['CODEX_HOME']=str(p); "
         "[os.environ.pop(k,None) for k in list(os.environ) "
         "if k.startswith(('OPENAI_','CODEX_')) and k!='CODEX_HOME']; "
         "os.execv(sys.argv[2],sys.argv[2:])"
@@ -340,7 +346,12 @@ def run(request, connection, timeout):
         tool_hash = digest(json.dumps(tools, sort_keys=True).encode())
         if context and context[0].get("tools_sha256") != tool_hash:
             raise RunnerError("unsupported_context", "Fixture tool catalog changed across native fork")
-        native = JsonProcess(connection_argv(connection, remote_home), root, "codex-native", deadline)
+        native = JsonProcess(
+            connection_argv(connection, remote_home, allow_legacy_home=context is not None),
+            root,
+            "codex-native",
+            deadline,
+        )
         native.call(
             "initialize",
             {"clientInfo": {"name": "lockbot_skill_eval", "version": "1"}, "capabilities": {"experimentalApi": True}},

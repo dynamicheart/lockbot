@@ -163,7 +163,10 @@ The connection file requires `host`, `user`, `identity_file` and `known_hosts`;
 `port` and `codex` can override the SSH port and native executable. Use the
 container's authorized account and pinned host key. SSH uses batch authentication
 and strict host verification. The runner creates a private temporary Codex home and
-working directory in the container. It does not read, copy or change the user's
+working directory under `/var/tmp/lockbot-skill-codex-<UUID>` in the container.
+Its process-local `TMPDIR` points to a private directory inside that home, with
+a private umask, so retained native databases and temporary files use that storage.
+It does not read, copy or change the user's
 Codex credentials or default configuration. Its provider uses the existing trusted
 container loopback gateway; verify the chosen full model ID and source separately
 before a live run. Mixin's panel identity `official:gpt-6.1-sol` uses the
@@ -194,7 +197,13 @@ Private evidence includes `native-session.json`, exact argv arrays, stderr and
 both native and fixture JSON-RPC traces. Native turn counts are unavailable and
 reported as null; tool callbacks are recorded separately. Temporary native homes
 remain in the container for contextual forks and must be retained until the matrix
-finishes, then removed through the authorized container maintenance workflow.
+finishes, then archived through the authorized container maintenance workflow.
+Use terminal local session records to identify exact UUID homes, check that no
+process still references their `CODEX_HOME`, and verify copied bytes/modes before
+moving them off temporary storage. Keep a private old-to-archive index. Do not
+symlink an archived home back into place or change the user's default Codex state.
+Legacy `/tmp` homes can be reopened only for a verified contextual continuation;
+a missing archived home fails without silently creating a replacement.
 
 Codex app-server currently exposes no hard output-token or hidden-reasoning cap.
 The adapter reports this in `limits_enforcement`; it bounds tool continuations,
