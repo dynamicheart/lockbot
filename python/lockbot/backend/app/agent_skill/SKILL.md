@@ -11,7 +11,7 @@ description: >
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use a returned private locator with `--connection` for `resources/command`. Keep verified service/instance/bot/actor separate. No Keys/grants in replies, args, Skills/memory. Private user storage (`LOCKBOT_HOME`); project scope only on request.
+Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use its private locator as `--connection` for `resources/command`. Keep verified service/instance/bot/actor separate. No Keys/grants in replies, args, Skills/memory. Private user storage (`LOCKBOT_HOME`); project scope only on request.
 
 ## Everyday requests
 
@@ -26,7 +26,7 @@ Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` rea
 
 1. Resolve exact IDs, aliases or last IPv4 octets across authorized groups (19 never matches 119). Names don't prove hardware. Require `snapshot_fresh_for_write`; verify model, quantity, mode, duration and same-node constraints. Stale/ambiguous/unverified means NO command. Pass requested `--model`, `--device-count`, `--minimum-model-count` and named `--group`.
 2. Node-only `lock/slock/book`: whole-node groups use `--whole-node`; card groups enumerate ALL observed `--device`s in ONE command. No silent subset: report conflicts/shortfalls. Never turn card requests into whole nodes/change groups. Different card sets need separate node commands; stop on uncertainty.
-3. Verify support; preserve chat operation/mode. Lock idle matches with empty queues; book only with queue authorization. New lock/slock/book: omit `--duration` if unspecified for the live default; ask if unavailable. `claim`: idle `claimable_by_you`, ORIGINAL booked duration, omit duration. `release`: exact holding/booking, no duration/rebooking.
+3. Preserve supported chat operation/mode. Lock idle matches with empty queues; book needs authorization and only queues. New lock/slock/book: omit `--duration` if unspecified for the live default; ask if unavailable. `claim`: idle `claimable_by_you`, starts use with ORIGINAL booked duration, omit duration. `release`: exact holding/booking, no duration/rebooking.
 4. A NEW explicit lock/slock on a fresh verified own holding in the SAME mode maps to CLI `renew`: ADD requested time or verified live group default (else ask), only if relock allowed. Never renew from polling/time passage/uncertain writes. Mixed/unknown modes stop.
 5. ONE POST maximum; require `verified` + `verified_snapshot`. Fix proven zero-HTTP argument errors locally. Sent/uncertain writes: read/report, NO replay/alternate target/HTTP bypass. Honor `Retry-After`. Updates/incompatibility block writes until matching instructions load; no rebind.
 

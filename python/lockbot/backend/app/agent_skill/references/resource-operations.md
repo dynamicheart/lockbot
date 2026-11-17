@@ -115,6 +115,10 @@ describe `queue_estimate` as an estimate and any reported claim window as a clai
 For an expiry-reminder request, first read the user's current resources.
 `next_event_kind: own_early_warning` describes the bot's existing scheduled group
 warning. Explain that schedule without claiming a new reminder was created or delivered.
+Time until that warning is not its lead time before expiry. For example, a warning
+105 minutes from capture and expiry 120 minutes from capture means the warning is
+15 minutes before expiry, not 105 minutes before expiry. If the relationship is unclear,
+report the verified warning instant and lease display separately without guessing.
 An expiry timestamp alone does not prove a warning is enabled. The resource API cannot
 create personal timers; state that limit when no existing warning is reported.
 
