@@ -740,6 +740,7 @@ def deployment_fragments(base, package_format=BUNDLE_FORMAT):
                 f"- Manifest: `GET {base}/api/agent-skill`",
                 f"- Context: `GET {base}/api/agent/context`",
                 f"- Complete installation ZIP: `{base}/api/agent-skill/lockbot-agent.zip`",
+                f"- API docs: [{base}/api/public-docs/agent]({base}/api/public-docs/agent)",
                 "- Read resources and send commands using the same-origin links returned by context.",
                 "  The personal Key identifies its bot.",
             ]
