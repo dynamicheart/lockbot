@@ -123,7 +123,12 @@ def test_fakeim_bind_command_notify_and_snapshot(client, fakeim_api, db_session)
     assert json.dumps(resources.json()).find("n1") != -1
 
     # 5. Nothing in the whole path carried an Infoflow payload shape.
-    blobs = [webhook_resp.text, cmd.text, resources.text, json.dumps(bot.adapter.sent)]
+    command_body, snapshot_body = cmd.json(), resources.json()
+    for snapshot in (command_body["resource_snapshot"], snapshot_body):
+        # This is HTTP conditional-cleanup documentation, not an IM envelope.
+        cleanup = snapshot["context"]["usage_privacy"]["conditional_cleanup"]
+        assert cleanup.pop("header") == "If-Match"
+    blobs = [webhook_resp.text, json.dumps(command_body), json.dumps(snapshot_body), json.dumps(bot.adapter.sent)]
     for blob in blobs:
         for field in INFOFLOW_FIELDS:
             assert field not in blob, f"{field!r} leaked into {blob[:80]!r}"

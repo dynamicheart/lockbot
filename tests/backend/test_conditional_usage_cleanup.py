@@ -2,6 +2,7 @@
 
 # ruff: noqa: F811
 import copy
+import json
 
 import pytest
 from lockbot.backend.app.resource_api.usage import UsageDeclaration, declaration_revision
@@ -86,7 +87,10 @@ def test_revision_is_private_and_cannot_authorize_another_actor(client, api, dec
     path, item = declaration
     for suffix in ["/resources", "/usage-declarations"]:
         public = client.get(path + suffix, headers=api["other_headers"])
-        assert '"revision"' not in public.text
+        # The shared context describes the If-Match revision contract. It must
+        # not expose a revision on another actor's resource/declaration record.
+        records = public.json()["resources" if suffix == "/resources" else "items"]
+        assert '"revision"' not in json.dumps(records)
         assert item["revision"] not in public.text
     response = client.delete(
         path + "/usage-declarations/n1", headers={**api["other_headers"], "If-Match": item["revision"]}

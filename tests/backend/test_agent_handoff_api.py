@@ -59,7 +59,9 @@ def test_authenticated_handoff_first_http_operation(client, api, monkeypatch, mo
         assert snapshot.status_code == 200
         assert ("fictional-private-purpose" in snapshot.text) == (own and mode == "private_details")
         assert ("fictional-private-agent" in snapshot.text) == (own and mode == "private_details")
-        assert ("unit_testing" in snapshot.text) == (mode == "public_category")
+        # Context advertises every supported category, independently of the
+        # category actually attached to a resource by this handoff.
+        assert ("unit_testing" in json.dumps(snapshot.json()["resources"])) == (mode == "public_category")
 
 
 def test_changed_authenticated_actor_stops_before_http_mutation(client, api):

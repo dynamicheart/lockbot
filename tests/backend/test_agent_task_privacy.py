@@ -1,6 +1,8 @@
 # ruff: noqa: F811
 """Privacy must hold at API/transport boundaries, including old free-form clients."""
 
+import json
+
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
@@ -29,8 +31,13 @@ def test_other_user_cannot_read_private_notes_from_any_agent_read(client, api, m
         assert own.status_code == other.status_code == 200
         assert "private-experiment-123" in own.text and "private-agent-name" in own.text
         assert "private-experiment-123" not in other.text and "private-agent-name" not in other.text
-        assert "operator_testing" in other.text
-        assert '"authorization_label"' not in other.text and '"binding_id"' not in other.text
+        # Context documents private field names; only the resource/declaration
+        # records represent another actor's data. Private values stay forbidden
+        # across the complete response above.
+        records = other.json()["resources" if endpoint == "/resources" else "items"]
+        rendered = json.dumps(records)
+        assert "operator_testing" in rendered
+        assert '"authorization_label"' not in rendered and '"binding_id"' not in rendered
 
 
 def test_legacy_notes_stay_private_and_categories_are_validated_before_execution(client, api, monkeypatch):
