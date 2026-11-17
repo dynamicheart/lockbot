@@ -162,7 +162,7 @@ def phase_metrics(phases):
     return observed
 
 
-def snapshot(evidence: Path, *, include_dialogue=False):
+def snapshot(evidence: Path, *, include_dialogue=False, raw=False):
     evidence = evidence.resolve()
     plan = json.loads(read_local(evidence / "run.json", evidence, MAX_METADATA_BYTES))
     if plan.get("simulation_only") is not True:
@@ -229,7 +229,9 @@ def snapshot(evidence: Path, *, include_dialogue=False):
                     "state": state,
                     "note": note,
                     "sessions": (
-                        synthetic_sessions(evidence, scenario, model_number, phases) if include_dialogue else []
+                        synthetic_sessions(evidence, scenario, model_number, phases, raw=raw)
+                        if include_dialogue or raw
+                        else []
                     ),
                     "metrics": {"phases": phase_metrics(phases)},
                 }
@@ -249,16 +251,20 @@ def snapshot(evidence: Path, *, include_dialogue=False):
             if pair in preflight
         ]
     title = "在线评测 · 合成测例" if include_dialogue else "在线评测 · 合成测例摘要"
-    return {"schema": 1, "title": title, "version": version, "labels": labels, "groups": groups, "cases": cases}
+    data = {"schema": 1, "title": title, "version": version, "labels": labels, "groups": groups, "cases": cases}
+    if raw:
+        data.update(title="LockBot Skill · 原始评测轨迹", visibility="raw")
+    return data
 
 
-def publish(evidence: Path, target: Path, *, include_dialogue=False):
-    data = snapshot(evidence, include_dialogue=include_dialogue)
+def publish(evidence: Path, target: Path, *, include_dialogue=False, raw=False):
+    data = snapshot(evidence, include_dialogue=include_dialogue, raw=raw)
     if not data["cases"]:
         return None
-    content = json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False).encode() + b"\n"
-    if len(content) > MAX_SNAPSHOT_BYTES:
-        raise ValueError("Online trace snapshot exceeds its 1 MiB limit")
+    content = json.dumps(data, ensure_ascii=False, indent=None if raw else 2, allow_nan=False).encode() + b"\n"
+    max_bytes = 32 * 1024 * 1024 if raw else MAX_SNAPSHOT_BYTES
+    if len(content) > max_bytes:
+        raise ValueError(f"Trace snapshot exceeds its {max_bytes // 1024**2} MiB limit")
     if target.exists() and target.read_bytes() == content:
         return False
     fd, name = tempfile.mkstemp(dir=target.parent)
@@ -279,11 +285,17 @@ def main():
     parser.add_argument("evidence", type=Path)
     parser.add_argument("target", type=Path)
     parser.add_argument("--follow", action="store_true", help="Refresh the snapshot every 2 seconds until matrix.json")
-    parser.add_argument(
+    content_mode = parser.add_mutually_exclusive_group()
+    content_mode.add_argument(
+        "--raw-local", action="store_true", help="Export full tool evidence to a private local file"
+    )
+    content_mode.add_argument(
         "--include-dialogue", action="store_true", help="Include deidentified synthetic chat and tool steps"
     )
     parser.add_argument("--on-update", type=Path, help="Private JSON argv array for transferring the snapshot")
     args = parser.parse_args()
+    if args.raw_local and args.on_update:
+        parser.error("--raw-local writes a local file; transfer it through the private reviewer deployment")
     if args.on_update:
         transport = json.loads(args.on_update.read_text())
         if (
@@ -299,7 +311,7 @@ def main():
         if args.follow and not (args.evidence / "progress.jsonl").is_file():
             sleep(2)
             continue
-        updated = publish(args.evidence, args.target, include_dialogue=args.include_dialogue)
+        updated = publish(args.evidence, args.target, include_dialogue=args.include_dialogue, raw=args.raw_local)
         if transport and updated is not None and (updated or not transfer_started):
             subprocess.run([*transport, str(args.target)], check=True)
             transfer_started = True

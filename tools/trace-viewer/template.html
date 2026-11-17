@@ -399,7 +399,11 @@ function resetSelection() { activeStep = 0; failureOnly = false; }
 function pickCase(key, animate = false) { activeCase = key; activeIndex = 0; caseRunsOpen = true; resetSelection(); draw(animate); }
 function pickRun(index) { activeIndex = index; resetSelection(); draw(); }
 readRoute();
-addEventListener('hashchange',()=>{readRoute(); draw();});
+addEventListener('hashchange',()=>{
+  if (online && !imported && document.querySelector('.layout').hidden) return;
+  readRoute();
+  draw();
+});
 function choice(text, meta, pressed, action) {
   const button = node('button',null,'choice');
   button.type = 'button';
@@ -1144,7 +1148,7 @@ select('trace-file').onchange = async (event)=>{
     event.target.value = '';
   }
 };
-draw();
+if (!online) draw();
 if (online) {
   const layout = document.querySelector('.layout');
   const raw = new URLSearchParams(location.search).get('raw') === 'true';
@@ -1190,15 +1194,20 @@ if (online) {
       if (snapshot !== lastSnapshot) {
         const candidate = JSON.parse(snapshot);
         if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw')) throw new Error();
+        const firstSnapshot = !lastSnapshot;
         lastSnapshot = snapshot;
         const selectedModel = data.cases[activeCase]?.[activeIndex]?.model;
         data = candidate;
         cases = Object.keys(data.cases);
-        if (!cases.includes(activeCase)) {
-          activeCase = cases[0];
-          caseRunsOpen = true;
+        if (firstSnapshot) {
+          readRoute();
+        } else {
+          if (!cases.includes(activeCase)) {
+            activeCase = cases[0];
+            caseRunsOpen = true;
+          }
+          activeIndex = Math.max(0,data.cases[activeCase].findIndex(run=>run.model===selectedModel));
         }
-        activeIndex = Math.max(0, data.cases[activeCase].findIndex(run=>run.model===selectedModel));
         draw();
       }
       layout.hidden = false;

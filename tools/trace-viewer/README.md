@@ -35,6 +35,10 @@ python3 publish_snapshot.py /private/matrix-evidence /private/staging/latest.jso
 
 发布自己运行的合成夹具时，可加 `--include-dialogue`，附上可用且经脱敏的用户提示、模型答复和工具动作。工具详情展示允许的动作、用途和结果状态。Skill 读取还可显示文档名、偏移和分页长度。在线接口只提供读取。
 
-测试人员可把完整的轨迹 v1 JSON 放入同一个私有目录，文件命名为 `raw.json`，将顶层 `visibility` 设为 `raw`。通过 `/dev/trace-review?raw=true` 查看，使用相同的超级管理员鉴权，支持 32 MiB 以内的完整记录。原始版和脱敏版使用不同的文件入口。
+测试人员可把完整的轨迹 v1 JSON 放入同一个私有目录，文件命名为 `raw.json`，将顶层 `visibility` 设为 `raw`。通过 `/dev/trace-review?raw=true` 查看，使用相同的超级管理员鉴权，支持 32 MiB 以内的完整记录。原始版和脱敏版使用不同的文件入口。为合成评测导出原始对话与工具记录时，可先生成私有文件。
+
+```sh
+python3 publish_snapshot.py /private/matrix-evidence /private/staging/raw.json --raw-local
+```
 
 工具证据可含 `argv` 数组。它记录评测夹具实际调用的脚本和参数，夹具内通过 Python 直接调用。没有这个字段的旧记录只显示子命令和工具参数。
