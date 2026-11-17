@@ -287,7 +287,9 @@ def score(scenario, requests, tools, final):
             )
             choice = re.search(
                 r"(?:请|麻烦|需要[你您])[^\n。！？!?]{0,10}(?:选|确认)"
-                r"|[你您](?:想|要|希望)[^。！？!?]+还是[^。！？!?]+[？?]",
+                r"|[你您](?:想|要|希望)[^。！？!?]+还是[^。！？!?]+[？?]"
+                r"|(?:请)?告诉我[你您](?:指|要)(?:的是)?哪(?:一个|个|一台|台)"
+                r"|[你您](?:想|要|希望)(?:怎么|如何)处理\s*[？?]",
                 final,
             )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
