@@ -84,6 +84,16 @@ def test_alias_matches_remain_separate_and_model_unknown_is_not_a_nonmatch(aggre
     if model:
         assert result["groups"][1]["snapshot"]["resources"] == []
         assert result["groups"][1]["snapshot"]["selection"]["unknown_hardware_nodes"] == ["shared-id"]
+        assert result["groups"][1]["snapshot"]["selection"]["unknown_hardware_resources"] == [
+            {
+                "node": "shared-id",
+                "alias": "19",
+                "lock_status": "idle",
+                "requested_model": "p800",
+                "model_match": "unknown",
+            }
+        ]
+        assert "unknown_hardware_resources" not in result["groups"][0]["snapshot"]["selection"]
     else:
         assert len(result["groups"][1]["snapshot"]["resources"]) == 1
 
@@ -215,3 +225,48 @@ def test_metrics_batch_uses_one_call_for_many_selected_nodes():
     result = helper.attach_metrics(SimpleNamespace(metrics=metrics), snapshot)
     assert len(calls) == 1 and len(calls[0]) == 10
     assert len(result["metrics"]["utilization"]) == 10
+
+
+@pytest.mark.parametrize("state", ["idle", "exclusive", None])
+def test_unknown_model_details_retain_observed_state_without_inventing_matches(aggregate, state):
+    backend = aggregate.server(1)
+    aggregate.record(backend, "scope")
+    backend.extra["resources"] = [
+        {"id": "unknown", "alias": "19", "lock_status": state, "holders": [], "booking_list": []},
+        {"id": "unrelated", "alias": "20", "lock_status": "idle", "holders": [], "booking_list": []},
+    ]
+    output = aggregate.run("resources-all", "--model", "P800", "--node", "19")["result"]
+    assert output["complete"] and output["http_requests"] == 2
+    (group,) = output["groups"]
+    assert group["snapshot"]["resources"] == []
+    assert group["snapshot"]["selection"]["unknown_hardware_resources"] == [
+        {
+            "node": "unknown",
+            "alias": "19",
+            "lock_status": state,
+            "requested_model": "p800",
+            "model_match": "unknown",
+        }
+    ]
+    assert not any(method == "POST" for _, method, *_ in backend.events)
+
+
+def test_partially_unknown_hardware_does_not_deny_an_observed_model_match():
+    snapshot = {
+        "resources": [
+            {
+                "id": "19",
+                "devices": [
+                    {"id": 0, "dev_model": "P800"},
+                    {"id": 1, "dev_model": None},
+                ],
+            }
+        ],
+        "context": {},
+    }
+    before = json.dumps(snapshot, sort_keys=True)
+    result = helper.select_inventory(snapshot, model="P800")
+    assert result["resources"] == snapshot["resources"]
+    assert result["selection"]["unknown_hardware_nodes"] == ["19"]
+    assert "unknown_hardware_resources" not in result["selection"]
+    assert json.dumps(snapshot, sort_keys=True) == before

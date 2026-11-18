@@ -147,7 +147,9 @@ For a targeted request, use `--model P800` or repeat `--node <exact-id-or-alias>
 query. This filters the CLI output after verification; it never changes a resource or
 chooses a target for the user. All matching groups remain distinct. `selection.full_inventory:false`
 means the displayed list is filtered; hardware in `selection.unknown_hardware_nodes` is
-unknown, not absent or a confirmed nonmatch. A model filter alone does not prove that a
+unknown, not absent or a confirmed nonmatch. `selection.unknown_hardware_resources`
+retains the observed node, alias and occupancy for filtered-out unknown-model resources;
+these resources exist, but their requested model is unverified. A model filter alone does not prove that a
 resource is free, claimable or permitted. `--mine` remains limited to verified own resources.
 
 If the task asks about load, add `--with-metrics` to batch utilization for the selected

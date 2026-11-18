@@ -2659,6 +2659,7 @@ def select_inventory(snapshot, *, nodes=(), model=None):
     wanted = {node.casefold() for node in nodes}
     model = model.strip().casefold() if model is not None else None
     unknown, observed, matched = set(), set(), set()
+    unknown_details = {}
 
     def selected(item, *, own=False):
         identifier = str(item.get("node") if own else item.get("id"))
@@ -2681,6 +2682,15 @@ def select_inventory(snapshot, *, nodes=(), model=None):
                 )
             if not models or any(not isinstance(value, str) or not value.strip() for value in models):
                 unknown.add(identifier)
+                raw_id = item.get("node") if own else item.get("id")
+                if isinstance(raw_id, str) and raw_id:
+                    unknown_details[identifier] = {
+                        "node": identifier,
+                        "alias": item.get("alias") if isinstance(item.get("alias"), str) else None,
+                        "lock_status": item.get("lock_status"),
+                        "requested_model": model,
+                        "model_match": "unknown",
+                    }
             if model not in {value.strip().casefold() for value in models if isinstance(value, str)}:
                 return False
         matched.add(identifier)
@@ -2701,6 +2711,9 @@ def select_inventory(snapshot, *, nodes=(), model=None):
         "unknown_hardware_nodes": sorted(unknown),
         "full_inventory": False,
     }
+    excluded_unknown = [unknown_details[node] for node in sorted(unknown_details.keys() - matched)]
+    if excluded_unknown:
+        result["selection"]["unknown_hardware_resources"] = excluded_unknown
     return result
 
 
