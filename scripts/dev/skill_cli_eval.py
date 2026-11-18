@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -1747,7 +1747,10 @@ def verified_sdk_resolutions(fixture, tools, requests):
             return checked
         if args.get("whole_node") is True and pin["type"] in {"DEVICE", "QUEUE_DEVICE"}:
             return checked
-        if args.get("devices") and devices != args["devices"]:
+        requested_devices = args.get("devices", [])
+        if fixture.case.get("fixture_version", 0) >= 24:
+            requested_devices = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in requested_devices]
+        if requested_devices and devices != requested_devices:
             return checked
         if "minimum_model_count" in args and (devices or args.get("model") is None):
             return checked

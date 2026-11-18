@@ -356,7 +356,9 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             scenario, phase, requests, tools, final, prior_groups=prior_groups, fixture_version=fixture_version
         )
         return (
-            sdk_resolution_checks(scenario, phase, tools, final, checks, sdk_resolutions)
+            sdk_resolution_checks(
+                scenario, phase, tools, final, checks, sdk_resolutions, fixture_version=fixture_version
+            )
             if fixture_version >= 23
             else checks
         )
@@ -469,6 +471,12 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
                 r"[^\n。！？!?]{0,6}(?:2|卡)",
                 final,
             )
+            if fixture_version >= 24 and both_targets:
+                choice = choice or re.search(
+                    r"(?<!无需)(?<!不用)(?<!不要)请[你您]?指定[^。！？!?\n]{0,30}(?:哪|目标|群)"
+                    r"|[你您](?:要|想|希望)(?:锁(?:定)?|用|选)?的是哪(?:一个|个|一台|台)[^。！？!?\n]{0,12}[？?]",
+                    final,
+                )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
         elif scenario == "intent-lock-duration-only":
             checks["asks_for_missing_target"] = bool(
@@ -476,7 +484,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             )
         elif scenario == "intent-find-p800":
             checks["whole_p800_candidate_reported"] = (
-                verified_p800_candidate(tools, final)
+                verified_p800_candidate(tools, final, allow_observed_aliases=fixture_version >= 24)
                 if fixture_version >= 19
                 else "node-23" in final and "p800" in final.lower()
             )
@@ -506,13 +514,13 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             else:
                 checks["correct_cards_reported"] = TRAINING_NODE in final and "2" in final and "3" in final
     return (
-        sdk_resolution_checks(scenario, phase, tools, final, checks, sdk_resolutions)
+        sdk_resolution_checks(scenario, phase, tools, final, checks, sdk_resolutions, fixture_version=fixture_version)
         if fixture_version >= 23
         else checks
     )
 
 
-def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence):
+def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fixture_version=23):
     """SDK observations replace only SDK-owned selection, never pretend agent reads."""
     commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
     unscoped = [
@@ -550,6 +558,8 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence):
         checks["no_unverified_success_claim"] = not re.search(
             r"已(?:为[你您])?[^。！？\n]{0,8}(?:锁定|申请|预约|预订)|(?:锁定|申请|预约)成功", final
         )
+        if fixture_version >= 24:
+            checks["no_unverified_success_claim"] = not unverified_success_claim(final)
         if "both_candidate_groups_examined" in checks:
             checks["both_candidate_groups_examined"] = set(group_ids(scenario)) <= set(proven["observed_groups"])
     return checks
@@ -705,7 +715,49 @@ def reminder_clarification(final):
     return True
 
 
-def verified_p800_candidate(tools, final):
+def unverified_success_claim(final):
+    """Preserve affirmative claims even beside negation in another clause."""
+    for clause in re.split(r"[。！？!?，,；;\n]|但是|不过|然而|但", final):
+        for match in re.finditer(
+            r"已(?:为[你您])?[^。！？\n]{0,8}(?:锁定|申请|预约|预订)|(?:锁定|申请|预约)成功", clause
+        ):
+            prefix = clause[: match.start()]
+            negative = re.search(r"(?:没有|尚未|并未|未能|无法|不能|未|没)(?:实际|真正|真的|能够|能)?\s*$", prefix)
+            if negative and not re.search(r"(?:不是|并非|不代表|不等于)\s*$", prefix[: negative.start()]):
+                continue
+            return True
+    return False
+
+
+def observed_whole_alias_reported(final, node, resources):
+    alias = node.get("alias")
+    if not isinstance(alias, str) or not alias.strip():
+        return False
+    if sum(str(item.get("alias", "")).casefold() == alias.casefold() for item in resources) != 1:
+        return False
+    token = r"(?<![A-Za-z0-9_-])" + re.escape(alias) + r"(?![A-Za-z0-9_-])"
+    lines = final.splitlines()
+    for index, original in enumerate(lines):
+        line = re.sub(r"[*_`]", "", original)
+        target = re.search(r"(?:整机|节点|机器|别名|alias)\s*[:：]?\s*" + token, line, re.I)
+        if not target or not re.search(r"整机|whole[ -]?(?:node|machine)", line, re.I):
+            continue
+        rest = re.split(r"[；;]|另(?:外|有)?|单卡|node-\d+|(?:整机|节点|机器)\s*\d+", line[target.end() :], maxsplit=1)[
+            0
+        ]
+        block = [line[: target.end()] + rest]
+        for extra in lines[index + 1 : index + 3]:
+            if re.search(r"node-\d+|(?:整机|节点|机器|单卡)\s*\d+", extra, re.I):
+                break
+            block.append(extra)
+        text = " ".join(block)
+        for model in re.finditer(r"(?<![A-Za-z0-9])p800(?![A-Za-z0-9])", text, re.I):
+            if not re.search(r"(?:不是|并非|不含|非|无法确认|不能确认|未核实)\s*$", text[: model.start()]):
+                return True
+    return False
+
+
+def verified_p800_candidate(tools, final, *, allow_observed_aliases=False):
     """A singular find needs one fresh, idle whole machine with observed hardware."""
     if "p800" not in final.lower():
         return False
@@ -717,8 +769,12 @@ def verified_p800_candidate(tools, final):
         age = snapshot.get("age_seconds")
         if not snapshot.get("captured_at") or type(age) not in {int, float} or not 0 <= age <= 30:
             continue
-        for node in snapshot.get("resources", []):
-            if node.get("id") not in mentioned or node.get("lock_status") != "idle" or node.get("holders"):
+        resources = snapshot.get("resources", [])
+        for node in resources:
+            reported = node.get("id") in mentioned or (
+                allow_observed_aliases and observed_whole_alias_reported(final, node, resources)
+            )
+            if not reported or node.get("lock_status") != "idle" or node.get("holders"):
                 continue
             if any(
                 str(card.get("model", "")).lower() == "p800" and type(card.get("count")) is int and card["count"] > 0
@@ -790,7 +846,7 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixt
             checks["holdings_not_confused_with_bookings"] = explicit_cards(claims, "node-10") <= {3}
         elif scenario == "intent-context-lock-day":
             checks["whole_p800_candidate_reported"] = (
-                verified_p800_candidate(tools, final)
+                verified_p800_candidate(tools, final, allow_observed_aliases=fixture_version >= 24)
                 if fixture_version >= 19
                 else "node-23" in final and "p800" in final.lower()
             )
