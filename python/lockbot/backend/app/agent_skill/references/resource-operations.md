@@ -103,8 +103,9 @@ unknown, not absent or a confirmed nonmatch. A model filter alone does not prove
 resource is free, claimable or permitted. `--mine` remains limited to verified own resources.
 
 If the task asks about load, add `--with-metrics` to batch utilization for the selected
-nodes in the same CLI invocation. This may require additional internal context/source
-requests, but no additional model roundtrip. `metrics.unread` describes optional telemetry
+nodes in the same CLI invocation, for example
+`resources-all --model P800 --with-metrics`. This may require additional internal
+context/source requests, but no additional model roundtrip. `metrics.unread` describes optional telemetry
 failures independently from the resource query's `complete`/`unread`. Metric samples retain
 their own missing, stale, failed or invalid status. Source access remains separately approved.
 
@@ -113,8 +114,8 @@ their own missing, stale, failed or invalid status. Source access remains separa
 | `forbid_relock` | Defaults to false for every bot type. When true, do not renew lock/slock or book a resource you currently hold. |
 | `max_resources_per_user`, `resource_unit` | Combined distinct held/booked resources per user and bot; `-1` means no bot-specific cap. Unit is `node` for NODE/QUEUE, `card` for DEVICE/QUEUE_DEVICE. |
 | `default_duration_seconds` | Duration used when a command omits it; a booking claim without a duration uses its booked duration. |
-| `max_lock_duration_seconds` | Configured maximum remaining lease duration after acquisition/renewal; `-1` means unlimited. |
-| `duration_limit_exempt`, `effective_max_lock_duration_seconds` | Caller-specific duration exemption and effective ceiling (`-1` unlimited). This exempts neither renewal restrictions nor resource-count limits; the exemption list is never disclosed. |
+| `max_lock_duration_seconds` | Configured maximum remaining lease duration after acquisition/renewal; `-1` means no policy ceiling, not an indefinite current lease. |
+| `duration_limit_exempt`, `effective_max_lock_duration_seconds` | Caller-specific duration exemption and effective ceiling (`-1` means no ceiling, not an indefinite lease). This exempts neither renewal restrictions nor resource-count limits; the exemption list is never disclosed. |
 | `queue_claim_window_seconds` | Time to claim when it is your turn; null for non-queue types. |
 | `supported_operations`, `allow_user_alias` | Server operations and whether alias editing is enabled. The CLI maps `claim` and `renew` to `lock`, and `release` to `unlock`. Access and policy checks still apply. |
 | `request_budget.read_per_minute`, `request_budget.write_per_minute` | Actual deployed per-key read/write budgets shared by all the user's Agents. Other endpoint/IP limits can also apply. |
@@ -131,6 +132,9 @@ For a `lock`, `slock`, or `book` request with no time specified, omit `--duratio
 The CLI verifies the current default and lets the selected group apply its configured duration.
 If the default is missing or exceeds the effective ceiling, the CLI stops before writing.
 Renewal still requires the amount of time to add. Claim uses the original booked duration.
+Finite `lock` and `slock` leases expire automatically. A 4h `slock` is shared for up to 4h,
+not until explicit release. Use verified `remaining_time` or `expires_at`; an unlimited
+maximum-duration policy does not extend the current lease or prove it indefinite.
 Releasing a holding ends that lease; it does not automatically create a booking or put
 the former holder in a queue. A separate booking needs its own user authorization.
 
@@ -240,8 +244,9 @@ it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's
 
 A resource-management request such as “lock 19” or “book 19” hands the requested
 lease or queue entry to the user. Finishing the chat turn is not workload
-completion: leave that allocation intact. Release it only on the user's release
-request, or as part of the separately authorized Agent-managed workload above.
+completion: leave that allocation intact. A finite holding still auto-expires;
+turn-end retention never extends its lease. Release only on the user's request,
+or as part of the separately authorized Agent-managed workload above.
 
 ## Choose resources and release promptly
 
@@ -249,8 +254,11 @@ Finding resources is read-only. Follow-up requests such as “lock 一天” or 
 refer to the uniquely selected machine in the actual conversation. Other old holdings
 do not erase that selection. Clarify only when the conversation leaves a real ambiguity;
 never invent a target. Resolve short IDs through exact inventory IDs, aliases or the
-last octet of an intentionally shared IPv4 address: 19 matches 198.51.100.19, not
-192.0.2.119. Do not guess private addresses or infer hardware from group titles.
+last octet of an observed, intentionally shared IPv4 address: 19 matches
+198.51.100.19, not 192.0.2.119. A numeric alias such as `19` is only a label; without
+an observed address or trusted explicit mapping, it proves no IP suffix or subnet.
+Report that match as an alias, not an address. Do not guess private addresses or
+infer hardware from group titles.
 
 A node-only `lock`, `slock` or `book` follows chat semantics. In a card group, select
 ALL observed cards on that node and enumerate every `--device` in one CLI command.

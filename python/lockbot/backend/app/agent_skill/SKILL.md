@@ -10,14 +10,14 @@ description: >
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
-`scripts/lockbot_cli.py`: absolute path, Python ≥3.10. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use private `--connection` locators. Keep verified service/instance/bot/actor scoped. Same names across bots don't prove one physical machine. No Keys/grants in replies, args, Skills/memory. Default to user storage; no invented destination/catalog paths. Test isolation: `LOCKBOT_HOME`; project scope only on request.
+`scripts/lockbot_cli.py`: absolute path, Python ≥3.10. `resources-all` reads saved groups; add `--mine` for own holdings/bookings. `complete:false` means incomplete, not empty. Use private `--connection` locators. Keep verified service/instance/bot/actor scoped. Same names across bots don't prove one machine. No Keys/grants in replies, args, Skills/memory. User storage by default; no invented paths. Test isolation: `LOCKBOT_HOME`; project scope only on request.
 
 ## Everyday requests
 
-- For usage questions read the relevant reference; explaining needs no sign-in. Finding resources is READ ONLY: read eligible groups, report choices, stop. Follow-ups like “lock 一天”/“用完了释放吧” use a uniquely selected conversational target. Without one, ask which resource; inventory alone cannot choose the user's target.
+- Usage questions: read the relevant reference; no sign-in. Finding resources is READ ONLY: read eligible groups, report choices, stop. Follow-ups like “lock 一天”/“用完了释放吧” need a unique conversational target; otherwise ask. Inventory cannot choose it.
 - “我能申请什么”: `recover` once from a verified seed if supported, then `resources-all`. For “我lock/book了哪些”, add `--mine`: separate holdings/cards/bookings. Booking is not ownership; holder time isn't booking expiry/guaranteed start. Label estimates/claim windows.
 - “到时间提醒”: read own resources FIRST. `next_event_kind: own_early_warning` is an existing group warning, not a new timer or proof of delivery. Expiry alone doesn't prove a warning. This API cannot create personal timers.
-- Reply with results or required human action; use `remaining_time`; deadlines use `--exact-lease-times`. Missing time is UNKNOWN, never unlimited. Hide Key/paths/setup mechanics; group names only for ambiguity.
+- Reply with results or required human action; use `remaining_time`; deadlines use `--exact-lease-times`. Missing time is UNKNOWN, never unlimited. Finite leases, including slock, auto-expire; unlimited duration caps don't extend them. Hide Key/paths/setup mechanics; group names only for ambiguity.
 
 ## Select and act
 
@@ -25,7 +25,7 @@ description: >
 
 Query `--model/--node` filters are not full inventory. Use `--with-metrics` for load questions, `--full` for debugging. Unknown hardware stays unknown.
 
-1. Resolve exact IDs, aliases or last IPv4 octets across authorized groups (19 never matches 119). Names don't prove hardware. Require `snapshot_fresh_for_write`; verify model, quantity, mode, duration and same-node constraints. Stale/ambiguous/unverified means NO command. Pass requested `--model`, `--device-count`, `--minimum-model-count` and named `--group`.
+1. Resolve exact IDs, aliases or observed IPv4 last octets across authorized groups (19 never matches 119). Aliases prove no address; names prove no hardware. Require `snapshot_fresh_for_write`; verify model, quantity, mode, duration and same-node constraints. Stale/ambiguous/unverified means NO command. Pass requested `--model`, `--device-count`, `--minimum-model-count` and named `--group`.
 2. Node-only `lock/slock/book`: whole-node groups use `--whole-node`; card groups enumerate ALL observed `--device`s in ONE command. No silent subset: report conflicts/shortfalls. Never turn card requests into whole nodes/change groups. Different card sets need separate node commands; stop on uncertainty.
 3. Preserve supported chat operation/mode. Lock idle matches with empty queues; `book` is an authorized FIFO queue, NOT a calendar reservation. Booked duration starts on claim, not while waiting. New lock/slock/book: omit `--duration` if unspecified for the live default; ask if unavailable. `claim`: idle `claimable_by_you`, starts use with ORIGINAL booked duration, omit duration. `release`: exact holding/booking, no duration/rebooking.
 4. A NEW explicit lock/slock on a fresh verified own holding in the SAME mode maps to CLI `renew`: ADD requested time or verified live group default (else ask), only if relock allowed. Never renew from polling/time passage/uncertain writes. Mixed/unknown modes stop.
