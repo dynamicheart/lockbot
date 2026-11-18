@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -1371,6 +1371,12 @@ def verified_catalog_reads(fixture, tools, requests):
     groups = {identifier: name for name, identifier in intent.group_ids(fixture.case["scenario"]).items()}
     for event in tools:
         action = event.get("args", {}).get("action")
+        verified_aggregate = None
+        if fixture.case.get("fixture_version", 0) >= 26 and action == "resources-all":
+            # Overwrite any supplied marker; only matching pinned wire reads
+            # below can populate this internal grading evidence.
+            event = {**event, "verified_group_snapshots": []}
+            verified_aggregate = event["verified_group_snapshots"]
         if not (fixture.case.get("fixture_version", 0) >= 19 and action == "resources"):
             expanded.append(event)
         if action == "resources-all":
@@ -1466,6 +1472,8 @@ def verified_catalog_reads(fixture, tools, requests):
                 for row in matching
             ):
                 continue
+            if verified_aggregate is not None:
+                verified_aggregate.append({"identity": identity, "snapshot": observed})
             expanded.append(
                 {
                     "tool": "run_lockbot",
@@ -2386,7 +2394,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23), default=18)
+    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26), default=18)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")

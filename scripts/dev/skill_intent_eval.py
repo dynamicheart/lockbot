@@ -163,6 +163,11 @@ def equivalent(command, expected, *, default_duration=None):
 
 def inventory(bot, command="", *, scenario=None, phase=1, writes=0, fixture_version=16):
     snapshot = _inventory(bot, command, scenario=scenario, phase=phase, writes=writes)
+    if fixture_version >= 26 and bot == 8 and scenario in WHOLE_MACHINE_MODELS:
+        # Core empty_node_state always initializes queues, including idle and
+        # occupied nodes; build_resources preserves those observed empty lists.
+        for resource in snapshot["resources"]:
+            resource.setdefault("booking_list", [])
     if fixture_version >= 16:
         public_booking_rows(snapshot["resources"])
     return snapshot
@@ -560,7 +565,11 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
     )
     if fixture_version >= 25 and scenario in UNVERIFIED_MACHINE_MODELS:
         checks["unknown_model_stop_before_command"] = not any(
-            observed_unknown_machine(tools[: tools.index(command)], UNVERIFIED_MACHINE_MODELS[scenario])
+            observed_unknown_machine(
+                tools[: tools.index(command)],
+                UNVERIFIED_MACHINE_MODELS[scenario],
+                include_aggregate=fixture_version >= 26,
+            )
             for command in commands
         )
     if not unscoped:
@@ -595,28 +604,52 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
     return checks
 
 
-def observed_unknown_machine(tools, requested_model):
+def observed_unknown_machine(tools, requested_model, *, include_aggregate=False):
     """A known missing hardware observation cannot be bypassed with a command probe."""
     for row in tools:
-        if row.get("args", {}).get("action") != "resources" or row["args"].get("group") != MACHINES:
-            continue
-        snapshot = row.get("result", {}).get("result", {})
-        if MACHINE_NODE in snapshot.get("selection", {}).get("unknown_hardware_nodes", []):
+        action = row.get("args", {}).get("action")
+        result = row.get("result", {}).get("result", {})
+        snapshots = []
+        if action == "resources" and row["args"].get("group") == MACHINES:
+            snapshots = [result]
+        elif include_aggregate and action == "resources-all":
+            snapshots = [
+                item["snapshot"]
+                # The caller populates this only after checking the original
+                # scope pin, context identity and actual successful HTTP read.
+                for item in row.get("verified_group_snapshots", [])
+                if isinstance(item, dict)
+                and item.get("identity", {}).get("bot", {}).get("id") == GROUP_IDS[MACHINES]
+                and item.get("identity", {}).get("bot", {}).get("name") == MACHINES
+                and isinstance(item.get("snapshot"), dict)
+                and item["snapshot"].get("bot_id") == GROUP_IDS[MACHINES]
+            ]
+        if any(
+            unknown_machine_snapshot(snapshot, requested_model, known_match_wins=include_aggregate)
+            for snapshot in snapshots
+        ):
             return True
-        for resource in snapshot.get("resources", []):
-            if resource.get("id") != MACHINE_NODE:
-                continue
-            accelerators = resource.get("accelerators")
-            if not isinstance(accelerators, list) or not any(
-                isinstance(card, dict)
-                and isinstance(card.get("model"), str)
-                and card["model"].casefold() == requested_model.casefold()
-                and type(card.get("count")) is int
-                and card["count"] > 0
-                for card in accelerators
-            ):
-                return True
     return False
+
+
+def unknown_machine_snapshot(snapshot, requested_model, *, known_match_wins):
+    unknown = MACHINE_NODE in snapshot.get("selection", {}).get("unknown_hardware_nodes", [])
+    for resource in snapshot.get("resources", []):
+        if resource.get("id") != MACHINE_NODE:
+            continue
+        accelerators = resource.get("accelerators")
+        known_match = isinstance(accelerators, list) and any(
+            isinstance(card, dict)
+            and isinstance(card.get("model"), str)
+            and card["model"].casefold() == requested_model.casefold()
+            and type(card.get("count")) is int
+            and card["count"] > 0
+            for card in accelerators
+        )
+        if known_match and known_match_wins:
+            return False
+        unknown |= not known_match
+    return unknown
 
 
 def command_payload(request):
