@@ -7,6 +7,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from datetime import datetime, timedelta
 from typing import Literal
 
@@ -491,12 +492,27 @@ def _execute(factory, application_id, message, expected_uuid, expected_revision)
             # The claim is committed before invoking the shared dispatcher. Any exception
             # after this point is uncertain, never an instruction to replay a lock/renewal.
             lease.bot.config.get_val("_FEISHU_CLIENT").warm_user_name(message["user_id"])
-            from lockbot.backend.app.feishu.query_panel import query_delivery
+            from lockbot.backend.app.feishu.query_panel import QueryPanelBusy, query_delivery
             from lockbot.core.command_result import capture_result
 
-            with query_delivery(
-                factory, bot_id, application_id, message, expected_uuid, expected_revision, lease.bot
-            ) as panel:
+            with ExitStack() as delivery:
+                try:
+                    panel = delivery.enter_context(
+                        query_delivery(
+                            factory, bot_id, application_id, message, expected_uuid, expected_revision, lease.bot
+                        )
+                    )
+                except QueryPanelBusy:
+                    from lockbot.core.i18n import t
+
+                    reply = lease.bot.adapter.build_reply(
+                        t("feishu.query_busy", config=lease.bot.config) + "\n\n", [message["user_id"]]
+                    )
+                    state = "delivery_uncertain"
+                    lease.bot.adapter.apply_reply_target(reply, message["group_id"])
+                    lease.bot.adapter.send(reply)
+                    state = "completed"
+                    return
                 with capture_result() as command_result:
                     command = message["command"]
                     command_word = command.split(None, 1)[0].lower() if command else ""

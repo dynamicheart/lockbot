@@ -18,6 +18,10 @@ _locks_guard = threading.Lock()
 _locks = weakref.WeakValueDictionary()
 
 
+class QueryPanelBusy(FeishuAPIError):
+    """The query was not dispatched because its panel wait expired."""
+
+
 class _Mutex:
     def __init__(self):
         self.lock = threading.Lock()
@@ -192,7 +196,7 @@ def query_delivery(factory, bot_id, application_id, message, expected_uuid, revi
             _locks[key] = mutex
     # A busy panel is bounded; don't queue stale snapshots or replay commands.
     if not mutex.lock.acquire(timeout=15):
-        raise FeishuAPIError("Feishu query panel is busy")
+        raise QueryPanelBusy("Feishu query panel is busy")
     try:
         yield QueryPanel(
             factory,

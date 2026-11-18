@@ -72,6 +72,7 @@ MESSAGES = {
     "label.queue_list": "⌛️ Queue:\n",
     "label.queue_item": "  {index}. {user_id} {duration} est. wait {wait_time}\n",
     # ── Error messages ──
+    "feishu.query_busy": "Query is busy. Please query again shortly.",
     "feishu.command_format": (
         "❌ Not executed: mention the bot and send one plain command or one single-line code block, "
         "without a title, quote or multiple commands."
