@@ -260,11 +260,22 @@ because a query failed, a queue estimate changed, or a cached record still says 
 
 For a NEW explicit chat-style `lock` or `slock` targeting the user's existing
 holding, freshly verify exact ownership, group relock policy and allocation mode.
-In the SAME mode, translate to `command --operation renew`: the server wire operation
-remains `lock`/`slock`, adding time rather than setting a new total. Pass the requested
-increment with `--duration`. If omitted by the user, read the live positive
+For an unscoped node command, the CLI performs this translation once only if every
+selected resource is held by the caller in the SAME requested mode, relocking is
+explicitly allowed, the original lease is still verifiable and the queue is empty.
+It rechecks the original lease, rules, selectors and complete selection before the
+single POST. Mixed idle/held targets, changed leases or modes, and incomplete policy
+evidence stop without splitting the request. The result records the requested and
+effective operations; polling and uncertain writes never authorize this translation.
+
+With an explicit private connection, translate to `command --operation renew` after
+the same ownership/policy checks. The server wire operation remains `lock`/`slock`,
+adding time rather than setting a new total. Pass the requested increment with
+`--duration`. If omitted by the user, read the live positive
 `bot_rules.default_duration_seconds` and pass that increment explicitly; unlike a
-new acquisition, CLI `renew` requires a duration. If no usable default is available,
+new acquisition, explicit CLI `renew` requires a duration. Unscoped relock conversion
+fills this increment itself and rechecks an unchanged default before dispatch.
+If no usable default is available,
 ask for the increment. Stop if renewal is forbidden, ownership/mode is uncertain,
 or the request changes allocation mode. This translation never authorizes renewal
 from polling, time passage, or a previous unknown write outcome. Forbidding an implicit
