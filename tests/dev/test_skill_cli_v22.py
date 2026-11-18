@@ -200,7 +200,7 @@ def test_v22_preserves_prompts_schema_and_requires_explicit_matrix_opt_in(tmp_pa
     observed = []
     monkeypatch.setattr(matrix, "run_matrix", lambda *args, **kwargs: observed.append(kwargs) or True)
     assert matrix.main() == 0
-    assert observed == [{"cli_fixture_version": 22}]
+    assert observed == [{"cli_fixture_version": 22, "onboarding_fixture_version": 7}]
 
 
 def test_v22_does_not_relax_zero_command_requirements_for_query_only_requests(tmp_path, monkeypatch):

@@ -168,4 +168,4 @@ def test_v21_is_available_only_by_explicit_cli_selection(tmp_path, monkeypatch, 
         observed = []
         monkeypatch.setattr(matrix, "run_matrix", lambda *args, **kwargs: observed.append(kwargs) or True)
         assert matrix.main() == 0
-        assert observed == [{"cli_fixture_version": 21}]
+        assert observed == [{"cli_fixture_version": 21, "onboarding_fixture_version": 7}]

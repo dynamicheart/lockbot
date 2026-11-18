@@ -274,4 +274,4 @@ def test_matrix_cli_default_and_opt_in(tmp_path, monkeypatch, option):
     observed = []
     monkeypatch.setattr(matrix, "run_matrix", lambda *args, **kwargs: observed.append(kwargs) or True)
     assert matrix.main() == 0
-    assert observed == [{"cli_fixture_version": option or 19}]
+    assert observed == [{"cli_fixture_version": option or 19, "onboarding_fixture_version": 7}]
