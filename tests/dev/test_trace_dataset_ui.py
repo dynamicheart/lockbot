@@ -86,6 +86,26 @@ async function fetch(url,options){requests.push({url,options});return {ok:true,a
     assert "dataset-select" not in VIEWER.read_text().split("</head>", 1)[1]
 
 
+def test_pending_viewer_navigation_does_not_echo_an_older_parent_route():
+    observed = run(
+        function(VUE, "synchronize")
+        + function(VUE, "routeFields")
+        + """
+const sent=[];
+function send(message){sent.push(message);}
+const document={documentElement:{classList:{contains(){return false;}}}};
+const reviewOpen={value:false},route={query:{case:'one',run:'8'}};
+let requestedRoute='newer selection';
+synchronize();
+const during=sent.map(message=>message.type);sent.length=0;
+requestedRoute='';route.query.run='2';synchronize();
+console.log(JSON.stringify({during,settled:sent}));
+"""
+    )
+    assert "lockbot-trace-set-route" not in observed["during"]
+    assert observed["settled"][-1]["route"] == {"case": "one", "run": "2"}
+
+
 def test_comments_carry_dataset_validation_and_namespace_while_global_patch_stays_global():
     script = (
         function(VUE, "loadComments")

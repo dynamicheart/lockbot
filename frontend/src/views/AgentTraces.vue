@@ -128,7 +128,8 @@ function send(message) {
 function synchronize() {
   send({ type: 'lockbot-trace-theme', dark: document.documentElement.classList.contains('dark') })
   send({ type: 'lockbot-trace-review-open', open: reviewOpen.value })
-  send({ type: 'lockbot-trace-set-route', route: routeFields(route.query) })
+  // Do not echo an older router transition over a newer selection in the iframe.
+  if (!requestedRoute) send({ type: 'lockbot-trace-set-route', route: routeFields(route.query) })
 }
 function validContext(value) {
   return value && typeof value.case_id === 'string' && value.case_id.length <= 256 &&
