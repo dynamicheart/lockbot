@@ -539,7 +539,10 @@ def test_post_observation_failure_is_not_reported_as_zero_post(sdk):
     sdk.transport.open = missing
     output, events = command(sdk, "n1", "lock", "--duration", "1h", code=2)
     assert output["error"] == "mutation_not_confirmed_read_resources_do_not_replay"
-    assert "command_sent" not in output
+    assert output["command_sent"] is True
+    assert output["command_outcome"] == "unknown"
+    assert output["retry_mutation"] is False
+    assert output["next_command"] == ["resources-all", "--mine"]
     assert sum(row["method"] == "POST" for row in events) == 1
 
 
