@@ -294,8 +294,11 @@ renewal. Read the resulting snapshot and confirm the same resource/actor/lease
 has a genuinely later `expires_at`; HTTP 200 or a reply alone does not prove renewal. If POST
 has an unknown outcome, read resources and report what you can verify. The CLI returns
 `command_outcome: unknown` plus a read-only `next_command` (`resources-all --mine`).
-Run that read only; an absent holding or idle node cannot establish that the first
-write never executed. Do not offer a retry, another connection, or ask the user to
+Use `message_zh` as the user-facing uncertainty statement, then append only observations
+from reads actually completed. It does not claim that a follow-up read already ran.
+Run the read-only `next_command`, report and end the turn; do not propose retrying after
+a wait or user confirmation. An absent holding or idle node cannot establish that the
+first write never executed. Do not offer a retry, another connection, or ask the user to
 approve resubmitting the same uncertain operation. A rejected HTTP request is labeled
 `rejected`, not successful or unknown execution. Request-attempt evidence does not
 prove execution; only a verified resource snapshot proves the resulting holding.

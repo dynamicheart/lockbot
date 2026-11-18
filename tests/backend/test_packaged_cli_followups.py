@@ -38,6 +38,8 @@ def test_actual_write_attempt_has_readonly_unknown_followup_without_replay(sdk, 
     assert len(attempted) == 1
     assert output["command_outcome"] == "unknown" and output["mutation_attempted"] is True
     assert output["retry_mutation"] is False
+    assert "无法确认" in output["message_zh"] and "不能证明" in output["message_zh"]
+    assert "已核对" not in output["message_zh"]  # No follow-up read ran yet.
     assert output["next_command"] == ["resources-all", "--mine"]
     assert "Do not retry" in output["next_step"] and "idle or absent" in output["next_step"]
     assert output["resolution"]["selection_checked_before_post"] is True
@@ -74,6 +76,7 @@ def test_http_rejection_is_distinct_from_execution_or_unknown(sdk, monkeypatch):
     ).raise_for_status()
     output, events = command(sdk, "n1", "lock", "--duration", "1h", code=2)
     assert output["error"] == "http_429" and output["command_outcome"] == "rejected"
+    assert "message_zh" not in output
     assert output["command_sent"] is True and output["mutation_attempted"] is True
     assert output["retry_mutation"] is False
     assert sum(x["method"] == "POST" for x in events) == 1

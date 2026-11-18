@@ -3824,6 +3824,10 @@ def main(argv=None):
             rejected = exc.status is not None and 400 <= exc.status < 500
             output["command_outcome"] = "rejected" if rejected else "unknown"
             output["next_command"] = ["resources-all", "--mine"]
+            if not rejected:
+                output["message_zh"] = (
+                    "这次操作结果暂无法确认。即使当前空闲或没有记录，也不能证明它未执行。先只核对当前占用，不重新提交。"
+                )
             output["next_step"] = (
                 "Read next_command only and report the rejected request; do not replay or switch connections."
                 if rejected

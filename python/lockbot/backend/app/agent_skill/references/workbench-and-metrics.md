@@ -45,7 +45,10 @@ Never copy detailed Agent task notes into public metric labels or group reports.
 If the user says they have signed in and bookmarked the workbench, open that fixed
 address directly. Use the bookmark or saved `home` value. If your tools cannot read
 bookmarks, use the selected connection's verified service origin followed by
-`/#/me`. Pass the full fixed URL on your first browser call. If several saved
+`/#/me`. A request to “open” the panel requires an actual browser call when that tool
+is available; an API resource read is not a browser-open action. Without browser access,
+provide the fixed address and say it was not opened. Pass the full fixed URL on your
+first browser call. If several saved
 services could match, ask the user which to open. Report what the page shows together
 with the full address. When you have no browser access, give the user the fixed
 address to open. Use a sign-in link only when there is an authorized sign-in task.
