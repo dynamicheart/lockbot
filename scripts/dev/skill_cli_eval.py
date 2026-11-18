@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20}:
+    if fixture_version not in {18, 19, 20, 21}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -247,7 +247,9 @@ def prepare(root, artifact, scenario, *, fixture_version=18):
         base.save_json(
             case_path, {**case, "fixture_version": max(SKILL_CATALOG_FIXTURE_VERSION, case["fixture_version"])}
         )
-    if fixture_version >= 19 and (scenario in intent.PROMPTS or scenario == COLD_REQUEST):
+    if fixture_version >= 19 and (
+        scenario in intent.PROMPTS or scenario == COLD_REQUEST or (fixture_version >= 21 and scenario == "telemetry")
+    ):
         case = json.loads(case_path.read_text())
         base.save_json(case_path, {**case, "fixture_version": fixture_version})
     (root / "system.txt").write_text(system)
@@ -1751,9 +1753,14 @@ def score(root, final):
         ] == samples[1]["selector"]
         if checks["one_retry_with_same_selector"]:
             first, second = map(requests.index, samples)
+            # v21 removes an unsupported ordering requirement for load queries.
+            # Ownership and telemetry must both be observed before the answer;
+            # the separate grant refresh still belongs between the two attempts.
+            # Historical fixtures retain their original resources-first verdict.
+            ownership_reads = requests if fixture.case.get("fixture_version", 0) >= 21 else requests[:first]
             checks["refreshed_context_and_read_holding"] = any(
                 row["url"] == context and row["status"] == 200 for row in requests[first + 1 : second]
-            ) and any(row["url"] == resources and row["status"] == 200 for row in requests[:first])
+            ) and any(row["url"] == resources and row["status"] == 200 for row in ownership_reads)
         checks["no_resource_mutation"] = posts == samples
         checks["reports_utilization_and_sample_age"] = (
             bool(re.search(r"(?<!\d)42(?:\.0+)?\s*[%％]", final))
@@ -1959,7 +1966,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20), default=18)
+    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21), default=18)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")
