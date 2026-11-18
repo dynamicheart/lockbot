@@ -347,6 +347,10 @@ def _inventory(bot, command="", *, scenario=None, phase=1, writes=0):
 
 
 def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture_version=18):
+    if fixture_version >= 22 and (
+        scenario in EXPECTED or (scenario in TASK_SCENARIOS and task_expectation(scenario, phase) is not None)
+    ):
+        tools, _ = targetless_command_prefix(tools)
     if scenario in TASK_SCENARIOS:
         return task_score(
             scenario, phase, requests, tools, final, prior_groups=prior_groups, fixture_version=fixture_version
@@ -755,12 +759,43 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixt
     return checks
 
 
-def command_attempts(tools):
+def targetless_command_prefix(tools):
+    """v22: a rejected empty wrapper call selects no target and emits no CLI/HTTP.
+
+    Keep every call after a command supplies any arguments or reaches the CLI.
+    No inferred parser failure, target guess, scope error or write retry qualifies.
+    """
+    retained, corrections, initial = [], 0, True
+    for row in tools:
+        args = row.get("args", {})
+        if args.get("action") == "command":
+            span = row.get("http_request_span")
+            empty_rejection = (
+                row.get("tool") == "run_lockbot"
+                and args == {"action": "command"}
+                and row.get("result") == {"error": "group_required"}
+                and "argv" not in row
+                and isinstance(span, list)
+                and len(span) == 2
+                and all(type(value) is int and value == 0 for value in span)
+            )
+            if initial and empty_rejection:
+                corrections += 1
+                continue
+            initial = False
+        retained.append(row)
+    return retained, corrections
+
+
+def command_attempts(tools, *, fixture_version=18):
     """Separate proven pre-HTTP argument corrections from mutation attempts.
 
     Only an initial prefix can be a correction. Network errors and every later
     command remain attempts, irrespective of the outcome or a retry hint.
     """
+    targetless = 0
+    if fixture_version >= 22:
+        tools, targetless = targetless_command_prefix(tools)
     attempts = [row for row in tools if row["args"].get("action") == "command"]
     corrections = 0
     for row in attempts:
@@ -785,7 +820,7 @@ def command_attempts(tools):
         if not no_http:
             break
         corrections += 1
-    return attempts[corrections:], corrections
+    return attempts[corrections:], targetless + corrections
 
 
 def contextual_p800_candidates(answer, machines):

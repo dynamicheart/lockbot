@@ -328,7 +328,7 @@ def main():
     run.add_argument("--installed-artifacts", type=Path, help="Older Skill ZIP for operations:update")
     run.add_argument("--output", type=Path, required=True, help="New private evidence directory outside the repository")
     run.add_argument("--workers", type=positive_int, default=4)
-    run.add_argument("--cli-fixture-version", type=int, choices=(19, 20, 21), default=19)
+    run.add_argument("--cli-fixture-version", type=int, choices=(19, 20, 21, 22), default=19)
     run.add_argument(
         "--preflight-timeout", type=positive_int, default=45, help="Seconds for each model connectivity probe"
     )
