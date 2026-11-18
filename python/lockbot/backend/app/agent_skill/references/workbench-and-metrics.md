@@ -72,7 +72,13 @@ channel. In your final reply, also tell the user to open the privately delivered
 in their browser, confirm the displayed account and bookmark the full `result.home`
 URL for future visits. End the turn while confirmation is pending. The one-use link
 contains a ticket and goes only into the private handoff. If issuance fails, report
-the error without retrying.
+the error without retrying. After a verified context, the CLI's error returns the
+same-origin fixed `home` and a `next_step`: open that address in the browser, or
+provide it for the human to open. Do not invoke `panel-link` again after a 403 or an
+unknown issuance result, and do not ask for a new ticket merely to inspect holdings.
+If the CLI cannot verify the context, it does not supply a home; do not guess a
+service address after authentication or identity failure. A browser-open claim needs
+a successful browser action; resource-query output alone is not browser evidence.
 Never open or consume this one-use URL for the user. If a private delivery tool is
 available, check its result before saying the link was sent; after confirmed private
 delivery, leave the sign-in URL out of the final reply. Otherwise provide it only

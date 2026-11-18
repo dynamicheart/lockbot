@@ -1186,6 +1186,8 @@ class Client:
         self.manifest = None
         self._prepared_resources = None
         self._resource_request_started = None
+        self._last_mutation = None
+        self._panel_home = None
 
     def _file(self, name):
         value = self.config.get(name)
@@ -1230,7 +1232,13 @@ class Client:
             request = urllib.request.Request(url, data=data, headers=headers, method=method)
             started = self.clock()
             try:
+                if not readonly:
+                    self._last_mutation = {"request_attempted": True, "response_received": False, "http_status": None}
                 with self.opener.open(request, timeout=min(10, self.deadline - started)) as response:
+                    if not readonly:
+                        self._last_mutation.update(
+                            response_received=True, http_status=getattr(response, "status", None)
+                        )
                     api = response.headers.get("X-Lockbot-API-Version")
                     if (api and api != API_VERSION) or response.headers.get(
                         "X-Lockbot-API-Compatibility"
@@ -1279,6 +1287,8 @@ class Client:
             except urllib.error.HTTPError as exc:
                 retry = exc.headers.get("Retry-After", "")
                 status = exc.code
+                if not readonly:
+                    self._last_mutation.update(response_received=True, http_status=status)
                 exc.close()
                 delay = self._retry_after(retry) if status == 429 else None
                 if (
@@ -1443,7 +1453,7 @@ class Client:
                 with suppress(OSError):
                     directory.rmdir()
                 raise
-        return {
+        result = {
             "connection_created": True,
             "connection": str(destination),
             "bot": context["bot"],
@@ -1451,6 +1461,23 @@ class Client:
             "key_unchanged": True,
             "update_required": self.needs_update,
         }
+
+        if "own_binding_recovery" in manifest.get("capabilities", ()):
+            try:
+                endpoint = self.base + RECOVERY_PATH
+                verified = (
+                    same_origin_url(self.base, manifest.get("binding_recovery_url")) == endpoint
+                    and same_origin_url(self.base, context.get("links", {}).get("binding_recovery")) == endpoint
+                )
+            except ClientError:
+                verified = False
+            if verified:
+                result["next_command"] = ["--connection", str(destination), "recover", "--scope", scope]
+                result["next_step"] = (
+                    "For a resource-discovery request, run next_command once, then query the returned connections. "
+                    "Do not enroll again or replace the seed."
+                )
+        return result
 
     def _save_connection(self, context, destination):
         self.config["bot_uuid"] = context["bot"]["uuid"]
@@ -2065,6 +2092,7 @@ class Client:
 
     def panel_link(self):
         """Issue one private handoff without following or consuming its browser ticket."""
+        self._panel_home = None
         url = urllib.parse.urlsplit(self.base)
         transport = "https"
         if url.scheme == "http":
@@ -2112,6 +2140,7 @@ class Client:
             raise ClientError("agent_access_disabled")
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
+        self._panel_home = home  # Expose only after current context identity was verified.
         issued = self._request(self.base + issue_path, token=self.key, method="POST", readonly=False)
         login_url = issued.get("login_url")
         expires_in = issued.get("expires_in")
@@ -2387,6 +2416,7 @@ class Client:
         }
 
     def _post_command(self, context, command, metadata):
+        self._last_mutation = None
         # Header updates learned during the pre-read must block the subsequent write.
         if self.needs_update:
             raise ClientError("update_bundle_before_mutation")
@@ -2401,7 +2431,7 @@ class Client:
                 readonly=False,
             )
         except ClientError as exc:
-            if exc.status is not None and 400 <= exc.status < 500:
+            if self._last_mutation is None or (exc.status is not None and 400 <= exc.status < 500):
                 raise
             raise ClientError("mutation_outcome_unknown_read_resources_do_not_replay") from exc
 
@@ -3786,6 +3816,29 @@ def main(argv=None):
                         "used_http_requests": client.calls if client else None,
                         "deadline_seconds": 60,
                     }
+        if args.action == "command" and client and client._last_mutation is not None:
+            attempt = client._last_mutation
+            output["mutation_attempted"] = True
+            if attempt["response_received"]:
+                output["command_sent"] = True  # A response proves a request, not execution.
+            rejected = exc.status is not None and 400 <= exc.status < 500
+            output["command_outcome"] = "rejected" if rejected else "unknown"
+            output["next_command"] = ["resources-all", "--mine"]
+            output["next_step"] = (
+                "Read next_command only and report the rejected request; do not replay or switch connections."
+                if rejected
+                else "Read next_command only; execution remains UNKNOWN even if idle or absent. "
+                "Do not retry, switch connections, or offer resubmission; report only verified observations."
+            )
+            if automatic and automatic["resolution"].get("selection_checked_before_post"):
+                output["resolution"] = automatic["resolution"]
+        if args.action == "panel-link" and client and client._panel_home is not None:
+            output["home"] = client._panel_home
+            output["next_step"] = (
+                "Do not request another panel-link or consume a ticket. Open home in the browser, "
+                "or give the fixed address to the user if browser access is unavailable. "
+                "Do not claim the page was opened unless the browser confirms it."
+            )
         if args.action == "enroll" and exc.code == "use_key_challenge":
             command = ["key-challenge", "--origin", args.origin, "--scope", args.scope, "--authorized"]
             if args.destination:

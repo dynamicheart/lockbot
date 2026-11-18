@@ -292,7 +292,13 @@ Choose an explicit added duration: repeated lock adds time rather than setting a
 Keep remaining time plus the increment within the caller-effective ceiling. Attempt one bounded
 renewal. Read the resulting snapshot and confirm the same resource/actor/lease
 has a genuinely later `expires_at`; HTTP 200 or a reply alone does not prove renewal. If POST
-has an unknown outcome, read resources and report what you can verify.
+has an unknown outcome, read resources and report what you can verify. The CLI returns
+`command_outcome: unknown` plus a read-only `next_command` (`resources-all --mine`).
+Run that read only; an absent holding or idle node cannot establish that the first
+write never executed. Do not offer a retry, another connection, or ask the user to
+approve resubmitting the same uncertain operation. A rejected HTTP request is labeled
+`rejected`, not successful or unknown execution. Request-attempt evidence does not
+prove execution; only a verified resource snapshot proves the resulting holding.
 Retrying a status check cannot move the old stop deadline. Adopt a new deadline only from a
 verified renewed lease, not from the requested extra duration or the POST's success status.
 

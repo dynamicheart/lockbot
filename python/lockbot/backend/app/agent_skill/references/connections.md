@@ -213,7 +213,11 @@ Run `discover --origin <approved-service>` before setting up a connection. Use `
 ### Discover your existing bindings before enrolling again
 
 For “看看我能申请什么资源”, run `recover` once with an existing verified seed
-connection when supported. Read each returned group with its matching connection, then
+connection when supported. `init` returns `result.next_command` only after verifying
+the recovery capability and same-origin endpoint. For this resource request, run that
+exact CLI command once before inventory reads; use its returned seed path, not a
+guessed `seed.json`. Installation-only requests still stop without recovery.
+Read each returned group with its matching connection, then
 report actual resources, hardware and availability. The user need not know the group names.
 Keep the seed usable if another group cannot be recovered; report only the scope verified.
 On Feishu, recovery requires the same verified application and tenant. Equal user IDs from
