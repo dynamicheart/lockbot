@@ -23,7 +23,7 @@ Run `scripts/lockbot_cli.py` by absolute path, Python 3.10+. `resources-all` rea
 
 `resources` includes verified `context`/rules: avoid redundant `discover/context` or immediate rereads. Use `inventory_overview`'s exact node/card IDs (including 0); never renumber. Unknown hardware stays unknown. Recheck later ownership/expiry; stop workload use if unverifiable.
 
-Queries omit repeated installation metadata. Narrow `resources/resources-all` with `--model` or exact ID/alias `--node`; filtered results are not the full inventory, and `selection.unknown_hardware_nodes` are not confirmed nonmatches. Add `--with-metrics` only when utilization matters: the CLI batches selected nodes and reports metric failures separately from ownership. Use `--full` only for explicit response debugging; no query cache is written.
+Narrow queries with `--model/--node`; filtered or unknown hardware is not an empty full inventory. `--with-metrics` batches selected nodes; metric failure is not an ownership result. `--full` is for debugging.
 
 1. Resolve exact IDs, aliases or last IPv4 octets across authorized groups (19 never matches 119). Names don't prove hardware. Require `snapshot_fresh_for_write`; verify model, quantity, mode, duration and same-node constraints. Stale/ambiguous/unverified means NO command. Pass requested `--model`, `--device-count`, `--minimum-model-count` and named `--group`.
 2. Node-only `lock/slock/book`: whole-node groups use `--whole-node`; card groups enumerate ALL observed `--device`s in ONE command. No silent subset: report conflicts/shortfalls. Never turn card requests into whole nodes/change groups. Different card sets need separate node commands; stop on uncertainty.
