@@ -9,6 +9,10 @@ python /absolute/path/scripts/lockbot_cli.py command --operation lock --node 19
 python /absolute/path/scripts/lockbot_cli.py command --operation slock --node 19 --device 0 --duration 4h
 ```
 
+CLI card selectors accept canonical IDs such as `0` and chat labels such as `dev0`
+(case-insensitive). Both select the exact same card; malformed labels, leading zeros
+and duplicate canonical IDs are rejected. Group selectors never stand for card labels.
+
 Omit `--connection` to let the SDK read every saved authorized scope, resolve a unique
 exact node ID, alias or observed IPv4 last octet, and recheck the selected scope and
 original evidence immediately before the single resource POST. `19` never matches

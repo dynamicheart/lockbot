@@ -3463,6 +3463,8 @@ def main(argv=None):
         "--node", action="append", required=True, help="Exact node ID from resources. Repeat as needed."
     )
     args = parser.parse_args(argv)
+    if args.action == "command":
+        args.device = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in args.device]
     client = None
     automatic = None
     try:

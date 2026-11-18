@@ -690,3 +690,26 @@ def test_explicit_empty_connection_never_widens_to_saved_catalog(sdk):
     )
     assert output["error"] == "private_connection_required"
     assert events == []
+
+
+@pytest.mark.parametrize("api", ["DEVICE"], indirect=True)
+@pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.parametrize("device", ["0", "dev0", "DEV0"])
+def test_chat_device_labels_select_the_exact_same_card(sdk, scoped, device):
+    prefix = ["--connection", str(sdk.connections[0])] if scoped else []
+    output, events = sdk.run(
+        *prefix, "command", "--operation", "slock", "--node", "n1", "--device", device, "--duration", "4h"
+    )
+    assert output["result"]["verified"]
+    assert sdk.transport.commands == ["slock n1 dev0 4h"]
+    assert sum(e["method"] == "POST" for e in events) == 1
+
+
+@pytest.mark.parametrize("api", ["DEVICE"], indirect=True)
+@pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.parametrize("devices", [("dev00",), ("dev-1",), ("dev0", "0")])
+def test_malformed_or_duplicate_chat_device_labels_never_write(sdk, scoped, devices):
+    prefix = ["--connection", str(sdk.connections[0])] if scoped else []
+    flags = [part for device in devices for part in ("--device", device)]
+    _, events = sdk.run(*prefix, "command", "--operation", "slock", "--node", "n1", *flags, "--duration", "4h", code=2)
+    assert not sdk.transport.commands and all(e["method"] != "POST" for e in events)
