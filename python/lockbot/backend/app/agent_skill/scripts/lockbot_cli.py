@@ -2408,16 +2408,16 @@ class Client:
                 raise ClientError("invalid_metrics_freshness")
             if source.get("accessMode") == "short_lived":
                 access = (context.get("utilization") or {}).get("access") or {}
-                token = access.get("token")
-                if access.get("scope") != "metrics:read" or not isinstance(token, str) or not token:
+                credential = access.get("token")
+                if access.get("scope") != "metrics:read" or not isinstance(credential, str) or not credential:
                     raise ClientError("metrics_grant_unavailable")
             elif source.get("accessMode") == "independent":
-                token = private_bytes(self._file("metrics_key_file")).decode().strip()
+                credential = private_bytes(self._file("metrics_key_file")).decode().strip()
             else:
                 raise ClientError("unsupported_metrics_authentication")
-            if token.startswith(("lbr_", "lbk_", "lbc1.")) or token == self.key:
+            if credential.startswith(("lbr_", "lbk_", "lbc1.")) or credential == self.key:
                 raise ClientError("resource_key_for_metrics_refused")
-            self.secrets.append(token)
+            self.secrets.append(credential)
             selector = "{__name__=~" + json.dumps("^(?:" + "|".join(METRICS) + ")$")
             selector += (
                 ",node=~"
@@ -2429,7 +2429,7 @@ class Client:
             try:
                 data = self._request(
                     url,
-                    token=token,
+                    token=credential,
                     method="POST",
                     form=True,
                     body={"query": selector, "time": str(time.time()), "timeout": "4s"},
