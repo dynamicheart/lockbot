@@ -188,9 +188,9 @@ export default {
   },
   feishu: {
     queryPanelGroup: '飞书群消息',
-    queryPanel: '更新已有查询消息',
+    queryPanel: '回复时原地刷新',
     queryPanelHint:
-      '开启后重复查询会更新之前的资源消息，不会移到群消息底部。群消息较多、需要每次看到新回复时可关闭。操作结果和到期提醒仍正常发送；旧消息不可编辑时回退普通回复。',
+      '普通 @ 或 query 查询始终发送新消息。开启后，回复本群最新查询消息并 @ 机器人查询，可原地刷新；刷新不会移到群消息底部。操作结果和到期提醒仍正常发送；消息不可编辑时回退普通回复。',
 
     unboundGreeting: '入群后提示资源绑定',
     unboundGreetingHelp:

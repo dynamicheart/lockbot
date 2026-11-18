@@ -120,6 +120,42 @@ def test_verified_message_runs_original_core_and_binding_hook(tmp_path):
     assert calls[0]["external_user_id"] == "ou_alice"
 
 
+@pytest.mark.parametrize("message_type", ["text", "post"])
+@pytest.mark.parametrize("parent", [None, "", "om_panel", "om_" + "x" * 125])
+def test_verified_parent_is_the_only_normalized_reply_target(parent, message_type):
+    data = event("@_user_1 query")
+    if message_type == "post":
+        data["event"]["message"].update(
+            message_type="post",
+            content=json.dumps(
+                {
+                    "title": "",
+                    "content": [
+                        [{"tag": "at", "user_id": "@_user_1"}],
+                        [{"tag": "code_block", "text": "query"}],
+                    ],
+                }
+            ),
+        )
+    data["event"]["message"].update(
+        parent_id=parent,
+        root_id="om_root",
+        reply_to_message_id="om_user_supplied",
+    )
+    normalized = normalize_message(verify_http(json.dumps(data).encode(), {}, identity()), identity())
+    assert normalized.get("reply_to_message_id") == (parent or None)
+    if not parent:
+        assert "reply_to_message_id" not in normalized
+
+
+@pytest.mark.parametrize("parent", [True, 123, [], {}, "om_", "ou_actor", "om_a/b", "om_a\n", "om_" + "x" * 126])
+def test_malformed_parent_is_rejected(parent):
+    data = event("@_user_1 query")
+    data["event"]["message"]["parent_id"] = parent
+    with pytest.raises(InvalidFeishuEvent):
+        normalize_message(data, identity())
+
+
 def test_rich_post_preserves_blank_lines_links_and_structured_mentions():
     adapter = FeishuAdapter()
     reply = adapter.build_reply(

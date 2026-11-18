@@ -62,10 +62,13 @@ def _scope(db, bot_id, application_id, expected_uuid, revision, chat_id):
 
 
 class QueryPanel:
-    def __init__(self, factory, bot_id, application_id, expected_uuid, revision, chat_id, adapter):
+    def __init__(
+        self, factory, bot_id, application_id, expected_uuid, revision, chat_id, adapter, *, reply_to_message_id=None
+    ):
         self.factory = factory
         self.args = (bot_id, application_id, expected_uuid, revision, chat_id)
         self.adapter = adapter
+        self.reply_to_message_id = reply_to_message_id
 
     def send(self, reply):
         """True means handled; False delegates the original reply to normal delivery."""
@@ -104,7 +107,9 @@ class QueryPanel:
                 row.retry_after = None
             if row.retry_after and row.retry_after > now:
                 return False  # Restart/in-flight uncertainty or bounded failure cooldown.
-            message_id = row.message_id
+            # Fresh queries must remain visible at the bottom of a busy chat.
+            # Only a direct reply to our current, scoped reference may edit it.
+            message_id = row.message_id if self.reply_to_message_id == row.message_id else None
             if row.edit_count >= MAX_EDITS or not row.created_at or now - row.created_at >= MAX_AGE:
                 message_id = None
             generation = row.generation
@@ -189,6 +194,15 @@ def query_delivery(factory, bot_id, application_id, message, expected_uuid, revi
     if not mutex.lock.acquire(timeout=15):
         raise FeishuAPIError("Feishu query panel is busy")
     try:
-        yield QueryPanel(factory, bot_id, application_id, expected_uuid, revision, message["group_id"], bot.adapter)
+        yield QueryPanel(
+            factory,
+            bot_id,
+            application_id,
+            expected_uuid,
+            revision,
+            message["group_id"],
+            bot.adapter,
+            reply_to_message_id=message.get("reply_to_message_id"),
+        )
     finally:
         mutex.lock.release()

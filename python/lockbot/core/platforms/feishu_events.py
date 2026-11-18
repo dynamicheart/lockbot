@@ -256,6 +256,14 @@ def normalize_message(data, identity: FeishuIdentity):
             raise ValueError()
         if not isinstance(message_id, str) or not message_id or len(message_id) > 128:
             raise ValueError()
-        return {"user_id": user_id, "group_id": chat_id, **parsed, "message_id": message_id}
+        normalized = {"user_id": user_id, "group_id": chat_id, **parsed, "message_id": message_id}
+        # Only the verified platform envelope supplies reply context. A thread's
+        # root_id or user-provided command text does not identify a direct reply.
+        parent_id = message.get("parent_id")
+        if parent_id is not None and parent_id != "":
+            if not isinstance(parent_id, str) or not re.fullmatch(r"om_[A-Za-z0-9_-]{1,125}", parent_id):
+                raise ValueError()
+            normalized["reply_to_message_id"] = parent_id
+        return normalized
     except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
         raise InvalidFeishuEvent("Invalid message event") from None

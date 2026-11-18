@@ -194,9 +194,9 @@ export default {
   },
   feishu: {
     queryPanelGroup: 'Feishu group messages',
-    queryPanel: 'Update the existing query message',
+    queryPanel: 'Refresh queries on reply',
     queryPanelHint:
-      'Repeated queries update the earlier resource message without moving it to the bottom of the chat. Turn this off for a new reply each time. Command results and reminders are unchanged; unavailable edits fall back to ordinary replies.',
+      'Ordinary @ or query requests always send a new message. When enabled, reply to this group’s latest query message and @ the bot to refresh it in place. Refreshing does not move it to the bottom of the chat. Command results and reminders are unchanged; unavailable edits fall back to ordinary replies.',
 
     unboundGreeting: 'Show setup guidance when joining a group',
     unboundGreetingHelp:
