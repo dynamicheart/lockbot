@@ -155,10 +155,19 @@ console.log(JSON.stringify({messages,valid:validContext(messages[0]?.context),
 def test_range_endpoints_keep_cross_paragraph_quotes_on_the_exact_run(
     first, last, backwards, expected_scope, expected_anchor
 ):
-    code = "\n".join(function(INTERACTIONS, name) for name in (
-        "reviewContext", "requestReview", "anchoredElement", "showSelectionComment", "submitSelectionComment"
-    ))
-    observed = run(code + r"""
+    code = "\n".join(
+        function(INTERACTIONS, name)
+        for name in (
+            "reviewContext",
+            "requestReview",
+            "anchoredElement",
+            "showSelectionComment",
+            "submitSelectionComment",
+        )
+    )
+    observed = run(
+        code
+        + r"""
 class Element {
  constructor(dataset={},id=''){this.dataset=dataset;this.id=id;this.nodeType=1;this.style={};
  this.classList={contains(){return false;}};}
@@ -193,7 +202,10 @@ const innerWidth=800,innerHeight=600;
 showSelectionComment({target:first,composedPath(){return [first];},clientX:5,clientY:5});
 submitSelectionComment();
 console.log(JSON.stringify({messages,disabled:selectionComment.disabled,label:selectionComment.textContent}));
-""".replace("FIRST", json.dumps(first)).replace("LAST", json.dumps(last)).replace("BACKWARDS", json.dumps(backwards)))
+""".replace("FIRST", json.dumps(first))
+        .replace("LAST", json.dumps(last))
+        .replace("BACKWARDS", json.dumps(backwards))
+    )
     if expected_scope is None:
         assert observed["messages"] == []
         assert observed["disabled"]

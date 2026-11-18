@@ -123,7 +123,8 @@ assert.equal(requests.length,1);assert.equal(requests[0].url,'/catalog');
 respond(requests[0],'exact legacy source');await work;
 assert.equal(draws,1);assert.equal(data.cases.one[0].model,'exact legacy source');
 assert.equal(statuses.some(row=>row.error),false);
-""", legacy=True
+""",
+        legacy=True,
     ) == {"ok": True}
 
 
@@ -137,5 +138,6 @@ const changed={...snapshot('new answer'),review_runs:{one:['b'.repeat(64)]}};
 requests[0].resolve({ok:true,status:200,async text(){return JSON.stringify(changed);}});
 await work;assert.equal(draws,0);assert.equal(layout.hidden,true);
 assert.equal(statuses.at(-1).text,'原记录已变化，无法打开当时记录。');
-""", legacy=True
+""",
+        legacy=True,
     ) == {"ok": True}
