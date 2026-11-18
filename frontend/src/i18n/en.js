@@ -199,7 +199,7 @@ export default {
     queryPanelGroup: 'Feishu group messages',
     queryPanel: 'Refresh queries on reply',
     queryPanelHint:
-      'Reply to the latest query result and @ the bot to update it without moving it down. A new query sends a new message.',
+      'Reply to the latest query result and mention the bot to update it without moving it down. A new query sends a new message.',
 
     unboundGreeting: 'Show setup guidance when joining a group',
     unboundGreetingHelp:

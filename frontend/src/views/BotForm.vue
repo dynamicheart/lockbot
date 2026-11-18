@@ -275,7 +275,11 @@
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-reaction-replies">
             {{ $t('feishu.reactionReplies') }}
-            <el-tooltip :content="$t('feishu.reactionRepliesHelp')" placement="top" popper-class="feishu-message-tooltip">
+            <el-tooltip
+              :content="$t('feishu.reactionRepliesHelp')"
+              placement="top"
+              popper-class="feishu-message-tooltip"
+            >
               <el-icon class="help-icon"><QuestionFilled /></el-icon>
             </el-tooltip>
           </label>
@@ -288,7 +292,11 @@
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-query-panel">
             {{ $t('feishu.queryPanel') }}
-            <el-tooltip :content="$t('feishu.queryPanelHint')" placement="top" popper-class="feishu-message-tooltip">
+            <el-tooltip
+              :content="$t('feishu.queryPanelHint')"
+              placement="top"
+              popper-class="feishu-message-tooltip"
+            >
               <el-icon class="help-icon"><QuestionFilled /></el-icon>
             </el-tooltip>
           </label>
