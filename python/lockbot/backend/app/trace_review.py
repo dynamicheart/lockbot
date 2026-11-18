@@ -351,6 +351,47 @@ def trace_review_router(directory: Path) -> APIRouter:
                 pass
         raise HTTPException(422, "Comment anchor is unavailable", headers=PRIVATE_HEADERS)
 
+    def conflict(code, detail):
+        # Keep the existing string detail for clients that do not inspect codes.
+        return JSONResponse({"code": code, "detail": detail}, status_code=409, headers=PRIVATE_HEADERS)
+
+    def historical_comments(rows, case_id):
+        selected = [row for row in rows if row["case_id"] == case_id]
+        groups = {}
+        results = {}
+        for row in selected:
+            if global_feedback(row):
+                results[row["id"]] = False
+            else:
+                source = (row.get("dataset_id"), row.get("raw", True))
+                groups.setdefault(source, []).append(row)
+        # Verify each source once without retaining every historical snapshot
+        # in this request (the shared immutable cache already has a fixed cap).
+        for (dataset_id, raw), comments in groups.items():
+            try:
+                data, runs = lazy_snapshot(raw, dataset_id)
+            except HTTPException as exc:
+                if exc.status_code not in {404, 503}:
+                    raise
+                if dataset_id is None:
+                    results.update((row["id"], False) for row in comments)
+                continue
+            for row in comments:
+                available = False
+                try:
+                    index = row["run_index"]
+                    if type(index) is int and index >= 0 and runs[case_id][index] == row["run_id"]:
+                        validate_anchor(row["anchor"], data["cases"][case_id][index])
+                        available = True
+                except (KeyError, IndexError, TypeError, HTTPException):
+                    pass
+                results[row["id"]] = available
+        # Only verifiable published datasets are exposed. Legacy feedback
+        # survives replacement, but cannot be located against a new answer.
+        for row in selected:
+            if row["id"] in results:
+                yield {**row, "source_available": results[row["id"]]}
+
     @router.get("/dev/trace-review")
     def viewer():
         page = directory / "viewer.html"
@@ -416,7 +457,7 @@ def trace_review_router(directory: Path) -> APIRouter:
         except (KeyError, IndexError, TypeError):
             raise HTTPException(404, "Trace run is unavailable", headers=PRIVATE_HEADERS) from None
         if current != run_id:
-            raise HTTPException(409, "Trace changed; reload before reading", headers=PRIVATE_HEADERS)
+            return conflict("trace_changed", "Trace changed; reload before reading")
         result = {"case_id": case_id, "run_index": run_index, "run_id": current, "trial": original}
         if dataset_id is not None:
             result["dataset_id"] = dataset_id
@@ -490,8 +531,11 @@ def trace_review_router(directory: Path) -> APIRouter:
         run_index: int | None = None,
         raw: bool = True,
         dataset_id: str | None = None,
+        include_history: bool = False,
     ):
         response.headers.update(PRIVATE_HEADERS)
+        if include_history and not case_id:
+            raise HTTPException(422, "Choose a case for comment history", headers=PRIVATE_HEADERS)
         if run_index is not None and not 0 <= run_index <= 10000:
             raise HTTPException(422, "Invalid run index", headers=PRIVATE_HEADERS)
         if dataset_id is not None and not (case_id is not None and run_index is not None):
@@ -503,6 +547,8 @@ def trace_review_router(directory: Path) -> APIRouter:
         )
         with open_store() as db:
             rows = comment_rows(db)
+        if include_history:
+            return {"run_id": run_id, "comments": list(historical_comments(rows, case_id))}
         return {
             "run_id": run_id,
             "comments": [
@@ -527,7 +573,7 @@ def trace_review_router(directory: Path) -> APIRouter:
         else:
             current, trial = run_identity(body.case_id, body.run_index, body.raw, body.dataset_id)
             if body.run_id != current:
-                raise HTTPException(409, "Trace changed; reload before commenting", headers=PRIVATE_HEADERS)
+                return conflict("trace_changed", "Trace changed; reload before commenting")
             validate_anchor(body.anchor, trial)
             model = trial.get("model")
         if not body.body.strip():
@@ -549,9 +595,7 @@ def trace_review_router(directory: Path) -> APIRouter:
         with open_store() as db:
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT COUNT(*) FROM comments").fetchone()[0] >= 1000:
-                raise HTTPException(
-                    409, "Comment store is full; ask the administrator to archive it", headers=PRIVATE_HEADERS
-                )
+                return conflict("comment_store_full", "Comment store is full; ask the administrator to archive it")
             db.execute("INSERT INTO comments (id, payload) VALUES (?, ?)", (record["id"], json.dumps(record)))
         return record
 
