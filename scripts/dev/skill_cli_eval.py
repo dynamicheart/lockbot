@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -89,6 +89,11 @@ def prepare(root, artifact, scenario, *, fixture_version=18):
             **case,
             "coherent_snapshot": b"coherent_resource_snapshot" in helper,
             "resource_aggregation": b'"resources-all"' in helper and b'"--mine"' in helper,
+            **(
+                {"runtime_epoch": datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
+                if fixture_version >= 28
+                else {}
+            ),
             "fixture_version": 18
             if scenario in intent.PROMPTS or scenario == COLD_REQUEST
             else 15
@@ -592,6 +597,16 @@ class Fixture(continuity.Fixture):
                     **(body.get("bot_rules") or {}),
                     "default_duration_seconds": intent.SHORT_DEFAULT_DURATION if bot == 8 else 3600,
                 }
+            if self.case.get("fixture_version", 0) >= 28 and scenario == "intent-ip-tail-held":
+                # Explicit healthy runtime policy, matching production defaults.
+                # Missing/invalid-policy negative fixtures remain untouched.
+                body["bot_rules"] = {
+                    **(body.get("bot_rules") or {}),
+                    "forbid_relock": False,
+                    "effective_max_lock_duration_seconds": -1,
+                    "max_resources_per_user": -1,
+                    "default_duration_seconds": 7200,
+                }
             body["skill"] = self.manifest()
             return response
         state = self.root / f"simulated-bot-{bot}.json"
@@ -605,6 +620,9 @@ class Fixture(continuity.Fixture):
                 phase=self.case["phase"],
                 writes=writes,
                 fixture_version=self.case["fixture_version"],
+                **(
+                    {"lease_reference": self.case["runtime_epoch"]} if self.case.get("fixture_version", 0) >= 28 else {}
+                ),
             )
             return {"status": 200, "body": snapshot}
         if path == f"/api/bots/{bot}/commands" and method == "POST":
@@ -706,6 +724,23 @@ class Fixture(continuity.Fixture):
                             if self.case.get("fixture_version", 0) >= 27
                             and request.method == "GET"
                             and path.endswith("/resources")
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {
+                                "resource_relock_observation": resource_relock_observation(
+                                    result["body"].get("resource_snapshot", result["body"])
+                                )
+                            }
+                            if self.case.get("fixture_version", 0) >= 28
+                            and self.case["scenario"] == "intent-ip-tail-held"
+                            and (
+                                request.method == "GET"
+                                and path.endswith("/resources")
+                                or request.method == "POST"
+                                and isinstance(result.get("body", {}).get("resource_snapshot"), dict)
+                            )
                             and result["status"] == 200
                             else {}
                         ),
@@ -1505,6 +1540,29 @@ def resource_selector_observation(snapshot):
     return [{"id": row.get("id"), "alias": row.get("alias")} for row in snapshot.get("resources", [])]
 
 
+def resource_relock_observation(snapshot):
+    """Finite lease and rule evidence taken from actual HTTP observations only."""
+    return {
+        "resources": [
+            {key: row.get(key) for key in ("id", "alias", "lock_status", "booking_list", "node_access")}
+            | {
+                "holders": [
+                    {
+                        key: holder.get(key)
+                        for key in ("external_user_id", "start_time", "expires_at", "duration_seconds")
+                    }
+                    for holder in row.get("holders", [])
+                ]
+            }
+            for row in snapshot.get("resources", [])
+        ],
+        "forbid_relock": snapshot.get("context", {}).get("bot_rules", {}).get("forbid_relock"),
+        "effective_max_lock_duration_seconds": snapshot.get("context", {})
+        .get("bot_rules", {})
+        .get("effective_max_lock_duration_seconds"),
+    }
+
+
 def verified_sdk_resolutions(fixture, tools, requests):
     """Validate SDK-owned selection from real wire records, never synthetic reads."""
     if fixture.case.get("fixture_version", 0) < 23:
@@ -1567,11 +1625,23 @@ def verified_sdk_resolutions(fixture, tools, requests):
                 scenario=fixture.case["scenario"],
                 phase=fixture.case["phase"],
                 fixture_version=fixture.case["fixture_version"],
+                **(
+                    {"lease_reference": fixture.case["runtime_epoch"]}
+                    if fixture.case.get("fixture_version", 0) >= 28
+                    else {}
+                ),
             )["resources"]
         wire = requests[span[0] : span[1]]
         alias_selector_proof = (
             fixture.case.get("fixture_version", 0) >= 27 and fixture.case["scenario"] in intent.PUBLIC_IP_ALIAS_PROMPTS
         )
+        owned_relock_proof = (
+            fixture.case.get("fixture_version", 0) >= 28 and fixture.case["scenario"] == "intent-ip-tail-held"
+        )
+        if owned_relock_proof and (
+            args.get("operation") != "lock" or args.get("nodes") != ["19"] or args.get("duration") != "4h"
+        ):
+            return checked
         if alias_selector_proof and args["nodes"] != ["19"]:
             # These two unchanged prompts say "lock 19". A guessed canonical
             # name/full alias cannot replace the caller's initial selector.
@@ -1602,7 +1672,15 @@ def verified_sdk_resolutions(fixture, tools, requests):
             ):
                 return None
             captured = datetime.fromisoformat(observed["captured_at"].replace("Z", "+00:00"))
-            if alias_selector_proof:
+            if owned_relock_proof:
+                lease = row.get("resource_relock_observation", {})
+                if (
+                    lease.get("forbid_relock") is not False
+                    or lease.get("effective_max_lock_duration_seconds") != -1
+                    or lease.get("resources") != resource_relock_observation({"resources": frozen[bot]})["resources"]
+                ):
+                    return None
+            if alias_selector_proof or owned_relock_proof:
                 state = row.get("resource_read_state", {})
                 recorded = datetime.fromisoformat(state["recorded_at"].replace("Z", "+00:00"))
                 age = state.get("age_seconds")
@@ -1779,6 +1857,15 @@ def verified_sdk_resolutions(fixture, tools, requests):
         ]
         if resolution.get("matches") != expected_matches:
             return checked
+        if owned_relock_proof and (
+            resolution.get("requested_operation") != "lock"
+            or resolution.get("effective_operation") != "renew"
+            or resolution.get("operation_mapping_reason") != "fresh_own_same_mode_relock"
+            or resolution.get("requested_duration") != "4h"
+            or resolution.get("effective_duration") != "4h"
+            or resolution.get("duration_source") != "user-request"
+        ):
+            return checked
         offset = resolution.get("http_requests_before_selected_read")
         if (
             type(offset) is not int
@@ -1847,6 +1934,42 @@ def verified_sdk_resolutions(fixture, tools, requests):
             return checked
         for _, resource, _ in selected:
             observed_resource = observed_nodes[resource["id"]]
+            if owned_relock_proof:
+                post_lease = post.get("resource_relock_observation", {})
+                if (
+                    post_lease.get("forbid_relock") is not False
+                    or post_lease.get("effective_max_lock_duration_seconds") != -1
+                ):
+                    return checked
+                wire_after = next(row for row in post_lease.get("resources", []) if row.get("id") == resource["id"])
+                before_holders, after_holders = resource.get("holders"), wire_after.get("holders")
+                if (
+                    resource.get("lock_status") != "exclusive"
+                    or resource.get("booking_list") != []
+                    or context.get("bot_rules", {}).get("forbid_relock") is not False
+                    or len(before_holders) != 1
+                    or len(after_holders) != 1
+                    or before_holders[0].get("external_user_id") != pin["actor"]["external_user_id"]
+                    or after_holders[0].get("external_user_id") != pin["actor"]["external_user_id"]
+                    or wire_after.get("lock_status") != "exclusive"
+                    or wire_after.get("booking_list") != []
+                    or after_holders[0].get("start_time") != before_holders[0].get("start_time")
+                    or any(
+                        key in observed_resource["holders"][0]
+                        and observed_resource["holders"][0][key] != after_holders[0].get(key)
+                        for key in ("start_time", "expires_at")
+                    )
+                ):
+                    return checked
+                prior_expiry = datetime.fromisoformat(before_holders[0]["expires_at"])
+                after_expiry = datetime.fromisoformat(after_holders[0]["expires_at"])
+                if (
+                    prior_expiry.utcoffset() is None
+                    or after_expiry.utcoffset() is None
+                    or (after_expiry - prior_expiry).total_seconds() != 14400
+                    or prior_expiry.timestamp() <= max(observed.values())
+                ):
+                    return checked
             if pin["type"] in {"DEVICE", "QUEUE_DEVICE"}:
 
                 def signatures(row):
@@ -1909,7 +2032,9 @@ def verified_sdk_resolutions(fixture, tools, requests):
         if any(not 0 <= post_time - captured <= 5 for captured in observed.values()):
             return checked
         proof["positive"] = intent.mutation_observed(requests, post, call, bot)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, OverflowError):
+        if fixture.case.get("fixture_version", 0) >= 28 and proof["positive"]:
+            proof["verified_target_hints"] = list(args["nodes"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, OverflowError, StopIteration):
         return checked
     return checked
 
@@ -2449,7 +2574,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27), default=18)
+    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28), default=18)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")

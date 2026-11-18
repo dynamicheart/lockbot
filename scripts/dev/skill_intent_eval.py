@@ -161,8 +161,15 @@ def equivalent(command, expected, *, default_duration=None):
         return False
 
 
-def inventory(bot, command="", *, scenario=None, phase=1, writes=0, fixture_version=16):
+def inventory(bot, command="", *, scenario=None, phase=1, writes=0, fixture_version=16, lease_reference=None):
     snapshot = _inventory(bot, command, scenario=scenario, phase=phase, writes=writes)
+    if fixture_version >= 28 and (
+        scenario in {"intent-renew", "intent-ip-tail-held"}
+        and bot == 8
+        or scenario == "intent-ip-tail-held"
+        and bot == 7
+    ):
+        snapshot = healthy_held_node_snapshot(snapshot, scenario, command, writes, lease_reference)
     if fixture_version >= 26 and bot == 8 and scenario in WHOLE_MACHINE_MODELS:
         # Core empty_node_state always initializes queues, including idle and
         # occupied nodes; build_resources preserves those observed empty lists.
@@ -171,6 +178,47 @@ def inventory(bot, command="", *, scenario=None, phase=1, writes=0, fixture_vers
     if fixture_version >= 16:
         public_booking_rows(snapshot["resources"])
     return snapshot
+
+
+def healthy_held_node_snapshot(snapshot, scenario, command, writes, lease_reference):
+    """Construct ordinary held runtime state, preserving explicit fault fixtures elsewhere."""
+    from lockbot.backend.app.resource_api.snapshot import build_resources
+    from lockbot.core.io import empty_node_state
+
+    captured = datetime.fromisoformat(snapshot["captured_at"])
+    reference = datetime.fromisoformat(lease_reference) if lease_reference else captured
+    if reference.utcoffset() is None:
+        raise ValueError("Fixture lease reference requires an explicit timezone")
+    state = empty_node_state([row["id"] for row in snapshot["resources"]])
+    for row in snapshot["resources"]:
+        if scenario == "intent-renew":
+            start = reference - timedelta(minutes=90)
+            duration = 14400 if command == EXPECTED[scenario][1] else 7200
+        else:
+            start = reference
+            duration = 21600 if writes else 7200
+        state[row["id"]].update(
+            status=row["lock_status"],
+            current_users=[
+                {"user_id": holder["external_user_id"], "start_time": int(start.timestamp()), "duration": duration}
+                for holder in row["holders"]
+            ],
+        )
+    produced = build_resources(
+        captured_at=captured,
+        state=state,
+        bot_type=snapshot.get("bot_type", "QUEUE"),
+        platform="infoflow",
+        caller_id="demo-user",
+    )
+    runtime_fields = {"lock_status", "holders", "booking_list", "claimable_by_you", "claim_command"}
+    return {
+        **snapshot,
+        "resources": [
+            {**{key: value for key, value in original.items() if key not in runtime_fields}, **observed}
+            for original, observed in zip(snapshot["resources"], produced, strict=True)
+        ],
+    }
 
 
 def public_booking_rows(resources):
@@ -492,7 +540,12 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
             if fixture_version >= 25 and not checks["asks_which_target"]:
                 checks["asks_which_target"] = verified_candidate_clarification(
-                    final, requests, tools, sdk_resolutions, extended=fixture_version >= 27
+                    final,
+                    requests,
+                    tools,
+                    sdk_resolutions,
+                    extended=fixture_version >= 27,
+                    further=fixture_version >= 28,
                 )
         elif scenario == "intent-lock-duration-only":
             checks["asks_for_missing_target"] = bool(
@@ -538,7 +591,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
     )
 
 
-def verified_candidate_clarification(final, requests, tools, evidence, *, extended=False):
+def verified_candidate_clarification(final, requests, tools, evidence, *, extended=False, further=False):
     """Accept short choice prompts only for wire-proven, explicitly listed candidates."""
     commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
     if len(commands) != 1 or any(row.get("method") == "POST" for row in requests):
@@ -561,6 +614,10 @@ def verified_candidate_clarification(final, requests, tools, evidence, *, extend
     )
     if short_choice or not extended:
         return short_choice
+    if further and re.search(
+        r"(?:^|[。！？!?；;，,\n])\s*需要[你您]选(?:择)?(?:其中)?(?:一个|一台)再锁定\s*[：:]", final
+    ):
+        return True
     return bool(
         re.search(
             r"(?:^|[。！？!?；;，,\n])\s*需要[你您]指定(?:其中(?:一个|一台)|是哪(?:一个|个|一台|台))"
@@ -612,6 +669,17 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
             checks.pop("agent_read_inventory_before_target_selection", None)
             if "both_candidate_groups_examined" in checks:
                 checks["both_candidate_groups_examined"] = set(group_ids(scenario)) <= set(proven["observed_groups"])
+            if (
+                fixture_version >= 28
+                and scenario == "intent-public-ip-alias"
+                and not checks.get("observed_target_reported")
+            ):
+                checks["observed_target_reported"] = any(
+                    re.search(
+                        r"(?<![A-Za-z0-9_.-])" + re.escape(hint) + r"(?![A-Za-z0-9_.-]|\s*(?:小时|分钟|秒))", final
+                    )
+                    for hint in proven.get("verified_target_hints", [])
+                )
     elif proven.get("refusal") is True and scenario in {
         "intent-ambiguous",
         "intent-ambiguous-tail",
@@ -639,7 +707,7 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
             and not checks["asks_for_missing_target"]
         ):
             checks["asks_for_missing_target"] = verified_candidate_clarification(
-                final, requests, tools, evidence, extended=True
+                final, requests, tools, evidence, extended=True, further=fixture_version >= 28
             )
     return checks
 
@@ -962,7 +1030,16 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixt
                 command,
                 default_duration=SHORT_DEFAULT_DURATION if scenario in PUBLIC_IP_ALIAS_PROMPTS else None,
             )
-            and writes[0]["args"].get("operation") == operation
+            and (
+                writes[0]["args"].get("operation") == operation
+                or (
+                    fixture_version >= 28
+                    and scenario == "intent-ip-tail-held"
+                    and writes[0]["args"].get("operation") == "lock"
+                    and writes[0]["args"].get("nodes") == ["19"]
+                    and writes[0]["args"].get("duration") == "4h"
+                )
+            )
         )
         checks["cli_reported_verified_result"] = bool(writes and writes[0]["result"].get("result", {}).get("verified"))
         checks["verified_before_and_after"] = checks["exactly_one_correct_cli_write"] and mutation_observed(
