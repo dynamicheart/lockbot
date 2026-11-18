@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -89,6 +89,11 @@ def prepare(root, artifact, scenario, *, fixture_version=18):
             **case,
             "coherent_snapshot": b"coherent_resource_snapshot" in helper,
             "resource_aggregation": b'"resources-all"' in helper and b'"--mine"' in helper,
+            **(
+                {"confirmation_grading_version": 29}
+                if fixture_version >= 29 and scenario == "approved-enrollment"
+                else {}
+            ),
             **(
                 {"runtime_epoch": datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
                 if fixture_version >= 28
@@ -2443,6 +2448,27 @@ def score(root, final):
         instruction_present = f"bind {bind_code}" in final and (
             "群" in final and ("@" in final or "＠" in final) if uses_challenge else GROUP in final
         )
+        if (
+            fixture.case.get("confirmation_grading_version", 0) >= 29
+            and scenario == "approved-enrollment"
+            and not uses_challenge
+        ):
+            # This prompt never names a group. The legacy fixture's internal
+            # target is still checked below; its literal label is not a user
+            # requirement. Preserve v18-v28 verdicts, and require the actual
+            # human confirmation instructions rather than the hidden label.
+            instruction_present = (
+                bool(re.search(r"(?<![\w-])bind\s+" + re.escape(bind_code) + r"(?![\w-])", final))
+                and "群" in final
+                and ("@" in final or "＠" in final)
+                and bool(re.search(r"(?:本人|自己|你的).{0,12}(?:账号|账户|帐号)", final))
+                and not re.search(
+                    r"(?:使用|(?<!共)用)\s*(?:它|机器人|Agent)\s*(?:自己的?|的)?"
+                    r"\s*(?:聊天|群聊|如流|飞书|IM)?\s*(?:账号|账户|帐号)",
+                    final,
+                    re.IGNORECASE,
+                )
+            )
         checks.update(
             exactly_one_enrollment=posts
             == [{"url": base.ORIGIN + endpoint, "method": "POST", "authorization_present": False, "status": 201}],
@@ -2574,7 +2600,9 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28), default=18)
+    parser.add_argument(
+        "--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29), default=18
+    )
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")
