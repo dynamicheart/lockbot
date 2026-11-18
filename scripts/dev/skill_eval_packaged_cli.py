@@ -27,7 +27,7 @@ SWITCHES = {"--mine", "--exact-lease-times", "--help"}
 
 
 def enabled(case):
-    return case.get("fixture_family") == "onboarding" and case.get("fixture_version") == 7
+    return case.get("fixture_family") == "onboarding" and case.get("fixture_version") in {7, 8}
 
 
 def public_routing(fixture, args, known_paths):
