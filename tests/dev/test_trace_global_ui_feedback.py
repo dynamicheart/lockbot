@@ -44,7 +44,7 @@ console.log(JSON.stringify({selected,legacy:{ui:ids(uiComments),current:ids(curr
         "current": ["legacy"],
         "history": [],
     }
-    assert "界面点评 · 所有批次共用" in source
+    assert "界面评论 · 所有批次共用" in source
 
 
 @pytest.mark.parametrize(
@@ -73,7 +73,7 @@ function element(id,anchor){return {dataset:{reviewAnchor:anchor},closest(){retu
 const elements={'chat-tab':element('chat-tab'), 'case-title':element('case-title')};
 const document={querySelectorAll(){return [element('payload','ui:payload-tab'),
  element('message','message:0:0:text')];}};
-function select(id){return elements[id];} function reviewContext(){return {run_id:'current-b'};}
+function select(id){return elements[id];} function reviewContext(){return {run_id:'current-b',dataset_id:'batch-b'};}
 function draw(){draws++;} function setTimeout(){} function openStep(){opened.push(true);}
 const data={cases:{one:[{}, {}, {sessions:[[{role:'tools',steps:[['actual tool']],evidence:[{}]}]]}]}};
 locateReview(MESSAGE);

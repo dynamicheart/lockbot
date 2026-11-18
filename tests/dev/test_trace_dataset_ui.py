@@ -66,40 +66,24 @@ console.log(JSON.stringify({urls,run:reviewContext(),global:reviewContext('case'
     assert observed["unchanged"]
 
 
-def test_dataset_index_is_authenticated_and_selection_does_not_retarget_numeric_run():
-    script = (
+def test_current_catalog_selects_latest_comprehensive_base_and_subsequent_retests():
+    observed = run(
         function(VIEWER, "loadDatasets")
         + """
-const datasetId='a'.repeat(64), requests=[], routes=[];
-let token='private';
-const elements={'dataset-select':{replaceChildren(...items){this.items=items;}},'dataset-picker':{hidden:true}};
-function select(id){return elements[id];} function node(tag,text){return {tag,textContent:text};}
-const localStorage={getItem(){return token;}};
+const requests=[];
 const AbortSignal={timeout(){return 6000;}};
-function switchDatasetRoute(route){routes.push(Object.fromEntries(route));}
 async function fetch(url,options){requests.push({url,options});return {ok:true,async json(){return {datasets:[
- {dataset_id:'a'.repeat(64),title:'First'}, {dataset_id:'b'.repeat(64),title:'Second <script>'}]};}};}
-(async()=>{await loadDatasets();const picker=elements['dataset-select'];picker.value='b'.repeat(64);picker.onchange();
- console.log(JSON.stringify({requests,routes,labels:picker.items.map(item=>item.textContent),hidden:elements['dataset-picker'].hidden}));})()
+ {dataset_id:'a'.repeat(64),title:'old full',case_count:83},
+ {dataset_id:'b'.repeat(64),title:'current full',case_count:83},
+ {dataset_id:'c'.repeat(64),title:'partial retest',case_count:9}]};}};}
+(async()=>{console.log(JSON.stringify({catalog:await loadDatasets('private'),requests}));})();
 """
     )
-    observed = run(script)
-    assert observed["requests"][0]["url"] == "/api/dev/trace-review/datasets"
-    assert observed["requests"][0]["options"]["headers"]["Authorization"] == "Bearer private"
-    assert observed["requests"][0]["options"]["cache"] == "no-store"
-    assert observed["routes"] == [{"dataset_id": "b" * 64}]
-    assert observed["labels"] == ["历史看板", "First", "Second <script>"]
-    assert not observed["hidden"]
-    # An index response completing after logout must not expose its labels.
-    observed = run(
-        script.replace("requests.push({url,options});return", "requests.push({url,options});token='';return")
-        .replace(
-            "const picker=elements['dataset-select'];picker.value='b'.repeat(64);picker.onchange();",
-            "const picker=elements['dataset-select'];",
-        )
-        .replace("picker.items.map(item=>item.textContent)", "(picker.items||[]).map(item=>item.textContent)")
-    )
-    assert observed["hidden"] and observed["labels"] == []
+    assert [row["dataset_id"] for row in observed["catalog"]["datasets"]] == ["b" * 64, "c" * 64]
+    request = observed["requests"][0]
+    assert request["options"]["headers"] == {"Authorization": "Bearer private"}
+    assert request["options"]["cache"] == "no-store" and request["options"]["redirect"] == "error"
+    assert "dataset-select" not in VIEWER.read_text().split("</head>", 1)[1]
 
 
 def test_comments_carry_dataset_validation_and_namespace_while_global_patch_stays_global():

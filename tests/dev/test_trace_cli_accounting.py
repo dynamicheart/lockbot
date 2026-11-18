@@ -172,10 +172,10 @@ console.log(JSON.stringify({label:toolActivityLabel(steps,evidence),title:toolTi
         "title": "CLI 内部 HTTP · http_request",
         "efficiency": "模型工具 1 次 · CLI 1 次 · HTTP 1 次",
         "legacy": "1 次工具调用",
-        "diagnostic": "1 次模型工具调用 · 1 次 CLI 内部 HTTP · 1 项客户端诊断",
-        "diagnosticOnly": "客户端诊断",
-        "protocolOnly": "客户端诊断",
-        "legacyWithDiagnostic": "1 次工具调用 · 1 项客户端诊断",
+        "diagnostic": "1 次模型工具调用 · 1 次 CLI 内部 HTTP · 1 项运行日志",
+        "diagnosticOnly": "运行日志",
+        "protocolOnly": "运行日志",
+        "legacyWithDiagnostic": "1 次工具调用 · 1 项运行日志",
     }
     viewer = VIEWER.read_text()
     assert "toolActivityLabel(entry.steps,entry.evidence)" in viewer

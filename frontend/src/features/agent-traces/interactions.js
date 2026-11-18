@@ -1,5 +1,5 @@
-/* global scenarioGroups, data, select, node, actionNames, isFailed, choice, caseName, modelLabel, badge, pickCase, pickRun, icon, readRoute, draw, online, imported, cases, activeCase:writable, activeIndex:writable, activeTab:writable, openStep, datasetId, routeDataset, switchDatasetRoute */
-/* exported diagnosticDownload, callStatusDot, toolTitle, toolActivityLabel, runEfficiency, renderCaseNavigation, notifyReviewParent, selectedRuns, reviewBusy, userNavigation */
+/* global scenarioGroups, data, select, node, actionNames, isFailed, choice, caseName, modelLabel, badge, pickCase, pickRun, icon, readRoute, draw, online, imported, cases, activeCase:writable, activeIndex:writable, activeTab:writable, openStep, datasetId */
+/* exported diagnosticDownload, callStatusDot, toolTitle, toolActivityLabel, runEfficiency, renderCaseNavigation, notifyReviewParent, selectedRuns, reviewBusy, userNavigation, buildCurrentBoard */
 const selectedRuns = new Map();
 const expandedCases = new Set();
 let reviewBusy = false;
@@ -9,10 +9,12 @@ function callStatusDot(step, info) {
   const output = info?.output;
   const code = output?.exit_code ?? info?.exit_code;
   const failed = isFailed(step, info);
-  const complete = code === 0 || output?.installed === true ||
-    /^(成功|完成|调用完成|succeeded|completed)$/i.test(step[3]);
-  const state = failed ? 'failed' : complete ? 'complete' : 'unknown';
-  const label = failed ? '调用失败' : complete ? '调用完成' : '等待或结果未判定';
+  const diagnostic = /^native_client_(diagnostic|protocol|stderr)$/.test(step[0]);
+  const running = /^(运行中|执行中|等待中|running|pending|in_progress)$/i.test(step[3]);
+  const complete = !diagnostic && (code === 0 || output?.installed === true ||
+    /^(成功|完成|已返回|调用完成|succeeded|completed|returned)$/i.test(step[3]));
+  const state = failed ? 'failed' : running ? 'running' : complete ? 'complete' : 'unknown';
+  const label = failed ? '调用失败' : running ? '调用中' : complete ? '调用完成' : diagnostic ? '运行日志' : '状态未记录';
   const dot = node('span', null, 'call-status ' + state);
   dot.title = label;
   dot.setAttribute('role', 'img');
@@ -32,10 +34,10 @@ function toolActivityLabel(steps, evidence = []) {
   const internal = evidence.filter(info => info?.source === 'packaged_cli').length;
   const diagnostics = steps.filter(step => ['native_client_diagnostic', 'native_client_protocol',
     'native_client_stderr'].includes(step[0])).length;
-  if (diagnostics === steps.length && diagnostics) return '客户端诊断';
+  if (diagnostics === steps.length && diagnostics) return '运行日志';
   return internal ? (steps.length - internal - diagnostics) + ' 次模型工具调用 · ' + internal + ' 次 CLI 内部 HTTP' +
-    (diagnostics ? ' · ' + diagnostics + ' 项客户端诊断' : '') :
-    diagnostics ? (steps.length - diagnostics) + ' 次工具调用 · ' + diagnostics + ' 项客户端诊断' :
+    (diagnostics ? ' · ' + diagnostics + ' 项运行日志' : '') :
+    diagnostics ? (steps.length - diagnostics) + ' 次工具调用 · ' + diagnostics + ' 项运行日志' :
     steps.length + ' 次工具调用';
 }
 
@@ -151,6 +153,11 @@ function renderCaseNavigation() {
       const state = !multi && runs[0].state ? badge(runs[0]) : null;
       const button = choice(caseName(key), state, activeCase === key, () => pickCase(key));
       button.dataset.navKind = 'case';
+      if (data.updated_cases?.includes(key)) {
+        const dot = node('span', null, 'updated-dot');
+        dot.title = '已更新'; dot.setAttribute('role', 'img'); dot.setAttribute('aria-label', '已更新');
+        button.prepend(dot);
+      }
       row.append(button);
       item.append(row);
       if (multi && expandedCases.has(key)) {
@@ -179,12 +186,14 @@ function renderCaseNavigation() {
 
 function reviewContext(scope = 'run', caseId = activeCase) {
   const trial = data.cases[caseId]?.[activeIndex] ?? data.cases[caseId]?.[0];
+  const target = data.review_targets?.[caseId]?.[activeIndex] ?? data.review_targets?.[caseId]?.[0];
+  const sourceDataset = target?.dataset_id ?? datasetId;
   return {
     scope,
-    ...(online && !imported && datasetId ? {dataset_id:datasetId} : {}),
+    ...(online && !imported && sourceDataset ? {dataset_id:sourceDataset} : {}),
     case_id: caseId,
     case_name: caseName(caseId),
-    run_index: scope === 'case' ? null : activeIndex,
+    run_index: scope === 'case' ? null : target?.run_index ?? activeIndex,
     run_id: scope === 'case' || imported ? null : data.review_runs?.[caseId]?.[activeIndex] ?? null,
     model: scope === 'case' ? '' : trial?.model || '',
     server_backed: online && !imported && !!data.review_runs,
@@ -222,21 +231,21 @@ function requestReview(anchor, quote = '', fieldLabel = '', options = {}) {
 }
 select('review-case').onclick = () => requestReview('case', '', '测例', { scope: 'case' });
 
-const inspectorFeedback = node('button', '点评', 'quiet-button');
+const inspectorFeedback = node('button', '评论', 'quiet-button');
 inspectorFeedback.type = 'button';
 inspectorFeedback.onclick = () => requestReview(select('inspector-fields').dataset.reviewAnchor || 'run', '', '工具调用');
 select('inspector-close').before(inspectorFeedback);
 
 function offlineReview(message) {
   const dialog = node('dialog', null, 'offline-review');
-  const heading = node('h3', '点评');
-  const note = node('p', '离线点评会导出为文件，可交给我继续处理。', 'evidence-note');
+  const heading = node('h3', '评论');
+  const note = node('p', '离线评论会导出为文件，可交给我继续处理。', 'evidence-note');
   const quote = node('blockquote', message.quote);
   const input = node('textarea');
   input.rows = 5;
   input.maxLength = 4000;
-  input.setAttribute('aria-label', '点评内容');
-  const save = node('button', '导出点评', 'quiet-button');
+  input.setAttribute('aria-label', '评论内容');
+  const save = node('button', '导出评论', 'quiet-button');
   const cancel = node('button', '取消', 'quiet-button');
   save.type = cancel.type = 'button';
   save.onclick = () => {
@@ -258,7 +267,7 @@ function offlineReview(message) {
   input.focus();
 }
 
-const selectionComment = node('button', '点评选中文字', 'selection-comment quiet-button');
+const selectionComment = node('button', '评论选中文字', 'selection-comment quiet-button');
 selectionComment.type = 'button';
 selectionComment.hidden = true;
 let capturedSelection;
@@ -313,7 +322,7 @@ function locateReview(message) {
   const ui = /^ui:(case-title|run-title|counts|chat-tab|event-tab|case-nav|payload-tab)$/.test(anchor);
   if (anchor.startsWith('ui:') && !ui) return;
   if (!ui && (message.run_id !== reviewContext().run_id ||
-      (message.dataset_id ?? null) !== (datasetId ?? null))) return;
+      (message.dataset_id ?? null) !== (reviewContext().dataset_id ?? null))) return;
   const parts = String(message.anchor).split(':');
   if(parts[0]==='message' && activeTab!=='chat') {
     activeTab='chat';
@@ -343,12 +352,10 @@ addEventListener('message', event => {
     reviewBusy = message.open === true;
   } else if (message?.type === 'lockbot-trace-set-route' && message.route && typeof message.route === 'object') {
     const route = new URLSearchParams();
-    if (/^[a-f0-9]{64}$/.test(message.route.dataset_id || '')) route.set('dataset_id', message.route.dataset_id);
     if (typeof message.route.case === 'string' && message.route.case.length <= 256) route.set('case', message.route.case);
     if (/^\d{1,5}$/.test(message.route.run)) route.set('run', message.route.run);
     if (message.route.view === 'steps') route.set('view', 'steps');
     if (/^\d{1,5}$/.test(message.route.step)) route.set('step', message.route.step);
-    if (online && routeDataset(route) !== datasetId) { switchDatasetRoute(route, false); return; }
     if (location.hash.slice(1) !== route.toString()) {
       history.replaceState(null, '', '#' + route);
       readRoute();
@@ -393,3 +400,34 @@ resize.onkeydown = event => {
 let savedWidth = 280;
 try { savedWidth = Number(localStorage.getItem('lockbot_trace_sidebar_width')) || 280; } catch { /* Storage can be unavailable; keep the current input usable. */ }
 setSidebarWidth(savedWidth);
+
+function buildCurrentBoard(snapshots) {
+  if (!snapshots.length) throw new Error('No published results');
+  const base = snapshots[0].data;
+  const board = {...base, title:'LockBot 轨迹浏览器', cases:{}, review_runs:{}, review_targets:{}, updated_cases:[]};
+  delete board.dataset_id;
+  const grouped = new Map();
+  snapshots.forEach(({data: snapshot, metadata}, sourceIndex) => {
+    for (const field of ['labels','criteria','groups']) board[field] = {...board[field], ...snapshot[field]};
+    for (const [key, trials] of Object.entries(snapshot.cases)) {
+      if (!grouped.has(key)) grouped.set(key, new Map());
+      const families = new Map();
+      trials.forEach((trial, index) => {
+        const family = (trial.model || '').replace(/ · 阶段 \d+ 语义复核$/, '');
+        if (!families.has(family)) families.set(family, []);
+        families.get(family).push({trial, id:snapshot.review_runs?.[key]?.[index],
+          target:{dataset_id:metadata.dataset_id, run_index:index, title:metadata.title}});
+      });
+      for (const [family, entries] of families) grouped.get(key).set(family, entries);
+      if (sourceIndex > 0) board.updated_cases.push(key);
+    }
+  });
+  for (const [key, families] of grouped) {
+    const entries = [...families.values()].flat();
+    board.cases[key] = entries.map(entry => entry.trial);
+    board.review_runs[key] = entries.map(entry => entry.id);
+    board.review_targets[key] = entries.map(entry => entry.target);
+  }
+  board.updated_cases = [...new Set(board.updated_cases)];
+  return board;
+}

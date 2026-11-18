@@ -30,7 +30,7 @@ console.log(JSON.stringify({labels:data.cases.one.map((row,index)=>modelLabel(ro
         "labels": [
             "GPT-6.1 Sol · 记录 1",
             "GPT-6.1 Sol · 记录 2",
-            "GPT-6.1 Sol · 阶段 2 语义复核",
+            "GPT-6.1 Sol · 复核 2",
             "MiniMax M3",
             "GLM 5.3",
             "Kimi K3",
@@ -89,13 +89,13 @@ console.log(JSON.stringify({automatic:badge(automatic),semantic:badge(semantic),
  failure:trialStatus({state:'fail',source_run:'matrix:fail'}),unknown:trialStatus({state:'pass'})}));
 """
     )
-    assert observed["automatic"]["text"] == "自动检查通过"
-    assert "不代表完整验收通过" in observed["automatic"]["title"]
-    assert observed["semantic"]["text"] == "阶段复核未通过"
-    assert observed["uncertain"] == "阶段复核不确定"
-    assert observed["reviewed"] == "阶段复核已记录"
-    assert observed["failure"] == "自动检查未通过"
-    assert observed["unknown"] == "检查通过"
+    assert observed["automatic"]["text"] == "通过"
+    assert "独立复核" in observed["automatic"]["title"]
+    assert observed["semantic"]["text"] == "未通过"
+    assert observed["uncertain"] == "待确认"
+    assert observed["reviewed"] == "通过"
+    assert observed["failure"] == "未通过"
+    assert observed["unknown"] == "通过"
 
 
 def test_compact_mobile_controls_keep_accessible_labels_and_existing_anchor_ids():
@@ -111,7 +111,7 @@ def test_compact_mobile_controls_keep_accessible_labels_and_existing_anchor_ids(
 
     elements = Elements()
     elements.feed(VIEWER.read_text())
-    assert elements.ids["dataset-select"]["aria-label"] == "评测批次"
+    assert "dataset-select" not in elements.ids
     assert elements.ids["load-file"]["aria-label"] == "打开本地 JSON 轨迹文件"
     assert all(anchor in elements.ids for anchor in ("case-title", "run-title", "chat-tab", "event-tab", "case-nav"))
     css = VIEWER.with_name("viewer.css").read_text()

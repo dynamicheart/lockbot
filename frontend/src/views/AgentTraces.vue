@@ -3,10 +3,10 @@
     <iframe ref="viewer" :src="viewerUrl" title="Agent 轨迹" @load="synchronize" />
     <el-drawer v-model="reviewOpen" title="评审评论" :size="drawerWidth" :close-on-click-modal="false">
       <template v-if="draftContext">
-        <p class="review-context">{{ draftContext.case_name }} · {{ isUiComment(draftContext) ? '界面点评' : draftContext.scope === 'case' ? '测例点评' : draftContext.model }}</p>
+        <p class="review-context">{{ draftContext.case_name }} · {{ isUiComment(draftContext) ? '界面评论' : draftContext.scope === 'case' ? '测例评论' : draftContext.model }}</p>
         <p v-if="draftContext.anchor !== 'run'" class="review-field">{{ draftContext.field_label }}</p>
         <blockquote v-if="draftContext.quote">{{ draftContext.quote }}</blockquote>
-        <el-select v-if="draftContext.scope === 'case'" v-model="reviewSubject" :disabled="saving" aria-label="点评内容类别" class="review-subject">
+        <el-select v-if="draftContext.scope === 'case'" v-model="reviewSubject" :disabled="saving" aria-label="评论内容类别" class="review-subject">
           <el-option label="整体" value="general" />
           <el-option label="使用场景" value="scenario" />
           <el-option label="用户提示词" value="prompt" />
@@ -39,7 +39,7 @@
       </template>
       <el-divider />
       <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon />
-      <div v-if="caseComments.length" class="review-list-heading">测例点评 · 所有模型共用</div>
+      <div v-if="caseComments.length" class="review-list-heading">测例评论 · 所有模型共用</div>
       <article v-for="comment in caseComments" :key="comment.id" class="review-comment">
         <p class="review-field">{{ subjectLabels[comment.subject] || '整体' }}</p>
         <div class="review-comment-meta"><span>{{ comment.author }} · {{ localTime(comment.created_at) }}</span></div>
@@ -47,7 +47,7 @@
         <p>{{ comment.body }}</p>
         <el-button link @click="resolve(comment)">{{ comment.status === 'resolved' ? '重新打开' : '标记已处理' }}</el-button>
       </article>
-      <div v-if="uiComments.length" class="review-list-heading">界面点评 · 所有批次共用</div>
+      <div v-if="uiComments.length" class="review-list-heading">界面评论 · 所有批次共用</div>
       <article v-for="comment in uiComments" :key="comment.id" class="review-comment">
         <div class="review-comment-meta"><span>{{ comment.author }} · {{ localTime(comment.created_at) }}</span></div>
         <blockquote v-if="comment.quote">{{ comment.quote }}</blockquote>
