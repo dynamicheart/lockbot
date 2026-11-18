@@ -334,6 +334,14 @@ class ClientError(Exception):
         self.retry_after_seconds = retry_after_seconds
 
 
+class AutomaticScopeError(ClientError):
+    """A proven pre-dispatch refusal; no command has been sent."""
+
+    def __init__(self, code, question, **details):
+        super().__init__(code)
+        self.clarification = {"question_zh": question, **details}
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         fp.close()
@@ -2079,6 +2087,7 @@ class Client:
         model=None,
         minimum_model_count=None,
         group=None,
+        _selection_precondition=None,
     ):
         if devices and len(nodes) > 1 and not same_devices_on_all_nodes:
             raise ClientError("multi_node_device_selection_requires_explicit_same_devices")
@@ -2163,6 +2172,8 @@ class Client:
             raise ClientError("secret_in_metadata_refused")
         before = self.resources_with_hardware_notes(context) if model is not None else self.resources(context)
         self._require_fresh_snapshot(before)
+        if _selection_precondition is not None:
+            _selection_precondition(self, context, before)
         selected = self._selected(before, nodes, devices)
         if model is not None and not all(
             self._matches_model(item, model.strip().casefold(), card_bot, minimum_model_count) for item in selected
@@ -2204,6 +2215,8 @@ class Client:
             command += " " + duration
         if len(command) > 512:
             raise ClientError("command_too_large")
+        if _selection_precondition is not None:
+            _selection_precondition(self, context, before, final=True)
         started = self.clock()
         result = self._post_command(context, command, metadata)
         try:
@@ -2727,6 +2740,7 @@ def resources_all(
     root=None,
     opener=None,
     clock=time.monotonic,
+    _completed_at=None,
 ):
     """Read existing catalog scopes separately, sharing only the bounded request budget."""
     deadline, calls, clients = clock() + 60, 0, []
@@ -2843,6 +2857,8 @@ def resources_all(
             if client:
                 calls = client.calls
     completed_at = clock()
+    if _completed_at is not None:
+        _completed_at.append(completed_at)
     if "scan" in catalog:
         scan = scan_budget.summary()
     for client, snapshot, locator, context in observations:
@@ -2887,6 +2903,376 @@ def resources_all(
     )
 
 
+def _automatic_resources(snapshot, context):
+    """Validate full observations; a compact overview cannot prove uniqueness."""
+    resources = snapshot.get("resources")
+    kind = context.get("bot", {}).get("type")
+    if (
+        snapshot.get("health") != "running"
+        or context.get("agent_access_enabled") is not True
+        or not isinstance(kind, str)
+        or kind not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"}
+    ):
+        raise AutomaticScopeError("automatic_scope_unhealthy", "资源状态暂时无法确认，请稍后再试。")
+    card_bot = kind in {"DEVICE", "QUEUE_DEVICE"}
+    queued = kind in {"QUEUE", "QUEUE_DEVICE"}
+    if not isinstance(resources, list):
+        raise AutomaticScopeError("automatic_inventory_invalid", "资源列表不完整，无法确定目标。")
+    operations = snapshot.get("supported_operations")
+    if not isinstance(operations, list) or any(not isinstance(item, str) or not item for item in operations):
+        raise AutomaticScopeError("automatic_operations_invalid", "资源操作范围无法确认，未发送命令。")
+    try:
+        captured = datetime.fromisoformat(snapshot["captured_at"].replace("Z", "+00:00"))
+        if captured.utcoffset() is None:
+            raise ValueError
+    except (KeyError, AttributeError, TypeError, ValueError):
+        raise AutomaticScopeError("automatic_snapshot_unverifiable", "资源观察时间无法确认，未发送命令。") from None
+    indexed = {}
+    for resource in resources:
+        identifier = resource.get("id") if isinstance(resource, dict) else None
+        if (
+            not isinstance(identifier, str)
+            or not re.fullmatch(r"[^\s,\x00-\x1f\x7f]+", identifier)
+            or identifier in indexed
+            or ("alias" in resource and resource["alias"] is not None and not isinstance(resource["alias"], str))
+        ):
+            raise AutomaticScopeError("automatic_inventory_invalid", "资源标识有冲突，无法确定目标。")
+        cards = resource.get("devices")
+        if card_bot and (not isinstance(cards, list) or not cards) or not card_bot and "devices" in resource:
+            raise AutomaticScopeError("automatic_inventory_invalid", "资源分配方式暂时无法确认。")
+        units = cards if card_bot else [resource]
+        seen = set()
+        for unit in units:
+            device = unit.get("id") if isinstance(unit, dict) else None
+            if card_bot and (
+                type(device) not in (str, int)
+                or not re.fullmatch(r"0|[1-9][0-9]{0,4}", str(device))
+                or str(device) in seen
+            ):
+                raise AutomaticScopeError("automatic_inventory_invalid", "卡标识有冲突，无法确定完整选择。")
+            if card_bot:
+                seen.add(str(device))
+            holders = unit.get("holders")
+            bookings = unit.get("booking_list", None if queued else [])
+            state = unit.get("lock_status")
+            if (
+                not isinstance(state, str)
+                or state not in {"idle", "exclusive", "shared"}
+                or not isinstance(holders, list)
+                or not isinstance(bookings, list)
+                or any(
+                    not isinstance(row, dict)
+                    or not isinstance(row.get("external_user_id"), str)
+                    or not row["external_user_id"]
+                    for row in holders + bookings
+                )
+                or (state == "idle" and holders)
+                or (state in {"exclusive", "shared"} and not holders)
+                or (state == "exclusive" and len(holders) != 1)
+            ):
+                raise AutomaticScopeError("automatic_inventory_invalid", "占用或队列状态不完整，无法安全操作。")
+        indexed[identifier] = resource
+    return indexed
+
+
+def _automatic_addresses(resource):
+    addresses = set()
+    for unit in (resource, *resource.get("devices", [])):
+        access = _node_address(unit.get("node_access"))
+        if access:
+            for field in ("ip", "host"):
+                with suppress(ValueError):
+                    addresses.add(str(ipaddress.IPv4Address(access.get(field))))
+    return addresses
+
+
+def _automatic_match(resource, hint):
+    kinds = []
+    if resource["id"].casefold() == hint.casefold():
+        kinds.append("id")
+    if isinstance(resource.get("alias"), str) and resource["alias"].casefold() == hint.casefold():
+        kinds.append("alias")
+    addresses = _automatic_addresses(resource)
+    if hint in addresses:
+        kinds.append("observed_ipv4")
+    elif (
+        re.fullmatch(r"0|[1-9][0-9]{0,2}", hint)
+        and int(hint) <= 255
+        and any(address.rsplit(".", 1)[1] == hint for address in addresses)
+    ):
+        kinds.append("observed_ipv4_octet")
+    return kinds
+
+
+def _automatic_scope_identity(identity):
+    return (
+        origin(identity["origin"]),
+        identity["instance_id"],
+        identity["bot"]["uuid"],
+        identity["actor"]["platform"],
+        identity["actor"]["external_user_id"],
+    )
+
+
+def _automatic_selector_evidence(resource, hint):
+    kinds = _automatic_match(resource, hint)
+    addresses = tuple(
+        sorted(
+            address
+            for address in _automatic_addresses(resource)
+            if address == hint or "observed_ipv4_octet" in kinds and address.rsplit(".", 1)[1] == hint
+        )
+    )
+    return kinds, resource.get("alias") if "alias" in kinds else None, addresses
+
+
+def _automatic_policy(client, context, snapshot, selected, args):
+    rules = context.get("bot_rules", {})
+    if not isinstance(rules, dict):
+        raise AutomaticScopeError("automatic_policy_invalid", "资源规则暂时无法确认，未发送命令。")
+    if any(
+        field in rules and (type(rules[field]) is not int or rules[field] < -1)
+        for field in ("max_resources_per_user", "effective_max_lock_duration_seconds")
+    ):
+        raise AutomaticScopeError("automatic_policy_invalid", "资源限制无法确认，未发送命令。")
+    cap = rules.get("max_resources_per_user")
+    if args.operation in {"lock", "slock", "book"} and type(cap) is int and cap >= 0:
+        claimed = snapshot.get("resource_policy", {}).get("claimed_resource_count")
+        if type(claimed) is not int or claimed < 0 or claimed + len(selected) > cap:
+            raise AutomaticScopeError("automatic_resource_limit", "无法确认完整申请满足当前资源数量限制。")
+    ceiling = rules.get("effective_max_lock_duration_seconds")
+    if args.operation in {"release", "claim"}:
+        # Claim duration is deliberately not exposed by booking snapshots. The
+        # existing claim guard sends no duration and preserves the server's booking.
+        return
+    if args.duration is None:
+        seconds = rules.get("default_duration_seconds")
+    else:
+        seconds = float(args.duration[:-1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[args.duration[-1]]
+    actor = context["actor"]["external_user_id"]
+    for unit in selected:
+        total = seconds
+        if args.operation == "renew":
+            holding = client._own(unit["holders"], actor)
+            try:
+                remaining = client._expiry(holding) - client._expiry({"expires_at": snapshot["captured_at"]})
+                remaining -= snapshot["age_seconds"] + client.clock() - client._resource_request_started
+                if remaining <= 0:
+                    raise ValueError
+                total += remaining
+            except (KeyError, TypeError, ValueError):
+                raise AutomaticScopeError(
+                    "automatic_lease_unverifiable", "无法确认当前租期，未发送续期命令。"
+                ) from None
+        if (
+            type(total) not in (float, int)
+            or not math.isfinite(total)
+            or total <= 0
+            or (type(ceiling) is int and ceiling >= 0 and total > ceiling)
+        ):
+            raise AutomaticScopeError("automatic_duration_limit", "所需租期无法满足当前时长限制。")
+
+
+def resolve_command_scope(args, *, clock=None):
+    """Resolve literal caller hints, never infer or authenticate the user's intent."""
+    clock = clock or time.monotonic
+    deadline = clock() + 60
+    hints = args.node
+    if (
+        not hints
+        or len(hints) > 64
+        or len(set(hints)) != len(hints)
+        or any(not hint or len(hint) > 256 or not hint.isprintable() or hint != hint.strip() for hint in hints)
+    ):
+        raise AutomaticScopeError("explicit_unique_node_hints_required", "请给出明确且不重复的节点标识。")
+    finished = []
+    catalog = resources_all(exact_lease_times=True, clock=clock, _completed_at=finished)
+    result = catalog["result"]
+    budget = {"http_limit": MAX_CALLS, "used_http_requests": result["http_requests"], "deadline_seconds": 60}
+    if (
+        result.get("complete") is not True
+        or result.get("unread")
+        or result.get("catalog_count_exact") is not True
+        or catalog.get("update_required")
+    ):
+        raise AutomaticScopeError(
+            "automatic_scope_incomplete",
+            "部分资源未读到或状态过旧，尚不能唯一确定目标。",
+            request_budget=budget,
+        )
+    completed = finished[0]
+    groups = result["groups"]
+    inventories = [_automatic_resources(group["snapshot"], group["snapshot"]["context"]) for group in groups]
+    matches = []
+    for hint in hints:
+        candidates = []
+        for index, (group, inventory) in enumerate(zip(groups, inventories, strict=True)):
+            if args.group is not None and group["identity"]["bot"]["name"] != args.group:
+                continue
+            for resource in inventory.values():
+                kinds = _automatic_match(resource, hint)
+                if kinds:
+                    candidates.append((index, resource["id"], kinds))
+        if len(candidates) != 1:
+            public = [
+                {"group": groups[index]["identity"]["bot"]["name"], "node": node, "scope": groups[index]["identity"]}
+                for index, node, _ in candidates[:8]
+            ]
+            raise AutomaticScopeError(
+                "automatic_target_ambiguous" if candidates else "automatic_target_missing",
+                "找到多个匹配，请指定其中一个。" if candidates else "没有找到可验证的匹配，请给节点名或别名。",
+                hint=hint,
+                candidates=public,
+                candidate_count=len(candidates),
+            )
+        matches.append(candidates[0])
+    if len({index for index, _, _ in matches}) != 1:
+        raise AutomaticScopeError("automatic_cross_scope_selection", "这些目标属于不同资源范围，请分别明确选择。")
+    nodes = [node for _, node, _ in matches]
+    if len(set(nodes)) != len(nodes):
+        raise AutomaticScopeError("automatic_duplicate_target", "多个标识指向同一节点，请明确所需目标。")
+    index = matches[0][0]
+    group, inventory = groups[index], inventories[index]
+    expected_scope = _automatic_scope_identity(group["identity"])
+    card_bot = group["identity"]["bot"]["type"] in {"DEVICE", "QUEUE_DEVICE"}
+    devices = list(args.device)
+    if card_bot:
+        if args.whole_node:
+            raise AutomaticScopeError("automatic_resource_mode_mismatch", "该目标按卡分配，不能改为整机申请。")
+        if not devices:
+            if args.operation not in {"lock", "slock", "book"}:
+                raise AutomaticScopeError("unsupported_automatic_operation", "此按卡操作需要明确卡标识。")
+            devices = [str(card["id"]) for card in inventory[nodes[0]]["devices"]]
+            if any({str(card["id"]) for card in inventory[node]["devices"]} != set(devices) for node in nodes):
+                raise AutomaticScopeError(
+                    "automatic_device_sets_differ", "各节点的卡集合不同，无法作为一条完整命令执行。"
+                )
+    elif devices:
+        raise AutomaticScopeError("automatic_resource_mode_mismatch", "该目标按整机分配，不能改为卡申请。")
+    if devices and len(nodes) > 1 and not args.same_devices_on_all_nodes:
+        raise AutomaticScopeError(
+            "automatic_multinode_devices_unspecified", "多个节点需要明确相同卡集合，不能自动拆分。"
+        )
+    if len(set(devices)) != len(devices) or any(not re.fullmatch(r"0|[1-9][0-9]{0,4}", device) for device in devices):
+        raise AutomaticScopeError("automatic_device_selection_invalid", "请给出明确且不重复的卡标识。")
+    if args.device_count is not None and args.device_count != len(nodes) * len(devices):
+        raise AutomaticScopeError("automatic_device_count_mismatch", "完整选择与所需卡数不一致，未缩小或替换目标。")
+    for node in nodes:
+        if devices and set(devices) - {str(card["id"]) for card in inventory[node]["devices"]}:
+            raise AutomaticScopeError("automatic_device_missing", "所需卡不在该节点中，未替换为其他卡。")
+    signatures = {
+        node: sorted((str(card["id"]), card.get("dev_model")) for card in inventory[node].get("devices", []))
+        for node in nodes
+    }
+    selector_evidence = [
+        _automatic_selector_evidence(inventory[node], hint) for hint, node in zip(hints, nodes, strict=True)
+    ]
+    evidence = {
+        "scope": "saved_connections_only",
+        "complete": True,
+        "observed_scopes": len(groups),
+        "selected_scope": group["identity"],
+        "matches": [
+            {"hint": hint, "node": node, "match_kinds": kinds}
+            for hint, (_, node, kinds) in zip(hints, matches, strict=True)
+        ],
+        "resolved_devices": devices,
+        "selection_checked_before_post": False,
+    }
+    client = Client(group["connection"]["connection"], clock=clock)
+    client.node_access = None  # All automatic observations remain in memory, including selected pre-reads.
+    if connection_scope(client.config) != expected_scope:
+        raise AutomaticScopeError("automatic_scope_changed", "连接身份发生变化，请重新确认目标。")
+    client.calls, client.deadline = result["http_requests"], deadline
+    if client.calls + 3 > MAX_CALLS or clock() >= deadline:
+        raise AutomaticScopeError(
+            "automatic_request_budget_exhausted",
+            "查询预算不足，未发送资源命令。",
+            request_budget={**budget, "used_http_requests": client.calls},
+            resolution=evidence,
+        )
+    client.discover()  # This is the selected command's existing anonymous manifest check, not an extra request.
+    coherent = "coherent_resource_snapshot" in client.manifest.get("capabilities", ())
+    # Legacy verification may retry its read once; reserve that before dispatch as well.
+    reserve = 2 if coherent else 5
+    if client.calls + reserve > MAX_CALLS or clock() >= deadline:
+        raise AutomaticScopeError(
+            "automatic_request_budget_exhausted",
+            "查询预算不足，未发送资源命令。",
+            request_budget={**budget, "used_http_requests": client.calls},
+            resolution=evidence,
+        )
+
+    evidence["http_requests_before_selected_read"] = client.calls
+
+    def precondition(selected_client, context, snapshot, *, final=False):
+        fresh_identity = {
+            "origin": selected_client.base,
+            "instance_id": context["server"]["instance_id"],
+            "bot": context["bot"],
+            "actor": context["actor"],
+        }
+        if _automatic_scope_identity(fresh_identity) != expected_scope:
+            raise AutomaticScopeError("automatic_scope_changed", "目标身份发生变化，未发送资源命令。")
+        now = clock()
+        if any(
+            not group["snapshot"].get("snapshot_fresh_for_write")
+            or metric_number(group["snapshot"].get("age_seconds")) is None
+            or group["snapshot"]["age_seconds"] + now - completed > MAX_RESOURCE_SNAPSHOT_AGE
+            for group in groups
+        ) or not selected_client._snapshot_fresh_for_write(snapshot, selected_client._resource_request_started):
+            raise AutomaticScopeError("automatic_snapshot_stale", "资源状态已过旧，未发送资源命令。")
+        needed = 1 if coherent else 3
+        if selected_client.calls + needed > MAX_CALLS or now >= deadline:
+            raise AutomaticScopeError(
+                "automatic_request_budget_exhausted",
+                "剩余预算不足以完成验证，未发送命令。",
+                request_budget={**budget, "used_http_requests": selected_client.calls},
+                resolution=evidence,
+            )
+        if final:
+            evidence["selection_checked_before_post"] = True
+            evidence["http_requests_before_post"] = selected_client.calls
+            return
+        fresh = _automatic_resources(snapshot, context)
+        for hint, node, original in zip(hints, nodes, selector_evidence, strict=True):
+            if [item["id"] for item in fresh.values() if _automatic_match(item, hint)] != [node]:
+                raise AutomaticScopeError("automatic_target_changed", "标识对应的目标发生变化，未发送资源命令。")
+            if _automatic_selector_evidence(fresh[node], hint) != original:
+                raise AutomaticScopeError("automatic_target_changed", "别名或地址证据发生变化，未发送资源命令。")
+            if (
+                sorted((str(card["id"]), card.get("dev_model")) for card in fresh[node].get("devices", []))
+                != signatures[node]
+            ):
+                raise AutomaticScopeError("automatic_device_set_changed", "节点的完整卡集合发生变化，未发送资源命令。")
+        selected = selected_client._selected(snapshot, nodes, devices)
+        if args.model is not None and not all(
+            selected_client._matches_model(item, args.model.strip().casefold(), card_bot, args.minimum_model_count)
+            for item in selected
+        ):
+            raise AutomaticScopeError(
+                "selected_resource_model_unverified_or_insufficient", "所需型号或数量无法确认，未申请未知硬件。"
+            )
+        for unit in selected:
+            bookings = unit.get("booking_list", [])
+            if args.operation in {"lock", "slock"} and (
+                bookings or unit["lock_status"] not in ({"idle"} if args.operation == "lock" else {"idle", "shared"})
+            ):
+                raise AutomaticScopeError("automatic_resource_conflict", "完整目标存在占用或排队冲突，未选择部分资源。")
+            if args.operation == "release" and not selected_client._own(
+                unit["holders"] + bookings, context["actor"]["external_user_id"]
+            ):
+                raise AutomaticScopeError("automatic_release_not_owned", "未确认持有或预约该资源，未发送释放命令。")
+        _automatic_policy(selected_client, context, snapshot, selected, args)
+
+    return client, {
+        "nodes": nodes,
+        "devices": devices,
+        "precondition": precondition,
+        "resolution": evidence,
+    }
+
+
 def runtime_compatible():
     return sys.version_info >= (3, 10)
 
@@ -2897,8 +3283,9 @@ def main(argv=None):
         return 2
     parser = SafeParser(
         description="Install the LockBot Skill, manage private connections, and query or allocate compute resources.",
-        epilog="Run SUBCOMMAND --help for its options. Start with connections, then pass --connection FILE before "
-        "context, resources, or command. Supply Key file paths only.",
+        epilog="Run SUBCOMMAND --help for its options. Use resources-all to query saved groups. command without "
+        "--connection resolves node hints across saved groups. Other scoped actions need --connection FILE. "
+        "Supply Key file paths only.",
     )
     parser.add_argument(
         "--connection", help="Verified private connection JSON file (POSIX 0600 or Windows private ACL)"
@@ -3006,12 +3393,17 @@ def main(argv=None):
     command = sub.add_parser(
         "command",
         help="Allocate, book, claim, renew, or release exact resources",
-        description="Use the selected connection to send one resource operation and read back its result.",
-        epilog="Example: --connection CONNECTION command --operation lock --node node-01 --device 0 --duration 30m",
+        description="Send one resource operation. Without --connection, resolve unique node hints across saved "
+        "groups and recheck the selection before writing. With --connection, use exact observed node IDs.",
+        epilog="Examples: command --operation lock --node 19; "
+        "--connection CONNECTION command --operation lock --node node-01 --device 0 --duration 30m",
     )
     command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "claim", "renew", "release"])
     command.add_argument(
-        "--node", action="append", required=True, help="Exact node ID from resources. Repeat for multiple nodes."
+        "--node",
+        action="append",
+        required=True,
+        help="Exact node ID, or an alias/observed IPv4 suffix when --connection is omitted. Repeat for more nodes.",
     )
     command.add_argument(
         "--device", action="append", default=[], help="Exact device ID on the selected node. Repeat for more cards."
@@ -3044,8 +3436,11 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     client = None
+    automatic = None
     try:
-        if args.action == "command" and args.whole_node == bool(args.device):
+        if args.action == "command" and (
+            args.whole_node and args.device or args.connection is not None and args.whole_node == bool(args.device)
+        ):
             raise ClientError("select_devices_or_explicit_whole_nodes")
         if args.action == "connections":
             if args.connection:
@@ -3081,7 +3476,9 @@ def main(argv=None):
         enrollment_actions = {"enroll", "key-challenge", "enrollment-status", "finish-enrollment"}
         if args.action in enrollment_actions and args.connection:
             raise ClientError("enrollment_requires_new_connection")
-        if args.action in {"enrollment-status", "finish-enrollment"}:
+        if args.action == "command" and args.connection is None:
+            client, automatic = resolve_command_scope(args)
+        elif args.action in {"enrollment-status", "finish-enrollment"}:
             path, state = enrollment_state(args.enrollment_dir)
             client = Client(approved_origin=state.get("approved_origin"))
         elif args.action in {"discover", "install", "init", "enroll", "key-challenge"} or args.connection:
@@ -3142,8 +3539,8 @@ def main(argv=None):
             metadata = private_json(args.metadata_file) if args.metadata_file else {}
             result = client.command(
                 args.operation,
-                args.node,
-                args.device,
+                automatic["nodes"] if automatic else args.node,
+                automatic["devices"] if automatic else args.device,
                 args.duration,
                 metadata,
                 same_devices_on_all_nodes=args.same_devices_on_all_nodes,
@@ -3151,7 +3548,10 @@ def main(argv=None):
                 model=args.model,
                 minimum_model_count=args.minimum_model_count,
                 group=args.group,
+                **({"_selection_precondition": automatic["precondition"]} if automatic else {}),
             )
+            if automatic:
+                result["resolution"] = automatic["resolution"]
         else:
             result = client.metrics(args.node)
         if args.action in {"resources", "command"} and not args.exact_lease_times:
@@ -3174,6 +3574,26 @@ def main(argv=None):
         return 0
     except ClientError as exc:
         output = {"error": exc.code, "retry_mutation": False}
+        if isinstance(exc, AutomaticScopeError):
+            output.update(command_sent=False, clarification=redacted_values(exc.clarification))
+        elif args.action == "command" and args.connection is None:
+            questions = {
+                "resource_snapshot_stale_or_unverifiable": "资源状态已过旧，未发送资源命令。",
+                "request_budget_exhausted": "查询预算已耗尽，未发送资源命令。",
+                "context_actor_mismatch_reinitialize_connection_without_rotating_key": "连接身份无法确认，未发送命令。",
+                "context_identity_mismatch": "目标身份无法确认，未发送命令。",
+                "resource_snapshot_identity_mismatch": "资源身份无法确认，未发送命令。",
+            }
+            # These raw errors originate in pre-reads. The same failures after
+            # dispatch are wrapped by command() as an unverified/uncertain write.
+            if exc.code in questions:
+                output.update(command_sent=False, clarification={"question_zh": questions[exc.code]})
+                if exc.code == "request_budget_exhausted":
+                    output["clarification"]["request_budget"] = {
+                        "http_limit": MAX_CALLS,
+                        "used_http_requests": client.calls if client else None,
+                        "deadline_seconds": 60,
+                    }
         if args.action == "enroll" and exc.code == "use_key_challenge":
             command = ["key-challenge", "--origin", args.origin, "--scope", args.scope, "--authorized"]
             if args.destination:

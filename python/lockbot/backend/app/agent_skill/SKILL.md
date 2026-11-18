@@ -21,15 +21,15 @@ description: >
 
 ## Select and act
 
-`resources` returns verified rules/context; avoid immediate `discover/context` rereads. Use exact `inventory_overview` node/card IDs (including 0), never renumber. Recheck later ownership/expiry; stop workload use if unverifiable.
+`resources` returns verified rules/context; avoid immediate `discover/context` rereads. Use exact `inventory_overview` IDs (including card 0); never renumber. Recheck later ownership/expiry; stop workload use if unverifiable.
 
 Query `--model/--node` filters are not full inventory. Use `--with-metrics` for load questions, `--full` for debugging. Unknown hardware stays unknown.
 
-1. Resolve exact IDs, aliases or observed IPv4 last octets across authorized groups (19 never matches 119). Aliases prove no address; names prove no hardware. Require `snapshot_fresh_for_write`; verify model, quantity, mode, duration and same-node constraints. Stale/ambiguous/unverified means NO command. Pass requested `--model`, `--device-count`, `--minimum-model-count` and named `--group`.
-2. Node-only `lock/slock/book`: whole-node groups use `--whole-node`; card groups enumerate ALL observed `--device`s in ONE command. No silent subset: report conflicts/shortfalls. Never turn card requests into whole nodes/change groups. Different card sets need separate node commands; stop on uncertainty.
+1. Unscoped node: `command --operation <op> --node <user-hint>` WITHOUT `--connection`; no preliminary query. SDK resolves exact ID/alias/observed IPv4 suffix across saved scopes, rechecks before writing. Preserve requested `--model`, `--device-count`, `--minimum-model-count`, `--group`. Missing/ambiguous/incomplete: inspect or clarify, never drop constraints or guess.
+2. Node-only `lock/slock/book`: SDK infers whole-node vs ALL observed cards from verified group mode. Explicit cards: repeat `--device`. One command, no silent subset or changed mode/group; different card sets need separate commands. Without a node hint, query then select a verified target; inventory cannot resolve duration-only follow-ups.
 3. Preserve supported chat operation/mode. Lock idle matches with empty queues; `book` is an authorized FIFO queue, NOT a calendar reservation. Booked duration starts on claim, not while waiting. New lock/slock/book: omit `--duration` if unspecified for the live default; ask if unavailable. `claim`: idle `claimable_by_you`, starts use with ORIGINAL booked duration, omit duration. `release`: exact holding/booking, no duration/rebooking.
 4. A NEW explicit lock/slock on a fresh verified own holding in the SAME mode maps to CLI `renew`: ADD requested time or verified live group default (else ask), only if relock allowed. Never renew from polling/time passage/uncertain writes. Mixed/unknown modes stop.
-5. Each intended change: ONE POST; require `verified` + `verified_snapshot`. Fix proven zero-HTTP argument errors locally. Sent/uncertain writes: read/report, NO replay/alternate target/HTTP bypass. Honor `Retry-After`. Updates/incompatibility block writes until matching instructions load; no rebind.
+5. Each change: ONE POST; require `verified` + `verified_snapshot`. Fix proven zero-HTTP argument errors locally. Sent/uncertain writes: read/report, NO replay/alternate target/HTTP bypass. Honor `Retry-After`. Updates/incompatibility block writes until matching instructions load; no rebind.
 
 ## Install or connect
 

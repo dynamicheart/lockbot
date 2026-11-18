@@ -1,5 +1,40 @@
 # Resource operations and leases
 
+## Resolve a short node request in one CLI invocation
+
+For an explicit node request such as “lock 19”, preserve the user's literal target:
+
+```sh
+python /absolute/path/scripts/lockbot_cli.py command --operation lock --node 19
+python /absolute/path/scripts/lockbot_cli.py command --operation slock --node 19 --device 0 --duration 4h
+```
+
+Omit `--connection` to let the SDK read every saved authorized scope, resolve a unique
+exact node ID, alias or observed IPv4 last octet, and recheck the selected scope and
+original evidence immediately before the single resource POST. `19` never matches
+`119`, and an alias does not establish an address. No new credentials or resource
+cache is created. A two-group coherent command uses six GETs and one POST, but only
+one CLI/model tool roundtrip. If conversation already identifies a verified scope, reuse
+its exact private `--connection` and node ID. That scoped flow still requires
+`--whole-node` or explicit `--device` selectors; it does not infer allocation mode.
+
+Pass every user constraint, including model, card count, minimum accelerators and an
+explicit group; automatic selection cannot recover constraints omitted by the caller.
+For node-only lock/slock/book, omit both `--whole-node` and `--device`: verified group
+mode selects the whole node or its entire observed card set, never an available subset.
+Repeated `--node` targets must resolve to one scope; shared card selections on multiple
+nodes require `--same-devices-on-all-nodes` and identical card sets. Card claim/renew/release
+still require explicit card IDs. For existing own holdings, follow the renewal rules below.
+
+Incomplete, stale, ambiguous, conflicting, unsupported or over-budget selection stops
+before POST. Proven unsent selection refusals include `command_sent:false` and clarification. Inspect or clarify a
+proven unsent refusal; never remove requested constraints, switch targets or bypass the
+CLI to force success. A sent or uncertain result must never be replayed. Success includes
+`result.resolution` evidence and the normal verified mutation result. The selection is
+rechecked before dispatch; this is not a cross-group transaction or a reservation while
+reading. With no node hint, query resources first; “lock 一天” still needs a unique target
+from conversation rather than a guess from inventory. Finding resources remains read-only.
+
 ## Hardware matching, node addresses and aliases
 
 For NODE and QUEUE resources, an operator may register accelerator inventory.
@@ -11,7 +46,7 @@ Pass the user's required model as `command --model P800`. For a whole machine th
 have at least two P800 accelerators, pass `--whole-node --minimum-model-count 2`. The CLI rechecks
 the exact selected machine or cards against its fresh read before sending the request.
 To acquire two cards on the same node, repeat `--device` in one `lock` command and use
-`--device-count 2`. A request with only one selected card fails before contacting the service.
+`--device-count 2`. A request with only one selected card fails before any resource write.
 
 If the server omits `accelerators`, you may keep a private, local hardware note for a
 known node using user-confirmed information or a trusted machine inventory the user
