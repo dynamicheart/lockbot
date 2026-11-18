@@ -3080,20 +3080,31 @@ def _automatic_addresses(resource):
     return addresses
 
 
+def _automatic_ipv4_alias(resource):
+    """An IPv4-shaped public label is a selector, never node-access evidence."""
+    alias = resource.get("alias")
+    if isinstance(alias, str):
+        with suppress(ValueError):
+            address = str(ipaddress.IPv4Address(alias))
+            if address == alias:
+                return address
+    return None
+
+
 def _automatic_match(resource, hint):
     kinds = []
     if resource["id"].casefold() == hint.casefold():
         kinds.append("id")
     if isinstance(resource.get("alias"), str) and resource["alias"].casefold() == hint.casefold():
         kinds.append("alias")
+    octet = re.fullmatch(r"0|[1-9][0-9]{0,2}", hint) and int(hint) <= 255
+    public_alias = _automatic_ipv4_alias(resource)
+    if octet and public_alias is not None and public_alias.rsplit(".", 1)[1] == hint:
+        kinds.append("public_ipv4_alias_octet")
     addresses = _automatic_addresses(resource)
     if hint in addresses:
         kinds.append("observed_ipv4")
-    elif (
-        re.fullmatch(r"0|[1-9][0-9]{0,2}", hint)
-        and int(hint) <= 255
-        and any(address.rsplit(".", 1)[1] == hint for address in addresses)
-    ):
+    elif octet and any(address.rsplit(".", 1)[1] == hint for address in addresses):
         kinds.append("observed_ipv4_octet")
     return kinds
 
@@ -3117,7 +3128,7 @@ def _automatic_selector_evidence(resource, hint):
             if address == hint or "observed_ipv4_octet" in kinds and address.rsplit(".", 1)[1] == hint
         )
     )
-    return kinds, resource.get("alias") if "alias" in kinds else None, addresses
+    return kinds, resource.get("alias") if {"alias", "public_ipv4_alias_octet"}.intersection(kinds) else None, addresses
 
 
 def _automatic_policy(client, context, snapshot, selected, args):
@@ -3324,10 +3335,6 @@ def resolve_command_scope(args, *, clock=None):
                 request_budget={**budget, "used_http_requests": selected_client.calls},
                 resolution=evidence,
             )
-        if final:
-            evidence["selection_checked_before_post"] = True
-            evidence["http_requests_before_post"] = selected_client.calls
-            return
         fresh = _automatic_resources(snapshot, context)
         for hint, node, original in zip(hints, nodes, selector_evidence, strict=True):
             if [item["id"] for item in fresh.values() if _automatic_match(item, hint)] != [node]:
@@ -3339,6 +3346,10 @@ def resolve_command_scope(args, *, clock=None):
                 != signatures[node]
             ):
                 raise AutomaticScopeError("automatic_device_set_changed", "节点的完整卡集合发生变化，未发送资源命令。")
+        if final:
+            evidence["selection_checked_before_post"] = True
+            evidence["http_requests_before_post"] = selected_client.calls
+            return
         selected = selected_client._selected(snapshot, nodes, devices)
         if args.model is not None and not all(
             selected_client._matches_model(item, args.model.strip().casefold(), card_bot, args.minimum_model_count)

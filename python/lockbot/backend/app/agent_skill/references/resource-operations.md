@@ -14,9 +14,11 @@ CLI card selectors accept canonical IDs such as `0` and chat labels such as `dev
 and duplicate canonical IDs are rejected. Group selectors never stand for card labels.
 
 Omit `--connection` to let the SDK read every saved authorized scope, resolve a unique
-exact node ID, alias or observed IPv4 last octet, and recheck the selected scope and
+exact node ID, alias, canonical IPv4 alias last octet or observed IPv4 last octet, and recheck the selected scope and
 original evidence immediately before the single resource POST. `19` never matches
-`119`, and an alias does not establish an address. No new credentials or resource
+`119`. An IPv4 alias is only a public resource selector, not an authorized address or
+SSH permission; it is never copied into `node_access` or address caches. Its complete
+alias value is pinned and rechecked before dispatch. No new credentials or resource
 cache is created. A two-group coherent command uses six GETs and one POST, but only
 one CLI/model tool roundtrip. If conversation already identifies a verified scope, reuse
 its exact private `--connection` and node ID. That scoped flow still requires
@@ -309,8 +311,11 @@ Finding resources is read-only. Follow-up requests such as “lock 一天” or 
 refer to the uniquely selected machine in the actual conversation. Other old holdings
 do not erase that selection. Clarify only when the conversation leaves a real ambiguity;
 never invent a target. Resolve short IDs through exact inventory IDs, aliases or the
-last octet of an observed, intentionally shared IPv4 address: 19 matches
-198.51.100.19, not 192.0.2.119. A numeric alias such as `19` is only a label; without
+last octet of an observed, intentionally shared IPv4 address or an alias that is
+exactly a canonical IPv4 literal: 19 matches 198.51.100.19, not 192.0.2.119. Decorated
+labels, hostnames, ports and malformed IPs do not supply IPv4 suffixes. Duplicate
+matches across or within groups require clarification. IPv4 aliases remain public
+labels and confer no login address or access rights. A numeric alias such as `19` is only a label; without
 an observed address or trusted explicit mapping, it proves no IP suffix or subnet.
 Report that match as an alias, not an address. Do not guess private addresses or
 infer hardware from group titles.
