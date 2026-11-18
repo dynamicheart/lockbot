@@ -54,6 +54,10 @@ console.log(JSON.stringify([
 """
     )
     assert observed == [
-        "call-status complete", "call-status failed", "call-status running",
-        "call-status unknown", "call-status unknown", "call-status failed",
+        "call-status complete",
+        "call-status failed",
+        "call-status running",
+        "call-status unknown",
+        "call-status unknown",
+        "call-status failed",
     ]
