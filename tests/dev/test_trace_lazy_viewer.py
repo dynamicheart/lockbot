@@ -12,14 +12,14 @@ def hydrate_program(body):
     end = source.index("\n  async function pollSnapshot()", start)
     hydrate = source[start:end]
     start = source.index("  function hideSnapshot() {")
-    end = source.index("\n  hydrateTrial =", start)
+    end = source.index("\n  function synchronizeToken()", start)
     hide = source[start:end]
     return run(
         function(VIEWER, "validRecord")
         + """
 const assert=require('node:assert/strict');
 const statusNames={pass:'pass',pending:'pending',timeout:'timeout',blocked:'blocked',fail:'fail'};
-let token='operator-one',imported=false,activeCase='one',activeIndex=0,hydrateTrial;
+let token='operator-one',tokenRevision=0,imported=false,activeCase='one',activeIndex=0,hydrateTrial;
 const datasetId=null,online=true,snapshotParams=new URLSearchParams();
 const localStorage={getItem(){return token;}};
 const trialCache=new Map(),pendingTrials=new Map(),requests=[],statuses=[];
@@ -128,6 +128,19 @@ def test_current_auth_denial_hides_online_content(status):
 const work=hydrateTrial('one',0);respond(requests[0],null,{status});await work;
 assert.equal(layout.hidden,true);assert.equal(statuses.length,1);assert.equal(statuses[0].error,true);
 assert.equal(pendingTrials.size,0);
+"""
+    ) == {"ok": True}
+
+
+@pytest.mark.parametrize("status", [200, 401, 403])
+def test_old_hydration_cannot_survive_logout_and_login_with_the_same_token(status):
+    assert hydrate_program(
+        f"""
+const work=hydrateTrial('one',0),answer=payload(0);
+token=null;tokenRevision++;token='operator-one';tokenRevision++;
+respond(requests[0],answer,{status});await work;
+assert.equal(data.cases.one[0].lazy,true);assert.equal(draws,0);
+assert.equal(trialCache.size,0);assert.equal(statuses.length,0);
 """
     ) == {"ok": True}
 

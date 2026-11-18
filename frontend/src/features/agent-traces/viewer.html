@@ -1161,25 +1161,46 @@ if (online) {
   layout.hidden = true;
   let lastSnapshot = '';
   let currentToken = '';
+  let tokenRevision = 0;
   function hideSnapshot() {
     lastSnapshot = '';
     trialCache.clear();
     layout.hidden = true;
     if (inspector.open) inspector.close();
   }
+  function synchronizeToken() {
+    const token = localStorage.getItem('lockbot_token');
+    if (currentToken !== token) {
+      hideSnapshot();
+      currentToken = token;
+      tokenRevision++;
+      snapshotCache.clear();
+    }
+    return token;
+  }
+  function authStorageChanged(event) {
+    if (imported || (event.key !== 'lockbot_token' && event.key !== null)) return;
+    if (event.storageArea && event.storageArea !== localStorage) return;
+    if (event.url && new URL(event.url, location.href).origin !== location.origin) return;
+    const previous = currentToken;
+    synchronizeToken();
+    if (currentToken !== previous) void pollSnapshot();
+  }
+  addEventListener('storage', authStorageChanged);
   hydrateTrial = async (caseId,index) => {
     const token = localStorage.getItem('lockbot_token');
+    const revision = tokenRevision;
     const runId = data.review_runs?.[caseId]?.[index];
     const target = data.review_targets?.[caseId]?.[index];
     const sourceId = target?.dataset_id ?? datasetId;
-    const key = JSON.stringify([token,sourceId,caseId,runId]);
+    const key = JSON.stringify([token,revision,sourceId,caseId,runId]);
     if (!token || pendingTrials.has(key)) return;
     const params = new URLSearchParams(snapshotParams);
     if (sourceId) params.set('dataset_id',sourceId);
     params.set('case_id',caseId);
     params.set('run_index',String(target?.run_index ?? index));
     if (runId) params.set('run_id',runId);
-    const stillSelected = () => !imported && localStorage.getItem('lockbot_token') === token &&
+    const stillSelected = () => !imported && tokenRevision === revision && localStorage.getItem('lockbot_token') === token &&
       activeCase === caseId && data.review_runs?.[caseId]?.[activeIndex] === runId &&
       (data.review_targets?.[caseId]?.[activeIndex]?.dataset_id ?? datasetId) === sourceId &&
       (data.review_targets?.[caseId]?.[activeIndex]?.run_index ?? activeIndex) === (target?.run_index ?? index);
@@ -1191,7 +1212,7 @@ if (online) {
           headers:{Authorization:'Bearer ' + token},cache:'no-store',redirect:'error',signal:AbortSignal.timeout(30000)
         });
         if (response.status === 401 || response.status === 403) {
-          if (!imported && localStorage.getItem('lockbot_token') === token) {
+          if (!imported && tokenRevision === revision && localStorage.getItem('lockbot_token') === token) {
             hideSnapshot();
             reportStatus('仅已登录的超级管理员可查看在线结果。',true);
           }
@@ -1203,7 +1224,7 @@ if (online) {
             payload.run_id !== runId || (payload.dataset_id ?? null) !== sourceId ||
             !validRecord({schema:1,cases:{[caseId]:[payload.trial]}}) || payload.trial.lazy) throw new Error();
         trial = payload.trial;
-        if (localStorage.getItem('lockbot_token') !== token || imported) return;
+        if (tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token || imported) return;
         trialCache.set(key,trial);
         if (trialCache.size > 16) trialCache.delete(trialCache.keys().next().value);
       }
@@ -1224,20 +1245,18 @@ if (online) {
     }
   };
   async function pollSnapshot() {
-    if (imported || (reviewBusy && !layout.hidden) || !window.getSelection()?.isCollapsed || inspector.open) return;
-    const token = localStorage.getItem('lockbot_token');
-    if (currentToken !== token) {
-      hideSnapshot();
-      currentToken = token;
-      snapshotCache.clear();
-    }
+    if (imported) return;
+    const token = synchronizeToken();
+    const revision = tokenRevision;
     if (!token) {
       reportStatus('请先登录 LockBot 超级管理员，再打开此页面。');
       return;
     }
+    if (!layout.hidden && (reviewBusy || !window.getSelection()?.isCollapsed || inspector.open)) return;
     if (layout.hidden) reportStatus('正在加载测例目录…');
     try {
       const catalog = await loadDatasets(token);
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
       let response = catalog.response;
       let assembled;
       if (!response && catalog.datasets.length) {
@@ -1255,7 +1274,7 @@ if (online) {
             if (!fetched.ok) { response = fetched; break; }
             source = await fetched.json();
             if (!validRecord(source) || source.dataset_id !== metadata.dataset_id || (raw && source.visibility !== 'raw')) throw new Error();
-            if (localStorage.getItem('lockbot_token') !== token) return;
+            if (tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
             snapshotCache.set(metadata.dataset_id,source);
           }
           inputs.push({data:source, metadata});
@@ -1266,7 +1285,7 @@ if (online) {
           headers:{Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error', signal:AbortSignal.timeout(30000)
         });
       }
-      if (imported || localStorage.getItem('lockbot_token') !== token) return;
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
       if (response?.status === 401 || response?.status === 403) {
         hideSnapshot();
         reportStatus('仅已登录的超级管理员可查看在线结果。',true);
@@ -1279,8 +1298,8 @@ if (online) {
       }
       if (response && !response.ok) throw new Error();
       const snapshot = assembled ? JSON.stringify(assembled) : await response.text();
-      if (imported || localStorage.getItem('lockbot_token') !== token) return;
-      if ((reviewBusy && !layout.hidden) || !window.getSelection()?.isCollapsed || inspector.open) return;
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
+      if (!layout.hidden && (reviewBusy || !window.getSelection()?.isCollapsed || inspector.open)) return;
       if (snapshot !== lastSnapshot) {
         const candidate = JSON.parse(snapshot);
         if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw') || (candidate.dataset_id ?? null) !== datasetId) throw new Error();
@@ -1305,6 +1324,7 @@ if (online) {
       reportStatus('');
       select('live-status').hidden = true;
     } catch {
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
       reportStatus('暂时无法读取在线结果，稍后重试。',true);
     }
   }
