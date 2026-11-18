@@ -36,6 +36,17 @@ MESSAGES = {
     "public_docs.schema": "Combined OpenAPI schema",
     "public_docs.agent.title": "Agent API",
     "public_docs.agent.description": "Bind an Agent, then use its personal Key to query and manage your resources.",
+    "public_docs.deprecated_agent.title": "Legacy Agent API (deprecated)",
+    "public_docs.deprecated_agent.description": (
+        "For compatibility and migration of existing clients. Use Agent API for new integrations; "
+        "each legacy operation lists its replacement."
+    ),
+    "public_docs.deprecated_agent.credential": (
+        "A personal Agent Key bound to that bot; the legacy path does not broaden its scope."
+    ),
+    "public_docs.deprecated_agent.replacement": (
+        "This operation is deprecated. Use `{operation}` instead; the personal Key determines the bot scope."
+    ),
     "public_docs.op.title": "Operator API",
     "public_docs.op.description": "Use a bot's OP Key to query resource occupancy and perform administrative releases.",
     "public_docs.configuration.title": "Configuration API",
