@@ -26,6 +26,49 @@ The public Skill contains only the common workflow; private service adapters,
 addresses, matching rules and credentials remain in the deployment's private code
 and configuration. Ordinary users should not install a second adapter Skill.
 
+## Normalize operations, not user prompts
+
+The default Skill workflow uses `lockbot_cli` to give Agents a stable operation
+interface. Users install one Skill and make short requests such as `lock 19`,
+`lock 一天`, or `看看我能申请什么资源`; they need not learn HTTP routes, credentials,
+group IDs, or the helper's arguments. The Agent resolves the request into the
+documented operation. A missing target or a real ambiguity calls for a short
+clarification, not a requirement that the user write an API request.
+
+Retain the helper as the default convenience interface while making the same
+operation contract usable by direct HTTP clients. It is not an authorization
+boundary. Do not replace a tested helper workflow with model-generated HTTP
+sequences before the API can provide equivalent checks. Equally, do not make
+every client reproduce allocation policy merely to use HTTP without the helper.
+
+The normalization requirements are:
+
+| Area | Required behavior |
+| --- | --- |
+| Operations | Use a fixed vocabulary: read resources/own holdings/bookings, `lock`, `slock`, `book`, `claim`, `renew`, and `release`. Explain queueing and ownership consistently across clients. |
+| Arguments | Preserve target hints, model, whole-node/card mode, exact device IDs/count, and duration. Missing or ambiguous information remains explicit; no guessed IDs or silent fallback. |
+| Discovery and credentials | Reuse the verified private connection and approved origin. Hide setup details from ordinary replies. Cross-origin routing and secret storage remain under the user's control. |
+| Results | Return a concise result with actual targets and readable remaining time. Distinguish applied, rejected, and uncertain outcomes; current ownership alone does not establish that this request succeeded. |
+| Errors and retries | Use stable machine-readable errors and indicate whether a write was sent. An uncertain write requires reconciliation; a new helper invocation must not be treated as permission to replay it. |
+| Enforcement | The service owns authentication, authorization, resource policy, and atomic allocation. Checks supplied by a helper remain useful for early feedback but cannot replace server enforcement for direct API callers. |
+
+The existing CLI exposes the fixed operations and additional preflight checks;
+the current text-command HTTP API does **not** yet provide the entire normalized
+contract. Structured selector/model/mode preconditions, structured action outcomes,
+and durable request-ID reconciliation/deduplication are proposed additive API work,
+not capabilities advertised by this document. Received constraints must be checked
+with the actual allocation under the same state lock. Neither client nor server
+can reconstruct a human requirement that the Agent omitted from its request.
+
+Keep the helper focused on this contract, private connection routing, and concise
+presentation. Measure model/tool round trips, internal HTTP calls, returned payload
+size, and task correctness separately: one CLI invocation is not one HTTP request,
+and direct HTTP can also be batched into one tool invocation. Compare both paths
+with the same constraints and outcomes before claiming an efficiency improvement.
+Shared contract tests should cover both interfaces, including unknown hardware,
+ambiguous targets, concurrent state changes, and uncertain writes. Existing native
+CLI results alone are not evidence that a direct HTTP path passes those tests.
+
 ## What exists today
 
 | Component | Implemented behavior | Limit |
