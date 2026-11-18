@@ -428,7 +428,9 @@ function trialStatus(trial) {
 }
 function badge(trial) {
   const partial = trial.source_run?.startsWith('semantic:') && trial.state !== 'fail' && trial.semantic_status !== 'pass';
-  const result = node('span',trialStatus(trial),'badge '+(partial ? 'blocked' : trial.state));
+  const state = partial || trial.state === 'pending' ? 'blocked' : trial.state;
+  const tone = trial.source_run?.startsWith('semantic:') && trial.state !== 'fail' && trial.semantic_status === 'pass' ? 'pass' : state;
+  const result = node('span',trialStatus(trial),'badge '+tone);
   result.title = trial.source_run?.startsWith('semantic:') ? '阶段复核：'+(trial.semantic_reason || trialStatus(trial)) :
     '自动检查：'+trialStatus(trial)+'；完整验收还需查看实际对话与独立复核。';
   return result;
