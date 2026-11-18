@@ -217,14 +217,16 @@ function notifyReviewParent() {
 function requestReview(anchor, quote = '', fieldLabel = '', options = {}) {
   let scope = options.scope || (anchor === 'case' ? 'case' : 'run');
   let subject = options.subject || (anchor.startsWith('ui:') ? 'interface' : fieldLabel === '判定标准' ? 'grading' : 'general');
+  const caseId = options.caseId || activeCase;
+  const runIndex = options.runIndex ?? activeIndex;
   if (anchor.startsWith('message:')) {
     const [, session, entry] = anchor.split(':');
-    if (data.cases[activeCase]?.[activeIndex]?.sessions[Number(session)]?.[Number(entry)]?.role === 'user') {
+    if (data.cases[caseId]?.[runIndex]?.sessions[Number(session)]?.[Number(entry)]?.role === 'user') {
       scope = 'case';
       subject = 'prompt';
     }
   }
-  const context = reviewContext(scope, options.caseId || activeCase, options.runIndex);
+  const context = reviewContext(scope, caseId, runIndex);
   const message = { type: 'lockbot-trace-comment', context, anchor: scope === 'case' ? 'case' : anchor,
     quote, field_label: fieldLabel, subject };
   if (parent !== window) parentMessage(message);
@@ -294,23 +296,43 @@ function showSelectionComment(event) {
     selectionComment.hidden = true;
     return;
   }
-  const anchor = anchoredElement(selection.anchorNode) ||
-    event.composedPath().find(element => element instanceof Element && anchoredElement(element));
-  const target = anchor && (anchoredElement(anchor) || anchor);
-  const origin = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode?.parentElement;
+  // Range endpoints are ordered even for backwards selections. Never attribute
+  // text spanning multiple fields to just the pointer's starting paragraph.
+  const range = selection.rangeCount === 1 ? selection.getRangeAt(0) : null;
+  const field = value => {
+    const element = value?.nodeType === Node.ELEMENT_NODE ? value : value?.parentElement;
+    return anchoredElement(value) || element?.closest('[id]') || element;
+  };
+  const start = range && field(range.startContainer);
+  const end = range && field(range.endContainer);
+  const origin = range?.startContainer?.nodeType === Node.ELEMENT_NODE ? range.startContainer : range?.startContainer?.parentElement;
   const ui = origin?.closest('[id]');
   const uiId = ['case-title', 'run-title', 'counts', 'chat-tab', 'event-tab', 'case-nav'].includes(ui?.id) ? ui.id : null;
-  const scope = target?.dataset.reviewScope || (uiId === 'case-title' ? 'case' : undefined);
-  const runIndex = target?.dataset.reviewIndex;
-  capturedSelection = {
-    anchor: target?.dataset.reviewAnchor || (uiId ? 'ui:' + uiId : 'run'),
+  const source = element => ({
+    caseId: element?.dataset.reviewCase || activeCase,
+    runIndex: /^\d+$/.test(element?.dataset.reviewIndex || '') ? Number(element.dataset.reviewIndex) : activeIndex,
+  });
+  const first = source(start), last = source(end);
+  const selectedTargets = range?.cloneContents?.().querySelectorAll('[data-review-case]') || [];
+  const sameSource = range && first.caseId === last.caseId && first.runIndex === last.runIndex &&
+    [...selectedTargets].every(element => {
+      const candidate = source(element);
+      return candidate.caseId === first.caseId && (element.dataset.reviewScope === 'case' || candidate.runIndex === first.runIndex);
+    });
+  const sameField = start && end && start === end;
+  const crossFields = !sameField;
+  const scope = sameField ? start.dataset.reviewScope || (uiId === 'case-title' ? 'case' : undefined) : 'run';
+  capturedSelection = sameSource ? {
+    anchor: sameField ? start.dataset.reviewAnchor || (uiId ? 'ui:' + uiId : 'run') : 'run',
     quote,
-    label: target?.dataset.reviewField || '选中文字',
-    caseId: target?.dataset.reviewCase,
+    label: crossFields ? '本次记录的跨段选文' : start.dataset.reviewField || '选中文字',
+    caseId: first.caseId,
     scope,
     subject: scope === 'case' ? 'scenario' : undefined,
-    runIndex: /^\d+$/.test(runIndex || '') ? Number(runIndex) : undefined,
-  };
+    runIndex: first.runIndex,
+  } : null;
+  selectionComment.disabled = !sameSource;
+  selectionComment.textContent = sameSource ? '评论选中文字' : '请在同一条记录内重新选文';
   const dialog = origin?.closest('dialog') || event.composedPath().find(element => element instanceof Element && element.matches('dialog[open]'));
   (dialog?.open ? dialog : document.body).append(selectionComment);
   const rectangle = selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
@@ -335,7 +357,7 @@ function locateReview(message) {
   const anchor = typeof message.anchor === 'string' ? message.anchor : '';
   const ui = /^ui:(case-title|run-title|counts|chat-tab|event-tab|case-nav|payload-tab)$/.test(anchor);
   if (anchor.startsWith('ui:') && !ui) return;
-  if (!ui && (message.run_id !== reviewContext().run_id ||
+  if (!ui && (data.cases[activeCase]?.[activeIndex]?.lazy || message.run_id !== reviewContext().run_id ||
       (message.dataset_id ?? null) !== (reviewContext().dataset_id ?? null))) return;
   const parts = String(message.anchor).split(':');
   if(parts[0]==='message' && activeTab!=='chat') {
@@ -348,7 +370,14 @@ function locateReview(message) {
   }
   const marked = [...document.querySelectorAll('[data-review-anchor]')]
     .find(element => element.dataset.reviewAnchor === message.anchor);
-  const target = ui ? marked || select(parts[1]) : marked || select('case-title');
+  const target = ui ? marked || select(parts[1]) : marked || (anchor === 'run' ? select('run-title') : null);
+  if (!target && ui) return;
+  if (!target) {
+    const notice = node('p','原记录已打开，但这段原文暂时无法定位。','evidence-note');
+    notice.setAttribute('role','status');
+    select('content').prepend(notice);
+    return;
+  }
   if (target) {
     target.closest('details')?.setAttribute('open', '');
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -369,6 +398,9 @@ addEventListener('message', event => {
     if (typeof message.route.case === 'string' && message.route.case.length <= 256) route.set('case', message.route.case);
     if (/^\d{1,5}$/.test(message.route.run)) route.set('run', message.route.run);
     if (message.route.view === 'steps') route.set('view', 'steps');
+    if (message.route.legacy === '1') route.set('legacy', '1');
+    if (typeof message.route.review_run === 'string' && /^[a-f0-9]{64}$/.test(message.route.review_run)) route.set('review_run', message.route.review_run);
+    if (typeof message.route.dataset_id === 'string' && /^[a-f0-9]{64}$/.test(message.route.dataset_id)) route.set('dataset_id', message.route.dataset_id);
     if (/^\d{1,5}$/.test(message.route.step)) route.set('step', message.route.step);
     if (location.hash.slice(1) !== route.toString()) {
       history.replaceState(null, '', '#' + route);

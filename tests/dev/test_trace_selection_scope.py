@@ -95,7 +95,8 @@ else {
 }
 const quote='Selected exact text: 中文';
 const Node={ELEMENT_NODE:1},window={getSelection(){return {toString(){return quote;},
- anchorNode:SELECTION==='case-title'?origin:{nodeType:3,parentElement:origin},rangeCount:0};}};
+ anchorNode:SELECTION==='case-title'?origin:{nodeType:3,parentElement:origin},rangeCount:1,
+ getRangeAt(){return {startContainer:origin,endContainer:origin,getBoundingClientRect(){return {};}};}};}};
 const parent={},messages=[];function parentMessage(message){messages.push(message);}
 const selectionComment=node('button');let capturedSelection;
 const innerWidth=1200,innerHeight=900;
@@ -135,3 +136,75 @@ console.log(JSON.stringify({messages,valid:validContext(messages[0]?.context),
         }
     )
     assert parsed.scope == expected_scope
+
+
+@pytest.mark.parametrize(
+    "first,last,backwards,expected_scope,expected_anchor",
+    [
+        ("answer1", "answer2", False, "run", "run"),
+        ("answer1", "answer2", True, "run", "run"),
+        ("prompt", "answer1", False, "run", "run"),
+        ("tool1", "tool2", False, "run", "run"),
+        ("answer1", "answer1", False, "run", "message:0:1:text"),
+        ("prompt", "prompt", False, "case", "case"),
+        ("answer1", "other-model", False, None, None),
+        ("answer1", "other-case", False, None, None),
+        ("body", "body", False, None, None),
+    ],
+)
+def test_range_endpoints_keep_cross_paragraph_quotes_on_the_exact_run(
+    first, last, backwards, expected_scope, expected_anchor
+):
+    code = "\n".join(function(INTERACTIONS, name) for name in (
+        "reviewContext", "requestReview", "anchoredElement", "showSelectionComment", "submitSelectionComment"
+    ))
+    observed = run(code + r"""
+class Element {
+ constructor(dataset={},id=''){this.dataset=dataset;this.id=id;this.nodeType=1;this.style={};
+ this.classList={contains(){return false;}};}
+ matches(){return false;}
+ closest(selector){return selector==='[id]'?(this.id?this:null):selector==='dialog'?null:this;}
+ getRootNode(){return {};}
+ append(){}
+}
+const Node={ELEMENT_NODE:1},body=new Element(),document={body};
+const activeCase='case-a',activeIndex=0,datasetId=null,online=true,imported=false;
+const data={cases:{'case-a':[{model:'M',sessions:[[{role:'user'},{role:'assistant'},{role:'assistant'}]]}]},
+ review_runs:{'case-a':['a'.repeat(64)]},review_targets:{'case-a':[{dataset_id:'b'.repeat(64),run_index:9}]}};
+function caseName(){return 'Case A';}
+const elements={
+ body,
+ prompt:new Element({reviewAnchor:'message:0:0:text'}),
+ answer1:new Element({reviewAnchor:'message:0:1:text'}),
+ answer2:new Element({reviewAnchor:'message:0:2:text'}),
+ tool1:new Element({reviewAnchor:'tool:0:3:0:output'}),
+ tool2:new Element({reviewAnchor:'tool:0:3:1:output'}),
+ 'other-model':new Element({reviewAnchor:'run',reviewCase:'case-a',reviewIndex:'1',reviewScope:'run'}),
+ 'other-case':new Element({reviewAnchor:'case',reviewCase:'case-b',reviewScope:'case'}),
+};
+const first=elements[FIRST],last=elements[LAST],quote='first paragraph\nsecond paragraph';
+const range={startContainer:first,endContainer:last,getBoundingClientRect(){return {};},
+ cloneContents(){return {querySelectorAll(){return FIRST==='body'?[elements['other-case']]:[];}};}};
+const window={getSelection(){return {toString(){return quote;},rangeCount:1,getRangeAt(){return range;},
+ anchorNode:BACKWARDS?last:first,focusNode:BACKWARDS?first:last};}};
+const parent={},messages=[];function parentMessage(message){messages.push(message);}
+const selectionComment=new Element();let capturedSelection;
+const innerWidth=800,innerHeight=600;
+showSelectionComment({target:first,composedPath(){return [first];},clientX:5,clientY:5});
+submitSelectionComment();
+console.log(JSON.stringify({messages,disabled:selectionComment.disabled,label:selectionComment.textContent}));
+""".replace("FIRST", json.dumps(first)).replace("LAST", json.dumps(last)).replace("BACKWARDS", json.dumps(backwards)))
+    if expected_scope is None:
+        assert observed["messages"] == []
+        assert observed["disabled"]
+        assert "同一条记录" in observed["label"]
+    else:
+        message = observed["messages"][0]
+        assert message["context"]["scope"] == expected_scope
+        assert message["anchor"] == expected_anchor
+        assert message["quote"] == "first paragraph\nsecond paragraph"
+        if first != last:
+            assert message["field_label"] == "本次记录的跨段选文"
+            assert message["context"]["dataset_id"] == "b" * 64
+            assert message["context"]["run_id"] == "a" * 64
+            assert message["context"]["run_index"] == 9

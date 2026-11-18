@@ -46,8 +46,9 @@ def test_viewer_links_and_review_context_pin_the_selected_dataset_without_changi
         function(VIEWER, "writeRoute")
         + function(INTERACTIONS, "reviewContext")
         + """
-const datasetId='a'.repeat(64), online=true, imported=false;
-const activeCase='one', activeIndex=3, activeTab='events', activeStep=2;
+const datasetId='a'.repeat(64), legacyHistory=false, online=true, imported=false;
+const activeCase='one', activeIndex=3, activeTab='events', activeStep=2,userNavigation=false;
+const location={hash:''};
 const data={cases:{one:[{model:'x'},{model:'x'},{model:'x'},{model:'chosen'}]},
  review_runs:{one:['a','b','c','bound-id']}};
 const before=JSON.stringify(data), urls=[];
@@ -112,10 +113,12 @@ def test_comments_carry_dataset_validation_and_namespace_while_global_patch_stay
         + function(VUE, "save")
         + function(VUE, "resolve")
         + """
+function authIdentity(){return 'same-user';}
 const id='a'.repeat(64), requests=[];
 const draftContext={value:{dataset_id:id,case_id:'new-only',scope:'case',
  run_index:null,run_id:null,server_backed:true,anchor:'case',quote:''}};
-const current={value:draftContext.value}, draft={value:'Review'}, reviewSubject={value:'general'};
+const current={value:draftContext.value}, displayContext=current;
+const draft={value:'Review'}, reviewSubject={value:'general'};
 const saving={value:false}, saved={value:false}, saveError={value:''}, loadError={value:''}, comments={value:[]};
 let requestGeneration=0;
 const api={async get(url,options){requests.push({method:'GET',url,options});return {data:{comments:[]}};},
@@ -143,6 +146,7 @@ def test_switching_dataset_cannot_reuse_a_pending_comment_draft():
 const location={origin:'https://example.test'}, frame={};const viewer={value:{contentWindow:frame}};
 const old={case_id:'one',case_name:'One',model:'Model',scope:'run',
  run_index:0,run_id:'c'.repeat(64),dataset_id:'a'.repeat(64),anchor:'run',quote:''};
+const reselecting={value:false};
 const draft={value:'Unsaved text'},draftContext={value:old},reviewOpen={value:false},saveError={value:''};
 receive({origin:location.origin,source:frame,data:{type:'lockbot-trace-comment',context:{...old,dataset_id:'b'.repeat(64)},anchor:'run',quote:''}});
 console.log(JSON.stringify({text:draft.value,dataset:draftContext.value.dataset_id,error:saveError.value,open:reviewOpen.value}));

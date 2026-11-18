@@ -384,7 +384,8 @@ function routeDataset(route) {
   const value = route.get('dataset_id');
   return /^[a-f0-9]{64}$/.test(value || '') ? value : null;
 }
-const datasetId = null; // One current board; original datasets remain the evidence/comment sources.
+const legacyHistory = online && new URLSearchParams(location.hash.slice(1)).get('legacy') === '1';
+const datasetId = online ? routeDataset(new URLSearchParams(location.hash.slice(1))) : null; // Only explicit historical links select one immutable source.
 function switchDatasetRoute(route, notifyParent = true) {
   if (notifyParent && parent !== window) {
     parent.postMessage({type:'lockbot-trace-select-dataset', route:Object.fromEntries(route)}, location.origin);
@@ -392,6 +393,13 @@ function switchDatasetRoute(route, notifyParent = true) {
   }
   history.replaceState(null, '', '#' + route);
   location.reload();
+}
+
+function historicalSourceMatches(record, route = new URLSearchParams(location.hash.slice(1))) {
+  const expected = route.get('review_run');
+  if (!expected) return true;
+  return /^[a-f0-9]{64}$/.test(expected) &&
+    record.review_runs?.[route.get('case')]?.[Number(route.get('run'))] === expected;
 }
 
 function defaultRun(key) {
@@ -415,6 +423,9 @@ function readRoute() {
 function writeRoute() {
   const route = new URLSearchParams({case:activeCase,run:activeIndex});
   if (online && datasetId) route.set('dataset_id', datasetId);
+  if (legacyHistory) route.set('legacy', '1');
+  const expectedRun = new URLSearchParams(location.hash.slice(1)).get('review_run');
+  if (!userNavigation && /^[a-f0-9]{64}$/.test(expectedRun || '')) route.set('review_run', expectedRun);
   if (activeTab==='events') {
     route.set('view','steps');
     if (activeStep) route.set('step',activeStep);
@@ -1191,6 +1202,10 @@ if (online) {
           }
           return;
         }
+        if (response.status === 409) {
+          if (stillSelected()) select('content').replaceChildren(node('p','原记录已变化，无法定位当时的原文。','evidence-note'));
+          return;
+        }
         if (!response.ok) throw new Error();
         const payload = await response.json();
         if (payload.case_id !== caseId || payload.run_index !== (target?.run_index ?? index) ||
@@ -1228,7 +1243,7 @@ if (online) {
     if (!layout.hidden && (reviewBusy || !window.getSelection()?.isCollapsed || inspector.open)) return;
     if (layout.hidden) reportStatus('正在加载测例目录…');
     try {
-      const catalog = await loadDatasets(token);
+      const catalog = datasetId || legacyHistory ? {datasets:[]} : await loadDatasets(token);
       if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
       let response = catalog.response;
       let assembled;
@@ -1276,6 +1291,11 @@ if (online) {
       if (snapshot !== lastSnapshot) {
         const candidate = JSON.parse(snapshot);
         if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw') || (candidate.dataset_id ?? null) !== datasetId) throw new Error();
+        if (!historicalSourceMatches(candidate)) {
+          hideSnapshot();
+          reportStatus('原记录已变化，无法打开当时记录。',true);
+          return;
+        }
         const firstSnapshot = !lastSnapshot;
         lastSnapshot = snapshot;
         const selectedIndex = activeIndex;

@@ -209,3 +209,15 @@ assert.equal(data.cases.one[activeIndex].lazy,undefined);
 assert.equal(data.cases.one[activeIndex].model,'M');assert.ok(draws>0);
 """
     ) == {"ok": True}
+
+
+def test_changed_trial_retains_no_new_answer_and_explains_the_obsolete_locator():
+    assert hydrate_program(
+        """
+const work=hydrateTrial('one',0);respond(requests[0],payload(0),409);await work;
+assert.equal(draws,0);assert.equal(data.cases.one[0].lazy,true);
+assert.equal(content.children.length,1);
+assert.equal(content.children[0].text,'原记录已变化，无法定位当时的原文。');
+assert.equal(trialCache.size,0);
+"""
+    ) == {"ok": True}

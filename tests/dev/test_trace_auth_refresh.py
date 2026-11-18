@@ -7,7 +7,7 @@ import pytest
 from test_trace_dataset_ui import VIEWER, function, run
 
 
-def auth_program(body):
+def auth_program(body, *, legacy=False):
     source = VIEWER.read_text()
     names = ("hideSnapshot", "synchronizeToken", "authStorageChanged", "pollSnapshot")
     code = "\n".join(
@@ -16,16 +16,17 @@ def auth_program(body):
     )
     return run(
         function(VIEWER, "validRecord")
+        + function(VIEWER, "historicalSourceMatches")
         + code
         + """
 const assert=require('node:assert/strict');
 const statusNames={pass:'pass',pending:'pending',timeout:'timeout',blocked:'blocked',fail:'fail'};
 let token=null,currentToken=null,tokenRevision=0,imported=false,reviewBusy=false,selected=false;
-const localStorage={getItem(){return token;}},location={origin:'https://example.test',href:'https://example.test/dev/trace-review'};
+const localStorage={getItem(){return token;}},location={origin:'https://example.test',href:'https://example.test/dev/trace-review',hash:''};
 const layout={hidden:true},inspector={open:false,close(){this.open=false;closes++;}};
 let closes=0,lastSnapshot='',activeCase='one',activeIndex=0,cases=[],data={},draws=0;
 const snapshotCache=new Map(),trialCache=new Map(),requests=[],statuses=[];
-const datasetId=null,raw=true,snapshotParams=new URLSearchParams(),snapshotUrl='/catalog';
+const datasetId=null,legacyHistory=LEGACY_HISTORY,raw=true,snapshotParams=new URLSearchParams(),snapshotUrl='/catalog';
 const window={getSelection(){return {isCollapsed:!selected};}};
 const liveStatus={hidden:false};function select(){return liveStatus;}
 function reportStatus(text,error){statuses.push({text,error});}
@@ -38,7 +39,7 @@ function respond(request,model,status=200){
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const event=(extra={})=>({key:'lockbot_token',storageArea:localStorage,url:location.href,...extra});
-"""
+""".replace("LEGACY_HISTORY", str(legacy).lower())
         + "\n(async()=>{\n"
         + body
         + "\nconsole.log(JSON.stringify({ok:true}));\n})().catch(error=>{console.error(error);process.exitCode=1;});"
@@ -109,4 +110,32 @@ await tick();assert.equal(requests.length,1);
 assert.equal(requests[0].options.headers.Authorization,'Bearer actual-store');
 respond(requests[0],'current');await tick();assert.equal(draws,1);
 """
+    ) == {"ok": True}
+
+
+def test_explicit_legacy_history_never_borrows_a_published_current_board():
+    assert auth_program(
+        """
+loadDatasets=()=>{throw new Error('Historical legacy requests must not aggregate published sources');};
+token='operator';
+const work=pollSnapshot();
+assert.equal(requests.length,1);assert.equal(requests[0].url,'/catalog');
+respond(requests[0],'exact legacy source');await work;
+assert.equal(draws,1);assert.equal(data.cases.one[0].model,'exact legacy source');
+assert.equal(statuses.some(row=>row.error),false);
+""", legacy=True
+    ) == {"ok": True}
+
+
+def test_changed_legacy_source_is_hidden_instead_of_displayed_as_the_old_comment_record():
+    assert auth_program(
+        """
+loadDatasets=()=>{throw new Error('must use legacy source');};
+token='operator';location.hash='#case=one&run=0&legacy=1&review_run='+'a'.repeat(64);
+const work=pollSnapshot();assert.equal(requests.length,1);
+const changed={...snapshot('new answer'),review_runs:{one:['b'.repeat(64)]}};
+requests[0].resolve({ok:true,status:200,async text(){return JSON.stringify(changed);}});
+await work;assert.equal(draws,0);assert.equal(layout.hidden,true);
+assert.equal(statuses.at(-1).text,'原记录已变化，无法打开当时记录。');
+""", legacy=True
     ) == {"ok": True}
