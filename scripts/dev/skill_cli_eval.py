@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -1144,6 +1144,12 @@ def tools(root):
             "Explicit whole-node request only. For a node-only unscoped command, omit devices/whole_node "
             "and let the CLI use the verified bot mode; card groups select all observed cards."
         )
+        if case.get("fixture_version", 0) >= 25:
+            extra["whole_node"]["description"] = (
+                "Keep whole_node=true for an explicit whole-machine request; do not fall back to cards. "
+                "Only omit whole_node/devices when the user did not specify allocation mode; "
+                "the CLI then uses the verified bot mode and card groups select all observed cards."
+            )
     public_tools = []
     if scenario == "panel":
         actions = (*actions, "panel-link")
@@ -1667,6 +1673,12 @@ def verified_sdk_resolutions(fixture, tools, requests):
                 ]
                 valid = valid and len(selected_reads) >= 2 and set(scope_reads(wire[: selected_reads[-1]])) == set(pins)
             proof["refusal"] = bool(valid and max(observed.values()) - min(observed.values()) <= 5)
+            if (
+                fixture.case.get("fixture_version", 0) >= 25
+                and proof["refusal"]
+                and error == "automatic_target_ambiguous"
+            ):
+                proof["ambiguous_candidates"] = sorted(expected_candidates)
             return checked
         if (
             len(posts) != 1

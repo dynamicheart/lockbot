@@ -478,6 +478,8 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
                     final,
                 )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
+            if fixture_version >= 25 and not checks["asks_which_target"]:
+                checks["asks_which_target"] = verified_candidate_clarification(final, requests, tools, sdk_resolutions)
         elif scenario == "intent-lock-duration-only":
             checks["asks_for_missing_target"] = bool(
                 re.search(r"(?:选|锁|哪|目标|指定).{0,10}(?:机器|节点|资源|台)", final)
@@ -520,6 +522,29 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
     )
 
 
+def verified_candidate_clarification(final, requests, tools, evidence):
+    """Accept short choice prompts only for wire-proven, explicitly listed candidates."""
+    commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
+    if len(commands) != 1 or any(row.get("method") == "POST" for row in requests):
+        return False
+    proof = (evidence or {}).get(id(commands[0]), {})
+    candidates = proof.get("ambiguous_candidates", [])
+    if proof.get("refusal") is not True or len(candidates) < 2 or unverified_success_claim(final):
+        return False
+    for group, node in candidates:
+        target = rf"(?<![A-Za-z0-9_.-]){re.escape(node)}(?![A-Za-z0-9_.-])"
+        scope = re.escape(group)
+        if not re.search(rf"{scope}[^。！？!?\n]{{0,80}}{target}|{target}[^。！？!?\n]{{0,80}}{scope}", final):
+            return False
+    return bool(
+        re.search(
+            r"(?:^|[。！？!?；;，,\n])\s*请[你您]?指定其中(?:一个|一台)\s*(?:[：:。！!]|$)"
+            r"|(?:^|[。！？!?；;\n])\s*(?:[你您])?要(?:锁(?:定)?|用|选)哪(?:一个|个|一台|台)\s*[？?]",
+            final,
+        )
+    )
+
+
 def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fixture_version=23):
     """SDK observations replace only SDK-owned selection, never pretend agent reads."""
     commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
@@ -533,6 +558,11 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
     expected_write = scenario in EXPECTED or (
         scenario in TASK_SCENARIOS and task_expectation(scenario, phase) is not None
     )
+    if fixture_version >= 25 and scenario in UNVERIFIED_MACHINE_MODELS:
+        checks["unknown_model_stop_before_command"] = not any(
+            observed_unknown_machine(tools[: tools.index(command)], UNVERIFIED_MACHINE_MODELS[scenario])
+            for command in commands
+        )
     if not unscoped:
         return checks
     proven = (evidence or {}).get(id(unscoped[0]), {}) if len(unscoped) == len(commands) == 1 else {}
@@ -563,6 +593,30 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
         if "both_candidate_groups_examined" in checks:
             checks["both_candidate_groups_examined"] = set(group_ids(scenario)) <= set(proven["observed_groups"])
     return checks
+
+
+def observed_unknown_machine(tools, requested_model):
+    """A known missing hardware observation cannot be bypassed with a command probe."""
+    for row in tools:
+        if row.get("args", {}).get("action") != "resources" or row["args"].get("group") != MACHINES:
+            continue
+        snapshot = row.get("result", {}).get("result", {})
+        if MACHINE_NODE in snapshot.get("selection", {}).get("unknown_hardware_nodes", []):
+            return True
+        for resource in snapshot.get("resources", []):
+            if resource.get("id") != MACHINE_NODE:
+                continue
+            accelerators = resource.get("accelerators")
+            if not isinstance(accelerators, list) or not any(
+                isinstance(card, dict)
+                and isinstance(card.get("model"), str)
+                and card["model"].casefold() == requested_model.casefold()
+                and type(card.get("count")) is int
+                and card["count"] > 0
+                for card in accelerators
+            ):
+                return True
+    return False
 
 
 def command_payload(request):
