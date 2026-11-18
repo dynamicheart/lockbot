@@ -275,7 +275,7 @@
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-reaction-replies">
             {{ $t('feishu.reactionReplies') }}
-            <el-tooltip :content="$t('feishu.reactionRepliesHelp')" placement="top">
+            <el-tooltip :content="$t('feishu.reactionRepliesHelp')" placement="top" popper-class="feishu-message-tooltip">
               <el-icon class="help-icon"><QuestionFilled /></el-icon>
             </el-tooltip>
           </label>
@@ -288,7 +288,7 @@
         <div class="agent-setting-row">
           <label class="agent-setting-label" for="feishu-query-panel">
             {{ $t('feishu.queryPanel') }}
-            <el-tooltip :content="$t('feishu.queryPanelHint')" placement="top">
+            <el-tooltip :content="$t('feishu.queryPanelHint')" placement="top" popper-class="feishu-message-tooltip">
               <el-icon class="help-icon"><QuestionFilled /></el-icon>
             </el-tooltip>
           </label>
@@ -298,7 +298,6 @@
             :aria-label="$t('feishu.queryPanel')"
           />
         </div>
-        <p class="agent-setting-hint">{{ $t('feishu.queryPanelHint') }}</p>
       </section>
 
       <!-- Advanced Config -->
@@ -958,12 +957,9 @@ async function handleSubmit() {
 .agent-settings-group {
   margin: 0 0 20px;
 }
-.agent-setting-hint {
-  max-width: 560px;
-  margin: 6px 0 0;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-  line-height: 1.6;
+:global(.feishu-message-tooltip) {
+  max-width: min(280px, calc(100vw - 32px));
+  line-height: 1.5;
 }
 .agent-settings-title {
   margin-bottom: 8px;

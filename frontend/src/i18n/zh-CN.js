@@ -189,8 +189,7 @@ export default {
   feishu: {
     queryPanelGroup: '飞书群消息',
     queryPanel: '回复时原地刷新',
-    queryPanelHint:
-      '普通提及或 query 查询始终发送新消息。开启后，回复本群最新查询消息并提及机器人查询，可原地刷新；刷新不会移到群消息底部。操作结果和到期提醒仍正常发送；消息不可编辑时回退普通回复。',
+    queryPanelHint: '回复最新查询结果并 @ 机器人时更新，不会置底。普通查询仍发新消息。',
 
     unboundGreeting: '入群后提示资源绑定',
     unboundGreetingHelp:
