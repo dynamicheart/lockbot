@@ -35,6 +35,12 @@ h1{font-size:17px;letter-spacing:-.02em}
 .load-status{margin:0;padding:0 18px 8px;color:var(--muted);font-size:12px}
 .load-status[data-error=true]{color:#932d37}
 .load-status:empty{display:none}
+.loading-state{display:flex;align-items:center;justify-content:center;gap:10px;min-height:160px;color:var(--muted);font-size:13px}
+.loading-state::before{content:"";width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .8s linear infinite;flex:none}
+.load-status[data-loading=true]{display:flex;align-items:center;gap:8px;padding-top:24px;justify-content:center;min-height:100px}
+.load-status[data-loading=true]::before{content:"";width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .8s linear infinite}
+@keyframes loading-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.loading-state::before,.load-status[data-loading=true]::before{animation:none}}
 @media(max-width:420px){.header-end{gap:8px}.live-status{font-size:11px}.open-file{padding:6px 8px}}
 .layout{max-width:1568px;margin:auto;padding:20px 28px 44px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;align-items:start}
 .sidebar{position:sticky;top:86px;max-height:calc(100dvh - 106px);overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:14px;border:1px solid var(--line);background:var(--paper);border-radius:13px;padding:7px 7px 9px}
@@ -327,6 +333,7 @@ __REVIEW_STYLES__
 <script type="application/json" id="trace-data">__TRACE_PAYLOAD__</script>
 <script>
 let data = JSON.parse(document.getElementById('trace-data').textContent);
+let hydrateTrial = null;
 const statusNames = {pass:'检查通过',pending:'待核对',timeout:'超时',blocked:'环境阻塞',fail:'检查未通过'};
 const select = (id) => document.getElementById(id);
 const node = (tag, text, className) => {
@@ -1015,6 +1022,15 @@ function draw(animateCase = false) {
   const content = select('content');
   content.classList.remove('trace-view','chat-workspace');
   content.replaceChildren();
+  if (trial.lazy) {
+    const pending = node('div','正在加载轨迹…','loading-state');
+    pending.setAttribute('role','status');
+    content.append(pending);
+    select('expand-tools').hidden = true;
+    writeRoute();
+    hydrateTrial?.(activeCase,activeIndex);
+    return;
+  }
   document.querySelector('.tabs').hidden = false;
   select('chat-tab').hidden=isSummary; select('event-tab').hidden=isSummary;
   select('expand-tools').hidden = activeTab!=='chat';
@@ -1088,6 +1104,7 @@ function reportStatus(message, isError = false) {
   const status = select('load-status');
   status.textContent = message;
   status.dataset.error = String(isError);
+  status.dataset.loading = String(!isError && message === '正在加载测例目录…');
   select('live-status').hidden = true;
 }
 select('trace-file').onchange = async (event)=>{
@@ -1136,17 +1153,76 @@ if (online) {
   const snapshotParams = new URLSearchParams();
   if (raw) snapshotParams.set('raw', 'true');
   if (datasetId) snapshotParams.set('dataset_id', datasetId);
-  const snapshotUrl = '/api/dev/trace-review/snapshot?' + snapshotParams;
+  const snapshotUrl = '/api/dev/trace-review/catalog?' + snapshotParams;
   const snapshotCache = new Map();
+  const trialCache = new Map();
+  const pendingTrials = new Map();
 
   layout.hidden = true;
   let lastSnapshot = '';
   let currentToken = '';
   function hideSnapshot() {
     lastSnapshot = '';
+    trialCache.clear();
     layout.hidden = true;
     if (inspector.open) inspector.close();
   }
+  hydrateTrial = async (caseId,index) => {
+    const token = localStorage.getItem('lockbot_token');
+    const runId = data.review_runs?.[caseId]?.[index];
+    const target = data.review_targets?.[caseId]?.[index];
+    const sourceId = target?.dataset_id ?? datasetId;
+    const key = JSON.stringify([token,sourceId,caseId,runId]);
+    if (!token || pendingTrials.has(key)) return;
+    const params = new URLSearchParams(snapshotParams);
+    if (sourceId) params.set('dataset_id',sourceId);
+    params.set('case_id',caseId);
+    params.set('run_index',String(target?.run_index ?? index));
+    if (runId) params.set('run_id',runId);
+    const stillSelected = () => !imported && localStorage.getItem('lockbot_token') === token &&
+      activeCase === caseId && data.review_runs?.[caseId]?.[activeIndex] === runId &&
+      (data.review_targets?.[caseId]?.[activeIndex]?.dataset_id ?? datasetId) === sourceId &&
+      (data.review_targets?.[caseId]?.[activeIndex]?.run_index ?? activeIndex) === (target?.run_index ?? index);
+    pendingTrials.set(key,true);
+    try {
+      let trial = trialCache.get(key);
+      if (!trial) {
+        const response = await fetch('/api/dev/trace-review/trial?' + params, {
+          headers:{Authorization:'Bearer ' + token},cache:'no-store',redirect:'error',signal:AbortSignal.timeout(30000)
+        });
+        if (response.status === 401 || response.status === 403) {
+          if (!imported && localStorage.getItem('lockbot_token') === token) {
+            hideSnapshot();
+            reportStatus('仅已登录的超级管理员可查看在线结果。',true);
+          }
+          return;
+        }
+        if (!response.ok) throw new Error();
+        const payload = await response.json();
+        if (payload.case_id !== caseId || payload.run_index !== (target?.run_index ?? index) ||
+            payload.run_id !== runId || (payload.dataset_id ?? null) !== sourceId ||
+            !validRecord({schema:1,cases:{[caseId]:[payload.trial]}}) || payload.trial.lazy) throw new Error();
+        trial = payload.trial;
+        if (localStorage.getItem('lockbot_token') !== token || imported) return;
+        trialCache.set(key,trial);
+        if (trialCache.size > 16) trialCache.delete(trialCache.keys().next().value);
+      }
+      if (!stillSelected()) return;
+      // Replace the merged display row, preserving immutable source catalogs and comment IDs.
+      data.cases[caseId] = data.cases[caseId].map((row,i) => i === activeIndex ? trial : row);
+      draw();
+    } catch {
+      if (!stillSelected()) return;
+      const content = select('content');
+      const message = node('p','轨迹加载失败，请重试。','evidence-note');
+      const retry = node('button','重试','quiet-button');
+      retry.type = 'button';
+      retry.onclick = () => draw();
+      content.replaceChildren(message,retry);
+    } finally {
+      pendingTrials.delete(key);
+    }
+  };
   async function pollSnapshot() {
     if (imported || (reviewBusy && !layout.hidden) || !window.getSelection()?.isCollapsed || inspector.open) return;
     const token = localStorage.getItem('lockbot_token');
@@ -1159,6 +1235,7 @@ if (online) {
       reportStatus('请先登录 LockBot 超级管理员，再打开此页面。');
       return;
     }
+    if (layout.hidden) reportStatus('正在加载测例目录…');
     try {
       const catalog = await loadDatasets(token);
       let response = catalog.response;
@@ -1172,7 +1249,7 @@ if (online) {
           if (!source) {
             const params = new URLSearchParams(snapshotParams);
             params.set('dataset_id',metadata.dataset_id);
-            const fetched = await fetch('/api/dev/trace-review/snapshot?' + params, {
+            const fetched = await fetch('/api/dev/trace-review/catalog?' + params, {
               headers:{Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error', signal:AbortSignal.timeout(30000)
             });
             if (!fetched.ok) { response = fetched; break; }

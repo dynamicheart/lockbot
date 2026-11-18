@@ -8,6 +8,7 @@ import sqlite3
 import stat
 import threading
 import uuid
+from collections import OrderedDict
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,6 +88,20 @@ class ReviewCommentUpdate(BaseModel):
 def trace_review_router(directory: Path) -> APIRouter:
     router = APIRouter(include_in_schema=False, route_class=PrivateReviewRoute)
     store_lock = threading.Lock()
+    snapshot_cache = OrderedDict()
+    cache_lock = threading.Lock()
+
+    def file_identity(details):
+        return (
+            details.st_dev,
+            details.st_ino,
+            details.st_mode,
+            details.st_uid,
+            details.st_nlink,
+            details.st_size,
+            details.st_mtime_ns,
+            details.st_ctime_ns,
+        )
 
     @contextmanager
     def dataset_catalog():
@@ -102,27 +117,50 @@ def trace_review_router(directory: Path) -> APIRouter:
         finally:
             os.close(folder)
 
-    def private_file(folder, name, limit, *, size=None, digest=None, read=True):
+    def private_file(folder, name, limit, *, size=None, digest=None, read=True, identity=False, parsed_key=None):
         descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
         with os.fdopen(descriptor, "rb") as source:
             details = os.fstat(source.fileno())
             if (
                 not stat.S_ISREG(details.st_mode)
                 or details.st_mode & 0o777 != 0o600
+                or details.st_uid != os.getuid()
+                or details.st_nlink != 1
                 or details.st_size > limit
                 or (size is not None and details.st_size != size)
             ):
                 raise ValueError("Invalid dataset file")
             if not read:
                 return None
+            guard = file_identity(details)
+            key = (*parsed_key, guard) if parsed_key is not None else None
+            if key is not None:
+                with cache_lock:
+                    if key in snapshot_cache:
+                        if file_identity(os.fstat(source.fileno())) != guard:
+                            raise ValueError("Dataset changed during reading")
+                        snapshot_cache.move_to_end(key)
+                        return snapshot_cache[key]
             data = source.read(limit + 1)
+            if file_identity(os.fstat(source.fileno())) != guard:
+                raise ValueError("Dataset changed during reading")
         if (
             len(data) > limit
             or (size is not None and len(data) != size)
             or (digest is not None and hashlib.sha256(data).hexdigest() != digest)
         ):
             raise ValueError("Dataset integrity check failed")
-        return data
+        if key is not None:
+            # Cache only verified immutable sources. Every lookup still opens
+            # the registry, metadata and source safely and checks fresh stats.
+            parsed = snapshot_details(json.loads(data), parsed_key[1], parsed_key[0])
+            with cache_lock:
+                snapshot_cache[key] = parsed
+                snapshot_cache.move_to_end(key)
+                while len(snapshot_cache) > 4:
+                    snapshot_cache.popitem(last=False)
+            return parsed
+        return (data, guard) if identity else data
 
     def dataset_registry(folder):
         try:
@@ -147,7 +185,10 @@ def trace_review_router(directory: Path) -> APIRouter:
         try:
             if os.fstat(descriptor).st_mode & 0o777 != 0o700:
                 raise ValueError("Private dataset directory required")
-            metadata = json.loads(private_file(descriptor, "metadata.json", MAX_DATASET_METADATA_BYTES))
+            content, metadata_guard = private_file(
+                descriptor, "metadata.json", MAX_DATASET_METADATA_BYTES, identity=True
+            )
+            metadata = json.loads(content)
             if (
                 not isinstance(metadata, dict)
                 or type(metadata.get("schema_version")) is not int
@@ -164,11 +205,11 @@ def trace_review_router(directory: Path) -> APIRouter:
                 if type(size) is not int or not 2 <= size <= limit:
                     raise ValueError("Invalid dataset size")
                 private_file(descriptor, name, limit, size=size, read=False)
-            yield descriptor, metadata
+            yield descriptor, metadata, metadata_guard
         finally:
             os.close(descriptor)
 
-    def read_snapshot(raw, dataset_id=None):
+    def read_snapshot(raw, dataset_id=None, *, parsed=False):
         if dataset_id is not None:
             if not DATASET_PATTERN.fullmatch(dataset_id):
                 raise HTTPException(404, "Dataset is unavailable", headers=PRIVATE_HEADERS)
@@ -177,7 +218,7 @@ def trace_review_router(directory: Path) -> APIRouter:
                     if dataset_id not in dataset_registry(folder):
                         raise HTTPException(404, "Dataset is unavailable", headers=PRIVATE_HEADERS)
                     try:
-                        with dataset_files(folder, dataset_id) as (files, metadata):
+                        with dataset_files(folder, dataset_id) as (files, metadata, metadata_guard):
                             name, field = ("raw.json", "raw") if raw else ("latest.json", "latest")
                             return private_file(
                                 files,
@@ -185,6 +226,9 @@ def trace_review_router(directory: Path) -> APIRouter:
                                 SNAPSHOT_LIMITS[name],
                                 size=metadata[field + "_size_bytes"],
                                 digest=metadata[field + "_sha256"],
+                                parsed_key=(dataset_id, raw, file_identity(os.fstat(files)), metadata_guard)
+                                if parsed
+                                else None,
                             )
                     except FileNotFoundError:
                         raise ValueError("Published dataset is incomplete") from None
@@ -200,7 +244,7 @@ def trace_review_router(directory: Path) -> APIRouter:
             raise HTTPException(status_code=404, headers=PRIVATE_HEADERS) from None
         if len(data) > max_bytes:
             raise HTTPException(status_code=503, headers=PRIVATE_HEADERS)
-        return data
+        return snapshot_details(json.loads(data), raw, None) if parsed else data
 
     def digest_trial(snapshot, case_id, trial, raw, run_index, dataset_id=None):
         content = {
@@ -213,6 +257,46 @@ def trace_review_router(directory: Path) -> APIRouter:
         if dataset_id is not None:
             content["dataset_id"] = dataset_id
         return hashlib.sha256(json.dumps(content, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    def snapshot_details(data, raw, dataset_id):
+        runs = {
+            case_id: [digest_trial(data, case_id, trial, raw, index, dataset_id) for index, trial in enumerate(trials)]
+            for case_id, trials in data["cases"].items()
+        }
+        return data, runs
+
+    def lazy_snapshot(raw, dataset_id):
+        try:
+            return read_snapshot(raw, dataset_id, parsed=True)
+        except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
+            raise HTTPException(503, "Snapshot is unavailable", headers=PRIVATE_HEADERS) from None
+
+    def trial_summary(trial):
+        fields = (
+            "model",
+            "state",
+            "source_run",
+            "package_version",
+            "review_phase",
+            "semantic_status",
+            "overall_review_status",
+            "action_safety_status",
+            "elapsed_seconds",
+        )
+        compact = {
+            key: value
+            for key in fields
+            if isinstance(value := trial.get(key), (str, int, float, bool))
+            and (not isinstance(value, str) or len(value) <= 512)
+        }
+        metrics = trial.get("metrics")
+        if isinstance(metrics, dict):
+            compact["metrics"] = {
+                key: value
+                for key, value in list(metrics.items())[:32]
+                if isinstance(key, str) and len(key) <= 80 and type(value) in (int, float, bool)
+            }
+        return {**compact, "sessions": [], "lazy": True}
 
     def run_identity(case_id, run_index, raw, dataset_id=None):
         try:
@@ -290,6 +374,54 @@ def trace_review_router(directory: Path) -> APIRouter:
             data["dataset_id"] = dataset_id
         return JSONResponse(data, headers=PRIVATE_HEADERS)
 
+    @router.get("/api/dev/trace-review/catalog", dependencies=[Depends(require_super_admin)])
+    def catalog(raw: bool = False, dataset_id: str | None = None):
+        data, runs = lazy_snapshot(raw, dataset_id)
+        try:
+            projected = {
+                key: value
+                for key in ("title", "version", "visibility")
+                if isinstance(value := data.get(key), (str, int)) and (not isinstance(value, str) or len(value) <= 512)
+            }
+            projected.update(
+                schema=1,
+                lazy=True,
+                cases={
+                    case_id: [trial_summary(trial) for trial in trials] for case_id, trials in data["cases"].items()
+                },
+                review_runs=runs,
+            )
+            for field in ("labels", "groups"):
+                values = data.get(field)
+                if isinstance(values, dict):
+                    projected[field] = {
+                        key: value
+                        for key, value in values.items()
+                        if key in data["cases"] and isinstance(value, str) and len(value) <= 512
+                    }
+        except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
+            raise HTTPException(503, "Snapshot is unavailable", headers=PRIVATE_HEADERS) from None
+        if dataset_id is not None:
+            projected["dataset_id"] = dataset_id
+        return JSONResponse(projected, headers=PRIVATE_HEADERS)
+
+    @router.get("/api/dev/trace-review/trial", dependencies=[Depends(require_super_admin)])
+    def trial(case_id: str, run_index: int, run_id: str, raw: bool = False, dataset_id: str | None = None):
+        data, runs = lazy_snapshot(raw, dataset_id)
+        try:
+            if run_index < 0:
+                raise IndexError()
+            original = data["cases"][case_id][run_index]
+            current = runs[case_id][run_index]
+        except (KeyError, IndexError, TypeError):
+            raise HTTPException(404, "Trace run is unavailable", headers=PRIVATE_HEADERS) from None
+        if current != run_id:
+            raise HTTPException(409, "Trace changed; reload before reading", headers=PRIVATE_HEADERS)
+        result = {"case_id": case_id, "run_index": run_index, "run_id": current, "trial": original}
+        if dataset_id is not None:
+            result["dataset_id"] = dataset_id
+        return JSONResponse(result, headers=PRIVATE_HEADERS)
+
     @router.get("/api/dev/trace-review/datasets", dependencies=[Depends(require_super_admin)])
     def datasets():
         try:
@@ -298,7 +430,7 @@ def trace_review_router(directory: Path) -> APIRouter:
                 total_bytes = 0
                 for dataset_id in dataset_registry(folder):
                     try:
-                        with dataset_files(folder, dataset_id) as (_, metadata):
+                        with dataset_files(folder, dataset_id) as (_, metadata, _):
                             total_bytes += len(json.dumps(metadata, ensure_ascii=False).encode())
                             if total_bytes > MAX_DATASET_LIST_BYTES:
                                 raise ValueError("Dataset index response is too large")
