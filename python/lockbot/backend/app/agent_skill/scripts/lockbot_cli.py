@@ -3178,6 +3178,63 @@ def _automatic_policy(client, context, snapshot, selected, args):
             raise AutomaticScopeError("automatic_duration_limit", "所需租期无法满足当前时长限制。")
 
 
+def _automatic_relock_plan(context, snapshot, selected, args, elapsed):
+    """Translate only a new explicit, same-mode request on a fully owned lease."""
+    plan = {"operation": args.operation, "duration": args.duration, "leases": None}
+    if args.operation not in {"lock", "slock"}:
+        return plan
+    actor = context["actor"]["external_user_id"]
+    owned = [[row for row in unit["holders"] if row["external_user_id"] == actor] for unit in selected]
+    if not any(owned):
+        return plan
+    mode = "exclusive" if args.operation == "lock" else "shared"
+    if any(len(rows) != 1 or unit["lock_status"] != mode for rows, unit in zip(owned, selected, strict=True)):
+        raise AutomaticScopeError(
+            "automatic_relock_selection_conflict", "目标并非全部由你以相同模式持有，未拆分申请或续期。"
+        )
+    rules = context.get("bot_rules")
+    if not isinstance(rules, dict) or rules.get("forbid_relock") is not False:
+        raise AutomaticScopeError("automatic_relock_not_allowed", "尚未确认当前规则允许续期，未发送命令。")
+    ceiling = rules.get("effective_max_lock_duration_seconds")
+    if type(ceiling) is not int or ceiling < -1:
+        raise AutomaticScopeError("automatic_policy_invalid", "当前续期时长限制无法确认，未发送命令。")
+    if any(unit.get("booking_list", []) for unit in selected):
+        raise AutomaticScopeError("automatic_resource_conflict", "目标存在排队，未自动延长当前占用。")
+    leases = []
+    try:
+        reference = Client._expiry({"expires_at": snapshot["captured_at"]}) + snapshot["age_seconds"] + elapsed
+        for (holding,) in owned:
+            expiry = Client._expiry(holding)
+            remaining = metric_number(holding.get("remaining_seconds"))
+            if not math.isfinite(expiry) or expiry <= reference or remaining is None or remaining <= 0:
+                raise ValueError
+            leases.append((expiry, holding.get("start_time")))
+    except (ClientError, KeyError, TypeError, ValueError, AttributeError, OverflowError):
+        raise AutomaticScopeError(
+            "automatic_lease_unverifiable", "无法确认原占用仍在有效期内，未发送续期命令。"
+        ) from None
+    duration = args.duration
+    if duration is None:
+        default = rules.get("default_duration_seconds")
+        if type(default) is not int or default <= 0:
+            raise AutomaticScopeError("group_default_duration_unavailable", "无法确认默认续期时长，请指定增加多久。")
+        # Resource commands accept minutes/hours/days, not a seconds suffix.
+        # Preserve arbitrary integer defaults without truncating a fractional minute.
+        try:
+            minutes = default / 60
+            if minutes * 60 < default:
+                minutes = math.nextafter(minutes, math.inf)
+            text = format(minutes, ".17f").rstrip("0").rstrip(".")
+            if not math.isfinite(minutes) or int(float(text) * 60) != default:
+                raise ValueError
+        except (OverflowError, ValueError):
+            raise AutomaticScopeError(
+                "group_default_duration_unavailable", "默认续期时长无法精确表达，请指定增加多久。"
+            ) from None
+        duration = text + "m"
+    return {"operation": "renew", "duration": duration, "leases": leases}
+
+
 def resolve_command_scope(args, *, clock=None):
     """Resolve literal caller hints, never infer or authenticate the user's intent."""
     clock = clock or time.monotonic
@@ -3288,6 +3345,20 @@ def resolve_command_scope(args, *, clock=None):
     client.node_access = None  # All automatic observations remain in memory, including selected pre-reads.
     if connection_scope(client.config) != expected_scope:
         raise AutomaticScopeError("automatic_scope_changed", "连接身份发生变化，请重新确认目标。")
+    initial_selected = client._selected(group["snapshot"], nodes, devices)
+    relock_plan = _automatic_relock_plan(
+        group["snapshot"]["context"], group["snapshot"], initial_selected, args, clock() - completed
+    )
+    effective_args = argparse.Namespace(**vars(args))
+    effective_args.operation, effective_args.duration = relock_plan["operation"], relock_plan["duration"]
+    evidence.update(requested_operation=args.operation, effective_operation=effective_args.operation)
+    if relock_plan["leases"] is not None:
+        evidence.update(
+            operation_mapping_reason="fresh_own_same_mode_relock",
+            requested_duration=args.duration,
+            effective_duration=effective_args.duration,
+            duration_source="group-default" if args.duration is None else "user-request",
+        )
     client.calls, client.deadline = result["http_requests"], deadline
     if client.calls + 3 > MAX_CALLS or clock() >= deadline:
         raise AutomaticScopeError(
@@ -3346,10 +3417,6 @@ def resolve_command_scope(args, *, clock=None):
                 != signatures[node]
             ):
                 raise AutomaticScopeError("automatic_device_set_changed", "节点的完整卡集合发生变化，未发送资源命令。")
-        if final:
-            evidence["selection_checked_before_post"] = True
-            evidence["http_requests_before_post"] = selected_client.calls
-            return
         selected = selected_client._selected(snapshot, nodes, devices)
         if args.model is not None and not all(
             selected_client._matches_model(item, args.model.strip().casefold(), card_bot, args.minimum_model_count)
@@ -3358,21 +3425,34 @@ def resolve_command_scope(args, *, clock=None):
             raise AutomaticScopeError(
                 "selected_resource_model_unverified_or_insufficient", "所需型号或数量无法确认，未申请未知硬件。"
             )
+        if (
+            _automatic_relock_plan(
+                context, snapshot, selected, args, clock() - selected_client._resource_request_started
+            )
+            != relock_plan
+        ):
+            raise AutomaticScopeError("automatic_relock_changed", "原占用、续期模式或默认时长发生变化，未发送命令。")
         for unit in selected:
             bookings = unit.get("booking_list", [])
-            if args.operation in {"lock", "slock"} and (
-                bookings or unit["lock_status"] not in ({"idle"} if args.operation == "lock" else {"idle", "shared"})
+            if effective_args.operation in {"lock", "slock"} and (
+                bookings
+                or unit["lock_status"] not in ({"idle"} if effective_args.operation == "lock" else {"idle", "shared"})
             ):
                 raise AutomaticScopeError("automatic_resource_conflict", "完整目标存在占用或排队冲突，未选择部分资源。")
             if args.operation == "release" and not selected_client._own(
                 unit["holders"] + bookings, context["actor"]["external_user_id"]
             ):
                 raise AutomaticScopeError("automatic_release_not_owned", "未确认持有或预约该资源，未发送释放命令。")
-        _automatic_policy(selected_client, context, snapshot, selected, args)
+        _automatic_policy(selected_client, context, snapshot, selected, effective_args)
+        if final:
+            evidence["selection_checked_before_post"] = True
+            evidence["http_requests_before_post"] = selected_client.calls
 
     return client, {
         "nodes": nodes,
         "devices": devices,
+        "operation": effective_args.operation,
+        "duration": effective_args.duration,
         "precondition": precondition,
         "resolution": evidence,
     }
@@ -3646,10 +3726,10 @@ def main(argv=None):
         elif args.action == "command":
             metadata = private_json(args.metadata_file) if args.metadata_file else {}
             result = client.command(
-                args.operation,
+                automatic["operation"] if automatic else args.operation,
                 automatic["nodes"] if automatic else args.node,
                 automatic["devices"] if automatic else args.device,
-                args.duration,
+                automatic["duration"] if automatic else args.duration,
                 metadata,
                 same_devices_on_all_nodes=args.same_devices_on_all_nodes,
                 device_count=args.device_count,
@@ -3660,6 +3740,8 @@ def main(argv=None):
             )
             if automatic:
                 result["resolution"] = automatic["resolution"]
+                if automatic["resolution"].get("duration_source") == "group-default":
+                    result["duration_source"] = "group-default"
         else:
             result = client.metrics(args.node)
         if args.action in {"resources", "command"} and not args.exact_lease_times:
