@@ -412,8 +412,10 @@ def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tm
     assert run(fixture, "resources")["result"]["resources"][0]["holders"]
     result = run(fixture, "metrics", nodes=["node-a"])["result"]
     assert result["verification"] == "query_response_only"
-    samples = result["data"]["data"]["result"]
-    assert any(sample["value"][1] == "42" for sample in samples)
+    assert "data" not in result  # Default output is normalized, not a duplicate Prometheus vector.
+    reading = result["utilization"][0]["cards"][0]
+    assert reading["status"] == "ok" and reading["percent"] == 42
+    assert 7 <= reading["sample_age_seconds"] < 10
     final = "node-a 的卡利用率为 42%，样本约 8 秒前采集。"
     grade = evaluation.score(fixture.root, final)
     assert grade["observable_pass"], grade["checks"]
