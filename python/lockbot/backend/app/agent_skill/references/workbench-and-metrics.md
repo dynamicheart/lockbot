@@ -7,6 +7,13 @@ Use the bundled CLI. If the provided Key has no saved connection yet, verify it 
 source. Then run `--connection <file> resources` for ownership and
 `--connection <file> metrics --node <node-id>` for utilization. The helper refreshes
 an expired grant once and reports valid percentages with `sample_age_seconds`.
+Repeat `--node` to query several nodes together. For a resource-and-load task, use
+`resources --node <id-or-alias> --with-metrics`, or narrow `resources-all` with `--model`
+and add `--with-metrics`. The helper batches the selected nodes inside one invocation;
+telemetry failure does not erase the resource result. Default metric output contains
+normalized CPU/card percentages, available reported memory/filesystem readings, and
+per-reading health/freshness rather than a duplicate raw Prometheus vector. Use `metrics --full`
+only when debugging that vector. Missing memory readings are unknown, not zero.
 
 If authenticated context includes `utilization.configuration`, the bot administrator has
 configured a separate metrics data source. It is optional: resource acquisition never

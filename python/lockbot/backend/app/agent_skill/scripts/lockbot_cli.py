@@ -217,7 +217,7 @@ def inventory_overview(snapshot, context):
     return overview
 
 
-def utilization_sample(values, success, stamps, now, stale_seconds):
+def utilization_sample(values, success, stamps, now, stale_seconds, *, value_field="percent", maximum=100):
     """Classify a utilization reading using its collector's own timestamp."""
     stamp = stamps[0] if len(stamps) == 1 else None
     age = max(0, now - stamp) if stamp is not None and 0 < stamp <= now + 30 else None
@@ -230,7 +230,7 @@ def utilization_sample(values, success, stamps, now, stale_seconds):
         or len(stamps) > 1
         or (stamps and age is None)
         or len(values) > 1
-        or (values and (value is None or not 0 <= value <= 100))
+        or (values and (value is None or value < 0 or maximum is not None and value > maximum))
     ):
         status = "invalid"
     elif not success or age is None or not values:
@@ -239,13 +239,14 @@ def utilization_sample(values, success, stamps, now, stale_seconds):
         status = "stale"
     else:
         status = "ok"
-    return {"status": status, "percent": value if status == "ok" else None, "sample_age_seconds": age}
+    return {"status": status, value_field: value if status == "ok" else None, "sample_age_seconds": age}
 
 
 def utilization_summary(vector, mappings, now, stale_seconds):
     collectors = {}
     samples = {}
     devices = {}
+    filesystems = {}
     for row in vector:
         labels = row["metric"]
         name, node = labels["__name__"], labels["node"]
@@ -255,22 +256,42 @@ def utilization_summary(vector, mappings, now, stale_seconds):
             collector = labels.get("collector")
             if collector in ("accelerator", "host"):
                 collectors.setdefault((node, collector, name), []).append(value)
-        elif name == "lockbot_host_cpu_utilization_percent":
-            samples.setdefault((node, "host", None), []).append(value)
+        elif name == "lockbot_host_cpu_utilization_percent" or name.startswith("lockbot_host_memory_"):
+            samples.setdefault((node, "host", None, name), []).append(value)
+        elif name.startswith("lockbot_host_filesystem_"):
+            filesystem = labels.get("filesystem")
+            if isinstance(filesystem, str) and filesystem:
+                filesystems.setdefault(node, set()).add(filesystem)
+                samples.setdefault((node, "host", filesystem, name), []).append(value)
         elif name.startswith("lockbot_accelerator_"):
             device = labels.get("device")
             if isinstance(device, str) and device:
                 devices.setdefault(node, set()).add(device)
-                if name == "lockbot_accelerator_utilization_percent":
-                    samples.setdefault((node, "accelerator", device), []).append(value)
+                samples.setdefault((node, "accelerator", device, name), []).append(value)
 
-    def reading(node, collector, device=None):
+    def reading(node, collector, device=None, metric=None):
+        metric = metric or (
+            "lockbot_host_cpu_utilization_percent" if collector == "host" else "lockbot_accelerator_utilization_percent"
+        )
+        is_bytes = metric.endswith("_bytes")
         return utilization_sample(
-            samples.get((node, collector, device), []),
+            samples.get((node, collector, device, metric), []),
             collectors.get((node, collector, "lockbot_collector_success"), []),
             collectors.get((node, collector, "lockbot_sample_timestamp_seconds"), []),
             now,
             stale_seconds,
+            value_field="bytes" if is_bytes else "percent",
+            maximum=None if is_bytes else 100,
+        )
+
+    def memory(node, collector, device=None):
+        fields = ("used", "total", "available", "cache") if collector == "host" else ("used", "total")
+        prefix = "lockbot_host_memory_" if collector == "host" else "lockbot_accelerator_memory_"
+        present = [field for field in fields if (node, collector, device, prefix + field + "_bytes") in samples]
+        return (
+            {"memory": {field: reading(node, collector, device, prefix + field + "_bytes") for field in present}}
+            if present
+            else {}
         )
 
     return [
@@ -278,11 +299,28 @@ def utilization_summary(vector, mappings, now, stale_seconds):
             "node": node,
             "source_node": target,
             "cpu": reading(target, "host"),
+            **memory(target, "host"),
             "cards": [
-                {"device": device, **reading(target, "accelerator", device)}
+                {"device": device, **reading(target, "accelerator", device), **memory(target, "accelerator", device)}
                 for device in sorted(devices.get(target, ()))
             ],
             "cards_status": "reported" if target in devices else reading(target, "accelerator")["status"],
+            **(
+                {
+                    "filesystems": [
+                        {
+                            "filesystem": name,
+                            **{
+                                field: reading(target, "host", name, "lockbot_host_filesystem_" + field + "_bytes")
+                                for field in ("used", "total")
+                            },
+                        }
+                        for name in sorted(filesystems[target])
+                    ]
+                }
+                if target in filesystems
+                else {}
+            ),
         }
         for node, target in mappings.items()
     ]
@@ -1702,6 +1740,8 @@ class Client:
         context = self._read_context(with_resources=True)
         snapshot = self.resources_with_hardware_notes(context)
         snapshot["inventory_overview"] = inventory_overview(snapshot, context)
+        if "context" not in snapshot:
+            snapshot = {**snapshot, "context": context, "context_source": "separate_verified_read"}
         return snapshot
 
     def own_inventory(self, *, exact_lease_times=False):
@@ -2394,10 +2434,12 @@ class Client:
                     form=True,
                     body={"query": selector, "time": str(time.time()), "timeout": "4s"},
                 )
-                vector = data.get("data", {}).get("result")
+                source_data = data.get("data")
+                vector = source_data.get("result") if isinstance(source_data, dict) else None
                 if (
                     data.get("status") != "success"
-                    or data.get("data", {}).get("resultType") != "vector"
+                    or not isinstance(source_data, dict)
+                    or source_data.get("resultType") != "vector"
                     or not isinstance(vector, list)
                     or len(vector) > 2048
                 ):
@@ -2529,7 +2571,163 @@ def redacted_values(value, private_values=()):
     return value
 
 
-def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=None, opener=None, clock=time.monotonic):
+def inventory_output(snapshot, *, full=False):
+    """Project the model-facing view, keeping the verified observation untouched."""
+    if full or not isinstance(snapshot, dict):
+        return snapshot
+    result = dict(snapshot)
+    context = snapshot.get("context")
+    if isinstance(context, dict):
+        result["context"] = {
+            key: value for key, value in context.items() if key not in {"skill", "links", "utilization"}
+        }
+        if isinstance(context.get("server"), dict):
+            result["context"]["server"] = {
+                key: value
+                for key, value in context["server"].items()
+                if key in {"service_id", "instance_id", "api_version", "server_version"}
+            }
+    return result
+
+
+def aggregate_output(output, *, full=False):
+    if full:
+        return output
+    result = output["result"]
+    return {
+        **output,
+        "result": {
+            **result,
+            "groups": [{**group, "snapshot": inventory_output(group["snapshot"])} for group in result["groups"]],
+        },
+    }
+
+
+def metrics_output(result, *, full=False):
+    # The raw Prometheus vector duplicates the normalized utilization readings.
+    return result if full else {key: value for key, value in result.items() if key != "data"}
+
+
+def select_inventory(snapshot, *, nodes=(), model=None):
+    """Filter an observation for display without changing the verified write snapshot."""
+    if not nodes and model is None:
+        return snapshot
+    if any(not isinstance(node, str) or not 0 < len(node) <= 256 or not node.isprintable() for node in nodes):
+        raise ClientError("invalid_query_node")
+    if model is not None and (not model.strip() or len(model) > 80 or not model.isprintable()):
+        raise ClientError("invalid_query_model")
+    wanted = {node.casefold() for node in nodes}
+    model = model.strip().casefold() if model is not None else None
+    unknown, observed, matched = set(), set(), set()
+
+    def selected(item, *, own=False):
+        identifier = str(item.get("node") if own else item.get("id"))
+        observed.add(identifier)
+        if wanted and not wanted.intersection({identifier.casefold(), str(item.get("alias", "")).casefold()}):
+            return False
+        if model is not None:
+            cards = item.get("devices")
+            if own and item.get("model") is not None:
+                models = [item["model"]]
+            elif isinstance(cards, list):
+                models = [card.get("dev_model") if isinstance(card, dict) else None for card in cards]
+            else:
+                note = item.get("local_hardware_note")
+                inventory = item.get("accelerators", note.get("accelerators") if isinstance(note, dict) else None)
+                models = (
+                    [row.get("model") if isinstance(row, dict) else None for row in inventory]
+                    if isinstance(inventory, list)
+                    else [None]
+                )
+            if not models or any(not isinstance(value, str) or not value.strip() for value in models):
+                unknown.add(identifier)
+            if model not in {value.strip().casefold() for value in models if isinstance(value, str)}:
+                return False
+        matched.add(identifier)
+        return True
+
+    result = dict(snapshot)
+    if snapshot.get("scope") == "own":
+        for field in ("holdings", "bookings"):
+            result[field] = [item for item in snapshot[field] if selected(item, own=True)]
+    else:
+        result["resources"] = [item for item in snapshot["resources"] if selected(item)]
+        result["inventory_overview"] = inventory_overview(result, snapshot.get("context", {}))
+    result["selection"] = {
+        "nodes": list(nodes),
+        "model": model,
+        "observed_nodes": len(observed),
+        "matched_nodes": len(matched),
+        "unknown_hardware_nodes": sorted(unknown),
+        "full_inventory": False,
+    }
+    return result
+
+
+def attach_metrics(client, snapshot, *, full=False):
+    """Batch only selected nodes; optional telemetry failure never erases ownership."""
+    rows = snapshot.get("resources", snapshot.get("holdings", []) + snapshot.get("bookings", []))
+    nodes = list(dict.fromkeys(str(row.get("id", row.get("node"))) for row in rows))
+    result = {"scope": "selected_nodes", "complete": True, "utilization": [], "unread": []}
+    if full:
+        result["responses"] = []
+    for offset in range(0, len(nodes), 64):
+        batch = nodes[offset : offset + 64]
+        try:
+            reading = client.metrics(batch)
+            result["utilization"].extend(reading["utilization"])
+            if full:
+                result["responses"].append(reading)
+        except ClientError as error:
+            result["complete"] = False
+            result["unread"].append({"nodes": batch, "error": error.code})
+            if error.retry_after_seconds is not None:
+                result["unread"][-1]["retry_after_seconds"] = error.retry_after_seconds
+            # A failed scope, source or request budget is not a reason to keep polling.
+            if offset + len(batch) < len(nodes):
+                result["unread"].append({"nodes": nodes[offset + len(batch) :], "error": "metrics_not_read"})
+            break
+        except (AttributeError, KeyError, TypeError, ValueError):
+            result["complete"] = False
+            result["unread"].append({"nodes": batch, "error": "invalid_metrics_response"})
+            if offset + len(batch) < len(nodes):
+                result["unread"].append({"nodes": nodes[offset + len(batch) :], "error": "metrics_not_read"})
+            break
+    return {**snapshot, "metrics": result}
+
+
+def observation_at_completion(client, snapshot):
+    """Age a single query after optional telemetry; aggregation has its own final pass."""
+    result = dict(snapshot)
+    age = metric_number(snapshot.get("age_seconds"))
+    started = client._resource_request_started
+    elapsed = client.clock() - started if started is not None else None
+    result["age_seconds"] = (
+        age + elapsed if age is not None and age >= 0 and elapsed is not None and elapsed >= 0 else None
+    )
+    result["snapshot_fresh_for_write"] = bool(
+        snapshot.get("snapshot_fresh_for_write")
+        and result["age_seconds"] is not None
+        and result["age_seconds"] <= MAX_RESOURCE_SNAPSHOT_AGE
+    )
+    if "inventory_overview" in result:
+        result["inventory_overview"] = inventory_overview(result, snapshot.get("context", {}))
+    return result
+
+
+def resources_all(
+    directory=None,
+    *,
+    mine=False,
+    exact_lease_times=False,
+    nodes=(),
+    model=None,
+    with_metrics=False,
+    full=False,
+    root=None,
+    opener=None,
+    clock=time.monotonic,
+):
     """Read existing catalog scopes separately, sharing only the bounded request budget."""
     deadline, calls, clients = clock() + 60, 0, []
     observations = []
@@ -2604,6 +2802,11 @@ def resources_all(directory=None, *, mine=False, exact_lease_times=False, root=N
                 snapshot = client.resources_with_hardware_notes(context)
                 if not isinstance(snapshot.get("resources"), list):
                     raise ClientError("invalid_resource_summary")
+                if "context" not in snapshot:
+                    snapshot = {**snapshot, "context": context, "context_source": "separate_verified_read"}
+            snapshot = select_inventory(snapshot, nodes=nodes, model=model)
+            if with_metrics:
+                snapshot = attach_metrics(client, snapshot, full=full)
             snapshots.append(
                 {
                     "connection": locator,
@@ -2764,10 +2967,25 @@ def main(argv=None):
     resources.add_argument("--mine", action="store_true", help="Separate only your verified holdings and bookings")
     exact_times_help = "Include precise lease timestamps and seconds for scheduling or an exact deadline."
     resources.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
+    details_help = "Include complete verified response details for explicit debugging; do not persist a cache."
+    resources.add_argument("--full", action="store_true", help=details_help)
     aggregate = sub.add_parser("resources-all", help="Read all existing private catalog connections without enrollment")
     aggregate.add_argument("--directory", help="Read only this private connection catalog")
     aggregate.add_argument("--mine", action="store_true", help="Separate your holdings and bookings in every group")
     aggregate.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
+    aggregate.add_argument("--full", action="store_true", help=details_help)
+    for query in (resources, aggregate):
+        query.add_argument(
+            "--node", action="append", default=[], help="Filter by exact observed node ID or alias; repeat as needed."
+        )
+        query.add_argument(
+            "--model", help="Filter by reported accelerator model; unknown hardware is reported separately."
+        )
+        query.add_argument(
+            "--with-metrics",
+            action="store_true",
+            help="Also batch current utilization for selected nodes using separately approved source access.",
+        )
     recovery = sub.add_parser("recover", help="Save recoverable group credentials through a verified seed connection")
     recovery.add_argument("--destination", help="Explicit new private directory for separate group connections")
     recovery.add_argument("--scope", choices=["user", "project"], default="user")
@@ -2820,6 +3038,7 @@ def main(argv=None):
     command.add_argument("--metadata-file", help="Private JSON: task_category, purpose, agent_label only")
     command.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     command = sub.add_parser("metrics", help="Read current utilization for exact nodes from an approved source")
+    command.add_argument("--full", action="store_true", help=details_help)
     command.add_argument(
         "--node", action="append", required=True, help="Exact node ID from resources. Repeat as needed."
     )
@@ -2843,7 +3062,18 @@ def main(argv=None):
                 raise ClientError("connection_not_used_for_aggregation")
             print(
                 json.dumps(
-                    resources_all(args.directory, mine=args.mine, exact_lease_times=args.exact_lease_times),
+                    aggregate_output(
+                        resources_all(
+                            args.directory,
+                            mine=args.mine,
+                            exact_lease_times=args.exact_lease_times,
+                            nodes=args.node,
+                            model=args.model,
+                            with_metrics=args.with_metrics,
+                            full=args.full,
+                        ),
+                        full=args.full,
+                    ),
                     ensure_ascii=os.name == "nt",
                 )
             )
@@ -2893,7 +3123,11 @@ def main(argv=None):
         elif args.action == "context":
             result = client.context()
         elif args.action == "resources":
-            result = client.own_inventory(exact_lease_times=args.exact_lease_times) if args.mine else client.inventory()
+            result = client.own_inventory(exact_lease_times=True) if args.mine else client.inventory()
+            result = select_inventory(result, nodes=args.node, model=args.model)
+            if args.with_metrics:
+                result = attach_metrics(client, result, full=args.full)
+            result = observation_at_completion(client, result)
         elif args.action == "recover":
             result = client.recover(args.destination, scope=args.scope)
         elif args.action == "resource-guidance":
@@ -2921,7 +3155,16 @@ def main(argv=None):
         else:
             result = client.metrics(args.node)
         if args.action in {"resources", "command"} and not args.exact_lease_times:
-            format_lease_times(result if args.action == "resources" else result["verified_snapshot"])
+            if args.action == "resources" and args.mine:
+                format_lease_times(
+                    {"age_seconds": result["age_seconds"], "resources": [{"holders": result["holdings"]}]}
+                )
+            else:
+                format_lease_times(result if args.action == "resources" else result["verified_snapshot"])
+        if args.action == "resources":
+            result = inventory_output(result, full=args.full)
+        elif args.action == "metrics":
+            result = metrics_output(result, full=args.full)
         print(
             json.dumps(
                 client.redacted({"result": result, "update_required": client.needs_update}),

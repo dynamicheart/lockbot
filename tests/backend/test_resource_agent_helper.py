@@ -951,7 +951,7 @@ def test_metrics_reports_sample_health_without_turning_unknown_into_zero(
     )
     result = json.loads(completed.stdout)["result"]
 
-    assert result["data"]["data"]["result"] == rows
+    assert "data" not in result  # Raw vector is available only through --full.
     reading = result["utilization"][0]
     assert (reading["node"], reading["source_node"]) == ("node-a", "host-a")
     assert reading["cpu"]["percent"] == 15

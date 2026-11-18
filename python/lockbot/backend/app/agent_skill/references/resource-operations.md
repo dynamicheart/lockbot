@@ -90,6 +90,24 @@ and `unread` describe the gaps. Report partial results honestly; use the returne
 locator for a focused read where appropriate, never infer that unread groups are empty.
 To recover additional authorized groups, use the verified seed recovery flow first.
 
+The default query output keeps resource state, scope, rules and freshness, but omits
+repeated service/Skill installation metadata. `resources --full` and `resources-all --full`
+include the complete verified response details for explicit debugging, without extra HTTP
+requests or a new local cache. Outputs still redact credentials.
+
+For a targeted request, use `--model P800` or repeat `--node <exact-id-or-alias>` on either
+query. This filters the CLI output after verification; it never changes a resource or
+chooses a target for the user. All matching groups remain distinct. `selection.full_inventory:false`
+means the displayed list is filtered; hardware in `selection.unknown_hardware_nodes` is
+unknown, not absent or a confirmed nonmatch. A model filter alone does not prove that a
+resource is free, claimable or permitted. `--mine` remains limited to verified own resources.
+
+If the task asks about load, add `--with-metrics` to batch utilization for the selected
+nodes in the same CLI invocation. This may require additional internal context/source
+requests, but no additional model roundtrip. `metrics.unread` describes optional telemetry
+failures independently from the resource query's `complete`/`unread`. Metric samples retain
+their own missing, stale, failed or invalid status. Source access remains separately approved.
+
 | `bot_rules` field | Meaning |
 |---|---|
 | `forbid_relock` | Defaults to false for every bot type. When true, do not renew lock/slock or book a resource you currently hold. |
