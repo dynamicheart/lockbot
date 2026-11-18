@@ -11,7 +11,8 @@ export default {
     saved: 'Registered hardware',
     review: 'Review changes before saving.',
     removed: 'Remove registered hardware',
-    unknownNode: 'The mapping contains an unknown node ID. Refresh the list and check the exact ID.',
+    unknownNode:
+      'The mapping contains an unknown node ID. Refresh the list and check the exact ID.',
     readFailed: 'Could not load the hardware inventory.',
     validateFailed: 'Use version 1, existing node IDs, unique models, and positive integer counts.',
     writeFailed: 'Could not save the hardware inventory.',
@@ -57,7 +58,8 @@ export default {
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
     guideShareTitle: 'Maintenance Agent',
-    guideShare: 'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
+    guideShare:
+      'Register machine addresses, deploy the utilization collector, and connect its data to LockBot.',
     guideUseTitle: 'A user’s own Agent',
     guideUse: 'Check utilization to choose a card. Once acquired, connect using its IP.',
     scopeHint:
@@ -89,7 +91,8 @@ export default {
     previous: 'Previous',
     next: 'Next',
     title: 'Credential management',
-    scopeHint: 'Super administrators can issue audit credentials for read-only access to detailed Agent task notes on selected bots.',
+    scopeHint:
+      'Super administrators can issue audit credentials for read-only access to detailed Agent task notes on selected bots.',
     name: 'Name',
     bots: 'Permitted bots',
     lifetime: 'Lifetime',
@@ -754,7 +757,8 @@ export default {
     ask: 'Ask your Agent',
     example: '“Open my LockBot workbench.”',
     receive: 'Get a sign-in link',
-    receiveDetail: 'Your Agent uses its existing credential to create the link and sends it privately.',
+    receiveDetail:
+      'Your Agent uses its existing credential to create the link and sends it privately.',
     open: 'Open the link and confirm',
     openDetail: 'Confirm in your browser to open the workbench.',
     request:
@@ -764,28 +768,36 @@ export default {
     installDetail: 'Send the install request to your Agent.',
     copyInstall: 'Copy install request',
     installPackage: 'Download ZIP',
-    installRequest: 'Use this manifest to verify the ZIP, install the LockBot Skill, and confirm installation.\n{url}',
+    installRequest:
+      'Use this manifest to verify the ZIP, install the LockBot Skill, and confirm installation.\n{url}',
   },
   personalCredentialActions: {
-    introduction:
-      'Manage authorized resource groups here. Ask your Agent to query or request resources.',
+    introduction: 'Give your Agent access to your authorized resource groups.',
+    account: 'My account',
     addGroup: 'Add resource group',
     addGroupHint: 'Ask an Agent that can access the target resource group:',
-    addGroupConfirm: 'Open its workbench link, check the account, and confirm adding access.',
+    addGroupConfirm:
+      'Open its workbench link, check the account and resource groups, and follow the confirmation steps.',
     empty: 'No authorized resource groups yet. Choose “Add resource group” to begin.',
+    emptyWithoutAdd:
+      'No resource groups are available. Ask the original Agent to check the connection.',
     viewAvailable: 'Viewing request available',
     viewHint: 'The original Agent must authorize viewing separately.',
     noViewHint: 'Ask the original Agent to check viewing access or recover the connection.',
-    setupHint:
-      'Send setup instructions to the Agent that needs this group. They contain no Key; viewing or resetting requires separate authorization.',
-    copyAllStatus: 'Copy all statuses',
-    agentSetup: 'Set up another Agent',
-    copyInstructions: 'Copy setup instructions',
+    setupHint: 'Send these instructions to the Agent that needs this group.',
+    copyAllStatus: 'Copy all setup instructions',
+    agentSetup: 'Set up Agent',
+    copyInstructions: 'Copy for Agent',
+    showInstructions: 'View instructions',
+    hideInstructions: 'Hide instructions',
+    copiedForAgent: 'Copied. Send this to your Agent.',
     details: 'Connection details',
-    requestKey: 'Get Key viewing link',
+    requestKey: 'Request Key access',
+    requestReset: 'Request Key reset',
+    copyRecovery: 'Copy recovery instructions',
     keyUnavailable: 'Not viewable here',
     keyRequestInstructions:
-      'Send the request to the Agent for this group and open the link it returns.',
+      'Send the request to the original Agent, then open its link and confirm viewing.',
     copyKeyRequest: 'Copy viewing request',
     keyLinkAvailable: 'Key status: viewing link available',
     keyUnavailableStatus: 'Key status: unavailable',
@@ -1029,7 +1041,8 @@ export default {
     navigation: 'Primary navigation',
     myAllocations: 'My allocations',
     resourceGroups: 'Resource groups',
-    myCredentials: 'My credentials',
+    myCredentials: 'Agent setup',
+    groupAllocations: 'My allocations and reservations',
     console: 'Bot console',
     more: 'More',
     clearBrowser: 'Clear this browser’s access',

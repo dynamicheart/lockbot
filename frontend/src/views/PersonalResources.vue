@@ -18,22 +18,16 @@
           </router-link>
         </nav>
         <div v-if="!ticket" class="workbench-actions">
-          <router-link to="/bots" class="workbench-console">
-            <el-icon aria-hidden="true"><Monitor /></el-icon>
-            <span>{{ t('personalWorkbench.console') }}</span>
-          </router-link>
           <PersonalWorkbenchPlugins
             v-if="session.authenticated"
+            ref="workbenchPlugins"
+            :show-trigger="false"
             :inventory="session.workbench_plugins"
             :groups="groups"
             :metric-sources="utilizationGroups"
             :loading="resourceLoading"
           />
-          <el-dropdown
-            v-if="session.authenticated"
-            trigger="click"
-            @command="handleCredentialAction"
-          >
+          <el-dropdown trigger="click" @command="handleCredentialAction">
             <el-button
               class="workbench-more"
               :aria-label="t('personalWorkbench.more')"
@@ -42,7 +36,18 @@
             />
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="clear" :disabled="busy">
+                <el-dropdown-item command="console" :icon="Monitor">
+                  {{ t('personalWorkbench.console') }}
+                </el-dropdown-item>
+                <el-dropdown-item v-if="session.authenticated" command="plugins">
+                  {{ t('personalWorkbench.plugins.title') }}
+                </el-dropdown-item>
+                <el-dropdown-item
+                  v-if="session.authenticated"
+                  command="clear"
+                  divided
+                  :disabled="busy"
+                >
                   {{ t('personalWorkbench.clearBrowser') }}
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -849,7 +854,7 @@ const tab = computed(() => {
 })
 const detailSectionTitle = computed(() => {
   if (detailPage.value === 'reservations') return '预约与队列'
-  return detailPage.value === 'group' ? '群内资源' : '持有资源'
+  return detailPage.value === 'group' ? t('personalWorkbench.groupAllocations') : '持有资源'
 })
 const title = computed(() => {
   if (detailPage.value) return detail.value?.title || detailSectionTitle.value
@@ -870,9 +875,14 @@ const browserAccounts = computed(() =>
   new Intl.ListFormat(locale.value).format(session.value.identities.map(identityLabel))
 )
 const groups = ref([])
+const workbenchPlugins = ref(null)
 const guidanceDialog = ref(null)
 let guidanceRead = null
 function handleCredentialAction(command) {
+  if (ticket.value) return
+  if (command === 'console') return router.push('/bots')
+  if (!session.value.authenticated) return
+  if (command === 'plugins') workbenchPlugins.value?.open()
   if (command === 'clear') run(confirmLogout)
 }
 const ticket = ref(null)

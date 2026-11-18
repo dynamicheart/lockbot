@@ -40,7 +40,10 @@ function mount(locale = 'zh-CN') {
   app = renderer.createApp({ ...PersonalResources, render: () => null })
   router = createRouter({
     history: createMemoryHistory(),
-    routes: [{ path: '/me/:view?/:selection?', component: { render: () => null } }],
+    routes: [
+      { path: '/me/:view?/:selection?', component: { render: () => null } },
+      { path: '/bots', component: { render: () => null } },
+    ],
   })
   app.use(router)
   app.use(createI18n({ legacy: false, locale, messages: { 'zh-CN': zhCN, en } }))
@@ -629,6 +632,33 @@ it('clears the browser authorization only after confirmation', async () => {
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(fetch.mock.calls[0][0]).toMatch(/\/logout$/)
   expect(state.session.authenticated).toBe(false)
+})
+
+it('opens secondary destinations without resource or credential requests and gates authenticated actions', async () => {
+  const state = await readyGroups([confirmed])
+  const fetch = vi.fn()
+  vi.stubGlobal('fetch', fetch)
+  const open = vi.fn()
+  state.workbenchPlugins = { open }
+  state.handleCredentialAction('plugins')
+  expect(open).toHaveBeenCalledTimes(1)
+  await state.handleCredentialAction('console')
+  expect(router.currentRoute.value.path).toBe('/bots')
+  expect(fetch).not.toHaveBeenCalled()
+
+  state.ticket = { token: 'pending-confirmation' }
+  await router.push('/me')
+  state.handleCredentialAction('plugins')
+  await state.handleCredentialAction('console')
+  expect(router.currentRoute.value.path).toBe('/me')
+  state.ticket = null
+  state.session = { authenticated: false, identities: [] }
+  state.handleCredentialAction('plugins')
+  state.handleCredentialAction('clear')
+  expect(open).toHaveBeenCalledTimes(1)
+  expect(fetch).not.toHaveBeenCalled()
+  await state.handleCredentialAction('console')
+  expect(router.currentRoute.value.path).toBe('/bots')
 })
 
 it('counts confirmed batches while other sources are still loading', async () => {
