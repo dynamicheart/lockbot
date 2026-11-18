@@ -324,7 +324,7 @@ __REVIEW_STYLES__
 <aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例及模型结果"></nav></section></aside>
 <div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整测例侧栏宽度"></div>
 <div class="mobile-pick"><label>测例<select id="case-select"></select></label><label>所选测例的模型<select id="run-select"></select></label></div>
-<main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><button id="review-case" class="quiet-button" type="button">评论测例</button></div><details class="case-spec" id="case-spec"><summary>测例与检查说明</summary><div id="case-description"></div></details><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div></main>
+<main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><button id="review-case" class="quiet-button" type="button">评论</button></div><details class="case-spec" id="case-spec"><summary>测例与检查说明</summary><div id="case-description"></div></details><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div></main>
 </div>
 <dialog class="inspector" id="inspector" aria-labelledby="inspector-title"><div class="inspector-header"><div><h2 id="inspector-title"></h2><p id="inspector-meta"></p></div><button class="inspector-close" type="button" id="inspector-close" autofocus>关闭</button></div><div class="inspector-fields" id="inspector-fields"></div></dialog>
 <script>__JSON_VIEWER_BUNDLE__</script>
@@ -1075,10 +1075,7 @@ expandTools.onclick = ()=>{
   for (const group of groups) group.open = open;
   expandTools.textContent = open ? '收起调用' : '展开调用';
 };
-const reviewRun = node('button','评论记录','quiet-button');
-reviewRun.type = 'button';
-reviewRun.onclick = ()=>requestReview('run','','本次记录');
-viewActions.append(reviewRun,expandTools);
+viewActions.append(expandTools);
 document.querySelector('.tabs').append(viewActions);
 function validRecord(record) {
   const optionalText = value => value == null || typeof value==='string';

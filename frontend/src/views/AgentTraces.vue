@@ -3,7 +3,7 @@
     <div v-if="routeFields(route.query).dataset_id || routeFields(route.query).legacy" class="review-history-banner"><span>较早记录</span><el-button link type="primary" @click="returnCurrent">返回当前记录</el-button></div>
     <div v-if="reselecting" class="review-history-banner"><span>正文已保留，请重新选原文并点击评论。</span><el-button link @click="cancelReselect">返回草稿</el-button></div>
     <iframe :key="viewerRevision" ref="viewer" :src="viewerUrl" title="Agent 轨迹" @load="synchronize" />
-    <el-drawer v-model="reviewOpen" title="评论" :size="drawerWidth" :close-on-click-modal="false">
+    <el-drawer v-model="reviewOpen" title="评论" :size="drawerWidth">
       <template v-if="draftContext">
         <p v-if="draft.trim() && !sameTarget(draftContext, current)" class="review-context">草稿仍属于原记录；保存或清空后可评论当前记录。</p>
         <p class="review-context">{{ draftContext.case_name }} · {{ isUiComment(draftContext) ? '界面评论' : draftContext.scope === 'case' ? '测例评论' : draftContext.model }}</p>
