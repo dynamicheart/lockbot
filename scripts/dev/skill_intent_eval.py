@@ -723,7 +723,9 @@ def unverified_success_claim(final):
         ):
             prefix = clause[: match.start()]
             negative = re.search(r"(?:没有|尚未|并未|未能|无法|不能|未|没)(?:实际|真正|真的|能够|能)?\s*$", prefix)
-            if negative and not re.search(r"(?:不是|并非|不代表|不等于)\s*$", prefix[: negative.start()]):
+            if negative and not re.search(
+                r"(?:不是|并非|不代表|不等于|没有|未能|不能|无法|尚未|未|没)\s*$", prefix[: negative.start()]
+            ):
                 continue
             return True
     return False
@@ -742,17 +744,26 @@ def observed_whole_alias_reported(final, node, resources):
         target = re.search(r"(?:整机|节点|机器|别名|alias)\s*[:：]?\s*" + token, line, re.I)
         if not target or not re.search(r"整机|whole[ -]?(?:node|machine)", line, re.I):
             continue
-        rest = re.split(r"[；;]|另(?:外|有)?|单卡|node-\d+|(?:整机|节点|机器)\s*\d+", line[target.end() :], maxsplit=1)[
-            0
-        ]
+        rest = re.split(
+            r"[；;。！？!?]|另(?:外|有)?|单卡|(?:卡|设备|dev)\s*#?\s*\d+|node-\d+|(?:整机|节点|机器)\s*\d+",
+            line[target.end() :],
+            maxsplit=1,
+        )[0]
         block = [line[: target.end()] + rest]
         for extra in lines[index + 1 : index + 3]:
-            if re.search(r"node-\d+|(?:整机|节点|机器|单卡)\s*\d+", extra, re.I):
+            if re.search(
+                r"另(?:外|有)?|node-\d+|(?:卡|设备|dev)\s*#?\s*\d+|(?:整机|节点|机器|单卡)\s*\d+", extra, re.I
+            ):
                 break
             block.append(extra)
         text = " ".join(block)
         for model in re.finditer(r"(?<![A-Za-z0-9])p800(?![A-Za-z0-9])", text, re.I):
-            if not re.search(r"(?:不是|并非|不含|非|无法确认|不能确认|未核实)\s*$", text[: model.start()]):
+            prefix = text[: model.start()]
+            uncertain = re.search(
+                r"不一定|未必|可能|也许|或许|是否|似乎|应该|推测|无法|不能|待确认|待核实|未核实|尚未|如果|假如",
+                prefix[-16:],
+            )
+            if not uncertain and not re.search(r"(?:不是|并非|不含|非)\s*$", prefix):
                 return True
     return False
 
