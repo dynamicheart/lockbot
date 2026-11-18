@@ -10,7 +10,6 @@
   --selected: var(--lb-bg-hover);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
-.control-compact { display: none; }
 .brand { white-space: nowrap; color: var(--ink); text-decoration: none; border-radius: 6px; }
 .sidebar { background: var(--lb-bg-sidebar); border-right: 0; }
 .layout { grid-template-columns: minmax(0, var(--case-width, 280px)) 6px minmax(0, 1fr); }
@@ -27,7 +26,7 @@
 .choice[aria-pressed=true], .case-runs .choice[aria-pressed=true], .trace-row[aria-pressed=true] { background: var(--selected); }
 .trace-tree, .trace-search, .trace-toolbar, .payload-bar, .trace-inspect-header, .trace-search input { background: var(--paper); }
 .trace-search input { border-color: var(--line); color: var(--ink); }
-.open-file, .quiet-button, .inspector-close, .chat-code button, .payload-format button, .payload-bar button {
+.quiet-button, .inspector-close, .chat-code button, .payload-format button, .payload-bar button {
   background: var(--paper); color: var(--ink); border-color: var(--line);
 }
 .payload, .chat-code, .chat-code-bar, .chat-transcript .user .bubble, .rich-text code { background: var(--soft); border-color: var(--line); }
@@ -67,13 +66,11 @@
 @media (max-width: 720px) {
   .head { gap: 8px; padding-block: 8px; }
   .brand { flex: none; gap: 6px; }
-  .brand-description, #dataset-caption, .control-full { display: none; }
-  .control-compact { display: inline; }
+  .brand-description, #dataset-caption { display: none; }
   .mark, .mark svg { width: 24px; height: 24px; }
   .header-end { flex: 1; min-width: 0; justify-content: flex-end; gap: 6px; }
   #dataset-picker { min-width: 0; max-width: calc(100% - 58px); }
   #dataset-select { width: clamp(112px, 34vw, 180px); max-width: 100%; }
-  .open-file { flex: none; padding: 6px 8px; }
 
   .sidebar-resize { display: none; }
   .layout { display: block; }

@@ -112,10 +112,9 @@ def test_compact_mobile_controls_keep_accessible_labels_and_existing_anchor_ids(
     elements = Elements()
     elements.feed(VIEWER.read_text())
     assert "dataset-select" not in elements.ids
-    assert elements.ids["load-file"]["aria-label"] == "打开本地 JSON 轨迹文件"
     assert all(anchor in elements.ids for anchor in ("case-title", "run-title", "chat-tab", "event-tab", "case-nav"))
     css = VIEWER.with_name("viewer.css").read_text()
     mobile = css[css.index("@media (max-width: 720px)") :]
-    assert ".brand-description, #dataset-caption, .control-full { display: none; }" in mobile
+    assert ".brand-description, #dataset-caption { display: none; }" in mobile
     assert "#dataset-select { width: clamp(112px, 34vw, 180px); max-width: 100%; }" in mobile
     assert ".brand { white-space: nowrap;" in css

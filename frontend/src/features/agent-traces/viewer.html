@@ -28,10 +28,9 @@ h1,h2,h3,p,pre{margin:0}
 .mark{width:36px;height:36px;border-radius:10px;background:#edf5ff;display:grid;place-items:center;flex:none}
 .mark svg{width:26px;height:26px}
 h1{font-size:17px;letter-spacing:-.02em}
-.open-file,.quiet-button,.inspector-close,.chat-code button{border:1px solid #d5e0ee;background:white;border-radius:8px;font-size:12px;font-weight:650;padding:6px 10px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
-.open-file{color:#234d8f;padding:7px 11px}
+.quiet-button,.inspector-close,.chat-code button{border:1px solid #d5e0ee;background:white;border-radius:8px;font-size:12px;font-weight:650;padding:6px 10px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
 .icon{width:16px;height:16px;flex:none;display:inline-block;vertical-align:middle}
-.open-file:hover,.quiet-button:not(:disabled):hover,.inspector-close:hover,.chat-code button:hover{background:var(--selected);border-color:#c7daf5}
+.quiet-button:not(:disabled):hover,.inspector-close:hover,.chat-code button:hover{background:var(--selected);border-color:#c7daf5}
 .load-status{margin:0;padding:0 18px 8px;color:var(--muted);font-size:12px}
 .load-status[data-error=true]{color:#932d37}
 .load-status:empty{display:none}
@@ -41,7 +40,7 @@ h1{font-size:17px;letter-spacing:-.02em}
 .load-status[data-loading=true]::before{content:"";width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .8s linear infinite}
 @keyframes loading-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.loading-state::before,.load-status[data-loading=true]::before{animation:none}}
-@media(max-width:420px){.header-end{gap:8px}.live-status{font-size:11px}.open-file{padding:6px 8px}}
+@media(max-width:420px){.header-end{gap:8px}.live-status{font-size:11px}}
 .layout{max-width:1568px;margin:auto;padding:20px 28px 44px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;align-items:start}
 .sidebar{position:sticky;top:86px;max-height:calc(100dvh - 106px);overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:14px;border:1px solid var(--line);background:var(--paper);border-radius:13px;padding:7px 7px 9px}
 .nav-heading{font-size:12px;font-weight:750;color:var(--ink);padding:9px 9px 5px}
@@ -320,7 +319,7 @@ __REVIEW_STYLES__
   <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
   <line x1="16" y1="8" x2="16" y2="3.5" stroke="#409eff" stroke-width="1.8" stroke-linecap="round"/>
   <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
-</svg></div><div><h1>LockBot<span class="brand-description"> 轨迹浏览器</span></h1></div></a><div class="header-end"><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button" aria-label="打开本地 JSON 轨迹文件"><span class="control-full">打开本地 JSON</span><span class="control-compact" aria-hidden="true">JSON</span></button></div></div><p id="load-status" class="load-status" role="status"></p></header>
+</svg></div><div><h1>LockBot<span class="brand-description"> 轨迹浏览器</span></h1></div></a><div class="header-end"><span id="live-status" class="live-status" hidden>自动更新</span></div></div><p id="load-status" class="load-status" role="status"></p></header>
 <div class="layout">
 <aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例及模型结果"></nav></section></aside>
 <div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整测例侧栏宽度"></div>
@@ -343,7 +342,6 @@ const node = (tag, text, className) => {
   return el;
 };
 const icons = {
-  file:'M7 3h7l4 4v14H6V3h1m7 0v5h5M9 13h6m-6 4h6',
   chat:'M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l1.5-3A7.5 7.5 0 1 1 20 11.5Z',
   list:'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
   terminal:'m5 6 5 5-5 5m8 0h6',
@@ -380,7 +378,7 @@ function scenarioGroups() {
 }
 let cases = Object.keys(data.cases);
 let activeCase, activeIndex, activeTab, activeStep, failureOnly;
-let imported = false;
+const imported = false; // Private offline traces are embedded at build time.
 const online = location.pathname === '/dev/trace-review';
 function routeDataset(route) {
   const value = route.get('dataset_id');
@@ -1071,7 +1069,6 @@ reviewRun.type = 'button';
 reviewRun.onclick = ()=>requestReview('run','','本次记录');
 viewActions.append(reviewRun,expandTools);
 document.querySelector('.tabs').append(viewActions);
-select('load-file').prepend(icon('file'));
 function validRecord(record) {
   const optionalText = value => value == null || typeof value==='string';
   const optionalMap = value => value === undefined || (!!value && typeof value==='object' &&
@@ -1099,7 +1096,6 @@ inspector.addEventListener('click',event=>{
     inspector.close();
   }
 });
-select('load-file').onclick = ()=> select('trace-file').click();
 function reportStatus(message, isError = false) {
   const status = select('load-status');
   status.textContent = message;
@@ -1107,29 +1103,6 @@ function reportStatus(message, isError = false) {
   status.dataset.loading = String(!isError && message === '正在加载测例目录…');
   select('live-status').hidden = true;
 }
-select('trace-file').onchange = async (event)=>{
-  const file = event.target.files[0];
-  if (!file) return;
-  try {
-    if (file.size > 32 * 1024 * 1024) throw new Error('请选择 32 MB 以内的轨迹 JSON。');
-    const candidate = JSON.parse(await file.text());
-    if (!validRecord(candidate)) throw new Error('这个文件不符合 LockBot 轨迹 JSON v1 格式。');
-    data = candidate;
-    imported = true;
-    document.querySelector('.layout').hidden = false;
-    activeTab = 'chat';
-    cases = Object.keys(data.cases);
-    reportStatus('');
-    activeCase = cases[0];
-    activeIndex = defaultRun(activeCase);
-    resetSelection();
-    draw();
-  } catch(error) {
-    reportStatus(error instanceof SyntaxError ? '无法读取这个 JSON 文件。' : error.message,true);
-  } finally {
-    event.target.value = '';
-  }
-};
 async function loadDatasets(token) {
   const response = await fetch('/api/dev/trace-review/datasets', {
     headers:{Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error', signal:AbortSignal.timeout(6000)
