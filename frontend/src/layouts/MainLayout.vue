@@ -101,7 +101,7 @@
         :class="{ collapsed: isCollapsed }"
         :title="$t('nav.agentTraces')"
       >
-        <el-icon><Operation /></el-icon>
+        <el-icon><Share /></el-icon>
         <span v-if="!isCollapsed">{{ $t('nav.agentTraces') }}</span>
       </router-link>
     </el-aside>
@@ -207,7 +207,7 @@
         :title="$t('nav.agentTraces')"
         @click="drawerOpen = false"
       >
-        <el-icon><Operation /></el-icon>
+        <el-icon><Share /></el-icon>
         <span>{{ $t('nav.agentTraces') }}</span>
       </router-link>
     </el-drawer>
@@ -396,7 +396,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, Plus, Operation, Link, Key } from '@element-plus/icons-vue'
+import { Close, Plus, Operation, Link, Key, Share } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { setLocale, getLocale } from '../i18n'
