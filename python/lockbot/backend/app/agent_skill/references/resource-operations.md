@@ -272,8 +272,9 @@ With an explicit private connection, translate to `command --operation renew` af
 the same ownership/policy checks. The server wire operation remains `lock`/`slock`,
 adding time rather than setting a new total. Pass the requested increment with
 `--duration`. If omitted by the user, read the live positive
-`bot_rules.default_duration_seconds` and pass that increment explicitly; unlike a
-new acquisition, explicit CLI `renew` requires a duration. Unscoped relock conversion
+`bot_rules.default_duration_seconds` and pass that increment explicitly. Convert seconds
+to an equivalent `m/h/d` duration (for example `7200` becomes `120m`); do not pass a
+seconds suffix to the chat command. Explicit CLI `renew` requires a duration. Unscoped relock conversion
 fills this increment itself and rechecks an unchanged default before dispatch.
 If no usable default is available,
 ask for the increment. Stop if renewal is forbidden, ownership/mode is uncertain,
