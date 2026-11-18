@@ -114,6 +114,15 @@ allocator lock, so the CLI verifies that observation without a redundant follow-
 Older services without this capability retain the explicit context/readback flow.
 Rules can change; later ownership checks still require a new resource observation.
 
+Command output keeps the complete observed resource state once under `verified_snapshot`,
+with redundant installation metadata omitted as in inventory queries. When the server's
+embedded snapshot is exactly identical, `command_result.resource_snapshot` retains its
+capture time and bot/actor/instance identity plus `reference: "verified_snapshot"`, rather
+than repeating the inventory. Other server outcome fields remain unchanged. Nonidentical
+observations are never deduplicated. `command --full` restores the original redacted output
+shape; `--exact-lease-times` independently preserves exact lease fields. This is an output
+projection only: SDK results, HTTP requests, verification and local state are unchanged.
+
 `resources-all` reads the existing private user connection catalog in one CLI invocation.
 It verifies every service/instance/bot/actor separately and retains each group's private
 connection locator. Use `--directory` only for an explicitly selected private catalog;

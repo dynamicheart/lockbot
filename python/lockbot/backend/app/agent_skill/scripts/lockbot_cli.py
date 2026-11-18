@@ -2616,6 +2616,33 @@ def aggregate_output(output, *, full=False):
     }
 
 
+def command_output(result, *, full=False):
+    """Keep one verified state; retain the server observation identity beside its outcome."""
+    if full or not isinstance(result, dict) or result.get("verified") is not True:
+        return result
+    snapshot = result.get("verified_snapshot")
+    outcome = result.get("command_result")
+    projected = {**result, "verified_snapshot": inventory_output(snapshot)}
+    supplied = outcome.get("resource_snapshot") if isinstance(outcome, dict) else None
+    if not isinstance(snapshot, dict) or supplied != snapshot:
+        return projected
+    context = snapshot.get("context")
+    if not isinstance(context, dict):
+        return projected
+    server, bot = context.get("server"), context.get("bot")
+    if not isinstance(server, dict) or not isinstance(bot, dict):
+        return projected
+    if not all((snapshot.get("captured_at"), snapshot.get("bot_id"), server.get("instance_id"), bot.get("uuid"))):
+        return projected
+    identity = {key: snapshot[key] for key in ("captured_at", "bot_id", "actor") if key in snapshot}
+    identity.update(
+        reference="verified_snapshot",
+        context={"server": {"instance_id": server["instance_id"]}, "bot": {"uuid": bot["uuid"]}},
+    )
+    projected["command_result"] = {**outcome, "resource_snapshot": identity}
+    return projected
+
+
 def metrics_output(result, *, full=False):
     # The raw Prometheus vector duplicates the normalized utilization readings.
     return result if full else {key: value for key, value in result.items() if key != "data"}
@@ -3398,6 +3425,7 @@ def main(argv=None):
         epilog="Examples: command --operation lock --node 19; "
         "--connection CONNECTION command --operation lock --node node-01 --device 0 --duration 30m",
     )
+    command.add_argument("--full", action="store_true", help=details_help)
     command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "claim", "renew", "release"])
     command.add_argument(
         "--node",
@@ -3563,6 +3591,8 @@ def main(argv=None):
                 format_lease_times(result if args.action == "resources" else result["verified_snapshot"])
         if args.action == "resources":
             result = inventory_output(result, full=args.full)
+        elif args.action == "command":
+            result = command_output(result, full=args.full)
         elif args.action == "metrics":
             result = metrics_output(result, full=args.full)
         print(
