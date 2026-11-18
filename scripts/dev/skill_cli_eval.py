@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -793,9 +793,15 @@ class Fixture(continuity.Fixture):
                 }
                 identifier = matches.get(supplied.resolve())
                 connection = supplied
-            if identifier is None:
+            automatic_scope = (
+                self.case.get("fixture_version", 0) >= 23
+                and action == "command"
+                and args.get("connection") is None
+                and args.get("group") is None
+            )
+            if identifier is None and not automatic_scope:
                 return {"error": "group_required"}
-            argv = ["--connection", str(connection), action]
+            argv = [action] if automatic_scope else ["--connection", str(connection), action]
             if action == "resources" and args.get("mine") is True and aggregate:
                 argv += ["--mine"]
             if action == "resources" and args.get("exact_lease_times") is True and aggregate:
@@ -1120,6 +1126,24 @@ def tools(root):
                 "separately approved metrics access.",
             },
         )
+    if case.get("fixture_version", 0) >= 23 and is_intent:
+        extra.setdefault("connection", {"type": "string"})["description"] = (
+            "Optional private locator for an already selected scope. Omit it and group on a node command "
+            "to let the packaged CLI resolve saved authorized scopes."
+        )
+        extra["group"] = {
+            "type": "string",
+            "description": "Explicit already-selected group for a scoped action; omit on automatic node commands.",
+        }
+        extra["nodes"]["description"] = (
+            "For an unscoped command: node IDs, registered aliases or observed IPv4 suffixes; "
+            "omit group/connection to let the packaged CLI resolve every authorized scope. "
+            "Ambiguous or incomplete observations cannot dispatch. Explicit scoped commands retain exact IDs."
+        )
+        extra["whole_node"]["description"] = (
+            "Explicit whole-node request only. For a node-only unscoped command, omit devices/whole_node "
+            "and let the CLI use the verified bot mode; card groups select all observed cards."
+        )
     public_tools = []
     if scenario == "panel":
         actions = (*actions, "panel-link")
@@ -1159,7 +1183,12 @@ def tools(root):
                 "Run the installed Lockbot CLI using the approved origin and private workspace. "
                 "Use local-state for installed files and connections for private connection records."
                 if not is_intent
-                else "List configured groups, inspect group rules with context, read inventory, or run a command."
+                else (
+                    "Read inventory, or execute an explicit node operation. An unscoped command resolves saved "
+                    "authorized scopes inside the packaged CLI; ambiguous or incomplete observations stop before POST."
+                    if case.get("fixture_version", 0) >= 23
+                    else "List configured groups, inspect group rules with context, read inventory, or run a command."
+                )
             ),
             "inputSchema": base.schema(
                 {
@@ -1440,6 +1469,371 @@ def verified_catalog_reads(fixture, tools, requests):
                 }
             )
     return expanded
+
+
+def verified_sdk_resolutions(fixture, tools, requests):
+    """Validate SDK-owned selection from real wire records, never synthetic reads."""
+    if fixture.case.get("fixture_version", 0) < 23:
+        return {}
+    commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
+    if len(commands) != 1:
+        return {}
+    call = commands[0]
+    args, argv, span = call.get("args", {}), call.get("argv", []), call.get("http_request_span")
+    if "connection" in args or "group" in args or not args.get("nodes"):
+        return {}
+    proof = {"positive": False, "refusal": False, "observed_groups": []}
+    checked = {id(call): proof}
+    try:
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or not str(argv[0]).endswith("/scripts/lockbot_cli.py")
+            or argv.count("command") != 1
+            or any(value == "--connection" or value.startswith("--connection=") for value in argv)
+            or not isinstance(span, list)
+            or len(span) != 2
+            or any(type(value) is not int for value in span)
+            or not 0 <= span[0] < span[1] <= len(requests)
+        ):
+            return checked
+
+        def options(flag):
+            return [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == flag]
+
+        if options("--node") != args["nodes"] or options("--device") != args.get("devices", []):
+            return checked
+        if ("--whole-node" in argv) != (args.get("whole_node") is True):
+            return checked
+        for field, flag in (
+            ("operation", "--operation"),
+            ("model", "--model"),
+            ("duration", "--duration"),
+            ("device_count", "--device-count"),
+            ("minimum_model_count", "--minimum-model-count"),
+            ("requested_group", "--group"),
+        ):
+            if options(flag) != ([str(args[field])] if field in args else []):
+                return checked
+        groups = intent.group_ids(fixture.case["scenario"])
+        pins, frozen = {}, {}
+        for name, bot in groups.items():
+            pin = json.loads((fixture.workspace / f"private/group-{bot}.json").read_text())
+            pins[bot] = {
+                "origin": pin["approved_origin"],
+                "instance_id": pin["instance_id"],
+                "actor": pin["actor"],
+                "bot_id": bot,
+                "bot_uuid": pin["bot_uuid"],
+                "name": name,
+                "type": intent.bot_type(fixture.case["scenario"], bot),
+            }
+            frozen[bot] = intent.inventory(
+                bot,
+                scenario=fixture.case["scenario"],
+                phase=fixture.case["phase"],
+                fixture_version=fixture.case["fixture_version"],
+            )["resources"]
+        wire = requests[span[0] : span[1]]
+
+        def stamp(row, bot, before):
+            pin, observed = pins[bot], row.get("resource_observation", {})
+            if (
+                row.get("method") != "GET"
+                or row.get("status") != 200
+                or not row.get("authorization_present")
+                or row.get("resource_bot") != bot
+                or row.get("url") != pin["origin"] + f"/api/bots/{bot}/resources"
+                or not isinstance(observed.get("captured_at"), str)
+                or observed.get("bot_id") != bot
+            ):
+                return None
+            expected = {key: pin[key] for key in ("actor", "instance_id", "bot_id", "bot_uuid")}
+            if any(observed.get(key) != expected[key] for key in ("actor", "instance_id", "bot_uuid")) and (
+                any(observed.get(key) not in (None, expected[key]) for key in expected)
+                or not any(item.get("context_observation") == expected for item in before)
+            ):
+                return None
+            captured = datetime.fromisoformat(observed["captured_at"].replace("Z", "+00:00"))
+            return captured.timestamp() if captured.tzinfo is not None else None
+
+        def scope_reads(part):
+            found = {}
+            for index, row in enumerate(part):
+                bot = row.get("resource_bot")
+                if bot in pins:
+                    observed = stamp(row, bot, part[:index])
+                    if observed is not None:
+                        found[bot] = observed
+            return found
+
+        def kinds(resource, hint):
+            import ipaddress
+
+            result, addresses = [], set()
+            if str(resource.get("id", "")).casefold() == hint.casefold():
+                result.append("id")
+            if isinstance(resource.get("alias"), str) and resource["alias"].casefold() == hint.casefold():
+                result.append("alias")
+            for unit in (resource, *resource.get("devices", [])):
+                access = unit.get("node_access", {})
+                if isinstance(access, dict):
+                    for key in ("ip", "host"):
+                        with contextlib.suppress(ValueError, TypeError):
+                            addresses.add(str(ipaddress.IPv4Address(access.get(key))))
+            if hint in addresses:
+                result.append("observed_ipv4")
+            elif (
+                re.fullmatch(r"0|[1-9][0-9]{0,2}", hint)
+                and int(hint) <= 255
+                and any(address.rsplit(".", 1)[1] == hint for address in addresses)
+            ):
+                result.append("observed_ipv4_octet")
+            return result
+
+        matches = []
+        for hint in args["nodes"]:
+            matches.append(
+                [
+                    (bot, resource, kinds(resource, hint))
+                    for bot, inventory in frozen.items()
+                    for resource in inventory
+                    if kinds(resource, hint) and args.get("requested_group", pins[bot]["name"]) == pins[bot]["name"]
+                ]
+            )
+        output = call.get("result", {})
+        result = output.get("result", {})
+        resolution = result.get("resolution", {})
+        posts = [index for index, row in enumerate(wire) if row.get("method") == "POST"]
+        observed = scope_reads(wire[: posts[0]] if posts else wire)
+        if set(observed) != set(pins):
+            return checked
+        proof["observed_groups"] = list(groups)
+        if output.get("command_sent") is False and output.get("retry_mutation") is False:
+            scenario, error = fixture.case["scenario"], output.get("error")
+            allowed = {
+                "intent-ambiguous": "automatic_target_ambiguous",
+                "intent-ambiguous-tail": "automatic_target_ambiguous",
+                "intent-ip-tail-ambiguous": "automatic_target_ambiguous",
+                "intent-public-ip-alias-ambiguous": "automatic_target_ambiguous",
+                "intent-ip-tail-unavailable": "automatic_target_missing",
+                **{
+                    name: "selected_resource_model_unverified_or_insufficient"
+                    for name in intent.UNVERIFIED_MACHINE_MODELS
+                },
+            }
+            clarification = output.get("clarification", {})
+            if (
+                error != allowed.get(scenario)
+                or args.get("operation") != "lock"
+                or any(row.get("method") == "POST" for row in requests)
+                or not isinstance(clarification, dict)
+                or not clarification.get("question_zh")
+                or "requested_group" in args
+                or len(args["nodes"]) != 1
+            ):
+                return checked
+            if error == "automatic_target_ambiguous":
+                expected_candidates = {(pins[bot]["name"], resource["id"]) for bot, resource, _ in matches[0]}
+                valid = (
+                    len(matches[0]) > 1
+                    and type(clarification.get("candidate_count")) is int
+                    and clarification.get("hint") == args["nodes"][0]
+                    and clarification.get("candidate_count") == len(matches[0])
+                    and {(item.get("group"), item.get("node")) for item in clarification.get("candidates", [])}
+                    == expected_candidates
+                )
+            elif error == "automatic_target_missing":
+                valid = (
+                    args["nodes"] == ["19"]
+                    and not matches[0]
+                    and clarification.get("hint") == "19"
+                    and clarification.get("candidate_count") == 0
+                    and type(clarification.get("candidate_count")) is int
+                    and clarification.get("candidates") == []
+                )
+            else:
+                model = intent.UNVERIFIED_MACHINE_MODELS[scenario]
+                valid = (
+                    len(matches[0]) == 1
+                    and matches[0][0][0] == 8
+                    and args.get("model", "").casefold() == model.casefold()
+                    and not matches[0][0][1].get("accelerators")
+                )
+                selected_reads = [
+                    index
+                    for index, row in enumerate(wire)
+                    if row.get("resource_bot") == 8 and stamp(row, 8, wire[:index]) is not None
+                ]
+                valid = valid and len(selected_reads) >= 2 and set(scope_reads(wire[: selected_reads[-1]])) == set(pins)
+            proof["refusal"] = bool(valid and max(observed.values()) - min(observed.values()) <= 5)
+            return checked
+        if (
+            len(posts) != 1
+            or sum(row.get("method") == "POST" for row in requests) != 1
+            or result.get("verified") is not True
+            or resolution.get("scope") != "saved_connections_only"
+            or resolution.get("complete") is not True
+            or resolution.get("observed_scopes") != len(pins)
+            or resolution.get("selection_checked_before_post") is not True
+            or resolution.get("http_requests_before_post") != posts[0]
+            or any(len(candidates) != 1 for candidates in matches)
+        ):
+            return checked
+        selected = [candidates[0] for candidates in matches]
+        if len({bot for bot, _, _ in selected}) != 1:
+            return checked
+        bot = selected[0][0]
+        pin, identity = pins[bot], resolution.get("selected_scope", {})
+        snapshot = result.get("verified_snapshot", {})
+        context = snapshot.get("context", {})
+        if (
+            identity.get("origin") != pin["origin"]
+            or identity.get("instance_id") != pin["instance_id"]
+            or identity.get("actor") != pin["actor"]
+            or context.get("actor") != pin["actor"]
+            or snapshot.get("bot_id") != bot
+            or context.get("server", {}).get("instance_id") != pin["instance_id"]
+            or any(
+                identity.get("bot", {}).get(key) != value or context.get("bot", {}).get(key) != value
+                for key, value in (("id", bot), ("uuid", pin["bot_uuid"]), ("name", pin["name"]), ("type", pin["type"]))
+            )
+        ):
+            return checked
+        expected_matches = [
+            {"hint": hint, "node": resource["id"], "match_kinds": match_kinds}
+            for hint, (_, resource, match_kinds) in zip(args["nodes"], selected, strict=True)
+        ]
+        if resolution.get("matches") != expected_matches:
+            return checked
+        offset = resolution.get("http_requests_before_selected_read")
+        if (
+            type(offset) is not int
+            or not 0 < offset < posts[0]
+            or set(scope_reads(wire[:offset])) != set(pins)
+            or not any(
+                stamp(row, bot, wire[:index]) is not None
+                for index, row in enumerate(wire[: posts[0]])
+                if index >= offset
+            )
+        ):
+            return checked
+        post = wire[posts[0]]
+        parts = post.get("command", "").split()
+        nodes = [resource["id"] for _, resource, _ in selected]
+        devices = resolution.get("resolved_devices")
+        if (
+            post.get("url") != pin["origin"] + f"/api/bots/{bot}/commands"
+            or not post.get("authorization_present")
+            or post.get("resource_bot") != bot
+            or len(parts) < 2
+            or parts[1].split(",") != nodes
+            or not isinstance(devices, list)
+            or any(not isinstance(device, str) for device in devices)
+            or (parts[2][3:].split(",") if len(parts) > 2 and parts[2].startswith("dev") else []) != devices
+        ):
+            return checked
+        expected_operations = {
+            "lock": {"lock"},
+            "slock": {"slock"},
+            "book": {"book"},
+            "release": {"unlock"},
+            "claim": {"lock"},
+            "renew": {"lock", "slock"},
+        }
+        if parts[0] not in expected_operations.get(args.get("operation"), set()):
+            return checked
+        if "duration" in args and parts[-1] != args["duration"]:
+            return checked
+        if args.get("whole_node") is True and pin["type"] in {"DEVICE", "QUEUE_DEVICE"}:
+            return checked
+        if args.get("devices") and devices != args["devices"]:
+            return checked
+        if "minimum_model_count" in args and (devices or args.get("model") is None):
+            return checked
+        if "device_count" in args and (
+            type(args["device_count"]) is not int or args["device_count"] != len(nodes) * len(devices)
+        ):
+            return checked
+        if (
+            not args.get("devices")
+            and pin["type"] in {"DEVICE", "QUEUE_DEVICE"}
+            and devices != [str(card["id"]) for card in selected[0][1].get("devices", [])]
+        ):
+            return checked
+        observed_nodes = {row["id"]: row for row in snapshot.get("resources", [])}
+        if any(
+            node not in observed_nodes or not kinds(observed_nodes[node], hint)
+            for hint, node in zip(args["nodes"], nodes, strict=True)
+        ):
+            return checked
+        for _, resource, _ in selected:
+            observed_resource = observed_nodes[resource["id"]]
+            if pin["type"] in {"DEVICE", "QUEUE_DEVICE"}:
+
+                def signatures(row):
+                    return [(str(card["id"]), card.get("dev_model")) for card in row.get("devices", [])]
+
+                if signatures(resource) != signatures(observed_resource):
+                    return checked
+                units = [card for card in resource["devices"] if str(card["id"]) in devices]
+                if args.get("model") is not None and any(
+                    not isinstance(unit.get("dev_model"), str)
+                    or unit["dev_model"].casefold() != args["model"].strip().casefold()
+                    for unit in units
+                ):
+                    return checked
+            elif args.get("model") is not None:
+                inventory = resource.get("accelerators")
+                minimum = args.get("minimum_model_count", 1)
+                if (
+                    inventory != observed_resource.get("accelerators")
+                    or not isinstance(inventory, list)
+                    or type(minimum) is not int
+                    or minimum < 1
+                    or not any(
+                        card.get("model", "").casefold() == args["model"].strip().casefold()
+                        and type(card.get("count")) is int
+                        and card["count"] >= minimum
+                        for card in inventory
+                    )
+                ):
+                    return checked
+            observed_units = (
+                [card for card in observed_resource.get("devices", []) if str(card.get("id")) in devices]
+                if devices
+                else [observed_resource]
+            )
+            actor = pin["actor"]["external_user_id"]
+            for unit in observed_units:
+                own_holding = any(row.get("external_user_id") == actor for row in unit.get("holders", []))
+                own_booking = any(row.get("external_user_id") == actor for row in unit.get("booking_list", []))
+                if (
+                    (args["operation"] == "release" and (own_holding or own_booking))
+                    or (args["operation"] == "book" and not own_booking)
+                    or (
+                        args["operation"] not in {"release", "book"}
+                        and (
+                            not own_holding
+                            or unit.get("lock_status") != ("shared" if parts[0] == "slock" else "exclusive")
+                        )
+                    )
+                ):
+                    return checked
+        if (
+            snapshot.get("health") != "running"
+            or snapshot.get("snapshot_fresh_for_write") is not True
+            or type(snapshot.get("age_seconds")) not in (int, float)
+            or not 0 <= snapshot["age_seconds"] <= 5
+        ):
+            return checked
+        post_time = datetime.fromisoformat(snapshot["captured_at"].replace("Z", "+00:00")).timestamp()
+        if any(not 0 <= post_time - captured <= 5 for captured in observed.values()):
+            return checked
+        proof["positive"] = intent.mutation_observed(requests, post, call, bot)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, OverflowError):
+        return checked
+    return checked
 
 
 def confirmed_request_history(root, fixture, final):
@@ -1789,6 +2183,7 @@ def score(root, final):
                 phase=phase,
                 prior_groups=prior_observed_groups(root, fixture, final),
                 fixture_version=fixture.case.get("fixture_version", 0),
+                sdk_resolutions=verified_sdk_resolutions(fixture, cli_tools, requests),
             )
         )
         aggregate_calls = [row for row in cli_tools if row.get("args", {}).get("action") == "resources-all"]
@@ -1935,6 +2330,14 @@ def score(root, final):
             "mutation_attempts": len(attempts),
             "resource_posts": len(posts),
         }
+        if fixture.case.get("fixture_version", 0) >= 23:
+            resolver_evidence = verified_sdk_resolutions(fixture, cli_tools, requests)
+            result["cli_command_metrics"]["sdk_resolution_refusals"] = sum(
+                record.get("refusal") is True for record in resolver_evidence.values()
+            )
+            result["cli_command_metrics"]["sdk_resolved_writes"] = sum(
+                record.get("positive") is True for record in resolver_evidence.values()
+            )
     if scenario in {
         "intent-my-locks",
         "intent-my-books",
@@ -1968,7 +2371,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22), default=18)
+    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23), default=18)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")

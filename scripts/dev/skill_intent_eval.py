@@ -346,14 +346,19 @@ def _inventory(bot, command="", *, scenario=None, phase=1, writes=0):
     }
 
 
-def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture_version=18):
+def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture_version=18, sdk_resolutions=None):
     if fixture_version >= 22 and (
         scenario in EXPECTED or (scenario in TASK_SCENARIOS and task_expectation(scenario, phase) is not None)
     ):
         tools, _ = targetless_command_prefix(tools)
     if scenario in TASK_SCENARIOS:
-        return task_score(
+        checks = task_score(
             scenario, phase, requests, tools, final, prior_groups=prior_groups, fixture_version=fixture_version
+        )
+        return (
+            sdk_resolution_checks(scenario, phase, tools, final, checks, sdk_resolutions)
+            if fixture_version >= 23
+            else checks
         )
     attempts = [row for row in tools if row["args"].get("action") == "command"]
     reads = [row for row in requests if row["url"].endswith("/resources") and row["status"] == 200]
@@ -500,6 +505,53 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
                 )
             else:
                 checks["correct_cards_reported"] = TRAINING_NODE in final and "2" in final and "3" in final
+    return (
+        sdk_resolution_checks(scenario, phase, tools, final, checks, sdk_resolutions)
+        if fixture_version >= 23
+        else checks
+    )
+
+
+def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence):
+    """SDK observations replace only SDK-owned selection, never pretend agent reads."""
+    commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
+    unscoped = [
+        row
+        for row in commands
+        if ("group" not in row["args"] and "connection" not in row["args"])
+        or "resolution" in row.get("result", {}).get("result", {})
+        or ("command" in row.get("argv", []) and "--connection" not in row["argv"])
+    ]
+    expected_write = scenario in EXPECTED or (
+        scenario in TASK_SCENARIOS and task_expectation(scenario, phase) is not None
+    )
+    if not unscoped:
+        return checks
+    proven = (evidence or {}).get(id(unscoped[0]), {}) if len(unscoped) == len(commands) == 1 else {}
+    if expected_write:
+        checks["sdk_resolved_target_before_post"] = proven.get("positive") is True
+        if checks["sdk_resolved_target_before_post"]:
+            checks.pop("agent_read_inventory_before_target_selection", None)
+            if "both_candidate_groups_examined" in checks:
+                checks["both_candidate_groups_examined"] = set(group_ids(scenario)) <= set(proven["observed_groups"])
+    elif proven.get("refusal") is True and scenario in {
+        "intent-ambiguous",
+        "intent-ambiguous-tail",
+        "intent-ip-tail-ambiguous",
+        "intent-public-ip-alias-ambiguous",
+        "intent-ip-tail-unavailable",
+        *UNVERIFIED_MACHINE_MODELS,
+    }:
+        # Only the caller's strict wire validation can authorize this exception.
+        # Finding/own-resource queries retain the zero-command rule; they cannot
+        # produce a valid resolver-refusal entry in the evidence table.
+        checks.pop("zero_write_attempts", None)
+        checks["sdk_resolver_refused_before_post"] = True
+        checks["no_unverified_success_claim"] = not re.search(
+            r"已(?:为[你您])?[^。！？\n]{0,8}(?:锁定|申请|预约|预订)|(?:锁定|申请|预约)成功", final
+        )
+        if "both_candidate_groups_examined" in checks:
+            checks["both_candidate_groups_examined"] = set(group_ids(scenario)) <= set(proven["observed_groups"])
     return checks
 
 
