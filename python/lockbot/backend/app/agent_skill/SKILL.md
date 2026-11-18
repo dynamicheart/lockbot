@@ -17,7 +17,7 @@ description: >
 - Usage questions: read the relevant reference; no sign-in. Finding resources is READ ONLY: read eligible groups, report choices, stop. Follow-ups like “lock 一天”/“用完了释放吧” need a unique conversational target; otherwise ask. Inventory cannot choose it.
 - “我能申请什么”: `recover` once from a verified seed if supported, then `resources-all`. For “我lock/book了哪些”, add `--mine`: separate holdings/cards/bookings. Booking is not ownership; holder time isn't booking expiry/guaranteed start. Label estimates/claim windows.
 - “到时间提醒”: read own resources FIRST. `next_event_kind: own_early_warning` is an existing group warning, not a new timer or proof of delivery. Expiry alone doesn't prove a warning. This API cannot create personal timers.
-- Reply with results or required human action; use `remaining_time`; deadlines use `--exact-lease-times`. Missing time is UNKNOWN, never unlimited. Finite leases, including slock, auto-expire; unlimited duration caps don't extend them. Hide Key/paths/setup mechanics; group names only for ambiguity.
+- Reply with results or needed action; use `remaining_time`; deadlines use `--exact-lease-times`. Missing time is UNKNOWN, never unlimited. Finite leases, including slock, auto-expire; unlimited duration caps don't extend them. Hide Key/paths/setup mechanics; group names only for ambiguity.
 
 ## Select and act
 
