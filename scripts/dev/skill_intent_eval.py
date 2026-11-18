@@ -362,7 +362,14 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
         )
         return (
             sdk_resolution_checks(
-                scenario, phase, tools, final, checks, sdk_resolutions, fixture_version=fixture_version
+                scenario,
+                phase,
+                tools,
+                final,
+                checks,
+                sdk_resolutions,
+                fixture_version=fixture_version,
+                requests=requests,
             )
             if fixture_version >= 23
             else checks
@@ -484,7 +491,9 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
                 )
             checks["asks_which_target"] = bool(explicit_question or (both_targets and choice))
             if fixture_version >= 25 and not checks["asks_which_target"]:
-                checks["asks_which_target"] = verified_candidate_clarification(final, requests, tools, sdk_resolutions)
+                checks["asks_which_target"] = verified_candidate_clarification(
+                    final, requests, tools, sdk_resolutions, extended=fixture_version >= 27
+                )
         elif scenario == "intent-lock-duration-only":
             checks["asks_for_missing_target"] = bool(
                 re.search(r"(?:选|锁|哪|目标|指定).{0,10}(?:机器|节点|资源|台)", final)
@@ -521,13 +530,15 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             else:
                 checks["correct_cards_reported"] = TRAINING_NODE in final and "2" in final and "3" in final
     return (
-        sdk_resolution_checks(scenario, phase, tools, final, checks, sdk_resolutions, fixture_version=fixture_version)
+        sdk_resolution_checks(
+            scenario, phase, tools, final, checks, sdk_resolutions, fixture_version=fixture_version, requests=requests
+        )
         if fixture_version >= 23
         else checks
     )
 
 
-def verified_candidate_clarification(final, requests, tools, evidence):
+def verified_candidate_clarification(final, requests, tools, evidence, *, extended=False):
     """Accept short choice prompts only for wire-proven, explicitly listed candidates."""
     commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
     if len(commands) != 1 or any(row.get("method") == "POST" for row in requests):
@@ -541,16 +552,36 @@ def verified_candidate_clarification(final, requests, tools, evidence):
         scope = re.escape(group)
         if not re.search(rf"{scope}[^。！？!?\n]{{0,80}}{target}|{target}[^。！？!?\n]{{0,80}}{scope}", final):
             return False
-    return bool(
+    short_choice = bool(
         re.search(
             r"(?:^|[。！？!?；;，,\n])\s*请[你您]?指定其中(?:一个|一台)\s*(?:[：:。！!]|$)"
             r"|(?:^|[。！？!?；;\n])\s*(?:[你您])?要(?:锁(?:定)?|用|选)哪(?:一个|个|一台|台)\s*[？?]",
             final,
         )
     )
+    if short_choice or not extended:
+        return short_choice
+    return bool(
+        re.search(
+            r"(?:^|[。！？!?；;，,\n])\s*需要[你您]指定(?:其中(?:一个|一台)|是哪(?:一个|个|一台|台))"
+            r"(?:\s|[（(：:。！!]|$)"
+            r"|(?:^|[。！？!?；;，,\n])\s*请告诉我[你您](?:要|想)?在哪(?:个|一个)群",
+            final,
+        )
+        or any(
+            re.search(
+                rf"(?:^|[。！？!?；;，,\n])\s*请回复[^。！？!?\n]{{0,8}}{re.escape(first)}"
+                rf"[^。！？!?\n]{{0,8}}或[^。！？!?\n]{{0,8}}{re.escape(second)}",
+                final,
+            )
+            for first in {group for group, _ in candidates}
+            for second in {group for group, _ in candidates}
+            if first != second
+        )
+    )
 
 
-def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fixture_version=23):
+def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fixture_version=23, requests=None):
     """SDK observations replace only SDK-owned selection, never pretend agent reads."""
     commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
     unscoped = [
@@ -601,6 +632,15 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
             checks["no_unverified_success_claim"] = not unverified_success_claim(final)
         if "both_candidate_groups_examined" in checks:
             checks["both_candidate_groups_examined"] = set(group_ids(scenario)) <= set(proven["observed_groups"])
+        if (
+            fixture_version >= 27
+            and requests is not None
+            and "asks_for_missing_target" in checks
+            and not checks["asks_for_missing_target"]
+        ):
+            checks["asks_for_missing_target"] = verified_candidate_clarification(
+                final, requests, tools, evidence, extended=True
+            )
     return checks
 
 

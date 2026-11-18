@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -689,6 +689,21 @@ class Fixture(continuity.Fixture):
                         **(
                             {"resource_observation": intent.observation_identity(result["body"])}
                             if self.case.get("fixture_version", 0) >= 18
+                            and request.method == "GET"
+                            and path.endswith("/resources")
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {
+                                "resource_selector_observation": resource_selector_observation(result["body"]),
+                                "resource_read_state": {
+                                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                                    "age_seconds": result["body"].get("age_seconds"),
+                                    "health": result["body"].get("health"),
+                                },
+                            }
+                            if self.case.get("fixture_version", 0) >= 27
                             and request.method == "GET"
                             and path.endswith("/resources")
                             and result["status"] == 200
@@ -1485,6 +1500,11 @@ def verified_catalog_reads(fixture, tools, requests):
     return expanded
 
 
+def resource_selector_observation(snapshot):
+    """Public selector evidence from the actual HTTP body, never address-access proof."""
+    return [{"id": row.get("id"), "alias": row.get("alias")} for row in snapshot.get("resources", [])]
+
+
 def verified_sdk_resolutions(fixture, tools, requests):
     """Validate SDK-owned selection from real wire records, never synthetic reads."""
     if fixture.case.get("fixture_version", 0) < 23:
@@ -1549,6 +1569,14 @@ def verified_sdk_resolutions(fixture, tools, requests):
                 fixture_version=fixture.case["fixture_version"],
             )["resources"]
         wire = requests[span[0] : span[1]]
+        alias_selector_proof = (
+            fixture.case.get("fixture_version", 0) >= 27 and fixture.case["scenario"] in intent.PUBLIC_IP_ALIAS_PROMPTS
+        )
+        if alias_selector_proof and args["nodes"] != ["19"]:
+            # These two unchanged prompts say "lock 19". A guessed canonical
+            # name/full alias cannot replace the caller's initial selector.
+            # Previously observed, explicitly scoped calls use the old path.
+            return checked
 
         def stamp(row, bot, before):
             pin, observed = pins[bot], row.get("resource_observation", {})
@@ -1560,6 +1588,11 @@ def verified_sdk_resolutions(fixture, tools, requests):
                 or row.get("url") != pin["origin"] + f"/api/bots/{bot}/resources"
                 or not isinstance(observed.get("captured_at"), str)
                 or observed.get("bot_id") != bot
+                or (
+                    alias_selector_proof
+                    and row.get("resource_selector_observation")
+                    != resource_selector_observation({"resources": frozen[bot]})
+                )
             ):
                 return None
             expected = {key: pin[key] for key in ("actor", "instance_id", "bot_id", "bot_uuid")}
@@ -1569,6 +1602,19 @@ def verified_sdk_resolutions(fixture, tools, requests):
             ):
                 return None
             captured = datetime.fromisoformat(observed["captured_at"].replace("Z", "+00:00"))
+            if alias_selector_proof:
+                state = row.get("resource_read_state", {})
+                recorded = datetime.fromisoformat(state["recorded_at"].replace("Z", "+00:00"))
+                age = state.get("age_seconds")
+                if (
+                    captured.tzinfo is None
+                    or recorded.tzinfo is None
+                    or not 0 <= (recorded - captured).total_seconds() <= 5
+                    or type(age) not in (int, float)
+                    or not 0 <= age <= 5
+                    or state.get("health") != "running"
+                ):
+                    return None
             return captured.timestamp() if captured.tzinfo is not None else None
 
         def scope_reads(part):
@@ -1589,6 +1635,13 @@ def verified_sdk_resolutions(fixture, tools, requests):
                 result.append("id")
             if isinstance(resource.get("alias"), str) and resource["alias"].casefold() == hint.casefold():
                 result.append("alias")
+            if fixture.case.get("fixture_version", 0) >= 27:
+                alias = resource.get("alias")
+                if isinstance(alias, str) and re.fullmatch(r"0|[1-9][0-9]{0,2}", hint) and int(hint) <= 255:
+                    with contextlib.suppress(ValueError):
+                        literal = str(ipaddress.IPv4Address(alias))
+                        if literal == alias and literal.rsplit(".", 1)[1] == hint:
+                            result.append("public_ipv4_alias_octet")
             for unit in (resource, *resource.get("devices", [])):
                 access = unit.get("node_access", {})
                 if isinstance(access, dict):
@@ -1786,8 +1839,10 @@ def verified_sdk_resolutions(fixture, tools, requests):
             return checked
         observed_nodes = {row["id"]: row for row in snapshot.get("resources", [])}
         if any(
-            node not in observed_nodes or not kinds(observed_nodes[node], hint)
-            for hint, node in zip(args["nodes"], nodes, strict=True)
+            node not in observed_nodes
+            or not kinds(observed_nodes[node], hint)
+            or (alias_selector_proof and observed_nodes[node].get("alias") != resource.get("alias"))
+            for hint, node, (_, resource, _) in zip(args["nodes"], nodes, selected, strict=True)
         ):
             return checked
         for _, resource, _ in selected:
@@ -2394,7 +2449,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26), default=18)
+    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27), default=18)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")
