@@ -8,6 +8,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from backend.test_packaged_cli_traffic import packaged_cli  # noqa: F401
 from backend.test_resource_agent_resources_all import aggregate  # noqa: F401
 from backend.test_resource_api_resources import api  # noqa: F401
@@ -185,3 +187,39 @@ def test_overview_does_not_change_mutation_result_or_request_count(packaged_cli)
     assert result["result"]["verified"]
     assert "inventory_overview" not in result["result"]["verified_snapshot"]
     assert len(events) == 3 and sum(event["method"] == "POST" for event in events) == 1
+
+
+@pytest.mark.parametrize(
+    "fields,missing,classification",
+    [
+        ({}, ["accelerators", "lock_status", "booking_list"], "unknown"),
+        (
+            {"accelerators": None, "lock_status": None, "booking_list": None},
+            ["accelerators", "lock_status", "booking_list"],
+            "unknown",
+        ),
+        ({"accelerators": [], "lock_status": "idle", "booking_list": []}, [], "idle"),
+        (
+            {"accelerators": [{"model": "P800", "count": 8}], "lock_status": "idle"},
+            ["booking_list"],
+            "unknown",
+        ),
+    ],
+)
+def test_sparse_whole_node_observations_distinguish_unreported_from_explicit_empty(
+    aggregate, fields, missing, classification
+):
+    server = aggregate.server(1)
+    connection = aggregate.record(server, "sparse-observations")
+    node = {"id": "node-a", "holders": [], **fields}
+    server.extra["resources"] = [copy.deepcopy(node)]
+    snapshot = read(aggregate, connection, "--exact-lease-times")
+    observed = snapshot["inventory_overview"]["nodes"][0]
+    assert observed.get("not_reported_fields", []) == missing
+    assert observed["groups"][0][classification] == ["node-a"]
+    assert snapshot["resources"] == [node] == server.extra["resources"]
+    if "accelerators" in missing:
+        assert observed["accelerators"] is None
+    else:
+        assert observed["accelerators"] == fields["accelerators"]
+    assert [event[1] for event in server.events] == ["GET", "GET"]

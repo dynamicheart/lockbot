@@ -588,3 +588,13 @@ configured server table proves an empty effective catalog. Failing runner stdout
 and stderr are retained privately at mode 0600. Aggregate results preserve the
 recognized `native_isolation_failure` as `error_type` while keeping `runner_error`
 and `observable_pass: false`; private diagnostic text is not copied into results.
+
+### CLI fixture v30: uncertain write selection
+
+v30 retains prior fixture results and checks SDK target selection separately from
+mutation execution. An unknown command response can prove a correctly scoped attempt
+only through the exact CLI arguments, complete saved-scope observations, fresh selected
+HTTP snapshot, one matching command POST and explicit no-retry outcome. The selected
+service origin and observed actor/bot identity must also match on personal API routes.
+`sdk_verified_unknown_attempts` counts this proof; `sdk_resolved_writes` remains zero.
+This does not turn an unknown operation into a successful allocation.

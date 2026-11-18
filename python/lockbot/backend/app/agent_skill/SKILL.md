@@ -14,7 +14,7 @@ description: >
 
 ## Everyday requests
 
-- Usage questions: read reference, no sign-in. Search is READ ONLY: report, stop. “lock 一天”/“用完了释放吧” need a unique prior target; else ask. Idle is not ownership; missing status is UNKNOWN, even with empty holders.
+- Usage questions: read reference, no sign-in. Search is READ ONLY: report, stop. “lock 一天”/“用完了释放吧” need a unique prior target; else ask. Missing hardware/state/queues stay UNKNOWN, never none/free; idle is not ownership.
 - “我能申请什么”: `resources-all` reads saved groups; `complete:false` is incomplete, not empty. For “我lock/book了哪些”, add `--mine`: separate holdings/cards/bookings. Holder expiry is not booking expiry or guaranteed start; label estimates/claim windows.
 - “到时间提醒”: read own resources FIRST. `next_event_kind: own_early_warning` is an existing group warning, not a new timer or proof of delivery. Expiry alone doesn't prove a warning. This API cannot create personal timers.
 - Reply briefly with target/cards and `remaining_time`: “已锁定19，约3小时后到期。” UTC/seconds only if asked; deadlines use `--exact-lease-times`. Unknown time stays unknown. Finite leases auto-expire; unlimited caps don't extend them. Hide setup/Keys; groups only for ambiguity.

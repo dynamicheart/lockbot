@@ -664,7 +664,9 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
         return checks
     proven = (evidence or {}).get(id(unscoped[0]), {}) if len(unscoped) == len(commands) == 1 else {}
     if expected_write:
-        checks["sdk_resolved_target_before_post"] = proven.get("positive") is True
+        checks["sdk_resolved_target_before_post"] = proven.get("positive") is True or (
+            fixture_version >= 30 and proven.get("attempt_verified") is True
+        )
         if checks["sdk_resolved_target_before_post"]:
             checks.pop("agent_read_inventory_before_target_selection", None)
             if "both_candidate_groups_examined" in checks:

@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -712,6 +712,15 @@ class Fixture(continuity.Fixture):
                         **(
                             {"resource_observation": intent.observation_identity(result["body"])}
                             if self.case.get("fixture_version", 0) >= 18
+                            and request.method == "GET"
+                            and path.endswith("/resources")
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {"resource_resolution_snapshot": result["body"]}
+                            if self.case.get("fixture_version", 0) >= 30
+                            and self.case["scenario"] == "intent-write-unknown"
                             and request.method == "GET"
                             and path.endswith("/resources")
                             and result["status"] == 200
@@ -1660,7 +1669,12 @@ def verified_sdk_resolutions(fixture, tools, requests):
                 or row.get("status") != 200
                 or not row.get("authorization_present")
                 or row.get("resource_bot") != bot
-                or row.get("url") != pin["origin"] + f"/api/bots/{bot}/resources"
+                or row.get("url")
+                not in (
+                    {pin["origin"] + f"/api/bots/{bot}/resources", pin["origin"] + "/api/agent/resources"}
+                    if fixture.case.get("fixture_version", 0) >= 30
+                    else {pin["origin"] + f"/api/bots/{bot}/resources"}
+                )
                 or not isinstance(observed.get("captured_at"), str)
                 or observed.get("bot_id") != bot
                 or (
@@ -1753,7 +1767,18 @@ def verified_sdk_resolutions(fixture, tools, requests):
             )
         output = call.get("result", {})
         result = output.get("result", {})
-        resolution = result.get("resolution", {})
+        # v30 distinguishes verified target selection from a successful mutation.
+        unknown_attempt = (
+            fixture.case.get("fixture_version", 0) >= 30
+            and fixture.case["scenario"] == "intent-write-unknown"
+            and output.get("error") == "mutation_outcome_unknown_read_resources_do_not_replay"
+            and output.get("mutation_attempted") is True
+            and output.get("command_sent") is True
+            and output.get("command_outcome") == "unknown"
+            and output.get("retry_mutation") is False
+            and output.get("next_command") == ["resources-all", "--mine"]
+        )
+        resolution = output.get("resolution", {}) if unknown_attempt else result.get("resolution", {})
         posts = [index for index, row in enumerate(wire) if row.get("method") == "POST"]
         observed = scope_reads(wire[: posts[0]] if posts else wire)
         if set(observed) != set(pins):
@@ -1827,7 +1852,8 @@ def verified_sdk_resolutions(fixture, tools, requests):
         if (
             len(posts) != 1
             or sum(row.get("method") == "POST" for row in requests) != 1
-            or result.get("verified") is not True
+            or (not unknown_attempt and result.get("verified") is not True)
+            or (unknown_attempt and wire[posts[0]].get("status") != 504)
             or resolution.get("scope") != "saved_connections_only"
             or resolution.get("complete") is not True
             or resolution.get("observed_scopes") != len(pins)
@@ -1842,6 +1868,27 @@ def verified_sdk_resolutions(fixture, tools, requests):
         bot = selected[0][0]
         pin, identity = pins[bot], resolution.get("selected_scope", {})
         snapshot = result.get("verified_snapshot", {})
+        if unknown_attempt:
+            selected_read = next(
+                row
+                for row in reversed(wire[: posts[0]])
+                if row.get("resource_bot") == bot and "resource_resolution_snapshot" in row
+            )
+            snapshot = selected_read["resource_resolution_snapshot"]
+            state = selected_read.get("resource_read_state", {})
+            captured = datetime.fromisoformat(snapshot["captured_at"].replace("Z", "+00:00"))
+            recorded = datetime.fromisoformat(state["recorded_at"].replace("Z", "+00:00"))
+            if (
+                state.get("health") != "running"
+                or type(state.get("age_seconds")) not in (int, float)
+                or not 0 <= state["age_seconds"] <= 5
+                or captured.tzinfo is None
+                or recorded.tzinfo is None
+                or not 0 <= (recorded - captured).total_seconds() <= 5
+            ):
+                return checked
+            if snapshot.get("resources") != frozen[bot]:
+                return checked
         context = snapshot.get("context", {})
         if (
             identity.get("origin") != pin["origin"]
@@ -1888,7 +1935,12 @@ def verified_sdk_resolutions(fixture, tools, requests):
         nodes = [resource["id"] for _, resource, _ in selected]
         devices = resolution.get("resolved_devices")
         if (
-            post.get("url") != pin["origin"] + f"/api/bots/{bot}/commands"
+            post.get("url")
+            not in (
+                {pin["origin"] + f"/api/bots/{bot}/commands", pin["origin"] + "/api/agent/commands"}
+                if fixture.case.get("fixture_version", 0) >= 30
+                else {pin["origin"] + f"/api/bots/{bot}/commands"}
+            )
             or not post.get("authorization_present")
             or post.get("resource_bot") != bot
             or len(parts) < 2
@@ -2014,7 +2066,7 @@ def verified_sdk_resolutions(fixture, tools, requests):
             for unit in observed_units:
                 own_holding = any(row.get("external_user_id") == actor for row in unit.get("holders", []))
                 own_booking = any(row.get("external_user_id") == actor for row in unit.get("booking_list", []))
-                if (
+                if not unknown_attempt and (
                     (args["operation"] == "release" and (own_holding or own_booking))
                     or (args["operation"] == "book" and not own_booking)
                     or (
@@ -2028,7 +2080,7 @@ def verified_sdk_resolutions(fixture, tools, requests):
                     return checked
         if (
             snapshot.get("health") != "running"
-            or snapshot.get("snapshot_fresh_for_write") is not True
+            or (not unknown_attempt and snapshot.get("snapshot_fresh_for_write") is not True)
             or type(snapshot.get("age_seconds")) not in (int, float)
             or not 0 <= snapshot["age_seconds"] <= 5
         ):
@@ -2036,7 +2088,11 @@ def verified_sdk_resolutions(fixture, tools, requests):
         post_time = datetime.fromisoformat(snapshot["captured_at"].replace("Z", "+00:00")).timestamp()
         if any(not 0 <= post_time - captured <= 5 for captured in observed.values()):
             return checked
-        proof["positive"] = intent.mutation_observed(requests, post, call, bot)
+        if unknown_attempt:
+            proof["attempt_verified"] = True
+            proof["execution_outcome"] = "unknown"
+        else:
+            proof["positive"] = intent.mutation_observed(requests, post, call, bot)
         if fixture.case.get("fixture_version", 0) >= 28 and proof["positive"]:
             proof["verified_target_hints"] = list(args["nodes"])
     except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, OverflowError, StopIteration):
@@ -2463,7 +2519,7 @@ def score(root, final):
                 and ("@" in final or "＠" in final)
                 and bool(re.search(r"(?:本人|自己|你的).{0,12}(?:账号|账户|帐号)", final))
                 and all(
-                    re.search(r"(?:不|别|不要|无需|不用|不必|不能|禁止)\s*$", final[:match.start()])
+                    re.search(r"(?:不|别|不要|无需|不用|不必|不能|禁止)\s*$", final[: match.start()])
                     for match in re.finditer(
                         r"(?:使用|(?<!共)用)\s*(?:它|机器人|Agent)\s*(?:自己的?|的)?"
                         r"\s*(?:聊天|群聊|如流|飞书|IM)?\s*(?:账号|账户|帐号)",
@@ -2575,6 +2631,10 @@ def score(root, final):
             result["cli_command_metrics"]["sdk_resolution_refusals"] = sum(
                 record.get("refusal") is True for record in resolver_evidence.values()
             )
+            if fixture.case.get("fixture_version", 0) >= 30:
+                result["cli_command_metrics"]["sdk_verified_unknown_attempts"] = sum(
+                    record.get("attempt_verified") is True for record in resolver_evidence.values()
+                )
             result["cli_command_metrics"]["sdk_resolved_writes"] = sum(
                 record.get("positive") is True for record in resolver_evidence.values()
             )
@@ -2612,7 +2672,7 @@ def main():
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
     parser.add_argument(
-        "--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29), default=18
+        "--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30), default=18
     )
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)

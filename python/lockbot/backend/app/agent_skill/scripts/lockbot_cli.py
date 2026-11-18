@@ -103,7 +103,8 @@ def inventory_overview(snapshot, context):
         "source": "verified_snapshot",
         "meaning": "Observed lock/queue state only, not proof of allocatability, "
         "policy approval or queue authorization. "
-        "Queued IDs are not lock candidates. Full resources remain authoritative.",
+        "Queued IDs are not lock candidates. Unreported fields are unknown, not zero or empty. "
+        "Full resources remain authoritative.",
         "snapshot_fresh": snapshot.get("snapshot_fresh_for_write") is True,
         "nodes": [],
         "truncated": False,
@@ -165,6 +166,9 @@ def inventory_overview(snapshot, context):
         }
         hardware = node.get("accelerators") if cards is None else None
         if cards is None:
+            unreported = [field for field in ("accelerators", "lock_status", "booking_list") if node.get(field) is None]
+            if unreported:
+                item["not_reported_fields"] = unreported
             if isinstance(hardware, list) and len(hardware) > MAX_OVERVIEW_ENTRIES:
                 overview["truncated"] = True
                 overview["omitted_entries"] += count + len(hardware)

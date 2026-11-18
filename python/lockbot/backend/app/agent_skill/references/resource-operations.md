@@ -47,7 +47,9 @@ from conversation rather than a guess from inventory. Finding resources remains 
 
 For NODE and QUEUE resources, an operator may register accelerator inventory.
 When set, each resource's `accelerators` array lists configured models and counts.
-An absent array means unknown hardware. This is inventory for the entire machine,
+An absent array means unknown hardware. `not_reported_fields` lists absent/null source
+fields: report them as “未上报”, never zero GPUs, no queue, or available resources.
+Keep observed holdings/bookings separate from unknown state. This is inventory for the entire machine,
 not a count of individually available cards. Match the registered model against the
 user's constraints and verify live occupancy before selecting the machine.
 If the requested model is unverified for a candidate, do not select that candidate.
