@@ -24,8 +24,10 @@ its exact private `--connection` and node ID. That scoped flow still requires
 
 Pass every user constraint, including model, card count, minimum accelerators and an
 explicit group; automatic selection cannot recover constraints omitted by the caller.
-For node-only lock/slock/book, omit both `--whole-node` and `--device`: verified group
-mode selects the whole node or its entire observed card set, never an available subset.
+Only when the user leaves allocation mode unspecified (for example `lock 19`), omit
+both `--whole-node` and `--device`: verified group mode selects the whole node or its
+entire observed card set. An explicit whole-machine request must retain `--whole-node`;
+never omit it to fall back to individual cards or an available subset.
 Repeated `--node` targets must resolve to one scope; shared card selections on multiple
 nodes require `--same-devices-on-all-nodes` and identical card sets. Card claim/renew/release
 still require explicit card IDs. For existing own holdings, follow the renewal rules below.
@@ -46,7 +48,10 @@ When set, each resource's `accelerators` array lists configured models and count
 An absent array means unknown hardware. This is inventory for the entire machine,
 not a count of individually available cards. Match the registered model against the
 user's constraints and verify live occupancy before selecting the machine.
-Pass the user's required model as `command --model P800`. For a whole machine that must
+If the requested model is unverified for a candidate, do not select that candidate.
+Use a verified match if one exists; otherwise ask for trusted hardware information. Do not probe `command`, omit the model, or switch allocation
+mode to bypass missing evidence. When the model is verified, pass it as
+`command --model P800`. For a whole machine that must
 have at least two P800 accelerators, pass `--whole-node --minimum-model-count 2`. The CLI rechecks
 the exact selected machine or cards against its fresh read before sending the request.
 To acquire two cards on the same node, repeat `--device` in one `lock` command and use
