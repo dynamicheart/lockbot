@@ -171,6 +171,11 @@ function renderCaseNavigation() {
               pickRun(index);
             });
           button.dataset.navKind = 'run';
+          button.dataset.reviewCase = key;
+          button.dataset.reviewScope = 'run';
+          button.dataset.reviewIndex = String(index);
+          button.dataset.reviewAnchor = 'run';
+          button.dataset.reviewField = '模型名称';
           button.title = run.model || '';
           return button;
         }));
@@ -184,17 +189,18 @@ function renderCaseNavigation() {
   sidebar.scrollTop = scroll;
 }
 
-function reviewContext(scope = 'run', caseId = activeCase) {
-  const trial = data.cases[caseId]?.[activeIndex] ?? data.cases[caseId]?.[0];
-  const target = data.review_targets?.[caseId]?.[activeIndex] ?? data.review_targets?.[caseId]?.[0];
+function reviewContext(scope = 'run', caseId = activeCase, index = activeIndex) {
+  const selectedIndex = data.cases[caseId]?.[index] ? index : 0;
+  const trial = data.cases[caseId]?.[selectedIndex];
+  const target = data.review_targets?.[caseId]?.[selectedIndex];
   const sourceDataset = target?.dataset_id ?? datasetId;
   return {
     scope,
     ...(online && !imported && sourceDataset ? {dataset_id:sourceDataset} : {}),
     case_id: caseId,
     case_name: caseName(caseId),
-    run_index: scope === 'case' ? null : target?.run_index ?? activeIndex,
-    run_id: scope === 'case' || imported ? null : data.review_runs?.[caseId]?.[activeIndex] ?? null,
+    run_index: scope === 'case' ? null : target?.run_index ?? selectedIndex,
+    run_id: scope === 'case' || imported ? null : data.review_runs?.[caseId]?.[selectedIndex] ?? null,
     model: scope === 'case' ? '' : trial?.model || '',
     server_backed: online && !imported && !!data.review_runs,
   };
@@ -218,7 +224,7 @@ function requestReview(anchor, quote = '', fieldLabel = '', options = {}) {
       subject = 'prompt';
     }
   }
-  const context = reviewContext(scope, options.caseId || activeCase);
+  const context = reviewContext(scope, options.caseId || activeCase, options.runIndex);
   const message = { type: 'lockbot-trace-comment', context, anchor: scope === 'case' ? 'case' : anchor,
     quote, field_label: fieldLabel, subject };
   if (parent !== window) parentMessage(message);
@@ -291,15 +297,20 @@ function showSelectionComment(event) {
   const anchor = anchoredElement(selection.anchorNode) ||
     event.composedPath().find(element => element instanceof Element && anchoredElement(element));
   const target = anchor && (anchoredElement(anchor) || anchor);
-  const ui = selection.anchorNode?.parentElement?.closest('[id]');
+  const origin = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode?.parentElement;
+  const ui = origin?.closest('[id]');
   const uiId = ['case-title', 'run-title', 'counts', 'chat-tab', 'event-tab', 'case-nav'].includes(ui?.id) ? ui.id : null;
+  const scope = target?.dataset.reviewScope || (uiId === 'case-title' ? 'case' : undefined);
+  const runIndex = target?.dataset.reviewIndex;
   capturedSelection = {
     anchor: target?.dataset.reviewAnchor || (uiId ? 'ui:' + uiId : 'run'),
     quote,
     label: target?.dataset.reviewField || '选中文字',
     caseId: target?.dataset.reviewCase,
+    scope,
+    subject: scope === 'case' ? 'scenario' : undefined,
+    runIndex: /^\d+$/.test(runIndex || '') ? Number(runIndex) : undefined,
   };
-  const origin = selection.anchorNode?.nodeType === Node.ELEMENT_NODE ? selection.anchorNode : selection.anchorNode?.parentElement;
   const dialog = origin?.closest('dialog') || event.composedPath().find(element => element instanceof Element && element.matches('dialog[open]'));
   (dialog?.open ? dialog : document.body).append(selectionComment);
   const rectangle = selection.rangeCount ? selection.getRangeAt(0).getBoundingClientRect() : null;
@@ -308,12 +319,15 @@ function showSelectionComment(event) {
   selectionComment.hidden = false;
 }
 selectionComment.onpointerdown = event => event.preventDefault();
-selectionComment.onclick = () => {
+function submitSelectionComment() {
   const selected = capturedSelection;
   if (!selected) return;
-  requestReview(selected.anchor, selected.quote, selected.label, { caseId: selected.caseId });
+  requestReview(selected.anchor, selected.quote, selected.label, {
+    caseId: selected.caseId, scope: selected.scope, subject: selected.subject, runIndex: selected.runIndex,
+  });
   selectionComment.hidden = true;
-};
+}
+selectionComment.onclick = submitSelectionComment;
 document.addEventListener('pointerup', showSelectionComment);
 document.addEventListener('keyup', event => { if (event.key !== 'Escape') showSelectionComment(event); });
 
