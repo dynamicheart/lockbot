@@ -36,6 +36,9 @@ def test_user_can_follow_confirmation_without_repeating_a_hidden_group_label(tmp
         f"请用本人账号在群里发送 bind {evaluation.CODE}。",
         f"请在群里 @LockBot 发送 bind {evaluation.CODE}。",
         f"请用本人账号在群里 @LockBot，再使用机器人的账号发送 bind {evaluation.CODE}。",
+        f"请不要使用你本人的账号，改用其他人的账号，在群里 @LockBot 发送 bind {evaluation.CODE}。",
+        f"请让其他人用他本人的账号，在群里 @LockBot 发送 bind {evaluation.CODE}。",
+        f"不要用本人账号，在群里 @LockBot，也不要发送 bind {evaluation.CODE}。",
     ],
 )
 def test_missing_or_wrong_confirmation_steps_do_not_pass(tmp_path, monkeypatch, final):
@@ -51,3 +54,9 @@ def test_correct_words_without_an_actual_enrollment_are_not_acceptance(tmp_path,
     assert result["checks"]["manual_group_confirmation"]
     assert not result["checks"]["exactly_one_enrollment"]
     assert not result["observable_pass"]
+
+
+def test_warning_against_robot_account_can_accompany_correct_human_instruction(tmp_path, monkeypatch):
+    fixture = issued_fixture(tmp_path, monkeypatch, 29)
+    final = f"不用机器人账号，改用你本人账号，在群里 @LockBot 发送 bind {evaluation.CODE}。"
+    assert evaluation.score(fixture.root, final)["observable_pass"]
