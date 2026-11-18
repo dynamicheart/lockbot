@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19}:
+    if fixture_version not in {18, 19, 20}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -924,6 +924,15 @@ class Fixture(continuity.Fixture):
                     "next_step": "Run connections to find the pending enrollment.",
                 }
             argv += ["--enrollment-dir", str(directory)]
+        if self.case.get("fixture_version", 0) >= 20 and action in {"resources", "resources-all"}:
+            for node in args.get("nodes", []):
+                argv += ["--node", node]
+            if "model" in args:
+                argv += ["--model", args["model"]]
+            if args.get("full") is True:
+                argv += ["--full"]
+            if args.get("with_metrics") is True:
+                argv += ["--with-metrics"]
         script_path = self.installation / "scripts/lockbot_cli.py"
         script = runpy.run_path(str(script_path))
         execution["argv"] = [str(script_path), *argv]
@@ -1086,6 +1095,29 @@ def tools(root):
     if scenario == "telemetry":
         actions = (*actions, "metrics")
         extra["nodes"] = {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."}
+    if case.get("fixture_version", 0) >= 20 and allows_commands:
+        extra.update(
+            nodes={
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "For resources/resources-all: exact node IDs or current aliases. "
+                "Commands require observed exact node IDs.",
+            },
+            model={
+                "type": "string",
+                "description": "For resources/resources-all: filter reported models; unknown stays unknown. "
+                "For commands: verify the user-requested accelerator model before writing.",
+            },
+            full={
+                "type": "boolean",
+                "description": "For resources/resources-all only: include full details for explicit debugging.",
+            },
+            with_metrics={
+                "type": "boolean",
+                "description": "For resources/resources-all only: batch utilization for selected nodes using "
+                "separately approved metrics access.",
+            },
+        )
     public_tools = []
     if scenario == "panel":
         actions = (*actions, "panel-link")
@@ -1927,7 +1959,7 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
-    parser.add_argument("--fixture-version", type=int, choices=(18, 19), default=18)
+    parser.add_argument("--fixture-version", type=int, choices=(18, 19, 20), default=18)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")

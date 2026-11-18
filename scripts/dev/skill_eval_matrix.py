@@ -48,11 +48,16 @@ def freeze(source, destination, expected_origin):
     }
 
 
-def prepare(root, suite, scenario, artifacts):
+def prepare(root, suite, scenario, artifacts, *, cli_fixture_version=19):
     current = artifacts / "current"
     source = current / "SKILL.md"
     if suite == "cli":
-        cli.prepare(root, artifacts / "panel" if scenario == "panel" else current, scenario, fixture_version=19)
+        cli.prepare(
+            root,
+            artifacts / "panel" if scenario == "panel" else current,
+            scenario,
+            fixture_version=cli_fixture_version,
+        )
         return cli.score
     if suite == "onboarding":
         onboarding.prepare(root, None, scenario, artifacts=current, fixture_version=7)
@@ -115,11 +120,13 @@ def fixture_error(path, metadata):
     return {**metadata, "status": "fixture_error"}
 
 
-def run_case(output, suite, scenario, number, runner, limits, revision):
+def run_case(output, suite, scenario, number, runner, limits, revision, *, cli_fixture_version=19):
     client, model, command = runner
     case = output / suite / scenario / f"{number:03d}"
     case.mkdir(mode=0o700, parents=True)
     metadata = {"suite": suite, "scenario": scenario, "client": client, "model": model, "artifact_revision": revision}
+    if suite == "cli":
+        metadata["cli_fixture_version"] = cli_fixture_version
     if suite == "continuity" and scenario in continuity.host_v11.SCENARIOS:
         metadata.update(
             fixture_family="continuity",
@@ -134,7 +141,7 @@ def run_case(output, suite, scenario, number, runner, limits, revision):
         "simulated_user_actions": [],
     }
     try:
-        grader = prepare(first, suite, scenario, output / "artifacts")
+        grader = prepare(first, suite, scenario, output / "artifacts", cli_fixture_version=cli_fixture_version)
         if suite == "continuity" and scenario in continuity.host_v11.SCENARIOS:
             case_metadata = json.loads((first / "case.json").read_text())
             metadata.update(
@@ -230,13 +237,14 @@ def preflight_runner(output, number, runner, timeout):
     return result
 
 
-def run_matrix(output, cases, runners, artifacts, workers, limits, preflight_timeout):
+def run_matrix(output, cases, runners, artifacts, workers, limits, preflight_timeout, *, cli_fixture_version=19):
     plan = list(product(cases, enumerate(runners, start=1)))
     metadata = {
         "artifacts": artifacts,
         "limits": limits,
         "preflight_timeout": preflight_timeout,
         "workers": workers,
+        "cli_fixture_version": cli_fixture_version,
         "simulation_only": True,
         "cases": [f"{suite}:{scenario}" for suite, scenario in cases],
         "runners": [{"client": client, "model": model} for client, model, _ in runners],
@@ -262,6 +270,8 @@ def run_matrix(output, cases, runners, artifacts, workers, limits, preflight_tim
                     "preflight_status": probe["status"],
                     "preflight_evidence": probe["evidence"],
                 }
+                if suite == "cli":
+                    row["cli_fixture_version"] = cli_fixture_version
                 if suite == "continuity" and scenario in continuity.host_v11.SCENARIOS:
                     row.update(
                         fixture_family="continuity",
@@ -274,7 +284,15 @@ def run_matrix(output, cases, runners, artifacts, workers, limits, preflight_tim
                 progress.write(json.dumps(row, ensure_ascii=False) + "\n")
                 continue
             future = pool.submit(
-                run_case, output, suite, scenario, number, runner, limits, artifacts[artifact]["revision"]
+                run_case,
+                output,
+                suite,
+                scenario,
+                number,
+                runner,
+                limits,
+                artifacts[artifact]["revision"],
+                cli_fixture_version=cli_fixture_version,
             )
             pending[future] = index
         progress.flush()
@@ -310,6 +328,7 @@ def main():
     run.add_argument("--installed-artifacts", type=Path, help="Older Skill ZIP for operations:update")
     run.add_argument("--output", type=Path, required=True, help="New private evidence directory outside the repository")
     run.add_argument("--workers", type=positive_int, default=4)
+    run.add_argument("--cli-fixture-version", type=int, choices=(19, 20), default=19)
     run.add_argument(
         "--preflight-timeout", type=positive_int, default=45, help="Seconds for each model connectivity probe"
     )
@@ -357,7 +376,16 @@ def main():
         run.error(str(error))
 
     limits = {"timeout": args.timeout, "max_turns": args.max_turns, "output_tokens": args.output_tokens}
-    passed = run_matrix(output, cases, runners, artifacts, args.workers, limits, args.preflight_timeout)
+    passed = run_matrix(
+        output,
+        cases,
+        runners,
+        artifacts,
+        args.workers,
+        limits,
+        args.preflight_timeout,
+        cli_fixture_version=args.cli_fixture_version,
+    )
     print(output / "matrix.json")
     return 0 if passed else 1
 
