@@ -154,7 +154,12 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            env = dict(os.environ, NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
+            env = dict(
+                os.environ,
+                NO_PROXY="127.0.0.1",
+                no_proxy="127.0.0.1",
+                LOCKBOT_HOME=str(tmp_path / "isolated-profile"),
+            )
             bootstrap = tmp_path / "bootstrap.py"
             with ZipFile(BytesIO(archive)) as package:
                 bootstrap.write_bytes(package.read("lockbot-agent/scripts/lockbot_cli.py"))
@@ -225,6 +230,20 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
             exact_holder = exact["resources"][0]["holders"][0]
             assert exact_holder["remaining_seconds"] == 120 and exact_holder["expires_at"]
             assert "remaining_time" not in exact_holder
+
+            saved_connection = tmp_path / finished["connection"]
+            saved_key = saved_connection.parent / "key"
+            original_files = {path: path.read_bytes() for path in (saved_connection, saved_key)}
+            linked_key = tmp_path / "linked.key"
+            os.link(saved_key, linked_key)
+            before = len(requests)
+            wrong_origin = origin.replace("127.0.0.1", "localhost")
+            refused = cli(
+                script, "init", "--origin", wrong_origin, "--scope", "project", "--key-file", str(linked_key), code=2
+            )
+            assert refused["error"] == "key_origin_mismatch"
+            assert requests[before:] == []
+            assert all(path.read_bytes() == data for path, data in original_files.items())
 
             key = tmp_path / "fixture.key"
             key.write_text(fixture_key)

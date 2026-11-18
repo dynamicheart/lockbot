@@ -734,7 +734,7 @@ class CatalogScanBudget:
         }
 
 
-def listed_connections(directory=None, *, scan_budget=None):
+def listed_connections(directory=None, *, scan_budget=None, _observe_credential=None):
     """List connections and resumable enrollments without opening their Key files."""
     if directory is not None:
         catalogs = [("custom", Path(directory))]
@@ -772,6 +772,11 @@ def listed_connections(directory=None, *, scan_budget=None):
                 entry = {"origin": service, "instance_id": instance, "bot_uuid": bot, "connection": str(path)}
                 if re.search(r"\b(?:lbr_|lbk_|lbc1\.)", " ".join(entry.values())):
                     raise ValueError
+                if _observe_credential is not None:
+                    key_path = Path(record["key_file"])
+                    _observe_credential(
+                        key_path if key_path.is_absolute() else path.parent / key_path, service, instance
+                    )
                 connections.append({**entry, "scope": scope})
                 completed.add(path.parent)
             except CatalogScanTruncated:
@@ -786,7 +791,10 @@ def listed_connections(directory=None, *, scan_budget=None):
                     scan_budget.reserve(path)
                 if path.resolve() != path:
                     raise ValueError
-                enrollments.append({**pending_enrollment_record(path.parent), "scope": scope})
+                entry = pending_enrollment_record(path.parent)
+                if _observe_credential is not None:
+                    _observe_credential(path.parent / "key", entry["origin"], entry["instance_id"])
+                enrollments.append({**entry, "scope": scope})
             except CatalogScanTruncated:
                 break
             except (ClientError, OSError, KeyError, RuntimeError, ValueError):
@@ -801,6 +809,47 @@ def listed_connections(directory=None, *, scan_budget=None):
 
 def catalog_records(root, filename):
     return sorted([*root.glob(filename), *root.glob(f"*/{filename}"), *root.glob(f"*/*/{filename}")])
+
+
+def known_key_scopes(key_file, budget, *, scope="user"):
+    """Check existing catalog provenance without opening any credential contents.
+
+    External custom connections and copies of a Key in a different file are not
+    discoverable here. No arbitrary JSON search or persistent Key index is used.
+    """
+    try:
+        selected = Path(key_file).resolve()
+        identity = selected.stat()
+        if not stat.S_ISREG(identity.st_mode):
+            raise ClientError("private_file_permissions_or_size")
+    except (OSError, RuntimeError) as exc:
+        raise ClientError("private_file_unavailable") from exc
+    matches = set()
+
+    def observe(path, service, instance):
+        budget.check()
+        candidate = path.resolve()
+        same = candidate == selected
+        if not same:
+            try:
+                other = candidate.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            same = stat.S_ISREG(other.st_mode) and os.path.samestat(identity, other)
+        if same:
+            matches.add((service, instance))
+
+    try:
+        catalogs = [None]
+        if scope == "project" and os.environ.get("LOCKBOT_HOME"):
+            catalogs.append(connection_catalog("project"))
+        for directory in catalogs:
+            listing = listed_connections(directory, scan_budget=budget, _observe_credential=observe)
+            if listing["unavailable_count"] or not listing["scan"]["complete"]:
+                raise ClientError("key_origin_catalog_incomplete")
+    except (ClientError, OSError, RuntimeError, CatalogScanTruncated) as exc:
+        raise ClientError("key_origin_catalog_incomplete") from exc
+    return matches
 
 
 def connection_scope(record):
@@ -1366,7 +1415,12 @@ class Client:
     def initialize(self, key_file, destination, metrics_origin=None, agent_label=None, *, scope="user"):
         if self.config or self.connection_dir is not None:
             raise ClientError("init_requires_new_connection")
+        bindings = known_key_scopes(key_file, CatalogScanBudget(self.deadline, self.clock), scope=scope)
+        if any(service != self.base for service, _ in bindings):
+            raise ClientError("key_origin_mismatch")
         manifest = self.discover()
+        if any(instance != manifest["instance_id"] for _, instance in bindings):
+            raise ClientError("key_instance_mismatch")
         self.config = {
             "approved_origin": self.base,
             "instance_id": manifest["instance_id"],

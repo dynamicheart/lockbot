@@ -189,6 +189,14 @@ only `task_category`, `agent_label`, `purpose`; choose the category from current
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.
 
+Before authenticating, `init` checks existing standard catalog metadata for the selected
+Key file, including file aliases. A known different origin or changed service instance
+is refused; an incomplete catalog scan also stops initialization. This bounded check
+does not read other Keys or create a credential index. Separately managed connections
+outside those catalogs and independent copies of a Key cannot be recognized by this
+check: use their original approved connection instead of testing the Key on another
+service. A previously unrecorded seed still requires its already-approved service URL.
+
 ## Identify the service before using a saved credential
 
 This skill is for **Lockbot Resource API**, identified by
