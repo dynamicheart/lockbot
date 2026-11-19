@@ -97,6 +97,11 @@ def format_lease_times(snapshot):
                 holder["remaining_time"] = text
 
 
+def read_snapshot_fresh(snapshot):
+    """Read freshness does not grant write authority to a compatible read profile."""
+    return snapshot.get("snapshot_fresh_for_read", snapshot.get("snapshot_fresh_for_write")) is True
+
+
 def inventory_overview(snapshot, context):
     """Group observed IDs without inferring availability, hardware or policy."""
     overview = {
@@ -105,7 +110,7 @@ def inventory_overview(snapshot, context):
         "policy approval or queue authorization. "
         "Queued IDs are not lock candidates. Unreported fields are unknown, not zero or empty. "
         "Full resources remain authoritative.",
-        "snapshot_fresh": snapshot.get("snapshot_fresh_for_write") is True,
+        "snapshot_fresh": read_snapshot_fresh(snapshot),
         "nodes": [],
         "truncated": False,
         "omitted_entries": 0,
@@ -1244,7 +1249,15 @@ def normalize_agent_label(value):
 
 class Client:
     def __init__(
-        self, connection=None, *, approved_origin=None, root=None, opener=None, clock=time.monotonic, sleep=time.sleep
+        self,
+        connection=None,
+        *,
+        approved_origin=None,
+        root=None,
+        opener=None,
+        clock=time.monotonic,
+        sleep=time.sleep,
+        legacy_read=False,
     ):
         self.config = private_json(connection) if connection else {}
         self.base = origin(approved_origin or self.config.get("approved_origin"))
@@ -1268,6 +1281,10 @@ class Client:
         self.package_version = None
         self.portable_package = False
         self.needs_update = False
+        self.legacy_read = legacy_read
+        self.api_profile = None
+        self.instruction_state = "unknown"
+        self._legacy_resource_url = None
         self.manifest = None
         self._prepared_resources = None
         self._resource_request_started = None
@@ -1282,6 +1299,66 @@ class Client:
         path = Path(value)
         return path if path.is_absolute() else self.connection_dir / path
 
+    def _legacy_metadata(self, headers, value=None):
+        """Validate additive metadata even on HTTP failures; never claim a loaded revision."""
+        if not self.legacy_read:
+            return
+        if headers.get("X-Lockbot-Service-ID") not in (None, SERVICE):
+            raise ClientError("unsupported_service")
+        if (
+            headers.get("X-Lockbot-API-Version") not in (None, API_VERSION)
+            or headers.get("X-Lockbot-API-Compatibility") == "incompatible"
+        ):
+            raise ClientError("api_version_changed")
+        if headers.get("X-Lockbot-Skill-Update") == "update_available":
+            self.instruction_state = "changed"
+        if not isinstance(value, dict):
+            return
+        for metadata in (value, value.get("server")):
+            if not isinstance(metadata, dict):
+                continue
+            if metadata.get("service_id", SERVICE) != SERVICE:
+                raise ClientError("unsupported_service")
+            if (
+                metadata.get("api_version", API_VERSION) != API_VERSION
+                or metadata.get("api_compatibility") == "incompatible"
+            ):
+                raise ClientError("api_version_changed")
+            pinned = self.config.get("instance_id")
+            if pinned and metadata.get("instance_id", pinned) != pinned:
+                raise ClientError("instance_mismatch")
+        update = value.get("skill_update")
+        if update is not None and not isinstance(update, dict):
+            raise ClientError("invalid_legacy_update_metadata")
+        if isinstance(update, dict):
+            if update.get("api_compatibility") == "incompatible":
+                raise ClientError("api_version_changed")
+            if update.get("status") == "update_available":
+                self.instruction_state = "changed"
+        # A server's current/unknown response cannot certify instructions loaded locally.
+
+    def _response_bytes(self, response):
+        chunks, size = [], 0
+        reader = getattr(response, "read1", response.read)
+        while True:
+            if self.clock() >= self.deadline:
+                raise ClientError("request_budget_exhausted")
+            chunk = reader(min(65536, MAX_BYTES + 1 - size))
+            if self.clock() >= self.deadline:
+                raise ClientError("request_budget_exhausted")
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_BYTES:
+                raise ClientError("response_too_large")
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+        return raw
+
+    def _require_modern_action(self):
+        if self.legacy_read:
+            raise ClientError("legacy_read_only")
+
     def _request(
         self,
         url,
@@ -1294,6 +1371,20 @@ class Client:
         binary=False,
         include_started=False,
     ):
+        if self.legacy_read and (
+            method != "GET"
+            or body is not None
+            or self.api_profile != "native-modern-v1"
+            and url
+            not in {
+                self.base + "/api/agent-skill",
+                self.base + "/api/agent/context",
+                self._legacy_resource_url,
+            }
+        ):
+            raise ClientError("legacy_read_only")
+        if self.legacy_read and token and (self.manifest is None or url == self.base + "/api/agent-skill"):
+            raise ClientError("legacy_profile_not_verified")
         for attempt in range(2 if readonly else 1):
             if self.calls >= MAX_CALLS or self.clock() >= self.deadline:
                 raise ClientError("request_budget_exhausted")
@@ -1304,7 +1395,9 @@ class Client:
                 if token == self.key and "agent_label" in self.config:
                     label = normalize_agent_label(self.config["agent_label"])
                     headers["X-Lockbot-Agent-Label"] = urllib.parse.quote(label, safe="")
-            if self.version:
+            if self.legacy_read:
+                headers["X-Lockbot-Client-API-Version"] = API_VERSION
+            if self.version and self.api_profile != "native-legacy-read-v1":
                 headers["X-Lockbot-Client-Skill-Version"] = self.version
                 headers["X-Lockbot-Client-API-Version"] = API_VERSION
                 if self.package_version:
@@ -1325,6 +1418,7 @@ class Client:
                         self._last_mutation.update(
                             response_received=True, http_status=getattr(response, "status", None)
                         )
+                    self._legacy_metadata(response.headers)
                     api = response.headers.get("X-Lockbot-API-Version")
                     if (api and api != API_VERSION) or response.headers.get(
                         "X-Lockbot-API-Compatibility"
@@ -1337,27 +1431,14 @@ class Client:
                         and self._version_differs(revision, response.headers.get("X-Lockbot-Package-Version"))
                     ):
                         self.needs_update = True
-                    chunks, size = [], 0
-                    reader = getattr(response, "read1", response.read)
-                    while True:
-                        if self.clock() >= self.deadline:
-                            raise ClientError("request_budget_exhausted")
-                        chunk = reader(min(65536, MAX_BYTES + 1 - size))
-                        if self.clock() >= self.deadline:
-                            raise ClientError("request_budget_exhausted")
-                        if not chunk:
-                            break
-                        size += len(chunk)
-                        if size > MAX_BYTES:
-                            raise ClientError("response_too_large")
-                        chunks.append(chunk)
-                    raw = b"".join(chunks)
+                    raw = self._response_bytes(response)
                     if binary:
                         return raw
                     try:
                         value = json.loads(raw)
                         if not isinstance(value, dict):
                             raise ValueError
+                        self._legacy_metadata(response.headers, value)
                         current = (value.get("skill_update") or {}).get("current_version")
                         if (
                             self.version
@@ -1371,6 +1452,18 @@ class Client:
                     except (ValueError, UnicodeError, RecursionError) as exc:
                         raise ClientError("invalid_json_response") from exc
             except urllib.error.HTTPError as exc:
+                if self.legacy_read:
+                    try:
+                        self._legacy_metadata(exc.headers)
+                        raw = self._response_bytes(exc)
+                        try:
+                            error_body = json.loads(raw)
+                        except (ValueError, UnicodeError, RecursionError):
+                            error_body = None
+                        self._legacy_metadata(exc.headers, error_body)
+                    except BaseException:
+                        exc.close()
+                        raise
                 retry = exc.headers.get("Retry-After", "")
                 status = exc.code
                 if not readonly:
@@ -1412,12 +1505,32 @@ class Client:
         if (
             result.get("service_id") != SERVICE
             or result.get("api_version") != API_VERSION
-            or result.get("skill_id") != "lockbot-agent"
+            or result.get("skill_id")
+            not in (("lockbot-agent", "lockbot-resource-agent") if self.legacy_read else ("lockbot-agent",))
             or not isinstance(result.get("instance_id"), str)
             or not result["instance_id"]
             or not re.fullmatch(r"[a-f0-9]{16}", str(result.get("version", "")))
         ):
             raise ClientError("unsupported_service")
+        if result["skill_id"] == "lockbot-resource-agent":
+            capabilities = result.get("capabilities")
+            if (
+                result.get("credential_scheme") != "lbr_bot_scoped"
+                or not isinstance(capabilities, list)
+                or any(not isinstance(item, str) for item in capabilities)
+                or not {"credential_context", "namespaced_skill", "skill_version_headers"}.issubset(capabilities)
+                or "coherent_resource_snapshot" in capabilities
+                or result.get("package_format") is not None
+                or result.get("package_version") is not None
+                or same_origin_url(self.base, result.get("context_url")) != self.base + "/api/agent/context"
+            ):
+                raise ClientError("unsupported_legacy_read_profile")
+            self.api_profile = "native-legacy-read-v1"
+            self.needs_update = True
+            self.node_access = None
+            self.hardware_notes = None
+        else:
+            self.api_profile = "native-modern-v1"
         pinned = self.config.get("instance_id")
         if pinned is not None and pinned != result["instance_id"]:
             raise ClientError("instance_mismatch")
@@ -1433,6 +1546,11 @@ class Client:
         if self.version is None:
             self.version = installed_version(self.root)
             self.package_version = installed_package_version(self.root)
+        if self.api_profile == "native-legacy-read-v1":
+            # These hashes certify this CLI package, not the server's Markdown-only ZIP.
+            # No legacy instruction revision has been loaded by this executable.
+            self.needs_update = True
+            return
         self.portable_package = bool(
             self.package_version
             and self.manifest.get("package_format") in (LEGACY_BUNDLE_FORMAT, BUNDLE_FORMAT)
@@ -1441,12 +1559,24 @@ class Client:
         self.needs_update |= self._version_differs(self.manifest.get("version"), self.manifest.get("package_version"))
 
     def _read_context(self, *, initializing=False, with_resources=False):
-        if with_resources and self.node_access:
+        if with_resources and self.node_access and not self.legacy_read:
             self.node_access.invalidate()
         if self.manifest is None:
             self.discover()  # no credentials have been read or sent yet
         if not self.config.get("instance_id") or (not initializing and not self.config.get("bot_uuid")):
             raise ClientError("connection_identity_not_pinned")
+        if self.api_profile == "native-legacy-read-v1":
+            actor = self.config.get("actor")
+            if (
+                initializing
+                or not isinstance(self.config.get("bot_uuid"), str)
+                or not isinstance(actor, dict)
+                or not all(
+                    isinstance(actor.get(field), str) and 0 < len(actor[field]) <= 512
+                    for field in ("platform", "external_user_id")
+                )
+            ):
+                raise ClientError("connection_identity_not_pinned")
         self._check_installed_version()
         if self.key is None:
             try:
@@ -1471,6 +1601,13 @@ class Client:
         return result
 
     def _validate_context(self, result, *, initializing=False):
+        if self.api_profile == "native-legacy-read-v1" and (
+            not isinstance(result.get("server"), dict)
+            or not isinstance(result.get("bot"), dict)
+            or "skill" in result
+            and not isinstance(result["skill"], dict)
+        ):
+            raise ClientError("invalid_legacy_context")
         server = result.get("server", {})
         uuid = result.get("bot", {}).get("uuid")
         actor = result.get("actor")
@@ -1500,16 +1637,39 @@ class Client:
             or (not initializing and uuid != self.config["bot_uuid"])
         ):
             raise ClientError("context_identity_mismatch")
+        if self.api_profile == "native-legacy-read-v1":
+            bot = result.get("bot", {})
+            if (
+                type(bot.get("id")) is not int
+                or bot["id"] <= 0
+                or bot.get("type") not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"}
+                or self.config.get("bot_type", bot["type"]) != bot["type"]
+                or type(result.get("agent_access_enabled")) is not bool
+                or not isinstance(result.get("links"), dict)
+                or server.get("credential_scheme", "lbr_bot_scoped") != "lbr_bot_scoped"
+            ):
+                raise ClientError("invalid_legacy_context")
+            endpoint = same_origin_url(self.base, result["links"].get("resources"))
+            if endpoint not in {
+                self.base + "/api/agent/resources",
+                self.base + f"/api/bots/{bot['id']}/resources",
+            }:
+                raise ClientError("unsupported_legacy_resource_endpoint")
+            self._legacy_resource_url = endpoint
+            result["api_profile"] = self.api_profile
+            result["instruction_state"] = self.instruction_state
+            result["instruction_refresh_required"] = True
         self.needs_update |= self._version_differs(
             result.get("skill", {}).get("version"), result.get("skill", {}).get("package_version")
         )
 
     def context(self):
-        if self.node_access:
+        if self.node_access and not self.legacy_read:
             self.node_access.invalidate()
         return self._read_context()
 
     def initialize(self, key_file, destination, metrics_origin=None, agent_label=None, *, scope="user"):
+        self._require_modern_action()
         if self.config or self.connection_dir is not None:
             raise ClientError("init_requires_new_connection")
         bindings = known_key_scopes(key_file, CatalogScanBudget(self.deadline, self.clock), scope=scope)
@@ -1572,6 +1732,7 @@ class Client:
         write_private(destination, json.dumps(self.config).encode())
 
     def recover(self, directory, *, scope="user"):
+        self._require_modern_action()
         path = Path(directory).absolute() if directory is not None else None
         if path is not None and os.path.lexists(path):
             raise ClientError("recovery_directory_exists")
@@ -1706,6 +1867,7 @@ class Client:
         return endpoint
 
     def enroll(self, directory, group=None, agent_label=None, *, scope="user", purpose="bind"):
+        self._require_modern_action()
         if self.config:
             raise ClientError("enrollment_requires_new_connection")
         group = enrollment_group(group) if group is not None else None
@@ -1793,6 +1955,7 @@ class Client:
         }
 
     def check_enrollment(self, path, state, *, finish=False, confirm_bot_name=None):
+        self._require_modern_action()
         if "target_group" not in state:
             raise ClientError("invalid_enrollment_state")
         group = state["target_group"]
@@ -1997,6 +2160,8 @@ class Client:
         }
 
     def resources(self, context):
+        if self.api_profile == "native-legacy-read-v1" and context.get("agent_access_enabled") is not True:
+            raise ClientError("agent_access_disabled")
         prepared = self._prepared_resources
         self._prepared_resources = None
         if prepared is not None and prepared[0] is context:
@@ -2008,6 +2173,8 @@ class Client:
         return self._remember_resources(snapshot, context, started)
 
     def _remember_resources(self, snapshot, context, started):
+        if self.api_profile == "native-legacy-read-v1":
+            self._validate_legacy_resources(snapshot, context)
         coherent = "context" in snapshot
         expected = {
             "bot_id": context["bot"]["id"],
@@ -2064,8 +2231,59 @@ class Client:
             }
             self.node_access.save(generation, nodes, self.redacted(scope))
         self._resource_request_started = started
-        snapshot["snapshot_fresh_for_write"] = self._snapshot_fresh_for_write(snapshot, started)
+        snapshot["snapshot_fresh_for_write"] = (
+            self.api_profile != "native-legacy-read-v1" and self._snapshot_fresh_for_write(snapshot, started)
+        )
+        if self.api_profile == "native-legacy-read-v1":
+            snapshot["snapshot_fresh_for_read"] = snapshot.get(
+                "captured_at"
+            ) is not None and self._snapshot_fresh_for_write(snapshot, started)
+            snapshot["api_profile"] = self.api_profile
+            snapshot["instruction_state"] = self.instruction_state
+            snapshot["instruction_refresh_required"] = True
         return snapshot
+
+    def _validate_legacy_resources(self, snapshot, context):
+        rows = snapshot.get("resources")
+        if not isinstance(rows, list) or "context" in snapshot:
+            raise ClientError("invalid_legacy_resource_snapshot")
+        ids = set()
+        for node in rows:
+            if not isinstance(node, dict) or not isinstance(node.get("id"), str) or not node["id"] or node["id"] in ids:
+                raise ClientError("invalid_legacy_resource_snapshot")
+            ids.add(node["id"])
+            cards = node.get("devices")
+            card_bot = context["bot"]["type"] in {"DEVICE", "QUEUE_DEVICE"}
+            if "devices" in node and not isinstance(cards, list) or card_bot != (cards is not None):
+                raise ClientError("invalid_legacy_resource_snapshot")
+            devices = set()
+            for unit in cards if cards is not None else [node]:
+                if not isinstance(unit, dict):
+                    raise ClientError("invalid_legacy_resource_snapshot")
+                if cards is not None:
+                    device = unit.get("id")
+                    if (
+                        not (type(device) is int and device >= 0 or isinstance(device, str) and bool(device))
+                        or str(device) in devices
+                    ):
+                        raise ClientError("invalid_legacy_resource_snapshot")
+                    devices.add(str(device))
+                for field in ("holders", "booking_list"):
+                    if field in unit and (
+                        not isinstance(unit[field], list) or any(not isinstance(row, dict) for row in unit[field])
+                    ):
+                        raise ClientError("invalid_legacy_resource_snapshot")
+        # Timing is optional in this profile. Bad/missing timing remains unknown.
+        age = metric_number(snapshot.get("age_seconds"))
+        if age is None or age < 0:
+            snapshot["age_seconds"] = None
+        captured = snapshot.get("captured_at")
+        try:
+            instant = datetime.fromisoformat(captured.replace("Z", "+00:00"))
+            if instant.tzinfo is None:
+                raise ValueError
+        except (AttributeError, ValueError, TypeError, OverflowError):
+            snapshot["captured_at"] = None
 
     def resources_with_hardware_notes(self, context):
         snapshot = self.resources(context)
@@ -2186,6 +2404,7 @@ class Client:
         return result
 
     def panel_link(self):
+        self._require_modern_action()
         """Issue one private handoff without following or consuming its browser ticket."""
         self._panel_home = None
         url = urllib.parse.urlsplit(self.base)
@@ -2267,6 +2486,7 @@ class Client:
         group=None,
         _selection_precondition=None,
     ):
+        self._require_modern_action()
         if devices and len(nodes) > 1 and not same_devices_on_all_nodes:
             raise ClientError("multi_node_device_selection_requires_explicit_same_devices")
         if device_count is not None and (
@@ -2458,6 +2678,8 @@ class Client:
             raise ClientError("resource_snapshot_stale_or_unverifiable")
 
     def alias(self, node, value=None):
+        if value is not None:
+            self._require_modern_action()
         if not re.fullmatch(r"[\w-]+", node):
             raise ClientError("invalid_node")
         if value is not None and (
@@ -2511,6 +2733,7 @@ class Client:
         }
 
     def _post_command(self, context, command, metadata):
+        self._require_modern_action()
         self._last_mutation = None
         # Header updates learned during the pre-read must block the subsequent write.
         if self.needs_update:
@@ -2680,6 +2903,7 @@ class Client:
         return redacted_values(value, self.secrets)
 
     def install(self, destination):
+        self._require_modern_action()
         output_path = Path(destination)
         target = output_path.absolute()
         if os.path.lexists(target):
@@ -3040,7 +3264,7 @@ def node_summary_rows(snapshot, context=None, *, reference_factory, model=None, 
         "unidentified_nodes": 0,
         "projection_complete": True,
     }
-    fresh = snapshot.get("snapshot_fresh_for_write") is True and snapshot.get("health") == "running"
+    fresh = read_snapshot_fresh(snapshot) and snapshot.get("health") == "running"
     for node in resources:
         identifier = node.get("id") if isinstance(node, dict) else None
         if (
@@ -3367,6 +3591,19 @@ def query_summary_output(
         if all(metric_number(group.get("snapshot", {}).get("age_seconds")) is not None for group in groups)
         else None,
     }
+    legacy_snapshots = [
+        group.get("snapshot", {})
+        for group in groups
+        if group.get("snapshot", {}).get("api_profile") == "native-legacy-read-v1"
+    ]
+    if legacy_snapshots:
+        notes.update(
+            api_profiles=["native-legacy-read-v1"],
+            instruction_state="changed"
+            if any(snapshot.get("instruction_state") == "changed" for snapshot in legacy_snapshots)
+            else "unknown",
+            instruction_refresh_required=True,
+        )
     if "scope_page" in value:
         notes["scope_page"] = value["scope_page"]
     # Use the final serializer for both pagination and framing, including Windows
@@ -3741,6 +3978,12 @@ def observation_at_completion(client, snapshot):
         and result["age_seconds"] is not None
         and result["age_seconds"] <= MAX_RESOURCE_SNAPSHOT_AGE
     )
+    if "snapshot_fresh_for_read" in snapshot:
+        result["snapshot_fresh_for_read"] = bool(
+            snapshot["snapshot_fresh_for_read"]
+            and result["age_seconds"] is not None
+            and result["age_seconds"] <= MAX_RESOURCE_SNAPSHOT_AGE
+        )
     if "inventory_overview" in result:
         result["inventory_overview"] = inventory_overview(result, snapshot.get("context", {}))
     return result
@@ -3772,6 +4015,7 @@ def resources_all(
     full=False,
     summary=False,
     after_scope=None,
+    legacy_read=False,
     root=None,
     opener=None,
     clock=time.monotonic,
@@ -3848,7 +4092,7 @@ def resources_all(
         client = None
         next_index = index + 1
         try:
-            client = Client(locator["connection"], root=root, opener=opener, clock=clock)
+            client = Client(locator["connection"], root=root, opener=opener, clock=clock, legacy_read=legacy_read)
             clients.append(client)
             client.calls, client.deadline = calls, deadline
             # Catalog aggregation does not invalidate/save local address caches.
@@ -3955,7 +4199,13 @@ def resources_all(
             and snapshot["age_seconds"] is not None
             and snapshot["age_seconds"] <= MAX_RESOURCE_SNAPSHOT_AGE
         )
-        if snapshot["snapshot_fresh_for_write"] is not True:
+        if "snapshot_fresh_for_read" in snapshot:
+            snapshot["snapshot_fresh_for_read"] = bool(
+                snapshot["snapshot_fresh_for_read"]
+                and snapshot["age_seconds"] is not None
+                and snapshot["age_seconds"] <= MAX_RESOURCE_SNAPSHOT_AGE
+            )
+        if not read_snapshot_fresh(snapshot):
             gap({"connection": locator, "error": "stale_or_unverifiable_snapshot"})
         if not exact_lease_times:
             if mine:
@@ -4465,6 +4715,11 @@ def main(argv=None):
     parser.add_argument(
         "--connection", help="Verified private connection JSON file (POSIX 0600 or Windows private ACL)"
     )
+    parser.add_argument(
+        "--legacy-read",
+        action="store_true",
+        help="Opt in to the tested native legacy profile for saved-connection reads only; all writes are blocked",
+    )
     sub = parser.add_subparsers(dest="action", required=True)
     bootstrap = {
         "discover": "Verify an approved service and optionally save its metadata",
@@ -4636,6 +4891,10 @@ def main(argv=None):
     summary_fields = None
     reference_node = None
     try:
+        if args.legacy_read and args.action not in {"discover", "context", "resources", "resources-all"}:
+            raise ClientError("legacy_read_only")
+        if args.legacy_read and getattr(args, "with_metrics", False):
+            raise ClientError("legacy_read_only")
         if args.action in {"resources", "resources-all"}:
             if args.json == "":
                 print(json.dumps({"json_fields": list(SUMMARY_FIELDS), "required_row_fields": ["ref"]}))
@@ -4696,6 +4955,7 @@ def main(argv=None):
                 full=args.full,
                 summary=summary_requested,
                 after_scope=args.after_scope,
+                legacy_read=args.legacy_read,
             )
             if summary_requested:
                 print(
@@ -4725,7 +4985,9 @@ def main(argv=None):
             path, state = enrollment_state(args.enrollment_dir)
             client = Client(approved_origin=state.get("approved_origin"))
         elif args.action in {"discover", "install", "init", "enroll", "key-challenge"} or args.connection:
-            client = Client(args.connection, approved_origin=getattr(args, "origin", None))
+            client = Client(
+                args.connection, approved_origin=getattr(args, "origin", None), legacy_read=args.legacy_read
+            )
         else:
             raise ClientError("private_connection_required")
         if args.action == "discover":
@@ -4762,6 +5024,8 @@ def main(argv=None):
             )
         elif args.action == "context":
             result = client.context()
+            if client.api_profile == "native-legacy-read-v1":
+                result = inventory_output({"context": result})["context"]
         elif args.action == "resources":
             result = client.own_inventory(exact_lease_times=True) if args.mine else client.inventory()
             if reference_node is not None:
@@ -4840,13 +5104,33 @@ def main(argv=None):
             result = metrics_output(result, full=args.full)
         print(
             json.dumps(
-                client.redacted({"result": result, "update_required": client.needs_update}),
+                client.redacted(
+                    {
+                        "result": result,
+                        "update_required": client.needs_update,
+                        **(
+                            {
+                                "api_profile": client.api_profile,
+                                "instruction_state": client.instruction_state,
+                                "instruction_refresh_required": True,
+                            }
+                            if client.api_profile == "native-legacy-read-v1"
+                            else {}
+                        ),
+                    }
+                ),
                 ensure_ascii=os.name == "nt",
             )
         )
         return 0
     except ClientError as exc:
         output = {"error": exc.code, "retry_mutation": False}
+        if client is not None and client.api_profile == "native-legacy-read-v1":
+            output.update(
+                api_profile=client.api_profile,
+                instruction_state=client.instruction_state,
+                instruction_refresh_required=True,
+            )
         if isinstance(exc, AutomaticScopeError):
             output.update(command_sent=False, clarification=redacted_values(exc.clarification))
         elif args.action == "command" and args.connection is None:
