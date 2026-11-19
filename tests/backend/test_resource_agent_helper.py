@@ -54,6 +54,7 @@ def case(tmp_path):
         bot_uuid="bot-a",
         actor={"platform": "infoflow", "external_user_id": "alice"},
         holding=None,
+        holding_mode="exclusive",
         booking=[],
         alias="",
         aliases_supported=True,
@@ -203,7 +204,7 @@ def case(tmp_path):
                     "resources": [
                         {
                             "id": "node-a",
-                            "lock_status": "exclusive" if state.holding else "idle",
+                            "lock_status": state.holding_mode if state.holding else "idle",
                             "holders": [state.holding] if state.holding else [],
                             "booking_list": state.booking,
                         }
@@ -235,6 +236,7 @@ def case(tmp_path):
                     elif command.startswith("book"):
                         state.booking = [{"external_user_id": "alice"}]
                     else:
+                        state.holding_mode = "shared" if command.startswith("slock") else "exclusive"
                         expiry = captured + timedelta(seconds=180 if state.holding else 120)
                         state.holding = {
                             "external_user_id": "alice",

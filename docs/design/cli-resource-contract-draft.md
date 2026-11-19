@@ -15,6 +15,7 @@ lockbot resources-all --mine --summary
 lockbot resources-all --json
 lockbot resources-all --json node,unit,hardware,matched_cards,states --limit 10
 lockbot resources --ref '<ref from a returned row>' --summary
+lockbot resources --ref '<ref from a returned row>' --mine --summary
 lockbot resources --ref '<ref from a returned row>' --summary --with-metrics
 ```
 
@@ -36,6 +37,20 @@ Summary output defaults to at most 20 nodes and is capped at 8 KiB including met
 Equal display observations of the same reference collapse to one row. This does not merge credentials, permissions, leases or physical machines across different scopes. An ambiguous local reference with multiple credential candidates requires an explicit existing connection in this draft.
 
 `--mine --summary` groups only the verified caller's records by node. `holding_units` and `booking_units` count separate observations; at most 20 holdings and 20 bookings appear per node. Bookings retain their own queue rank and claimability and do not inherit the current holder's mode or lease. Missing ownership/queue data, ambiguous identifiers or an unknown allocation type cannot confirm zero personal occupancy. Conflicting same-scope observations, including an occupied versus empty own set, withhold the affected rows' claims.
+
+## Operate on a selected reference
+
+The local candidate also accepts an exact reference for a resource command:
+
+```sh
+lockbot command --ref '<ref>' --operation lock --whole-node --duration 1h
+lockbot command --ref '<ref>' --operation lock --device 0 --model P800 --duration 1h
+lockbot command --ref '<ref>' --operation release --whole-node
+```
+
+These commands change resources when used with a modern service; the examples are not part of the read-only replay. Choose either `--whole-node` or explicit device IDs. A reference targets its exact saved scope and node, without scanning other groups or replacing the node with a matching alias. The CLI still verifies the loaded scope pins, authenticated identity, fresh typed state, ownership, devices, model and applicable duration/resource limits. A conflicting or changed target stops before dispatch. Legacy read mode blocks all commands.
+
+A coherent modern service normally needs one anonymous discovery, one scoped resource read and one command request. Modern services without coherent snapshots require separate protected reads. A successful reply must contain a fresh, consistent post-observation with the requested holding mode. A lost reply or inconsistent observation is an unknown outcome: the CLI does not replay the write and offers `resources --ref '<ref>' --mine --summary` for a targeted read-only check.
 
 For one selected scope, `--with-metrics --summary` fetches telemetry for the bounded reference prefix, reuses that invocation's verified context and recomputes resource freshness after the optional read. CPU/card/memory/filesystem samples preserve missing, stale, failed and invalid states. Telemetry errors remain separate from resource-query coverage. Successful zero utilization never grants allocation authority. Metrics cards and filesystems are bounded separately; the full result still obeys the 8 KiB cap.
 
@@ -66,7 +81,7 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 
 ## Review boundaries and remaining work
 
-- Resource references are read-only in this draft; mutation routes retain their existing validation and single-submit behavior.
+- Exact-reference commands are implemented and tested against a local packaged backend. Production writes and deployed-client verification have not been performed for this candidate.
 - Summary mode rejects `--full`. Aggregate summary plus `--with-metrics` still needs a shared request-budget plan; scoped summary telemetry and bounded personal records are implemented locally.
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.

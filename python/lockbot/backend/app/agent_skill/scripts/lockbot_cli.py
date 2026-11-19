@@ -2083,10 +2083,15 @@ class Client:
             snapshot = {**snapshot, "context": context, "context_source": "separate_verified_read"}
         return snapshot
 
-    def own_inventory(self, *, exact_lease_times=False):
+    def own_inventory(self, *, exact_lease_times=False, node=None):
         """Project only the verified actor's holdings and queued bookings."""
         context = self._read_context(with_resources=True)
         snapshot = self.resources_with_hardware_notes(context)
+        if node is not None:
+            matches = [row for row in snapshot.get("resources", []) if isinstance(row, dict) and row.get("id") == node]
+            if len(matches) != 1:
+                raise ClientError("resource_reference_node_unavailable")
+            snapshot = {**snapshot, "resources": matches}
         if not exact_lease_times:
             format_lease_times(snapshot)
         actor = context["actor"]
@@ -2628,6 +2633,12 @@ class Client:
                 after = self.resources(context)
             self._require_fresh_snapshot(after)
             targets = self._selected(after, nodes, devices)
+            if _selection_precondition is not None:
+                # Revalidate exact target state after dispatch. Do not re-run a
+                # precondition that assumes the resource is still unallocated.
+                _automatic_resources(
+                    {**after, "resources": [row for row in after["resources"] if row["id"] in nodes]}, context
+                )
             if operation == "release":
                 verified = all(
                     not self._own(item.get("holders", []) + item.get("booking_list", []), actor) for item in targets
@@ -2640,6 +2651,9 @@ class Client:
                 age = float(after.get("age_seconds", 0))
                 verified = (
                     all(fresh)
+                    and all(
+                        item.get("lock_status") == ("shared" if wire == "slock" else "exclusive") for item in targets
+                    )
                     and age >= 0
                     and all(
                         float(item.get("remaining_seconds", 0)) > age and self._expiry(item) > sampled_at + age
@@ -2783,14 +2797,26 @@ class Client:
 
     @staticmethod
     def _selected(snapshot, nodes, devices):
-        indexed = {str(row["id"]): row for row in snapshot.get("resources", [])}
+        indexed = {}
+        for row in snapshot.get("resources", []):
+            if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"]:
+                raise ClientError("invalid_resource_identity")
+            if row["id"] in indexed:
+                raise ClientError("ambiguous_resource_identity")
+            indexed[row["id"]] = row
         result = []
         for node in nodes:
             if node not in indexed:
                 raise ClientError("unknown_resource")
             item = indexed[node]
             if devices:
-                cards = {str(card["id"]): card for card in item.get("devices", [])}
+                cards = {}
+                for card in item.get("devices", []):
+                    if not isinstance(card, dict) or not _summary_identifier(card.get("id")):
+                        raise ClientError("invalid_device_identity")
+                    if str(card["id"]) in cards:
+                        raise ClientError("ambiguous_device_identity")
+                    cards[str(card["id"])] = card
                 if set(devices) - set(cards):
                     raise ClientError("unknown_device")
                 result.extend(cards[device] for device in devices)
@@ -4751,6 +4777,46 @@ def resolve_command_scope(args, *, clock=None):
     }
 
 
+def reference_command_precondition(reference, args):
+    """Qualify one explicit target; never broaden it to aliases or other scopes."""
+    token, node = parse_resource_reference(reference)
+
+    def check(client, context, snapshot, *, final=False):
+        record = {
+            "approved_origin": client.base,
+            "instance_id": context["server"]["instance_id"],
+            "bot_uuid": context["bot"]["uuid"],
+            "actor": context["actor"],
+        }
+        if not resource_scope_digest(record).startswith(token) or not resource_scope_digest(client.config).startswith(
+            token
+        ):
+            raise ClientError("resource_reference_scope_mismatch")
+        if not client._snapshot_fresh_for_write(snapshot, client._resource_request_started):
+            raise ClientError("resource_snapshot_stale_or_unverifiable")
+        matches = [row for row in snapshot.get("resources", []) if isinstance(row, dict) and row.get("id") == node]
+        if len(matches) != 1:
+            raise ClientError("resource_reference_node_unavailable")
+        # Validate exact IDs and complete state evidence before choosing devices.
+        # Do not infer that an unknown/busy unit is eligible, or substitute an alias.
+        _automatic_resources({**snapshot, "resources": matches}, context)
+        selected = client._selected(snapshot, [node], args.device)
+        if args.operation in {"lock", "slock"} and any(
+            unit.get("booking_list", [])
+            or unit["lock_status"] not in ({"idle"} if args.operation == "lock" else {"idle", "shared"})
+            for unit in selected
+        ):
+            raise ClientError("resource_reference_resource_conflict")
+        if args.operation == "release" and any(
+            not client._own(unit["holders"] + unit.get("booking_list", []), context["actor"]["external_user_id"])
+            for unit in selected
+        ):
+            raise ClientError("resource_reference_release_not_owned")
+        _automatic_policy(client, context, snapshot, selected, args)
+
+    return check
+
+
 def runtime_compatible():
     return sys.version_info >= (3, 10)
 
@@ -4900,12 +4966,14 @@ def main(argv=None):
     )
     command.add_argument("--full", action="store_true", help=details_help)
     command.add_argument("--operation", required=True, choices=["lock", "slock", "book", "claim", "renew", "release"])
-    command.add_argument(
+    target = command.add_mutually_exclusive_group(required=True)
+    target.add_argument(
         "--node",
         action="append",
-        required=True,
+        default=[],
         help="Exact node ID, or an alias/observed IPv4 suffix when --connection is omitted. Repeat for more nodes.",
     )
+    target.add_argument("--ref", help="Exact resource reference; use its saved scope without scanning unrelated groups")
     command.add_argument(
         "--device", action="append", default=[], help="Exact device ID on the selected node. Repeat for more cards."
     )
@@ -4943,6 +5011,7 @@ def main(argv=None):
     summary_requested = False
     summary_fields = None
     reference_node = None
+    reference_token = None
     try:
         if args.legacy_read and args.action not in {"discover", "context", "resources", "resources-all"}:
             raise ClientError("legacy_read_only")
@@ -4968,21 +5037,21 @@ def main(argv=None):
                     raise ClientError("summary_combination_not_supported")
                 if args.with_metrics and args.action == "resources-all":
                     raise ClientError("summary_aggregate_metrics_not_supported")
-            if args.action == "resources" and args.ref:
-                if args.mine:
-                    raise ClientError("resource_reference_mine_not_supported")
-                if args.node:
-                    raise ClientError("resource_reference_conflicts_with_node_filter")
-                token, reference_node = parse_resource_reference(args.ref)
-                if args.connection:
-                    if not resource_scope_digest(private_json(args.connection)).startswith(token):
-                        raise ClientError("resource_reference_scope_mismatch")
-                else:
-                    located = resolve_resource_reference(args.ref)
-                    if len(located["connections"]) != 1:
-                        raise ClientError("resource_reference_connection_ambiguous")
-                    args.connection = located["connections"][0]["connection"]
-                args.node = [reference_node]
+        if args.action in {"resources", "command"} and args.ref:
+            if args.action == "resources" and args.node:
+                raise ClientError("resource_reference_conflicts_with_node_filter")
+            reference_token, reference_node = parse_resource_reference(args.ref)
+            if args.action == "command" and not re.fullmatch(r"[^\s,\x00-\x1f\x7f]+", reference_node):
+                raise ClientError("invalid_node")
+            if args.connection:
+                if not resource_scope_digest(private_json(args.connection)).startswith(reference_token):
+                    raise ClientError("resource_reference_scope_mismatch")
+            else:
+                located = resolve_resource_reference(args.ref)
+                if len(located["connections"]) != 1:
+                    raise ClientError("resource_reference_connection_ambiguous")
+                args.connection = located["connections"][0]["connection"]
+            args.node = [reference_node]
         if args.action == "command" and (
             args.whole_node and args.device or args.connection is not None and args.whole_node == bool(args.device)
         ):
@@ -5045,6 +5114,10 @@ def main(argv=None):
             )
         else:
             raise ClientError("private_connection_required")
+        if reference_token is not None and not resource_scope_digest(client.config).startswith(reference_token):
+            # The file can change between catalog lookup and Client construction.
+            # Recheck the actual loaded pins before any Key read or network request.
+            raise ClientError("resource_reference_scope_mismatch")
         if args.action == "discover":
             result = client.discover()
             if args.destination:
@@ -5082,10 +5155,10 @@ def main(argv=None):
             if client.api_profile == "native-legacy-read-v1":
                 result = inventory_output({"context": result})["context"]
         elif args.action == "resources":
-            result = client.own_inventory(exact_lease_times=True) if args.mine else client.inventory()
-            if reference_node is not None:
-                if args.mine:
-                    raise ClientError("resource_reference_mine_not_supported")
+            result = (
+                client.own_inventory(exact_lease_times=True, node=reference_node) if args.mine else client.inventory()
+            )
+            if reference_node is not None and not args.mine:
                 exact = [row for row in result["resources"] if row.get("id") == reference_node]
                 if len(exact) != 1:
                     raise ClientError("resource_reference_node_unavailable")
@@ -5124,12 +5197,20 @@ def main(argv=None):
                 model=args.model,
                 minimum_model_count=args.minimum_model_count,
                 group=args.group,
-                **({"_selection_precondition": automatic["precondition"]} if automatic else {}),
+                **(
+                    {"_selection_precondition": automatic["precondition"]}
+                    if automatic
+                    else {"_selection_precondition": reference_command_precondition(args.ref, args)}
+                    if args.ref
+                    else {}
+                ),
             )
             if automatic:
                 result["resolution"] = automatic["resolution"]
                 if automatic["resolution"].get("duration_source") == "group-default":
                     result["duration_source"] = "group-default"
+            elif args.ref:
+                result["target_reference"] = args.ref
         else:
             result = client.metrics(args.node)
         if args.action in {"resources", "command"} and not args.exact_lease_times:
@@ -5186,6 +5267,8 @@ def main(argv=None):
         return 0
     except ClientError as exc:
         output = {"error": exc.code, "retry_mutation": False}
+        if args.action == "command" and args.ref and (client is None or client._last_mutation is None):
+            output["command_sent"] = False
         if client is not None and client.api_profile == "native-legacy-read-v1":
             output.update(
                 api_profile=client.api_profile,
@@ -5219,7 +5302,9 @@ def main(argv=None):
                 output["command_sent"] = True  # A response proves a request, not execution.
             rejected = exc.status is not None and 400 <= exc.status < 500
             output["command_outcome"] = "rejected" if rejected else "unknown"
-            output["next_command"] = ["resources-all", "--mine"]
+            output["next_command"] = (
+                ["resources", "--ref", args.ref, "--mine", "--summary"] if args.ref else ["resources-all", "--mine"]
+            )
             if not rejected:
                 output["message_zh"] = (
                     "这次操作结果暂无法确认。即使当前空闲或没有记录，也不能证明它未执行。先只核对当前占用，不重新提交。"
