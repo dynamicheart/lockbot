@@ -50,7 +50,7 @@ def labels_cli(tmp_path):
     sources.write_text("not a sources catalogue; local labels must not inspect it")
     sources.chmod(0o600)
     protected = [str(path) for path in (connection, provider, sources, key)]
-    bootstrap = r'''import json, pathlib, runpy, sys, urllib.request
+    bootstrap = r"""import json, pathlib, runpy, sys, urllib.request
 script, protected, marker, *args = sys.argv[1:]
 protected = set(json.loads(protected))
 namespace = runpy.run_path(script, run_name='local_label_acceptance')
@@ -73,24 +73,38 @@ for name in ('private_bytes', 'private_json'):
 urllib.request.urlopen = forbidden
 urllib.request.build_opener = forbidden
 raise SystemExit(main(args))
-'''
+"""
 
     def invoke(*arguments, code=0, guard=False, global_profiles=False, human=False, ascii_stdout=False):
         flags = []
         if global_profiles:
-            flags = ["--connection", str(connection), "--resource-provider", str(provider),
-                     "--resource-sources", str(sources)]
+            flags = [
+                "--connection",
+                str(connection),
+                "--resource-provider",
+                str(provider),
+                "--resource-sources",
+                str(sources),
+            ]
         arguments = [*flags, "resource", "label", *map(str, arguments)]
         command = [sys.executable, "-I", "-S", str(script), *arguments]
         if guard or ascii_stdout:
             prelude = "import sys; sys.stdout.reconfigure(encoding='ascii', errors='strict')\n" if ascii_stdout else ""
-            command = [sys.executable, "-I", "-S", "-c", prelude + bootstrap, str(script),
-                       json.dumps(protected), str(marker), *arguments]
+            command = [
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                prelude + bootstrap,
+                str(script),
+                json.dumps(protected),
+                str(marker),
+                *arguments,
+            ]
         environment = dict(os.environ)
         environment.pop("PYTHONPATH", None)
         environment["LOCKBOT_HOME"] = str(native_home)
-        process = subprocess.run(command, env=environment, capture_output=True,
-                                 text=True, timeout=8)
+        process = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=8)
         assert process.returncode == code, process.stderr
         assert not marker.exists(), "Local metadata touched a resource source or Key"
         assert not native_home.exists(), "Local metadata initialized a resource catalogue"
@@ -104,8 +118,15 @@ raise SystemExit(main(args))
         assert not process.stderr
         return process.stdout if human else json.loads(process.stdout)
 
-    return SimpleNamespace(invoke=invoke, state=state, private=private, marker=marker,
-                           connection=connection, provider=provider, sources=sources)
+    return SimpleNamespace(
+        invoke=invoke,
+        state=state,
+        private=private,
+        marker=marker,
+        connection=connection,
+        provider=provider,
+        sources=sources,
+    )
 
 
 def result(value):
@@ -137,8 +158,11 @@ def test_missing_reads_and_field_discovery_never_create_state(labels_cli):
 
 def test_add_view_list_remove_clear_are_private_local_and_idempotent(labels_cli):
     cli, ref = labels_cli, native_ref("未知节点 001")
-    added = result(cli.invoke("add", ref, "Ｐ８００", "--file", cli.state, "--json", "ref,labels",
-                              guard=True, global_profiles=True))
+    added = result(
+        cli.invoke(
+            "add", ref, "Ｐ８００", "--file", cli.state, "--json", "ref,labels", guard=True, global_profiles=True
+        )
+    )
     assert added["changed"] is True and added["rows"] == [{"ref": ref, "labels": ["Ｐ８００"]}]
     repeated = write_label(cli, ref, "p800")
     assert repeated["changed"] is False and repeated["rows"] == added["rows"]
@@ -173,9 +197,7 @@ def test_equal_names_and_external_namespaces_remain_separate_exact_refs(labels_c
     for index, ref in enumerate(refs):
         write_label(cli, ref, "tag-" + str(index))
     rows = result(cli.invoke("list", "--file", cli.state, "--json", "labels"))["rows"]
-    assert {row["ref"]: row["labels"] for row in rows} == {
-        ref: ["tag-" + str(index)] for index, ref in enumerate(refs)
-    }
+    assert {row["ref"]: row["labels"] for row in rows} == {ref: ["tag-" + str(index)] for index, ref in enumerate(refs)}
 
 
 def test_exact_label_filter_uses_nfkc_casefold_and_does_not_fuzzy_match(labels_cli):
@@ -195,15 +217,13 @@ def test_default_limit_paging_and_edits_invalidate_content_bound_cursor(labels_c
         write_label(cli, native_ref(f"node-{number:02}"), "group")
     first = result(cli.invoke("list", "--file", cli.state, "--json", "ref,labels"))
     assert len(first["rows"]) == 20 and first["has_more"] and first["next_cursor"]
-    second = result(cli.invoke("list", "--file", cli.state, "--json", "ref,labels",
-                               "--cursor", first["next_cursor"]))
+    second = result(cli.invoke("list", "--file", cli.state, "--json", "ref,labels", "--cursor", first["next_cursor"]))
     rows = first["rows"] + second["rows"]
     assert len(rows) == len({row["ref"] for row in rows}) == 23
     assert not second["has_more"] and second["next_cursor"] is None
     assert [row["ref"] for row in rows] == sorted(row["ref"] for row in rows)
     write_label(cli, native_ref("later"), "group")
-    error = cli.invoke("list", "--file", cli.state, "--json", "ref,labels",
-                       "--cursor", first["next_cursor"], code=2)
+    error = cli.invoke("list", "--file", cli.state, "--json", "ref,labels", "--cursor", first["next_cursor"], code=2)
     assert "cursor" in error["error"]
 
 
@@ -212,10 +232,20 @@ def test_list_cursor_binds_fields_limit_and_normalized_filter(labels_cli, change
     cli = labels_cli
     for number in range(3):
         write_label(cli, native_ref(str(number)), "Ｐ８００")
-    first = result(cli.invoke("list", "--file", cli.state, "--label", "p800", "--limit", "1",
-                              "--json", "labels"))
-    args = ["list", "--file", cli.state, "--label", "Ｐ８００", "--limit", "1", "--json", "labels",
-            "--cursor", first["next_cursor"]]
+    first = result(cli.invoke("list", "--file", cli.state, "--label", "p800", "--limit", "1", "--json", "labels"))
+    args = [
+        "list",
+        "--file",
+        cli.state,
+        "--label",
+        "Ｐ８００",
+        "--limit",
+        "1",
+        "--json",
+        "labels",
+        "--cursor",
+        first["next_cursor"],
+    ]
     # Equivalent normalization must resume successfully before testing a change.
     assert len(result(cli.invoke(*args))["rows"]) == 1
     if changed == "fields":
@@ -242,8 +272,9 @@ def test_bounded_json_pages_never_trim_or_skip_oversized_resource_rows(labels_cl
         page = result(cli.invoke(*args, ascii_stdout=ascii_stdout))
         rows.extend(page["rows"])
         assert all(len(row["labels"]) == 8 for row in page["rows"])
-        assert all(len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode()) >= 4096
-                   for row in page["rows"])
+        assert all(
+            len(json.dumps(row, ensure_ascii=False, separators=(",", ":")).encode()) >= 4096 for row in page["rows"]
+        )
         previous, cursor = cursor, page["next_cursor"]
         if cursor:
             assert cursor.startswith("lc1.")
@@ -261,25 +292,45 @@ def test_bounded_json_pages_never_trim_or_skip_oversized_resource_rows(labels_cl
     assert cursor is None and {row["ref"] for row in rows} == set(refs) and len(rows) == 4
 
 
-@pytest.mark.parametrize("ref", ["9", "node-a", "x-" + "a" * 64 + "/node-a",
-                                  "s-" + "a" * 12 + "/node-a",
-                                  "s-" + "a" * 64 + "/node%2fa",
-                                  "e1." + "a" * 12 + ".eA", "lbr_" + "q" * 32,
-                                  external_ref("lbk_" + "s" * 32)])
+@pytest.mark.parametrize(
+    "ref",
+    [
+        "9",
+        "node-a",
+        "x-" + "a" * 64 + "/node-a",
+        "s-" + "a" * 12 + "/node-a",
+        "s-" + "a" * 64 + "/node%2fa",
+        "e1." + "a" * 12 + ".eA",
+        "lbr_" + "q" * 32,
+        external_ref("lbk_" + "s" * 32),
+    ],
+)
 def test_invalid_or_ambiguous_references_reject_before_files_or_authority(labels_cli, ref):
     cli = labels_cli
-    error = cli.invoke("add", ref, "tag", "--file", cli.state, "--json", "ref,labels",
-                       guard=True, global_profiles=True, code=2)
+    error = cli.invoke(
+        "add", ref, "tag", "--file", cli.state, "--json", "ref,labels", guard=True, global_profiles=True, code=2
+    )
     assert error["error"] and not cli.state.exists()
     assert ref not in json.dumps(error)
 
 
-@pytest.mark.parametrize("label", ["", " leading", "trailing ", "line\nbreak", "x" * 81,
-                                    "é" * 41, "lbr_" + "q" * 32, "lbk_" + "r" * 32, "ｌｂｒ＿" + "Ａ" * 20])
+@pytest.mark.parametrize(
+    "label",
+    [
+        "",
+        " leading",
+        "trailing ",
+        "line\nbreak",
+        "x" * 81,
+        "é" * 41,
+        "lbr_" + "q" * 32,
+        "lbk_" + "r" * 32,
+        "ｌｂｒ＿" + "Ａ" * 20,
+    ],
+)
 def test_invalid_or_sensitive_labels_are_not_echoed_or_written(labels_cli, label):
     cli = labels_cli
-    error = cli.invoke("add", native_ref(), label, "--file", cli.state,
-                       "--json", "ref,labels", code=2, guard=True)
+    error = cli.invoke("add", native_ref(), label, "--file", cli.state, "--json", "ref,labels", code=2, guard=True)
     assert not cli.state.exists()
     if label:
         assert label not in json.dumps(error)
@@ -320,8 +371,7 @@ def test_oversized_state_rejects_without_echoing_content_or_rewriting(labels_cli
 def test_bare_mutation_json_discovers_fields_without_source_or_file_access(labels_cli):
     cli = labels_cli
     absent = cli.private / "uncreated-parent" / "labels.json"
-    value = cli.invoke("add", external_ref(), "unwritten", "--file", absent, "--json",
-                       guard=True, global_profiles=True)
+    value = cli.invoke("add", external_ref(), "unwritten", "--file", absent, "--json", guard=True, global_profiles=True)
     assert value == {"json_fields": ["ref", "labels"], "required_row_fields": ["ref"]}
     assert not absent.parent.exists() and not cli.state.exists()
 
@@ -336,8 +386,7 @@ def test_1024_reference_limit_preserves_existing_metadata(labels_cli):
     cli.state.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     before = cli.state.read_bytes()
     assert len(before) < 1024 * 1024
-    error = cli.invoke("add", native_ref("overflow"), "tag", "--file", cli.state,
-                       "--json", "ref,labels", code=2)
+    error = cli.invoke("add", native_ref("overflow"), "tag", "--file", cli.state, "--json", "ref,labels", code=2)
     assert error["error"] and cli.state.read_bytes() == before
 
 
@@ -347,7 +396,8 @@ def test_changed_cursor_query_rejects_before_parsing_corrupted_metadata(labels_c
         write_label(cli, native_ref(str(number)), "tag")
     first = result(cli.invoke("list", "--file", cli.state, "--limit", "1", "--json", "labels"))
     cli.state.write_bytes(b"sensitive-corrupted-local-metadata")
-    error = cli.invoke("list", "--file", cli.state, "--limit", "2", "--json", "labels",
-                       "--cursor", first["next_cursor"], code=2)
+    error = cli.invoke(
+        "list", "--file", cli.state, "--limit", "2", "--json", "labels", "--cursor", first["next_cursor"], code=2
+    )
     assert error["error"] == "resource_labels_cursor_query_changed"
     assert "sensitive-corrupted-local-metadata" not in json.dumps(error)

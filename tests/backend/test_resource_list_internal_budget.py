@@ -21,18 +21,25 @@ def read(aggregate, query=None, **kwargs):
 
 def nodes(count):
     return [
-        {"id": f"node-{number:02}", "lock_status": "idle", "holders": [], "booking_list": []}
-        for number in range(count)
+        {"id": f"node-{number:02}", "lock_status": "idle", "holders": [], "booking_list": []} for number in range(count)
     ]
 
 
 @pytest.mark.parametrize(
     "options",
     [
-        {"max_calls": True}, {"max_calls": 0}, {"max_calls": 13},
-        {"byte_limit": 1023}, {"byte_limit": 8193}, {"byte_limit": True},
-        {"page_limit": 0}, {"page_limit": 21}, {"page_limit": True},
-        {"include_validity": 1}, {"deadline": float("nan")}, {"deadline": True},
+        {"max_calls": True},
+        {"max_calls": 0},
+        {"max_calls": 13},
+        {"byte_limit": 1023},
+        {"byte_limit": 8193},
+        {"byte_limit": True},
+        {"page_limit": 0},
+        {"page_limit": 21},
+        {"page_limit": True},
+        {"include_validity": 1},
+        {"deadline": float("nan")},
+        {"deadline": True},
     ],
 )
 def test_invalid_internal_budgets_precede_catalog_and_key_reads(monkeypatch, options):
@@ -46,8 +53,9 @@ def test_invalid_internal_budgets_precede_catalog_and_key_reads(monkeypatch, opt
 
 
 def test_deadline_is_shared_clipped_and_expired_before_io(monkeypatch):
-    reader = helper._ResourceListReader(root=None, opener=None, clock=lambda: 10, legacy_read=False,
-                                        max_calls=3, deadline=1000)
+    reader = helper._ResourceListReader(
+        root=None, opener=None, clock=lambda: 10, legacy_read=False, max_calls=3, deadline=1000
+    )
     assert reader.deadline == 70 and reader.max_calls == 3
     with pytest.raises(helper.ClientError, match="request_budget_exhausted") as caught:
         helper.resource_list(query=helper.resource_list_query(), clock=lambda: 10, deadline=10)
@@ -119,11 +127,20 @@ def test_lower_byte_cap_retains_cursor_tail_without_changing_query(aggregate):
 def test_validity_is_opt_in_and_capped_by_known_holder_remaining(aggregate, mine):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
-    state.extra["resources"] = [{
-        "id": "node-00", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": state.actor["external_user_id"], "remaining_seconds": 1.5,
-                     "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()}],
-    }]
+    state.extra["resources"] = [
+        {
+            "id": "node-00",
+            "lock_status": "exclusive",
+            "booking_list": [],
+            "holders": [
+                {
+                    "external_user_id": state.actor["external_user_id"],
+                    "remaining_seconds": 1.5,
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat(),
+                }
+            ],
+        }
+    ]
     query = helper.resource_list_query(fields=["node"], mine=mine)
     default = json.loads(read(aggregate, query, clock=lambda: 0))["result"]
     assert "valid_for_seconds" not in default
@@ -139,10 +156,14 @@ def test_unknown_holder_timing_and_idle_share_observation_freshness_ceiling(aggr
     state.extra["resources"] = nodes(1)
     fresh = json.loads(read(aggregate, include_validity=True, clock=lambda: 0))["result"]
     assert fresh["valid_for_seconds"] == helper.MAX_RESOURCE_SNAPSHOT_AGE
-    state.extra["resources"] = [{
-        "id": "node-00", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": state.actor["external_user_id"]}],
-    }]
+    state.extra["resources"] = [
+        {
+            "id": "node-00",
+            "lock_status": "exclusive",
+            "booking_list": [],
+            "holders": [{"external_user_id": state.actor["external_user_id"]}],
+        }
+    ]
     unknown = json.loads(read(aggregate, include_validity=True, clock=lambda: 0))["result"]
     assert unknown["valid_for_seconds"] == helper.MAX_RESOURCE_SNAPSHOT_AGE
     assert unknown["coverage_valid_for_seconds"] == helper.MAX_RESOURCE_SNAPSHOT_AGE
@@ -179,11 +200,20 @@ def test_empty_own_page_has_live_coverage_bound_without_returned_row_bound(aggre
 def test_filtered_absence_coverage_includes_unreturned_known_lease(aggregate):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
-    state.extra["resources"] = [{
-        "id": "not-requested", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": state.actor["external_user_id"], "remaining_seconds": 0.75,
-                     "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()}],
-    }]
+    state.extra["resources"] = [
+        {
+            "id": "not-requested",
+            "lock_status": "exclusive",
+            "booking_list": [],
+            "holders": [
+                {
+                    "external_user_id": state.actor["external_user_id"],
+                    "remaining_seconds": 0.75,
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat(),
+                }
+            ],
+        }
+    ]
     query = helper.resource_list_query(nodes=["absent"], fields=["node"], mine=True)
     page = json.loads(read(aggregate, query, include_validity=True, clock=lambda: 0))["result"]
     assert page["rows"] == [] and page["scope_complete"]
@@ -194,10 +224,15 @@ def test_filtered_absence_coverage_includes_unreturned_known_lease(aggregate):
 def test_row_validity_and_all_candidates_coverage_are_independent(aggregate):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
-    state.extra["resources"] = [*nodes(1), {
-        "id": "not-requested", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": state.actor["external_user_id"], "remaining_seconds": "invalid"}],
-    }]
+    state.extra["resources"] = [
+        *nodes(1),
+        {
+            "id": "not-requested",
+            "lock_status": "exclusive",
+            "booking_list": [],
+            "holders": [{"external_user_id": state.actor["external_user_id"], "remaining_seconds": "invalid"}],
+        },
+    ]
     query = helper.resource_list_query(nodes=["node-00"], fields=["node"])
     page = json.loads(read(aggregate, query, include_validity=True, clock=lambda: 0))["result"]
     assert page["valid_for_seconds"] == helper.MAX_RESOURCE_SNAPSHOT_AGE
@@ -208,11 +243,23 @@ def test_absolute_expiry_is_an_independent_smaller_validity_bound(aggregate):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
     captured = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
-    state.extra.update(captured_at=captured.isoformat(), resources=[{
-        "id": "node-00", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": state.actor["external_user_id"], "remaining_seconds": 60,
-                     "expires_at": (captured + timedelta(seconds=2.25)).isoformat()}],
-    }])
+    state.extra.update(
+        captured_at=captured.isoformat(),
+        resources=[
+            {
+                "id": "node-00",
+                "lock_status": "exclusive",
+                "booking_list": [],
+                "holders": [
+                    {
+                        "external_user_id": state.actor["external_user_id"],
+                        "remaining_seconds": 60,
+                        "expires_at": (captured + timedelta(seconds=2.25)).isoformat(),
+                    }
+                ],
+            }
+        ],
+    )
     page = json.loads(read(aggregate, include_validity=True, clock=lambda: 0))["result"]
     assert page["valid_for_seconds"] == page["coverage_valid_for_seconds"] == 2.25
 
@@ -222,10 +269,14 @@ def test_later_read_reages_earlier_returned_lease_bound(aggregate, monkeypatch, 
     first, second = aggregate.server(1), aggregate.server(2)
     aggregate.record(first, "first")
     aggregate.record(second, "second")
-    first.extra["resources"] = [{
-        "id": "node-00", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": first.actor["external_user_id"], "remaining_seconds": 1.5}],
-    }]
+    first.extra["resources"] = [
+        {
+            "id": "node-00",
+            "lock_status": "exclusive",
+            "booking_list": [],
+            "holders": [{"external_user_id": first.actor["external_user_id"], "remaining_seconds": 1.5}],
+        }
+    ]
     second.extra["resources"] = nodes(1)
     original, now = helper._ResourceListReader.read, [0.0]
 
@@ -254,10 +305,14 @@ def test_unknown_model_cannot_certify_complete_filtered_absence_timing(aggregate
 def test_fresh_booking_counts_retain_observation_window_without_claim_timer(aggregate, mine):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
-    state.extra["resources"] = [{
-        "id": "node-00", "lock_status": "idle", "holders": [],
-        "booking_list": [{"external_user_id": state.actor["external_user_id"], "position": 0}],
-    }]
+    state.extra["resources"] = [
+        {
+            "id": "node-00",
+            "lock_status": "idle",
+            "holders": [],
+            "booking_list": [{"external_user_id": state.actor["external_user_id"], "position": 0}],
+        }
+    ]
     fields = ["node", "booking_units"] if mine else ["node", "states"]
     query = helper.resource_list_query(fields=fields, mine=mine)
     page = json.loads(read(aggregate, query, include_validity=True, clock=lambda: 0))["result"]
@@ -273,11 +328,16 @@ def test_fresh_booking_counts_retain_observation_window_without_claim_timer(aggr
 def test_null_holder_expiry_retains_only_fresh_observed_count(aggregate, mine):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
-    state.extra["resources"] = [{
-        "id": "node-00", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": state.actor["external_user_id"],
-                     "remaining_seconds": None, "expires_at": None}],
-    }]
+    state.extra["resources"] = [
+        {
+            "id": "node-00",
+            "lock_status": "exclusive",
+            "booking_list": [],
+            "holders": [
+                {"external_user_id": state.actor["external_user_id"], "remaining_seconds": None, "expires_at": None}
+            ],
+        }
+    ]
     query = helper.resource_list_query(fields=["node", "holding_units"] if mine else ["node", "states"], mine=mine)
     page = json.loads(read(aggregate, query, include_validity=True, clock=lambda: 0))["result"]
     assert page["valid_for_seconds"] == page["coverage_valid_for_seconds"] == helper.MAX_RESOURCE_SNAPSHOT_AGE
@@ -287,15 +347,20 @@ def test_null_holder_expiry_retains_only_fresh_observed_count(aggregate, mine):
         assert page["rows"][0]["states"]["busy"] == 1
 
 
-@pytest.mark.parametrize("timer", [{"remaining_seconds": "not-seconds"}, {"expires_at": "not-a-date"},
-                                   {"remaining_seconds": 0}])
+@pytest.mark.parametrize(
+    "timer", [{"remaining_seconds": "not-seconds"}, {"expires_at": "not-a-date"}, {"remaining_seconds": 0}]
+)
 def test_malformed_or_known_expired_holder_timing_still_has_zero_window(aggregate, timer):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
-    state.extra["resources"] = [{
-        "id": "node-00", "lock_status": "exclusive", "booking_list": [],
-        "holders": [{"external_user_id": state.actor["external_user_id"], **timer}],
-    }]
+    state.extra["resources"] = [
+        {
+            "id": "node-00",
+            "lock_status": "exclusive",
+            "booking_list": [],
+            "holders": [{"external_user_id": state.actor["external_user_id"], **timer}],
+        }
+    ]
     page = json.loads(read(aggregate, include_validity=True, clock=lambda: 0))["result"]
     assert page["valid_for_seconds"] == page["coverage_valid_for_seconds"] == 0
 
@@ -307,13 +372,19 @@ def test_known_exact_schedule_caps_booking_or_hold_evidence_window(aggregate, ki
     captured = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
     booking = kind == "claim_window_end"
     state.extra.update(
-        captured_at=captured.isoformat(), next_event_kind=kind,
+        captured_at=captured.isoformat(),
+        next_event_kind=kind,
         next_event_at=(captured + timedelta(seconds=1.25)).isoformat(),
-        resources=[{
-            "id": "node-00", "lock_status": "idle" if booking else "exclusive",
-            "holders": [] if booking else [{"external_user_id": state.actor["external_user_id"]}],
-            "booking_list": [{"external_user_id": state.actor["external_user_id"], "position": 0}] if booking else [],
-        }],
+        resources=[
+            {
+                "id": "node-00",
+                "lock_status": "idle" if booking else "exclusive",
+                "holders": [] if booking else [{"external_user_id": state.actor["external_user_id"]}],
+                "booking_list": [{"external_user_id": state.actor["external_user_id"], "position": 0}]
+                if booking
+                else [],
+            }
+        ],
     )
     query = helper.resource_list_query(fields=["node", "holding_units", "booking_units"], mine=True)
     page = json.loads(read(aggregate, query, include_validity=True, clock=lambda: 0))["result"]
@@ -326,8 +397,12 @@ def test_warning_and_queue_estimate_do_not_shorten_observation_window(aggregate,
     state = aggregate.server(1)
     aggregate.record(state, "scope")
     captured = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
-    state.extra.update(captured_at=captured.isoformat(), resources=nodes(1), next_event_kind=kind,
-                       next_event_at=(captured + timedelta(seconds=0.1)).isoformat())
+    state.extra.update(
+        captured_at=captured.isoformat(),
+        resources=nodes(1),
+        next_event_kind=kind,
+        next_event_at=(captured + timedelta(seconds=0.1)).isoformat(),
+    )
     page = json.loads(read(aggregate, include_validity=True, clock=lambda: 0))["result"]
     assert page["valid_for_seconds"] == page["coverage_valid_for_seconds"] == helper.MAX_RESOURCE_SNAPSHOT_AGE
 
@@ -338,7 +413,8 @@ def test_exact_schedule_without_deadline_differs_from_known_elapsed_deadline(agg
     aggregate.record(state, "scope")
     captured = datetime(2026, 11, 19, 12, tzinfo=timezone.utc)
     event_at = (captured + timedelta(seconds=seconds)).isoformat() if seconds is not None else None
-    state.extra.update(captured_at=captured.isoformat(), resources=nodes(1),
-                       next_event_kind="claim_window_end", next_event_at=event_at)
+    state.extra.update(
+        captured_at=captured.isoformat(), resources=nodes(1), next_event_kind="claim_window_end", next_event_at=event_at
+    )
     page = json.loads(read(aggregate, include_validity=True, clock=lambda: 0))["result"]
     assert page["valid_for_seconds"] == page["coverage_valid_for_seconds"] == expected

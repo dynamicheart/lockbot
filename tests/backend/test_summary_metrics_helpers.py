@@ -97,8 +97,16 @@ def test_packaged_reuse_retains_source_scope_credentials_and_request_budget(case
 
 @pytest.mark.parametrize(
     "credential",
-    [KEY, "lbp_" + "P" * 43, "lba1.synthetic.private", "Bearer " + KEY,
-     "prefix" + KEY, KEY + "suffix", "prefixlbp_" + "P" * 43, "prefixlbk_" + "K" * 43],
+    [
+        KEY,
+        "lbp_" + "P" * 43,
+        "lba1.synthetic.private",
+        "Bearer " + KEY,
+        "prefix" + KEY,
+        KEY + "suffix",
+        "prefixlbp_" + "P" * 43,
+        "prefixlbk_" + "K" * 43,
+    ],
 )
 def test_metrics_never_forwards_resource_credentials_or_enrollment_proofs(case, packaged_metrics, credential):
     module, client = packaged_metrics
@@ -222,8 +230,12 @@ def test_summary_metrics_match_exact_nodes_and_device_ids_including_own_children
                 "node": "node-a",
                 "cards_status": "reported",
                 "cards": [
-                    {"device": "collector-" + device, "resource_device": device,
-                     "mapping_status": "mapped", **reading()}
+                    {
+                        "device": "collector-" + device,
+                        "resource_device": device,
+                        "mapping_status": "mapped",
+                        **reading(),
+                    }
                     for device in ("0", "00", "7", "1")
                 ],
             }

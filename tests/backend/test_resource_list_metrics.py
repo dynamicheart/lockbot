@@ -21,24 +21,30 @@ from backend.test_resource_agent_resources_all import aggregate  # noqa: F401
 
 
 def inventory_nodes(count, *, prefix="node-"):
-    return [{"id": prefix + str(index).zfill(3), "lock_status": "idle", "holders": [], "booking_list": []}
-            for index in range(count)]
+    return [
+        {"id": prefix + str(index).zfill(3), "lock_status": "idle", "holders": [], "booking_list": []}
+        for index in range(count)
+    ]
 
 
 def metric_rows(source, values=(), *, cpu=0):
     now = helper.time.time()
 
     def sample(name, value, **labels):
-        return {"metric": {"__name__": "lockbot_" + name, "node": source, **labels},
-                "value": [now, str(value)]}
+        return {"metric": {"__name__": "lockbot_" + name, "node": source, **labels}, "value": [now, str(value)]}
 
-    rows = [sample("collector_success", 1, collector="host"),
-            sample("sample_timestamp_seconds", now, collector="host"),
-            sample("host_cpu_utilization_percent", cpu),
-            sample("collector_success", 1, collector="accelerator"),
-            sample("sample_timestamp_seconds", now, collector="accelerator")]
-    rows.extend(sample("accelerator_utilization_percent", value, device=str(device))
-                for device, value in values if value is not None)
+    rows = [
+        sample("collector_success", 1, collector="host"),
+        sample("sample_timestamp_seconds", now, collector="host"),
+        sample("host_cpu_utilization_percent", cpu),
+        sample("collector_success", 1, collector="accelerator"),
+        sample("sample_timestamp_seconds", now, collector="accelerator"),
+    ]
+    rows.extend(
+        sample("accelerator_utilization_percent", value, device=str(device))
+        for device, value in values
+        if value is not None
+    )
     return rows
 
 
@@ -56,8 +62,9 @@ def metrics_source():
             allowed = {row["metric"]["node"] for row in state.rows}
             names, nodes = validate_query(query, allowed)
             authorization = self.headers.get("Authorization")
-            state.events.append({"path": self.path, "authorization": authorization,
-                                 "nodes": set(nodes), "query": query})
+            state.events.append(
+                {"path": self.path, "authorization": authorization, "nodes": set(nodes), "query": query}
+            )
             if state.observe is not None:
                 state.observe()
             status = state.status if authorization in state.tokens else 401
@@ -85,8 +92,9 @@ def prepare(aggregate, source, number=1, *, names=None, bot_type="NODE", cards=N
     state = aggregate.server(number)
     state.bot_type = bot_type
     path = aggregate.record(state, "scope-" + str(number))
-    request = urllib.request.Request(state.origin + "/api/agent/context",
-                                     headers={"Authorization": "Bearer " + state.key})
+    request = urllib.request.Request(
+        state.origin + "/api/agent/context", headers={"Authorization": "Bearer " + state.key}
+    )
     with urllib.request.urlopen(request, timeout=5) as response:
         context = json.load(response)
     names = names or ["node-000"]
@@ -99,14 +107,22 @@ def prepare(aggregate, source, number=1, *, names=None, bot_type="NODE", cards=N
         assert len(names) == 1
         records[0]["devices"] = [
             {"id": index, "dev_model": model, "lock_status": "idle", "holders": [], "booking_list": []}
-            for index in range(cards)]
+            for index in range(cards)
+        ]
         device_mapping = {names[0] + ":dev" + str(index): "collector-" + str(index) for index in range(cards)}
     credential = "synthetic-metrics-grant-" + str(number) + "-" + "x" * 32
     source.tokens.add("Bearer " + credential)
     context["utilization"] = {
-        "configuration": {"type": "prometheus", "profile": "lockbot-v1", "accessMode": "short_lived",
-                          "endpoint": source.origin, "nodeMapping": mapping, "deviceMapping": device_mapping},
-        "access": {"scope": "metrics:read", "token": credential}}
+        "configuration": {
+            "type": "prometheus",
+            "profile": "lockbot-v1",
+            "accessMode": "short_lived",
+            "endpoint": source.origin,
+            "nodeMapping": mapping,
+            "deviceMapping": device_mapping,
+        },
+        "access": {"scope": "metrics:read", "token": credential},
+    }
     state.extra.update(context=context, resources=records)
     config = json.loads(path.read_text())
     config["approved_metrics_origin"] = source.origin
@@ -119,9 +135,13 @@ def prepare(aggregate, source, number=1, *, names=None, bot_type="NODE", cards=N
 
 def execute(aggregate, *arguments, code=0):
     before = {str(path): path.read_bytes() for path in aggregate.home.rglob("*") if path.is_file()}
-    completed = subprocess.run([sys.executable, "-I", "-S", str(aggregate.script), *map(str, arguments)],
-                               env={**os.environ, "LOCKBOT_HOME": str(aggregate.home)},
-                               capture_output=True, text=True, timeout=25)
+    completed = subprocess.run(
+        [sys.executable, "-I", "-S", str(aggregate.script), *map(str, arguments)],
+        env={**os.environ, "LOCKBOT_HOME": str(aggregate.home)},
+        capture_output=True,
+        text=True,
+        timeout=25,
+    )
     assert completed.returncode == code, completed.stderr
     assert before == {str(path): path.read_bytes() for path in aggregate.home.rglob("*") if path.is_file()}
     assert all(state.key not in completed.stdout + completed.stderr for state in aggregate.states)
@@ -131,8 +151,9 @@ def execute(aggregate, *arguments, code=0):
 
 
 def listing(aggregate, *arguments, fields="node,states,metrics", limit=20):
-    return execute(aggregate, "resource", "list", "--with-metrics", "--json", fields,
-                   "--limit", str(limit), *arguments)["result"]
+    return execute(
+        aggregate, "resource", "list", "--with-metrics", "--json", fields, "--limit", str(limit), *arguments
+    )["result"]
 
 
 def read_case(case, *, max_calls=12, clock=helper.time.monotonic, **options):
@@ -179,8 +200,17 @@ def test_bare_json_with_metrics_discovers_fields_without_catalog_key_or_http(agg
 
 @pytest.mark.parametrize("global_option", ["--resource-sources", "--resource-provider"])
 def test_unadvertised_external_telemetry_rejects_before_loading_configuration(aggregate, global_option):
-    result = execute(aggregate, global_option, aggregate.home / "missing-private-config",
-                     "resource", "list", "--with-metrics", "--json", "node,metrics", code=2)
+    result = execute(
+        aggregate,
+        global_option,
+        aggregate.home / "missing-private-config",
+        "resource",
+        "list",
+        "--with-metrics",
+        "--json",
+        "node,metrics",
+        code=2,
+    )
     assert "error" in result
     assert "missing-private-config" not in json.dumps(result)
     assert aggregate.states == []
@@ -249,8 +279,18 @@ def test_changed_metrics_mode_is_rejected_before_any_http(aggregate, metrics_sou
     state, _path, _mapping = prepare(aggregate, metrics_source, names=[row["id"] for row in inventory_nodes(25)])
     first = listing(aggregate)
     before = len(state.events), len(metrics_source.events)
-    result = execute(aggregate, "resource", "list", "--json", "node,states,metrics", "--limit", "20",
-                     "--cursor", first["next_cursor"], code=2)
+    result = execute(
+        aggregate,
+        "resource",
+        "list",
+        "--json",
+        "node,states,metrics",
+        "--limit",
+        "20",
+        "--cursor",
+        first["next_cursor"],
+        code=2,
+    )
     assert result["error"] == "resource_list_cursor_query_changed"
     assert (len(state.events), len(metrics_source.events)) == before
 
@@ -277,8 +317,9 @@ def test_card_selection_includes_valid_ids_beyond_summary_twenty(aggregate, metr
 def test_accelerator_average_uses_only_valid_ok_samples_and_retains_unknown_counts(aggregate, metrics_source):
     _state, _path, mapping = prepare(aggregate, metrics_source, bot_type="DEVICE", cards=4)
     target = next(iter(mapping.values()))
-    metrics_source.rows = metric_rows(target, [("collector-0", 0), ("collector-1", 40),
-                                              ("collector-2", "NaN"), ("collector-3", None)])
+    metrics_source.rows = metric_rows(
+        target, [("collector-0", 0), ("collector-1", 40), ("collector-2", "NaN"), ("collector-3", None)]
+    )
     result = listing(aggregate)
     accelerator = compact(result["rows"][0]["metrics"])
     assert accelerator["selected_devices"] == 4 and accelerator["ok_devices"] == 2
@@ -349,8 +390,18 @@ def test_conflicting_cohort_finishes_inventory_without_fetching_any_metrics(aggr
     second_config = json.loads(second.read_text())
     second_config["approved_metrics_origin"] = metrics_source.origin
     second.write_text(json.dumps(second_config))
-    state.extra_per_key = {"Bearer " + second_key: {"resources": [
-        {"id": "node-000", "lock_status": "exclusive", "holders": [{"external_user_id": "peer"}], "booking_list": []}]}}
+    state.extra_per_key = {
+        "Bearer " + second_key: {
+            "resources": [
+                {
+                    "id": "node-000",
+                    "lock_status": "exclusive",
+                    "holders": [{"external_user_id": "peer"}],
+                    "booking_list": [],
+                }
+            ]
+        }
+    }
     result = listing(aggregate)
     assert sum(path == "/api/agent/resources" for path, *_ in state.events) == 2
     assert metrics_source.events == []
@@ -373,12 +424,16 @@ def test_identical_cohort_inventory_is_finished_before_any_credential_queries_me
     assert result["displayed_nodes"] == 1 and observed == [2]
 
 
-
-@pytest.mark.parametrize("source_label,source_rows", [
-    ("collector-1", [("collector-0", 99), ("collector-1", 5)]),
-    ("GPU-8ad3a749-61d4-4c2a-80e2-cc51fb917df9", [
-        ("collector-0", 99), ("GPU-8ad3a749-61d4-4c2a-80e2-cc51fb917df9", 5)]),
-])
+@pytest.mark.parametrize(
+    "source_label,source_rows",
+    [
+        ("collector-1", [("collector-0", 99), ("collector-1", 5)]),
+        (
+            "GPU-8ad3a749-61d4-4c2a-80e2-cc51fb917df9",
+            [("collector-0", 99), ("GPU-8ad3a749-61d4-4c2a-80e2-cc51fb917df9", 5)],
+        ),
+    ],
+)
 def test_model_filtered_compact_average_respects_source_mapping_not_numeric_identity(
     aggregate, metrics_source, source_label, source_rows
 ):
@@ -394,7 +449,6 @@ def test_model_filtered_compact_average_respects_source_mapping_not_numeric_iden
     assert source_label not in json.dumps(result["rows"][0]["metrics"])
 
 
-
 def test_missing_device_mapping_cannot_create_identity_fallback_compact_mean(aggregate, metrics_source):
     state, _path, mapping = prepare(aggregate, metrics_source, bot_type="DEVICE", cards=1)
     state.extra["context"]["utilization"]["configuration"]["deviceMapping"] = {}
@@ -403,7 +457,6 @@ def test_missing_device_mapping_cannot_create_identity_fallback_compact_mean(agg
     accelerator = compact(result["rows"][0]["metrics"])
     assert accelerator["ok_devices"] == 0 and accelerator["mean_percent"] is None
     assert accelerator["status"] == "missing"
-
 
 
 def test_telemetry_counter_is_shared_across_scopes_and_resume_has_no_hidden_allowance(aggregate, metrics_source):
@@ -439,8 +492,9 @@ def test_later_scope_reages_metrics_with_source_threshold_without_expiring_fresh
 
     monkeypatch.setattr(helper._ResourceListReader, "telemetry", telemetry)
     query = helper.resource_list_query(fields=["node", "states", "metrics"], with_metrics=True)
-    encoded = helper.resource_list(aggregate.catalog, query=query, root=aggregate.script.parents[1],
-                                   clock=lambda: clock[0])
+    encoded = helper.resource_list(
+        aggregate.catalog, query=query, root=aggregate.script.parents[1], clock=lambda: clock[0]
+    )
     result = json.loads(encoded)["result"]
     reference = helper.resource_reference(json.loads(first_path.read_text()), "node-000", width=64)
     rows = {row["ref"]: row for row in result["rows"]}
@@ -458,8 +512,10 @@ def test_later_scope_reages_metrics_with_source_threshold_without_expiring_fresh
 def test_same_node_and_source_endpoint_do_not_merge_different_principals_or_grants(aggregate, metrics_source):
     first, first_path, first_mapping = prepare(aggregate, metrics_source, 1)
     second, second_path, second_mapping = prepare(aggregate, metrics_source, 2)
-    metrics_source.rows = [*metric_rows(next(iter(first_mapping.values())), [("0", 10)], cpu=10),
-                           *metric_rows(next(iter(second_mapping.values())), [("0", 80)], cpu=80)]
+    metrics_source.rows = [
+        *metric_rows(next(iter(first_mapping.values())), [("0", 10)], cpu=10),
+        *metric_rows(next(iter(second_mapping.values())), [("0", 80)], cpu=80),
+    ]
     result = listing(aggregate)
     rows = {row["ref"]: row for row in result["rows"]}
     for state, path, expected in ((first, first_path, 10), (second, second_path, 80)):
@@ -467,11 +523,11 @@ def test_same_node_and_source_endpoint_do_not_merge_different_principals_or_gran
         assert rows[ref]["metrics"]["cpu"]["percent"] == expected
         assert rows[ref]["metrics"]["accelerator"]["mean_percent"] == expected
         source = state.extra["context"]["utilization"]
-        events = [event for event in metrics_source.events
-                  if event["authorization"] == "Bearer " + source["access"]["token"]]
+        events = [
+            event for event in metrics_source.events if event["authorization"] == "Bearer " + source["access"]["token"]
+        ]
         assert len(events) == 1 and events[0]["nodes"] == {source["configuration"]["nodeMapping"]["node-000"]}
     assert len(rows) == 2 and result["metrics_read_complete"]
-
 
 
 def test_budget_incomplete_cohort_returns_locator_without_reading_metrics(aggregate, metrics_source):
@@ -484,8 +540,9 @@ def test_budget_incomplete_cohort_returns_locator_without_reading_metrics(aggreg
     config["approved_metrics_origin"] = metrics_source.origin
     second.write_text(json.dumps(config))
     query = helper.resource_list_query(fields=["node", "states", "metrics"], with_metrics=True)
-    result = json.loads(helper.resource_list(
-        aggregate.catalog, query=query, root=aggregate.script.parents[1], max_calls=2))["result"]
+    result = json.loads(
+        helper.resource_list(aggregate.catalog, query=query, root=aggregate.script.parents[1], max_calls=2)
+    )["result"]
     assert result["http_requests"] == len(state.events) == 2
     assert metrics_source.events == [] and not result["scope_complete"]
     assert result["rows"][0]["observation_incomplete"] is True

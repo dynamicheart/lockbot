@@ -28,15 +28,25 @@ def execute(aggregate, *args, code=0):
 
 
 def search(aggregate, text, *options, fields="node", limit=20):
-    return execute(aggregate, "resource", "list", "--search", text,
-                   "--json", fields, "--limit", limit, *options)["result"]
+    return execute(aggregate, "resource", "list", "--search", text, "--json", fields, "--limit", limit, *options)[
+        "result"
+    ]
 
 
 def card(model="P800", *, number=0, owner=None):
     return {
-        "id": number, "dev_model": model, "lock_status": "exclusive" if owner else "idle",
-        "holders": [{"external_user_id": owner, "remaining_seconds": 3600,
-                     "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()}] if owner else [],
+        "id": number,
+        "dev_model": model,
+        "lock_status": "exclusive" if owner else "idle",
+        "holders": [
+            {
+                "external_user_id": owner,
+                "remaining_seconds": 3600,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            }
+        ]
+        if owner
+        else [],
         "booking_list": [],
     }
 
@@ -48,7 +58,12 @@ def node(name, model="P800", *, alias=None, owner=None):
 def test_absent_search_preserves_preexisting_six_key_query_and_digest():
     original = helper.resource_list_query()
     assert original == {
-        "nodes": [], "model": None, "fields": None, "limit": 20, "mine": False, "legacy_read": False,
+        "nodes": [],
+        "model": None,
+        "fields": None,
+        "limit": 20,
+        "mine": False,
+        "legacy_read": False,
     }
     assert helper.resource_list_query(search=None) == original
     # SHA-256 of the pre-search canonical default query; no optional null key is added.
@@ -88,8 +103,22 @@ def test_query_normalizes_nfkc_casefold_spaces_and_distinct_terms_without_io(mon
     assert helper.resource_list_query(search="é" * 80)["search"]
 
 
-@pytest.mark.parametrize("value", ["", "   ", True, ["p800"], "p800\x00", "p800\x1b07", "p800\u200b",
-                                    "a b c d e f g h i", "x" * 161, "é" * 81, "ΐ" * 30])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "   ",
+        True,
+        ["p800"],
+        "p800\x00",
+        "p800\x1b07",
+        "p800\u200b",
+        "a b c d e f g h i",
+        "x" * 161,
+        "é" * 81,
+        "ΐ" * 30,
+    ],
+)
 def test_invalid_search_shape_limits_precede_io(monkeypatch, value):
     def forbidden(*_args, **_kwargs):
         pytest.fail("invalid search must not open a connection or Key")
@@ -114,16 +143,25 @@ def test_model_and_name_terms_are_anded_across_observed_public_fields(aggregate)
     assert [row["node"] for row in qualified["rows"]] == ["node07"]
 
 
-@pytest.mark.parametrize("text,expected", [
-    (".*", ["node.*07"]), ("[blue]", ["node.*07"]), ("a|b", ["literal-pipe"]),
-    ("node.+07", []), ("nodeXX07", ["nodeXX07"]),
-])
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (".*", ["node.*07"]),
+        ("[blue]", ["node.*07"]),
+        ("a|b", ["literal-pipe"]),
+        ("node.+07", []),
+        ("nodeXX07", ["nodeXX07"]),
+    ],
+)
 def test_punctuation_is_literal_without_regex_or_edit_distance(aggregate, text, expected):
     state = aggregate.server(1)
     state.bot_type = "DEVICE"
     aggregate.record(state, "scope")
-    state.extra["resources"] = [node("node.*07", alias="rack[blue]"), node("nodeXX07"),
-                                node("literal-pipe", alias="a|b")]
+    state.extra["resources"] = [
+        node("node.*07", alias="rack[blue]"),
+        node("nodeXX07"),
+        node("literal-pipe", alias="a|b"),
+    ]
     page = search(aggregate, text)
     assert [row["node"] for row in page["rows"]] == expected
     assert page["scope_complete"]
@@ -158,8 +196,12 @@ def test_search_combines_with_exact_node_model_and_mine_before_fields(aggregate)
     state.bot_type = "DEVICE"
     aggregate.record(state, "scope")
     actor = state.actor["external_user_id"]
-    state.extra["resources"] = [node("node07", owner=actor), node("node08", owner=actor),
-                                node("rack07", "H20", owner=actor), node("free07")]
+    state.extra["resources"] = [
+        node("node07", owner=actor),
+        node("node08", owner=actor),
+        node("rack07", "H20", owner=actor),
+        node("free07"),
+    ]
     page = search(aggregate, "p800 07", "--node", "node07", "--model", "P800", "--mine", fields="holding_units")
     assert len(page["rows"]) == 1 and page["rows"][0]["holding_units"] == 1
     assert set(page["rows"][0]) == {"ref", "holding_units"}
@@ -180,8 +222,20 @@ def test_cursor_binds_search_and_next_command_preserves_canonical_query(aggregat
     second = execute(aggregate, *command)["result"]
     assert first["rows"][0]["ref"] != second["rows"][0]["ref"]
     state.events.clear()
-    rejected = execute(aggregate, "resource", "list", "--search", "p800 node02",
-                       "--json", "node", "--limit", 1, "--cursor", first["next_cursor"], code=2)
+    rejected = execute(
+        aggregate,
+        "resource",
+        "list",
+        "--search",
+        "p800 node02",
+        "--json",
+        "node",
+        "--limit",
+        1,
+        "--cursor",
+        first["next_cursor"],
+        code=2,
+    )
     assert rejected["error"] == "resource_list_cursor_query_changed" and state.events == []
     equivalent = search(aggregate, "NODE p800 p800", "--cursor", first["next_cursor"], limit=1)
     assert equivalent["rows"][0]["ref"] == second["rows"][0]["ref"]
@@ -231,8 +285,13 @@ def test_search_uses_models_beyond_twenty_displayed_hardware_entries(aggregate, 
     if allocation == "DEVICE":
         row = {"id": "node07", "devices": [card(model, number=number) for number, model in enumerate(models)]}
     else:
-        row = {"id": "node07", "holders": [], "booking_list": [], "lock_status": "idle",
-               "accelerators": [{"model": model, "count": 1} for model in models]}
+        row = {
+            "id": "node07",
+            "holders": [],
+            "booking_list": [],
+            "lock_status": "idle",
+            "accelerators": [{"model": model, "count": 1} for model in models],
+        }
     state.extra["resources"] = [row]
     page = search(aggregate, "P800", fields="node,hardware,hardware_has_more")
     assert len(page["rows"]) == 1

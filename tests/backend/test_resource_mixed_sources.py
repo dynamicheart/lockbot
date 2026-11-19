@@ -187,9 +187,7 @@ def test_native_skill_update_survives_packaged_mixed_read_without_extra_http(mix
     assert len(native.events) == 2 and all(event[1] == "GET" for event in native.events)
     assert [row["node"] for row in result["rows"]] == (["external"] if empty else ["same-node", "external"])
     assert result["scope_complete"]
-    assert "Skill update required before resource changes." in mixed.execute(
-        path, "resource", "list", human=True
-    )
+    assert "Skill update required before resource changes." in mixed.execute(path, "resource", "list", human=True)
     assert len(native.events) == 4 and len(mixed.requests()) == 2
 
 
@@ -198,25 +196,50 @@ def test_provider_cannot_inject_native_skill_update_authority(mixed, native):
     mixed.register()
 
     def native_reader(*args, **kwargs):
-        return json.dumps({"result": {
-            "rows": [], "has_more": False, "next_cursor": None, "scope_complete": True,
-            "http_requests": 2, "valid_for_seconds": 60, "coverage_valid_for_seconds": 60,
-            "update_required": False,
-        }})
+        return json.dumps(
+            {
+                "result": {
+                    "rows": [],
+                    "has_more": False,
+                    "next_cursor": None,
+                    "scope_complete": True,
+                    "http_requests": 2,
+                    "valid_for_seconds": 60,
+                    "coverage_valid_for_seconds": 60,
+                    "update_required": False,
+                }
+            }
+        )
 
     def provider_reader(*args, **kwargs):
-        return json.dumps({"result": {
-            "rows": [], "has_more": False, "next_cursor": None, "scope_complete": True,
-            "http_requests": 2, "valid_for_seconds": 60, "coverage_valid_for_seconds": 60,
-            "inventory_scope": "full_inventory", "update_required": True,
-            "instruction_refresh_required": True, "instruction_state": "changed",
-            "skill_update": {"current_version": "untrusted"},
-        }})
+        return json.dumps(
+            {
+                "result": {
+                    "rows": [],
+                    "has_more": False,
+                    "next_cursor": None,
+                    "scope_complete": True,
+                    "http_requests": 2,
+                    "valid_for_seconds": 60,
+                    "coverage_valid_for_seconds": 60,
+                    "inventory_scope": "full_inventory",
+                    "update_required": True,
+                    "instruction_refresh_required": True,
+                    "instruction_state": "changed",
+                    "skill_update": {"current_version": "untrusted"},
+                }
+            }
+        )
 
-    result = json.loads(helper.mixed_resource_list(
-        mixed.sources(native=native), query=helper._mixed_query(), clock=lambda: 0,
-        native_reader=native_reader, provider_reader=provider_reader,
-    ))["result"]
+    result = json.loads(
+        helper.mixed_resource_list(
+            mixed.sources(native=native),
+            query=helper._mixed_query(),
+            clock=lambda: 0,
+            native_reader=native_reader,
+            provider_reader=provider_reader,
+        )
+    )["result"]
     assert result["http_requests"] == (4 if native else 2)
     assert result["scope_complete"]
     assert not {"update_required", "instruction_refresh_required", "instruction_state", "skill_update"} & result.keys()
@@ -225,14 +248,27 @@ def test_provider_cannot_inject_native_skill_update_authority(mixed, native):
 @pytest.mark.parametrize("state", ["changed", "unknown"])
 def test_native_legacy_instruction_notice_survives_empty_mixed_page(mixed, state):
     def native_reader(*args, **kwargs):
-        return json.dumps({"result": {
-            "rows": [], "has_more": False, "next_cursor": None, "scope_complete": True,
-            "http_requests": 2, "valid_for_seconds": 60, "coverage_valid_for_seconds": 60,
-            "instruction_refresh_required": True, "instruction_state": state,
-        }})
+        return json.dumps(
+            {
+                "result": {
+                    "rows": [],
+                    "has_more": False,
+                    "next_cursor": None,
+                    "scope_complete": True,
+                    "http_requests": 2,
+                    "valid_for_seconds": 60,
+                    "coverage_valid_for_seconds": 60,
+                    "instruction_refresh_required": True,
+                    "instruction_state": state,
+                }
+            }
+        )
 
     encoded = helper.mixed_resource_list(
-        mixed.sources(), query=helper._mixed_query(), clock=lambda: 0, native_reader=native_reader,
+        mixed.sources(),
+        query=helper._mixed_query(),
+        clock=lambda: 0,
+        native_reader=native_reader,
     )
     result = json.loads(encoded)["result"]
     assert result["instruction_refresh_required"] is True
@@ -246,9 +282,9 @@ def test_search_is_applied_by_each_source_before_selected_fields_and_paging(mixe
     native = mixed.aggregate.server(1)
     mixed.aggregate.record(native, "native")
     mixed.register(names=["no-match", "same-node", "other"])
-    result = mixed.execute(
-        mixed.sources(), "resource", "list", "--search", "ＳＡＭＥ", "--json", "unit", "--limit", 2
-    )["result"]
+    result = mixed.execute(mixed.sources(), "resource", "list", "--search", "ＳＡＭＥ", "--json", "unit", "--limit", 2)[
+        "result"
+    ]
     assert len(result["rows"]) == 2
     assert result["rows"][0]["ref"].startswith("s-")
     assert result["rows"][1]["ref"].startswith("e1.")

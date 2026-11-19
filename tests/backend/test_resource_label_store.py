@@ -67,8 +67,10 @@ def test_display_spelling_dedup_removal_and_clear_are_scoped(store):
     assert stat.S_IMODE(store.lock_path.stat().st_mode) == 0o600
 
 
-@pytest.mark.parametrize("label", ["", " padded", "padded ", "bad\ntext", True, "é" * 41,
-                                    "ΐ" * 20, "lbr_" + "secret" * 7, "ＬＢＰ＿" + "Ａ" * 30])
+@pytest.mark.parametrize(
+    "label",
+    ["", " padded", "padded ", "bad\ntext", True, "é" * 41, "ΐ" * 20, "lbr_" + "secret" * 7, "ＬＢＰ＿" + "Ａ" * 30],
+)
 def test_invalid_labels_precede_any_directory_creation(tmp_path, label):
     target = tmp_path / "absent" / "labels.json"
     with pytest.raises(helper.ClientError, match="resource_label_invalid"):
@@ -89,11 +91,17 @@ def test_native_and_external_refs_are_canonical_full_pure_locators(monkeypatch):
     assert helper.resource_label_text("Ｐ８００") == "p800"
 
 
-@pytest.mark.parametrize("reference", [
-    "s-" + "a" * 12 + "/node07", "s-" + "A" * 64 + "/node07", "x-example/node07",
-    "s-" + "a" * 64 + "/%6Eode07", "s-" + "a" * 64 + "/lbr_" + "secret" * 6,
-    "s-" + "a" * 64 + "/%EF%BD%8C%EF%BD%82%EF%BD%92%EF%BC%BF" + "1" * 30,
-])
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "s-" + "a" * 12 + "/node07",
+        "s-" + "A" * 64 + "/node07",
+        "x-example/node07",
+        "s-" + "a" * 64 + "/%6Eode07",
+        "s-" + "a" * 64 + "/lbr_" + "secret" * 6,
+        "s-" + "a" * 64 + "/%EF%BD%8C%EF%BD%82%EF%BD%92%EF%BC%BF" + "1" * 30,
+    ],
+)
 def test_invalid_or_secret_decoded_reference_never_opens_store(tmp_path, reference):
     target = tmp_path / "absent" / "labels.json"
     with pytest.raises(helper.ClientError, match="resource_label_reference_invalid"):
@@ -101,14 +109,17 @@ def test_invalid_or_secret_decoded_reference_never_opens_store(tmp_path, referen
     assert not target.parent.exists()
 
 
-@pytest.mark.parametrize("payload", [
-    b'{"schema_version":1,"schema_version":1,"resources":{}}',
-    {"schema_version": True, "resources": {}},
-    {"schema_version": 1, "resources": {}, "snapshot": {}},
-    {"schema_version": 1, "resources": {NATIVE: {"labels": ["p800", "Ｐ８００"]}}},
-    {"schema_version": 1, "resources": {NATIVE: {"labels": ["ok"], "token": "not-allowed"}}},
-    {"schema_version": 1, "resources": {"x-provider/node": {"labels": ["ok"]}}},
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"schema_version":1,"schema_version":1,"resources":{}}',
+        {"schema_version": True, "resources": {}},
+        {"schema_version": 1, "resources": {}, "snapshot": {}},
+        {"schema_version": 1, "resources": {NATIVE: {"labels": ["p800", "Ｐ８００"]}}},
+        {"schema_version": 1, "resources": {NATIVE: {"labels": ["ok"], "token": "not-allowed"}}},
+        {"schema_version": 1, "resources": {"x-provider/node": {"labels": ["ok"]}}},
+    ],
+)
 def test_strict_schema_refuses_duplicate_keys_runtime_fields_and_bad_refs(store, payload):
     write_private(store.path, payload)
     original = store.path.read_bytes()
@@ -225,9 +236,12 @@ def test_cooperative_subprocess_writers_reread_latest_without_lost_updates(store
 
     def add(number):
         reference = NATIVE if number < 6 else OTHER
-        result = subprocess.run([sys.executable, "-I", "-S", "-c", program,
-                                 str(SCRIPT), str(store.path), reference, f"tag-{number}"],
-                                capture_output=True, text=True, timeout=12)
+        result = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", program, str(SCRIPT), str(store.path), reference, f"tag-{number}"],
+            capture_output=True,
+            text=True,
+            timeout=12,
+        )
         assert result.returncode == 0, result.stderr
 
     with ThreadPoolExecutor(max_workers=12) as pool:

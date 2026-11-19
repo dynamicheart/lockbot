@@ -62,16 +62,22 @@ def inventory(ids, *, extra_node=False):
 @pytest.mark.parametrize("receipt,now,status", [((100, 30), 102, "stale"), (None, 102, "invalid")])
 def test_card_memory_ages_even_when_parent_card_is_also_a_sample(receipt, now, status):
     original = {
-        "utilization": [{
-            "node": "node-a",
-            "cards": [{
-                "status": "ok", "percent": 25, "sample_age_seconds": 29,
-                "memory": {
-                    "used": {"status": "ok", "bytes": 1024, "sample_age_seconds": 29},
-                    "total": {"status": "ok", "bytes": 8192, "sample_age_seconds": 29},
-                },
-            }],
-        }],
+        "utilization": [
+            {
+                "node": "node-a",
+                "cards": [
+                    {
+                        "status": "ok",
+                        "percent": 25,
+                        "sample_age_seconds": 29,
+                        "memory": {
+                            "used": {"status": "ok", "bytes": 1024, "sample_age_seconds": 29},
+                            "total": {"status": "ok", "bytes": 8192, "sample_age_seconds": 29},
+                        },
+                    }
+                ],
+            }
+        ],
     }
     untouched = deepcopy(original)
     result = helper.metrics_at_completion(original, {"node-a": receipt} if receipt else {}, now)
@@ -108,8 +114,10 @@ def test_own_duplicate_identity_cannot_be_hidden_by_the_model_filter():
 
 def test_peer_id_disagreement_beyond_display_prefix_blocks_metrics_without_a_read(monkeypatch):
     first, second = inventory(range(21)), inventory([*range(20), 21])
-    groups = [{"snapshot": snapshot, "_approved_origin": "http://review.invalid", "_client": SimpleNamespace()}
-              for snapshot in (first, second)]
+    groups = [
+        {"snapshot": snapshot, "_approved_origin": "http://review.invalid", "_client": SimpleNamespace()}
+        for snapshot in (first, second)
+    ]
     rows, notes, complete = helper.resource_summary_projection({"result": {"groups": groups}})
     # These old, bounded display observations are equal: metrics need a full-ID check.
     assert complete and notes["conflicting_observations"] == 0 and len(rows) == 1
@@ -122,9 +130,7 @@ def test_peer_id_disagreement_beyond_display_prefix_blocks_metrics_without_a_rea
     reader.telemetry(groups, ["node-a"])
     assert reader.calls == 0
     assert groups[0]["_metrics"]["complete"] is False
-    assert groups[0]["_metrics"]["unread"] == [
-        {"nodes": ["node-a"], "error": "ambiguous_metrics_observation"}
-    ]
+    assert groups[0]["_metrics"]["unread"] == [{"nodes": ["node-a"], "error": "ambiguous_metrics_observation"}]
 
 
 def test_peer_configuration_disagreement_blocks_metrics_even_with_equal_inventory(monkeypatch):
@@ -140,8 +146,10 @@ def test_peer_configuration_disagreement_blocks_metrics_even_with_equal_inventor
 def test_healthy_peer_selection_still_reads_once_and_synchronizes_shared_budget(monkeypatch):
     first, second = inventory(range(21), extra_node=True), inventory([*range(20), 21], extra_node=True)
     client = SimpleNamespace()
-    groups = [{"snapshot": snapshot, "_client": client if index == 0 else SimpleNamespace()}
-              for index, snapshot in enumerate((first, second))]
+    groups = [
+        {"snapshot": snapshot, "_client": client if index == 0 else SimpleNamespace()}
+        for index, snapshot in enumerate((first, second))
+    ]
     observed = []
 
     def attach(selected_client, snapshot, *, context, _sample_clocks):
@@ -157,6 +165,4 @@ def test_healthy_peer_selection_still_reads_once_and_synchronizes_shared_budget(
     reader.telemetry(groups, ["node-a", "healthy"])
     assert observed == [["healthy"]] and reader.calls == 5
     assert groups[0]["_metrics"]["complete"] is False
-    assert groups[0]["_metrics"]["unread"] == [
-        {"nodes": ["node-a"], "error": "ambiguous_metrics_observation"}
-    ]
+    assert groups[0]["_metrics"]["unread"] == [{"nodes": ["node-a"], "error": "ambiguous_metrics_observation"}]

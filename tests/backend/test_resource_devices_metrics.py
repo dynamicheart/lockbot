@@ -406,7 +406,8 @@ def test_byte_packed_metrics_use_final_sample_age_without_refetch(case, monkeypa
     monkeypatch.setattr(client, "metrics", near_expiry)
     monkeypatch.setattr(module, "observation_at_completion", packing_elapsed)
     encoded = module.resource_devices(
-        client, reference,
+        client,
+        reference,
         query=module.resource_devices_query(fields=["id", "metrics"], limit=200, with_metrics=True),
     )
     result = json.loads(encoded)["result"]

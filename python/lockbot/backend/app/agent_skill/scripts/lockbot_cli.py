@@ -333,9 +333,15 @@ def utilization_summary(
     for node, target in mappings.items():
         if node in ambiguous_nodes:
             result.append(
-                {"node": node, "source_node": target, "device_identity": "source",
-                 "mapping_status": "ambiguous_node", "cpu": {"status": "invalid", "percent": None,
-                 "sample_age_seconds": None}, "cards": [], "cards_status": "invalid"}
+                {
+                    "node": node,
+                    "source_node": target,
+                    "device_identity": "source",
+                    "mapping_status": "ambiguous_node",
+                    "cpu": {"status": "invalid", "percent": None, "sample_age_seconds": None},
+                    "cards": [],
+                    "cards_status": "invalid",
+                }
             )
             continue
         resolved, collisions, invalid = {}, Counter(), False
@@ -364,36 +370,48 @@ def utilization_summary(
                 card["mapping_status"] = "unmapped"
             cards.append(card)
         mapping_status = (
-            "invalid" if invalid else "ambiguous" if any(count > 1 for count in collisions.values())
-            else "missing" if not resolved else "partial" if any(card["mapping_status"] != "mapped" for card in cards)
-            else "mapped"
-        ) if card_resources else "source_only"
-        result.append({
-            "node": node,
-            "source_node": target,
-            "device_identity": "source",
-            "mapping_status": mapping_status,
-            "cpu": reading(target, "host"),
-            **memory(target, "host"),
-            "cards": cards,
-            "cards_status": "reported" if target in devices else reading(target, "accelerator")["status"],
-            **(
-                {
-                    "filesystems": [
-                        {
-                            "filesystem": name,
-                            **{
-                                field: reading(target, "host", name, "lockbot_host_filesystem_" + field + "_bytes")
-                                for field in ("used", "total")
-                            },
-                        }
-                        for name in sorted(filesystems[target])
-                    ]
-                }
-                if target in filesystems
-                else {}
-            ),
-        })
+            (
+                "invalid"
+                if invalid
+                else "ambiguous"
+                if any(count > 1 for count in collisions.values())
+                else "missing"
+                if not resolved
+                else "partial"
+                if any(card["mapping_status"] != "mapped" for card in cards)
+                else "mapped"
+            )
+            if card_resources
+            else "source_only"
+        )
+        result.append(
+            {
+                "node": node,
+                "source_node": target,
+                "device_identity": "source",
+                "mapping_status": mapping_status,
+                "cpu": reading(target, "host"),
+                **memory(target, "host"),
+                "cards": cards,
+                "cards_status": "reported" if target in devices else reading(target, "accelerator")["status"],
+                **(
+                    {
+                        "filesystems": [
+                            {
+                                "filesystem": name,
+                                **{
+                                    field: reading(target, "host", name, "lockbot_host_filesystem_" + field + "_bytes")
+                                    for field in ("used", "total")
+                                },
+                            }
+                            for name in sorted(filesystems[target])
+                        ]
+                    }
+                    if target in filesystems
+                    else {}
+                ),
+            }
+        )
     return result
 
 
@@ -1143,9 +1161,11 @@ _RESOURCE_LABEL_LOCK_MAGIC = b"lockbot-resource-label-lock-v1\n"
 
 def _resource_label_secret(value):
     return any(
-        redacted_values(text) != text or re.search(
+        redacted_values(text) != text
+        or re.search(
             r"(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,}|lb[ac]1\.[\w.-]+"
-            r"|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}", text
+            r"|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}",
+            text,
         )
         for text in (value, unicodedata.normalize("NFKC", value).casefold())
     )
@@ -1176,14 +1196,20 @@ def resource_label_text(value):
     """Return a comparison key while callers retain the validated display value."""
     try:
         if (
-            not isinstance(value, str) or not value or value != value.strip()
-            or not value.isprintable() or len(value.encode("utf-8")) > 80
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            or not value.isprintable()
+            or len(value.encode("utf-8")) > 80
         ):
             raise ValueError
         normalized = unicodedata.normalize("NFKC", value).casefold()
         if (
-            not normalized or normalized != normalized.strip() or not normalized.isprintable()
-            or len(normalized.encode("utf-8")) > 80 or _resource_label_secret(value)
+            not normalized
+            or normalized != normalized.strip()
+            or not normalized.isprintable()
+            or len(normalized.encode("utf-8")) > 80
+            or _resource_label_secret(value)
         ):
             raise ValueError
         return normalized
@@ -1196,9 +1222,11 @@ class ResourceLabelStore:
 
     def __init__(self, path=None):
         try:
-            self.path = Path(path).expanduser().absolute() if path is not None else (
-                connection_catalog("user").parent / "resource-labels.json"
-            ).absolute()
+            self.path = (
+                Path(path).expanduser().absolute()
+                if path is not None
+                else (connection_catalog("user").parent / "resource-labels.json").absolute()
+            )
             if "\x00" in str(self.path):
                 raise ValueError
             self.lock_path = self.path.with_name(self.path.name + ".lock")
@@ -1213,8 +1241,10 @@ class ResourceLabelStore:
     def _check_file(fd):
         info = os.fstat(fd)
         if (
-            not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
-            or os.name != "nt" and (info.st_mode & 0o077 or info.st_uid != os.geteuid())
+            not stat.S_ISREG(info.st_mode)
+            or info.st_nlink != 1
+            or os.name != "nt"
+            and (info.st_mode & 0o077 or info.st_uid != os.geteuid())
         ):
             raise ClientError("resource_label_private_file_required")
         return info
@@ -1279,8 +1309,10 @@ class ResourceLabelStore:
         try:
             value = json.loads(raw, object_pairs_hook=self._pairs)
             if (
-                not isinstance(value, dict) or set(value) != {"schema_version", "resources"}
-                or type(value["schema_version"]) is not int or value["schema_version"] != 1
+                not isinstance(value, dict)
+                or set(value) != {"schema_version", "resources"}
+                or type(value["schema_version"]) is not int
+                or value["schema_version"] != 1
                 or not isinstance(value["resources"], dict)
                 or len(value["resources"]) > RESOURCE_LABEL_MAX_RESOURCES
             ):
@@ -1334,8 +1366,10 @@ class ResourceLabelStore:
                         continue
                     break
             info = self._check_file(fd)
-            named = self.lock_path.lstat() if os.name == "nt" else os.stat(
-                self.lock_path.name, dir_fd=directory, follow_symlinks=False
+            named = (
+                self.lock_path.lstat()
+                if os.name == "nt"
+                else os.stat(self.lock_path.name, dir_fd=directory, follow_symlinks=False)
             )
             if not stat.S_ISREG(named.st_mode) or (named.st_dev, named.st_ino) != (info.st_dev, info.st_ino):
                 raise ClientError("resource_label_lock_invalid")
@@ -1345,7 +1379,7 @@ class ResourceLabelStore:
                 raise ClientError("resource_label_lock_invalid")
             # Recover only empty interrupted initialization, under the acquired
             # OS lock and same-inode check. Nonempty partial markers fail closed.
-            pending = _RESOURCE_LABEL_LOCK_MAGIC[len(marker):]
+            pending = _RESOURCE_LABEL_LOCK_MAGIC[len(marker) :]
             while pending:
                 written = os.write(fd, pending)
                 if written <= 0:
@@ -1412,8 +1446,10 @@ class ResourceLabelStore:
         finally:
             with suppress(OSError):
                 if temporary_identity is not None:
-                    named = (self.path.parent / temporary).lstat() if os.name == "nt" else os.stat(
-                        temporary, dir_fd=directory, follow_symlinks=False
+                    named = (
+                        (self.path.parent / temporary).lstat()
+                        if os.name == "nt"
+                        else os.stat(temporary, dir_fd=directory, follow_symlinks=False)
                     )
                     if (named.st_dev, named.st_ino) == temporary_identity:
                         if os.name == "nt":
@@ -3351,8 +3387,10 @@ class Client:
     @staticmethod
     def _metrics_identity(context):
         try:
-            value = {"bot_type": context.get("bot", {}).get("type"),
-                     "configuration": (context.get("utilization") or {}).get("configuration")}
+            value = {
+                "bot_type": context.get("bot", {}).get("type"),
+                "configuration": (context.get("utilization") or {}).get("configuration"),
+            }
             return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).digest()
         except (AttributeError, TypeError, ValueError, RecursionError):
             raise ClientError("invalid_metrics_configuration") from None
@@ -3392,15 +3430,26 @@ class Client:
             url = same_origin_url(target_origin, endpoint + "/api/v1/query")
             mapping = source.get("nodeMapping", {})
             if (
-                not isinstance(mapping, dict) or len(mapping) > 512 or not nodes or len(nodes) > 64
+                not isinstance(mapping, dict)
+                or len(mapping) > 512
+                or not nodes
+                or len(nodes) > 64
                 or set(nodes) - set(mapping)
             ):
                 raise ClientError("explicit_mapped_metrics_nodes_required")
             if any(
-                not isinstance(key, str) or not key or len(key) > 256 or not key.isprintable()
-                or not isinstance(target, str) or not target or len(target) > 256 or not target.isprintable()
-                or redacted_values(key, self.secrets) != key or redacted_values(target, self.secrets) != target
-                or _RESOURCE_CREDENTIAL_IN_TEXT.search(key) or _RESOURCE_CREDENTIAL_IN_TEXT.search(target)
+                not isinstance(key, str)
+                or not key
+                or len(key) > 256
+                or not key.isprintable()
+                or not isinstance(target, str)
+                or not target
+                or len(target) > 256
+                or not target.isprintable()
+                or redacted_values(key, self.secrets) != key
+                or redacted_values(target, self.secrets) != target
+                or _RESOURCE_CREDENTIAL_IN_TEXT.search(key)
+                or _RESOURCE_CREDENTIAL_IN_TEXT.search(target)
                 for key, target in mapping.items()
             ):
                 raise ClientError("invalid_metrics_mapping")
@@ -3408,12 +3457,24 @@ class Client:
             if resource_type not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"}:
                 raise ClientError("unsupported_metrics_resource_type")
             device_mapping = source.get("deviceMapping", {})
-            if not isinstance(device_mapping, dict) or len(device_mapping) > 512 or any(
-                not isinstance(key, str) or not key or len(key) > 256 or not key.isprintable()
-                or not isinstance(target, str) or not target or len(target) > 256 or not target.isprintable()
-                or redacted_values(key, self.secrets) != key or redacted_values(target, self.secrets) != target
-                or _RESOURCE_CREDENTIAL_IN_TEXT.search(key) or _RESOURCE_CREDENTIAL_IN_TEXT.search(target)
-                for key, target in device_mapping.items()
+            if (
+                not isinstance(device_mapping, dict)
+                or len(device_mapping) > 512
+                or any(
+                    not isinstance(key, str)
+                    or not key
+                    or len(key) > 256
+                    or not key.isprintable()
+                    or not isinstance(target, str)
+                    or not target
+                    or len(target) > 256
+                    or not target.isprintable()
+                    or redacted_values(key, self.secrets) != key
+                    or redacted_values(target, self.secrets) != target
+                    or _RESOURCE_CREDENTIAL_IN_TEXT.search(key)
+                    or _RESOURCE_CREDENTIAL_IN_TEXT.search(target)
+                    for key, target in device_mapping.items()
+                )
             ):
                 raise ClientError("invalid_metrics_device_mapping")
             mappings = {node: mapping[node] for node in nodes}
@@ -3425,10 +3486,16 @@ class Client:
                 raise ClientError("invalid_metrics_freshness")
             if not targets:
                 return {
-                    "best_effort": True, "verification": "mapping_only_no_source_query",
+                    "best_effort": True,
+                    "verification": "mapping_only_no_source_query",
                     "utilization": utilization_summary(
-                        [], mappings, time.time(), stale_seconds, device_mapping=device_mapping,
-                        resource_type=resource_type, ambiguous_nodes=ambiguous_nodes,
+                        [],
+                        mappings,
+                        time.time(),
+                        stale_seconds,
+                        device_mapping=device_mapping,
+                        resource_type=resource_type,
+                        ambiguous_nodes=ambiguous_nodes,
                     ),
                     "does_not_authorize_resources": True,
                 }
@@ -3443,7 +3510,9 @@ class Client:
                 raise ClientError("unsupported_metrics_authentication")
             if (
                 credential.startswith(("lbr_", "lbp_", "lbk_", "lbc1.", "lba1."))
-                or isinstance(self.key, str) and self.key and self.key in credential
+                or isinstance(self.key, str)
+                and self.key
+                and self.key in credential
                 or _RESOURCE_CREDENTIAL_IN_TEXT.search(credential)
                 or redacted_values(credential) != credential
             ):
@@ -3488,8 +3557,13 @@ class Client:
                     "verification": "query_response_only",
                     "data": data,
                     "utilization": utilization_summary(
-                        vector, mappings, time.time(), stale_seconds, device_mapping=device_mapping,
-                        resource_type=resource_type, ambiguous_nodes=ambiguous_nodes,
+                        vector,
+                        mappings,
+                        time.time(),
+                        stale_seconds,
+                        device_mapping=device_mapping,
+                        resource_type=resource_type,
+                        ambiguous_nodes=ambiguous_nodes,
                     ),
                     "does_not_authorize_resources": True,
                 }
@@ -4771,14 +4845,20 @@ def merge_summary_metrics(rows, metrics, *, device_limit=20):
                 )
             status = reading.get("cards_status")
             known_empty_selection = (
-                row.get("unit") == "card" and not allowed and row.get("device_inventory_complete") is True
-                and isinstance(row.get("matched_device_ids"), list) and not row["matched_device_ids"]
-                and type(row.get("total_cards")) is int and row["total_cards"] == 0
-                and type(row.get("matched_cards")) is int and row["matched_cards"] == 0
+                row.get("unit") == "card"
+                and not allowed
+                and row.get("device_inventory_complete") is True
+                and isinstance(row.get("matched_device_ids"), list)
+                and not row["matched_device_ids"]
+                and type(row.get("total_cards")) is int
+                and row["total_cards"] == 0
+                and type(row.get("matched_cards")) is int
+                and row["matched_cards"] == 0
             )
             incomplete_selection = row.get("unit") == "card" and (
                 any(row.get(field) is True for field in ("devices_has_more", "holdings_has_more", "bookings_has_more"))
-                or not allowed and not known_empty_selection
+                or not allowed
+                and not known_empty_selection
             )
             if row.get("unit") == "card":
                 if reading.get("mapping_status") == "ambiguous_node":
@@ -4847,10 +4927,15 @@ def attach_metrics(client, snapshot, *, full=False, context=None, _sample_clocks
                 config = ((context or {}).get("utilization") or {}).get("configuration") or {}
                 for node in batch:
                     _sample_clocks[node] = (client.clock(), config.get("staleSeconds", 90))
-            ambiguous_nodes = sorted({
-                row["node"] for row in reading["utilization"]
-                if isinstance(row, dict) and row.get("node") in batch and row.get("mapping_status") == "ambiguous_node"
-            })
+            ambiguous_nodes = sorted(
+                {
+                    row["node"]
+                    for row in reading["utilization"]
+                    if isinstance(row, dict)
+                    and row.get("node") in batch
+                    and row.get("mapping_status") == "ambiguous_node"
+                }
+            )
             if ambiguous_nodes:
                 result["complete"] = False
                 result["unread"].append({"nodes": ambiguous_nodes, "error": "ambiguous_metrics_node_mapping"})
@@ -4999,11 +5084,7 @@ def resource_search_index(snapshot, *, private_values=(), incomplete_nodes=None)
             if isinstance(record, dict)
         ]
     else:
-        records = [
-            record
-            for record in snapshot.get("resources", [])
-            if isinstance(record, dict)
-        ]
+        records = [record for record in snapshot.get("resources", []) if isinstance(record, dict)]
     for record in records:
         node = record.get("node" if snapshot.get("scope") == "own" else "id")
         if not isinstance(node, str) or not node or not node.isprintable():
@@ -5449,8 +5530,9 @@ def metric_device_selection(snapshot, *, node, model=None):
         complete = snapshot.get("ownership_coverage", {}).get("complete") is True
         complete &= node not in entries.get("selection", {}).get("unknown_hardware_nodes", [])
         for field in ("holdings", "bookings"):
-            originals = [card for card in snapshot.get(field, [])
-                         if isinstance(card, dict) and card.get("node") == node]
+            originals = [
+                card for card in snapshot.get(field, []) if isinstance(card, dict) and card.get("node") == node
+            ]
             counts = Counter(str(card.get("device")) for card in originals)
             if model is not None and any(_summary_model(card.get("model")) is None for card in originals):
                 complete = False
@@ -5458,7 +5540,8 @@ def metric_device_selection(snapshot, *, node, model=None):
             for card in cards:
                 identifier = card.get("device")
                 if (
-                    card.get("allocation") != "card" or _device_summary_identifier(identifier, ()) is None
+                    card.get("allocation") != "card"
+                    or _device_summary_identifier(identifier, ()) is None
                     or counts[str(identifier)] != 1
                 ):
                     complete = False
@@ -5482,15 +5565,19 @@ def compact_resource_metrics(row, snapshot, metrics, *, model=None):
     """Summarize a full validated selection, never the twenty displayed card IDs."""
     base = merge_summary_metrics([row], metrics)[0]["metrics"]
     result = {
-        "best_effort": True, "does_not_authorize_resources": True,
+        "best_effort": True,
+        "does_not_authorize_resources": True,
         "cpu": base.get("cpu", {"status": "missing", "percent": None, "sample_age_seconds": None}),
     }
     selection_complete = False
     if row.get("unit") == "card":
         selected, selection_complete = metric_device_selection(snapshot, node=row["node"], model=model)
-        readings = [card["metrics"] for card in device_summary_metrics(
-            [{"id": identifier} for identifier in selected], metrics, node=row["node"]
-        )]
+        readings = [
+            card["metrics"]
+            for card in device_summary_metrics(
+                [{"id": identifier} for identifier in selected], metrics, node=row["node"]
+            )
+        ]
         identity, expected = "resource", len(selected) if selection_complete else None
     else:
         matches = [reading for reading in metrics.get("utilization", []) if reading.get("node") == row["node"]]
@@ -5511,8 +5598,13 @@ def compact_resource_metrics(row, snapshot, metrics, *, model=None):
     values = [reading["percent"] for reading in readings if reading.get("status") == "ok"]
     ok = len(values)
     result["accelerator"] = {
-        "status": "not_required" if expected == 0 else "missing" if not ok
-        else "ok" if selection_complete and ok == expected else "partial",
+        "status": "not_required"
+        if expected == 0
+        else "missing"
+        if not ok
+        else "ok"
+        if selection_complete and ok == expected
+        else "partial",
         "mean_percent": sum(values) / ok if ok else None,
         "ok_devices": ok,
         "selected_devices": expected,
@@ -5677,9 +5769,11 @@ class _ResourceListReader:
                 observed = peer["snapshot"]
                 context = observed["context"]
                 try:
-                    ids, complete = metric_device_selection(observed, node=node, model=model) if (
-                        context.get("bot", {}).get("type") in {"DEVICE", "QUEUE_DEVICE"}
-                    ) else (None, False)
+                    ids, complete = (
+                        metric_device_selection(observed, node=node, model=model)
+                        if (context.get("bot", {}).get("type") in {"DEVICE", "QUEUE_DEVICE"})
+                        else (None, False)
+                    )
                     signatures.append((Client._metrics_identity(context), ids, complete))
                 except (ClientError, KeyError, TypeError, AttributeError, ValueError, RecursionError):
                     blocked[node] = "invalid_metrics_configuration"
@@ -5695,13 +5789,17 @@ class _ResourceListReader:
         client.calls, client.deadline, client.call_limit = self.calls, self.deadline, self.max_calls
         snapshot = group["snapshot"]
         fields = ("holdings", "bookings") if snapshot.get("scope") == "own" else ("resources",)
-        selected = {**snapshot, **{
-            field: [
-                record for record in snapshot[field]
-                if isinstance(record, dict) and record.get("node" if field != "resources" else "id") in nodes
-            ]
-            for field in fields
-        }}
+        selected = {
+            **snapshot,
+            **{
+                field: [
+                    record
+                    for record in snapshot[field]
+                    if isinstance(record, dict) and record.get("node" if field != "resources" else "id") in nodes
+                ]
+                for field in fields
+            },
+        }
         try:
             group["_metrics_receipts"] = {}
             group["_metrics"] = attach_metrics(
@@ -5781,7 +5879,8 @@ class _ResourceListReader:
             elif query.get("with_metrics") and not row.get("observation_conflict"):
                 original = groups[0]
                 row["metrics"] = compact_resource_metrics(
-                    row, observation_at_completion(original["_client"], original["snapshot"]),
+                    row,
+                    observation_at_completion(original["_client"], original["snapshot"]),
                     metrics_at_completion(
                         original.get("_metrics", {}), original.get("_metrics_receipts", {}), self.clock()
                     ),
@@ -6083,7 +6182,8 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
             reader.telemetry(groups, wanted, model=query["model"])
             rows, _notes, _complete = reader.project(groups, query)
             rows = [
-                row for row in rows
+                row
+                for row in rows
                 if index != start or after is None or row["node"].encode("utf-8") > after.encode("utf-8")
             ]
         for number, row in enumerate(rows):
@@ -6230,7 +6330,9 @@ def device_summary_metrics(rows, metrics, *, node):
         )[0]["metrics"]
         matches = projected.get("cards", [])
         reading = {
-            "status": "missing", "percent": None, "sample_age_seconds": None,
+            "status": "missing",
+            "percent": None,
+            "sample_age_seconds": None,
             "mapping_status": projected.get("mapping_status", "missing"),
         }
         if len(matches) == 1:
@@ -6317,7 +6419,8 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
         )
         if query.get("with_metrics"):
             projected["rows"] = device_summary_metrics(
-                projected["rows"], metrics_at_completion(snapshot.get("metrics", {}), sample_clocks, client.clock()),
+                projected["rows"],
+                metrics_at_completion(snapshot.get("metrics", {}), sample_clocks, client.clock()),
                 node=node,
             )
         return observed, projected
@@ -6326,13 +6429,15 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
     # byte packing and resource aging below only re-project this invocation's data.
     _observed, preview = projection()
     if query.get("with_metrics") and any(
-        after is None or device_summary_sort_key(row["id"]) > device_summary_sort_key(after)
-        for row in preview["rows"]
+        after is None or device_summary_sort_key(row["id"]) > device_summary_sort_key(after) for row in preview["rows"]
     ):
         selected = {**snapshot, "resources": [row for row in snapshot["resources"] if row.get("id") == node]}
-        snapshot = {**snapshot, "metrics": attach_metrics(
-            client, selected, context=snapshot["context"], _sample_clocks=sample_clocks
-        )["metrics"]}
+        snapshot = {
+            **snapshot,
+            "metrics": attach_metrics(client, selected, context=snapshot["context"], _sample_clocks=sample_clocks)[
+                "metrics"
+            ],
+        }
 
     def encoded(selected, *, more, observed, projected):
         next_cursor = None
@@ -6377,10 +6482,13 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
                 instruction_refresh_required=True,
             )
         if query.get("with_metrics"):
-            metrics = snapshot.get("metrics", {
-                "complete": not rows,
-                "unread": [{"error": "metrics_not_read"}] if rows else [],
-            })
+            metrics = snapshot.get(
+                "metrics",
+                {
+                    "complete": not rows,
+                    "unread": [{"error": "metrics_not_read"}] if rows else [],
+                },
+            )
             errors = metrics.get("unread", [])
             result.update(
                 metrics_requested=True,
@@ -6475,7 +6583,8 @@ def resource_devices_text(encoded):
         if with_metrics:
             sample = row.get("metrics", {})
             values.append(
-                str(sample["percent"]) if sample.get("status") == "ok"
+                str(sample["percent"])
+                if sample.get("status") == "ok"
                 else "? (" + sample.get("status", "missing") + ")"
             )
         lines.append("  ".join(values))
@@ -7033,10 +7142,12 @@ def _provider_registration(path):
     """Load executable registration only; the provider owns its private config."""
     try:
         registration = private_json(path)
-        if (
-            not {"schema_version", "command", "config_file"} <= set(registration)
-            or set(registration) - {"schema_version", "command", "config_file", "capabilities"}
-        ):
+        if not {"schema_version", "command", "config_file"} <= set(registration) or set(registration) - {
+            "schema_version",
+            "command",
+            "config_file",
+            "capabilities",
+        }:
             raise ValueError
         command, config = registration["command"], registration["config_file"]
         if (
@@ -7056,9 +7167,12 @@ def _provider_registration(path):
         if "capabilities" in registration:
             capabilities = registration["capabilities"]
             if (
-                not isinstance(capabilities, list) or len(capabilities) > 16
-                or any(not isinstance(item, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,79}", item) is None
-                       for item in capabilities)
+                not isinstance(capabilities, list)
+                or len(capabilities) > 16
+                or any(
+                    not isinstance(item, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,79}", item) is None
+                    for item in capabilities
+                )
                 or len(capabilities) != len(set(capabilities))
             ):
                 raise ValueError
@@ -7111,20 +7225,34 @@ def _provider_reported_metrics_valid(value):
     if (
         not isinstance(value, dict)
         or set(value) != {"mode", "best_effort", "does_not_authorize_resources", "resource"}
-        or value["mode"] != REPORTED_METRICS_MODE or value["best_effort"] is not True
+        or value["mode"] != REPORTED_METRICS_MODE
+        or value["best_effort"] is not True
         or value["does_not_authorize_resources"] is not True
     ):
         return False
     resource = value["resource"]
     fields = {
-        "status", "reported_mean_percent", "reported_memory_mean_percent", "percent", "sample_age_seconds",
-        "sample_time_known", "report_age_seconds", "reported_units", "memory_reported_units", "selected_units",
-        "sample_states", "memory_sample_states", "selection_complete",
+        "status",
+        "reported_mean_percent",
+        "reported_memory_mean_percent",
+        "percent",
+        "sample_age_seconds",
+        "sample_time_known",
+        "report_age_seconds",
+        "reported_units",
+        "memory_reported_units",
+        "selected_units",
+        "sample_states",
+        "memory_sample_states",
+        "selection_complete",
     }
     if (
-        not isinstance(resource, dict) or set(resource) != fields
-        or resource["percent"] is not None or resource["sample_age_seconds"] is not None
-        or resource["sample_time_known"] is not False or type(resource["selection_complete"]) is not bool
+        not isinstance(resource, dict)
+        or set(resource) != fields
+        or resource["percent"] is not None
+        or resource["sample_age_seconds"] is not None
+        or resource["sample_time_known"] is not False
+        or type(resource["selection_complete"]) is not bool
     ):
         return False
 
@@ -7146,14 +7274,14 @@ def _provider_reported_metrics_valid(value):
     ):
         mean, reported, states = resource[mean_field], resource[count_field], resource[states_field]
         if (
-            not count(reported) or not isinstance(states, dict)
+            not count(reported)
+            or not isinstance(states, dict)
             or set(states) - {"reported", "missing", "invalid", "stale"}
             or any(not count(value) for value in states.values())
             or states.get("reported", 0) != reported
             or (mean is None if reported else mean is not None)
-            or mean is not None and (
-                type(mean) not in (int, float) or metric_number(mean) is None or not 0 <= mean <= 100
-            )
+            or mean is not None
+            and (type(mean) not in (int, float) or metric_number(mean) is None or not 0 <= mean <= 100)
         ):
             return False
         total = sum(states.values())
@@ -7164,10 +7292,17 @@ def _provider_reported_metrics_valid(value):
         return False
     states, reported = resource["sample_states"], resource["reported_units"]
     status = (
-        "not_required" if selected == 0 else
-        "reported" if reported and resource["selection_complete"] and reported == selected else
-        "partial" if reported else "stale" if states.get("stale", 0) else
-        "invalid" if states.get("invalid", 0) or age is None else "missing"
+        "not_required"
+        if selected == 0
+        else "reported"
+        if reported and resource["selection_complete"] and reported == selected
+        else "partial"
+        if reported
+        else "stale"
+        if states.get("stale", 0)
+        else "invalid"
+        if states.get("invalid", 0) or age is None
+        else "missing"
     )
     return resource["status"] == status and (
         age is not None or resource["reported_units"] == resource["memory_reported_units"] == 0
@@ -7176,18 +7311,23 @@ def _provider_reported_metrics_valid(value):
 
 def _provider_metrics_metadata_valid(result):
     reasons, retry, lifetime = (
-        result.get("metrics_unread_reasons"), result.get("metrics_retry_after_seconds"),
+        result.get("metrics_unread_reasons"),
+        result.get("metrics_retry_after_seconds"),
         result.get("metrics_valid_for_seconds"),
     )
     return (
-        result.get("metrics_mode") == REPORTED_METRICS_MODE and result.get("metrics_requested") is True
+        result.get("metrics_mode") == REPORTED_METRICS_MODE
+        and result.get("metrics_requested") is True
         and type(result.get("metrics_read_complete")) is bool
-        and isinstance(reasons, list) and len(reasons) <= 8
+        and isinstance(reasons, list)
+        and len(reasons) <= 8
         and all(isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", reason) for reason in reasons)
         and len(reasons) == len(set(reasons))
         and (not result["metrics_read_complete"] or not reasons)
         and (retry is None or type(retry) in (int, float) and metric_number(retry) is not None and 0 <= retry <= 2**31)
-        and type(lifetime) in (int, float) and metric_number(lifetime) is not None and 0 <= lifetime <= 60
+        and type(lifetime) in (int, float)
+        and metric_number(lifetime) is not None
+        and 0 <= lifetime <= 60
     )
 
 
@@ -7292,6 +7432,7 @@ def _provider_response(
         error.http_requests = result["http_requests"]
         raise error
     if query.get("with_metrics"):
+
         def invalid_metrics():
             error = ClientError("resource_provider_response_invalid")
             error.http_requests = result["http_requests"]
@@ -7302,9 +7443,13 @@ def _provider_response(
                 invalid_metrics()
             # A valid inventory reply which ignored the optional feature remains
             # inventory evidence, with an explicit telemetry gap and no fallback.
-            result.update(metrics_requested=True, metrics_read_complete=False,
-                          metrics_unread_reasons=["source_metrics_not_supported"],
-                          metrics_retry_after_seconds=None, metrics_valid_for_seconds=0)
+            result.update(
+                metrics_requested=True,
+                metrics_read_complete=False,
+                metrics_unread_reasons=["source_metrics_not_supported"],
+                metrics_retry_after_seconds=None,
+                metrics_valid_for_seconds=0,
+            )
             return value
         for row in rows:
             if "metrics" in row:
@@ -7312,7 +7457,8 @@ def _provider_response(
                     invalid_metrics()
             elif (
                 (query["fields"] is None or "metrics" in query["fields"])
-                and not row.get("detail_deferred") and not (
+                and not row.get("detail_deferred")
+                and not (
                     row.get("observation_incomplete") is True
                     and "metrics_detail_deferred" in result["metrics_unread_reasons"]
                     and result["metrics_read_complete"] is False
@@ -7600,10 +7746,12 @@ def _mixed_sources(path):
                 }
             )
         provider_entries = [phase for phase in phases if phase["kind"] == "provider"]
-        if not phases or len({_mixed_hash({key: value for key, value in phase["registration"].items()
-                                           if key != "capabilities"}) for phase in provider_entries}) != len(
-            value["providers"]
-        ):
+        if not phases or len(
+            {
+                _mixed_hash({key: value for key, value in phase["registration"].items() if key != "capabilities"})
+                for phase in provider_entries
+            }
+        ) != len(value["providers"]):
             raise ValueError
         return phases, _mixed_hash(["mixed-sources-v1", str(Path(path).resolve()), phases])
     except (ClientError, ValueError, TypeError, KeyError, UnicodeError, OSError):
@@ -7702,8 +7850,13 @@ def mixed_metrics_at_completion(row, *, elapsed, expired):
                     states["stale"] = states.get("stale", 0) + reported
             states = resource["sample_states"]
             resource["status"] = (
-                "not_required" if resource["selected_units"] == 0 else "stale" if states.get("stale", 0)
-                else "invalid" if states.get("invalid", 0) or resource["report_age_seconds"] is None else "missing"
+                "not_required"
+                if resource["selected_units"] == 0
+                else "stale"
+                if states.get("stale", 0)
+                else "invalid"
+                if states.get("invalid", 0) or resource["report_age_seconds"] is None
+                else "missing"
             )
     else:
         cpu = metrics.get("cpu")
@@ -7716,8 +7869,9 @@ def mixed_metrics_at_completion(row, *, elapsed, expired):
         accelerator = metrics.get("accelerator")
         if expired and isinstance(accelerator, dict):
             ok = accelerator.get("ok_devices", 0)
-            accelerator.update(mean_percent=None, ok_devices=0,
-                               non_ok_devices=accelerator.get("non_ok_devices", 0) + ok)
+            accelerator.update(
+                mean_percent=None, ok_devices=0, non_ok_devices=accelerator.get("non_ok_devices", 0) + ok
+            )
             states = accelerator.get("sample_states", {})
             healthy = states.pop("ok", 0)
             if healthy:
@@ -7753,11 +7907,14 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
                 if with_metrics:
                     received, metrics_until = metrics_chunks[index]
                     row = mixed_metrics_at_completion(
-                        original, elapsed=60.12345678901234 if worst_case else max(0, now - received),
+                        original,
+                        elapsed=60.12345678901234 if worst_case else max(0, now - received),
                         expired=not worst_case and now >= min(metrics_until, valid_until),
                     )
                     stale = mixed_metrics_at_completion(
-                        row, elapsed=0, expired=True,
+                        row,
+                        elapsed=0,
+                        expired=True,
                     )
                 else:
                     row, stale = dict(original), dict(original)
@@ -7806,14 +7963,19 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
             result["additional_unread_reasons"] = 99
         if with_metrics:
             result.update(
-                metrics_requested=True, metrics_read_complete=metrics_complete,
+                metrics_requested=True,
+                metrics_read_complete=metrics_complete,
                 metrics_unread_reasons=sorted(metrics_reasons)[:4],
                 additional_metrics_unread_reasons=max(0, len(metrics_reasons) - 4),
                 metrics_retry_after_seconds=metrics_retry,
             )
             if worst_case:
-                result.update(metrics_read_complete=False, metrics_unread_reasons=["x" * 80] * 4,
-                              additional_metrics_unread_reasons=99, metrics_retry_after_seconds=2**31)
+                result.update(
+                    metrics_read_complete=False,
+                    metrics_unread_reasons=["x" * 80] * 4,
+                    additional_metrics_unread_reasons=99,
+                    metrics_retry_after_seconds=2**31,
+                )
         encoded = json.dumps({"result": result}, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
         reserve = 128 + (64 * len(rows) if with_metrics else 0)
         return encoded, len(encoded.encode()) + 1 + (reserve if worst_case else 0) <= SUMMARY_BYTE_LIMIT
@@ -7848,7 +8010,8 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
                     fields = [field for field in fields if field != "metrics"] or ["ref"]
                 native_options = {key: value for key, value in query.items() if key != "with_metrics"}
                 native_query = resource_list_query(
-                    **{**native_options, "fields": fields}, legacy_read=phase["legacy_read"],
+                    **{**native_options, "fields": fields},
+                    legacy_read=phase["legacy_read"],
                     with_metrics=metrics_supported,
                 )
                 encoded = native_reader(
@@ -7937,9 +8100,11 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
                 else:
                     metrics_complete &= page.get("metrics_read_complete") is True
                     for reason in page.get("metrics_unread_reasons", []):
-                        metrics_reasons.add(reason if isinstance(reason, str)
-                                            and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", reason)
-                                            else "metrics_unavailable")
+                        metrics_reasons.add(
+                            reason
+                            if isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", reason)
+                            else "metrics_unavailable"
+                        )
                     delay = page.get("metrics_retry_after_seconds")
                     if type(delay) in (int, float) and 0 <= delay <= 2**31:
                         metrics_retry = max(metrics_retry or 0, delay)
@@ -8056,10 +8221,7 @@ def _resource_sources_dispatch(args):
     if args.action not in {"resources", "resource-devices", "command"} or not getattr(args, "ref", None):
         raise ClientError("mixed_resource_reference_required")
     if args.ref.startswith("e1."):
-        if (
-            getattr(args, "resource_action", None) != "view"
-            or args.exact_lease_times
-        ):
+        if getattr(args, "resource_action", None) != "view" or args.exact_lease_times:
             raise ClientError("external_resource_read_only")
         namespace, reference = parse_mixed_reference(args.ref)
         phases, _fingerprint = _mixed_sources(args.resource_sources)
@@ -8166,13 +8328,20 @@ def resource_labels_list(store, *, label=None, fields=None, limit=20, cursor=Non
         more = end < len(references)
         token = _resource_label_cursor(revision, query_digest, _mixed_hash(references[end - 1])) if more else None
         return _resource_labels_encode(
-            {"result": {"rows": rows, "scope": "local_private_metadata", "local_only": True,
-                        "has_more": more, "next_cursor": token}}
+            {
+                "result": {
+                    "rows": rows,
+                    "scope": "local_private_metadata",
+                    "local_only": True,
+                    "has_more": more,
+                    "next_cursor": token,
+                }
+            }
         )
 
     rows, end = [], start
     encoded = encode(rows, end) if end == len(references) else None
-    for reference in references[start:start + limit]:
+    for reference in references[start : start + limit]:
         row = {"ref": reference, **({"labels": resources[reference]["labels"]} if "labels" in fields else {})}
         candidate = encode([*rows, row], end + 1)
         if len(candidate.encode("utf-8")) + 1 > SUMMARY_BYTE_LIMIT:
@@ -8415,8 +8584,13 @@ def main(argv=None):
             label_command.add_argument("--limit", type=int, default=SUMMARY_NODE_LIMIT)
             label_command.add_argument("--cursor", help="Continue this unchanged local label list")
         label_command.add_argument("--file", help="Private label metadata file; default LOCKBOT_HOME or ~/.lockbot")
-        label_command.add_argument("--json", nargs="?", const="", metavar="FIELDS",
-                                   help="Select JSON fields; bare --json only lists fields and performs no action")
+        label_command.add_argument(
+            "--json",
+            nargs="?",
+            const="",
+            metavar="FIELDS",
+            help="Select JSON fields; bare --json only lists fields and performs no action",
+        )
     device_listing = resource_commands.add_parser(
         "devices", help="Page exact card IDs and observed models for one node"
     )
@@ -8538,7 +8712,10 @@ def main(argv=None):
     if args.action == "resource":
         human_read = args.json is None
         args.action = {
-            "list": "resource-list", "view": "resources", "devices": "resource-devices", "label": "resource-label"
+            "list": "resource-list",
+            "view": "resources",
+            "devices": "resource-devices",
+            "label": "resource-label",
         }[args.resource_action]
     if args.action == "command":
         args.device = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in args.device]
