@@ -66,6 +66,7 @@ h1{font-size:17px;letter-spacing:-.02em}
 .meta,.trace-ordinal,.trace-duration,.step-nav-count{font-variant-numeric:tabular-nums;white-space:nowrap}
 .meta{font-size:11px;color:var(--muted)}
 .badge{display:inline-flex;gap:4px;align-items:center;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:720;white-space:nowrap}
+.run-assessment{font-size:12px;color:var(--muted);margin:0 0 16px}.run-assessment summary{cursor:pointer}.run-assessment p{margin:6px 0}
 .pass{background:#e7f5ee;color:#146144}.timeout,.pending{background:#fff2da;color:#7b4b08}.blocked{background:#edf1f8;color:#365684}.fail{background:#fcebed;color:#952d38}
 .mobile-pick{display:none}
 #review{min-width:0;background:var(--paper);border:1px solid var(--line);border-radius:13px}
@@ -435,7 +436,70 @@ function writeRoute() {
 }
 const caseName = key => data.labels && Object.hasOwn(data.labels,key) ? data.labels[key] || key : key;
 const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
+function assessmentForTrial(trial) {
+  const value = typeof data === 'undefined' ? null : data.assessments?.[trial.source_run];
+  if (!value || value.schema_version !== 1 || value.target?.source_run !== trial.source_run ||
+      value.target?.phase !== 1 || !['resource-cli','consultation'].includes(value.adapter?.family) ||
+      !(value.adapter?.family === 'consultation' ? [1,2,3] : [1,2]).includes(value.adapter?.version) || value.human_gate !== 'not_required' ||
+      value.execution !== 'completed' || !['pass','fail'].includes(value.behavior) ||
+      !['not_reviewed','pass','findings','uncertain'].includes(value.semantic) ||
+      !Array.isArray(value.reviews) || value.reviews.length > 16 || value.reviews.some(review =>
+        review.reviewer?.kind !== 'model' || typeof review.reviewer?.name !== 'string' ||
+        typeof review.reviewer?.requested_model !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(review.review_id || '') || !/^[a-f0-9]{64}$/.test(review.report_sha256 || '') ||
+        !['pass','findings','uncertain'].includes(review.status) || !Array.isArray(review.findings) ||
+        review.findings.length > 4 || review.findings.some(finding => typeof finding.text !== 'string' ||
+          finding.text.length > 600 || typeof finding.blocking !== 'boolean' || !/^P[0-3]$/.test(finding.severity)))) return null;
+  const replaced = new Set(value.reviews.map(review => review.supersedes).filter(Boolean));
+  const active = value.reviews.filter(review => !replaced.has(review.review_id));
+  const statuses = new Set(active.map(review => review.status));
+  const semantic = !statuses.size ? 'not_reviewed' : statuses.size === 1 ? [...statuses][0] : 'uncertain';
+  return semantic === value.semantic ? value : null;
+}
+function assessmentBadge(trial) {
+  const assessment = assessmentForTrial(trial);
+  if (!assessment) return null;
+  if (['fail','timeout','blocked'].includes(trial.state)) return null;
+  if (assessment.behavior === 'fail') return {label:'未通过',tone:'fail'};
+  if (assessment.semantic === 'pass') return {label:'通过',tone:'pass'};
+  if (assessment.semantic === 'findings') {
+    const replaced = new Set(assessment.reviews.map(review => review.supersedes).filter(Boolean));
+    const blocking = assessment.reviews.filter(review => !replaced.has(review.review_id))
+      .some(review => review.findings.some(finding => finding.blocking));
+    return {label:blocking ? '有问题' : '有建议',tone:blocking ? 'fail' : 'pending'};
+  }
+  return {label:assessment.semantic === 'uncertain' ? '存疑' : '待复核',tone:'blocked'};
+}
+function assessmentPanel(trial) {
+  const assessment = assessmentForTrial(trial);
+  if (!assessment) return null;
+  const panel = node('details',null,'run-assessment');
+  panel.append(node('summary','检查与复核'));
+  panel.append(node('p','自动行为：'+(assessment.behavior === 'pass' ? '通过' : '未通过')));
+  const labels = {not_reviewed:'未复核',pass:'通过',findings:'有建议',uncertain:'存疑'};
+  const authors = [...new Set(assessment.reviews.map(review => review.reviewer.name))];
+  panel.append(node('p','模型复核：'+labels[assessment.semantic]+(authors.length ? '（'+authors.join('、')+'）' : '')));
+  panel.append(node('p','人工确认：不需要'));
+  const replaced = new Set(assessment.reviews.map(review => review.supersedes).filter(Boolean));
+  for (const review of assessment.reviews.filter(review => !replaced.has(review.review_id))) {
+    for (const finding of review.findings) panel.append(node('p',finding.severity+' · '+finding.text));
+  }
+  const provenance = node('details');
+  provenance.append(node('summary','复核依据'));
+  provenance.append(node('p','原始导出状态：'+({pass:'通过',fail:'未通过',pending:'待确认',timeout:'超时',blocked:'受阻'}[trial.state] || '未知')));
+  provenance.append(node('p','仅覆盖合成夹具记录；不代表线上验收。'+assessment.adapter.family+' v'+assessment.adapter.version+' · 阶段 '+assessment.target.phase));
+  for (const review of assessment.reviews) {
+    provenance.append(node('p',review.reviewer.name+' · 请求模型 '+review.reviewer.requested_model+(replaced.has(review.review_id) ? ' · 已被更正' : '')));
+    provenance.append(node('p','报告 SHA-256：'+review.report_sha256));
+    provenance.append(node('p','证据绑定时间：'+review.bound_at));
+  }
+  panel.append(provenance);
+  panel.title = '保留原始结果和评论；这里记录模型复核，不是人工批准。';
+  return panel;
+}
 function trialStatus(trial) {
+  const assessed = assessmentBadge(trial);
+  if (assessed) return assessed.label;
   if (trial.source_run?.startsWith('semantic:')) {
     if (trial.state === 'fail') return '未通过';
     return trial.semantic_status === 'uncertain' ? '待确认' : trial.semantic_status === 'pass' ? '通过' : '已复核';
@@ -443,6 +507,12 @@ function trialStatus(trial) {
   return {pass:'通过', fail:'未通过', pending:'待确认', timeout:'超时', blocked:'受阻'}[trial.state] || '';
 }
 function badge(trial) {
+  const assessed = assessmentBadge(trial);
+  if (assessed) {
+    const result = node('span',assessed.label,'badge '+assessed.tone);
+    result.title = '自动行为与模型语义复核分别记录；无需人工确认。原始结果保留。';
+    return result;
+  }
   const partial = trial.source_run?.startsWith('semantic:') && trial.state !== 'fail' && trial.semantic_status !== 'pass';
   const state = partial || trial.state === 'pending' ? 'blocked' : trial.state;
   const tone = trial.source_run?.startsWith('semantic:') && trial.state !== 'fail' && trial.semantic_status === 'pass' ? 'pass' : state;
@@ -1058,6 +1128,8 @@ function draw(animateCase = false) {
     content.append(report);
   }
   else if (activeTab==='chat') chatView(content,trial); else eventsView(content,trial);
+  const assessment = assessmentPanel(trial);
+  if (assessment) content.prepend(assessment);
   if (!content.childNodes.length) content.append(node('p','没有对话记录','evidence-note'));
   writeRoute();
 }

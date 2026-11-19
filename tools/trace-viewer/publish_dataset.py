@@ -13,12 +13,15 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from assessment_overlay import add_assessments, attach_review
 from merge_snapshots import LEGACY_IDS, add_matrix, add_semantic_reviews, atomic_write, load, validate
 from synthetic_transcript import MAX_TRACE_BYTES, native_artifact_manifest, read_local, tool_steps
 
 SHA256 = re.compile(r"[a-f0-9]{64}")
 MAX_INDEX_BYTES = 1024 * 1024
 MAX_DATASETS = 4096
+MAX_ASSESSMENT_BYTES = 1024 * 1024
+MAX_ASSESSMENTS_PER_DATASET = 64
 
 
 def private_directory(path):
@@ -80,6 +83,88 @@ def verify_dataset(directory, dataset_id):
     return metadata
 
 
+def assessment_registry(directory):
+    path = directory / "index.json"
+    if not path.exists() and not path.is_symlink():
+        return {"schema_version": 1, "datasets": {}}
+    value = json.loads(read_private(path, MAX_INDEX_BYTES))
+    datasets = value.get("datasets")
+    if (
+        value.get("schema_version") != 1
+        or not isinstance(datasets, dict)
+        or len(datasets) > MAX_DATASETS
+        or any(
+            not SHA256.fullmatch(key)
+            or not isinstance(ids, list)
+            or len(ids) > MAX_ASSESSMENTS_PER_DATASET
+            or len(ids) != len(set(ids))
+            or any(not isinstance(item, str) or not SHA256.fullmatch(item) for item in ids)
+            for key, ids in datasets.items()
+        )
+    ):
+        raise ValueError("Invalid assessment registry")
+    return value
+
+
+def previous_assessments(output, dataset_id):
+    directory = output / "assessments"
+    if not directory.exists() and not directory.is_symlink():
+        return {}
+    private_directory(directory)
+    records = assessment_registry(directory)["datasets"].get(dataset_id, [])
+    merged = {}
+    for identity in records:
+        content = read_private(directory / (identity + ".json"), MAX_ASSESSMENT_BYTES)
+        value = json.loads(content)
+        if (
+            hashlib.sha256(content).hexdigest() != identity
+            or value.get("schema_version") != 1
+            or value.get("dataset_id") != dataset_id
+            or not isinstance(value.get("assessments"), dict)
+        ):
+            raise ValueError("Assessment overlay integrity failed")
+        for key, entry in value["assessments"].items():
+            old = merged.get(key)
+            if old and (
+                old["binding"] != entry.get("binding")
+                or not {row["review_id"] for row in old["reviews"]}.issubset(
+                    {row["review_id"] for row in entry.get("reviews", [])}
+                )
+            ):
+                raise ValueError("Assessment history was removed or changed")
+            merged[key] = entry
+    return merged
+
+
+def publish_assessments(output, dataset_id, assessments):
+    if not assessments:
+        return None
+    directory = output / "assessments"
+    private_directory(directory)
+    record = {"schema_version": 1, "dataset_id": dataset_id, "assessments": assessments}
+    content = json.dumps(record, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
+    if len(content) > MAX_ASSESSMENT_BYTES:
+        raise ValueError("Assessment overlay exceeds its limit")
+    identity = hashlib.sha256(content).hexdigest()
+    target = directory / (identity + ".json")
+    if target.exists() or target.is_symlink():
+        if read_private(target, MAX_ASSESSMENT_BYTES) != content:
+            raise ValueError("Assessment overlay changed")
+    else:
+        atomic_write(target, content)
+    index = assessment_registry(directory)
+    ids = index["datasets"].setdefault(dataset_id, [])
+    if identity not in ids:
+        if len(ids) >= MAX_ASSESSMENTS_PER_DATASET:
+            raise ValueError("Assessment registry is full; no prior review was removed")
+        ids.append(identity)
+        encoded = json.dumps(index, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        if len(encoded) > MAX_INDEX_BYTES:
+            raise ValueError("Assessment registry exceeds its limit")
+        atomic_write(directory / "index.json", encoded)
+    return {"id": identity, "records": len(assessments)}
+
+
 def audit_source_io(source, raw):
     """Reject phase omissions instead of inheriting the viewer's best-effort projection."""
     matrix = load(source / "matrix.json")
@@ -133,7 +218,7 @@ def audit_source_io(source, raw):
     return counts
 
 
-def export_dataset(source, output, *, title=None, minimal_summary=False):
+def export_dataset(source, output, *, title=None, minimal_summary=False, assessment_reviews=()):
     """Return an immutable registered dataset; root legacy files are never read or written."""
     source = source.resolve(strict=True)
     matrix = source / "matrix.json"
@@ -176,6 +261,14 @@ def export_dataset(source, output, *, title=None, minimal_summary=False):
         audit = audit_source_io(source, json.loads(payloads["raw"]))
         dataset_id = hashlib.sha256(payloads["raw"]).hexdigest()
         record = json.loads(payloads["raw"])
+        # Assessments are outside the immutable dataset bytes: dataset IDs are part
+        # of comment identity, even when only a top-level field would have changed.
+        assessments = json.loads(payloads["raw"])
+        assessments["assessments"] = previous_assessments(output, dataset_id)
+        add_assessments(assessments, source)
+        for review_path, report_path in assessment_reviews:
+            review = json.loads(read_private(review_path, 64 * 1024))
+            attach_review(assessments, source, review, report_path)
         metadata = {
             "schema_version": 1,
             "dataset_id": dataset_id,
@@ -221,7 +314,14 @@ def export_dataset(source, output, *, title=None, minimal_summary=False):
                 raise ValueError("Dataset registry exceeds its limit")
             # Publish membership only after the immutable pair and all diagnostics exist.
             atomic_write(directory / "index.json", content)
-        return {"dataset": metadata, "source_io_audit": audit, "evidence": evidence, "publication_authorized": False}
+        assessment = publish_assessments(output, dataset_id, assessments.get("assessments", {}))
+        return {
+            "dataset": metadata,
+            "source_io_audit": audit,
+            "evidence": evidence,
+            "assessment_overlay": assessment,
+            "publication_authorized": False,
+        }
 
 
 def main():
@@ -232,8 +332,27 @@ def main():
     parser.add_argument(
         "--minimal-summary", action="store_true", help="Project summary verdicts; retain complete raw I/O"
     )
+    parser.add_argument(
+        "--assessment-review",
+        action="append",
+        nargs=2,
+        type=Path,
+        default=[],
+        metavar=("SIDECAR", "REPORT"),
+        help="Attach a bound model review to its existing run",
+    )
     args = parser.parse_args()
-    print(json.dumps(export_dataset(args.source, args.output, title=args.title, minimal_summary=args.minimal_summary)))
+    print(
+        json.dumps(
+            export_dataset(
+                args.source,
+                args.output,
+                title=args.title,
+                minimal_summary=args.minimal_summary,
+                assessment_reviews=args.assessment_review,
+            )
+        )
+    )
 
 
 if __name__ == "__main__":

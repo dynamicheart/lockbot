@@ -169,13 +169,47 @@ python3 publish_dataset.py /private/terminal-matrix /private/dataset-stage \
 
 批次标识是原始 `raw.json` 精确字节的 SHA-256，文件放在
 `datasets/<dataset_id>/{raw.json,latest.json,metadata.json}`。目录权限为 `0700`，
-文件为 `0600`。已有标识的内容不得覆盖；新增复核会形成新的标识，旧批次和评论
+文件为 `0600`。已有标识的内容不得覆盖；复核作为独立运行导出时会形成新的标识，旧批次和评论
 继续保留。工具最后原子更新 `datasets/index.json`，格式为
 `{"schema_version":1,"datasets":["<sha256>"]}`；同一文件标识不会重复登记。
 
 经授权上传时先安装所需诊断文件，再安装完整不可变批次目录，最后更新登记表。
 已有登记表须作为本地准备基线保留，不能用不含旧批次的临时登记表覆盖线上版本。
-查看器的「评测批次」可切换历史看板与独立批次；新链接使用 `dataset_id`，
+当前看板合并已登记的来源；直接来源链接使用 `dataset_id`，
 原有 `case`、数字 `run`、`step` 链接继续指向历史看板。每次读取仍检查当前
-超级管理员权限。测例和界面点评全批次共享；模型运行点评绑定所选批次，未保存
+超级管理员权限。测例和界面评论全批次共享；模型运行评论绑定所选批次，未保存
 草稿不会自动挂到另一批次。评论数据库须保留。
+
+## 在原运行上附加模型复核
+
+资源查询和咨询夹具的通用语义检查清单不等于必须人工批准。对已知的
+`resource-cli` v1/v2、咨询 v1/v2/v3，导出器单独记录自动行为结果、模型语义复核和
+人工确认要求；未知清单或明确的人工门禁保持原处理。没有语义复核时显示「待复核」，
+不宣称全面通过；有独立模型复核后显示「通过」「有建议」或「存疑」。自动失败、
+超时和阻塞不会被模型复核覆盖。历史结果字段、运行数量、模型名和消息位置不改写。
+
+先完成独立复核，再将明确的逐例结论绑定到实际证据。`assessment_overlay.py`
+只生成旁证，不调用模型，也不从 Markdown 自动推断结论。目标 JSON 包含
+`suite`、`scenario`、`client`、`model`、`phase`；首版只支持上述两类夹具的阶段 1。
+
+```sh
+python3 assessment_overlay.py --source /private/terminal-matrix \
+  --target /private/review-target.json --report /private/model-review.md \
+  --reviewer Astra --requested-model gpt-6-astra --status pass \
+  --output /private/bound-review.json
+python3 publish_dataset.py /private/terminal-matrix /private/dataset-stage \
+  --minimal-summary --assessment-review /private/bound-review.json /private/model-review.md
+```
+
+`--status findings` 还需 `--findings` 指向显式 JSON 数组，每条含 `severity`、
+`blocking`、`text`。请求模型名不推断运行时版本，也不会被记作人工审核。
+每条记录绑定提示、答复、工具/HTTP 轨迹、阶段结果、矩阵行、冻结安装包和报告摘要。
+变动、缺失、路径越界或符号链接会使导入失败；哈希证明证据对应关系，不证明判断正确。
+复核更正使用 `--supersedes` 引用旧记录，保留旧旁证；冲突复核显示存疑。
+
+旁证放在同级 `assessments/<sha256>.json`，登记表为
+`assessments/index.json`。这是独立的追加式登记；**不会改变**
+`datasets/<dataset_id>` 下三个文件的字节或批次标识，因此原评论 ID 和链接保持不变。
+重复导入同一记录不会增加运行或登记项。授权部署时先上传旁证文件，最后更新旁证
+登记表，并合并保留已有条目。后端在计算原运行 ID 后才附加这些元数据，仍需当前
+超级管理员权限；旁证损坏时原始轨迹和评论仍可读取，损坏的旁证不参与判定。

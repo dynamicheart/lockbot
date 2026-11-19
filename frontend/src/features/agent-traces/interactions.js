@@ -450,11 +450,12 @@ setSidebarWidth(savedWidth);
 function buildCurrentBoard(snapshots) {
   if (!snapshots.length) throw new Error('No published results');
   const base = snapshots[0].data;
-  const board = {...base, title:'LockBot 轨迹浏览器', cases:{}, review_runs:{}, review_targets:{}, updated_cases:[]};
+  const board = {...base, title:'LockBot 轨迹浏览器', cases:{}, review_runs:{}, review_targets:{}, updated_cases:[], assessments:{}};
   delete board.dataset_id;
   const grouped = new Map();
   snapshots.forEach(({data: snapshot, metadata}, sourceIndex) => {
     for (const field of ['labels','criteria','groups']) board[field] = {...board[field], ...snapshot[field]};
+    board.assessments = {...board.assessments, ...snapshot.assessments};
     for (const [key, trials] of Object.entries(snapshot.cases)) {
       if (!grouped.has(key)) grouped.set(key, new Map());
       const families = new Map();

@@ -7,7 +7,10 @@ from test_trace_dataset_ui import INTERACTIONS, VIEWER, function, run
 
 
 def label_functions():
-    return "\n".join(function(VIEWER, name) for name in ("displayModelName", "modelLabel", "trialStatus", "badge"))
+    return "\n".join(
+        function(VIEWER, name)
+        for name in ("displayModelName", "modelLabel", "assessmentForTrial", "assessmentBadge", "trialStatus", "badge")
+    )
 
 
 def test_readable_models_disambiguate_collisions_without_changing_raw_identities():

@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from lockbot.backend.app.auth.dependencies import require_super_admin
 from lockbot.backend.app.auth.models import User
+from lockbot.backend.app.trace_assessment import checked_assessment
 
 PRIVATE_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 MAX_DIAGNOSTIC_BYTES = 16 * 1024 * 1024
@@ -271,6 +272,60 @@ def trace_review_router(directory: Path) -> APIRouter:
         except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
             raise HTTPException(503, "Snapshot is unavailable", headers=PRIVATE_HEADERS) from None
 
+    def assessment_snapshot(data, dataset_id):
+        if dataset_id is None:
+            return {}, False
+        root = folder = None
+        try:
+            root = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                folder = os.open("assessments", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=root)
+            except FileNotFoundError:
+                return {}, False
+            if os.fstat(folder).st_mode & 0o777 != 0o700:
+                raise ValueError("Private assessment directory required")
+            try:
+                index = json.loads(private_file(folder, "index.json", MAX_DATASET_INDEX_BYTES))
+            except FileNotFoundError:
+                return {}, False  # Unregistered staging files are not published reviews.
+            datasets = index.get("datasets")
+            if index.get("schema_version") != 1 or not isinstance(datasets, dict) or len(datasets) > MAX_DATASETS:
+                raise ValueError("Invalid assessment registry")
+            identities = datasets.get(dataset_id, [])
+            if not isinstance(identities, list) or len(identities) > 64 or len(identities) != len(set(identities)):
+                raise ValueError("Invalid assessment registry")
+            merged = {}
+            for identity in identities:
+                if not isinstance(identity, str) or not DATASET_PATTERN.fullmatch(identity):
+                    raise ValueError("Invalid assessment identity")
+                record = json.loads(private_file(folder, identity + ".json", MAX_DATASET_INDEX_BYTES, digest=identity))
+                if (
+                    record.get("schema_version") != 1
+                    or record.get("dataset_id") != dataset_id
+                    or not isinstance(record.get("assessments"), dict)
+                    or len(record["assessments"]) > 512
+                ):
+                    raise ValueError("Invalid assessment record")
+                for key, value in record["assessments"].items():
+                    entry = checked_assessment(value, key, data)
+                    old = merged.get(key)
+                    if old and (
+                        old["binding"] != entry["binding"]
+                        or not {item["review_id"] for item in old["reviews"]}.issubset(
+                            {item["review_id"] for item in entry["reviews"]}
+                        )
+                    ):
+                        raise ValueError("Assessment history changed")
+                    merged[key] = entry
+            return merged, False
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+            return {}, True  # A broken optional review never erases original trace evidence.
+        finally:
+            if folder is not None:
+                os.close(folder)
+            if root is not None:
+                os.close(root)
+
     def trial_summary(trial):
         fields = (
             "model",
@@ -409,6 +464,11 @@ def trace_review_router(directory: Path) -> APIRouter:
                 ]
                 for case_id, trials in data["cases"].items()
             }
+            assessments, assessment_error = assessment_snapshot(data, dataset_id)
+            if assessments:
+                data["assessments"] = assessments
+            if assessment_error:
+                data["assessment_error"] = True
         except (ValueError, KeyError, TypeError, RecursionError):
             raise HTTPException(503, "Snapshot is unavailable", headers=PRIVATE_HEADERS) from None
         if dataset_id is not None:
@@ -440,6 +500,11 @@ def trace_review_router(directory: Path) -> APIRouter:
                         for key, value in values.items()
                         if key in data["cases"] and isinstance(value, str) and len(value) <= 512
                     }
+            assessments, assessment_error = assessment_snapshot(data, dataset_id)
+            if assessments:
+                projected["assessments"] = assessments
+            if assessment_error:
+                projected["assessment_error"] = True
         except (ValueError, KeyError, TypeError, AttributeError, RecursionError):
             raise HTTPException(503, "Snapshot is unavailable", headers=PRIVATE_HEADERS) from None
         if dataset_id is not None:
