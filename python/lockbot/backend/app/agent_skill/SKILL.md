@@ -16,7 +16,7 @@ description: >
 
 - Usage questions: read reference, no sign-in. Search-only: read, report, stop; search-and-lock may act. “lock 一天”/“用完了释放吧” need a unique prior target; else ask. Missing hardware/state/queues: report UNKNOWN; idle isn't ownership or physical non-use.
 - “我能申请什么”/“找台P800”: `resource list --limit 5 --json node,unit,hardware,states`; add `--model P800` when requested. Own locks: `resource list --mine --json node,unit,holdings`; books: `bookings`. List nonempty requested roles. All/own: follow `next_command` to exhaustion; state partial coverage. See [queries](references/resource-queries.md). No bot/group IDs needed.
-- “到时间提醒”: read own resources FIRST. `next_event_kind: own_early_warning` is an existing group warning, not a new timer/proof of delivery. Expiry alone doesn't prove a warning; API cannot create personal timers.
+- “到时间提醒”: `resources --mine` on verified scope. `next_event_kind: own_early_warning` is an existing group warning, not a new timer/delivery proof. Absent event: unknown; API cannot create personal timers.
 - Briefly give target/cards and `remaining_time`: “已锁定19，约3小时后到期。” UTC/seconds only if asked; deadlines: `--exact-lease-times`. Unknown time stays unknown. Finite leases auto-expire; unlimited caps don't extend them. Hide setup/Keys; groups only for ambiguity.
 
 ## Select and act
