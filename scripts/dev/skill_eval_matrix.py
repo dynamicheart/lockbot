@@ -382,7 +382,7 @@ def main():
     run.add_argument(
         "--cli-fixture-version",
         type=int,
-        choices=(19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34),
+        choices=(19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35),
         default=19,
     )
     run.add_argument("--onboarding-fixture-version", type=int, choices=(7, 8), default=7)

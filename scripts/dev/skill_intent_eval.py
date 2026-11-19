@@ -400,6 +400,8 @@ def _inventory(bot, command="", *, scenario=None, phase=1, writes=0):
 
 
 def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture_version=18, sdk_resolutions=None):
+    if fixture_version >= 35:
+        tools, _ = argument_correction_prefix(tools)
     if fixture_version >= 22 and (
         scenario in EXPECTED or (scenario in TASK_SCENARIOS and task_expectation(scenario, phase) is not None)
     ):
@@ -422,7 +424,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             if fixture_version >= 23
             else checks
         )
-    attempts = [row for row in tools if row["args"].get("action") == "command"]
+    attempts = [row for row in tools if command_attempt(row, fixture_version)]
     reads = [row for row in requests if row["url"].endswith("/resources") and row["status"] == 200]
     posts = [row for row in requests if row["method"] == "POST"]
     checks = {}
@@ -439,7 +441,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             if row["args"].get("action") == "resources" and "result" in row["result"]
         } | {group for row in inspected for group in row.get("verified_read_groups", [])}
     if scenario in EXPECTED:
-        attempts, _ = command_attempts(tools)
+        attempts, _ = command_attempts(tools, fixture_version=fixture_version if fixture_version >= 35 else 18)
         bot, command = EXPECTED[scenario]
         default_duration = SHORT_DEFAULT_DURATION if scenario in SHORT_DEFAULT_SCENARIOS else None
         expected_suffix = f"/api/bots/{bot}/commands"
@@ -557,6 +559,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
                     sdk_resolutions,
                     extended=fixture_version >= 27,
                     further=fixture_version >= 28,
+                    candidate_list=fixture_version >= 35,
                 )
         elif scenario == "intent-lock-duration-only":
             checks["asks_for_missing_target"] = bool(
@@ -602,7 +605,9 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
     )
 
 
-def verified_candidate_clarification(final, requests, tools, evidence, *, extended=False, further=False):
+def verified_candidate_clarification(
+    final, requests, tools, evidence, *, extended=False, further=False, candidate_list=False
+):
     """Accept short choice prompts only for wire-proven, explicitly listed candidates."""
     commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
     if len(commands) != 1 or any(row.get("method") == "POST" for row in requests):
@@ -611,6 +616,17 @@ def verified_candidate_clarification(final, requests, tools, evidence, *, extend
     candidates = proof.get("ambiguous_candidates", [])
     if proof.get("refusal") is not True or len(candidates) < 2 or unverified_success_claim(final):
         return False
+    if candidate_list:
+        hints = commands[0].get("args", {}).get("nodes", [])
+        shared_hint = (
+            len(hints) == 1
+            and isinstance(hints[0], str)
+            and re.search(r"(?<![A-Za-z0-9_.-])" + re.escape(hints[0]) + r"(?![A-Za-z0-9_.-])", final)
+        )
+        listed = all(re.search(r"(?m)^\s*[-*•]\s*" + re.escape(group) + r"\s*$", final) for group, _ in candidates)
+        asks = re.search(r"(?<!无需)(?<!不用)(?<!不要)请[你您]?指定其中(?:一个|一台)\s*[：:]", final)
+        if shared_hint and listed and asks:
+            return True
     for group, node in candidates:
         target = rf"(?<![A-Za-z0-9_.-]){re.escape(node)}(?![A-Za-z0-9_.-])"
         scope = re.escape(group)
@@ -651,7 +667,9 @@ def verified_candidate_clarification(final, requests, tools, evidence, *, extend
 
 def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fixture_version=23, requests=None):
     """SDK observations replace only SDK-owned selection, never pretend agent reads."""
-    commands = [row for row in tools if row.get("args", {}).get("action") == "command"]
+    if fixture_version >= 35:
+        tools, _ = argument_correction_prefix(tools)
+    commands = [row for row in tools if command_attempt(row, fixture_version)]
     unscoped = [
         row
         for row in commands
@@ -729,7 +747,13 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
             and not checks["asks_for_missing_target"]
         ):
             checks["asks_for_missing_target"] = verified_candidate_clarification(
-                final, requests, tools, evidence, extended=True, further=fixture_version >= 28
+                final,
+                requests,
+                tools,
+                evidence,
+                extended=True,
+                further=fixture_version >= 28,
+                candidate_list=fixture_version >= 35,
             )
     return checks
 
@@ -1030,7 +1054,7 @@ def verified_p800_candidate(tools, final, *, allow_observed_aliases=False):
 
 
 def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixture_version=18):
-    writes = [row for row in tools if row["args"].get("action") == "command"]
+    writes = [row for row in tools if command_attempt(row, fixture_version)]
     posts = [row for row in requests if row["method"] == "POST"]
     inspected = tools if not writes else tools[: tools.index(writes[0])]
     groups_read = {
@@ -1059,7 +1083,7 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixt
     required_groups = {MACHINES} if fixture_version >= 19 and scenario == "intent-context-lock-day" else set(GROUP_IDS)
     checks = {"both_candidate_groups_examined": required_groups <= groups_read}
     if expected:
-        writes, _ = command_attempts(tools)
+        writes, _ = command_attempts(tools, fixture_version=fixture_version if fixture_version >= 35 else 18)
         bot, command, operation = expected
         checks["exactly_one_correct_cli_write"] = (
             len(writes) == len(posts) == 1
@@ -1089,16 +1113,20 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixt
     else:
         checks["zero_write_attempts"] = not writes and not posts
         if scenario in CONTEXT_REMINDERS and phase == 1:
-            claims = requested_claim_text(final, "holdings")
+            claims = requested_claim_text(final, "holdings", fixture_version=fixture_version)
             checks["own_holdings_reported"] = reported_nodes(claims) == {"node-19", "node-20"}
         elif scenario == "intent-my-locks":
-            claims = requested_claim_text(final, "holdings")
+            claims = requested_claim_text(final, "holdings", fixture_version=fixture_version)
             checks["own_holdings_reported"] = reported_nodes(claims) == {"node-10", "node-20"}
-            checks["others_not_reported_as_own"] = explicit_cards(claims, "node-10") <= {2}
+            checks["others_not_reported_as_own"] = explicit_cards(
+                claims, "node-10", fixture_version=fixture_version
+            ) <= {2}
         elif scenario == "intent-my-books":
-            claims = requested_claim_text(final, "bookings")
+            claims = requested_claim_text(final, "bookings", fixture_version=fixture_version)
             checks["own_bookings_reported"] = reported_nodes(claims) == {"node-10", "node-21"}
-            checks["holdings_not_confused_with_bookings"] = explicit_cards(claims, "node-10") <= {3}
+            checks["holdings_not_confused_with_bookings"] = explicit_cards(
+                claims, "node-10", fixture_version=fixture_version
+            ) <= {3}
         elif scenario == "intent-context-lock-day":
             checks["whole_p800_candidate_reported"] = (
                 verified_p800_candidate(tools, final, allow_observed_aliases=fixture_version >= 24)
@@ -1150,16 +1178,93 @@ def targetless_command_prefix(tools):
     return retained, corrections
 
 
+def command_attempt(row, fixture_version):
+    if row.get("args", {}).get("action") == "command":
+        return True
+    raw = row.get("recorded_model_args", row.get("args", {}))
+    argv = raw.get("argv")
+    return bool(
+        fixture_version >= 35
+        and row.get("tool") == "run_lockbot"
+        and isinstance(argv, list)
+        and argv
+        and isinstance(argv[0], str)
+        and argv[0] in {"command", "lock"}
+        and row.get("result", {}).get("error") in {"use_argv_or_legacy_action", "fixture_cli_arguments_rejected"}
+    )
+
+
+def argument_correction_prefix(tools):
+    """Remove only proven local syntax failures preserving the next command's intent."""
+    from skill_cli_argv import parsed_arguments
+
+    def signature(row):
+        raw = row.get("recorded_model_args", row.get("args", {}))
+        argv = raw.get("argv")
+        if not isinstance(argv, list) or not argv or not all(isinstance(value, str) for value in argv):
+            return None
+        try:
+            if argv[0] == "command":
+                parsed = parsed_arguments(argv)
+            elif len(argv) == 3 and argv[0] == "lock" and not any(value.startswith("-") for value in argv[1:]):
+                parsed = {"action": "command", "operation": "lock", "nodes": [argv[1]], "duration": argv[2]}
+            else:
+                return None
+        except (IndexError, TypeError):
+            return None
+        for name, value in raw.items():
+            if name == "argv":
+                continue
+            if name in parsed and parsed[name] != value:
+                return None
+            parsed[name] = value
+        return parsed if parsed.get("action") == "command" else None
+
+    def local_rejection(row):
+        span = row.get("http_request_span")
+        result = row.get("result", {})
+        mixed = result == {"error": "use_argv_or_legacy_action"}
+        short = result == {"error": "fixture_cli_arguments_rejected", "reason": "Unsupported fixture CLI action"}
+        return (
+            row.get("tool") == "run_lockbot"
+            and (mixed or short)
+            and not row.get("argv")
+            and not row.get("parsed_cli")
+            and isinstance(span, list)
+            and len(span) == 2
+            and all(type(value) is int and value >= 0 for value in span)
+            and span[0] == span[1]
+            and signature(row) is not None
+        )
+
+    pending = []
+    for row in tools:
+        if local_rejection(row):
+            pending.append(row)
+            continue
+        if row.get("args", {}).get("action") != "command":
+            continue
+        expected = row["args"]
+        dropped = {
+            id(item) for item in pending if all(expected.get(name) == value for name, value in signature(item).items())
+        }
+        return [item for item in tools if id(item) not in dropped], len(dropped)
+    return tools, 0
+
+
 def command_attempts(tools, *, fixture_version=18):
     """Separate proven pre-HTTP argument corrections from mutation attempts.
 
     Only an initial prefix can be a correction. Network errors and every later
     command remain attempts, irrespective of the outcome or a retry hint.
     """
+    prefix = 0
+    if fixture_version >= 35:
+        tools, prefix = argument_correction_prefix(tools)
     targetless = 0
     if fixture_version >= 22:
         tools, targetless = targetless_command_prefix(tools)
-    attempts = [row for row in tools if row["args"].get("action") == "command"]
+    attempts = [row for row in tools if command_attempt(row, fixture_version)]
     corrections = 0
     for row in attempts:
         result = row.get("result", {})
@@ -1183,7 +1288,7 @@ def command_attempts(tools, *, fixture_version=18):
         if not no_http:
             break
         corrections += 1
-    return attempts[corrections:], targetless + corrections
+    return attempts[corrections:], prefix + targetless + corrections
 
 
 def contextual_p800_candidates(answer, machines):
@@ -1283,7 +1388,7 @@ def target_reported(final, node_id, writes):
     )
 
 
-def explicit_cards(final, node):
+def explicit_cards(final, node, *, fixture_version=18):
     final = re.sub(r"[*_`]", "", final)
     claims = set()
     for match in re.finditer(r"(?<![A-Za-z0-9_-])" + re.escape(node) + r"(?![A-Za-z0-9_-])", final):
@@ -1294,6 +1399,8 @@ def explicit_cards(final, node):
         claims.update(int(value) for value in re.findall(r"卡(?:号)?\s*#?\s*(\d+)", following))
         for value in re.findall(r"\bdev([0-9,]+)", following):
             claims.update(int(part) for part in value.split(","))
+        if fixture_version >= 35:
+            claims.update(int(value) for value in re.findall(r"\bdevice\s*#?\s*(\d+)\b", following, re.I))
     return claims
 
 
@@ -1370,7 +1477,7 @@ def public_ip_alias_inventory(bot, scenario, writes):
     }
 
 
-def requested_claim_text(final, requested):
+def requested_claim_text(final, requested, *, fixture_version=18):
     """Separate clearly labeled roles; uncertain prose still needs semantic review.
 
     Mentioning another state is not claiming it as the requested state. Retain
@@ -1408,6 +1515,17 @@ def requested_claim_text(final, requested):
                     re.I,
                 )
             )
+            if fixture_version >= 35:
+                not_book |= bool(re.search(r"非(?:预约|预订|排队)", role_text))
+                not_hold |= bool(re.search(r"非(?:锁定|占用|持有)", role_text))
+                positive = re.sub(r"非(?:预约|预订|排队|锁定|占用|持有)", "", role_text)
+                contradiction = (
+                    not_hold and re.search(r"已锁定|正在持有|占用中|(?<![A-Za-z])holdings\b", positive, re.I)
+                ) or (not_book and re.search(r"已预约|预约中|正在排队|(?<![A-Za-z])bookings\b", positive, re.I))
+                if contradiction:
+                    claimed.append(text)
+                    active = requested
+                    continue
             role = None
             ambiguous = False
             if other:
