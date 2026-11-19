@@ -3182,8 +3182,7 @@ def own_summary_rows(
                     "booking_units": 0,
                     "holdings": [],
                     "bookings": [],
-                    "snapshot_fresh": snapshot.get("snapshot_fresh_for_write") is True
-                    and snapshot.get("health") == "running",
+                    "snapshot_fresh": read_snapshot_fresh(snapshot) and snapshot.get("health") == "running",
                 },
             )
             alias = entry.get("alias")
@@ -3230,7 +3229,7 @@ def own_summary_rows(
         and not unidentified
         and not invalid_units
         and allocation is not None
-        and snapshot.get("snapshot_fresh_for_write") is True
+        and read_snapshot_fresh(snapshot)
         and snapshot.get("health") == "running",
     }
 
@@ -3492,6 +3491,7 @@ def query_summary_output(
     rows, unknown, unidentified = [], set(), 0
     unknown_ownership_units = 0
     own_sets, own_scope_conflicts = {}, set()
+    metrics_sources = []
     raw_observations, raw_conflicts = {}, set()
     complete = value.get("complete", True) is True
     for group in groups:
@@ -3507,6 +3507,8 @@ def query_summary_output(
             "bot_uuid": bot.get("uuid"),
             "actor": actor,
         }
+        if isinstance(snapshot.get("metrics"), dict):
+            metrics_sources.append((resource_scope_digest(record), snapshot["metrics"]))
 
         def reference_factory(node, record=record):
             return resource_reference(record, node, width=64)
@@ -3563,6 +3565,24 @@ def query_summary_output(
         if any(reference.startswith("s-" + scope + "/") for scope in own_scope_conflicts):
             conflicts.add(reference)
             distinct[reference] = {"ref": reference, "node": row["node"], "observation_conflict": True}
+    metric_refs, ambiguous_metrics = set(), False
+    for scope, metrics in metrics_sources:
+        candidates = [
+            row
+            for reference, row in distinct.items()
+            if reference.startswith("s-" + scope + "/") and not row.get("observation_conflict")
+        ]
+        for row in merge_summary_metrics(candidates, metrics):
+            if row["ref"] in metric_refs:
+                ambiguous_metrics = True
+                row["metrics"] = {
+                    "status": "invalid",
+                    "error": "ambiguous_node_metrics",
+                    "best_effort": True,
+                    "does_not_authorize_resources": True,
+                }
+            distinct[row["ref"]] = row
+            metric_refs.add(row["ref"])
     rows = list(distinct.values())
     complete &= not conflicts and not own_scope_conflicts
     if fields is not None:
@@ -3603,6 +3623,12 @@ def query_summary_output(
             if any(snapshot.get("instruction_state") == "changed" for snapshot in legacy_snapshots)
             else "unknown",
             instruction_refresh_required=True,
+        )
+    if metrics_sources:
+        notes.update(
+            metrics_requested=True,
+            metrics_read_complete=not ambiguous_metrics
+            and all(metrics.get("complete") is True for _, metrics in metrics_sources),
         )
     if "scope_page" in value:
         notes["scope_page"] = value["scope_page"]
@@ -3654,6 +3680,7 @@ SUMMARY_FIELDS = (
     "bookings",
     "holdings_has_more",
     "bookings_has_more",
+    "metrics",
 )
 
 
@@ -3962,6 +3989,32 @@ def attach_metrics(client, snapshot, *, full=False, context=None):
                 result["unread"].append({"nodes": nodes[offset + len(batch) :], "error": "metrics_not_read"})
             break
     return {**snapshot, "metrics": result}
+
+
+def attach_summary_metrics(client, snapshot, *, limit=SUMMARY_NODE_LIMIT, offset=0, nodes=(), model=None):
+    """Read telemetry only for the bounded display prefix of one verified scope."""
+    preview = json.loads(
+        query_summary_output(
+            {"result": snapshot, "_approved_origin": client.base},
+            fields=[],
+            limit=limit,
+            offset=offset,
+            nodes=nodes,
+            model=model,
+            private_values=client.secrets,
+        )
+    )["result"]
+    wanted = {parse_resource_reference(row["ref"])[1] for row in preview["rows"] if not row.get("observation_conflict")}
+    fields = ("holdings", "bookings") if snapshot.get("scope") == "own" else ("resources",)
+    selected = {
+        **snapshot,
+        **{
+            field: [row for row in snapshot[field] if row.get("node" if field != "resources" else "id") in wanted]
+            for field in fields
+        },
+    }
+    attached = attach_metrics(client, selected, context=snapshot.get("context"))
+    return {**snapshot, "metrics": attached["metrics"]}
 
 
 def observation_at_completion(client, snapshot):
@@ -4911,8 +4964,10 @@ def main(argv=None):
                 args.offset = 0 if args.offset is None else args.offset
                 if not 1 <= args.limit <= MAX_OVERVIEW_ENTRIES or args.offset < 0:
                     raise ClientError("invalid_summary_page")
-                if args.full or args.with_metrics:
+                if args.full:
                     raise ClientError("summary_combination_not_supported")
+                if args.with_metrics and args.action == "resources-all":
+                    raise ClientError("summary_aggregate_metrics_not_supported")
             if args.action == "resources" and args.ref:
                 if args.mine:
                     raise ClientError("resource_reference_mine_not_supported")
@@ -5038,7 +5093,13 @@ def main(argv=None):
             if not summary_requested:
                 result = select_inventory(result, nodes=args.node, model=args.model)
             if args.with_metrics:
-                result = attach_metrics(client, result, full=args.full)
+                result = (
+                    attach_summary_metrics(
+                        client, result, limit=args.limit, offset=args.offset, nodes=args.node, model=args.model
+                    )
+                    if summary_requested
+                    else attach_metrics(client, result, full=args.full)
+                )
             result = observation_at_completion(client, result)
         elif args.action == "recover":
             result = client.recover(args.destination, scope=args.scope)

@@ -187,6 +187,27 @@ def test_packaged_legacy_separate_read_is_opt_in_and_revision_independent(legacy
     assert snapshot["context_source"] == "separate_verified_read"
 
 
+def test_legacy_own_summary_reports_read_freshness_without_write_authority(legacy):
+    card = legacy.scope.resources["resources"][0]["devices"][0]
+    card.update(
+        lock_status="exclusive",
+        dev_model="P800",
+        holders=[
+            {
+                "external_user_id": legacy.scope.context["actor"]["external_user_id"],
+                "remaining_seconds": 7200,
+            }
+        ],
+    )
+    output = legacy.run("resources", "--mine", "--summary")
+    result = output["result"]
+    assert result["scope_complete"] and result["view"] == "own"
+    assert result["rows"][0]["snapshot_fresh"] is True
+    assert result["rows"][0]["holdings"][0]["device"] == 0
+    assert result["api_profiles"] == ["native-legacy-read-v1"]
+    assert result["instruction_refresh_required"] and result["update_required"]
+
+
 @pytest.mark.parametrize(
     "field,value,error",
     [
