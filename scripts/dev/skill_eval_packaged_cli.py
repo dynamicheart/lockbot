@@ -68,7 +68,7 @@ class PackagedCliHost:
     def __init__(self, fixture, *, artifact=None, options=None):
         self.artifact = artifact if artifact is not None else fixture.frozen
         self.options = OPTIONS if options is None else options
-        self.argv_protocol = fixture.case.get("cli_argv_protocol") == 1
+        self.argv_protocol = fixture.case.get("cli_argv_protocol") in {1, 2}
         if self.argv_protocol:
             self.options = {**self.options, "resource": set()}
         self.fixture = fixture

@@ -9,7 +9,7 @@ import json
 
 from skill_eval_packaged_cli import OPTIONS, PackagedCliHost
 
-PROTOCOL = 1
+PROTOCOL = 2
 EXTRA_OPTIONS = {
     "discover": {"--origin", "--destination"},
     "enroll": {"--origin", "--destination", "--group", "--scope", "--agent-label"},
@@ -37,7 +37,7 @@ EXTRA_OPTIONS = {
 
 
 def enabled(case):
-    return case.get("cli_argv_protocol") == PROTOCOL
+    return case.get("cli_argv_protocol") in {1, PROTOCOL}
 
 
 def add_argv_schema(definitions, case):
@@ -49,7 +49,10 @@ def add_argv_schema(definitions, case):
         schema = tool["inputSchema"]
         schema["properties"]["argv"] = {"type": "array", "items": {"type": "string"}, "maxItems": 48}
         schema["required"] = []
-        schema["oneOf"] = [{"required": ["action"]}, {"required": ["argv"]}]
+        if case.get("cli_argv_protocol") == 1:
+            schema["oneOf"] = [{"required": ["action"]}, {"required": ["argv"]}]
+        # Native clients can discard a tool with root-level schema unions.
+        # The actual dispatcher still enforces argv/action exclusivity.
         tool["description"] += " Prefer argv for the real CLI syntax; pass argv OR the legacy action fields."
     return definitions
 

@@ -155,7 +155,7 @@ def test_release_current_cases_support_real_argv(tmp_path, scenario, argv):
     root = tmp_path / scenario
     release.prepare(root, artifact(tmp_path), scenario)
     fixture = release.ReleaseFixture(root)
-    assert fixture.case["release_fixture_version"] == 4
+    assert fixture.case["release_fixture_version"] == release.LATEST_FIXTURE_VERSION
     result = run(fixture, *argv)
     assert result.get("exit_code") == 0, result
     assert release.score(root, "已完成核对。")["observable_pass"]

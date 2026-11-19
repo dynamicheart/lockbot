@@ -24,6 +24,7 @@ from skill_eval_artifact import load as load_artifact
 VERSION = 3
 MODEL = "official:gpt-6-luna"
 FIXTURE_VERSION = 3
+LATEST_FIXTURE_VERSION = 5
 UNDERLYING = {
     "alias-set": "intent-lock-tail",
     "alias-clear": "intent-lock-tail",
@@ -175,11 +176,11 @@ def _response(body, status=200):
     return {"status": status, "body": body}
 
 
-def prepare(root, artifact, scenario, *, installed_artifact=None, fixture_version=4):
+def prepare(root, artifact, scenario, *, installed_artifact=None, fixture_version=LATEST_FIXTURE_VERSION):
     """Prepare one independent model case against a frozen packaged CLI."""
     if scenario not in SCENARIOS:
         raise ValueError(f"Unknown cli-release scenario: {scenario}")
-    if fixture_version not in {3, 4}:
+    if fixture_version not in {3, 4, LATEST_FIXTURE_VERSION}:
         raise ValueError("Unsupported release fixture version")
     if scenario == "update-inquiry":
         if installed_artifact is None:
@@ -219,8 +220,11 @@ def prepare(root, artifact, scenario, *, installed_artifact=None, fixture_versio
         release_scenario=scenario,
         installed_package_version=case_installed_package,
     )
+    if fixture_version == 4:
+        case["cli_argv_protocol"] = 1
     save_json(case_path, case)
-    (root / "prompt.txt").write_text(SCENARIOS[scenario]["prompt"])
+    prompt = "Skill有新版吗" if scenario == "update-inquiry" and fixture_version >= 5 else SCENARIOS[scenario]["prompt"]
+    (root / "prompt.txt").write_text(prompt)
     catalog_artifact = load_artifact(installed_artifact) if installed_artifact else load_artifact(artifact)
     catalog = cli.installed_skill_catalog(root / "workspace/skills/lockbot-agent", catalog_artifact)
     (root / "system.txt").write_text(
@@ -542,8 +546,12 @@ def _validated_update_evidence(root, case, rows, trace_rows):
 def score(root, final):
     case = json.loads((Path(root) / "case.json").read_text())
     scenario = case["release_scenario"]
-    rows = [json.loads(line) for line in (Path(root) / "cli-http.jsonl").read_text().splitlines() if line.strip()]
-    trace_rows = [json.loads(line) for line in (Path(root) / "trace.jsonl").read_text().splitlines() if line.strip()]
+
+    def records(name):
+        path = Path(root) / name
+        return [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path.is_file() else []
+
+    rows, trace_rows = records("cli-http.jsonl"), records("trace.jsonl")
     manifest_reads, v4_update_observed = (set(), False)
     if scenario == "update-inquiry" and case["release_fixture_version"] >= 4:
         manifest_reads, v4_update_observed = _validated_update_evidence(root, case, rows, trace_rows)
