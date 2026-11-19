@@ -346,7 +346,7 @@ def test_distinct_saved_scopes_do_not_share_authority_or_names(legacy):
         for group in groups
     }
     assert labels == {"synthetic-bot-1": None, "synthetic-bot-2": "only-second"}
-    assert len(legacy.events) == 6
+    assert len(legacy.events) == 5
     assert len([event for event in legacy.events if event["path"] == "/api/agent/context"]) == 2
 
 
@@ -360,13 +360,21 @@ def test_bounded_read_failures_do_not_replay_other_reads(legacy, status, expecte
 
 def test_multi_scope_budget_exhaustion_exposes_unvisited_suffix(legacy):
     for number in range(2, 7):
-        legacy.connection(number)
+        last = legacy.connection(number)
+    deferred_key = last.path.with_name("key")
+    material = deferred_key.read_bytes()
+    deferred_key.unlink()
     output = legacy.run("resources-all", "--directory", str(legacy.scope.path.parent.parent), scoped=False)
-    assert len(legacy.events) == 12
-    assert len(output["result"]["groups"]) == 4
+    assert len(legacy.events) == 11
+    assert len(output["result"]["groups"]) == 5
+    assert len([event for event in legacy.events if event["path"] == "/api/agent/context"]) == 5
+    assert output["result"]["scope_page"]["attempted_connections"] == 5
     assert output["result"]["unread"]
     cursor = output["result"]["scope_page"]["next_after_scope"]
     assert cursor
+    assert {row["error"] for row in output["result"]["unread"]} == {"request_budget_exhausted"}
+    deferred_key.write_bytes(material)
+    deferred_key.chmod(0o600)
     legacy.events.clear()
     continued = legacy.run(
         "resources-all",
@@ -376,8 +384,8 @@ def test_multi_scope_budget_exhaustion_exposes_unvisited_suffix(legacy):
         cursor,
         scoped=False,
     )["result"]
-    assert len(continued["groups"]) == 2 and len(legacy.events) == 6
-    assert continued["scope_page"]["prior_connections"] == 4
+    assert len(continued["groups"]) == 1 and len(legacy.events) == 3
+    assert continued["scope_page"]["prior_connections"] == 5
     assert continued["scope_page"]["exhausted"] is True
     assert continued["unread"] == []
 
@@ -473,3 +481,194 @@ def test_bounded_summary_retains_profile_instruction_state_and_read_freshness(le
     assert output["update_required"] is True
     assert output["rows"][0]["snapshot_fresh"] is True
     assert output["rows"][0]["idle_device_ids"] == [0]
+
+
+def test_same_service_34_scopes_complete_with_finite_cursor_progress_and_no_disk_cache(legacy):
+    for number in range(2, 35):
+        legacy.connection(number)
+    directory = legacy.scope.path.parent.parent
+    before = {str(path): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+    cursor, seen, requests, pages = None, [], 0, 0
+    while True:
+        legacy.events.clear()
+        args = ("--after-scope", cursor) if cursor else ()
+        result = legacy.run("resources-all", "--directory", str(directory), *args, scoped=False)["result"]
+        pages += 1
+        assert pages <= 7
+        assert result["http_requests"] == len(legacy.events) <= 12
+        assert len([event for event in legacy.events if event["path"] == "/api/agent-skill"]) == 1
+        assert "Authorization" not in legacy.events[0]["headers"]
+        requests += len(legacy.events)
+        seen.extend(group["identity"]["bot"]["uuid"] for group in result["groups"])
+        assert result["scope_page"]["attempted_connections"] == len(result["groups"])
+        next_cursor = result["scope_page"]["next_after_scope"]
+        if next_cursor is None:
+            assert result["scope_page"]["exhausted"] and not result["unread"]
+            break
+        assert next_cursor != cursor and not result["scope_page"]["exhausted"]
+        cursor = next_cursor
+    assert len(seen) == len(set(seen)) == 34
+    assert pages == 7 and requests == 75  # Previously 9 subprocesses and 102 GETs.
+    assert before == {str(path): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize("difference", ["origin", "instance"])
+def test_descriptor_reuse_requires_approved_origin_and_pinned_instance(legacy, difference):
+    second = legacy.connection(2)
+    if difference == "origin":
+        second.config["approved_origin"] = legacy.origin.replace("127.0.0.1", "localhost")
+    else:
+        second.config["instance_id"] = "different-instance"
+    second.path.write_text(json.dumps(second.config))
+    # A missing Key makes an accidental cached-profile protected start observable.
+    if difference != "origin":
+        second.path.with_name("key").unlink()
+    result = legacy.run("resources-all", "--directory", str(second.path.parent.parent), scoped=False)["result"]
+    assert len([event for event in legacy.events if event["path"] == "/api/agent-skill"]) == 2
+    assert len(legacy.events) == (6 if difference == "origin" else 4)
+    assert len(result["groups"]) == (2 if difference == "origin" else 1)
+    if difference != "origin":
+        assert result["unread"][0]["error"] == "instance_mismatch"
+
+
+def test_replacement_context_invalidates_reuse_before_later_key(legacy):
+    second, third = legacy.connection(2), legacy.connection(3)
+    third.path.with_name("key").unlink()
+
+    def replaced(body):
+        if body["bot"]["id"] == 2:
+            body["server"]["instance_id"] = "replacement-instance"
+            legacy.manifest["instance_id"] = "replacement-instance"
+        return 200, {}, body
+
+    legacy.faults["/api/agent/context"] = replaced
+    result = legacy.run("resources-all", "--directory", str(second.path.parent.parent), scoped=False)["result"]
+    assert len(result["groups"]) == 1
+    assert [event["path"] for event in legacy.events] == [
+        "/api/agent-skill",
+        "/api/agent/context",
+        "/api/bots/1/resources",
+        "/api/agent/context",
+        "/api/agent-skill",
+    ]
+    assert [row["error"] for row in result["unread"]] == ["instance_mismatch", "instance_mismatch"]
+
+
+@pytest.mark.parametrize("fault", ["status", "profile", "api-header"])
+def test_failed_anonymous_discovery_is_not_reused(legacy, fault):
+    second = legacy.connection(2)
+    attempts = []
+
+    def fail_once(body):
+        attempts.append(True)
+        if len(attempts) == 1:
+            if fault == "status":
+                return 503, {}, {}
+            if fault == "api-header":
+                return 200, {"X-Lockbot-API-Compatibility": "incompatible"}, body
+            body["credential_scheme"] = "unknown"
+        return 200, {}, body
+
+    legacy.faults["/api/agent-skill"] = fail_once
+    result = legacy.run("resources-all", "--directory", str(second.path.parent.parent), scoped=False)["result"]
+    assert len(attempts) == 2 and len(legacy.events) == 4
+    assert len(result["groups"]) == 1 and len(result["unread"]) == 1
+    assert result["groups"][0]["identity"]["bot"]["uuid"] == second.context["bot"]["uuid"]
+
+
+def test_cached_descriptor_is_copied_revalidated_and_replays_header_notice(legacy):
+    second = legacy.connection(2)
+    legacy.faults["/api/agent-skill"] = lambda body: (200, {"x-lockbot-skill-update": "update_available"}, body)
+    cache = {}
+    first = legacy.module.Client(legacy.scope.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    first.discover()
+    first.manifest["capabilities"].clear()
+    first.manifest["context_url"] = "/mutated"
+    first._discovery_headers.clear()
+    other = legacy.module.Client(second.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    context = other.context()
+    assert other.manifest == legacy.manifest
+    assert context["instruction_state"] == "changed" and other.needs_update
+    assert len([event for event in legacy.events if event["path"] == "/api/agent-skill"]) == 1
+    # Even tampered in-memory metadata cannot bypass validation for the next Key.
+    descriptor, _ = next(iter(cache.values()))
+    descriptor["instance_id"] = "tampered"
+    blocked = legacy.module.Client(second.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    with pytest.raises(legacy.module.ClientError, match="instance_mismatch"):
+        blocked.context()
+    assert blocked.key is None
+
+
+def test_cached_descriptor_does_not_share_actor_or_bot_authority(legacy):
+    second, third = legacy.connection(2, platform="feishu"), legacy.connection(3)
+    second.context["actor"]["external_user_id"] = "different-actor"
+    third.context["bot"]["uuid"] = "different-bot"
+    result = legacy.run("resources-all", "--directory", str(second.path.parent.parent), scoped=False)["result"]
+    assert len(result["groups"]) == 1
+    assert [row["error"] for row in result["unread"]] == [
+        "context_actor_mismatch_reinitialize_connection_without_rotating_key",
+        "context_identity_mismatch",
+    ]
+    assert len([event for event in legacy.events if event["path"] == "/api/agent/context"]) == 3
+    assert not any(event["path"] in {"/api/bots/2/resources", "/api/bots/3/resources"} for event in legacy.events)
+
+
+def test_unknown_instance_cannot_reuse_a_pinned_descriptor(legacy):
+    cache = {}
+    first = legacy.module.Client(legacy.scope.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    first.discover()
+    legacy.scope.config.pop("instance_id")
+    legacy.scope.path.write_text(json.dumps(legacy.scope.config))
+    legacy.scope.path.with_name("key").unlink()
+    client = legacy.module.Client(legacy.scope.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    with pytest.raises(legacy.module.ClientError, match="connection_identity_not_pinned"):
+        client.context()
+    assert len(legacy.events) == 2 and client.key is None
+    assert len(cache) == 1
+
+
+@pytest.mark.parametrize("signal", ["header", "json"])
+def test_reused_modern_discovery_retains_revision_notices(legacy, signal):
+    second = legacy.connection(2)
+    legacy.manifest.update(skill_id="lockbot-agent", version=legacy.module.installed_version(legacy.root))
+    for scope in (legacy.scope, second):
+        scope.context["skill"]["version"] = legacy.manifest["version"]
+
+    def notice(body):
+        headers = {}
+        if signal == "header":
+            headers["x-lockbot-skill-version"] = "f" * 16
+        else:
+            body["skill_update"] = {"current_version": "f" * 16}
+        return 200, headers, body
+
+    legacy.faults["/api/agent-skill"] = notice
+    cache = {}
+    for scope in (legacy.scope, second):
+        client = legacy.module.Client(scope.path, root=legacy.root, _discovery_cache=cache)
+        client.context()
+        assert client.needs_update
+    assert len([event for event in legacy.events if event["path"] == "/api/agent-skill"]) == 1
+
+
+def test_client_profile_never_reuses_an_opt_in_legacy_descriptor(legacy):
+    cache = {}
+    first = legacy.module.Client(legacy.scope.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    first.discover()
+    modern = legacy.module.Client(legacy.scope.path, root=legacy.root, _discovery_cache=cache)
+    with pytest.raises(legacy.module.ClientError, match="unsupported_service"):
+        modern.context()
+    assert len(legacy.events) == 2 and modern.key is None
+
+
+def test_cached_api_header_is_rechecked_before_key(legacy):
+    cache = {}
+    first = legacy.module.Client(legacy.scope.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    first.discover()
+    _, headers = next(iter(cache.values()))
+    headers["X-Lockbot-API-Compatibility"] = "incompatible"
+    other = legacy.module.Client(legacy.scope.path, root=legacy.root, legacy_read=True, _discovery_cache=cache)
+    for _ in range(2):
+        with pytest.raises(legacy.module.ClientError, match="api_version_changed"):
+            other.context()
+    assert len(legacy.events) == 1 and other.key is None and other.manifest is None

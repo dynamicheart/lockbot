@@ -21,6 +21,7 @@ import urllib.request
 import zipfile
 from collections import Counter
 from contextlib import ExitStack, contextmanager, suppress
+from copy import deepcopy
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from functools import lru_cache
@@ -1258,7 +1259,9 @@ class Client:
         clock=time.monotonic,
         sleep=time.sleep,
         legacy_read=False,
+        _discovery_cache=None,
     ):
+        self._discovery_cache = _discovery_cache
         self.config = private_json(connection) if connection else {}
         self.base = origin(approved_origin or self.config.get("approved_origin"))
         if connection and approved_origin and origin(self.config.get("approved_origin")) != self.base:
@@ -1286,6 +1289,7 @@ class Client:
         self.instruction_state = "unknown"
         self._legacy_resource_url = None
         self.manifest = None
+        self._discovery_headers = {}
         self._prepared_resources = None
         self._resource_request_started = None
         self._last_mutation = None
@@ -1370,6 +1374,7 @@ class Client:
         form=False,
         binary=False,
         include_started=False,
+        _response_headers=None,
     ):
         if self.legacy_read and (
             method != "GET"
@@ -1448,6 +1453,17 @@ class Client:
                             )
                         ):
                             self.needs_update = True
+                        if _response_headers is not None:
+                            for name in (
+                                "X-Lockbot-Service-ID",
+                                "X-Lockbot-API-Version",
+                                "X-Lockbot-API-Compatibility",
+                                "X-Lockbot-Skill-Version",
+                                "X-Lockbot-Package-Version",
+                                "X-Lockbot-Skill-Update",
+                            ):
+                                if response.headers.get(name) is not None:
+                                    _response_headers[name] = response.headers[name]
                         return (value, started) if include_started else value
                     except (ValueError, UnicodeError, RecursionError) as exc:
                         raise ClientError("invalid_json_response") from exc
@@ -1501,7 +1517,33 @@ class Client:
             return None
 
     def discover(self):
-        result = self._request(self.base + "/api/agent-skill")
+        # Only anonymous, validated descriptors may cross scope boundaries. The
+        # cache belongs to one resources_all invocation, never a Client or disk.
+        pinned = self.config.get("instance_id")
+        cache_key = (self.base, pinned, "legacy-read" if self.legacy_read else "modern")
+        cache = self._discovery_cache
+        cached = cache.get(cache_key) if cache is not None and isinstance(pinned, str) and pinned else None
+        headers = {}
+        if cached is None:
+            result = self._request(self.base + "/api/agent-skill", _response_headers=headers)
+        else:
+            result, headers = deepcopy(cached)
+        self._validate_manifest(result)
+        # Replay additive discovery notices as well as validating the descriptor
+        # against this connection, before its Key is opened.
+        self._legacy_metadata(headers, result)
+        if (
+            headers.get("X-Lockbot-API-Version") not in (None, API_VERSION)
+            or headers.get("X-Lockbot-API-Compatibility") == "incompatible"
+        ):
+            raise ClientError("api_version_changed")
+        self.manifest = result
+        self._discovery_headers = headers
+        if cache is not None and isinstance(pinned, str) and pinned and cached is None:
+            cache[cache_key] = deepcopy((result, headers))
+        return result
+
+    def _validate_manifest(self, result):
         if (
             result.get("service_id") != SERVICE
             or result.get("api_version") != API_VERSION
@@ -1534,8 +1576,6 @@ class Client:
         pinned = self.config.get("instance_id")
         if pinned is not None and pinned != result["instance_id"]:
             raise ClientError("instance_mismatch")
-        self.manifest = result
-        return result
 
     def _version_differs(self, rendered, package=None):
         if self.portable_package and package is not None:
@@ -1557,6 +1597,16 @@ class Client:
             and re.fullmatch(r"[a-f0-9]{16}", str(self.manifest.get("package_version", "")))
         )
         self.needs_update |= self._version_differs(self.manifest.get("version"), self.manifest.get("package_version"))
+        # Discovery precedes loading local revision stamps. Retain its header and
+        # JSON notices for this comparison, including when discovery was reused.
+        revision = self._discovery_headers.get("X-Lockbot-Skill-Version")
+        if revision:
+            self.needs_update |= self._version_differs(
+                revision, self._discovery_headers.get("X-Lockbot-Package-Version")
+            )
+        update = self.manifest.get("skill_update") or {}
+        if update.get("current_version"):
+            self.needs_update |= self._version_differs(update["current_version"], update.get("current_package_version"))
 
     def _read_context(self, *, initializing=False, with_resources=False):
         if with_resources and self.node_access and not self.legacy_read:
@@ -4100,7 +4150,8 @@ def resources_all(
     clock=time.monotonic,
     _completed_at=None,
 ):
-    """Read existing catalog scopes separately, sharing only the bounded request budget."""
+    """Read scopes independently, reusing only invocation-local anonymous discovery."""
+    discovery_cache = {}
     deadline, calls, clients = clock() + 60, 0, []
     observations = []
     snapshots, unread = [], []
@@ -4123,6 +4174,14 @@ def resources_all(
                 record.get("key_file"),
             ]
         )
+
+    def forget_discovery(client):
+        if client:
+            # A replacement server or contradictory protected response must
+            # force fresh discovery before another Key at this origin.
+            for cache_key in list(discovery_cache):
+                if cache_key[0] == client.base:
+                    del discovery_cache[cache_key]
 
     def gap(item):
         if len(unread) < MAX_CALLS:
@@ -4171,18 +4230,37 @@ def resources_all(
         client = None
         next_index = index + 1
         try:
-            client = Client(locator["connection"], root=root, opener=opener, clock=clock, legacy_read=legacy_read)
+            client = Client(
+                locator["connection"],
+                root=root,
+                opener=opener,
+                clock=clock,
+                legacy_read=legacy_read,
+                _discovery_cache=discovery_cache,
+            )
             clients.append(client)
             client.calls, client.deadline = calls, deadline
             # Catalog aggregation does not invalidate/save local address caches.
             client.node_access = None
+            if calls >= MAX_CALLS:
+                gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
+                next_index = index
+                break
+            client.discover()  # Anonymous validation always precedes opening this Key.
+            protected_reads = 1 if "coherent_resource_snapshot" in client.manifest.get("capabilities", ()) else 2
+            if client.calls + protected_reads > MAX_CALLS or clock() >= deadline:
+                # Do not half-start a separate context/resource pair or advance
+                # the continuation past a scope whose protected read never began.
+                gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
+                next_index = index
+                break
             try:
                 identity = connection_scope(client.config)
             except ClientError:
                 identity = None
             if identity in verified:
                 # Only an already online-verified identical scope gates this
-                # local comparison. Never share discovery across distinct Keys.
+                # local comparison. Protected context is never shared across Keys.
                 try:
                     budget_path = client._file("key_file")
                     scan_budget.reserve(budget_path, record=False)
@@ -4199,10 +4277,6 @@ def resources_all(
                     duplicate.setdefault("equivalent_connections", [duplicate["connection"]]).append(locator)
                     coalesced += 1
                     continue
-            if calls >= MAX_CALLS:
-                gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
-                next_index = index
-                break
             if mine:
                 # Keep precise source timing until every group has been read.
                 snapshot = client.own_inventory(exact_lease_times=True)
@@ -4237,6 +4311,7 @@ def resources_all(
             gap({"error": "catalog_scan_incomplete", "scan": scan_budget.summary(), "remaining_records": "unknown"})
             break
         except ClientError as error:
+            forget_discovery(client)
             gap(
                 {
                     "connection": locator,
@@ -4249,6 +4324,7 @@ def resources_all(
                 }
             )
         except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
+            forget_discovery(client)
             gap({"connection": locator, "error": "invalid_server_or_local_data"})
         finally:
             if client:

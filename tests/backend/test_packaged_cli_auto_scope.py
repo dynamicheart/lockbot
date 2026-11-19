@@ -168,7 +168,7 @@ def test_unique_id_or_alias_uses_one_invocation_and_one_post(sdk, hint):
     assert output["result"]["verified"]
     assert output["result"]["resolution"]["observed_scopes"] == 2
     assert output["result"]["resolution"]["matches"][0]["node"] == "n1"
-    assert [row["method"] for row in events] == ["GET"] * 6 + ["POST"]
+    assert [row["method"] for row in events] == ["GET"] * 5 + ["POST"]
     assert sdk.transport.commands == ["lock n1 2h"]
     assert before == {str(p): p.read_bytes() for p in sdk.catalog.rglob("*") if p.is_file()}
 
@@ -249,7 +249,7 @@ def test_unread_unhealthy_malformed_or_stale_scope_never_proves_uniqueness(sdk, 
 
 
 def test_complete_unique_scan_reports_real_budget_exhaustion_not_ambiguity(sdk):
-    for i in range(3):
+    for i in range(7):
         sdk.register({f"extra-{i}": f"extra-machine-{i}"})
     output, events = command(sdk, "n1", "lock", "--duration", "1h", code=2)
     assert output["error"] == "automatic_request_budget_exhausted"
@@ -447,17 +447,17 @@ def test_legacy_services_reserve_post_readback_and_keep_the_same_budget(sdk):
     sdk.transport.transform = legacy
     output, events = command(sdk, "n1", "lock", "--duration", "1h")
     assert output["result"]["verified"]
-    assert len(events) == 11 and [row["method"] for row in events].count("POST") == 1
+    assert len(events) == 10 and [row["method"] for row in events].count("POST") == 1
     assert events[-1]["path"] == "/api/agent/resources"
 
 
 def test_selected_read_can_exhaust_shared_budget_but_never_write(sdk, monkeypatch):
-    # Two-scope scan uses4; selected manifest uses1; reserve requires2more.
-    monkeypatch.setattr(sdk.module, "MAX_CALLS", 6)
+    # Reused two-scope scan uses 3; the selected action needs at least 3 more.
+    monkeypatch.setattr(sdk.module, "MAX_CALLS", 5)
     output, events = command(sdk, "n1", "lock", "--duration", "1h", code=2)
     assert output["error"] == "automatic_request_budget_exhausted"
-    assert output["clarification"]["request_budget"]["http_limit"] == 6
-    assert len(events) == 4
+    assert output["clarification"]["request_budget"]["http_limit"] == 5
+    assert len(events) == 3
     no_post(events)
 
 

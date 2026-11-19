@@ -74,7 +74,7 @@ def test_recovering_two_bindings_three_times_reuses_catalog_and_preserves_seed_a
         assert len(helper.listed_connections()["connections"]) == 2
         aggregate_result = helper.resources_all(root=root, opener=Bridge(client), mine=True)["result"]
         assert aggregate_result["complete"] and len(aggregate_result["groups"]) == 2
-        assert aggregate_result["http_requests"] == 4
+        assert aggregate_result["http_requests"] == 3
         assert seed.read_bytes() == seed_bytes and seed_key.read_bytes() == key_bytes
         assert recovered_path.read_bytes() == custom_bytes
         assert recovered_path.stat().st_mode & 0o077 == 0
@@ -146,7 +146,7 @@ def test_conflicting_or_invalid_catalog_records_keep_independent_verification_an
     assert not result["complete"] and len(result["groups"]) == 1
     assert result["coalesced_catalog_connections"] == 0 and len(result["unread"]) == 1
     assert result["unread"][0]["connection"]["connection"] == str(other)
-    assert sum(path == "/api/agent-skill" for path, *_ in server.events) == 2
+    assert sum(path == "/api/agent-skill" for path, *_ in server.events) == (2 if change == "instance" else 1)
     expected = {
         "key": "http_401",
         "actor": "context_actor_mismatch",

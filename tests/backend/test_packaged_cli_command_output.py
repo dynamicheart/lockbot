@@ -29,7 +29,7 @@ def test_projection_keeps_one_complete_verified_state_without_extra_requests(sdk
     flags = [*(["--full"] if full else []), *(["--exact-lease-times"] if exact else [])]
     output, events = command(sdk, "n1", "lock", *flags)
     result, before = output["result"], captured["before"]
-    assert [row["method"] for row in events] == ["GET"] * 6 + ["POST"]
+    assert [row["method"] for row in events] == ["GET"] * 5 + ["POST"]
     assert before_files == {str(p): p.read_bytes() for p in sdk.catalog.rglob("*") if p.is_file()}
     assert result["resolution"] == before["resolution"]
     for key in ("verified", "verification", "command_outcome", "duration_source", "update_required", "job_runner"):

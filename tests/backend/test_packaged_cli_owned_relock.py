@@ -64,7 +64,7 @@ def test_owned_relock_maps_to_one_renewal_with_unchanged_full_selection(sdk, ope
         assert result["duration_source"] == "group-default"
     devices = " dev0,1" if sdk.api["bot"].config.get_val("BOT_TYPE") in {"DEVICE", "QUEUE_DEVICE"} else ""
     assert sdk.transport.commands == [operation + " n1" + devices + " " + (duration or "120m")]
-    assert [event["method"] for event in events] == ["GET"] * 6 + ["POST"]
+    assert [event["method"] for event in events] == ["GET"] * 5 + ["POST"]
     increment = 14400 if duration else 7200
     assert [row["current_users"][0]["duration"] for row in units] == [value + increment for value in before]
     if operation == "slock":

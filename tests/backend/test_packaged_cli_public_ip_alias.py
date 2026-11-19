@@ -25,7 +25,7 @@ def test_public_ipv4_alias_selects_idle_machine_once_with_live_default(sdk, hint
     assert result["resolution"]["matches"] == [
         {"hint": hint, "node": "n1", "match_kinds": ["alias" if "." in hint else "public_ipv4_alias_octet"]}
     ]
-    assert [event["method"] for event in events] == ["GET"] * 6 + ["POST"]
+    assert [event["method"] for event in events] == ["GET"] * 5 + ["POST"]
     assert sdk.transport.commands == ["lock n1"]
     assert before == {str(path): path.read_bytes() for path in sdk.catalog.rglob("*") if path.is_file()}
     observed = result["verified_snapshot"]

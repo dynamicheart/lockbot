@@ -17,7 +17,7 @@ def test_actual_catalog_cli_reads_both_groups_without_fabricating_tool_calls(tmp
     before = {str(p): p.read_bytes() for p in (fixture.workspace / "private").rglob("*") if p.is_file()}
     output = run(fixture, "resources-all", mine=mine)["result"]
     assert output["complete"] and len(output["groups"]) == 2
-    assert output["http_requests"] == (4 if coherent else 6)
+    assert output["http_requests"] == (3 if coherent else 5)
     if mine:
         cards = output["groups"][0]["snapshot"]
         assert [entry["device"] for entry in cards["holdings"]] == [2]

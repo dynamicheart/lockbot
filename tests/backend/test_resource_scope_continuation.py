@@ -93,20 +93,17 @@ def test_429_is_reported_with_retry_hint_and_not_retried_by_continuation(aggrega
     assert all(len(state.events) == 2 for state in states)
 
 
-def test_attempt_exhausting_http_budget_is_reported_without_replaying_it_on_resume(aggregate):
-    states, paths = catalog(aggregate, 7)
+def test_discovery_without_remaining_protected_budget_defers_same_scope_on_resume(aggregate):
+    states, _ = catalog(aggregate, 7)
     states[0].coherent = False  # three requests, then four two-request scopes leave one slot
     first = execute(aggregate, "resources-all")["result"]
     assert first["http_requests"] == 12 and len(first["groups"]) == 5
-    assert any(
-        item.get("connection", {}).get("connection") == str(paths[5]) and item["error"] == "request_budget_exhausted"
-        for item in first["unread"]
-    )
+    assert any(item["error"] == "request_budget_exhausted" and item["count"] == 2 for item in first["unread"])
     assert len(states[5].events) == 1
     second = execute(aggregate, "resources-all", "--after-scope", first["scope_page"]["next_after_scope"])["result"]
-    assert second["scope_page"]["prior_connections"] == 6 and second["scope_page"]["exhausted"]
-    assert len(second["groups"]) == 1 and second["unread"] == [] and not second["complete"]
-    assert len(states[5].events) == 1 and len(states[6].events) == 2
+    assert second["scope_page"]["prior_connections"] == 5 and second["scope_page"]["exhausted"]
+    assert len(second["groups"]) == 2 and second["unread"] == [] and not second["complete"]
+    assert len(states[5].events) == 3 and len(states[6].events) == 2
 
 
 def test_equivalent_records_on_different_pages_remain_separate_verified_observations(aggregate):
