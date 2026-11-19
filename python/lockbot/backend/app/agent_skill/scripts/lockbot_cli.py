@@ -738,7 +738,7 @@ class CatalogScanBudget:
         }
 
 
-def listed_connections(directory=None, *, scan_budget=None, _observe_credential=None):
+def listed_connections(directory=None, *, scan_budget=None, _observe_credential=None, _observe_record=None):
     """List connections and resumable enrollments without opening their Key files."""
     if directory is not None:
         catalogs = [("custom", Path(directory))]
@@ -781,6 +781,8 @@ def listed_connections(directory=None, *, scan_budget=None, _observe_credential=
                     _observe_credential(
                         key_path if key_path.is_absolute() else path.parent / key_path, service, instance
                     )
+                if _observe_record is not None:
+                    _observe_record(path, record)
                 connections.append({**entry, "scope": scope})
                 completed.add(path.parent)
             except CatalogScanTruncated:
@@ -3030,7 +3032,9 @@ def summary_page(
     return result
 
 
-def query_summary_output(output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offset=0, model=None, private_values=()):
+def query_summary_output(
+    output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offset=0, nodes=(), model=None, private_values=()
+):
     """An opt-in bounded response; never replaces a snapshot used for a write."""
     value = output.get("result") if isinstance(output, dict) else None
     if not isinstance(value, dict):
@@ -3038,7 +3042,8 @@ def query_summary_output(output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offse
     groups = value.get("groups")
     if groups is None:
         groups = [{"snapshot": value}]
-    rows, unknown, unidentified = [], 0, 0
+    rows, unknown, unidentified = [], set(), 0
+    raw_observations, raw_conflicts = {}, set()
     complete = value.get("complete", True) is True
     for group in groups:
         snapshot = group.get("snapshot", {})
@@ -3053,26 +3058,40 @@ def query_summary_output(output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offse
             "bot_uuid": bot.get("uuid"),
             "actor": actor,
         }
-        selection = snapshot.get("selection", {})
+
+        def reference_factory(node, record=record):
+            return resource_reference(record, node, width=64)
+
+        unfiltered = node_summary_rows(snapshot, context, reference_factory=reference_factory)
+        for row in unfiltered["rows"]:
+            if row["ref"] in raw_observations and raw_observations[row["ref"]] != row:
+                raw_conflicts.add(row["ref"])
+            raw_observations[row["ref"]] = row
+        selected = select_inventory(snapshot, nodes=nodes)
+        selection = selected.get("selection", {})
         ambiguous = set(selection.get("ambiguous_node_ids", []))
         summary_snapshot = (
-            {**snapshot, "resources": [row for row in snapshot["resources"] if row.get("id") not in ambiguous]}
+            {**selected, "resources": [row for row in selected["resources"] if row.get("id") not in ambiguous]}
             if ambiguous
-            else snapshot
+            else selected
         )
-        projected = node_summary_rows(
-            summary_snapshot,
-            context,
-            reference_factory=lambda node, record=record: resource_reference(record, node, width=64),
-            model=model,
+        projected = (
+            unfiltered
+            if model is None and not nodes and not ambiguous
+            else node_summary_rows(
+                summary_snapshot,
+                context,
+                reference_factory=reference_factory,
+                model=model,
+            )
         )
         rows.extend(projected["rows"])
-        unknown += len(
-            set(projected["unknown_hardware_nodes"])
-            | set(snapshot.get("selection", {}).get("unknown_hardware_nodes", []))
+        unknown.update(
+            reference_factory(node)
+            for node in set(projected["unknown_hardware_nodes"]) | set(selection.get("unknown_hardware_nodes", []))
         )
-        unidentified += projected["unidentified_nodes"] + selection.get("ambiguous_node_records", 0)
-        complete &= projected["projection_complete"] and not ambiguous
+        unidentified += unfiltered["unidentified_nodes"]
+        complete &= unfiltered["projection_complete"] and not ambiguous
     # Distinct credentials can observe the same exact scope. Display identical
     # evidence once; conflicting observations supply only a locator, never a
     # union of states, devices or capabilities. Raw source observations stay intact.
@@ -3086,6 +3105,9 @@ def query_summary_output(output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offse
             if distinct[reference] != row:
                 conflicts.add(reference)
                 distinct[reference] = {"ref": reference, "node": row["node"], "observation_conflict": True}
+    for reference in raw_conflicts.intersection(distinct):
+        conflicts.add(reference)
+        distinct[reference] = {"ref": reference, "node": distinct[reference]["node"], "observation_conflict": True}
     rows = list(distinct.values())
     complete &= not conflicts
     if fields is not None:
@@ -3093,12 +3115,16 @@ def query_summary_output(output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offse
         rows = [{key: item[key] for key in ("ref", "observation_conflict", *fields) if key in item} for item in rows]
     unread = value.get("unread", [])
     notes = {
-        "unknown_hardware_nodes": unknown,
+        "unknown_hardware_nodes": len(unknown),
         "unidentified_nodes": unidentified,
         "duplicate_observations": duplicates,
         "conflicting_observations": len(conflicts),
         "unread_scopes": sum(item.get("count", 1) for item in unread),
         "unread_reasons": sorted({item.get("error", "unknown") for item in unread})[:8],
+        "retry_after_seconds": max(
+            (item["retry_after_seconds"] for item in unread if type(item.get("retry_after_seconds")) in (int, float)),
+            default=None,
+        ),
         "update_required": bool(output.get("update_required") or any(group.get("update_required") for group in groups)),
         "http_requests": value.get("http_requests", output.get("_http_requests")),
         "max_snapshot_age_seconds": max(
@@ -3107,6 +3133,8 @@ def query_summary_output(output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offse
         if all(metric_number(group.get("snapshot", {}).get("age_seconds")) is not None for group in groups)
         else None,
     }
+    if "scope_page" in value:
+        notes["scope_page"] = value["scope_page"]
     # Use the final serializer for both pagination and framing, including Windows
     # ASCII escapes. Reserve metadata, the outer wrapper and the printed newline.
     ascii_json = os.name == "nt"
@@ -3345,6 +3373,21 @@ def observation_at_completion(client, snapshot):
     return result
 
 
+def scope_cursor_start(token, fingerprint, total):
+    """A read traversal position, never evidence of globally fresh uniqueness."""
+    if token is None:
+        return 0
+    match = re.fullmatch(r"sc1\.([0-9a-f]{64})\.(0|[1-9][0-9]{0,3})", token) if isinstance(token, str) else None
+    if match is None:
+        raise ClientError("invalid_scope_cursor")
+    if match[1] != fingerprint:
+        raise ClientError("scope_cursor_catalog_changed")
+    position = int(match[2])
+    if position > total:
+        raise ClientError("invalid_scope_cursor")
+    return position
+
+
 def resources_all(
     directory=None,
     *,
@@ -3354,6 +3397,8 @@ def resources_all(
     model=None,
     with_metrics=False,
     full=False,
+    summary=False,
+    after_scope=None,
     root=None,
     opener=None,
     clock=time.monotonic,
@@ -3365,6 +3410,23 @@ def resources_all(
     snapshots, unread = [], []
     verified, coalesced = {}, 0
     scan_budget = CatalogScanBudget(deadline, clock)
+    descriptors = []
+
+    def observe_record(path, record):
+        actor = record.get("actor")
+        actor = actor if isinstance(actor, dict) else {}
+        # Only locator/provenance metadata. Constructing a cursor never opens a Key.
+        descriptors.append(
+            [
+                str(path),
+                record.get("approved_origin"),
+                record.get("instance_id"),
+                record.get("bot_uuid"),
+                actor.get("platform"),
+                actor.get("external_user_id"),
+                record.get("key_file"),
+            ]
+        )
 
     def gap(item):
         if len(unread) < MAX_CALLS:
@@ -3375,10 +3437,28 @@ def resources_all(
             unread.append({"error": "additional_unread_records", "count": item.get("count", 1)})
 
     try:
-        catalog = listed_connections(directory, scan_budget=scan_budget)
+        catalog = listed_connections(directory, scan_budget=scan_budget, _observe_record=observe_record)
     except (ClientError, OSError, ValueError, KeyError, TypeError, RuntimeError):
         catalog = {"connections": [], "pending_enrollments": [], "unavailable_count": 1}
     scan = catalog.get("scan", {**scan_budget.summary(), "complete": False})
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            [
+                "scope-cursor-v1",
+                descriptors,
+                catalog["connections"],
+                catalog["pending_enrollments"],
+                catalog["unavailable_count"],
+            ],
+            sort_keys=True,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    if after_scope is not None and not scan["complete"]:
+        raise ClientError("scope_cursor_catalog_incomplete")
+    start_index = scope_cursor_start(after_scope, fingerprint, len(catalog["connections"]))
+    next_index = start_index
     if not scan["complete"]:
         gap({"error": "catalog_scan_incomplete", "scan": scan, "remaining_records": "unknown"})
     if catalog["unavailable_count"]:
@@ -3387,11 +3467,13 @@ def resources_all(
         gap({"enrollment": pending, "error": "enrollment_unfinished"})
     if not catalog["connections"] and not unread:
         unread.append({"error": "no_saved_connections"})
-    for index, locator in enumerate(catalog["connections"]):
+    for index in range(start_index, len(catalog["connections"])):
+        locator = catalog["connections"][index]
         if clock() >= deadline:
             gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
             break
         client = None
+        next_index = index + 1
         try:
             client = Client(locator["connection"], root=root, opener=opener, clock=clock)
             clients.append(client)
@@ -3423,6 +3505,7 @@ def resources_all(
                     continue
             if calls >= MAX_CALLS:
                 gap({"error": "request_budget_exhausted", "count": len(catalog["connections"]) - index})
+                next_index = index
                 break
             if mine:
                 # Keep precise source timing until every group has been read.
@@ -3435,7 +3518,8 @@ def resources_all(
                     raise ClientError("invalid_resource_summary")
                 if "context" not in snapshot:
                     snapshot = {**snapshot, "context": context, "context_source": "separate_verified_read"}
-            snapshot = select_inventory(snapshot, nodes=nodes, model=model)
+            if not summary:
+                snapshot = select_inventory(snapshot, nodes=nodes, model=model)
             if with_metrics:
                 snapshot = attach_metrics(client, snapshot, full=full)
             snapshots.append(
@@ -3478,6 +3562,14 @@ def resources_all(
         _completed_at.append(completed_at)
     if "scan" in catalog:
         scan = scan_budget.summary()
+    exhausted = next_index >= len(catalog["connections"])
+    scope_page = {
+        "prior_connections": start_index,
+        "attempted_connections": next_index - start_index,
+        "exhausted": exhausted,
+        "next_after_scope": f"sc1.{fingerprint}.{next_index}" if scan["complete"] and not exhausted else None,
+        "resumable_catalog": scan["complete"],
+    }
     for client, snapshot, locator, context in observations:
         age = metric_number(snapshot.get("age_seconds"))
         started = client._resource_request_started
@@ -3505,7 +3597,8 @@ def resources_all(
         {
             "result": {
                 "scope": "saved_connections_only",
-                "complete": not unread,
+                "complete": not unread and after_scope is None and exhausted,
+                "scope_page": scope_page,
                 "groups": snapshots,
                 "unread": unread,
                 "catalog_connections": len(catalog["connections"]),
@@ -4070,6 +4163,10 @@ def main(argv=None):
     aggregate.add_argument("--mine", action="store_true", help="Separate your holdings and bookings in every group")
     aggregate.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     aggregate.add_argument("--full", action="store_true", help=details_help)
+    aggregate.add_argument(
+        "--after-scope",
+        help="Continue a bounded saved-connection read using scope_page.next_after_scope; no write discovery",
+    )
     for query in (resources, aggregate):
         query.add_argument("--summary", action="store_true", help="Opt in to a bounded node-level JSON summary")
         query.add_argument("--limit", type=int, help="Maximum summary nodes (default 20; implies --summary)")
@@ -4223,11 +4320,18 @@ def main(argv=None):
                 model=args.model,
                 with_metrics=args.with_metrics,
                 full=args.full,
+                summary=summary_requested,
+                after_scope=args.after_scope,
             )
             if summary_requested:
                 print(
                     query_summary_output(
-                        output, fields=summary_fields, limit=args.limit, offset=args.offset, model=args.model
+                        output,
+                        fields=summary_fields,
+                        limit=args.limit,
+                        offset=args.offset,
+                        nodes=args.node,
+                        model=args.model,
                     )
                 )
                 return 0
@@ -4293,7 +4397,8 @@ def main(argv=None):
                 if len(exact) != 1:
                     raise ClientError("resource_reference_node_unavailable")
                 result = {**result, "resources": exact}
-            result = select_inventory(result, nodes=args.node, model=args.model)
+            if not summary_requested:
+                result = select_inventory(result, nodes=args.node, model=args.model)
             if args.with_metrics:
                 result = attach_metrics(client, result, full=args.full)
             result = observation_at_completion(client, result)
@@ -4348,6 +4453,7 @@ def main(argv=None):
                         fields=summary_fields,
                         limit=args.limit,
                         offset=args.offset,
+                        nodes=args.node,
                         model=args.model,
                         private_values=client.secrets,
                     )

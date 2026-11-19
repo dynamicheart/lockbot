@@ -120,6 +120,7 @@ def test_distinct_credentials_for_same_scope_do_not_break_summary(aggregate):
     result = output["result"]
     assert result["displayed_nodes"] == 1 and result["duplicate_observations"] == 1
     assert result["conflicting_observations"] == 0 and result["scope_complete"]
+    assert result["unknown_hardware_nodes"] == 1
     assert len(state.events) == 4
 
 
@@ -158,6 +159,42 @@ def test_model_filter_cannot_hide_duplicate_node_identity(aggregate):
     result = output["result"]
     assert result["rows"] == [] and not result["scope_complete"]
     assert result["unidentified_nodes"] == 2
+
+
+def test_model_filter_preserves_conflict_evidence_from_a_nonmatching_credential(aggregate):
+    state = aggregate.server(1)
+    state.bot_type = "DEVICE"
+    aggregate.record(state, "first")
+    original = state.key
+    state.key = "lbr_" + "second" * 8
+    aggregate.record(state, "second")
+    second_key = state.key
+    state.accepted_keys, state.key = [second_key], original
+    state.extra["resources"] = [{"id": "node07", "devices": [{**cards(1)[0], "dev_model": "P800"}]}]
+    state.extra_per_key = {
+        "Bearer " + second_key: {"resources": [{"id": "node07", "devices": [{**cards(1)[0], "dev_model": "H20"}]}]}
+    }
+    result = execute(aggregate, "resources-all", "--summary", "--model", "P800")[0]["result"]
+    assert result["scope_complete"] is False and result["conflicting_observations"] == 1
+    assert set(result["rows"][0]) == {"ref", "node", "observation_conflict"}
+    assert len(state.events) == 4
+
+
+def test_alias_filter_cannot_hide_a_conflicting_same_node_observation(aggregate):
+    state = aggregate.server(1)
+    aggregate.record(state, "first")
+    original = state.key
+    state.key = "lbr_" + "second" * 8
+    aggregate.record(state, "second")
+    second_key = state.key
+    state.accepted_keys, state.key = [second_key], original
+    node = {"id": "node07", "alias": "19", "lock_status": "idle", "holders": [], "booking_list": []}
+    state.extra["resources"] = [node]
+    state.extra_per_key = {"Bearer " + second_key: {"resources": [{**node, "alias": "another-label"}]}}
+    result = execute(aggregate, "resources-all", "--summary", "--node", "19")[0]["result"]
+    assert result["scope_complete"] is False and result["conflicting_observations"] == 1
+    assert set(result["rows"][0]) == {"ref", "node", "observation_conflict"}
+    assert len(state.events) == 4
 
 
 def test_unknown_hardware_is_counted_once_after_model_filter(aggregate):

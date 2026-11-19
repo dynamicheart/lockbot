@@ -76,6 +76,10 @@ def aggregate(tmp_path):
                         self.wfile.write(b"{}")
                         return
                     now = datetime.now(timezone.utc)
+                    extra = {
+                        **state.extra,
+                        **getattr(state, "extra_per_key", {}).get(self.headers.get("Authorization"), {}),
+                    }
                     context = {
                         "server": manifest,
                         "bot": {
@@ -114,7 +118,7 @@ def aggregate(tmp_path):
                                 "booking_list": [],
                             }
                         ],
-                        **state.extra,
+                        **extra,
                     }
                     if self.path == "/api/agent/context":
                         body = context
@@ -129,6 +133,8 @@ def aggregate(tmp_path):
                 data = json.dumps(body).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
+                if status == 429 and hasattr(state, "retry_after"):
+                    self.send_header("Retry-After", str(state.retry_after))
                 self.end_headers()
                 self.wfile.write(data)
 
