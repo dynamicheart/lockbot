@@ -25,6 +25,62 @@ or using an explicit destination, use a local private directory and verify the s
 Use the normal project or user scope for automatic private directory creation. On macOS and Linux the
 helper continues to use POSIX permissions.
 
+## Explicit read-only resource providers
+
+An explicitly selected local provider can supply resource lists and exact resource
+views through the same CLI entry point:
+
+```sh
+python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resource list --limit 20
+python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resource list --json
+python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resource view x-example/node-01
+```
+
+The registration is a private JSON file, outside Git, with exactly these keys:
+
+```json
+{
+  "schema_version": 1,
+  "command": ["/absolute/python3", "-I", "-S", "/absolute/provider.py"],
+  "config_file": "/private/provider-config.json"
+}
+```
+
+Choose trusted local code. The first command argument must be an absolute
+executable path; subsequent arguments are passed literally without a shell. The
+parent appends `--config CONFIG_FILE --provider-stdio`, sends one JSON request on
+stdin, and never reads the provider's config or native connection catalog/Keys.
+The provider is responsible for its own private configuration and credentials.
+This selects a separate read source; merged native/external aggregation remains
+pending. Native `s-...` references, writes, device listing, native connections,
+custom native directories, legacy mode, metrics and exact lease-time options
+cannot be combined with `--resource-provider`.
+
+The stdio request has `schema_version: 1`, an `action` of `list`, `view` or
+`fields`, a `query` containing `nodes`, `model`, `fields` (or null), `limit` and
+`mine`, plus `ref` and `cursor` (each a string or null). Its `budget` is
+`{"max_http_requests":12,"timeout_seconds":60}`. Field names belong to the
+provider; bare `--json` requests field discovery and must not open its config or
+credentials. Discovery returns `json_fields` and `required_row_fields: ["ref"]`.
+
+Successful reads return one JSON object with a `result` containing `rows`,
+`has_more`, `next_cursor`, `scope_complete`, `http_requests`,
+`capabilities: ["read_only"]` and `observed_only: true`. Each row needs a unique,
+opaque `x-...` reference. Views return only the requested reference. Provider
+cursors are preserved exactly: repeat the same provider query with `--cursor`.
+The parent rejects oversized pages instead of trimming rows and skipping their
+continuation. Controlled failures use exit code 2 and stdout JSON containing a
+safe lowercase `error` code, `retry_mutation: false`, and optionally a finite,
+nonnegative `retry_after_seconds`. Child stderr is discarded.
+
+The parent enforces a 60-second process timeout and an 8-KiB final stdout limit.
+It captures stdout in a private temporary file and reads only the bounded
+response into memory. Trusted code can still grow that temporary file before
+termination, and can access the local user's files or start other processes.
+This execution interface is not a sandbox. Providers must omit credentials,
+private paths and other people's records; the parent also rejects common secret
+fields, token-shaped values and known registration/config paths in responses.
+
 ## Register accelerator inventory for whole machines
 
 In a NODE or QUEUE bot's configuration, open **Node hardware → Register hardware**.

@@ -13,6 +13,7 @@ import re
 import secrets
 import shlex
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -5003,7 +5004,9 @@ def resource_list_text(encoded):
     rows = value["rows"]
     lines = ["NODE  UNIT  HARDWARE  OBSERVATION  REF"]
     for row in rows:
-        node = row.get("node", parse_resource_reference(row["ref"])[1])
+        node = row.get("node")
+        if node is None:
+            node = parse_resource_reference(row["ref"])[1] if row["ref"].startswith("s-") else row["ref"]
         hardware = ",".join(f"{item['model']}×{item['count']}" for item in row.get("hardware", [])) or "?"
         if row.get("observation_conflict"):
             state = "conflicting observations"
@@ -5757,6 +5760,257 @@ def runtime_compatible():
     return sys.version_info >= (3, 10)
 
 
+RESOURCE_PROVIDER_TIMEOUT = 60
+
+
+def _provider_text(value, *, maximum=4096, opaque=False):
+    return (
+        isinstance(value, str)
+        and bool(value)
+        and value.isprintable()
+        and len(value.encode("utf-8")) <= maximum
+        and (not opaque or not any(char.isspace() for char in value))
+    )
+
+
+def _provider_reference(value):
+    return _provider_text(value, opaque=True) and value.startswith("x-") and len(value) > 2
+
+
+def _provider_registration(path):
+    """Load executable registration only; the provider owns its private config."""
+    try:
+        registration = private_json(path)
+        if set(registration) != {"schema_version", "command", "config_file"}:
+            raise ValueError
+        command, config = registration["command"], registration["config_file"]
+        if (
+            type(registration["schema_version"]) is not int
+            or registration["schema_version"] != 1
+            or not isinstance(command, list)
+            or not 1 <= len(command) <= 64
+            or any(not _provider_text(arg) for arg in command)
+            or sum(len(arg.encode("utf-8")) for arg in command) > 8192
+            or not Path(command[0]).is_absolute()
+            or not Path(command[0]).is_file()
+            or not os.access(command[0], os.X_OK)
+            or not _provider_text(config)
+            or not Path(config).is_absolute()
+        ):
+            raise ValueError
+        return registration
+    except (ClientError, ValueError, TypeError, KeyError, UnicodeError, OSError):
+        raise ClientError("resource_provider_registration_invalid") from None
+
+
+def _provider_safe_value(value, private_paths):
+    """Reject secret-bearing output instead of changing opaque refs or cursors."""
+    forbidden = {
+        "credential",
+        "token",
+        "secret",
+        "api_key",
+        "authorization",
+        "proof",
+        "key_file",
+        "config_file",
+        "connection",
+        "connection_file",
+        "external_user_id",
+        "actor",
+        "holders",
+        "booking_list",
+        "purpose",
+        "next_command",
+    }
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str)
+            and key.lower() not in forbidden
+            and _provider_safe_value(key, private_paths)
+            and _provider_safe_value(item, private_paths)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return all(_provider_safe_value(item, private_paths) for item in value)
+    if isinstance(value, str):
+        return (
+            (not value or value.isprintable())
+            and redacted_values(value) == value
+            and not any(path in value for path in private_paths)
+        )
+    return value is None or type(value) in (bool, int) or type(value) is float and math.isfinite(value)
+
+
+def _provider_response(value, *, action, query, reference, private_paths):
+    if not isinstance(value, dict) or not _provider_safe_value(value, private_paths):
+        raise ClientError("resource_provider_response_invalid")
+    if action == "fields":
+        fields = value.get("json_fields")
+        if (
+            set(value) != {"json_fields", "required_row_fields"}
+            or not isinstance(fields, list)
+            or not 1 <= len(fields) <= 128
+            or any(not isinstance(field, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", field) for field in fields)
+            or len(set(fields)) != len(fields)
+            or "ref" not in fields
+            or value["required_row_fields"] != ["ref"]
+        ):
+            raise ClientError("resource_provider_response_invalid")
+        return value
+    if set(value) != {"result"} or not isinstance(value["result"], dict):
+        raise ClientError("resource_provider_response_invalid")
+    result = value["result"]
+    rows = result.get("rows")
+    more, cursor = result.get("has_more"), result.get("next_cursor")
+    if (
+        result.get("capabilities") != ["read_only"]
+        or result.get("observed_only") is not True
+        or type(result.get("http_requests")) is not int
+        or not 0 <= result["http_requests"] <= MAX_CALLS
+        or type(result.get("scope_complete")) is not bool
+        or type(more) is not bool
+        or (not _provider_text(cursor, maximum=SUMMARY_BYTE_LIMIT) if more else cursor is not None)
+        or not isinstance(rows, list)
+        or len(rows) > query["limit"]
+        or any(not isinstance(row, dict) or not _provider_reference(row.get("ref")) for row in rows)
+    ):
+        raise ClientError("resource_provider_response_invalid")
+    if (
+        len({row["ref"] for row in rows}) != len(rows)
+        or action == "view"
+        and (more or any(row["ref"] != reference for row in rows))
+    ):
+        raise ClientError("resource_provider_response_invalid")
+    retry = result.get("retry_after_seconds")
+    if retry is not None and (type(retry) not in (int, float) or metric_number(retry) is None or retry < 0):
+        raise ClientError("resource_provider_response_invalid")
+    for row in rows:
+        if "node" in row and not _provider_text(row["node"]):
+            raise ClientError("resource_provider_response_invalid")
+        if "states" in row and (
+            not isinstance(row["states"], dict)
+            or any(count is not None and (type(count) is not int or count < 0) for count in row["states"].values())
+        ):
+            raise ClientError("resource_provider_response_invalid")
+        if "hardware" in row and (
+            not isinstance(row["hardware"], list)
+            or any(
+                not isinstance(item, dict)
+                or not _provider_text(item.get("model"), maximum=320)
+                or type(item.get("count")) is not int
+                or item["count"] < 0
+                for item in row["hardware"]
+            )
+        ):
+            raise ClientError("resource_provider_response_invalid")
+    return value
+
+
+def resource_provider_output(path, *, action, query, reference=None, cursor=None):
+    """Dispatch one trusted local, explicitly selected read provider without a shell."""
+    if action not in {"list", "view", "fields"} or action == "view" and not _provider_reference(reference):
+        raise ClientError("resource_provider_reference_invalid")
+    if cursor is not None and not _provider_text(cursor, maximum=SUMMARY_BYTE_LIMIT):
+        raise ClientError("resource_provider_cursor_invalid")
+    registration = _provider_registration(path)
+    request = {
+        "schema_version": 1,
+        "action": action,
+        "query": query,
+        "ref": reference,
+        "cursor": cursor,
+        "budget": {"max_http_requests": MAX_CALLS, "timeout_seconds": 60},
+    }
+    payload = json.dumps(request, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode()
+    if len(payload) > 16384:
+        raise ClientError("resource_provider_query_too_large")
+    try:
+        # Capture to a private temporary file, never an unbounded in-memory pipe.
+        # The trusted process can still grow this file before timeout; this is not a sandbox.
+        with tempfile.TemporaryFile() as output:
+            process = subprocess.run(
+                [*registration["command"], "--config", registration["config_file"], "--provider-stdio"],
+                input=payload,
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                timeout=RESOURCE_PROVIDER_TIMEOUT,
+                check=False,
+            )
+            if os.fstat(output.fileno()).st_size > SUMMARY_BYTE_LIMIT:
+                raise ClientError("resource_provider_output_too_large")
+            output.seek(0)
+            raw = output.read(SUMMARY_BYTE_LIMIT + 1)
+    except subprocess.TimeoutExpired:
+        raise ClientError("resource_provider_timeout") from None
+    except OSError:
+        raise ClientError("resource_provider_failed") from None
+    if process.returncode not in (0, 2):
+        raise ClientError("resource_provider_failed")
+    try:
+        value = json.loads(raw)
+    except (ValueError, UnicodeError, RecursionError):
+        raise ClientError("resource_provider_response_invalid") from None
+    if process.returncode == 2:
+        if (
+            not isinstance(value, dict)
+            or set(value) - {"error", "retry_mutation", "retry_after_seconds"}
+            or not isinstance(value.get("error"), str)
+            or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", value["error"])
+            or redacted_values(value["error"]) != value["error"]
+            or value.get("retry_mutation") is not False
+            or "retry_after_seconds" in value
+            and (
+                type(value["retry_after_seconds"]) not in (int, float)
+                or metric_number(value["retry_after_seconds"]) is None
+                or value["retry_after_seconds"] < 0
+            )
+        ):
+            raise ClientError("resource_provider_failed")
+        raise ClientError(value["error"], retry_after_seconds=value.get("retry_after_seconds"))
+    private_paths = [
+        str(path),
+        registration["config_file"],
+        *(arg for arg in registration["command"] if Path(arg).is_absolute()),
+    ]
+    value = _provider_response(value, action=action, query=query, reference=reference, private_paths=private_paths)
+    encoded = json.dumps(value, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
+    if len(encoded.encode()) + 1 > SUMMARY_BYTE_LIMIT:
+        raise ClientError("resource_provider_output_too_large")
+    return encoded
+
+
+def _resource_provider_dispatch(args):
+    if (
+        getattr(args, "resource_action", None) not in {"list", "view"}
+        or args.connection is not None
+        or args.legacy_read
+        or getattr(args, "directory", None) is not None
+        or getattr(args, "with_metrics", False)
+        or getattr(args, "exact_lease_times", False)
+    ):
+        raise ClientError("resource_provider_combination_not_supported")
+    action = args.resource_action
+    reference = args.ref if action == "view" else None
+    if reference is not None and not _provider_reference(reference):
+        raise ClientError("resource_provider_reference_invalid")
+    fields = None if args.json in (None, "") else list(dict.fromkeys(args.json.split(",")))
+    if fields is not None and any(not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", field) for field in fields):
+        raise ClientError("resource_provider_fields_invalid")
+    normalized = resource_list_query(
+        nodes=args.node, model=args.model, fields=None, limit=1 if action == "view" else args.limit, mine=args.mine
+    )
+    query = {key: normalized[key] for key in ("nodes", "model", "limit", "mine")}
+    query["fields"] = fields
+    return resource_provider_output(
+        args.resource_provider,
+        action="fields" if args.json == "" else action,
+        query=query,
+        reference=reference,
+        cursor=getattr(args, "cursor", None),
+    )
+
+
 def main(argv=None):
     if not runtime_compatible():
         print(json.dumps({"error": "helper_requires_python_3_10_or_newer", "retry_mutation": False}), file=sys.stderr)
@@ -5770,6 +6024,9 @@ def main(argv=None):
     )
     parser.add_argument(
         "--connection", help="Verified private connection JSON file (POSIX 0600 or Windows private ACL)"
+    )
+    parser.add_argument(
+        "--resource-provider", help="Explicit trusted read-only provider registration for resource list/view only"
     )
     parser.add_argument(
         "--legacy-read",
@@ -5999,6 +6256,10 @@ def main(argv=None):
     reference_token = None
     explicit_reference_connection = args.connection
     try:
+        if args.resource_provider is not None:
+            encoded = _resource_provider_dispatch(args)
+            print(resource_list_text(encoded) if human_read and args.json != "" else encoded)
+            return 0
         if args.legacy_read and args.action not in {
             "discover",
             "context",
