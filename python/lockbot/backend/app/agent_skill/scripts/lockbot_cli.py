@@ -1943,7 +1943,14 @@ class Client:
                     "device": unit.get("id") if cards is not None else None,
                     "allocation": "card" if cards is not None else "whole_node",
                     "model": unit.get("dev_model") if cards is not None else None,
-                    "accelerators": node.get("accelerators") if cards is None else None,
+                    "accelerators": node.get(
+                        "accelerators",
+                        node.get("local_hardware_note", {}).get("accelerators")
+                        if isinstance(node.get("local_hardware_note"), dict)
+                        else None,
+                    )
+                    if cards is None
+                    else None,
                 }
                 for field, destination in (("holders", holdings), ("booking_list", bookings)):
                     rows = unit.get(field, [])
@@ -1982,6 +1989,7 @@ class Client:
             "bot_id": context["bot"]["id"],
             "bot_type": context["bot"]["type"],
             "scope": "own",
+            "ownership_coverage": ownership_coverage(snapshot, context),
             "holdings": holdings,
             "bookings": bookings,
         }
@@ -2798,6 +2806,190 @@ def _summary_model(value):
     )
 
 
+def ownership_coverage(snapshot, context):
+    """Missing owner/queue evidence cannot prove the caller has no resources."""
+    resources = snapshot.get("resources", [])
+    counts = Counter(row.get("id") for row in resources if isinstance(row, dict) and isinstance(row.get("id"), str))
+    kind = context.get("bot", {}).get("type")
+    card_bot, queued = kind in {"DEVICE", "QUEUE_DEVICE"}, kind in {"QUEUE", "QUEUE_DEVICE"}
+    unidentified, unknown_units = 0, int(kind not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"})
+    ambiguous = sorted(node for node, count in counts.items() if count > 1)
+    for node in resources:
+        identifier = node.get("id") if isinstance(node, dict) else None
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or len(identifier) > 256
+            or not identifier.isprintable()
+            or counts[identifier] != 1
+        ):
+            unidentified += 1
+            continue
+        cards = node.get("devices")
+        if kind not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"} or (
+            card_bot and not isinstance(cards, list) or not card_bot and "devices" in node
+        ):
+            unknown_units += 1
+            continue
+        units = cards if card_bot else [node]
+        ids = Counter(
+            str(unit["id"]) for unit in units if isinstance(unit, dict) and _summary_identifier(unit.get("id"))
+        )
+        for unit in units:
+            if not isinstance(unit, dict):
+                unknown_units += 1
+                continue
+            valid = not card_bot or _summary_identifier(unit.get("id")) and ids[str(unit["id"])] == 1
+            state = _summary_unit_state(unit, fresh=True, queued=queued, valid=valid)
+            owners = [
+                owner
+                for field in ("holders", "booking_list")
+                for owner in (unit.get(field) if isinstance(unit.get(field), list) else [])
+            ]
+            bad_platform = any(
+                isinstance(owner, dict)
+                and "platform" in owner
+                and (not isinstance(owner["platform"], str) or not owner["platform"])
+                for owner in owners
+            )
+            duplicate_owners = False
+            for field in ("holders", "booking_list"):
+                rows = unit.get(field, [])
+                if not isinstance(rows, list):
+                    continue
+                identities = [
+                    (owner.get("platform", context.get("actor", {}).get("platform")), owner.get("external_user_id"))
+                    for owner in rows
+                    if isinstance(owner, dict)
+                    and isinstance(owner.get("external_user_id"), str)
+                    and isinstance(owner.get("platform", context.get("actor", {}).get("platform")), str)
+                ]
+                duplicate_owners |= len(identities) != len(set(identities))
+            unknown_units += int(state == "unknown" or bad_platform or duplicate_owners)
+    return {
+        "complete": not unidentified and not unknown_units,
+        "unidentified_nodes": unidentified,
+        "unknown_units": unknown_units,
+        "ambiguous_node_ids": ambiguous,
+    }
+
+
+def own_summary_rows(
+    snapshot, context=None, *, reference_factory, nodes=(), model=None, device_limit=SUMMARY_DEVICE_LIMIT
+):
+    """Bound the verified caller's records without exposing other people's rows."""
+    if not isinstance(snapshot, dict) or snapshot.get("scope") != "own":
+        raise ClientError("invalid_own_resource_summary")
+    if type(device_limit) is not int or not 1 <= device_limit <= MAX_OVERVIEW_ENTRIES:
+        raise ClientError("invalid_summary_device_limit")
+    context = context if isinstance(context, dict) else snapshot.get("context", {})
+    coverage = snapshot.get("ownership_coverage", {})
+    if not isinstance(coverage, dict) or any(
+        type(coverage.get(field, 0)) is not int or coverage.get(field, 0) < 0
+        for field in ("unidentified_nodes", "unknown_units")
+    ):
+        raise ClientError("invalid_own_resource_summary")
+    ambiguous = set(coverage.get("ambiguous_node_ids", []))
+    kind = context.get("bot", {}).get("type")
+    allocation = "card" if kind in {"DEVICE", "QUEUE_DEVICE"} else "whole_node" if kind in {"NODE", "QUEUE"} else None
+    cleaned, unidentified, invalid_units = {}, coverage.get("unidentified_nodes", 0), 0
+    for field in ("holdings", "bookings"):
+        entries = snapshot.get(field)
+        if not isinstance(entries, list):
+            raise ClientError("invalid_own_resource_summary")
+        keys = Counter(
+            (entry.get("node"), str(entry.get("device")))
+            for entry in entries
+            if isinstance(entry, dict) and isinstance(entry.get("node"), str)
+        )
+        cleaned[field] = []
+        for entry in entries:
+            node = entry.get("node") if isinstance(entry, dict) else None
+            if not isinstance(node, str) or not node or len(node) > 256 or not node.isprintable():
+                unidentified += 1
+                continue
+            if node in ambiguous:
+                continue
+            if (
+                allocation is None
+                or entry.get("allocation") != allocation
+                or allocation == "card"
+                and not _summary_identifier(entry.get("device"))
+                or allocation == "whole_node"
+                and entry.get("device") is not None
+                or keys[(node, str(entry.get("device")))] != 1
+            ):
+                invalid_units += 1
+                continue
+            cleaned[field].append(entry)
+    selected = select_inventory({**snapshot, **cleaned}, nodes=nodes, model=model)
+    grouped, unknown = {}, set(selected.get("selection", {}).get("unknown_hardware_nodes", []))
+    for field in ("holdings", "bookings"):
+        for entry in sorted(selected[field], key=lambda item: (item["node"], str(item.get("device")))):
+            node = entry["node"]
+            row = grouped.setdefault(
+                node,
+                {
+                    "ref": reference_factory(node),
+                    "node": node,
+                    "unit": allocation,
+                    "holding_units": 0,
+                    "booking_units": 0,
+                    "holdings": [],
+                    "bookings": [],
+                    "snapshot_fresh": snapshot.get("snapshot_fresh_for_write") is True
+                    and snapshot.get("health") == "running",
+                },
+            )
+            alias = entry.get("alias")
+            if isinstance(alias, str) and alias:
+                row.update(alias=alias[:160], alias_truncated=len(alias) > 160)
+            counter = "holding_units" if field == "holdings" else "booking_units"
+            row[counter] += 1
+            child = {"device": entry.get("device"), "model": _summary_model(entry.get("model"))}
+            if allocation == "card" and child["model"] is None:
+                unknown.add(node)
+            if allocation == "whole_node" and not entry.get("accelerators"):
+                unknown.add(node)
+            if field == "holdings":
+                child["mode"] = entry.get("mode") if entry.get("mode") in {"exclusive", "shared"} else None
+                if "remaining_time" in entry:
+                    text = entry["remaining_time"]
+                    child["remaining_time"] = (
+                        text if isinstance(text, str) and len(text) <= 80 and text.isprintable() else None
+                    )
+                else:
+                    seconds, expiry = metric_number(entry.get("remaining_seconds")), entry.get("expires_at")
+                    child["remaining_seconds"] = seconds if seconds is not None and seconds >= 0 else None
+                    child["expires_at"] = (
+                        expiry if isinstance(expiry, str) and len(expiry) <= 80 and expiry.isprintable() else None
+                    )
+            else:
+                position = entry.get("queue_rank")
+                child["queue_rank"] = position if type(position) is int and position > 0 else None
+                child["claimable_by_you"] = (
+                    entry.get("claimable_by_you") if type(entry.get("claimable_by_you")) is bool else None
+                )
+            if len(row[field]) < device_limit:
+                row[field].append(child)
+    for row in grouped.values():
+        row["holdings_has_more"] = row["holding_units"] > len(row["holdings"])
+        row["bookings_has_more"] = row["booking_units"] > len(row["bookings"])
+    return {
+        "rows": list(grouped.values()),
+        "unknown_hardware_nodes": sorted(unknown),
+        "unidentified_nodes": unidentified,
+        "unknown_ownership_units": max(invalid_units, coverage.get("unknown_units", 0)),
+        "projection_complete": coverage.get("complete") is True
+        and not coverage.get("unknown_units", 0)
+        and not unidentified
+        and not invalid_units
+        and allocation is not None
+        and snapshot.get("snapshot_fresh_for_write") is True
+        and snapshot.get("health") == "running",
+    }
+
+
 def node_summary_rows(snapshot, context=None, *, reference_factory, model=None, device_limit=SUMMARY_DEVICE_LIMIT):
     """Project verified observations only; summaries never authorize allocation.
 
@@ -3032,6 +3224,16 @@ def summary_page(
     return result
 
 
+def _query_summary_projection(snapshot, context, reference_factory, *, nodes=(), model=None):
+    if snapshot.get("scope") == "own":
+        return own_summary_rows(snapshot, context, reference_factory=reference_factory, nodes=nodes, model=model)
+    selected = select_inventory(snapshot, nodes=nodes)
+    ambiguous = set(selected.get("selection", {}).get("ambiguous_node_ids", []))
+    if ambiguous:
+        selected = {**selected, "resources": [row for row in selected["resources"] if row.get("id") not in ambiguous]}
+    return node_summary_rows(selected, context, reference_factory=reference_factory, model=model)
+
+
 def query_summary_output(
     output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offset=0, nodes=(), model=None, private_values=()
 ):
@@ -3043,6 +3245,8 @@ def query_summary_output(
     if groups is None:
         groups = [{"snapshot": value}]
     rows, unknown, unidentified = [], set(), 0
+    unknown_ownership_units = 0
+    own_sets, own_scope_conflicts = {}, set()
     raw_observations, raw_conflicts = {}, set()
     complete = value.get("complete", True) is True
     for group in groups:
@@ -3062,36 +3266,38 @@ def query_summary_output(
         def reference_factory(node, record=record):
             return resource_reference(record, node, width=64)
 
-        unfiltered = node_summary_rows(snapshot, context, reference_factory=reference_factory)
+        unfiltered = _query_summary_projection(snapshot, context, reference_factory)
+        if snapshot.get("scope") == "own":
+            # An observed empty own set is evidence too. Comparing only visible
+            # rows would hide "owned" versus "not owned" for the same scope.
+            scope = resource_scope_digest(record)
+            membership = [
+                json.dumps([field, entry.get("node"), entry.get("device"), entry.get("allocation")], sort_keys=True)
+                for field in ("holdings", "bookings")
+                for entry in snapshot[field]
+            ]
+            digest = hashlib.sha256("\n".join(sorted(membership)).encode()).hexdigest()
+            if scope in own_sets and own_sets[scope] != digest:
+                own_scope_conflicts.add(scope)
+            own_sets[scope] = digest
         for row in unfiltered["rows"]:
             if row["ref"] in raw_observations and raw_observations[row["ref"]] != row:
                 raw_conflicts.add(row["ref"])
             raw_observations[row["ref"]] = row
-        selected = select_inventory(snapshot, nodes=nodes)
-        selection = selected.get("selection", {})
-        ambiguous = set(selection.get("ambiguous_node_ids", []))
-        summary_snapshot = (
-            {**selected, "resources": [row for row in selected["resources"] if row.get("id") not in ambiguous]}
-            if ambiguous
-            else selected
-        )
         projected = (
             unfiltered
-            if model is None and not nodes and not ambiguous
-            else node_summary_rows(
-                summary_snapshot,
-                context,
-                reference_factory=reference_factory,
-                model=model,
-            )
+            if model is None and not nodes
+            else _query_summary_projection(snapshot, context, reference_factory, nodes=nodes, model=model)
         )
         rows.extend(projected["rows"])
         unknown.update(
             reference_factory(node)
-            for node in set(projected["unknown_hardware_nodes"]) | set(selection.get("unknown_hardware_nodes", []))
+            for node in set(projected["unknown_hardware_nodes"])
+            | set(snapshot.get("selection", {}).get("unknown_hardware_nodes", []))
         )
         unidentified += unfiltered["unidentified_nodes"]
-        complete &= unfiltered["projection_complete"] and not ambiguous
+        unknown_ownership_units += unfiltered.get("unknown_ownership_units", 0)
+        complete &= unfiltered["projection_complete"]
     # Distinct credentials can observe the same exact scope. Display identical
     # evidence once; conflicting observations supply only a locator, never a
     # union of states, devices or capabilities. Raw source observations stay intact.
@@ -3108,17 +3314,24 @@ def query_summary_output(
     for reference in raw_conflicts.intersection(distinct):
         conflicts.add(reference)
         distinct[reference] = {"ref": reference, "node": distinct[reference]["node"], "observation_conflict": True}
+    for reference, row in distinct.items():
+        if any(reference.startswith("s-" + scope + "/") for scope in own_scope_conflicts):
+            conflicts.add(reference)
+            distinct[reference] = {"ref": reference, "node": row["node"], "observation_conflict": True}
     rows = list(distinct.values())
-    complete &= not conflicts
+    complete &= not conflicts and not own_scope_conflicts
     if fields is not None:
         # Exact references remain available even when selecting fewer display fields.
         rows = [{key: item[key] for key in ("ref", "observation_conflict", *fields) if key in item} for item in rows]
     unread = value.get("unread", [])
     notes = {
+        "view": value.get("view", "own" if value.get("scope") == "own" else "resources"),
         "unknown_hardware_nodes": len(unknown),
         "unidentified_nodes": unidentified,
+        "unknown_ownership_units": unknown_ownership_units,
         "duplicate_observations": duplicates,
         "conflicting_observations": len(conflicts),
+        "conflicting_scopes": len(own_scope_conflicts),
         "unread_scopes": sum(item.get("count", 1) for item in unread),
         "unread_reasons": sorted({item.get("error", "unknown") for item in unread})[:8],
         "retry_after_seconds": max(
@@ -3177,6 +3390,12 @@ SUMMARY_FIELDS = (
     "unidentified_devices",
     "device_inventory_complete",
     "observation_conflict",
+    "holding_units",
+    "booking_units",
+    "holdings",
+    "bookings",
+    "holdings_has_more",
+    "bookings_has_more",
 )
 
 
@@ -3597,6 +3816,7 @@ def resources_all(
         {
             "result": {
                 "scope": "saved_connections_only",
+                "view": "own" if mine else "resources",
                 "complete": not unread and after_scope is None and exhausted,
                 "scope_page": scope_page,
                 "groups": snapshots,
@@ -4278,7 +4498,7 @@ def main(argv=None):
                 args.offset = 0 if args.offset is None else args.offset
                 if not 1 <= args.limit <= MAX_OVERVIEW_ENTRIES or args.offset < 0:
                     raise ClientError("invalid_summary_page")
-                if args.mine or args.full or args.with_metrics:
+                if args.full or args.with_metrics:
                     raise ClientError("summary_combination_not_supported")
             if args.action == "resources" and args.ref:
                 if args.mine:

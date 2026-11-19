@@ -237,7 +237,7 @@ def test_windows_unicode_details_defer_without_losing_a_valid_long_reference(mon
     assert helper.parse_resource_reference(result["rows"][0]["ref"])[1] == node
 
 
-@pytest.mark.parametrize("options", [["--limit", "0"], ["--offset", "-1"], ["--summary", "--mine"]])
+@pytest.mark.parametrize("options", [["--limit", "0"], ["--offset", "-1"], ["--summary", "--full"]])
 def test_invalid_summary_options_fail_before_requests(aggregate, options):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
