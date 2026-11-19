@@ -869,6 +869,85 @@ def connection_scope(record):
     return (origin(record.get("approved_origin")), *fields)
 
 
+def resource_scope_digest(record):
+    """A locator for a pinned principal and native scope, never an authority grant."""
+    identity = [SERVICE, *connection_scope(record)]
+    return hashlib.sha256(json.dumps(identity, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def resource_reference(record, node, *, width=12):
+    """Describe an exact node without depending on a bot name or private file path."""
+    if (
+        not isinstance(node, str)
+        or not 0 < len(node) <= 256
+        or not node.strip()
+        or not node.isprintable()
+        or type(width) is not int
+        or not 12 <= width <= 64
+    ):
+        raise ClientError("invalid_resource_reference")
+    try:
+        encoded = urllib.parse.quote(node, safe="", encoding="utf-8", errors="strict")
+    except UnicodeError:
+        raise ClientError("invalid_resource_reference") from None
+    return f"s-{resource_scope_digest(record)[:width]}/{encoded}"
+
+
+def parse_resource_reference(value):
+    """Parse canonical spelling only; fuzzy matching belongs to discovery, not routing."""
+    if not isinstance(value, str) or len(value) > 4096:
+        raise ClientError("invalid_resource_reference")
+    prefix, separator, encoded = value.partition("/")
+    if not separator or not re.fullmatch(r"s-[0-9a-f]{12,64}", prefix):
+        raise ClientError("invalid_resource_reference")
+    try:
+        node = urllib.parse.unquote(encoded, encoding="utf-8", errors="strict")
+        if (
+            not 0 < len(node) <= 256
+            or not node.strip()
+            or not node.isprintable()
+            or urllib.parse.quote(node, safe="", encoding="utf-8", errors="strict") != encoded
+        ):
+            raise ValueError
+    except (UnicodeError, ValueError):
+        raise ClientError("invalid_resource_reference") from None
+    return prefix[2:], node
+
+
+def resolve_resource_reference(value, directory=None):
+    """Resolve local candidates without reading a Key, network I/O or cached resources.
+
+    The caller must still verify the selected service, principal and current node
+    through Client before reading protected data or dispatching one resource command.
+    Equivalent scope records remain credential candidates, not a union of permissions.
+    """
+    token, node = parse_resource_reference(value)
+    budget = CatalogScanBudget(time.monotonic() + 60, time.monotonic)
+    try:
+        listing = listed_connections(directory, scan_budget=budget)
+        if listing["unavailable_count"] or not listing["scan"]["complete"]:
+            raise ClientError("resource_reference_catalog_incomplete")
+        matches = {}
+        for locator in listing["connections"]:
+            record = private_json(locator["connection"])
+            identity = connection_scope(record)
+            if resource_scope_digest(record).startswith(token):
+                matches.setdefault(identity, []).append(locator)
+    except (OSError, KeyError, TypeError, ValueError, CatalogScanTruncated):
+        raise ClientError("resource_reference_catalog_incomplete") from None
+    if not matches:
+        raise ClientError("resource_reference_scope_unavailable")
+    if len(matches) != 1:
+        raise ClientError("resource_reference_scope_ambiguous")
+    identity, candidates = next(iter(matches.items()))
+    return {
+        "node": node,
+        "scope": identity,
+        "connections": sorted(candidates, key=lambda item: item["connection"]),
+        "online_verified": False,
+    }
+
+
 def write_private(path, content, *, replace=False):
     path = Path(path)
     temporary = None
