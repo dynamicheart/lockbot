@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 
+from lockbot.trace_cli_assessment import checked_coverage, checked_header
+
 SHA = re.compile(r"[a-f0-9]{64}")
 ADAPTER_VERSIONS = {"resource-cli": {1, 2}, "consultation": {1, 2, 3}, "cli-release": {3, 4, 5, 6}}
 RELEASE_SCENARIOS = {
@@ -19,6 +21,9 @@ RELEASE_SCENARIOS = {
 
 def checked_assessment(value, source_run, data):
     """Reject unsupported policy/schema or forged review structure, never infer approval."""
+    if isinstance(value, dict) and type(value.get("schema_version")) is int and value["schema_version"] == 2:
+        checked_header(value, source_run, data)
+        return _checked_reviews(value)
     if (
         not isinstance(value, dict)
         or type(value.get("schema_version")) is not int
@@ -73,6 +78,12 @@ def checked_assessment(value, source_run, data):
         or len(value["reviews"]) > 16
     ):
         raise ValueError("Unsupported assessment policy or target")
+    return _checked_reviews(value)
+
+
+def _checked_reviews(value):
+    target, binding = value["target"], value["binding"]
+    schema = value["schema_version"]
     reviews = value["reviews"]
     ids = set()
     for review in reviews:
@@ -83,22 +94,25 @@ def checked_assessment(value, source_run, data):
         author = review.get("reviewer", {})
         if (
             set(review)
-            != {
-                "schema_version",
-                "target",
-                "binding",
-                "reviewer",
-                "status",
-                "findings",
-                "report_sha256",
-                "bound_at",
-                "supersedes",
-                "review_id",
-            }
+            != (
+                {
+                    "schema_version",
+                    "target",
+                    "binding",
+                    "reviewer",
+                    "status",
+                    "findings",
+                    "report_sha256",
+                    "bound_at",
+                    "supersedes",
+                    "review_id",
+                }
+                | ({"reviewed_phases"} if schema == 2 else set())
+            )
             or review.get("review_id") != identity
             or identity in ids
             or type(review.get("schema_version")) is not int
-            or review["schema_version"] != 1
+            or review["schema_version"] != schema
             or not isinstance(review.get("bound_at"), str)
             or len(review["bound_at"]) > 80
             or review.get("target") != target
@@ -132,10 +146,18 @@ def checked_assessment(value, source_run, data):
             review["status"] == "findings" and not review["findings"]
         ):
             raise ValueError("Invalid model verdict")
+        if schema == 2:
+            checked_coverage(review, value)
         ids.add(identity)
     superseded = {review["supersedes"] for review in reviews if review.get("supersedes")}
     statuses = {review["status"] for review in reviews if review["review_id"] not in superseded}
     semantic = "not_reviewed" if not statuses else next(iter(statuses)) if len(statuses) == 1 else "uncertain"
+    if schema == 2 and statuses:
+        covered = {
+            phase for review in reviews if review["review_id"] not in superseded for phase in review["reviewed_phases"]
+        }
+        if covered != set(range(1, len(value["phase_evidence"]) + 1)):
+            semantic = "uncertain"
     if value["semantic"] != semantic:
         raise ValueError("Assessment semantic status changed")
     return value

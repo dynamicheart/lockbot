@@ -224,3 +224,28 @@ CLI 发布夹具 v3/v4/v5/v6 可显式启用同一机制：为 `publish_dataset.
 例如旧 SDK 返回的默认标志不构成线上兼容证据。更新咨询还绑定当前与已安装两个冻结
 安装包的 manifest、Skill 和 ZIP；只检查更新不代表允许更新。原始判定和批次字节不改写，
 失败、超时或阻塞不会被语义通过覆盖，阻塞性模型意见显示「有问题」。
+
+### CLI35 整条运行复核
+
+`--cli-assessments` 仅显式开启 CLI35 的十二个定向场景；名单和阶段数由
+`lockbot.trace_cli_assessment.PHASE_COUNTS` 固定。旧版本、未知场景、未知复核要求和
+任何显式人工门禁都不能借此免除。原有阶段 1 旁证继续使用 schema 1；CLI35 使用
+schema 2，目标包含 `suite: "cli"`、`scenario`、`client`、`model` 和
+`phase_scope: "all"`，绑定原始整条运行，而不是新增一次复核运行。
+
+```sh
+python3 assessment_overlay.py --source /private/terminal-matrix \
+  --target /private/cli-run-target.json --report /private/model-review.md \
+  --reviewer Astra --requested-model gpt-6-astra --status pass \
+  --reviewed-phase 1 --reviewed-phase 2 --output /private/bound-cli-review.json
+python3 publish_dataset.py /private/terminal-matrix /private/dataset-stage \
+  --minimal-summary --cli-assessments \
+  --assessment-review /private/bound-cli-review.json /private/model-review.md
+```
+
+`--reviewed-phase` 必须显式逐个给出实际复核过的阶段；不会根据文件存在自动推断。
+整条运行的计划、矩阵、冻结包和每个预期阶段的输入、输出、工具/HTTP、原生客户端
+记录都参与绑定；未执行阶段及缺失文件也有明确记录。修改后续阶段或添加原来缺失的
+文件都会使旧复核失效。只有全部阶段已完成且已复核才能给出整条运行语义通过。
+部分阶段的意见或存疑可附加，但未覆盖所有预期阶段时总语义结论保持存疑；运行缺失、
+超时、受阻及自动失败的原始状态仍优先。复核依据中显示具体已复核阶段。

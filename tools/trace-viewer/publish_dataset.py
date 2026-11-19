@@ -219,7 +219,14 @@ def audit_source_io(source, raw):
 
 
 def export_dataset(
-    source, output, *, title=None, minimal_summary=False, assessment_reviews=(), release_assessments=False
+    source,
+    output,
+    *,
+    title=None,
+    minimal_summary=False,
+    assessment_reviews=(),
+    release_assessments=False,
+    cli_assessments=False,
 ):
     """Return an immutable registered dataset; root legacy files are never read or written."""
     source = source.resolve(strict=True)
@@ -267,7 +274,7 @@ def export_dataset(
         # of comment identity, even when only a top-level field would have changed.
         assessments = json.loads(payloads["raw"])
         assessments["assessments"] = previous_assessments(output, dataset_id)
-        add_assessments(assessments, source, release_assessments=release_assessments)
+        add_assessments(assessments, source, release_assessments=release_assessments, cli_assessments=cli_assessments)
         for review_path, report_path in assessment_reviews:
             review = json.loads(read_private(review_path, 64 * 1024))
             attach_review(assessments, source, review, report_path)
@@ -346,6 +353,9 @@ def main():
     parser.add_argument(
         "--release-assessments", action="store_true", help="Opt in known cli-release fixtures to semantic assessment"
     )
+    parser.add_argument(
+        "--cli-assessments", action="store_true", help="Opt in exact CLI35 whole-run semantic assessments"
+    )
     args = parser.parse_args()
     print(
         json.dumps(
@@ -356,6 +366,7 @@ def main():
                 minimal_summary=args.minimal_summary,
                 assessment_reviews=args.assessment_review,
                 release_assessments=args.release_assessments,
+                cli_assessments=args.cli_assessments,
             )
         )
     )

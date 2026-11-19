@@ -94,3 +94,46 @@ def test_tampered_or_missing_registered_assessment_never_hides_original_trace(re
 
 def record_target(catalog):
     return next(iter(catalog["cases"]))
+
+
+def test_cli_whole_run_assessment_retains_original_comment_coordinates(review_api, tmp_path):
+    from test_trace_cli_run_assessment import review, source_run
+
+    client, headers, _, _, directory, _ = review_api
+    source, target = source_run(tmp_path)
+    initial = publisher.export_dataset(source, directory, minimal_summary=True)
+    dataset = initial["dataset"]["dataset_id"]
+    params = {"raw": True, "dataset_id": dataset}
+    before = client.get(ROOT + "/catalog", headers=headers, params=params).json()
+    case = target["scenario"]
+    run_id = before["review_runs"][case][0]
+    comment = client.post(
+        ROOT + "/comments",
+        headers=headers,
+        json={
+            "case_id": case,
+            "run_index": 0,
+            "run_id": run_id,
+            "raw": True,
+            "dataset_id": dataset,
+            "anchor": "run",
+            "quote": "",
+            "body": "Keep the original multi-phase run comment.",
+        },
+    )
+    assert comment.status_code == 201
+    record, report = review(tmp_path, source, target)
+    publisher.export_dataset(
+        source,
+        directory,
+        minimal_summary=True,
+        cli_assessments=True,
+        assessment_reviews=[(saved_review(tmp_path, record), report)],
+    )
+    after = client.get(ROOT + "/catalog", headers=headers, params=params).json()
+    assert after["review_runs"] == before["review_runs"] and after["cases"] == before["cases"]
+    entry = after["assessments"][record["target"]["source_run"]]
+    assert entry["schema_version"] == 2 and entry["semantic"] == "pass"
+    assert len(entry["phase_evidence"]) == 2 and entry["human_gate"] == "not_required"
+    comments = client.get(ROOT + "/comments", headers=headers).json()["comments"]
+    assert any(item["id"] == comment.json()["id"] and item["run_id"] == run_id for item in comments)

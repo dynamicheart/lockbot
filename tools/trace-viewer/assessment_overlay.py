@@ -199,7 +199,7 @@ def phase_source(source, target):
     )
 
 
-def add_assessments(data, source, *, release_assessments=False):
+def add_assessments(data, source, *, release_assessments=False, cli_assessments=False):
     """Interpret only known generic checklists, retaining every original trial byte."""
     source = source.resolve(strict=True)
     matrix = _json(source / "matrix.json", source)
@@ -237,6 +237,16 @@ def add_assessments(data, source, *, release_assessments=False):
             "topics": topics,
             "reviews": [],
         }
+    if cli_assessments:
+        from cli_run_assessment import additions as cli_additions
+
+        additions.update(cli_additions(source))
+        for value in additions.values():
+            target = value["target"]
+            if not any(
+                trial.get("source_run") == target["source_run"] for trial in data["cases"].get(target["case_id"], [])
+            ):
+                raise ValueError("Assessment source trial is absent")
     current = data.get("assessments", {})
     for key, value in additions.items():
         if key in current:
@@ -249,11 +259,22 @@ def add_assessments(data, source, *, release_assessments=False):
         data["assessments"] = {**current, **additions}
 
 
-def bind_review(source, target, report, *, reviewer, status, findings=(), supersedes=None):
+def bind_review(source, target, report, *, reviewer, status, findings=(), supersedes=None, reviewed_phases=None):
     """Build an explicit model-review sidecar; no model call or human approval occurs."""
-    row, case, binding, exact = phase_source(source, target)
-    if _known_topics(row, case) is None or row.get("status") != "completed":
-        raise ValueError("This phase has no supported checklist adapter")
+    cli = target.get("suite") == "cli"
+    if cli:
+        from cli_run_assessment import run_source
+        from lockbot.trace_cli_assessment import checked_coverage
+
+        entry = run_source(source, target)
+        binding, exact = entry["binding"], entry["target"]
+        checked_coverage({"status": status, "reviewed_phases": reviewed_phases}, entry)
+    else:
+        if reviewed_phases is not None:
+            raise ValueError("Phase coverage is only supported for CLI35 run reviews")
+        row, case, binding, exact = phase_source(source, target)
+        if _known_topics(row, case) is None or row.get("status") != "completed":
+            raise ValueError("This phase has no supported checklist adapter")
     path = report.absolute()
     if path.is_symlink() or path.resolve(strict=True) != path or not path.is_file() or path.stat().st_size > 128 * 1024:
         raise ValueError("Review report must be an explicit regular bounded file")
@@ -268,6 +289,8 @@ def bind_review(source, target, report, *, reviewer, status, findings=(), supers
         "bound_at": datetime.now(timezone.utc).isoformat(),
         "supersedes": supersedes,
     }
+    if cli:
+        record.update(schema_version=2, reviewed_phases=reviewed_phases)
     validate_review(record)
     record["review_id"] = digest(record)
     return record
@@ -276,10 +299,25 @@ def bind_review(source, target, report, *, reviewer, status, findings=(), supers
 def validate_review(record):
     if not isinstance(record, dict):
         raise ValueError("Invalid model review record")
+    fields = {
+        "schema_version",
+        "target",
+        "binding",
+        "reviewer",
+        "status",
+        "findings",
+        "report_sha256",
+        "bound_at",
+        "supersedes",
+    }
+    if record.get("schema_version") == 2:
+        fields.add("reviewed_phases")
+    if set(record) - {"review_id"} != fields:
+        raise ValueError("Unsupported model review fields")
     reviewer = record.get("reviewer", {})
     if (
         type(record.get("schema_version")) is not int
-        or record["schema_version"] != SCHEMA
+        or record["schema_version"] not in {SCHEMA, 2}
         or not isinstance(reviewer, dict)
         or reviewer.get("kind") != "model"
         or set(reviewer) - {"kind", "name", "requested_model"}
@@ -325,7 +363,15 @@ def attach_review(data, source, record, report):
         or digest(report.read_bytes()) != record["report_sha256"]
     ):
         raise ValueError("Review report changed")
-    _, _, binding, target = phase_source(source, record["target"])
+    if record["schema_version"] == 2:
+        from cli_run_assessment import run_source
+        from lockbot.trace_cli_assessment import checked_coverage
+
+        entry = run_source(source, record["target"])
+        checked_coverage(record, entry)
+        binding, target = entry["binding"], entry["target"]
+    else:
+        _, _, binding, target = phase_source(source, record["target"])
     if record["target"] != target or record["binding"] != binding:
         raise ValueError("Review evidence binding changed")
     existing = data.get("assessments", {}).get(target["source_run"])
@@ -343,6 +389,10 @@ def attach_review(data, source, record, report):
     active = [item for item in reviews if item["review_id"] not in replaced]
     statuses = {item["status"] for item in active}
     semantic = next(iter(statuses)) if len(statuses) == 1 else "uncertain"
+    if existing["schema_version"] == 2:
+        covered = {phase for item in active for phase in item["reviewed_phases"]}
+        if covered != set(range(1, len(existing["phase_evidence"]) + 1)):
+            semantic = "uncertain"
     existing.update(reviews=reviews, semantic=semantic)
     return True
 
@@ -350,13 +400,19 @@ def attach_review(data, source, record, report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--target", type=Path, required=True, help="JSON suite/scenario/client/model/phase identity")
+    parser.add_argument("--target", type=Path, required=True, help="JSON suite/scenario/client/model plus phase, or CLI35 phase_scope=all")
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--reviewer", required=True)
     parser.add_argument("--requested-model", required=True)
     parser.add_argument("--status", choices=("pass", "findings", "uncertain"), required=True)
     parser.add_argument("--findings", type=Path, help="Explicit JSON findings; never inferred from prose")
     parser.add_argument("--supersedes", help="Existing review ID corrected by this append-only record")
+    parser.add_argument(
+        "--reviewed-phase",
+        type=int,
+        action="append",
+        help="Explicit observed phase reviewed (repeat for CLI35 whole-run reviews)",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     record = bind_review(
@@ -367,6 +423,7 @@ def main():
         status=args.status,
         findings=json.loads(args.findings.read_text()) if args.findings else [],
         supersedes=args.supersedes,
+        reviewed_phases=args.reviewed_phase,
     )
     os.umask(0o077)
     with args.output.open("x") as stream:

@@ -438,13 +438,28 @@ const caseName = key => data.labels && Object.hasOwn(data.labels,key) ? data.lab
 const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
 function assessmentForTrial(trial) {
   const value = typeof data === 'undefined' ? null : data.assessments?.[trial.source_run];
-  if (!value || value.schema_version !== 1 || value.target?.source_run !== trial.source_run ||
-      value.target?.phase !== 1 || !['resource-cli','consultation','cli-release'].includes(value.adapter?.family) ||
-      value.target?.suite !== value.adapter?.family ||
-      !({consultation:[1,2,3],'resource-cli':[1,2],'cli-release':[3,4,5,6]})[value.adapter?.family].includes(value.adapter?.version) || value.human_gate !== 'not_required' ||
-      value.execution !== 'completed' || !['pass','fail'].includes(value.behavior) ||
+  const cliCounts = {'approved-enrollment':2,'reset-personal-key':4,telemetry:1,'intent-shared-tail':1,
+    'intent-ambiguous-tail':1,'intent-my-locks':1,'intent-my-books':1,'intent-reminder-configured':1,
+    'intent-choose':1,'intent-whole':1,'intent-claim':1,'intent-model-p800-unknown-node':1};
+  const cli = value?.schema_version === 2 && value.target?.suite === 'cli';
+  const validTarget = cli ? value.target.phase_scope === 'all' && value.adapter?.family === 'cli' &&
+    value.adapter.version === 35 && Object.hasOwn(cliCounts,value.target.scenario) &&
+    Array.isArray(value.phase_evidence) && value.phase_evidence.length === cliCounts[value.target.scenario] &&
+    value.phase_evidence.every((phase,index) => phase.phase === index+1 && typeof phase.observed === 'boolean' &&
+      typeof phase.completed === 'boolean') && ['completed','incomplete'].includes(value.execution) &&
+    ['pass','fail','unknown'].includes(value.behavior) : value?.schema_version === 1 && value.target?.phase === 1 &&
+    ['resource-cli','consultation','cli-release'].includes(value.adapter?.family) &&
+    value.target?.suite === value.adapter?.family &&
+    ({consultation:[1,2,3],'resource-cli':[1,2],'cli-release':[3,4,5,6]})[value.adapter?.family].includes(value.adapter?.version) &&
+    value.execution === 'completed' && ['pass','fail'].includes(value.behavior);
+  if (!value || !validTarget || value.target?.source_run !== trial.source_run || value.human_gate !== 'not_required' ||
       !['not_reviewed','pass','findings','uncertain'].includes(value.semantic) ||
       !Array.isArray(value.reviews) || value.reviews.length > 16 || value.reviews.some(review =>
+        (cli && (review.schema_version !== 2 || !Array.isArray(review.reviewed_phases) || !review.reviewed_phases.length ||
+          review.reviewed_phases.some((phase,index,phases) => !Number.isInteger(phase) ||
+            !value.phase_evidence[phase-1]?.observed || (index > 0 && phase <= phases[index-1])) ||
+          (review.status === 'pass' && (value.execution !== 'completed' ||
+            value.phase_evidence.some(phase => !phase.completed || !review.reviewed_phases.includes(phase.phase)))))) ||
         review.reviewer?.kind !== 'model' || typeof review.reviewer?.name !== 'string' ||
         typeof review.reviewer?.requested_model !== 'string' ||
         !/^[a-f0-9]{64}$/.test(review.review_id || '') || !/^[a-f0-9]{64}$/.test(review.report_sha256 || '') ||
@@ -454,12 +469,13 @@ function assessmentForTrial(trial) {
   const replaced = new Set(value.reviews.map(review => review.supersedes).filter(Boolean));
   const active = value.reviews.filter(review => !replaced.has(review.review_id));
   const statuses = new Set(active.map(review => review.status));
-  const semantic = !statuses.size ? 'not_reviewed' : statuses.size === 1 ? [...statuses][0] : 'uncertain';
+  let semantic = !statuses.size ? 'not_reviewed' : statuses.size === 1 ? [...statuses][0] : 'uncertain';
+  if (cli && statuses.size && new Set(active.flatMap(review => review.reviewed_phases)).size !== value.phase_evidence.length) semantic = 'uncertain';
   return semantic === value.semantic ? value : null;
 }
 function assessmentBadge(trial) {
   const assessment = assessmentForTrial(trial);
-  if (!assessment) return null;
+  if (!assessment || assessment.execution !== 'completed' || assessment.behavior === 'unknown') return null;
   if (['fail','timeout','blocked'].includes(trial.state)) return null;
   if (assessment.behavior === 'fail') return {label:'未通过',tone:'fail'};
   if (assessment.semantic === 'pass') return {label:'通过',tone:'pass'};
@@ -476,7 +492,7 @@ function assessmentPanel(trial) {
   if (!assessment) return null;
   const panel = node('details',null,'run-assessment');
   panel.append(node('summary','检查与复核'));
-  panel.append(node('p','自动行为：'+(assessment.behavior === 'pass' ? '通过' : '未通过')));
+  panel.append(node('p','自动行为：'+({pass:'通过',fail:'未通过',unknown:'未判定'}[assessment.behavior])));
   const replaced = new Set(assessment.reviews.map(review => review.supersedes).filter(Boolean));
   const activeReviews = assessment.reviews.filter(review => !replaced.has(review.review_id));
   const blocking = activeReviews.some(review => review.findings.some(finding => finding.blocking));
@@ -490,9 +506,10 @@ function assessmentPanel(trial) {
   const provenance = node('details');
   provenance.append(node('summary','复核依据'));
   provenance.append(node('p','原始导出状态：'+({pass:'通过',fail:'未通过',pending:'待确认',timeout:'超时',blocked:'受阻'}[trial.state] || '未知')));
-  provenance.append(node('p','仅覆盖合成夹具记录；不代表线上验收。'+assessment.adapter.family+' v'+assessment.adapter.version+' · 阶段 '+assessment.target.phase));
+  provenance.append(node('p','仅覆盖合成夹具记录；不代表线上验收。'+assessment.adapter.family+' v'+assessment.adapter.version+(assessment.target.phase_scope === 'all' ? ' · 全部阶段' : ' · 阶段 '+assessment.target.phase)));
   for (const review of assessment.reviews) {
     provenance.append(node('p',review.reviewer.name+' · 请求模型 '+review.reviewer.requested_model+(replaced.has(review.review_id) ? ' · 已被更正' : '')));
+    if (assessment.schema_version === 2) provenance.append(node('p','已复核阶段：'+review.reviewed_phases.join('、')+' / '+assessment.phase_evidence.length));
     provenance.append(node('p','报告 SHA-256：'+review.report_sha256));
     provenance.append(node('p','证据绑定时间：'+review.bound_at));
   }
