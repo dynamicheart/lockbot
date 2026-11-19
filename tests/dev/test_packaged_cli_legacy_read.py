@@ -401,7 +401,8 @@ def test_disabled_access_is_a_pause_and_stopped_health_is_preserved(legacy, enab
     legacy.events.clear()
     output = legacy.run("resources", code=0 if enabled else 2)
     if enabled:
-        assert output["result"]["health"] == "stopped"
+        assert output["result"]["bot_service_health"] == "stopped"
+        assert "health" not in output["result"]
         assert output["result"]["snapshot_fresh_for_write"] is False
     else:
         assert output["error"] == "agent_access_disabled"
