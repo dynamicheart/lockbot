@@ -1715,6 +1715,49 @@ def resource_relock_observation(snapshot):
     }
 
 
+def claim_metadata_consistent(output, *, diagnostic=False):
+    """Reject contradictory v36 claim envelopes; absent optional flags are OK.
+
+    The SDK's observed-state success deliberately does not promise a structured
+    server outcome. Do not confuse that supported value with an unknown write.
+    """
+    if not isinstance(output, dict):
+        return False
+    payload = output.get("result", {})
+    if not isinstance(payload, dict):
+        return False
+    layers = [output, payload]
+    if "command_result" in payload:
+        if diagnostic or not isinstance(payload["command_result"], dict):
+            return False
+        layers.append(payload["command_result"])
+    for index, layer in enumerate(layers):
+        if "error" in layer and not (
+            diagnostic and index == 0 and layer["error"] == "booking_claimable_use_explicit_claim"
+        ):
+            return False
+        if "exit_code" in layer and (
+            type(layer["exit_code"]) is not int or layer["exit_code"] != (2 if diagnostic else 0)
+        ):
+            return False
+        for field, expected in (
+            ("command_sent", not diagnostic),
+            ("retry_mutation", False),
+            ("unknown_write", False),
+            ("verified", not diagnostic),
+            ("mutation_attempted", not diagnostic),
+        ):
+            if field in layer and layer[field] is not expected:
+                return False
+        if "command_outcome" in layer and (diagnostic or layer["command_outcome"] != "not_structured_by_server"):
+            return False
+        if "verification" in layer and (diagnostic or layer["verification"] != "observed_state_only"):
+            return False
+        if diagnostic and "verified_snapshot" in layer:
+            return False
+    return True
+
+
 def proven_claim_diagnostic(fixture, tools, requests):
     """v36 positive claim only: remove one wire-proven read-only lock diagnostic.
 
@@ -1739,6 +1782,8 @@ def proven_claim_diagnostic(fixture, tools, requests):
         or "error" in claim_output
         or claim_output.get("command_sent") is False
         or claim_output.get("exit_code") not in (None, 0)
+        or not claim_metadata_consistent(result, diagnostic=True)
+        or not claim_metadata_consistent(claim_output)
     ):
         return tools, 0
     args, next_args = diagnostic.get("args", {}), claim.get("args", {})
@@ -1853,6 +1898,13 @@ def verified_sdk_resolutions(fixture, tools, requests):
         return {}
     proof = {"positive": False, "refusal": False, "observed_groups": []}
     checked = {id(call): proof}
+    if (
+        version >= 36
+        and fixture.case["scenario"] == "intent-claim"
+        and args.get("operation") == "claim"
+        and not claim_metadata_consistent(call.get("result"))
+    ):
+        return checked
     try:
         if (
             not isinstance(argv, list)
