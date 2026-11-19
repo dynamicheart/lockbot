@@ -1975,8 +1975,11 @@ class Client:
 
     def _check_installed_version(self):
         if self.version is None:
-            self.version = installed_version(self.root)
-            self.package_version = installed_package_version(self.root)
+            version = installed_version(self.root)
+            package = installed_package_version(self.root)
+            # A failed canonical check must not leave a rendered-only revision
+            # that could skip full validation on a later use of this Client.
+            self.version, self.package_version = version, package
         if self.api_profile == "native-legacy-read-v1":
             # These hashes certify this CLI package, not the server's Markdown-only ZIP.
             # No legacy instruction revision has been loaded by this executable.
@@ -1998,6 +2001,24 @@ class Client:
         update = self.manifest.get("skill_update") or {}
         if update.get("current_version"):
             self.needs_update |= self._version_differs(update["current_version"], update.get("current_package_version"))
+
+    def discovery_update_check(self):
+        """Compare Skill revisions only when the complete local bundle verifies.
+
+        Anonymous discovery also bootstraps standalone helpers. An absent or
+        modified installation must not prevent inspection or imply it is current.
+        This adds no authenticated request or installation side effect.
+        """
+        try:
+            self._check_installed_version()
+        except ClientError as exc:
+            return {"status": "unknown", "reason": exc.code}
+        return {
+            "status": "update_available" if self.needs_update else "current",
+            "installed_version": self.version,
+            "installed_package_version": self.package_version,
+            "comparison": "package_version" if self.portable_package else "rendered_version",
+        }
 
     def _read_context(self, *, initializing=False, with_resources=False):
         if with_resources and self.node_access and not self.legacy_read:
@@ -8208,7 +8229,7 @@ def main(argv=None):
     )
     sub = parser.add_subparsers(dest="action", required=True)
     bootstrap = {
-        "discover": "Verify an approved service and optionally save its metadata",
+        "discover": "Inspect an approved service and compare verified installed Skill revisions",
         "install": "Verify and install the complete Skill ZIP in a new directory",
         "init": "Verify an existing personal Key file and save its scoped connection",
     }
@@ -8625,6 +8646,7 @@ def main(argv=None):
             return 0
         if args.action == "discover":
             result = client.discover()
+            discovery_update = client.discovery_update_check()
             if args.destination:
                 metadata = {
                     "approved_origin": client.base,
@@ -8753,7 +8775,12 @@ def main(argv=None):
                 client.redacted(
                     {
                         "result": result,
-                        "update_required": client.needs_update,
+                        "update_required": (
+                            None
+                            if args.action == "discover" and discovery_update["status"] == "unknown"
+                            else client.needs_update
+                        ),
+                        **({"update_check": discovery_update} if args.action == "discover" else {}),
                         **(
                             {
                                 "api_profile": client.api_profile,

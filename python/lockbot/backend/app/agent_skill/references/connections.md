@@ -50,6 +50,19 @@ python3 "$LOCKBOT_CLI" resource list --limit 5 --json node,unit,hardware,states
 | Find resources, inspect one, or act on it | `resource list`, `resource view REF`, or `command` |
 | Open the workbench or check utilization | `panel-link` or `metrics` |
 
+## Check for a Skill update
+
+For “Skill有新版吗”, use the approved `deployment_origin` in the installed
+`installation.json`: `python3 "$LOCKBOT_CLI" discover --origin "$ORIGIN"`.
+This reads the public manifest once without credentials and compares it with the
+verified local bundle. Report `update_check.status` (`current`, `update_available`
+or `unknown`); `update_required: null` means the local installation could not be
+verified. A mismatch identifies different published instructions, not chronological
+ordering or API compatibility. Older helpers
+without `update_check` need an explicit comparison of local installation metadata
+with the returned manifest; their default `update_required: false` is not evidence.
+An update inquiry authorizes inspection only; do not install, bind or query resources.
+
 ## Install the complete ZIP and use the fixed client
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
