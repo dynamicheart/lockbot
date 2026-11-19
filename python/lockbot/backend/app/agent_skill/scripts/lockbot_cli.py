@@ -2751,6 +2751,274 @@ def redacted_values(value, private_values=()):
     return value
 
 
+SUMMARY_NODE_LIMIT = 20
+SUMMARY_DEVICE_LIMIT = 20
+SUMMARY_BYTE_LIMIT = 8192
+
+
+def _summary_identifier(value):
+    return (type(value) is int and value >= 0) or (
+        isinstance(value, str) and bool(value) and len(value) <= 256 and value.isprintable()
+    )
+
+
+def _summary_unit_state(unit, *, fresh, queued, valid):
+    """Mutually exclusive display categories; queued units may also be held."""
+    holders = unit.get("holders")
+    queue = unit.get("booking_list", None if queued else [])
+    status = unit.get("lock_status")
+    if (
+        not fresh
+        or not valid
+        or status not in ("idle", "exclusive", "shared")
+        or not isinstance(holders, list)
+        or not isinstance(queue, list)
+        or any(
+            not isinstance(row, dict) or not isinstance(row.get("external_user_id"), str) or not row["external_user_id"]
+            for row in holders + queue
+        )
+        or status == "idle"
+        and holders
+        or status in ("exclusive", "shared")
+        and not holders
+        or status == "exclusive"
+        and len(holders) != 1
+    ):
+        return "unknown"
+    return "queued" if queue else "busy" if status == "exclusive" else status
+
+
+def _summary_model(value):
+    return (
+        value.strip()
+        if isinstance(value, str) and value.strip() and len(value) <= 80 and value.strip().isprintable()
+        else None
+    )
+
+
+def node_summary_rows(snapshot, context=None, *, reference_factory, model=None, device_limit=SUMMARY_DEVICE_LIMIT):
+    """Project verified observations only; summaries never authorize allocation.
+
+    The callback receives the exact node ID and must bind it to the caller's
+    verified connection. Device identifiers come from records, never positions.
+    Unknown model nodes are counted separately from definite filtered matches.
+    """
+    if not isinstance(snapshot, dict):
+        raise ClientError("invalid_resource_summary")
+    if type(device_limit) is not int or not 1 <= device_limit <= MAX_OVERVIEW_ENTRIES:
+        raise ClientError("invalid_summary_device_limit")
+    if model is not None and _summary_model(model) is None:
+        raise ClientError("invalid_query_model")
+    wanted = model.strip().casefold() if model is not None else None
+    context = context if isinstance(context, dict) else snapshot.get("context", {})
+    context = context if isinstance(context, dict) else {}
+    bot = context.get("bot", {})
+    bot_type = bot.get("type") if isinstance(bot, dict) else None
+    resources = snapshot.get("resources")
+    if not isinstance(resources, list):
+        raise ClientError("invalid_resource_summary")
+    node_ids = Counter(row.get("id") for row in resources if isinstance(row, dict) and isinstance(row.get("id"), str))
+    result = {"rows": [], "unknown_match_nodes": 0, "unidentified_nodes": 0, "projection_complete": True}
+    fresh = snapshot.get("snapshot_fresh_for_write") is True and snapshot.get("health") == "running"
+    for node in resources:
+        identifier = node.get("id") if isinstance(node, dict) else None
+        if (
+            not isinstance(identifier, str)
+            or not identifier
+            or len(identifier) > 256
+            or not identifier.isprintable()
+            or node_ids[identifier] != 1
+        ):
+            result["unidentified_nodes"] += 1
+            continue
+        cards = node.get("devices")
+        card_bot = bot_type in {"DEVICE", "QUEUE_DEVICE"}
+        malformed_cards = card_bot and not isinstance(cards, list)
+        inconsistent_type = bot_type not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"} or (
+            not card_bot and "devices" in node
+        )
+        hardware, matched_ids, idle_ids = {}, [], []
+        valid_ids_count, idle_ids_count, unidentified_devices = 0, 0, 0
+        states = dict.fromkeys(("idle", "busy", "shared", "queued", "unknown"), 0)
+        if card_bot:
+            units = cards if isinstance(cards, list) else []
+            ids = Counter(
+                str(card["id"]) for card in units if isinstance(card, dict) and _summary_identifier(card.get("id"))
+            )
+            unidentified_devices = sum(
+                not isinstance(card, dict) or not _summary_identifier(card.get("id")) or ids[str(card["id"])] != 1
+                for card in units
+            )
+            unknown_model, matched_count, matched_cards = malformed_cards or bool(unidentified_devices), 0, 0
+            matching_unidentified = 0
+            for card in units:
+                card = card if isinstance(card, dict) else {}
+                label = _summary_model(card.get("dev_model"))
+                if label is None:
+                    unknown_model = True
+                else:
+                    key = label.casefold()
+                    hardware.setdefault(key, {"model": label, "count": 0})["count"] += 1
+                if wanted is not None and (label is None or label.casefold() != wanted):
+                    continue
+                matched_count += 1
+                matched_cards += 1
+                card_id = card.get("id")
+                valid = _summary_identifier(card_id) and ids[str(card_id)] == 1 and not inconsistent_type
+                category = _summary_unit_state(card, fresh=fresh, queued=bot_type == "QUEUE_DEVICE", valid=valid)
+                states[category] += 1
+                valid_ids_count += int(valid)
+                idle_ids_count += int(valid and category == "idle")
+                matching_unidentified += int(not valid)
+                if valid and len(matched_ids) < device_limit:
+                    matched_ids.append(card_id)
+                if valid and category == "idle" and len(idle_ids) < device_limit:
+                    idle_ids.append(card_id)
+            total_cards = len(units) if not malformed_cards and not unidentified_devices else None
+            total_units = total_cards
+            matched_count = None if malformed_cards else matched_count
+            matched_cards = matched_count
+            if matching_unidentified:
+                matched_count = matched_cards = None
+                total_cards = total_units = None
+                unknown_model = True
+            if malformed_cards:
+                states = dict.fromkeys(states, None)
+            definite = wanted is None or any(key == wanted for key in hardware)
+        else:
+            inventory = node.get("accelerators")
+            note = node.get("local_hardware_note")
+            if inventory is None and isinstance(note, dict):
+                inventory = note.get("accelerators")
+            unknown_model = not isinstance(inventory, list)
+            total_cards = 0 if isinstance(inventory, list) else None
+            matched_cards = 0 if isinstance(inventory, list) else None
+            for row in inventory if isinstance(inventory, list) else []:
+                row = row if isinstance(row, dict) else {}
+                label, count = _summary_model(row.get("model")), row.get("count")
+                valid_count = type(count) is int and count > 0
+                if label is None or not valid_count:
+                    unknown_model = True
+                    total_cards = None
+                    if label is None or wanted is None or label.casefold() == wanted:
+                        matched_cards = None
+                    continue
+                key = label.casefold()
+                hardware.setdefault(key, {"model": label, "count": 0})["count"] += count
+                if total_cards is not None:
+                    total_cards += count
+                if matched_cards is not None and (wanted is None or key == wanted):
+                    matched_cards += count
+            definite = wanted is None or wanted in hardware
+            total_units = 1
+            matched_count = 1 if definite else 0
+            category = _summary_unit_state(node, fresh=fresh, queued=bot_type == "QUEUE", valid=not inconsistent_type)
+            if definite:
+                states[category] = 1
+        if not definite:
+            if unknown_model:
+                result["unknown_match_nodes"] += 1
+            continue
+        reference = reference_factory(identifier)
+        if not isinstance(reference, str) or not reference:
+            raise ClientError("invalid_summary_reference")
+        alias = node.get("alias") if isinstance(node.get("alias"), str) else None
+        row = {
+            "ref": reference,
+            "node": identifier,
+            "unit": "unknown" if inconsistent_type else "card" if card_bot else "whole_node",
+            "hardware": sorted(hardware.values(), key=lambda item: item["model"].casefold())[:device_limit],
+            "hardware_has_more": len(hardware) > device_limit,
+            "hardware_incomplete": unknown_model,
+            "total_units": total_units,
+            "matched_units": matched_count,
+            "total_cards": total_cards,
+            "matched_cards": matched_cards,
+            "states": states,
+            "snapshot_fresh": fresh,
+        }
+        if alias:
+            row.update(alias=alias[:160], alias_truncated=len(alias) > 160)
+        if card_bot:
+            row.update(
+                matched_device_ids=matched_ids,
+                idle_device_ids=idle_ids,
+                devices_has_more=valid_ids_count > len(matched_ids),
+                idle_devices_has_more=idle_ids_count > len(idle_ids),
+                unidentified_devices=unidentified_devices,
+                device_inventory_complete=not malformed_cards and unidentified_devices == 0,
+            )
+        result["rows"].append(row)
+    result["projection_complete"] = result["unidentified_nodes"] == 0
+    return result
+
+
+def summary_page(rows, *, offset=0, limit=SUMMARY_NODE_LIMIT, byte_limit=SUMMARY_BYTE_LIMIT, scope_complete=True):
+    """Return a bounded, deterministic local projection, not server pagination.
+
+    A deferred record retains its exact reference in order. An offset is only a
+    display position in this supplied observation and has no authorization role.
+    """
+    if (
+        type(limit) is not int
+        or not 1 <= limit <= MAX_OVERVIEW_ENTRIES
+        or type(byte_limit) is not int
+        or not 1024 <= byte_limit <= MAX_BYTES
+        or type(offset) is not int
+        or offset < 0
+        or type(scope_complete) is not bool
+    ):
+        raise ClientError("invalid_summary_page")
+    if not isinstance(rows, list) or offset > len(rows):
+        raise ClientError("invalid_summary_page")
+    references = []
+    for row in rows:
+        reference = row.get("ref") if isinstance(row, dict) else None
+        if not isinstance(reference, str) or not reference:
+            raise ClientError("invalid_summary_reference")
+        references.append(reference)
+    if len(set(references)) != len(references):
+        raise ClientError("duplicate_summary_reference")
+    ordered = sorted(rows, key=lambda row: row["ref"])
+
+    def size(value):
+        try:
+            return len(json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode())
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise ClientError("invalid_summary_value") from exc
+
+    def envelope(values, position, deferred):
+        return {
+            "rows": values,
+            "displayed_nodes": len(values),
+            "matched_nodes": len(ordered) if scope_complete else None,
+            "has_more": position < len(ordered),
+            "next_offset": position if position < len(ordered) else None,
+            "scope_complete": scope_complete,
+            "detail_deferred_nodes": deferred,
+            "page_kind": "local_observation_projection",
+        }
+
+    result = envelope([], offset, 0)
+    for position in range(offset, len(ordered)):
+        if len(result["rows"]) >= limit:
+            break
+        row = ordered[position]
+        deferred = False
+        if size(envelope([row], position + 1, 0)) > byte_limit:
+            row = {"ref": row["ref"], "detail_deferred": True, "reason": "row_exceeds_output_budget"}
+            deferred = True
+        candidate = envelope([*result["rows"], row], position + 1, result["detail_deferred_nodes"] + int(deferred))
+        if size(candidate) > byte_limit:
+            if not result["rows"]:
+                raise ClientError("summary_reference_exceeds_output_budget")
+            break
+        # Detach nested values so later formatting cannot rewrite the observation.
+        candidate["rows"][-1] = json.loads(json.dumps(row, ensure_ascii=False, allow_nan=False))
+        result = candidate
+    return result
+
+
 def inventory_output(snapshot, *, full=False):
     """Project the model-facing view, keeping the verified observation untouched."""
     if full or not isinstance(snapshot, dict):
