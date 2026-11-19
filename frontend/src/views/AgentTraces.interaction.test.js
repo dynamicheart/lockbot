@@ -278,6 +278,28 @@ it('isolates tabs, saves only this draft, and restores the other after reload', 
   ).toEqual([])
   expect(local.values.has('lockbot_trace_review_draft')).toBe(false)
 })
+it.each([
+  ['ducc-luna · gpt-6-luna', 'Luna'],
+  ['ducc-glm · GLM-5.3', 'GLM 5.3'],
+  ['Unknown client · exact-model-id', 'Unknown client · exact-model-id'],
+])('formats comment display without changing %s identity or its saved target', async (model, label) => {
+  const tab = await mount()
+  const target = { ...context(), model }
+  const before = JSON.stringify(target)
+  await open(tab, target)
+  expect(all(tab, (node) => node.props?.class === 'review-context').some((node) =>
+    node.text === 'Case A · ' + label)).toBe(true)
+  expect(tab.view.draftContext.model).toBe(model)
+  await type(tab, 'Review this run')
+  const stored = [...tab.session.values].find(([key]) => key.startsWith('lockbot_trace_review_draft:'))
+  expect(JSON.parse(stored[1]).context).toMatchObject({ model, run_id: runA, dataset_id: source })
+  button(tab, '保存评论').props.onClick()
+  await flush()
+  expect(api.post.mock.calls[0][1]).toMatchObject({
+    case_id: 'A', run_index: 0, run_id: runA, dataset_id: source, body: 'Review this run',
+  })
+  expect(JSON.stringify(target)).toBe(before)
+})
 it('updates an empty composer on Back, clearing its previous quotation before saving', async () => {
   const tab = await mount()
   await open(tab)

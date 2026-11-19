@@ -17,7 +17,8 @@ def test_new_runs_do_not_open_plan_placeholders_or_semantic_copies():
     source = viewer.read_text()
     functions = []
     for name in ("defaultRun", "displayModelName", "modelLabel"):
-        functions.append(re.search(r"function " + name + r"\([^\n]*\) \{.*?\n\}", source, re.S)[0])
+        text = viewer.with_name("model-labels.js").read_text() if name == "displayModelName" else source
+        functions.append(re.search(r"function " + name + r"\([^\n]*\) \{.*?\n\}", text, re.S)[0])
     script = (
         "\n".join(functions)
         + """

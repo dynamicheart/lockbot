@@ -7,9 +7,9 @@ from test_trace_dataset_ui import INTERACTIONS, VIEWER, function, run
 
 
 def label_functions():
-    return "\n".join(
+    return function(VIEWER.with_name("model-labels.js"), "displayModelName") + "\n" + "\n".join(
         function(VIEWER, name)
-        for name in ("displayModelName", "modelLabel", "assessmentForTrial", "assessmentBadge", "trialStatus", "badge")
+        for name in ("modelLabel", "assessmentForTrial", "assessmentBadge", "trialStatus", "badge")
     )
 
 

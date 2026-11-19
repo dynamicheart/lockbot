@@ -63,6 +63,14 @@
 .json-literal, .json-number { color: var(--lb-text-code); }
 .case-spec { font-size: 12px; color: var(--muted); margin-top: 8px; }
 .case-spec p { margin-top: 8px; white-space: pre-wrap; }
+@media (min-width: 721px) {
+  .timeline.chat-workspace { grid-template-rows: minmax(0, 1fr); }
+  .timeline.chat-workspace:has(> .run-assessment) { grid-template-rows: auto minmax(0, 1fr); }
+  .timeline.chat-workspace > .run-assessment { grid-column: 1 / -1; }
+  .timeline.chat-workspace > .chat-transcript { grid-row: -2 / -1; }
+  body.show-outline .timeline.chat-workspace > .chat-transcript { grid-column: 2; }
+  body.show-outline .timeline.chat-workspace > .chat-outline { grid-column: 1; grid-row: -2 / -1; }
+}
 @media (max-width: 720px) {
   .head { gap: 8px; padding-block: 8px; }
   .brand { flex: none; gap: 6px; }

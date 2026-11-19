@@ -6,7 +6,7 @@
     <el-drawer v-model="reviewOpen" title="评论" :size="drawerWidth">
       <template v-if="draftContext">
         <p v-if="draft.trim() && !sameTarget(draftContext, current)" class="review-context">草稿仍属于原记录；保存或清空后可评论当前记录。</p>
-        <p class="review-context">{{ draftContext.case_name }} · {{ isUiComment(draftContext) ? '界面评论' : draftContext.scope === 'case' ? '测例评论' : draftContext.model }}</p>
+        <p class="review-context">{{ draftContext.case_name }} · {{ isUiComment(draftContext) ? '界面评论' : draftContext.scope === 'case' ? '测例评论' : displayModelName(draftContext.model) }}</p>
         <p v-if="draftContext.field_label" class="review-field">{{ draftContext.field_label }}</p>
         <blockquote v-if="draftContext.quote">{{ draftContext.quote }}</blockquote>
         <el-select v-if="draftContext.scope === 'case'" v-model="reviewSubject" :disabled="saving" aria-label="评论内容类别" class="review-subject">
@@ -80,7 +80,7 @@
       <el-collapse v-if="historicalComments.length" class="review-history">
         <el-collapse-item title="此测例的其他记录与历史评论" name="history">
           <article v-for="comment in historicalComments" :key="comment.id" class="review-comment">
-            <p class="review-context">{{ comment.model }} · {{ localTime(comment.created_at) }}</p>
+            <p class="review-context">{{ displayModelName(comment.model) }} · {{ localTime(comment.created_at) }}</p>
             <p v-if="comment.anchor === 'run' && comment.quote" class="review-field">本次记录的选文（可能跨段）</p>
             <blockquote v-if="comment.quote">{{ comment.quote }}</blockquote>
             <p>{{ comment.body }}</p>
@@ -99,6 +99,7 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../utils/api'
 import { useAuthStore } from '../stores/auth'
 import { LS_KEYS } from '../utils/demoMode'
+import { displayModelName } from '../features/agent-traces/model-labels'
 
 const auth = useAuthStore()
 const route = useRoute()
