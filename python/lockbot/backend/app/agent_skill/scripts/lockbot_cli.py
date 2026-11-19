@@ -2,6 +2,7 @@
 """Standard-library, scoped Lockbot client. No resource key belongs in argv or output."""
 
 import argparse
+import base64
 import hashlib
 import io
 import ipaddress
@@ -4116,6 +4117,119 @@ def observation_at_completion(client, snapshot):
     if "inventory_overview" in result:
         result["inventory_overview"] = inventory_overview(result, snapshot.get("context", {}))
     return result
+
+
+def _resource_list_text(value, error):
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 256
+        or not value.isprintable()
+        or len(value.encode("utf-8")) > 1024
+    ):
+        raise ClientError(error)
+    return value
+
+
+def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False, legacy_read=False):
+    """Validate read selectors before I/O and return a stable, independent query."""
+    if not isinstance(nodes, (list, tuple, set, frozenset)):
+        raise ClientError("resource_list_nodes_invalid")
+    normalized_nodes = set()
+    for node in nodes:
+        node = _resource_list_text(node, "resource_list_nodes_invalid").casefold()
+        # Case folding can expand Unicode identifiers; keep canonical bounds too.
+        normalized_nodes.add(_resource_list_text(node, "resource_list_nodes_invalid"))
+    if model is not None:
+        model = _resource_list_text(model, "resource_list_model_invalid").strip().casefold()
+        model = _resource_list_text(model, "resource_list_model_invalid")
+    if fields is not None:
+        if (
+            not isinstance(fields, (list, tuple, set, frozenset))
+            or not fields
+            or any(not isinstance(field, str) or field not in SUMMARY_FIELDS for field in fields)
+        ):
+            raise ClientError("resource_list_fields_invalid")
+        fields = sorted(set(fields))
+    if type(limit) is not int or not 1 <= limit <= MAX_OVERVIEW_ENTRIES:
+        raise ClientError("resource_list_limit_invalid")
+    if type(mine) is not bool or type(legacy_read) is not bool:
+        raise ClientError("resource_list_profile_invalid")
+    query = {
+        "nodes": sorted(normalized_nodes),
+        "model": model,
+        "fields": fields,
+        "limit": limit,
+        "mine": mine,
+        "legacy_read": legacy_read,
+    }
+    if len(json.dumps(query, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 2048:
+        raise ClientError("resource_list_query_too_large")
+    return query
+
+
+def resource_list_query_digest(query):
+    if not isinstance(query, dict) or set(query) != {"nodes", "model", "fields", "limit", "mine", "legacy_read"}:
+        raise ClientError("resource_list_query_invalid")
+    canonical = resource_list_query(**query)
+    return hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def resource_list_cursor(fingerprint, query_digest, position, after_node=None):
+    """Encode an untrusted read position, never coverage or authorization evidence."""
+    if (
+        any(
+            not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for value in (fingerprint, query_digest)
+        )
+        or type(position) is not int
+        or position < 0
+    ):
+        raise ClientError("resource_list_cursor_invalid")
+    if after_node is not None:
+        _resource_list_text(after_node, "resource_list_cursor_invalid")
+    try:
+        payload = json.dumps(
+            [1, fingerprint, query_digest, position, after_node], ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+    except (ValueError, OverflowError) as exc:
+        raise ClientError("resource_list_cursor_invalid") from exc
+    token = "rl1." + base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+    if len(token) > 2048:
+        raise ClientError("resource_list_cursor_invalid")
+    return token
+
+
+def resource_list_cursor_start(token, fingerprint, query_digest, total):
+    """Decode a canonical position tied to this catalog and normalized query."""
+    if type(total) is not int or total < 0:
+        raise ClientError("resource_list_cursor_invalid")
+    # Validate caller-supplied digests even for the beginning of a traversal.
+    resource_list_cursor(fingerprint, query_digest, 0)
+    if token is None:
+        return 0, None
+    if not isinstance(token, str) or len(token) > 2048 or re.fullmatch(r"rl1\.[A-Za-z0-9_-]+", token) is None:
+        raise ClientError("resource_list_cursor_invalid")
+    encoded = token[4:]
+    try:
+        raw = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+        payload = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeError, RecursionError) as exc:
+        raise ClientError("resource_list_cursor_invalid") from exc
+    if not isinstance(payload, list) or len(payload) != 5 or type(payload[0]) is not int or payload[0] != 1:
+        raise ClientError("resource_list_cursor_invalid")
+    _, catalog, query, position, after_node = payload
+    if resource_list_cursor(catalog, query, position, after_node) != token:
+        raise ClientError("resource_list_cursor_invalid")
+    if catalog != fingerprint:
+        raise ClientError("resource_list_cursor_catalog_changed")
+    if query != query_digest:
+        raise ClientError("resource_list_cursor_query_changed")
+    if position > total or position == total and after_node is not None:
+        raise ClientError("resource_list_cursor_invalid")
+    return position, after_node
 
 
 def scope_cursor_start(token, fingerprint, total):
