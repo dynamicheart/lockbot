@@ -25,6 +25,17 @@ or using an explicit destination, use a local private directory and verify the s
 Use the normal project or user scope for automatic private directory creation. On macOS and Linux the
 helper continues to use POSIX permissions.
 
+## Private local resource labels
+
+For private local annotations, use `resource label add REF LABEL`,
+`resource label view REF`, `resource label list --label LABEL`,
+`resource label remove REF LABEL`, or `resource label clear REF`.
+These commands do not start a provider or read credentials, even through a
+launcher configured with backend options. They use full canonical references
+and a separate private metadata file; see the
+[local label contract](../design/cli-private-resource-labels.md) for file location,
+field discovery and bounded pagination. They never edit shared aliases.
+
 ## Explicit read-only resource providers
 
 An explicitly selected local provider can supply resource lists and exact resource

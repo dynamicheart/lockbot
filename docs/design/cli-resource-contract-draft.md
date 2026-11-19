@@ -4,6 +4,8 @@ Status: local implementation for review. These options have not been deployed or
 
 The [mixed-source contract](cli-mixed-resource-sources.md) adds explicit configured
 native/external traversal with a shared budget and source-bound references.
+The [private-label contract](cli-private-resource-labels.md) adds local annotations
+and bounded label lookup without resource requests or shared alias changes.
 
 The CLI should help a user find a machine without knowing a bot ID or relying on a group/bot name. Names and aliases can repeat. A resource reference identifies an exact native node within its saved service, instance, bot UUID and verified principal. It is a locator; each read still verifies the service and credential online.
 
@@ -176,6 +178,6 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
 - External protocol implementations remain private plugins. The explicit generic provider entrypoint and mixed-source traversal are implemented locally; existing own-allocation bridges still cannot establish full fleet inventory. Native credentials/references cannot be reused as external authority.
-- Literal candidate search, device pagination and the terminal list/view entrypoint are implemented locally for review. Private labels, device-fact ingestion, detailed telemetry paging and source-side query limits remain future work. The published Skill should follow the reviewed CLI contract.
+- Literal candidate search, private labels, device pagination and the terminal list/view entrypoint are implemented locally for review. Device-fact ingestion, detailed telemetry paging and source-side query limits remain future work. The published Skill should follow the reviewed CLI contract.
 
 The implementation borrows field discovery and bounded-list ideas from [`gh` formatting](https://cli.github.com/manual/gh_help_formatting) and [`gh repo list`](https://cli.github.com/manual/gh_repo_list). LockBot's shared resource contention requires its own server limits; GitHub's quota numbers are not adopted here.

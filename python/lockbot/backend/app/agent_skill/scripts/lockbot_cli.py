@@ -559,10 +559,10 @@ class WindowsPrivateFiles:
         finally:
             self.free(descriptor)
 
-    def _open_handle(self, path, *, directory=False, create=False, descriptor=None):
+    def _open_handle(self, path, *, directory=False, create=False, descriptor=None, write=False):
         handle = self.open(
             self._local_path(path),
-            (self._WRITE if create else self._READ) | self._READ_CONTROL,
+            ((self._READ | self._WRITE) if write else self._WRITE if create else self._READ) | self._READ_CONTROL,
             1,
             descriptor,
             self._CREATE_NEW if create else self._OPEN_EXISTING,
@@ -591,14 +591,14 @@ class WindowsPrivateFiles:
                     raise self.c.WinError(error)
         self.validate_directory(path)
 
-    def open_fd(self, path, *, create=False):
+    def open_fd(self, path, *, create=False, write=False):
         if create:
             with self._descriptor(False) as descriptor:
-                handle = self._open_handle(path, create=True, descriptor=descriptor)
+                handle = self._open_handle(path, create=True, descriptor=descriptor, write=write)
         else:
-            handle = self._open_handle(path)
+            handle = self._open_handle(path, write=write)
         try:
-            mode = os.O_WRONLY if create else os.O_RDONLY
+            mode = os.O_RDWR if write else os.O_WRONLY if create else os.O_RDONLY
             return self.msvcrt.open_osfhandle(handle, mode | os.O_BINARY)
         except BaseException:
             self.close(handle)
@@ -1074,6 +1074,326 @@ def _local_hardware_note(note):
         if "count" in item and (type(item["count"]) is not int or item["count"] < 1):
             return None
     return note
+
+
+RESOURCE_LABEL_MAX_BYTES = 1024 * 1024
+RESOURCE_LABEL_MAX_RESOURCES = 1024
+RESOURCE_LABEL_MAX_LABELS = 8
+RESOURCE_LABEL_LOCK_TIMEOUT = 5.0
+_RESOURCE_LABEL_LOCK_MAGIC = b"lockbot-resource-label-lock-v1\n"
+
+
+def _resource_label_secret(value):
+    return any(
+        redacted_values(text) != text or re.search(
+            r"(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,}|lb[ac]1\.[\w.-]+"
+            r"|eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}", text
+        )
+        for text in (value, unicodedata.normalize("NFKC", value).casefold())
+    )
+
+
+def resource_label_reference(value):
+    """Accept only a complete canonical locator, without discovering its scope."""
+    try:
+        if not isinstance(value, str):
+            raise ValueError
+        if value.startswith("s-"):
+            scope, decoded = parse_resource_reference(value)
+            if len(scope) != 64:
+                raise ValueError
+        elif value.startswith("e1."):
+            _scope, inner = parse_mixed_reference(value)
+            decoded = urllib.parse.unquote(inner, encoding="utf-8", errors="strict")
+        else:
+            raise ValueError
+        if _resource_label_secret(decoded):
+            raise ValueError
+        return value
+    except (ClientError, ValueError, TypeError, UnicodeError, RecursionError):
+        raise ClientError("resource_label_reference_invalid") from None
+
+
+def resource_label_text(value):
+    """Return a comparison key while callers retain the validated display value."""
+    try:
+        if (
+            not isinstance(value, str) or not value or value != value.strip()
+            or not value.isprintable() or len(value.encode("utf-8")) > 80
+        ):
+            raise ValueError
+        normalized = unicodedata.normalize("NFKC", value).casefold()
+        if (
+            not normalized or normalized != normalized.strip() or not normalized.isprintable()
+            or len(normalized.encode("utf-8")) > 80 or _resource_label_secret(value)
+        ):
+            raise ValueError
+        return normalized
+    except (ValueError, TypeError, UnicodeError):
+        raise ClientError("resource_label_invalid") from None
+
+
+class ResourceLabelStore:
+    """Private locator-to-label metadata; never a resource, credential or grant cache."""
+
+    def __init__(self, path=None):
+        try:
+            self.path = Path(path).expanduser().absolute() if path is not None else (
+                connection_catalog("user").parent / "resource-labels.json"
+            ).absolute()
+            if "\x00" in str(self.path):
+                raise ValueError
+            self.lock_path = self.path.with_name(self.path.name + ".lock")
+        except (RuntimeError, TypeError, ValueError, OSError):
+            raise ClientError("resource_label_path_invalid") from None
+
+    @staticmethod
+    def _empty():
+        return {"schema_version": 1, "resources": {}}
+
+    @staticmethod
+    def _check_file(fd):
+        info = os.fstat(fd)
+        if (
+            not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or os.name != "nt" and (info.st_mode & 0o077 or info.st_uid != os.geteuid())
+        ):
+            raise ClientError("resource_label_private_file_required")
+        return info
+
+    @contextmanager
+    def _directory(self, *, create=False):
+        parent = self.path.parent
+        if create:
+            make_private_directory(parent, parents=True, exist_ok=True)
+        if os.name == "nt":
+            if not parent.exists():
+                yield None
+                return
+            storage = windows_private_files()
+            handle = storage._open_handle(parent, directory=True)
+            try:
+                yield True
+            finally:
+                storage.close(handle)
+            return
+        try:
+            fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            yield None
+            return
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.geteuid():
+                raise ClientError("resource_label_private_directory_required")
+            yield fd
+        finally:
+            os.close(fd)
+
+    def _open(self, name, directory, *, create=False, write=False):
+        if os.name == "nt":
+            return windows_private_files().open_fd(self.path.parent / name, create=create, write=write)
+        flags = (os.O_RDWR if write else os.O_RDONLY) | os.O_NOFOLLOW | os.O_NONBLOCK
+        if create:
+            flags |= os.O_CREAT | os.O_EXCL
+        return os.open(name, flags, 0o600, dir_fd=directory)
+
+    @staticmethod
+    def _pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ClientError("resource_label_store_invalid")
+            result[key] = value
+        return result
+
+    def _read_at(self, directory):
+        try:
+            fd = self._open(self.path.name, directory)
+        except FileNotFoundError:
+            return self._empty()
+        with os.fdopen(fd, "rb") as stream:
+            if self._check_file(stream.fileno()).st_size > RESOURCE_LABEL_MAX_BYTES:
+                raise ClientError("resource_label_store_too_large")
+            raw = stream.read(RESOURCE_LABEL_MAX_BYTES + 1)
+        if len(raw) > RESOURCE_LABEL_MAX_BYTES:
+            raise ClientError("resource_label_store_too_large")
+        try:
+            value = json.loads(raw, object_pairs_hook=self._pairs)
+            if (
+                not isinstance(value, dict) or set(value) != {"schema_version", "resources"}
+                or type(value["schema_version"]) is not int or value["schema_version"] != 1
+                or not isinstance(value["resources"], dict)
+                or len(value["resources"]) > RESOURCE_LABEL_MAX_RESOURCES
+            ):
+                raise ValueError
+            for reference, entry in value["resources"].items():
+                resource_label_reference(reference)
+                if not isinstance(entry, dict) or set(entry) != {"labels"} or not isinstance(entry["labels"], list):
+                    raise ValueError
+                labels = entry["labels"]
+                if len(labels) > RESOURCE_LABEL_MAX_LABELS:
+                    raise ValueError
+                keys = [resource_label_text(label) for label in labels]
+                if len(keys) != len(set(keys)):
+                    raise ValueError
+            return value
+        except (ClientError, ValueError, TypeError, UnicodeError, RecursionError):
+            raise ClientError("resource_label_store_invalid") from None
+
+    @contextmanager
+    def _locked(self, directory):
+        deadline = time.monotonic() + RESOURCE_LABEL_LOCK_TIMEOUT
+        fd = None
+        try:
+            while fd is None:
+                try:
+                    fd = self._open(self.lock_path.name, directory, create=True, write=True)
+                except FileExistsError:
+                    try:
+                        fd = self._open(self.lock_path.name, directory, write=True)
+                    except OSError as error:
+                        if os.name != "nt" or getattr(error, "winerror", None) not in (32, 33):
+                            raise
+                except OSError as error:
+                    if os.name != "nt" or getattr(error, "winerror", None) not in (32, 33):
+                        raise
+                if fd is None:
+                    if time.monotonic() >= deadline:
+                        raise ClientError("resource_label_lock_timeout")
+                    time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+            self._check_file(fd)
+            if os.name != "nt":
+                import fcntl
+
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            raise ClientError("resource_label_lock_timeout") from None
+                        time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+                        continue
+                    break
+            info = self._check_file(fd)
+            named = self.lock_path.lstat() if os.name == "nt" else os.stat(
+                self.lock_path.name, dir_fd=directory, follow_symlinks=False
+            )
+            if not stat.S_ISREG(named.st_mode) or (named.st_dev, named.st_ino) != (info.st_dev, info.st_ino):
+                raise ClientError("resource_label_lock_invalid")
+            os.lseek(fd, 0, os.SEEK_SET)
+            marker = os.read(fd, len(_RESOURCE_LABEL_LOCK_MAGIC) + 1)
+            if marker not in (b"", _RESOURCE_LABEL_LOCK_MAGIC):
+                raise ClientError("resource_label_lock_invalid")
+            # Recover only empty interrupted initialization, under the acquired
+            # OS lock and same-inode check. Nonempty partial markers fail closed.
+            pending = _RESOURCE_LABEL_LOCK_MAGIC[len(marker):]
+            while pending:
+                written = os.write(fd, pending)
+                if written <= 0:
+                    raise OSError("Private label lock initialization failed")
+                pending = pending[written:]
+            if marker != _RESOURCE_LABEL_LOCK_MAGIC:
+                os.fsync(fd)
+            yield deadline
+        finally:
+            if fd is not None:
+                os.close(fd)
+
+    def read(self):
+        try:
+            try:
+                self.path.lstat()
+            except FileNotFoundError:
+                return self._empty()
+            with self._directory() as directory:
+                if directory is None:
+                    return self._empty()
+                if os.name == "nt":
+                    # Windows read handles exclude delete sharing. Serialize an
+                    # existing read so they close before a cooperating replace.
+                    try:
+                        info = self.path.lstat()
+                    except FileNotFoundError:
+                        return self._empty()
+                    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                        raise ClientError("resource_label_private_file_required")
+                    with self._locked(directory):
+                        return self._read_at(directory)
+                return self._read_at(directory)
+        except OSError:
+            raise ClientError("resource_label_store_unavailable") from None
+
+    def _replace(self, directory, value, deadline):
+        data = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        if len(data) > RESOURCE_LABEL_MAX_BYTES:
+            raise ClientError("resource_label_store_too_large")
+        temporary = ".resource-labels-" + secrets.token_hex(16)
+        temporary_identity = None
+        try:
+            fd = self._open(temporary, directory, create=True, write=True)
+            with os.fdopen(fd, "wb") as stream:
+                info = self._check_file(stream.fileno())
+                temporary_identity = (info.st_dev, info.st_ino)
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if os.name == "nt":
+                while True:
+                    try:
+                        os.replace(self.path.parent / temporary, self.path)
+                        break
+                    except OSError as error:
+                        if getattr(error, "winerror", None) not in (32, 33) or time.monotonic() >= deadline:
+                            raise
+                        time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+            else:
+                os.replace(temporary, self.path.name, src_dir_fd=directory, dst_dir_fd=directory)
+                with suppress(OSError):
+                    os.fsync(directory)
+        finally:
+            with suppress(OSError):
+                if temporary_identity is not None:
+                    named = (self.path.parent / temporary).lstat() if os.name == "nt" else os.stat(
+                        temporary, dir_fd=directory, follow_symlinks=False
+                    )
+                    if (named.st_dev, named.st_ino) == temporary_identity:
+                        if os.name == "nt":
+                            (self.path.parent / temporary).unlink()
+                        else:
+                            os.unlink(temporary, dir_fd=directory)
+
+    def update(self, reference, *, add=None, remove=None, clear=False):
+        reference = resource_label_reference(reference)
+        if type(clear) is not bool or int(add is not None) + int(remove is not None) + int(clear) != 1:
+            raise ClientError("resource_label_action_invalid")
+        key = resource_label_text(add if add is not None else remove) if not clear else None
+        try:
+            with self._directory(create=True) as directory, self._locked(directory) as deadline:
+                value = self._read_at(directory)
+                before = value["resources"].get(reference, {"labels": []})["labels"]
+                labels = list(before)
+                keys = [resource_label_text(label) for label in labels]
+                if clear:
+                    labels = []
+                elif add is not None and key not in keys:
+                    if len(labels) >= RESOURCE_LABEL_MAX_LABELS:
+                        raise ClientError("resource_label_limit_exceeded")
+                    labels.append(add)
+                elif remove is not None:
+                    labels = [label for label in labels if resource_label_text(label) != key]
+                changed = labels != before
+                if changed:
+                    if labels:
+                        value["resources"][reference] = {"labels": labels}
+                    else:
+                        value["resources"].pop(reference, None)
+                    if len(value["resources"]) > RESOURCE_LABEL_MAX_RESOURCES:
+                        raise ClientError("resource_label_resource_limit_exceeded")
+                    self._replace(directory, value, deadline)
+                return {"ref": reference, "labels": labels, "changed": changed}
+        except OSError:
+            raise ClientError("resource_label_store_unavailable") from None
 
 
 class NodeAccessMetadata:
@@ -6885,6 +7205,150 @@ def _resource_sources_dispatch(args):
     return None
 
 
+def _resource_labels_encode(value):
+    encoded = json.dumps(value, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
+    try:
+        encoded.encode(sys.stdout.encoding or "utf-8")
+    except UnicodeEncodeError:
+        encoded = json.dumps(value, ensure_ascii=True, separators=(",", ":"), allow_nan=False)
+    return encoded
+
+
+def _resource_label_cursor(revision, query_digest, anchor):
+    if any(
+        not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+        for value in (revision, query_digest, anchor)
+    ):
+        raise ClientError("resource_labels_cursor_invalid")
+    value = json.dumps([1, revision, query_digest, anchor], separators=(",", ":")).encode()
+    return "lc1." + base64.urlsafe_b64encode(value).rstrip(b"=").decode()
+
+
+def resource_labels_list(store, *, label=None, fields=None, limit=20, cursor=None):
+    """Page local annotations only; no resource authorization or provider query."""
+    if type(limit) is not int or not 1 <= limit <= MAX_OVERVIEW_ENTRIES:
+        raise ClientError("resource_labels_limit_invalid")
+    if fields is None:
+        fields = ["ref", "labels"]
+    if not isinstance(fields, (list, tuple)) or not fields or any(field not in {"ref", "labels"} for field in fields):
+        raise ClientError("resource_labels_fields_invalid")
+    fields = sorted(set(["ref", *fields]))
+    label_key = resource_label_text(label) if label is not None else None
+    query_digest = _mixed_hash({"label": label_key, "fields": fields, "limit": limit})
+    decoded = None
+    if cursor is not None:
+        try:
+            if not isinstance(cursor, str) or not re.fullmatch(r"lc1\.[A-Za-z0-9_-]{1,508}", cursor):
+                raise ValueError
+            token = cursor[4:]
+            decoded = json.loads(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
+            if (
+                not isinstance(decoded, list)
+                or len(decoded) != 4
+                or type(decoded[0]) is not int
+                or decoded[0] != 1
+                or _resource_label_cursor(*decoded[1:]) != cursor
+            ):
+                raise ValueError
+        except (ValueError, TypeError, UnicodeError, RecursionError, ClientError):
+            raise ClientError("resource_labels_cursor_invalid") from None
+        if decoded[2] != query_digest:
+            raise ClientError("resource_labels_cursor_query_changed")
+    data = store.read()
+    revision = _mixed_hash(data)
+    if decoded is not None and decoded[1] != revision:
+        raise ClientError("resource_labels_cursor_store_changed")
+    resources = data["resources"]
+    references = sorted(
+        (
+            reference
+            for reference, entry in resources.items()
+            if label_key is None or label_key in {resource_label_text(value) for value in entry["labels"]}
+        ),
+        key=lambda reference: reference.encode("utf-8"),
+    )
+    start = 0
+    if decoded is not None:
+        anchors = [index for index, reference in enumerate(references) if _mixed_hash(reference) == decoded[3]]
+        if len(anchors) != 1:
+            raise ClientError("resource_labels_cursor_invalid")
+        start = anchors[0] + 1
+
+    def encode(rows, end):
+        more = end < len(references)
+        token = _resource_label_cursor(revision, query_digest, _mixed_hash(references[end - 1])) if more else None
+        return _resource_labels_encode(
+            {"result": {"rows": rows, "scope": "local_private_metadata", "local_only": True,
+                        "has_more": more, "next_cursor": token}}
+        )
+
+    rows, end = [], start
+    encoded = encode(rows, end) if end == len(references) else None
+    for reference in references[start:start + limit]:
+        row = {"ref": reference, **({"labels": resources[reference]["labels"]} if "labels" in fields else {})}
+        candidate = encode([*rows, row], end + 1)
+        if len(candidate.encode("utf-8")) + 1 > SUMMARY_BYTE_LIMIT:
+            if not rows:
+                raise ClientError("resource_labels_row_exceeds_output_budget")
+            break
+        rows.append(row)
+        end += 1
+        encoded = candidate
+    return encoded
+
+
+def _resource_labels_output(args):
+    if args.json == "":
+        return json.dumps({"json_fields": ["ref", "labels"], "required_row_fields": ["ref"]})
+    fields = ["ref", "labels"] if args.json is None else sorted(set(args.json.split(",")))
+    if not fields or any(field not in {"ref", "labels"} for field in fields):
+        raise ClientError("resource_labels_fields_invalid")
+    if args.label_action != "list":
+        reference = resource_label_reference(args.ref)
+        if args.label_action in {"add", "remove"}:
+            resource_label_text(args.label)
+    store = ResourceLabelStore(args.file)
+    if args.label_action == "list":
+        return resource_labels_list(store, label=args.label, fields=fields, limit=args.limit, cursor=args.cursor)
+    if args.label_action == "view":
+        labels = store.read()["resources"].get(reference, {}).get("labels", [])
+        result = {}
+    else:
+        change = store.update(
+            reference,
+            add=args.label if args.label_action == "add" else None,
+            remove=args.label if args.label_action == "remove" else None,
+            clear=args.label_action == "clear",
+        )
+        labels, result = change["labels"], {"changed": change["changed"]}
+    row = {"ref": reference, **({"labels": labels} if "labels" in fields else {})}
+    encoded = _resource_labels_encode(
+        {"result": {"rows": [row], "scope": "local_private_metadata", "local_only": True, **result}}
+    )
+    if len(encoded.encode("utf-8")) + 1 > SUMMARY_BYTE_LIMIT:
+        raise ClientError("resource_labels_row_exceeds_output_budget")
+    return encoded
+
+
+def resource_labels_text(encoded):
+    result = json.loads(encoded)["result"]
+    lines = []
+    if "changed" in result:
+        lines.append("Private labels saved." if result["changed"] else "Private labels unchanged.")
+    lines.append("REF  PRIVATE LABELS")
+    lines.extend(row["ref"] + "  " + ", ".join(row.get("labels", [])) for row in result["rows"])
+    if not result["rows"]:
+        lines.append("No matching local labels.")
+    if result.get("next_cursor"):
+        lines.append("Repeat this local label query with --cursor " + result["next_cursor"])
+    text = "\n".join(lines)
+    try:
+        text.encode(sys.stdout.encoding or "utf-8")
+    except UnicodeEncodeError:
+        return encoded
+    return text if len(text.encode("utf-8")) + 1 <= SUMMARY_BYTE_LIMIT else encoded
+
+
 def _resource_provider_dispatch(args):
     if (
         getattr(args, "resource_action", None) not in {"list", "view"}
@@ -7042,6 +7506,27 @@ def main(argv=None):
     resource_view.add_argument("--json", nargs="?", const="", metavar="FIELDS")
     resource_view.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     resource_view.set_defaults(node=[], model=None, summary=True, limit=SUMMARY_NODE_LIMIT, offset=0, full=False)
+    resource_labels = resource_commands.add_parser("label", help="Manage private local resource labels")
+    label_commands = resource_labels.add_subparsers(dest="label_action", required=True)
+    for action, help_text in (
+        ("list", "List saved local labels, without reading resources"),
+        ("view", "Read labels on one exact reference"),
+        ("add", "Add a private label on one exact reference"),
+        ("remove", "Remove one private label"),
+        ("clear", "Clear private labels on one exact reference"),
+    ):
+        label_command = label_commands.add_parser(action, help=help_text)
+        if action != "list":
+            label_command.add_argument("ref", help="Full canonical resource reference")
+        if action in {"add", "remove"}:
+            label_command.add_argument("label", help="Private label, at most 80 UTF-8 bytes")
+        if action == "list":
+            label_command.add_argument("--label", help="Match one exact private label, ignoring case and width")
+            label_command.add_argument("--limit", type=int, default=SUMMARY_NODE_LIMIT)
+            label_command.add_argument("--cursor", help="Continue this unchanged local label list")
+        label_command.add_argument("--file", help="Private label metadata file; default LOCKBOT_HOME or ~/.lockbot")
+        label_command.add_argument("--json", nargs="?", const="", metavar="FIELDS",
+                                   help="Select JSON fields; bare --json only lists fields and performs no action")
     device_listing = resource_commands.add_parser(
         "devices", help="Page exact card IDs and observed models for one node"
     )
@@ -7161,9 +7646,9 @@ def main(argv=None):
     human_read = False
     if args.action == "resource":
         human_read = args.json is None
-        args.action = {"list": "resource-list", "view": "resources", "devices": "resource-devices"}[
-            args.resource_action
-        ]
+        args.action = {
+            "list": "resource-list", "view": "resources", "devices": "resource-devices", "label": "resource-label"
+        }[args.resource_action]
     if args.action == "command":
         args.device = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in args.device]
     client = None
@@ -7174,6 +7659,10 @@ def main(argv=None):
     reference_token = None
     explicit_reference_connection = args.connection
     try:
+        if args.action == "resource-label":
+            encoded = _resource_labels_output(args)
+            print(resource_labels_text(encoded) if human_read else encoded)
+            return 0
         if args.resource_sources is not None:
             encoded = _resource_sources_dispatch(args)
             if encoded is not None:
