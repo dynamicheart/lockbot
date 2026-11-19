@@ -78,6 +78,26 @@ def test_archived_v1_status_grading_keeps_its_old_contract(tmp_path, monkeypatch
     assert not evaluation.score(fixture.root, "Observed status.")["checks"]["exact_detail_observed"]
 
 
+@pytest.mark.parametrize("argument", ["--help", "-h"])
+def test_current_host_executes_real_top_level_help_without_network(tmp_path, monkeypatch, argument):
+    fixture = prepare(tmp_path, monkeypatch)
+    output = run(fixture, argument)
+    assert output["exit_code"] == 0
+    assert output["text"].startswith("usage: lockbot_cli.py")
+    assert not (fixture.root / "cli-http.jsonl").exists()
+    assert evaluation.cli.base.KEY not in output["text"]
+
+
+def test_help_cannot_smuggle_an_action_or_change_archived_scope(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch)
+    assert run(fixture, "--help", "command").get("error")
+    case = fixture.case.copy()
+    case["resource_cli_version"] = 1
+    evaluation.cli.base.save_json(fixture.root / "case.json", case)
+    assert run(evaluation.Fixture(fixture.root), "--help").get("error")
+    assert not (fixture.root / "cli-http.jsonl").exists()
+
+
 def test_pagination_runs_real_cursor_and_completes_coverage(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "all-resources")
     fixture.call("read_lockbot_skill", {"offset": 0})

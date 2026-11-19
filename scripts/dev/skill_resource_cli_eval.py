@@ -12,6 +12,7 @@ import io
 import json
 import os
 import runpy
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -81,14 +82,17 @@ class Fixture(cli.Fixture):
         supplied = args.get("argv")
         if (
             not isinstance(supplied, list)
-            or not 2 <= len(supplied) <= 48
+            or not 1 <= len(supplied) <= 48
             or any(not isinstance(value, str) or len(value) > 16384 or "\0" in value for value in supplied)
-            or supplied[0] != "resource"
-            or supplied[1] not in {"list", "view", "devices"}
+        ):
+            return {"error": "unsupported_fixture_argv"}
+        top_help = self.case.get("resource_cli_version", 1) >= 2 and supplied in (["--help"], ["-h"])
+        if not top_help and (
+            len(supplied) < 2 or supplied[0] != "resource" or supplied[1] not in {"list", "view", "devices"}
         ):
             return {"error": "unsupported_fixture_argv"}
         position = 2
-        if supplied[1] in {"view", "devices"}:
+        if not top_help and supplied[1] in {"view", "devices"}:
             if position >= len(supplied) or supplied[position].startswith("-"):
                 return {"error": "resource_reference_required"}
             position += 1
@@ -123,6 +127,7 @@ class Fixture(cli.Fixture):
         with (
             patch("urllib.request.build_opener", return_value=self),
             patch.dict(os.environ, {"LOCKBOT_HOME": str(self.workspace / "private")}),
+            patch.object(sys, "argv", [str(script_path), *supplied]),
             contextlib.redirect_stdout(stdout),
             contextlib.redirect_stderr(stderr),
         ):
