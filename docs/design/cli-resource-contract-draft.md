@@ -18,6 +18,7 @@ lockbot resource list
 lockbot resource list --model P800 --json node,unit,hardware --limit 5
 lockbot resource list --search 'P800 07' --json node,unit,hardware --limit 5
 lockbot resource list --mine --json node,holding_units,booking_units
+lockbot resource list --model P800 --with-metrics --json node,states,metrics
 lockbot resource list --json
 lockbot resource view '<ref from a returned row>'
 lockbot resource view '<ref from a returned row>' --json node,unit,hardware,matched_device_ids
@@ -31,7 +32,39 @@ Continuation skips fully consumed scopes. If a page ends inside one scope, the n
 
 Before emitting a scope, the CLI checks its locally recorded same-scope credential peers. Contradictory observations retain `observation_conflict`. A failed or budget-limited peer leaves locator-only rows with `observation_incomplete`; neither field selection nor a page boundary can turn them into state, device or ownership claims. Credential cohorts exceeding the budget can yield conservative partial results and advance without an unbounded retry loop. References still require an explicitly selected connection when multiple credentials match.
 
-The list is sequential, shares the unchanged 12-request/60-second budget and never creates a resource snapshot cache. It currently reads each old API scope's full response; client-side paging does not reduce those response bytes. Exhaustive scans can reread a scope when its rows cross pages. Server-side filtering/paging is separate future work. Aggregate list telemetry is not enabled; `resource view REF --with-metrics` supports the existing bounded single-scope telemetry path.
+The list is sequential, shares the unchanged 12-request/60-second budget and never creates a resource snapshot cache. It currently reads each old API scope's full response; client-side paging does not reduce those response bytes. Exhaustive scans can reread a scope when its rows cross pages. Server-side filtering/paging is separate future work. Native list telemetry is opt-in with `--with-metrics`; `resource view REF --with-metrics` retains the bounded single-scope detail path. Mixed-source/provider list telemetry is not implemented and rejects the flag before source dispatch.
+
+### Optional utilization in the same invocation
+
+`--with-metrics` adds a compact CPU reading and accelerator summary, without raw
+vectors, card arrays or filesystem arrays. The accelerator mean uses only valid
+`ok` samples. `ok_devices`, `selected_devices`, `non_ok_devices`, `sample_states`
+and `selection_complete` explain its coverage; missing or failed samples never
+become zero. Card groups use the full validated model/own selection, including
+IDs beyond the twenty-item overview. Whole-node card samples remain source
+observations with unknown physical coverage, even when all reported samples are
+healthy. A model filter on a whole node does not identify each source card's model.
+
+All same-scope credential peers finish their resource reads before metrics.
+Conflicting resource rows are not queried. The full metric selection and datasource
+configuration are compared beyond the display prefix; disagreement withholds that
+node's metrics. One verified credential performs the source read with its own
+context/grant. Only a candidate display prefix is queried; later byte packing can
+return fewer rows, without another HTTP request or skipping their continuation.
+
+Resource reads and optional source requests, including authentication refresh and
+failed requests, share twelve HTTP calls and sixty seconds. An exhausted budget,
+unsupported source, `429` or source failure keeps resource rows. The separate
+`metrics_read_complete`, `metrics_unread_reasons` and `metrics_retry_after_seconds`
+describe source-read gaps; they do not rewrite resource `scope_complete`. A complete
+read does not mean every card was mapped, fresh or healthy. Resource state and
+sample ages are recomputed at final output. Valid zero utilization never establishes
+that a resource is free.
+
+Selecting `--json node,metrics` alone does not fetch telemetry. The explicit flag
+controls fetching independently of field selection. Bare `--json` remains local
+field discovery. The active flag is bound to the cursor and repeated in the next
+command; omitting it preserves the previous non-metrics cursor format.
 
 ### Search names, aliases and hardware
 
@@ -83,6 +116,7 @@ lockbot resource devices '<ref>'
 lockbot resource devices '<ref>' --model P800 --json id,model,state
 lockbot resource devices '<ref>' --mine --json id,held_by_you,booked_by_you
 lockbot resource devices '<ref>' --limit 200 --json id,model
+lockbot resource devices '<ref>' --with-metrics --json id,model,state,metrics
 lockbot resource devices --json
 ```
 
@@ -92,7 +126,13 @@ Canonical decimal IDs sort numerically, preserving zero and gaps. Opaque IDs suc
 
 `held_by_you` and `booked_by_you` are null when ownership evidence is missing, malformed or stale. `--mine` retains those unknown rows with `ownership_match_unknown`; it does not declare them owned or turn unknown into zero. The marker survives JSON field selection. Queue position and claimability describe only a uniquely identified own booking, not a current holder's lease. Raw owner identities, notes and expiry fields are not emitted. `total_devices` and `matched_devices` count observed configuration records, never free or authorized cards; matching counts are null when matching coverage is incomplete.
 
-Device continuation uses `next_cursor`/`next_command`, without a local resource cache. A source snapshot is still reread for each page; scoped telemetry and a server-side device-query capability remain separate work. A resumed page never asserts complete inventory coverage, and legacy read mode remains unable to write.
+Device continuation uses `next_cursor`/`next_command`, without a local resource cache. A source snapshot is still reread for each page. `--with-metrics` reads the selected node's existing metrics once, reusing its verified context, then attaches only each returned inventory ID's explicitly mapped reading. IDs beyond twenty remain joinable. Opaque IDs unsupported by the mapping schema stay unknown; no source label or UUID becomes a guessed resource ID. Field discovery, byte packing and resource-aging rebuilds never repeat the source request. A resumed page never asserts complete inventory coverage, and legacy read mode remains unable to write or query telemetry.
+
+Device pagination currently bounds output, not upstream source series. The existing
+gateway query covers the node, retaining the client limits of 2,048 series and
+1 MiB per response. Oversized responses leave a metrics gap and preserve inventory;
+the CLI does not retry with guesses or claim device-level network pagination.
+Selective source queries need an advertised gateway capability and remain pending.
 
 ## Try the implemented read contract
 
@@ -174,12 +214,12 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 ## Review boundaries and remaining work
 
 - Exact-reference commands are implemented and tested against a local packaged backend. Production writes and deployed-client verification have not been performed for this candidate.
-- Summary mode rejects `--full`. Aggregate summary plus `--with-metrics` still needs a shared request-budget plan; scoped summary telemetry and bounded personal records are implemented locally.
+- Summary mode rejects `--full`. Native `resource list` and `resource devices` support optional telemetry under the shared budget; compatibility `resources-all --summary --with-metrics` and mixed/provider telemetry are not enabled.
 - Scoped card telemetry uses explicit datasource `deviceMapping`, keeping source labels separate from resource IDs. Missing or ambiguous mappings stay unknown; mapping changes during short-grant refresh cannot be combined with an earlier resource snapshot. The detailed mapping contract is in the [helper guide](../usage/resource-agent-helper.md#best-effort-metrics).
 - The collector candidate retains explicit XML `product_name`/`uuid` fields as bounded, timestamped device observations. Existing metric labels and collection cadence are unchanged. Missing or conflicting facts stay unknown. This local capture does not register hardware, establish trusted inventory, or provide a new API; authenticated ingestion and actual driver acceptance remain pending.
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
 - External protocol implementations remain private plugins. The explicit generic provider entrypoint and mixed-source traversal are implemented locally; existing own-allocation bridges still cannot establish full fleet inventory. Native credentials/references cannot be reused as external authority.
-- Literal candidate search, private labels, device pagination and the terminal list/view entrypoint are implemented locally for review. Device-fact ingestion, detailed telemetry paging and source-side query limits remain future work. The published Skill should follow the reviewed CLI contract.
+- Literal candidate search, private labels, paged device telemetry and the terminal list/view entrypoint are implemented locally for review. Trusted device-fact ingestion, provider telemetry and source-side selective device queries remain future work. The published Skill should follow the reviewed CLI contract.
 
 The implementation borrows field discovery and bounded-list ideas from [`gh` formatting](https://cli.github.com/manual/gh_help_formatting) and [`gh repo list`](https://cli.github.com/manual/gh_repo_list). LockBot's shared resource contention requires its own server limits; GitHub's quota numbers are not adopted here.

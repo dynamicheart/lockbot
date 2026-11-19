@@ -41,7 +41,9 @@ def test_two_hundred_sparse_configured_ids_are_exact_sorted_and_read_only(monkey
     assert [row["id"] for row in result["rows"]] == sorted(ids)
     assert result["total_devices"] == result["matched_devices"] == 200
     assert result["projection_complete"]
-    assert all(set(row) == set(helper.DEVICE_FIELDS) for row in result["rows"])
+    # Optional telemetry is discovered as a field, but pure inventory projection
+    # neither fetches it nor invents a reading.
+    assert all(set(row) == set(helper.DEVICE_FIELDS) - {"metrics"} for row in result["rows"])
     assert all(row["state"] == "idle" and row["held_by_you"] is False for row in result["rows"])
     assert result["unidentified_devices"] == result["unknown_ownership_devices"] == result["unknown_model_devices"] == 0
     assert type(next(row["id"] for row in result["rows"] if row["id"] == 0)) is int

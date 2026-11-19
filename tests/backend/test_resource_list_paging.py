@@ -228,12 +228,13 @@ def test_invalid_selectors_never_open_a_key_or_contact_service(aggregate, argume
     assert not state.events
 
 
-def test_field_discovery_and_list_metrics_rejection_are_local(aggregate):
+def test_field_discovery_with_optional_metrics_is_local(aggregate):
     state = aggregate.server(1)
     aggregate.record(state, "scope")
     value, _ = execute(aggregate, "resource", "list", "--json")
     assert "ref" in value["json_fields"]
-    execute(aggregate, "resource", "list", "--with-metrics", code=2)
+    metrics_fields, _ = execute(aggregate, "resource", "list", "--with-metrics", "--json")
+    assert "metrics" in metrics_fields["json_fields"]
     assert not state.events
 
 

@@ -299,6 +299,28 @@ observation alone cannot attribute the change or guarantee it survives restart.
 
 ## Best-effort metrics
 
+For bounded native lists, add telemetry explicitly and select only needed fields:
+
+```sh
+python3 scripts/lockbot_cli.py resource list --model P800 --with-metrics --json node,states,metrics
+python3 scripts/lockbot_cli.py resource devices REF --with-metrics --json id,model,state,metrics
+```
+
+The list returns compact CPU/accelerator readings and sample-coverage counts;
+per-card values use the existing device pager. Both share the resource query's
+12-request/60-second budget and 8 KiB output limit. Source failures preserve
+resource rows and report separate `metrics_read_complete`,
+`metrics_unread_reasons` and `metrics_retry_after_seconds`. A completed source
+request does not prove every card was mapped or sampled. Selecting the `metrics`
+field alone does not query the source; bare `--json` remains local discovery.
+
+Device pagination currently limits output, while the existing gateway still
+queries the selected node. Oversized source responses retain explicit failure;
+no device-level network pagination is claimed. Mixed-source/provider telemetry
+is not enabled and rejects the flag before source dispatch. See the
+[candidate contract](../design/cli-resource-contract-draft.md#optional-utilization-in-the-same-invocation)
+for coverage and continuation details.
+
 ```sh
 python3 scripts/lockbot_cli.py --connection /private/connection.json metrics --node node-a
 ```

@@ -3522,6 +3522,7 @@ DEVICE_FIELDS = (
     "claimable_by_you",
     "snapshot_fresh",
     "ownership_match_unknown",
+    "metrics",
 )
 
 
@@ -4709,7 +4710,7 @@ def merge_summary_metrics(rows, metrics, *, device_limit=20):
     return result
 
 
-def attach_metrics(client, snapshot, *, full=False, context=None):
+def attach_metrics(client, snapshot, *, full=False, context=None, _sample_clocks=None):
     """Batch only selected nodes; optional telemetry failure never erases ownership."""
     rows = snapshot.get("resources", snapshot.get("holdings", []) + snapshot.get("bookings", []))
     nodes = list(dict.fromkeys(str(row.get("id", row.get("node"))) for row in rows))
@@ -4725,6 +4726,10 @@ def attach_metrics(client, snapshot, *, full=False, context=None):
                 else client.metrics(batch)
             )
             result["utilization"].extend(reading["utilization"])
+            if _sample_clocks is not None:
+                config = ((context or {}).get("utilization") or {}).get("configuration") or {}
+                for node in batch:
+                    _sample_clocks[node] = (client.clock(), config.get("staleSeconds", 90))
             ambiguous_nodes = sorted({
                 row["node"] for row in reading["utilization"]
                 if isinstance(row, dict) and row.get("node") in batch and row.get("mapping_status") == "ambiguous_node"
@@ -4752,6 +4757,34 @@ def attach_metrics(client, snapshot, *, full=False, context=None):
                 result["unread"].append({"nodes": nodes[offset + len(batch) :], "error": "metrics_not_read"})
             break
     return {**snapshot, "metrics": result}
+
+
+def metrics_at_completion(metrics, receipts, now):
+    """Age normalized samples with invocation-local monotonic receipts only."""
+    result = deepcopy(metrics)
+
+    def age_samples(value, elapsed, threshold):
+        if isinstance(value, list):
+            for item in value:
+                age_samples(item, elapsed, threshold)
+        elif isinstance(value, dict):
+            if "sample_age_seconds" in value:
+                age = metric_number(value["sample_age_seconds"])
+                valid = elapsed is not None and elapsed >= 0 and age is not None and age >= 0
+                value["sample_age_seconds"] = age + elapsed if valid else None
+                if value.get("status") == "ok" and (not valid or age + elapsed > threshold):
+                    value["status"] = "stale" if valid else "invalid"
+                    for field in ("percent", "bytes"):
+                        if field in value:
+                            value[field] = None
+            for item in value.values():
+                age_samples(item, elapsed, threshold)
+
+    for reading in result.get("utilization", []):
+        received, threshold = receipts.get(reading.get("node"), (None, 90))
+        elapsed = now - received if received is not None else None
+        age_samples(reading, elapsed, threshold)
+    return result
 
 
 def attach_summary_metrics(client, snapshot, *, limit=SUMMARY_NODE_LIMIT, offset=0, nodes=(), model=None):
@@ -4900,7 +4933,9 @@ def resource_search_matches(snapshot, node, search, *, index=None):
     return all(any(term in fact for fact in facts) for term in search.split())
 
 
-def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False, legacy_read=False, search=None):
+def resource_list_query(
+    nodes=(), model=None, fields=None, limit=20, mine=False, legacy_read=False, search=None, with_metrics=False
+):
     """Validate read selectors before I/O and return a stable, independent query."""
     if not isinstance(nodes, (list, tuple, set, frozenset)):
         raise ClientError("resource_list_nodes_invalid")
@@ -4924,8 +4959,10 @@ def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False,
         fields = sorted(set(fields))
     if type(limit) is not int or not 1 <= limit <= MAX_OVERVIEW_ENTRIES:
         raise ClientError("resource_list_limit_invalid")
-    if type(mine) is not bool or type(legacy_read) is not bool:
+    if type(mine) is not bool or type(legacy_read) is not bool or type(with_metrics) is not bool:
         raise ClientError("resource_list_profile_invalid")
+    if legacy_read and with_metrics:
+        raise ClientError("legacy_read_only")
     query = {
         "nodes": sorted(normalized_nodes),
         "model": model,
@@ -4937,6 +4974,8 @@ def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False,
     search = resource_search_text(search)
     if search is not None:
         query["search"] = search
+    if with_metrics:
+        query["with_metrics"] = True
     if len(json.dumps(query, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 2048:
         raise ClientError("resource_list_query_too_large")
     return query
@@ -4944,7 +4983,7 @@ def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False,
 
 def resource_list_query_digest(query):
     required = {"nodes", "model", "fields", "limit", "mine", "legacy_read"}
-    if not isinstance(query, dict) or not required <= set(query) or set(query) - required - {"search"}:
+    if not isinstance(query, dict) or not required <= set(query) or set(query) - required - {"search", "with_metrics"}:
         raise ClientError("resource_list_query_invalid")
     canonical = resource_list_query(**query)
     return hashlib.sha256(
@@ -5285,6 +5324,89 @@ class _ResourceListBudget(Exception):
     pass
 
 
+def metric_device_selection(snapshot, *, node, model=None):
+    """Full exact-node card selection for telemetry and credential-peer checks."""
+    selected, selection_complete = [], False
+    if snapshot.get("scope") == "own":
+        entries = select_inventory(snapshot, nodes=[node], model=model)
+        complete = snapshot.get("ownership_coverage", {}).get("complete") is True
+        complete &= node not in entries.get("selection", {}).get("unknown_hardware_nodes", [])
+        for field in ("holdings", "bookings"):
+            originals = [card for card in snapshot.get(field, [])
+                         if isinstance(card, dict) and card.get("node") == node]
+            counts = Counter(str(card.get("device")) for card in originals)
+            if model is not None and any(_summary_model(card.get("model")) is None for card in originals):
+                complete = False
+            cards = [card for card in entries.get(field, []) if isinstance(card, dict) and card.get("node") == node]
+            for card in cards:
+                identifier = card.get("device")
+                if (
+                    card.get("allocation") != "card" or _device_summary_identifier(identifier, ()) is None
+                    or counts[str(identifier)] != 1
+                ):
+                    complete = False
+                else:
+                    selected.append(identifier)
+        selected = list(dict.fromkeys(str(identifier) for identifier in selected))
+        selection_complete = complete
+    else:
+        try:
+            inventory = device_summary_rows(snapshot, snapshot["context"], node=node, model=model)
+            selected = [card["id"] for card in inventory["rows"]]
+            selection_complete = not inventory["unidentified_devices"] and (
+                model is None or not inventory["unknown_model_devices"]
+            )
+        except ClientError:
+            selected, selection_complete = [], False
+    return sorted({str(identifier) for identifier in selected}, key=device_summary_sort_key), selection_complete
+
+
+def compact_resource_metrics(row, snapshot, metrics, *, model=None):
+    """Summarize a full validated selection, never the twenty displayed card IDs."""
+    base = merge_summary_metrics([row], metrics)[0]["metrics"]
+    result = {
+        "best_effort": True, "does_not_authorize_resources": True,
+        "cpu": base.get("cpu", {"status": "missing", "percent": None, "sample_age_seconds": None}),
+    }
+    selection_complete = False
+    if row.get("unit") == "card":
+        selected, selection_complete = metric_device_selection(snapshot, node=row["node"], model=model)
+        readings = [card["metrics"] for card in device_summary_metrics(
+            [{"id": identifier} for identifier in selected], metrics, node=row["node"]
+        )]
+        identity, expected = "resource", len(selected) if selection_complete else None
+    else:
+        matches = [reading for reading in metrics.get("utilization", []) if reading.get("node") == row["node"]]
+        cards = matches[0].get("cards", []) if len(matches) == 1 else []
+        # Whole-node devices remain source observations: hardware count alone
+        # cannot establish that every physical device has exactly one sample.
+        readings = []
+        for card in cards:
+            projected = merge_summary_metrics(
+                [{"ref": row["ref"], "node": row["node"], "unit": "whole_node"}],
+                {"utilization": [{**matches[0], "cards": [card]}]},
+                device_limit=1,
+            )[0]["metrics"].get("cards", [])
+            if len(projected) == 1:
+                readings.append(projected[0])
+        identity, expected = "source", None
+    states = Counter(reading.get("status", "missing") for reading in readings)
+    values = [reading["percent"] for reading in readings if reading.get("status") == "ok"]
+    ok = len(values)
+    result["accelerator"] = {
+        "status": "not_required" if expected == 0 else "missing" if not ok
+        else "ok" if selection_complete and ok == expected else "partial",
+        "mean_percent": sum(values) / ok if ok else None,
+        "ok_devices": ok,
+        "selected_devices": expected,
+        "non_ok_devices": len(readings) - ok,
+        "sample_states": dict(sorted(states.items())),
+        "device_identity": identity,
+        "selection_complete": selection_complete,
+    }
+    return result
+
+
 class _ResourceListReader:
     """One sequential read budget; only anonymous discovery can cross credentials."""
 
@@ -5425,6 +5547,55 @@ class _ResourceListReader:
                 # it does not establish a permanent lease or write permission.
         return max(0.0, remaining)
 
+    def telemetry(self, groups, nodes, *, model=None):
+        """Spend the same invocation budget on one verified credential's samples."""
+        if not groups or not nodes:
+            return
+        group = groups[0]
+        client = group["_client"]
+        blocked = {}
+        for node in nodes:
+            signatures = []
+            for peer in groups:
+                observed = peer["snapshot"]
+                context = observed["context"]
+                try:
+                    ids, complete = metric_device_selection(observed, node=node, model=model) if (
+                        context.get("bot", {}).get("type") in {"DEVICE", "QUEUE_DEVICE"}
+                    ) else (None, False)
+                    signatures.append((Client._metrics_identity(context), ids, complete))
+                except (ClientError, KeyError, TypeError, AttributeError, ValueError, RecursionError):
+                    blocked[node] = "invalid_metrics_configuration"
+                    break
+            if any(signature != signatures[0] for signature in signatures[1:]):
+                blocked[node] = "ambiguous_metrics_observation"
+        unread = [{"nodes": [node], "error": error} for node, error in blocked.items()]
+        group["_metrics_nodes"] = set(nodes)
+        nodes = [node for node in nodes if node not in blocked]
+        if not nodes:
+            group["_metrics"] = {"complete": False, "utilization": [], "unread": unread}
+            return
+        client.calls, client.deadline, client.call_limit = self.calls, self.deadline, self.max_calls
+        snapshot = group["snapshot"]
+        fields = ("holdings", "bookings") if snapshot.get("scope") == "own" else ("resources",)
+        selected = {**snapshot, **{
+            field: [
+                record for record in snapshot[field]
+                if isinstance(record, dict) and record.get("node" if field != "resources" else "id") in nodes
+            ]
+            for field in fields
+        }}
+        try:
+            group["_metrics_receipts"] = {}
+            group["_metrics"] = attach_metrics(
+                client, selected, context=snapshot["context"], _sample_clocks=group["_metrics_receipts"]
+            )["metrics"]
+            if unread:
+                group["_metrics"]["complete"] = False
+                group["_metrics"]["unread"].extend(unread)
+        finally:
+            self.calls = client.calls
+
     def project(self, groups, query, *, incomplete=False):
         aged = []
         for group in groups:
@@ -5464,6 +5635,15 @@ class _ResourceListReader:
                     "observation_incomplete": True,
                     **({"observation_conflict": True} if row.get("observation_conflict") else {}),
                 }
+            elif query.get("with_metrics") and not row.get("observation_conflict"):
+                original = groups[0]
+                row["metrics"] = compact_resource_metrics(
+                    row, observation_at_completion(original["_client"], original["snapshot"]),
+                    metrics_at_completion(
+                        original.get("_metrics", {}), original.get("_metrics_receipts", {}), self.clock()
+                    ),
+                    model=query["model"],
+                )
             safe.append(row)
         return sorted(safe, key=lambda row: row["node"].encode("utf-8")), notes, complete
 
@@ -5561,6 +5741,8 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
             args += ["--model", query["model"]]
         if query.get("search") is not None:
             args += ["--search", query["search"]]
+        if query.get("with_metrics"):
+            args += ["--with-metrics"]
         if query["fields"] is not None:
             args += ["--json", ",".join(query["fields"])]
         return args + ["--cursor", token]
@@ -5571,6 +5753,7 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
 
     def encoded(entries, position, *, reserve=0):
         final_rows, totals, valid = [], Counter(), True
+        metrics_errors, metrics_retry = set(), None
         validity, coverage_validity = [], []
         per_scope = {}
         legacy_notes = []
@@ -5581,6 +5764,18 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
             row = next((row for row in per_scope[index][0] if row["node"] == node), None)
             if row is None:
                 raise ClientError("resource_list_observation_changed")
+            if query.get("with_metrics"):
+                groups, incomplete = observations[index]
+                if incomplete or row.get("observation_conflict") or row.get("observation_incomplete"):
+                    metrics_errors.add("resource_observation_ambiguous")
+                elif not groups or node not in groups[0].get("_metrics_nodes", set()):
+                    metrics_errors.add("metrics_not_read")
+                else:
+                    for error in groups[0].get("_metrics", {}).get("unread", []):
+                        if node in error.get("nodes", []):
+                            metrics_errors.add(error["error"])
+                            if error.get("retry_after_seconds") is not None:
+                                metrics_retry = max(metrics_retry or 0, error["retry_after_seconds"])
             if include_validity:
                 group, incomplete = observations[index]
                 uncertain = (
@@ -5664,6 +5859,14 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
             result["coverage_valid_for_seconds"] = (
                 min(coverage_validity, default=0.0) if not gaps and not catalog["pending_enrollments"] else 0.0
             )
+        if query.get("with_metrics"):
+            result.update(
+                metrics_requested=True,
+                metrics_read_complete=not metrics_errors,
+                metrics_scope="returned_nodes",
+                metrics_unread_reasons=sorted(metrics_errors)[:8],
+                metrics_retry_after_seconds=metrics_retry,
+            )
         if token is not None:
             result["next_command"] = command(token)
         if legacy_notes:
@@ -5724,6 +5927,14 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
             for row in rows
             if index != start or after is None or row["node"].encode("utf-8") > after.encode("utf-8")
         ]
+        if query.get("with_metrics") and not incomplete and rows:
+            wanted = [row["node"] for row in rows[: page_limit - len(selected)] if not row.get("observation_conflict")]
+            reader.telemetry(groups, wanted, model=query["model"])
+            rows, _notes, _complete = reader.project(groups, query)
+            rows = [
+                row for row in rows
+                if index != start or after is None or row["node"].encode("utf-8") > after.encode("utf-8")
+            ]
         for number, row in enumerate(rows):
             position = (index + 1, None) if number == len(rows) - 1 else (index, row["node"])
             candidate = (*selected, (index, row["node"], False))
@@ -5765,7 +5976,9 @@ def resource_list_text(encoded, *, mine=None):
     """Compact terminal output; exact refs remain resolvable by the normal client."""
     value = json.loads(encoded)["result"]
     rows = value["rows"]
-    lines = ["NODE  UNIT  HARDWARE  OBSERVATION  REF"]
+    with_metrics = value.get("metrics_requested")
+    columns = "  CPU %  ACCEL % (OK/SELECTED)" if with_metrics else ""
+    lines = ["NODE  UNIT  HARDWARE  OBSERVATION" + columns + "  REF"]
     for row in rows:
         node = row.get("node")
         if node is None:
@@ -5783,11 +5996,25 @@ def resource_list_text(encoded, *, mine=None):
             state = f"held:{shown[0]} booked:{shown[1]}"
         else:
             state = " ".join(f"{key}:{count}" for key, count in row.get("states", {}).items() if count) or "unknown"
-        lines.append(f"{node}  {row.get('unit', '?')}  {hardware}  {state}  {row['ref']}")
+        metrics = ""
+        if with_metrics:
+            reading = row.get("metrics", {})
+            cpu, accelerator = reading.get("cpu", {}), reading.get("accelerator", {})
+            cpu_text = str(cpu["percent"]) if cpu.get("status") == "ok" else "?"
+            percent = accelerator.get("mean_percent")
+            accelerator_text = str(round(percent, 2)) if percent is not None else "?"
+            expected = accelerator.get("selected_devices")
+            denominator = expected if expected is not None else "?"
+            metrics = f"  {cpu_text}  {accelerator_text} ({accelerator.get('ok_devices', 0)}/{denominator})"
+        lines.append(f"{node}  {row.get('unit', '?')}  {hardware}  {state}{metrics}  {row['ref']}")
     if not rows:
         lines.append("No matching rows observed." if value.get("catalog_scopes", 1) else "No saved connections.")
     if not value["scope_complete"]:
         lines.append("Partial observation; this page does not establish a complete inventory.")
+    if with_metrics:
+        lines.append("Utilization is best effort; zero does not mean free.")
+        if not value.get("metrics_read_complete"):
+            lines.append("Metrics incomplete: " + ", ".join(value.get("metrics_unread_reasons", [])))
     if value.get("unread_reasons"):
         lines.append("Unavailable: " + ", ".join(value["unread_reasons"]))
     if value.get("next_command"):
@@ -5804,22 +6031,53 @@ def resource_list_text(encoded, *, mine=None):
     return text if len(text.encode()) + 1 <= SUMMARY_BYTE_LIMIT else encoded
 
 
-def resource_devices_query(*, model=None, mine=False, fields=None, limit=SUMMARY_DEVICE_LIMIT, legacy_read=False):
+def resource_devices_query(
+    *, model=None, mine=False, fields=None, limit=SUMMARY_DEVICE_LIMIT, legacy_read=False, with_metrics=False
+):
     """Validate device selectors before resolving credentials or starting requests."""
     if model is not None:
         model = _summary_model(model)
         if model is None:
             raise ClientError("resource_devices_model_invalid")
         model = model.casefold()
-    if type(mine) is not bool or type(legacy_read) is not bool:
+    if type(mine) is not bool or type(legacy_read) is not bool or type(with_metrics) is not bool:
         raise ClientError("resource_devices_query_invalid")
+    if legacy_read and with_metrics:
+        raise ClientError("legacy_read_only")
     if type(limit) is not int or not 1 <= limit <= MAX_OVERVIEW_ENTRIES:
         raise ClientError("resource_devices_limit_invalid")
     if fields is not None:
         if not isinstance(fields, (list, tuple)) or not fields or any(field not in DEVICE_FIELDS for field in fields):
             raise ClientError("resource_devices_fields_invalid")
         fields = sorted(set(fields))
-    return {"model": model, "mine": mine, "fields": fields, "limit": limit, "legacy_read": legacy_read}
+    result = {"model": model, "mine": mine, "fields": fields, "limit": limit, "legacy_read": legacy_read}
+    if with_metrics:
+        result["with_metrics"] = True
+    return result
+
+
+def device_summary_metrics(rows, metrics, *, node):
+    """Join each observed inventory ID without the overview's twenty-card prefix."""
+    result = []
+    for row in rows:
+        projected = merge_summary_metrics(
+            [{"ref": "selected-node", "node": node, "unit": "card", "matched_device_ids": [row["id"]]}],
+            metrics,
+            device_limit=1,
+        )[0]["metrics"]
+        matches = projected.get("cards", [])
+        reading = {
+            "status": "missing", "percent": None, "sample_age_seconds": None,
+            "mapping_status": projected.get("mapping_status", "missing"),
+        }
+        if len(matches) == 1:
+            reading.update({key: value for key, value in matches[0].items() if key != "device"})
+        elif projected.get("status") == "invalid":
+            reading["status"] = "invalid"
+        if metrics_resource_device(str(row["id"])) is None:
+            reading["mapping_status"] = "unsupported_id"
+        result.append({**row, "metrics": reading})
+    return result
 
 
 def resource_devices(client, reference, *, query, cursor=None, connection=None, directory=None):
@@ -5871,6 +6129,8 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
             args += ["--model", query["model"]]
         if query["mine"]:
             args += ["--mine"]
+        if query.get("with_metrics"):
+            args += ["--with-metrics"]
         if query["fields"] is not None:
             args += ["--json", ",".join(query["fields"])]
         return args + ["--cursor", next_cursor]
@@ -5878,12 +6138,13 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
     # Do not populate persistent address metadata while listing observed devices.
     client.node_access = None
     snapshot = client.inventory()
+    sample_clocks = {}
     if redacted_values(node, client.secrets) != node:
         raise ClientError("secret_in_resource_identifier")
 
     def projection():
         observed = observation_at_completion(client, snapshot)
-        return observed, device_summary_rows(
+        projected = device_summary_rows(
             observed,
             observed["context"],
             node=node,
@@ -5891,6 +6152,24 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
             mine=query["mine"],
             private_values=client.secrets,
         )
+        if query.get("with_metrics"):
+            projected["rows"] = device_summary_metrics(
+                projected["rows"], metrics_at_completion(snapshot.get("metrics", {}), sample_clocks, client.clock()),
+                node=node,
+            )
+        return observed, projected
+
+    # Validate IDs and filters before the optional source read. Read at most once;
+    # byte packing and resource aging below only re-project this invocation's data.
+    _observed, preview = projection()
+    if query.get("with_metrics") and any(
+        after is None or device_summary_sort_key(row["id"]) > device_summary_sort_key(after)
+        for row in preview["rows"]
+    ):
+        selected = {**snapshot, "resources": [row for row in snapshot["resources"] if row.get("id") == node]}
+        snapshot = {**snapshot, "metrics": attach_metrics(
+            client, selected, context=snapshot["context"], _sample_clocks=sample_clocks
+        )["metrics"]}
 
     def encoded(selected, *, more, observed, projected):
         next_cursor = None
@@ -5933,6 +6212,23 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
                 api_profile=client.api_profile,
                 instruction_state=client.instruction_state,
                 instruction_refresh_required=True,
+            )
+        if query.get("with_metrics"):
+            metrics = snapshot.get("metrics", {
+                "complete": not rows,
+                "unread": [{"error": "metrics_not_read"}] if rows else [],
+            })
+            errors = metrics.get("unread", [])
+            result.update(
+                metrics_requested=True,
+                metrics_read_complete=metrics.get("complete") is True,
+                metrics_scope="selected_node",
+                metrics_unread_reasons=sorted({error["error"] for error in errors})[:8],
+                metrics_retry_after_seconds=max(
+                    (error["retry_after_seconds"] for error in errors if error.get("retry_after_seconds") is not None),
+                    default=None,
+                ),
+                metrics_does_not_authorize_resources=True,
             )
         if next_cursor is not None:
             result["next_command"] = command(next_cursor)
@@ -6001,15 +6297,23 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
 
 def resource_devices_text(encoded):
     result = json.loads(encoded)["result"]
-    lines = ["ID  MODEL  STATE  HELD BY YOU  BOOKED BY YOU"]
+    with_metrics = result.get("metrics_requested")
+    lines = ["ID  MODEL  STATE  HELD BY YOU  BOOKED BY YOU" + ("  UTIL %" if with_metrics else "")]
     for row in result["rows"]:
-        lines.append(
-            "  ".join(str(row.get(field, "?")) for field in ("id", "model", "state", "held_by_you", "booked_by_you"))
-        )
+        values = [str(row.get(field, "?")) for field in ("id", "model", "state", "held_by_you", "booked_by_you")]
+        if with_metrics:
+            sample = row.get("metrics", {})
+            values.append(
+                str(sample["percent"]) if sample.get("status") == "ok"
+                else "? (" + sample.get("status", "missing") + ")"
+            )
+        lines.append("  ".join(values))
     if not result["rows"]:
         lines.append("No matching devices observed.")
     if not result["scope_complete"]:
         lines.append("Partial or unverifiable observation; not an allocation guarantee.")
+    if with_metrics:
+        lines.append("Utilization is best effort; zero does not mean free.")
     if result.get("next_command"):
         lines.append("Next: " + shlex.join(["lockbot", *result["next_command"]]))
     elif result.get("next_cursor"):
@@ -7303,6 +7607,8 @@ def _resource_sources_dispatch(args):
     if args.action == "resource-list":
         if args.json == "":
             return json.dumps({"json_fields": MIXED_FIELDS, "required_row_fields": ["ref"]})
+        if args.with_metrics:
+            raise ClientError("mixed_metrics_not_supported")
         return mixed_resource_list(
             args.resource_sources,
             query=_mixed_query(
@@ -7640,6 +7946,7 @@ def main(argv=None):
     )
     resource_listing.add_argument("--limit", type=int, default=SUMMARY_NODE_LIMIT, help="Maximum rows (default 20)")
     resource_listing.add_argument("--cursor", help="Continue the same live query without rereading completed scopes")
+    resource_listing.add_argument("--with-metrics", action="store_true", help="Include compact best-effort utilization")
     resource_listing.add_argument(
         "--json",
         nargs="?",
@@ -7687,6 +7994,7 @@ def main(argv=None):
     )
     device_listing.add_argument("--limit", type=int, default=SUMMARY_DEVICE_LIMIT, help="Maximum cards (default 20)")
     device_listing.add_argument("--cursor", help="Continue the same live device query")
+    device_listing.add_argument("--with-metrics", action="store_true", help="Include best-effort mapped card readings")
     device_listing.add_argument(
         "--json",
         nargs="?",
@@ -7842,6 +8150,7 @@ def main(argv=None):
                 fields=None if args.json is None else args.json.split(","),
                 limit=args.limit,
                 legacy_read=args.legacy_read,
+                with_metrics=args.with_metrics,
             )
             if not args.ref:
                 raise ClientError("resource_reference_required")
@@ -7859,6 +8168,7 @@ def main(argv=None):
                 mine=args.mine,
                 legacy_read=args.legacy_read,
                 search=args.search,
+                with_metrics=args.with_metrics,
             )
             result = resource_list(args.directory, query=query, cursor=args.cursor)
             print(resource_list_text(result, mine=args.mine) if human_read else result)
