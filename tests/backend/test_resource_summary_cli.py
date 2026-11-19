@@ -121,7 +121,11 @@ def test_distinct_credentials_for_same_scope_do_not_break_summary(aggregate):
     assert result["displayed_nodes"] == 1 and result["duplicate_observations"] == 1
     assert result["conflicting_observations"] == 0 and result["scope_complete"]
     assert result["unknown_hardware_nodes"] == 1
-    assert len(state.events) == 4
+    assert state.events == [
+        ("/api/agent-skill", "GET", None),
+        ("/api/agent/resources", "GET", "Bearer " + original),
+        ("/api/agent/resources", "GET", "Bearer " + state.accepted_keys[0]),
+    ]
 
 
 def test_conflicting_same_reference_observations_withhold_states_and_device_ids():
@@ -177,7 +181,11 @@ def test_model_filter_preserves_conflict_evidence_from_a_nonmatching_credential(
     result = execute(aggregate, "resources-all", "--summary", "--model", "P800")[0]["result"]
     assert result["scope_complete"] is False and result["conflicting_observations"] == 1
     assert set(result["rows"][0]) == {"ref", "node", "observation_conflict"}
-    assert len(state.events) == 4
+    assert state.events == [
+        ("/api/agent-skill", "GET", None),
+        ("/api/agent/resources", "GET", "Bearer " + original),
+        ("/api/agent/resources", "GET", "Bearer " + second_key),
+    ]
 
 
 def test_alias_filter_cannot_hide_a_conflicting_same_node_observation(aggregate):
@@ -194,7 +202,11 @@ def test_alias_filter_cannot_hide_a_conflicting_same_node_observation(aggregate)
     result = execute(aggregate, "resources-all", "--summary", "--node", "19")[0]["result"]
     assert result["scope_complete"] is False and result["conflicting_observations"] == 1
     assert set(result["rows"][0]) == {"ref", "node", "observation_conflict"}
-    assert len(state.events) == 4
+    assert state.events == [
+        ("/api/agent-skill", "GET", None),
+        ("/api/agent/resources", "GET", "Bearer " + original),
+        ("/api/agent/resources", "GET", "Bearer " + second_key),
+    ]
 
 
 def test_unknown_hardware_is_counted_once_after_model_filter(aggregate):

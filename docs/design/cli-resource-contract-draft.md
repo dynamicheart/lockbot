@@ -58,6 +58,8 @@ For one selected scope, `--with-metrics --summary` fetches telemetry for the bou
 
 Each invocation retains the existing limit of 12 HTTP requests, a 60-second deadline and sequential reads. There is no new local resource snapshot cache. The CLI does not run an unbounded pagination loop.
 
+Within one invocation, connections to the same approved origin and pinned instance can reuse a validated anonymous service descriptor. Protected context, principal checks, resource observations and telemetry grants remain separate for each credential. Discovery notices are retained, scope failures invalidate reuse, and a new invocation discovers again. If the remaining request budget cannot finish the next scope's minimum protected reads, continuation leaves that scope unstarted.
+
 ```sh
 lockbot resources-all --summary
 # If scope_page.next_after_scope is present:
