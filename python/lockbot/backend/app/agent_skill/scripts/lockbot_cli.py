@@ -2992,6 +2992,10 @@ class Client:
             rules = context.get("bot_rules")
             seconds = rules.get("default_duration_seconds") if isinstance(rules, dict) else None
             if type(seconds) is not int or seconds <= 0:
+                if operation in {"lock", "slock"} and self._prepared_claim_available(
+                    context, nodes, devices, model, minimum_model_count, _selection_precondition
+                ):
+                    raise ClientError("booking_claimable_use_explicit_claim")
                 raise ClientError("group_default_duration_unavailable")
             ceiling = rules.get("effective_max_lock_duration_seconds")
             if type(ceiling) is int and ceiling >= 0 and seconds > ceiling:
@@ -3141,6 +3145,59 @@ class Client:
             "update_required": self.needs_update,
             "job_runner": False,
         }
+
+    def _prepared_claim_available(self, context, nodes, devices, model, minimum_model_count, precondition):
+        """Prefer claim guidance only from an already-fetched coherent observation.
+
+        No resource read is added to a missing-default failure. This is a
+        diagnostic, never a conversion of the requested operation or duration.
+        """
+        prepared = self._prepared_resources
+        if (
+            prepared is None
+            or prepared[0] is not context
+            or context["bot"]["type"] not in {"QUEUE", "QUEUE_DEVICE"}
+            or len(nodes) != 1
+            or len(devices) > 1
+        ):
+            return False
+        try:
+            selected = self._selected(prepared[1], nodes, devices)
+            item = selected[0]
+            bookings = item.get("booking_list")
+            command = "lock " + nodes[0] + (" dev" + devices[0] if devices else "")
+            if (
+                item.get("lock_status") != "idle"
+                or item.get("holders") != []
+                or item.get("claimable_by_you") is not True
+                or item.get("claim_command") != command
+                or not isinstance(bookings, list)
+                or not all(isinstance(row, dict) for row in bookings)
+                or not self._own(bookings, context["actor"]["external_user_id"])
+            ):
+                return False
+            before = self.resources(context)  # Consume the same coherent response; no HTTP.
+            self._require_fresh_snapshot(before)
+            if (
+                before.get("health") != "running"
+                or not isinstance(before.get("supported_operations"), list)
+                or "lock" not in before["supported_operations"]
+                or model is not None
+                and not self._matches_model(item, model.strip().casefold(), bool(devices), minimum_model_count)
+            ):
+                return False
+            if precondition is not None:
+                try:
+                    precondition(self, context, before)
+                except AutomaticScopeError as exc:
+                    # The automatic precondition checks selection pins before
+                    # rejecting any booking for a new lock. That conflict is
+                    # expected here; the caller still has to request claim.
+                    if exc.code != "automatic_resource_conflict":
+                        raise
+            return True
+        except (ClientError, KeyError, TypeError, AttributeError, IndexError):
+            return False
 
     def _snapshot_fresh_for_write(self, snapshot, started):
         age = snapshot.get("age_seconds")
@@ -8824,6 +8881,7 @@ def main(argv=None):
                 "context_actor_mismatch_reinitialize_connection_without_rotating_key": "连接身份无法确认，未发送命令。",
                 "context_identity_mismatch": "目标身份无法确认，未发送命令。",
                 "resource_snapshot_identity_mismatch": "资源身份无法确认，未发送命令。",
+                "booking_claimable_use_explicit_claim": "预约已可开始使用，请显式执行 claim，沿用预约时长。",
             }
             # These raw errors originate in pre-reads. The same failures after
             # dispatch are wrapped by command() as an unverified/uncertain write.
