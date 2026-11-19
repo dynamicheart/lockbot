@@ -3087,6 +3087,18 @@ def redacted_values(value, private_values=()):
 SUMMARY_NODE_LIMIT = 20
 SUMMARY_DEVICE_LIMIT = 20
 SUMMARY_BYTE_LIMIT = 8192
+DEVICE_FIELDS = (
+    "id",
+    "model",
+    "state",
+    "mode",
+    "held_by_you",
+    "booked_by_you",
+    "queue_rank",
+    "claimable_by_you",
+    "snapshot_fresh",
+    "ownership_match_unknown",
+)
 
 
 def _summary_identifier(value):
@@ -3127,6 +3139,168 @@ def _summary_model(value):
         if isinstance(value, str) and value.strip() and len(value) <= 80 and value.strip().isprintable()
         else None
     )
+
+
+def _device_summary_identifier(value, private_values):
+    if not (
+        type(value) is int
+        and value >= 0
+        or isinstance(value, str)
+        and value
+        and len(value) <= 256
+        and value.isprintable()
+    ):
+        return None
+    try:
+        canonical = str(value)
+        if len(canonical) > 256 or len(canonical.encode("utf-8")) > 1024:
+            return None
+    except (ValueError, UnicodeError):
+        return None
+    # IDs may become cursor positions. Reject secrets before any base64 encoding.
+    if redacted_values(canonical, private_values) != canonical or re.search(
+        r"(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,200}|lbc1\.[\w-]{22}\.[\w-]{43}", canonical
+    ):
+        return None
+    return canonical
+
+
+def device_summary_sort_key(identifier):
+    """Order canonical decimal IDs numerically, retaining opaque ID spelling."""
+    text = _device_summary_identifier(identifier, ())
+    if text is None:
+        raise ClientError("invalid_device_identifier")
+    encoded = text.encode("utf-8")
+    return (0, len(text), encoded) if re.fullmatch(r"0|[1-9][0-9]*", text) else (1, 0, encoded)
+
+
+def _device_summary_owners(unit, actor):
+    """Return complete platform-aware identities, or unknown ownership evidence."""
+    if not isinstance(actor, dict) or any(
+        not isinstance(actor.get(field), str)
+        or not actor[field]
+        or not actor[field].isprintable()
+        or len(actor[field]) > 512
+        for field in ("platform", "external_user_id")
+    ):
+        return None
+    owners = {}
+    for field in ("holders", "booking_list"):
+        records = unit.get(field)
+        if not isinstance(records, list):
+            return None
+        identities = []
+        for record in records:
+            if not isinstance(record, dict):
+                return None
+            platform = record.get("platform", actor["platform"])
+            subject = record.get("external_user_id")
+            if any(
+                not isinstance(value, str) or not value or len(value) > 512 or not value.isprintable()
+                for value in (platform, subject)
+            ):
+                return None
+            identities.append((platform, subject))
+        if len(identities) != len(set(identities)):
+            return None
+        owners[field] = identities
+    return owners
+
+
+def device_summary_rows(snapshot, context, *, node, model=None, mine=False, private_values=()):
+    """Project exact configured card records; state never grants allocation rights."""
+    if not isinstance(snapshot, dict) or not isinstance(context, dict) or type(mine) is not bool:
+        raise ClientError("invalid_device_resource_summary")
+    _resource_list_text(node, "invalid_query_node")
+    if model is not None and _summary_model(model) is None:
+        raise ClientError("invalid_query_model")
+    wanted = model.strip().casefold() if model is not None else None
+    resources = snapshot.get("resources")
+    if not isinstance(resources, list):
+        raise ClientError("invalid_device_resource_summary")
+    matches = [row for row in resources if isinstance(row, dict) and row.get("id") == node]
+    if len(matches) > 1:
+        raise ClientError("resource_reference_node_ambiguous")
+    if not matches:
+        raise ClientError("resource_reference_node_unavailable")
+    bot = context.get("bot")
+    kind = bot.get("type") if isinstance(bot, dict) else None
+    if kind in ("NODE", "QUEUE"):
+        raise ClientError("resource_uses_whole_nodes")
+    if kind not in ("DEVICE", "QUEUE_DEVICE") or not isinstance(matches[0].get("devices"), list):
+        raise ClientError("invalid_device_resource_summary")
+    cards = matches[0]["devices"]
+    identified, unknown_models = [], 0
+    for card in cards:
+        label = _summary_model(card.get("dev_model")) if isinstance(card, dict) else None
+        if label is not None and _device_summary_identifier(label, private_values) is None:
+            label = None
+        unknown_models += int(label is None)
+        canonical = _device_summary_identifier(card.get("id"), private_values) if isinstance(card, dict) else None
+        if canonical is not None:
+            identified.append((canonical, card, label))
+    # Validate the entire configured ID inventory before model/ownership filters.
+    if any(count > 1 for count in Counter(canonical for canonical, _, _ in identified).values()):
+        raise ClientError("device_inventory_identity_ambiguous")
+    fresh = read_snapshot_fresh(snapshot) and snapshot.get("health") == "running"
+    actor = context.get("actor")
+    own = (actor.get("platform"), actor.get("external_user_id")) if isinstance(actor, dict) else None
+    result = {
+        "rows": [],
+        "total_devices": len(cards),
+        "matched_devices": None,
+        "unknown_ownership_devices": 0,
+        "unidentified_devices": len(cards) - len(identified),
+        "unknown_model_devices": unknown_models,
+        "projection_complete": fresh and len(cards) == len(identified),
+    }
+    matching_complete = not result["unidentified_devices"]
+    for _canonical, card, label in sorted(identified, key=lambda item: device_summary_sort_key(item[0])):
+        if label is None and wanted is not None:
+            result["projection_complete"] = matching_complete = False
+        owners = _device_summary_owners(card, actor)
+        state = _summary_unit_state(card, fresh=fresh, queued=kind == "QUEUE_DEVICE", valid=owners is not None)
+        unknown = state == "unknown"
+        if unknown:
+            result["unknown_ownership_devices"] += 1
+            result["projection_complete"] = False
+        held = own in owners["holders"] if not unknown else None
+        booked = own in owners["booking_list"] if not unknown else None
+        if wanted is not None and (label is None or label.casefold() != wanted):
+            continue
+        if mine and unknown:
+            matching_complete = False
+        if mine and held is False and booked is False:
+            continue
+        booking = None
+        if booked:
+            booking = next(
+                row
+                for row, identity in zip(card["booking_list"], owners["booking_list"], strict=True)
+                if identity == own
+            )
+        position = booking.get("position") if booking is not None else None
+        result["rows"].append(
+            {
+                "id": card["id"],
+                "model": label,
+                "state": state,
+                "mode": card.get("lock_status")
+                if not unknown and card.get("lock_status") in {"exclusive", "shared"}
+                else None,
+                "held_by_you": held,
+                "booked_by_you": booked,
+                "queue_rank": position + 1 if type(position) is int and position >= 0 else None,
+                "claimable_by_you": card.get("claimable_by_you")
+                if booked and type(card.get("claimable_by_you")) is bool
+                else None,
+                "snapshot_fresh": fresh,
+                "ownership_match_unknown": unknown,
+            }
+        )
+    if matching_complete:
+        result["matched_devices"] = len(result["rows"])
+    return result
 
 
 def ownership_coverage(snapshot, context):
