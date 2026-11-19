@@ -95,7 +95,7 @@ def test_release_wrapper_exports_executed_alias_case_without_changing_source(tmp
     meta = json.loads((location / "case.json").read_text())
     assert meta["scenario"] == "intent-lock-tail"
     assert meta["release_scenario"] == "alias-set"
-    assert meta["release_fixture_version"] == 5  # Exercise the matrix's actual default separately.
+    assert meta["release_fixture_version"] == 6  # Exercise the matrix's actual default separately.
     before = tree_hashes(source)
     report = publisher.export_dataset(source, tmp_path / "board", minimal_summary=True)
     dataset = tmp_path / "board/datasets" / report["dataset"]["dataset_id"]
@@ -112,7 +112,14 @@ def test_release_wrapper_exports_executed_alias_case_without_changing_source(tmp
 
 @pytest.mark.parametrize(
     "suite,version",
-    [("resource-cli", 1), ("resource-cli", 2), ("cli-release", 3), ("cli-release", 4), ("cli-release", 5)],
+    [
+        ("resource-cli", 1),
+        ("resource-cli", 2),
+        ("cli-release", 3),
+        ("cli-release", 4),
+        ("cli-release", 5),
+        ("cli-release", 6),
+    ],
 )
 def test_known_wrapper_versions_export_prepared_evidence(tmp_path, monkeypatch, suite, version):
     # These wrapper revisions retain their scenario fields and underlying fixture map.

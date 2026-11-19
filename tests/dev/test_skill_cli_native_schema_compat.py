@@ -57,7 +57,13 @@ def test_actual_stdio_catalog_exposes_executable_cli_and_runtime_rejects_mixed_m
     assert [row["id"] for row in responses] == [1, 2, 3, 4]
     catalog = responses[1]["result"]["tools"]
     assert {row["name"] for row in catalog} == {"install_lockbot", "read_lockbot_skill", "run_lockbot"}
-    schema = next(row for row in catalog if row["name"] == "run_lockbot")["inputSchema"]
+    executable = next(row for row in catalog if row["name"] == "run_lockbot")
+    description = executable["description"]
+    assert "verified installed LockBot CLI" in description
+    assert "argv=['--help']" in description and "argv=['COMMAND','--help']" in description
+    assert "Inspection, installation and resource changes are separate commands" in description
+    assert not any(value in description for value in ("discover --origin", "api/agent-skill", "package_version"))
+    schema = executable["inputSchema"]
     assert schema["type"] == "object" and "argv" in schema["properties"]
     assert not {"oneOf", "allOf", "anyOf"}.intersection(schema)
     help_result = json.loads(responses[2]["result"]["content"][0]["text"])
@@ -83,10 +89,48 @@ def test_no_http_or_tool_files_are_empty_failed_observations_not_fixture_errors(
     assert scored["read_count"] == scored["http_event_count"] == scored["packaged_cli_calls"] == 0
 
 
-@pytest.mark.parametrize("version,prompt,protocol", [(4, "有新版吗", 1), (5, "Skill有新版吗", 2)])
+@pytest.mark.parametrize(
+    "version,prompt,protocol", [(4, "有新版吗", 1), (5, "Skill有新版吗", 2), (6, "Skill有新版吗", 3)]
+)
 def test_new_prompt_and_schema_are_versioned_without_rewriting_old_contract(tmp_path, version, prompt, protocol):
     fixture = prepare(tmp_path, "update-inquiry", version=version)
     assert (fixture.root / "prompt.txt").read_text() == prompt
     assert fixture.case["cli_argv_protocol"] == protocol
     schema = next(row for row in fixture.tool_catalog() if row["name"] == "run_lockbot")["inputSchema"]
     assert ("oneOf" in schema) == (protocol == 1)
+
+
+@pytest.mark.parametrize("version", [3, 4, 5])
+def test_prior_release_descriptions_keep_their_original_inventory_contract(tmp_path, version):
+    fixture = prepare(tmp_path, version=version)
+    legacy = next(row for row in release.cli.legacy_tools(fixture.root) if row["name"] == "run_lockbot")
+    expected = legacy["description"]
+    if version >= 4:
+        expected += " Prefer argv for the real CLI syntax; pass argv OR the legacy action fields."
+    expected += (
+        " Alias edits require the exact observed node ID; machine operations require whole_node "
+        "when the user requests a whole machine."
+    )
+    actual = next(row for row in fixture.tool_catalog() if row["name"] == "run_lockbot")
+    assert actual["description"] == expected
+    assert "argv=['--help']" not in actual["description"]
+
+
+def test_generic_help_can_discover_anonymous_inspection_without_installing(tmp_path):
+    fixture = prepare(tmp_path, "update-inquiry")
+    fixture.call("read_lockbot_skill", {"offset": 0, "reference": "installation.json"})
+    before = release._tree_digest(fixture.workspace / "skills/lockbot-agent")
+    for argv in (["--help"], ["discover", "--help"]):
+        result = fixture.call("run_lockbot", {"argv": argv})
+        assert result["exit_code"] == 0, result
+        assert "discover" in result["stdout"]
+    assert not (fixture.root / "cli-http.jsonl").exists()
+    inspected = fixture.call("run_lockbot", {"argv": ["discover", "--origin", fixture.origin]})
+    assert inspected["exit_code"] == 0, inspected
+    wire = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
+    assert len(wire) == 1
+    assert wire[0]["method"] == "GET" and not wire[0]["authorization_present"]
+    assert wire[0]["url"] == fixture.origin + "/api/agent-skill"
+    assert release._tree_digest(fixture.workspace / "skills/lockbot-agent") == before
+    scored = release.score(fixture.root, "Skill有新版，尚未安装。")
+    assert scored["observable_pass"] and scored["installation_unchanged"], scored

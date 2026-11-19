@@ -24,7 +24,7 @@ from skill_eval_artifact import load as load_artifact
 VERSION = 3
 MODEL = "official:gpt-6-luna"
 FIXTURE_VERSION = 3
-LATEST_FIXTURE_VERSION = 5
+LATEST_FIXTURE_VERSION = 6
 UNDERLYING = {
     "alias-set": "intent-lock-tail",
     "alias-clear": "intent-lock-tail",
@@ -180,7 +180,7 @@ def prepare(root, artifact, scenario, *, installed_artifact=None, fixture_versio
     """Prepare one independent model case against a frozen packaged CLI."""
     if scenario not in SCENARIOS:
         raise ValueError(f"Unknown cli-release scenario: {scenario}")
-    if fixture_version not in {3, 4, LATEST_FIXTURE_VERSION}:
+    if fixture_version not in {3, 4, 5, LATEST_FIXTURE_VERSION}:
         raise ValueError("Unsupported release fixture version")
     if scenario == "update-inquiry":
         if installed_artifact is None:
@@ -222,6 +222,10 @@ def prepare(root, artifact, scenario, *, installed_artifact=None, fixture_versio
     )
     if fixture_version == 4:
         case["cli_argv_protocol"] = 1
+    elif fixture_version == 5:
+        case["cli_argv_protocol"] = 2
+    elif fixture_version >= 6:
+        case["cli_argv_protocol"] = 3
     save_json(case_path, case)
     prompt = "Skill有新版吗" if scenario == "update-inquiry" and fixture_version >= 5 else SCENARIOS[scenario]["prompt"]
     (root / "prompt.txt").write_text(prompt)

@@ -400,7 +400,7 @@ def fixture_scenario(meta, suite):
             "release-reconcile": "intent-my-books",
             "update-inquiry": "intent-lock-tail",
         }
-        expected_versions = {3, 4, 5}
+        expected_versions = {3, 4, 5, 6}
     else:
         return meta["scenario"]
     scenario = meta.get(field)

@@ -9,6 +9,8 @@ import json
 
 from skill_eval_packaged_cli import OPTIONS, PackagedCliHost
 
+# Keep generic CLI fixture v33 on its archived descriptor. Release v6 opts into
+# protocol 3 explicitly rather than silently changing other prepared suites.
 PROTOCOL = 2
 EXTRA_OPTIONS = {
     "discover": {"--origin", "--destination"},
@@ -37,7 +39,7 @@ EXTRA_OPTIONS = {
 
 
 def enabled(case):
-    return case.get("cli_argv_protocol") in {1, PROTOCOL}
+    return case.get("cli_argv_protocol") in {1, 2, 3}
 
 
 def add_argv_schema(definitions, case):
@@ -53,7 +55,17 @@ def add_argv_schema(definitions, case):
             schema["oneOf"] = [{"required": ["action"]}, {"required": ["argv"]}]
         # Native clients can discard a tool with root-level schema unions.
         # The actual dispatcher still enforces argv/action exclusivity.
-        tool["description"] += " Prefer argv for the real CLI syntax; pass argv OR the legacy action fields."
+        if case.get("cli_argv_protocol") == 3:
+            tool["description"] = (
+                "Run the verified installed LockBot CLI with an argv array, as a terminal command without a shell. "
+                "When needed, argv=['--help'] or argv=['COMMAND','--help'] discovers "
+                "the installed commands and options. "
+                "Inspection, installation and resource changes are separate commands; "
+                "choose the scope the user requested. "
+                "Legacy action fields are a compatibility alternative. Pass argv OR the legacy action fields."
+            )
+        else:
+            tool["description"] += " Prefer argv for the real CLI syntax; pass argv OR the legacy action fields."
     return definitions
 
 
