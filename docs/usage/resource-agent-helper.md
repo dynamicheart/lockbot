@@ -51,8 +51,8 @@ executable path; subsequent arguments are passed literally without a shell. The
 parent appends `--config CONFIG_FILE --provider-stdio`, sends one JSON request on
 stdin, and never reads the provider's config or native connection catalog/Keys.
 The provider is responsible for its own private configuration and credentials.
-This selects a separate read source; merged native/external aggregation remains
-pending. Native `s-...` references, writes, device listing, native connections,
+This selects one read source. The [mixed-source configuration](../design/cli-mixed-resource-sources.md)
+can instead combine it with pinned native connections. Native `s-...` references, writes, device listing, native connections,
 custom native directories, legacy mode, metrics and exact lease-time options
 cannot be combined with `--resource-provider`.
 
@@ -71,7 +71,23 @@ cursors are preserved exactly: repeat the same provider query with `--cursor`.
 The parent rejects oversized pages instead of trimming rows and skipping their
 continuation. Controlled failures use exit code 2 and stdout JSON containing a
 safe lowercase `error` code, `retry_mutation: false`, and optionally a finite,
-nonnegative `retry_after_seconds`. Child stderr is discarded.
+nonnegative `retry_after_seconds`. An optional `http_requests` reports the actual
+spent count, including zero for pre-I/O failures; omit it when unknown. Child stderr is discarded.
+
+Mixed traversal extends the budget with `max_rows`, `max_output_bytes` and
+`reference_namespace`. These runtime packing limits never change the original
+query or cursor identity. A provider used in mixed mode must honor them. With a
+namespace it emits `e1.NAMESPACE.BASE64URL(X_REF)` references before byte sizing;
+the view request still carries its raw `x-...` locator. The parent validates the
+decoded locator as well as the wrapper. It never drops rows to repair an oversized
+provider response.
+
+`inventory_scope` declares `full_inventory`, `own_only` or `unknown` coverage.
+Optional `valid_for_seconds` and `coverage_valid_for_seconds` are durations from
+zero to sixty seconds for row evidence and whole-query coverage respectively.
+Missing durations are zero in mixed mode. They bound observed evidence age, not
+continued holding or write authority. Known deadlines shorten them; missing
+expiry does not invent a permanent lease or invalidate a fresh known booking.
 
 The parent enforces a 60-second process timeout and an 8-KiB final stdout limit.
 It captures stdout in a private temporary file and reads only the bounded

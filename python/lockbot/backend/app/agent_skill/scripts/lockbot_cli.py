@@ -1281,6 +1281,7 @@ class Client:
         self.clock, self.sleep = clock, sleep
         self.deadline = clock() + 60
         self.calls = 0
+        self.call_limit = MAX_CALLS
         self.secrets = []
         self.key = None
         self.version = None
@@ -1394,7 +1395,7 @@ class Client:
         if self.legacy_read and token and (self.manifest is None or url == self.base + "/api/agent-skill"):
             raise ClientError("legacy_profile_not_verified")
         for attempt in range(2 if readonly else 1):
-            if self.calls >= MAX_CALLS or self.clock() >= self.deadline:
+            if self.calls >= self.call_limit or self.clock() >= self.deadline:
                 raise ClientError("request_budget_exhausted")
             self.calls += 1
             headers = {"Accept": "application/json"}
@@ -4697,9 +4698,17 @@ class _ResourceListBudget(Exception):
 class _ResourceListReader:
     """One sequential read budget; only anonymous discovery can cross credentials."""
 
-    def __init__(self, *, root, opener, clock, legacy_read):
+    def __init__(self, *, root, opener, clock, legacy_read, max_calls=MAX_CALLS, deadline=None):
+        now = clock()
+        if type(max_calls) is not int or not 1 <= max_calls <= MAX_CALLS:
+            raise ClientError("resource_list_budget_invalid")
+        if deadline is not None and (type(deadline) not in (int, float) or metric_number(deadline) is None):
+            raise ClientError("resource_list_budget_invalid")
+        if deadline is not None and deadline <= now:
+            raise ClientError("request_budget_exhausted")
         self.root, self.opener, self.clock, self.legacy_read = root, opener, clock, legacy_read
-        self.deadline, self.calls = clock() + 60, 0
+        self.deadline, self.calls = min(now + 60, deadline) if deadline is not None else now + 60, 0
+        self.max_calls = max_calls
         self.discovery, self.clients = {}, []
 
     @property
@@ -4707,7 +4716,7 @@ class _ResourceListReader:
         return [secret for client in self.clients for secret in client.secrets]
 
     def read(self, locator, identity, *, mine):
-        if self.clock() >= self.deadline or self.calls >= MAX_CALLS:
+        if self.clock() >= self.deadline or self.calls >= self.max_calls:
             raise _ResourceListBudget
         client = Client(
             locator["connection"],
@@ -4719,13 +4728,14 @@ class _ResourceListReader:
         )
         self.clients.append(client)
         client.calls, client.deadline, client.node_access = self.calls, self.deadline, None
+        client.call_limit = self.max_calls
         try:
             # Metadata may change between catalog enumeration and Client loading.
             if connection_scope(client.config) != identity:
                 raise ClientError("resource_list_scope_changed")
             client.discover()
             minimum = 1 if "coherent_resource_snapshot" in client.manifest.get("capabilities", ()) else 2
-            if client.calls + minimum > MAX_CALLS or self.clock() >= self.deadline:
+            if client.calls + minimum > self.max_calls or self.clock() >= self.deadline:
                 raise _ResourceListBudget
             if mine:
                 snapshot = client.own_inventory(exact_lease_times=True)
@@ -4734,13 +4744,96 @@ class _ResourceListReader:
                 snapshot = client.resources_with_hardware_notes(context)
                 snapshot = {**snapshot, "context": context}
             return {"snapshot": snapshot, "_approved_origin": client.base, "_client": client}
-        except (ClientError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
+        except ClientError as error:
+            for key in list(self.discovery):
+                if key[0] == client.base:
+                    del self.discovery[key]
+            if error.code == "request_budget_exhausted":
+                raise _ResourceListBudget from None
+            raise
+        except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
             for key in list(self.discovery):
                 if key[0] == client.base:
                     del self.discovery[key]
             raise
         finally:
             self.calls = client.calls
+
+    def validity(self, groups, node, *, mine):
+        """Bound snapshot evidence age, never continued holding or command authority."""
+        if not groups:
+            return 0.0
+        remaining = MAX_RESOURCE_SNAPSHOT_AGE
+        for group in groups:
+            snapshot = observation_at_completion(group["_client"], group["snapshot"])
+            age = metric_number(snapshot.get("age_seconds"))
+            if age is None or age < 0 or not read_snapshot_fresh(snapshot) or snapshot.get("health") != "running":
+                return 0.0
+            remaining = min(remaining, max(0.0, MAX_RESOURCE_SNAPSHOT_AGE - age))
+            event_at = snapshot.get("next_event_at")
+            if snapshot.get("next_event_kind") in {"claim_window_end", "own_lock_expiry"} and event_at is not None:
+                try:
+                    event_remaining = (
+                        Client._expiry({"expires_at": event_at})
+                        - Client._expiry({"expires_at": snapshot["captured_at"]})
+                        - age
+                    )
+                except (ClientError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                    return 0.0
+                remaining = min(remaining, max(0.0, event_remaining))
+            if mine:
+                if snapshot.get("ownership_coverage", {}).get("complete") is not True:
+                    return 0.0
+                own_holdings, own_bookings = snapshot.get("holdings"), snapshot.get("bookings")
+                if (
+                    not isinstance(own_holdings, list)
+                    or not isinstance(own_bookings, list)
+                    or any(not isinstance(row, dict) for row in own_holdings + own_bookings)
+                ):
+                    return 0.0
+                holders = [row for row in own_holdings if node is None or row.get("node") == node]
+                # A booking count is observed evidence too. Missing claim-window
+                # timing does not turn it into guaranteed continued ownership.
+            else:
+                records = snapshot.get("resources")
+                if not isinstance(records, list) or any(not isinstance(row, dict) for row in records):
+                    return 0.0
+                matches = records if node is None else [row for row in records if row.get("id") == node]
+                if node is not None and len(matches) != 1:
+                    return 0.0
+                holders = []
+                for record in matches:
+                    units = record.get("devices") if "devices" in record else [record]
+                    if not isinstance(units, list):
+                        return 0.0
+                    for unit in units:
+                        if not isinstance(unit, dict) or not isinstance(unit.get("holders"), list):
+                            return 0.0
+                        queue = unit.get("booking_list")
+                        if not isinstance(queue, list) or any(not isinstance(row, dict) for row in queue):
+                            return 0.0
+                        holders.extend(unit["holders"])
+            for holder in holders:
+                if not isinstance(holder, dict):
+                    return 0.0
+                bounds = []
+                if holder.get("remaining_seconds") is not None:
+                    seconds = metric_number(holder["remaining_seconds"])
+                    if seconds is None or seconds < 0:
+                        return 0.0
+                    bounds.append(seconds - age)
+                if holder.get("expires_at") is not None:
+                    try:
+                        bounds.append(
+                            Client._expiry(holder) - Client._expiry({"expires_at": snapshot["captured_at"]}) - age
+                        )
+                    except (ClientError, ValueError, TypeError, KeyError, AttributeError, OverflowError):
+                        return 0.0
+                if bounds:
+                    remaining = min(remaining, max(0.0, min(bounds)))
+                # Absent/null timing leaves only the short freshness ceiling;
+                # it does not establish a permanent lease or write permission.
+        return max(0.0, remaining)
 
     def project(self, groups, query, *, incomplete=False):
         aged = []
@@ -4783,10 +4876,57 @@ class _ResourceListReader:
         return sorted(safe, key=lambda row: row["node"].encode("utf-8")), notes, complete
 
 
-def resource_list(directory=None, *, query, cursor=None, root=None, opener=None, clock=time.monotonic):
+def resource_list(
+    directory=None,
+    *,
+    query,
+    cursor=None,
+    root=None,
+    opener=None,
+    clock=time.monotonic,
+    max_calls=MAX_CALLS,
+    deadline=None,
+    byte_limit=SUMMARY_BYTE_LIMIT,
+    page_limit=None,
+    include_validity=False,
+):
+    """Read one bounded slice; internal row/byte limits never alter the bound query."""
+    reader = None
+    try:
+        query = resource_list_query(**query)
+        if (
+            type(byte_limit) is not int
+            or not 1024 <= byte_limit <= SUMMARY_BYTE_LIMIT
+            or type(include_validity) is not bool
+            or page_limit is not None
+            and (type(page_limit) is not int or not 1 <= page_limit <= query["limit"])
+        ):
+            raise ClientError("resource_list_budget_invalid")
+        reader = _ResourceListReader(
+            root=root,
+            opener=opener,
+            clock=clock,
+            legacy_read=query["legacy_read"],
+            max_calls=max_calls,
+            deadline=deadline,
+        )
+        return _resource_list_page(
+            directory,
+            query=query,
+            cursor=cursor,
+            reader=reader,
+            clock=clock,
+            byte_limit=byte_limit,
+            page_limit=query["limit"] if page_limit is None else page_limit,
+            include_validity=include_validity,
+        )
+    except ClientError as error:
+        error.http_requests = reader.calls if reader is not None else 0
+        raise
+
+
+def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, page_limit, include_validity):
     """Stop on returned results and resume by exact node, without a snapshot cache."""
-    query = resource_list_query(**query)
-    reader = _ResourceListReader(root=root, opener=opener, clock=clock, legacy_read=query["legacy_read"])
     scan_budget = CatalogScanBudget(reader.deadline, clock)
     descriptors, identities = [], {}
 
@@ -4810,6 +4950,7 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
     selected, observations, gaps = [], {}, []
     boundary = (start, after)
     stop = False
+    display_reserve = min(256, byte_limit // 32)
 
     def command(token):
         args = (["--legacy-read"] if query["legacy_read"] else []) + [
@@ -4836,6 +4977,7 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
 
     def encoded(entries, position, *, reserve=0):
         final_rows, totals, valid = [], Counter(), True
+        validity, coverage_validity = [], []
         per_scope = {}
         legacy_notes = []
         for index, node, deferred in entries:
@@ -4845,6 +4987,17 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
             row = next((row for row in per_scope[index][0] if row["node"] == node), None)
             if row is None:
                 raise ClientError("resource_list_observation_changed")
+            if include_validity:
+                group, incomplete = observations[index]
+                uncertain = (
+                    incomplete
+                    or deferred
+                    or row.get("observation_conflict")
+                    or row.get("observation_incomplete")
+                    or not per_scope[index][2]
+                    or not row.get("snapshot_fresh")
+                )
+                validity.append(0.0 if uncertain else reader.validity(group, node, mine=query["mine"]))
             if deferred:
                 row = {
                     key: row[key]
@@ -4873,6 +5026,15 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
             ):
                 totals[name] += notes[name]
             valid &= complete
+            if include_validity:
+                uncertain = (
+                    incomplete
+                    or not complete
+                    or not group
+                    or query["model"] is not None
+                    and notes.get("unknown_hardware_nodes", 0) > 0
+                )
+                coverage_validity.append(0.0 if uncertain else reader.validity(group, None, mine=query["mine"]))
         exhausted = position[0] >= len(cohorts)
         token = None if exhausted else resource_list_cursor(fingerprint, query_digest, *position)
         result = {
@@ -4901,6 +5063,11 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
             "update_required": any(client.needs_update for client in reader.clients),
             **totals,
         }
+        if include_validity:
+            result["valid_for_seconds"] = min(validity, default=0.0)
+            result["coverage_valid_for_seconds"] = (
+                min(coverage_validity, default=0.0) if not gaps and not catalog["pending_enrollments"] else 0.0
+            )
         if token is not None:
             result["next_command"] = command(token)
         if legacy_notes:
@@ -4913,7 +5080,7 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
             )
         wrapper = {"result": redacted_values(result, reader.secrets)}
         value = json.dumps(wrapper, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
-        if len(value.encode()) + 1 + reserve > SUMMARY_BYTE_LIMIT and "next_command" in result:
+        if len(value.encode()) + 1 + reserve > byte_limit and "next_command" in result:
             result.pop("next_command")
             result["repeat_query_with_next_cursor"] = True
             value = json.dumps(
@@ -4922,7 +5089,7 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
                 separators=(",", ":"),
                 allow_nan=False,
             )
-        return value, len(value.encode()) + 1 + reserve <= SUMMARY_BYTE_LIMIT
+        return value, len(value.encode()) + 1 + reserve <= byte_limit
 
     for index in range(start, len(cohorts)):
         identity, locators = cohorts[index]
@@ -4964,12 +5131,12 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
         for number, row in enumerate(rows):
             position = (index + 1, None) if number == len(rows) - 1 else (index, row["node"])
             candidate = (*selected, (index, row["node"], False))
-            _value, fits = encoded(candidate, position, reserve=256)
+            _value, fits = encoded(candidate, position, reserve=display_reserve)
             if not fits:
-                _single, single_fits = encoded([(index, row["node"], False)], position, reserve=256)
+                _single, single_fits = encoded([(index, row["node"], False)], position, reserve=display_reserve)
                 if not single_fits:
                     candidate = (*selected, (index, row["node"], True))
-                    _value, fits = encoded(candidate, position, reserve=256)
+                    _value, fits = encoded(candidate, position, reserve=display_reserve)
             if not fits:
                 if not selected:
                     raise ClientError("summary_reference_exceeds_output_budget")
@@ -4977,7 +5144,7 @@ def resource_list(directory=None, *, query, cursor=None, root=None, opener=None,
                 break
             selected = list(candidate)
             boundary = position
-            if len(selected) >= query["limit"]:
+            if len(selected) >= page_limit:
                 stop = True
                 break
         if stop:
@@ -5779,6 +5946,16 @@ def _provider_reference(value):
     return _provider_text(value, opaque=True) and value.startswith("x-") and len(value) > 2
 
 
+def _provider_locator_safe(value, private_paths=()):
+    if not _provider_reference(value):
+        return False
+    try:
+        decoded = urllib.parse.unquote(value, encoding="utf-8", errors="strict")
+    except UnicodeError:
+        return False
+    return _provider_safe_value(value, private_paths) and _provider_safe_value(decoded, private_paths)
+
+
 def _provider_registration(path):
     """Load executable registration only; the provider owns its private config."""
     try:
@@ -5844,7 +6021,9 @@ def _provider_safe_value(value, private_paths):
     return value is None or type(value) in (bool, int) or type(value) is float and math.isfinite(value)
 
 
-def _provider_response(value, *, action, query, reference, private_paths):
+def _provider_response(
+    value, *, action, query, reference, private_paths, max_calls=MAX_CALLS, page_limit=None, ref_namespace=None
+):
     if not isinstance(value, dict) or not _provider_safe_value(value, private_paths):
         raise ClientError("resource_provider_response_invalid")
     if action == "fields":
@@ -5869,25 +6048,55 @@ def _provider_response(value, *, action, query, reference, private_paths):
         result.get("capabilities") != ["read_only"]
         or result.get("observed_only") is not True
         or type(result.get("http_requests")) is not int
-        or not 0 <= result["http_requests"] <= MAX_CALLS
+        or not 0 <= result["http_requests"] <= max_calls
         or type(result.get("scope_complete")) is not bool
         or type(more) is not bool
         or (not _provider_text(cursor, maximum=SUMMARY_BYTE_LIMIT) if more else cursor is not None)
         or not isinstance(rows, list)
-        or len(rows) > query["limit"]
-        or any(not isinstance(row, dict) or not _provider_reference(row.get("ref")) for row in rows)
+        or len(rows) > (query["limit"] if page_limit is None else page_limit)
+        or any(
+            not isinstance(row, dict)
+            or not (
+                _provider_reference(row.get("ref"))
+                if ref_namespace is None
+                else _mixed_reference_matches(row.get("ref"), ref_namespace)
+            )
+            for row in rows
+        )
     ):
         raise ClientError("resource_provider_response_invalid")
     if (
         len({row["ref"] for row in rows}) != len(rows)
         or action == "view"
-        and (more or any(row["ref"] != reference for row in rows))
+        and (
+            more
+            or any(
+                row["ref"] != (reference if ref_namespace is None else mixed_reference(ref_namespace, reference))
+                for row in rows
+            )
+        )
     ):
         raise ClientError("resource_provider_response_invalid")
     retry = result.get("retry_after_seconds")
     if retry is not None and (type(retry) not in (int, float) or metric_number(retry) is None or retry < 0):
         raise ClientError("resource_provider_response_invalid")
+    for field in ("valid_for_seconds", "coverage_valid_for_seconds"):
+        if field in result and (type(result[field]) not in (int, float) or not 0 <= result[field] <= 60):
+            raise ClientError("resource_provider_response_invalid")
+    if "inventory_scope" in result and (
+        not isinstance(result["inventory_scope"], str)
+        or result["inventory_scope"] not in {"full_inventory", "own_only", "unknown"}
+    ):
+        raise ClientError("resource_provider_response_invalid")
     for row in rows:
+        locator = row["ref"] if ref_namespace is None else parse_mixed_reference(row["ref"])[1]
+        if not _provider_locator_safe(locator, private_paths):
+            raise ClientError("resource_provider_response_invalid")
+        for field in ("holding_units", "booking_units", "total_cards", "matched_cards"):
+            if field in row and row[field] is not None and (type(row[field]) is not int or row[field] < 0):
+                raise ClientError("resource_provider_response_invalid")
+        if "unit" in row and row["unit"] not in ("whole_node", "card", "unknown"):
+            raise ClientError("resource_provider_response_invalid")
         if "node" in row and not _provider_text(row["node"]):
             raise ClientError("resource_provider_response_invalid")
         if "states" in row and (
@@ -5909,20 +6118,71 @@ def _provider_response(value, *, action, query, reference, private_paths):
     return value
 
 
-def resource_provider_output(path, *, action, query, reference=None, cursor=None):
+def resource_provider_output(
+    path,
+    *,
+    action,
+    query,
+    reference=None,
+    cursor=None,
+    max_calls=MAX_CALLS,
+    timeout_seconds=60,
+    page_limit=None,
+    byte_limit=SUMMARY_BYTE_LIMIT,
+    ref_namespace=None,
+    expected_registration=None,
+):
     """Dispatch one trusted local, explicitly selected read provider without a shell."""
     if action not in {"list", "view", "fields"} or action == "view" and not _provider_reference(reference):
         raise ClientError("resource_provider_reference_invalid")
     if cursor is not None and not _provider_text(cursor, maximum=SUMMARY_BYTE_LIMIT):
         raise ClientError("resource_provider_cursor_invalid")
-    registration = _provider_registration(path)
+    if (
+        type(max_calls) is not int
+        or not 1 <= max_calls <= MAX_CALLS
+        or type(byte_limit) is not int
+        or not 1024 <= byte_limit <= SUMMARY_BYTE_LIMIT
+        or type(timeout_seconds) not in (int, float)
+        or not math.isfinite(timeout_seconds)
+        or not 0 < timeout_seconds <= 60
+        or page_limit is not None
+        and (type(page_limit) is not int or not 1 <= page_limit <= query["limit"])
+        or ref_namespace is not None
+        and not re.fullmatch(r"[a-f0-9]{64}", ref_namespace)
+    ):
+        raise ClientError("resource_provider_budget_invalid")
+    try:
+        registration = _provider_registration(path)
+        if expected_registration is not None and registration != expected_registration:
+            raise ClientError("resource_provider_registration_changed")
+        if ref_namespace is not None and _mixed_provider_id(path, registration) != ref_namespace:
+            raise ClientError("resource_provider_registration_changed")
+    except ClientError as error:
+        error.http_requests = 0
+        raise
+    request_paths = [
+        str(path),
+        registration["config_file"],
+        *(arg for arg in registration["command"] if Path(arg).is_absolute()),
+    ]
+    if reference is not None and not _provider_locator_safe(reference, request_paths):
+        error = ClientError("resource_provider_reference_invalid")
+        error.http_requests = 0
+        raise error
+    budget = {"max_http_requests": max_calls, "timeout_seconds": timeout_seconds}
+    if page_limit is not None:
+        budget["max_rows"] = page_limit
+    if byte_limit != SUMMARY_BYTE_LIMIT:
+        budget["max_output_bytes"] = byte_limit
+    if ref_namespace is not None:
+        budget["reference_namespace"] = ref_namespace
     request = {
         "schema_version": 1,
         "action": action,
         "query": query,
         "ref": reference,
         "cursor": cursor,
-        "budget": {"max_http_requests": MAX_CALLS, "timeout_seconds": 60},
+        "budget": budget,
     }
     payload = json.dumps(request, ensure_ascii=True, separators=(",", ":"), allow_nan=False).encode()
     if len(payload) > 16384:
@@ -5936,10 +6196,10 @@ def resource_provider_output(path, *, action, query, reference=None, cursor=None
                 input=payload,
                 stdout=output,
                 stderr=subprocess.DEVNULL,
-                timeout=RESOURCE_PROVIDER_TIMEOUT,
+                timeout=min(RESOURCE_PROVIDER_TIMEOUT, timeout_seconds),
                 check=False,
             )
-            if os.fstat(output.fileno()).st_size > SUMMARY_BYTE_LIMIT:
+            if os.fstat(output.fileno()).st_size > byte_limit:
                 raise ClientError("resource_provider_output_too_large")
             output.seek(0)
             raw = output.read(SUMMARY_BYTE_LIMIT + 1)
@@ -5956,7 +6216,7 @@ def resource_provider_output(path, *, action, query, reference=None, cursor=None
     if process.returncode == 2:
         if (
             not isinstance(value, dict)
-            or set(value) - {"error", "retry_mutation", "retry_after_seconds"}
+            or set(value) - {"error", "retry_mutation", "retry_after_seconds", "http_requests"}
             or not isinstance(value.get("error"), str)
             or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", value["error"])
             or redacted_values(value["error"]) != value["error"]
@@ -5969,17 +6229,524 @@ def resource_provider_output(path, *, action, query, reference=None, cursor=None
             )
         ):
             raise ClientError("resource_provider_failed")
-        raise ClientError(value["error"], retry_after_seconds=value.get("retry_after_seconds"))
+        count = value.get("http_requests")
+        if count is not None and (type(count) is not int or not 0 <= count <= max_calls):
+            raise ClientError("resource_provider_failed")
+        error = ClientError(value["error"], retry_after_seconds=value.get("retry_after_seconds"))
+        if count is not None:
+            error.http_requests = count
+        raise error
     private_paths = [
         str(path),
         registration["config_file"],
         *(arg for arg in registration["command"] if Path(arg).is_absolute()),
     ]
-    value = _provider_response(value, action=action, query=query, reference=reference, private_paths=private_paths)
+    value = _provider_response(
+        value,
+        action=action,
+        query=query,
+        reference=reference,
+        private_paths=private_paths,
+        max_calls=max_calls,
+        page_limit=page_limit,
+        ref_namespace=ref_namespace,
+    )
+    if ref_namespace is not None and _mixed_provider_id(path, _provider_registration(path)) != ref_namespace:
+        error = ClientError("resource_provider_registration_changed")
+        error.http_requests = value.get("result", {}).get("http_requests", 0)
+        raise error
     encoded = json.dumps(value, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
-    if len(encoded.encode()) + 1 > SUMMARY_BYTE_LIMIT:
+    if len(encoded.encode()) + 1 > byte_limit:
         raise ClientError("resource_provider_output_too_large")
     return encoded
+
+
+MIXED_FIELDS = (
+    "ref",
+    "node",
+    "unit",
+    "hardware",
+    "hardware_incomplete",
+    "total_cards",
+    "matched_cards",
+    "matched_device_ids",
+    "devices_has_more",
+    "states",
+    "snapshot_fresh",
+    "holding_units",
+    "booking_units",
+)
+
+
+def _mixed_hash(value):
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _mixed_provider_id(path, registration):
+    config = Path(registration["config_file"])
+    try:
+        stat_info = config.stat()
+        stamp = [stat_info.st_dev, stat_info.st_ino, stat_info.st_size, stat_info.st_mtime_ns]
+    except OSError:
+        stamp = None
+    return _mixed_hash(["provider-reference-v1", str(Path(path).resolve()), registration, stamp])
+
+
+def mixed_reference(namespace, reference):
+    if (
+        not isinstance(namespace, str)
+        or not re.fullmatch(r"[a-f0-9]{64}", namespace)
+        or not _provider_locator_safe(reference)
+    ):
+        raise ClientError("mixed_reference_invalid")
+    encoded = base64.urlsafe_b64encode(reference.encode()).rstrip(b"=").decode()
+    return "e1." + namespace + "." + encoded
+
+
+def parse_mixed_reference(reference):
+    if not _provider_text(reference, maximum=6000, opaque=True):
+        raise ClientError("mixed_reference_invalid")
+    match = re.fullmatch(r"e1\.([a-f0-9]{64})\.([A-Za-z0-9_-]+)", reference)
+    if not match:
+        raise ClientError("mixed_reference_invalid")
+    try:
+        raw = match[2]
+        inner = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8")
+        if mixed_reference(match[1], inner) != reference:
+            raise ValueError
+        return match[1], inner
+    except (ValueError, UnicodeError):
+        raise ClientError("mixed_reference_invalid") from None
+
+
+def _mixed_reference_matches(reference, namespace):
+    try:
+        return parse_mixed_reference(reference)[0] == namespace
+    except ClientError:
+        return False
+
+
+def _mixed_sources(path):
+    try:
+        value = private_json(path)
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"schema_version", "native", "providers"}
+            or type(value["schema_version"]) is not int
+            or value["schema_version"] != 1
+            or not isinstance(value["providers"], list)
+            or len(value["providers"]) > 8
+        ):
+            raise ValueError
+        phases = []
+        native = value["native"]
+        if native is not None:
+            if (
+                not isinstance(native, dict)
+                or set(native) != {"directory", "legacy_read"}
+                or not _provider_text(native["directory"])
+                or not Path(native["directory"]).is_absolute()
+                or type(native["legacy_read"]) is not bool
+            ):
+                raise ValueError
+            phases.append(
+                {
+                    "kind": "native",
+                    "directory": str(Path(native["directory"]).resolve()),
+                    "legacy_read": native["legacy_read"],
+                    "minimum": 1,
+                }
+            )
+        for item in value["providers"]:
+            if (
+                not isinstance(item, dict)
+                or set(item) - {"registration", "minimum_http_requests"}
+                or not _provider_text(item.get("registration"))
+                or not Path(item["registration"]).is_absolute()
+            ):
+                raise ValueError
+            minimum = item.get("minimum_http_requests", 4)
+            if type(minimum) is not int or not 1 <= minimum <= MAX_CALLS:
+                raise ValueError
+            # Preserve the final component for private_json's symlink check.
+            registration_path = str(Path(item["registration"]).absolute())
+            registration = _provider_registration(registration_path)
+            phases.append(
+                {
+                    "kind": "provider",
+                    "path": registration_path,
+                    "registration": registration,
+                    "id": _mixed_provider_id(registration_path, registration),
+                    "minimum": minimum,
+                }
+            )
+        provider_entries = [phase for phase in phases if phase["kind"] == "provider"]
+        if not phases or len({_mixed_hash(phase["registration"]) for phase in provider_entries}) != len(
+            value["providers"]
+        ):
+            raise ValueError
+        return phases, _mixed_hash(["mixed-sources-v1", str(Path(path).resolve()), phases])
+    except (ClientError, ValueError, TypeError, KeyError, UnicodeError, OSError):
+        error = ClientError("mixed_sources_invalid")
+        error.http_requests = 0
+        raise error from None
+
+
+def mixed_cursor(fingerprint, query_digest, position, inner):
+    if (
+        any(
+            not isinstance(item, str) or not re.fullmatch(r"[a-f0-9]{64}", item) for item in (fingerprint, query_digest)
+        )
+        or type(position) is not int
+        or not 0 <= position <= 9
+    ):
+        raise ClientError("mixed_cursor_invalid")
+    if inner is not None and (
+        not _provider_text(inner, maximum=2048) or len(json.dumps(inner, ensure_ascii=False).encode()) > 2048
+    ):
+        raise ClientError("mixed_inner_cursor_too_large")
+    raw = json.dumps(
+        [1, fingerprint, query_digest, position, inner], ensure_ascii=False, separators=(",", ":")
+    ).encode()
+    token = "mc1." + base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    if len(token) > 4096:
+        raise ClientError("mixed_cursor_too_large")
+    return token
+
+
+def _mixed_position(token, fingerprint, query_digest, count):
+    if token is None:
+        return 0, None
+    if not isinstance(token, str) or not re.fullmatch(r"mc1\.[A-Za-z0-9_-]{1,4092}", token):
+        raise ClientError("mixed_cursor_invalid")
+    try:
+        raw = token[4:]
+        value = json.loads(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+        if (
+            not isinstance(value, list)
+            or len(value) != 5
+            or type(value[0]) is not int
+            or value[0] != 1
+            or any(not isinstance(item, str) or not re.fullmatch(r"[a-f0-9]{64}", item) for item in value[1:3])
+            or type(value[3]) is not int
+            or not 0 <= value[3] <= 9
+            or mixed_cursor(*value[1:]) != token
+        ):
+            raise ValueError
+        if value[1] != fingerprint:
+            raise ClientError("mixed_cursor_sources_changed")
+        if value[2] != query_digest:
+            raise ClientError("mixed_cursor_query_changed")
+        if value[3] > count or value[3] == count and value[4] is not None:
+            raise ClientError("mixed_cursor_invalid")
+        return value[3], value[4]
+    except ClientError:
+        raise
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise ClientError("mixed_cursor_invalid") from None
+
+
+def _mixed_query(*, nodes=(), model=None, fields=None, limit=20, mine=False):
+    if fields is not None and (
+        not isinstance(fields, (list, tuple)) or not fields or any(field not in MIXED_FIELDS for field in fields)
+    ):
+        raise ClientError("mixed_fields_invalid")
+    query = resource_list_query(nodes, model, fields, limit, mine)
+    return {key: query[key] for key in ("nodes", "model", "fields", "limit", "mine")}
+
+
+def _mixed_duration(value):
+    return value if type(value) in (int, float) and 0 <= value <= 60 else 0
+
+
+def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, native_reader=None, provider_reader=None):
+    """Read configured phases under one conservative budget without saving snapshots."""
+    query = _mixed_query(**query)
+    started = clock()
+    deadline = started + 60
+    phases, fingerprint = _mixed_sources(path)
+    query_digest = _mixed_hash(["mixed-query-v1", query])
+    position, inner = _mixed_position(cursor, fingerprint, query_digest, len(phases))
+    chunks, coverage, reasons = [], [], set()
+    known_calls, charged, calls_complete, all_complete, retry_after = 0, 0, True, True, None
+    packing_requeries, page_override = 0, None
+    native_reader = native_reader or resource_list
+    provider_reader = provider_reader or resource_provider_output
+
+    def output(next_position, next_inner, *, extra=None, worst_case=False):
+        exhausted = next_position >= len(phases)
+        token = None if exhausted else mixed_cursor(fingerprint, query_digest, next_position, next_inner)
+        rows, expired = [], False
+        now = clock()
+        for entries, valid_until in chunks:
+            for original in entries:
+                row = dict(original)
+                stale = dict(row)
+                stale["observation_incomplete"] = True
+                if "snapshot_fresh" in stale:
+                    stale["snapshot_fresh"] = False
+                for field in ("holding_units", "booking_units"):
+                    if field in stale:
+                        stale[field] = None
+                if "states" in stale:
+                    stale["states"] = {key: None for key in stale["states"]}
+                if worst_case:
+                    if len(json.dumps(stale).encode()) > len(json.dumps(row).encode()):
+                        row = stale
+                elif now >= valid_until:
+                    expired = True
+                    row = stale
+                rows.append(row)
+        errors = sorted(reasons | ({extra} if extra else set()))
+        result = {
+            "rows": rows,
+            "has_more": not exhausted,
+            "next_cursor": token,
+            "scope": "configured_resource_sources",
+            "observed_only": True,
+            "scope_complete": cursor is None
+            and exhausted
+            and all_complete
+            and not errors
+            and not expired
+            and all(now < valid_until for valid_until in coverage),
+            "http_requests": known_calls if calls_complete else None,
+            "known_http_requests": known_calls,
+            "http_budget_used": charged,
+            "packing_requeries": packing_requeries,
+            "unread_reasons": errors[:4],
+            "additional_unread_reasons": max(0, len(errors) - 4),
+            "retry_after_seconds": retry_after,
+        }
+        if worst_case:
+            # Reserve framing for later source failures and every row's larger
+            # fresh/expired representation; never trim accepted cursor progress.
+            result["scope_complete"] = False
+            result["unread_reasons"] = ["x" * 80] * 4
+            result["additional_unread_reasons"] = 99
+        encoded = json.dumps({"result": result}, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
+        return encoded, len(encoded.encode()) + 1 + (128 if worst_case else 0) <= SUMMARY_BYTE_LIMIT
+
+    while position < len(phases):
+        phase = phases[position]
+        row_count = sum(len(rows) for rows, _until in chunks)
+        if row_count >= query["limit"] or charged + phase["minimum"] > MAX_CALLS or clock() >= deadline:
+            break
+        used_bytes = len(
+            json.dumps(
+                [row for rows, _until in chunks for row in rows], ensure_ascii=os.name == "nt", separators=(",", ":")
+            ).encode()
+        )
+        byte_limit = SUMMARY_BYTE_LIMIT - used_bytes - 1152 - len(json.dumps(sorted(reasons)[:4]).encode())
+        if byte_limit < 1024:
+            break
+        phase_started = clock()
+        available = MAX_CALLS - charged
+        accounted = False
+        previous_metadata = all_complete, set(reasons), retry_after
+        requested_rows = min(query["limit"] - row_count, page_override or query["limit"])
+        try:
+            if phase["kind"] == "native":
+                native_query = resource_list_query(
+                    **{**query, "fields": query["fields"] or list(MIXED_FIELDS)}, legacy_read=phase["legacy_read"]
+                )
+                encoded = native_reader(
+                    phase["directory"],
+                    query=native_query,
+                    cursor=inner,
+                    clock=clock,
+                    max_calls=available,
+                    deadline=deadline,
+                    page_limit=requested_rows,
+                    byte_limit=byte_limit,
+                    include_validity=True,
+                )
+            else:
+                provider_query = {**query, "fields": query["fields"] or list(MIXED_FIELDS)}
+                encoded = provider_reader(
+                    phase["path"],
+                    action="list",
+                    query=provider_query,
+                    cursor=inner,
+                    max_calls=available,
+                    timeout_seconds=min(60, deadline - clock()),
+                    page_limit=requested_rows,
+                    byte_limit=byte_limit,
+                    ref_namespace=phase["id"],
+                    expected_registration=phase["registration"],
+                )
+            page = json.loads(encoded)["result"]
+            count = page["http_requests"]
+            if (
+                type(count) is not int
+                or not 0 <= count <= available
+                or not isinstance(page.get("rows"), list)
+                or len(page["rows"]) > requested_rows
+                or type(page.get("has_more")) is not bool
+                or type(page.get("scope_complete")) is not bool
+            ):
+                raise ClientError("mixed_source_budget_invalid")
+            known_calls += count
+            charged += count
+            accounted = True
+            next_position, next_inner = (position, page["next_cursor"]) if page["has_more"] else (position + 1, None)
+            # Validate the full continuation before accepting any represented row.
+            try:
+                if next_position == position and next_inner == inner:
+                    raise ClientError("source_continuation_invalid")
+                if next_position < len(phases):
+                    mixed_cursor(fingerprint, query_digest, next_position, next_inner)
+            except ClientError:
+                error = ClientError("source_continuation_invalid")
+                error.http_requests = count
+                raise error from None
+            ttl = _mixed_duration(page.get("valid_for_seconds"))
+            cover_ttl = _mixed_duration(page.get("coverage_valid_for_seconds"))
+            chunk = (page["rows"], phase_started + ttl)
+            chunks.append(chunk)
+            coverage.append(phase_started + cover_ttl)
+            inventory_scope = (
+                page.get("inventory_scope", "unknown") if phase["kind"] == "provider" else "full_inventory"
+            )
+            all_complete &= page["scope_complete"] and (
+                inventory_scope == "full_inventory" or query["mine"] and inventory_scope == "own_only"
+            )
+            if inventory_scope != "full_inventory" and not query["mine"]:
+                reasons.add("source_inventory_incomplete")
+                for row in page["rows"]:
+                    row["observation_incomplete"] = True
+                    if "states" in row:
+                        row["states"] = {key: None for key in row["states"]}
+            for reason in page.get("unread_reasons", []):
+                reasons.add(
+                    reason
+                    if isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", reason)
+                    else "source_unavailable"
+                )
+            delay = page.get("retry_after_seconds")
+            if type(delay) in (int, float) and 0 <= delay <= 2**31:
+                retry_after = max(retry_after or 0, delay)
+            candidate, fits = output(next_position, next_inner, worst_case=True)
+            if not fits:
+                chunks.pop()
+                coverage.pop()
+                all_complete, reasons, retry_after = previous_metadata
+                if not row_count:
+                    if (
+                        packing_requeries == 0
+                        and len(page["rows"]) > 1
+                        and charged + phase["minimum"] <= MAX_CALLS
+                        and clock() < deadline
+                    ):
+                        page_override = max(1, len(page["rows"]) // 2)
+                        packing_requeries += 1
+                        continue
+                    raise ClientError("mixed_page_exceeds_output_budget")
+                break  # Do not advance the cursor past any unreturned row.
+            position, inner = next_position, next_inner
+            page_override = None
+            if page["has_more"]:
+                break
+        except ClientError as error:
+            if error.code.startswith(("mixed_cursor", "mixed_inner_cursor", "mixed_page_", "mixed_source_no_progress")):
+                raise
+            count = getattr(error, "http_requests", None)
+            if not accounted:
+                if type(count) is int and 0 <= count <= available:
+                    known_calls += count
+                    charged += count
+                else:
+                    calls_complete = False
+                    charged += available
+            if error.code == "request_budget_exhausted" and (available < MAX_CALLS or clock() >= deadline):
+                if page_override is not None and not row_count:
+                    raise ClientError("mixed_page_exceeds_output_budget") from None
+                break  # Preserve an uncompleted source for a fresh invocation.
+            if error.code in {
+                "resource_provider_output_too_large",
+                "summary_reference_exceeds_output_budget",
+                "summary_output_exceeds_byte_budget",
+                "reference_exceeds_output_budget",
+                "output_exceeds_budget",
+            }:
+                if not row_count:
+                    raise ClientError("mixed_page_exceeds_output_budget") from None
+                break
+            reasons.add(error.code if re.fullmatch(r"[a-z][a-z0-9_]{0,79}", error.code) else "source_unavailable")
+            delay = error.retry_after_seconds
+            if type(delay) in (int, float) and 0 <= delay <= 2**31:
+                retry_after = max(retry_after or 0, delay)
+            all_complete = False
+            position, inner = position + 1, None
+    encoded, fits = output(position, inner)
+    if not fits:
+        raise ClientError("mixed_page_exceeds_output_budget")
+    if cursor is not None and json.loads(encoded)["result"]["next_cursor"] == cursor:
+        raise ClientError("mixed_source_no_progress")
+    return encoded
+
+
+def _resource_sources_dispatch(args):
+    if (
+        args.resource_provider is not None
+        or args.connection is not None
+        or args.legacy_read
+        or getattr(args, "directory", None) is not None
+    ):
+        raise ClientError("mixed_source_combination_not_supported")
+    if args.action == "resource-list":
+        if args.json == "":
+            return json.dumps({"json_fields": MIXED_FIELDS, "required_row_fields": ["ref"]})
+        return mixed_resource_list(
+            args.resource_sources,
+            query=_mixed_query(
+                nodes=args.node,
+                model=args.model,
+                fields=None if args.json is None else args.json.split(","),
+                limit=args.limit,
+                mine=args.mine,
+            ),
+            cursor=args.cursor,
+        )
+    if args.action not in {"resources", "resource-devices", "command"} or not getattr(args, "ref", None):
+        raise ClientError("mixed_resource_reference_required")
+    if args.ref.startswith("e1."):
+        if (
+            getattr(args, "resource_action", None) != "view"
+            or getattr(args, "with_metrics", False)
+            or args.exact_lease_times
+        ):
+            raise ClientError("external_resource_read_only")
+        namespace, reference = parse_mixed_reference(args.ref)
+        phases, _fingerprint = _mixed_sources(args.resource_sources)
+        selected = [phase for phase in phases if phase.get("id") == namespace]
+        if len(selected) != 1:
+            raise ClientError("mixed_reference_scope_unavailable")
+        phase = selected[0]
+        query = {
+            "nodes": [],
+            "model": None,
+            "fields": None if args.json in (None, "") else args.json.split(","),
+            "limit": 1,
+            "mine": args.mine,
+        }
+        return resource_provider_output(
+            phase["path"],
+            action="fields" if args.json == "" else "view",
+            query=query,
+            reference=reference,
+            ref_namespace=namespace,
+            expected_registration=phase["registration"],
+        )
+    parse_resource_reference(args.ref)
+    phases, _fingerprint = _mixed_sources(args.resource_sources)
+    native = next((phase for phase in phases if phase["kind"] == "native"), None)
+    if native is None:
+        raise ClientError("mixed_native_source_unavailable")
+    args.directory, args.legacy_read = native["directory"], native["legacy_read"]
+    return None
 
 
 def _resource_provider_dispatch(args):
@@ -6029,6 +6796,9 @@ def main(argv=None):
     )
     parser.add_argument(
         "--resource-provider", help="Explicit trusted read-only provider registration for resource list/view only"
+    )
+    parser.add_argument(
+        "--resource-sources", help="Private configuration for bounded native and external resource traversal"
     )
     parser.add_argument(
         "--legacy-read",
@@ -6258,6 +7028,11 @@ def main(argv=None):
     reference_token = None
     explicit_reference_connection = args.connection
     try:
+        if args.resource_sources is not None:
+            encoded = _resource_sources_dispatch(args)
+            if encoded is not None:
+                print(resource_list_text(encoded) if human_read and args.json != "" else encoded)
+                return 0
         if args.resource_provider is not None:
             encoded = _resource_provider_dispatch(args)
             print(resource_list_text(encoded) if human_read and args.json != "" else encoded)
