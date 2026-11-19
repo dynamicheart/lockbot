@@ -3863,6 +3863,8 @@ def resource_summary_projection(output, *, fields=None, nodes=(), model=None, se
             metric_refs.add(row["ref"])
     rows = list(distinct.values())
     complete &= not conflicts and not own_scope_conflicts
+    if model is not None:
+        complete &= not unknown
     if search is not None:
         rows = [row for row in rows if row["ref"] in search_matches]
         search_unknown -= search_matches

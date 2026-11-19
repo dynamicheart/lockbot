@@ -63,6 +63,10 @@ cursor hash. A changed canonical search rejects an old cursor before protected
 reads. Search adds no HTTP requests or persistent resource cache; exhaustive
 matching still needs to read the selected sources within the shared budget.
 
+The same conservative rule applies to `--model` alone: missing hardware prevents
+complete matching coverage, even when the definite known matches remain visible.
+Unfiltered resource-list coverage does not require a guessed hardware model.
+
 An external provider must acknowledge the exact canonical search using
 `search_mode: literal_terms_v1` and `search_applied`. Older providers that ignore
 the option cannot return unfiltered rows as search results. They leave a source

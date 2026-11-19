@@ -56,6 +56,23 @@ def test_absent_search_preserves_preexisting_six_key_query_and_digest():
     assert helper.resource_list_query_digest(original) == old_default_digest
 
 
+@pytest.mark.parametrize("positive", [False, True])
+def test_model_filter_alone_cannot_prove_complete_matching_with_unknown_hardware(aggregate, positive):
+    state = aggregate.server(1)
+    state.bot_type = "DEVICE"
+    aggregate.record(state, "scope")
+    resource = node("mixed" if positive else "unknown", None)
+    if positive:
+        resource["devices"].append(card("P800", number=1))
+    state.extra["resources"] = [resource]
+    filtered = execute(aggregate, "resource", "list", "--model", "P800", "--json", "node")["result"]
+    assert len(filtered["rows"]) == int(positive)
+    assert filtered["unknown_hardware_nodes"] == 1
+    assert not filtered["scope_complete"]
+    unfiltered = execute(aggregate, "resource", "list", "--json", "node")["result"]
+    assert len(unfiltered["rows"]) == 1 and unfiltered["scope_complete"]
+
+
 def test_query_normalizes_nfkc_casefold_spaces_and_distinct_terms_without_io(monkeypatch):
     def forbidden(*_args, **_kwargs):
         pytest.fail("search normalization must not open a connection or Key")
