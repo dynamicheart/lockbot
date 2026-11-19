@@ -5165,7 +5165,7 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
         boundary = (dropped[0], prior)
 
 
-def resource_list_text(encoded):
+def resource_list_text(encoded, *, mine=None):
     """Compact terminal output; exact refs remain resolvable by the normal client."""
     value = json.loads(encoded)["result"]
     rows = value["rows"]
@@ -5179,6 +5179,8 @@ def resource_list_text(encoded):
             state = "conflicting observations"
         elif row.get("observation_incomplete"):
             state = "peer observations incomplete"
+        elif mine is False and row.get("states"):
+            state = " ".join(f"{key}:{count}" for key, count in row["states"].items() if count) or "unknown"
         elif "holding_units" in row or "booking_units" in row:
             counts = [row.get("holding_units"), row.get("booking_units")]
             shown = [value if type(value) is int and value >= 0 else "?" for value in counts]
@@ -7031,11 +7033,11 @@ def main(argv=None):
         if args.resource_sources is not None:
             encoded = _resource_sources_dispatch(args)
             if encoded is not None:
-                print(resource_list_text(encoded) if human_read and args.json != "" else encoded)
+                print(resource_list_text(encoded, mine=args.mine) if human_read and args.json != "" else encoded)
                 return 0
         if args.resource_provider is not None:
             encoded = _resource_provider_dispatch(args)
-            print(resource_list_text(encoded) if human_read and args.json != "" else encoded)
+            print(resource_list_text(encoded, mine=args.mine) if human_read and args.json != "" else encoded)
             return 0
         if args.legacy_read and args.action not in {
             "discover",
@@ -7076,7 +7078,7 @@ def main(argv=None):
                 legacy_read=args.legacy_read,
             )
             result = resource_list(args.directory, query=query, cursor=args.cursor)
-            print(resource_list_text(result) if human_read else result)
+            print(resource_list_text(result, mine=args.mine) if human_read else result)
             return 0
         if args.action in {"resources", "resources-all"}:
             if args.json == "":
@@ -7151,7 +7153,7 @@ def main(argv=None):
                     nodes=args.node,
                     model=args.model,
                 )
-                print(resource_list_text(encoded) if human_read else encoded)
+                print(resource_list_text(encoded, mine=args.mine) if human_read else encoded)
                 return 0
             print(
                 json.dumps(
@@ -7307,7 +7309,7 @@ def main(argv=None):
                     model=args.model,
                     private_values=client.secrets,
                 )
-                print(resource_list_text(encoded) if human_read else encoded)
+                print(resource_list_text(encoded, mine=args.mine) if human_read else encoded)
                 return 0
             result = inventory_output(result, full=args.full)
         elif args.action == "command":

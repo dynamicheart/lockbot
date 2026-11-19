@@ -311,3 +311,26 @@ def test_generic_terminal_rows_tolerate_optional_personal_counts(provider, mode,
     provider.register(mode)
     text = provider.invoke("resource", "list", text=True)
     assert expected in text and "x-demo/node" in text
+
+
+def test_inventory_text_does_not_confuse_zero_personal_holds_with_vacancy():
+    encoded = json.dumps(
+        {
+            "result": {
+                "rows": [
+                    {
+                        "ref": "x-demo/node",
+                        "node": "shared-node",
+                        "states": {"busy": 1},
+                        "holding_units": 0,
+                        "booking_units": 0,
+                    }
+                ],
+                "scope_complete": True,
+            }
+        }
+    )
+    inventory = helper.resource_list_text(encoded, mine=False)
+    personal = helper.resource_list_text(encoded, mine=True)
+    assert "busy:1" in inventory and "held:0" not in inventory
+    assert "held:0 booked:0" in personal
