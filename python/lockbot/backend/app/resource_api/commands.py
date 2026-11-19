@@ -310,120 +310,123 @@ def execute_command_via_api(
         bot_application_config(bot_row, db)["_FEISHU_CLIENT"].warm_user_name(actor.external_user_id)
 
     try:
-        with (
-            bot_manager.admit(bot_id) as lease,
-            authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id),
-        ):
-            bot = lease.bot
+        with bot_manager.admit(bot_id) as lease:
+            notification = None
+            with authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id):
+                bot = lease.bot
 
-            # Re-verify the credential against the FRESH binding now that the lease is held:
-            # a restore/delete/revoke may have committed between authentication (a dependency,
-            # before admission) and here. Without this, a just-revoked actor could still execute.
-            if not reverify_actor(db, request, actor):
-                raise errors.credential_invalid()
+                # Re-verify the credential against the FRESH binding now that the lease is held:
+                # a restore/delete/revoke may have committed between authentication (a dependency,
+                # before admission) and here. Without this, a just-revoked actor could still execute.
+                if not reverify_actor(db, request, actor):
+                    raise errors.credential_invalid()
 
-            if canonical_command(word) == "alias" and not bot.config.get_val("ALLOW_USER_ALIAS"):
-                # Distinguishable from command_not_allowed on purpose (AC-5.1): the caller
-                # is permitted, the deployment has the feature off.
-                raise errors.aliases_disabled()
+                if canonical_command(word) == "alias" and not bot.config.get_val("ALLOW_USER_ALIAS"):
+                    # Distinguishable from command_not_allowed on purpose (AC-5.1): the caller
+                    # is permitted, the deployment has the feature off.
+                    raise errors.aliases_disabled()
 
-            from lockbot.backend.app.resource_api.usage import (
-                prepare_command_usage,
-                prune_actor_usage,
-                register_command_usage,
-            )
+                from lockbot.backend.app.resource_api.usage import (
+                    prepare_command_usage,
+                    prune_actor_usage,
+                    register_command_usage,
+                )
 
-            before_usage = prepare_command_usage(bot, actor, canonical_command(word), text)
-            request.state.agent_event["requested_resources"] = describe_targets(bot, actor, word, text)
-            request.state.agent_event["all_owned_resources"] = text.lower() in {"free", "unlock"}
-            try:
-                request.state.agent_event["stage"] = "dispatching"
-                with capture_result(
-                    observe_state=canonical_command(word) in {"lock", "slock", "book", "unlock"}
-                ) as result:
-                    raw_reply = execute_text_command(
-                        actor.external_user_id,
-                        text,
-                        bot,
-                        allowed_commands=AGENT_ALLOWED_COMMANDS,
-                        source="api",
-                    )
-            except CommandNotAllowed:
-                request.state.agent_event["stage"] = "rejected"
-                raise errors.command_not_allowed(word) from None
-            except CommandNotSupported:
-                request.state.agent_event["stage"] = "rejected"
-                raise errors.command_not_supported(word, bot_row.bot_type) from None
+                before_usage = prepare_command_usage(bot, actor, canonical_command(word), text)
+                request.state.agent_event["requested_resources"] = describe_targets(bot, actor, word, text)
+                request.state.agent_event["all_owned_resources"] = text.lower() in {"free", "unlock"}
+                try:
+                    request.state.agent_event["stage"] = "dispatching"
+                    with capture_result(
+                        observe_state=canonical_command(word) in {"lock", "slock", "book", "unlock"}
+                    ) as result:
+                        raw_reply = execute_text_command(
+                            actor.external_user_id,
+                            text,
+                            bot,
+                            allowed_commands=AGENT_ALLOWED_COMMANDS,
+                            source="api",
+                        )
+                except CommandNotAllowed:
+                    request.state.agent_event["stage"] = "rejected"
+                    raise errors.command_not_allowed(word) from None
+                except CommandNotSupported:
+                    request.state.agent_event["stage"] = "rejected"
+                    raise errors.command_not_supported(word, bot_row.bot_type) from None
 
-            from lockbot.backend.app.resource_api.resources import snapshot_cache
+                from lockbot.backend.app.resource_api.resources import snapshot_cache
 
-            snapshot_cache.invalidate(bot_id)
-            reply_text = bot.adapter.extract_reply_text(raw_reply)
-            request.state.agent_event.update(
-                stage="dispatched", reply=reply_text[:2048], reply_truncated=len(reply_text) > 2048
-            )
-            request.state.agent_event["observed_state"] = observe_own_resources(
-                bot,
-                actor,
-                request.state.agent_event["requested_resources"],
-                all_owned=request.state.agent_event["all_owned_resources"],
-            )
-
-            if not bot_manager.lease_is_current(lease):
-                # Defensive post-check. It detects replacement but cannot undo a mutation
-                # that already persisted, so the honest answer is "may have executed".
-                logger.warning("Bot %d was replaced under an admitted command", bot_id)
-                raise errors.may_have_executed(bot_id)
-
-            try:
-                register_command_usage(
-                    db,
+                snapshot_cache.invalidate(bot_id)
+                reply_text = bot.adapter.extract_reply_text(raw_reply)
+                request.state.agent_event.update(
+                    stage="dispatched", reply=reply_text[:2048], reply_truncated=len(reply_text) > 2048
+                )
+                request.state.agent_event["observed_state"] = observe_own_resources(
                     bot,
                     actor,
-                    before_usage,
-                    agent_label=body.agent_label,
-                    purpose=body.purpose,
-                    task_category=body.task_category,
-                    task_category_provided="task_category" in body.model_fields_set,
-                )
-                if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
-                    prune_actor_usage(db, bot, actor)
-            except Exception:
-                db.rollback()
-                logger.exception("Bot %s: usage registration failed after command admission", bot_id)
-                raise errors.may_have_executed(bot_id) from None
-
-            # Reuse the command's own locked observation, never a cached pre-write
-            # snapshot. Alias/configuration commands without such an observation
-            # retain their existing explicit readback contract.
-            resource_snapshot = None
-            if result.observation is not None:
-                from lockbot.backend.app.resource_api.resources import resource_payload
-
-                resource_snapshot = resource_payload(
-                    bot_row, request, Response(), actor, db, lease, observation=result.observation
+                    request.state.agent_event["requested_resources"],
+                    all_owned=request.state.agent_event["all_owned_resources"],
                 )
 
-            # The bot method has released the state lock by now, so this send cannot
-            # extend a critical section. Still inside the lease, so a drain waits for it.
-            if (
-                result.committed
-                and result.operation == canonical_command(word)
-                and result.affected_resources != ()
-                and should_notify(word)
-                and bot_row.resource_api_notify_enabled
-            ):
-                notify_group(
-                    bot,
-                    bot_id=bot_id,
-                    command=text,
-                    actor_id=actor.external_user_id,
-                    command_word=word,
-                    agent_label=body.agent_label,
-                    purpose=body.purpose,
-                    task_category=body.task_category,
-                    target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
-                )
+                if not bot_manager.lease_is_current(lease):
+                    # Defensive post-check. It detects replacement but cannot undo a mutation
+                    # that already persisted, so the honest answer is "may have executed".
+                    logger.warning("Bot %d was replaced under an admitted command", bot_id)
+                    raise errors.may_have_executed(bot_id)
+
+                try:
+                    register_command_usage(
+                        db,
+                        bot,
+                        actor,
+                        before_usage,
+                        agent_label=body.agent_label,
+                        purpose=body.purpose,
+                        task_category=body.task_category,
+                        task_category_provided="task_category" in body.model_fields_set,
+                    )
+                    if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
+                        prune_actor_usage(db, bot, actor)
+                except Exception:
+                    db.rollback()
+                    logger.exception("Bot %s: usage registration failed after command admission", bot_id)
+                    raise errors.may_have_executed(bot_id) from None
+
+                # Reuse the command's own locked observation, never a cached pre-write
+                # snapshot. Alias/configuration commands without such an observation
+                # retain their existing explicit readback contract.
+                resource_snapshot = None
+                if result.observation is not None:
+                    from lockbot.backend.app.resource_api.resources import resource_payload
+
+                    resource_snapshot = resource_payload(
+                        bot_row, request, Response(), actor, db, lease, observation=result.observation
+                    )
+
+                # Capture immutable routing under the mutation's authorization barrier.
+                # Actual delivery revalidates it after this barrier is released.
+                if (
+                    result.committed
+                    and result.operation == canonical_command(word)
+                    and result.affected_resources != ()
+                    and should_notify(word)
+                    and bot_row.resource_api_notify_enabled
+                ):
+                    notification = dict(
+                        bot_id=bot_id,
+                        command=text,
+                        actor_id=actor.external_user_id,
+                        command_word=word,
+                        agent_label=body.agent_label,
+                        purpose=body.purpose,
+                        task_category=body.task_category,
+                        target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
+                    )
+
+            # Keep lifecycle admission through delivery, but no allocator, bot authority
+            # or principal serialization lock may cover outbound network IO.
+            if notification is not None:
+                notify_group(bot, **notification, lease=lease)
 
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None

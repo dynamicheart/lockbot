@@ -94,30 +94,42 @@ def _send_text(bot, text):
         return "unknown"
 
 
+def _deliver_with_lease(target, lease, text):
+    """Revalidate routing, then send while retaining only lifecycle admission."""
+    if (
+        target.manager is None
+        or target.factory is None
+        or target.cancelled.is_set()
+        or lease.bot_id != target.bot_id
+        or lease.generation != target.generation
+        or not target.manager.lease_is_current(lease)
+    ):
+        return "cancelled"
+    with authority_guard(target.bot_id), target.factory() as db:
+        row = db.get(Bot, target.bot_id)
+        if (
+            target.cancelled.is_set()
+            or row is None
+            or row.is_deleted
+            or row.status != "running"
+            or not row.resource_api_notify_enabled
+            or row.uuid != target.uuid
+            or row.identity_revision != target.revision
+            or _route_fingerprint(row) != target.route
+        ):
+            return "cancelled"
+    # Lease fences identity/routing replacement. Release the authority guard before
+    # network IO so both immediate and delayed delivery leave resource commands free.
+    # A send already handed to the platform cannot be recalled by a later disable.
+    return _send_text(lease.bot, text)
+
+
 def _deliver(target, text):
     if target.manager is None or target.factory is None or target.cancelled.is_set():
         return "cancelled"
     try:
         with target.manager.admit(target.bot_id) as lease:
-            if lease.generation != target.generation:
-                return "cancelled"
-            with authority_guard(target.bot_id), target.factory() as db:
-                row = db.get(Bot, target.bot_id)
-                if (
-                    target.cancelled.is_set()
-                    or row is None
-                    or row.is_deleted
-                    or row.status != "running"
-                    or not row.resource_api_notify_enabled
-                    or row.uuid != target.uuid
-                    or row.identity_revision != target.revision
-                    or _route_fingerprint(row) != target.route
-                ):
-                    return "cancelled"
-            # Lease fences identity/routing replacement. Release the authority guard before
-            # network IO so delayed delivery cannot serialize subsequent resource commands.
-            # A send already handed to the platform cannot be recalled by a later disable.
-            return _send_text(lease.bot, text)
+            return _deliver_with_lease(target, lease, text)
     except AdmissionFull:
         return "deferred"
     except (BotNotRunning, InstanceRetiring):
@@ -142,6 +154,7 @@ def notify_group(
     purpose=None,
     task_category=None,
     target=None,
+    lease=None,
 ):
     """Return true only for an accepted immediate send; false also includes queued notices.
 
@@ -166,7 +179,15 @@ def notify_group(
             # Compatibility for direct adapter callers. API routes always supply a scoped
             # target; an unscoped direct call is never eligible for later network delivery.
             target = NotificationTarget(bot_id, "", 0, 0, str(id(bot)), bot.config.get_val("LANGUAGE", "zh"))
-        return notification_budget.offer(target, PublicEvent(text, word), immediate=lambda body: _send_text(bot, body))
+
+        def immediate(body):
+            if target.manager is None or target.factory is None:
+                return _send_text(bot, body)
+            if lease is not None:
+                return _deliver_with_lease(target, lease, body)
+            return _deliver(target, body)
+
+        return notification_budget.offer(target, PublicEvent(text, word), immediate=immediate)
     except Exception:
         logger.warning("Bot %d: could not enqueue API notification", bot_id)
         return False
