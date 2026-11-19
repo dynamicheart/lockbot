@@ -1273,6 +1273,7 @@ class Client:
         self._resource_request_started = None
         self._last_mutation = None
         self._panel_home = None
+        self._verified_contexts = []
 
     def _file(self, name):
         value = self.config.get(name)
@@ -1464,6 +1465,7 @@ class Client:
         else:
             result = self._request(same_origin_url(self.base, self.manifest["context_url"]), token=self.key)
         self._validate_context(result, initializing=initializing)
+        self._verified_contexts.append((result, self._context_digest(result)))
         if combined:
             self._prepared_resources = (result, snapshot, started)
         return result
@@ -2573,8 +2575,27 @@ class Client:
                 result.append(item)
         return result
 
-    def metrics(self, nodes):
-        context = self.context()
+    @staticmethod
+    def _context_digest(context):
+        return hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":")).encode()).digest()
+
+    def _metrics_context(self, context):
+        # Reuse is invocation-local and only accepts an unchanged response read by this client.
+        verified = next((digest for observed, digest in self._verified_contexts if observed is context), None)
+        try:
+            if verified is None or self._context_digest(context) != verified:
+                raise ClientError("metrics_context_not_verified")
+            self._validate_context(context)
+            latest, digest = self._verified_contexts[-1]
+            if self._context_digest(latest) != digest:
+                raise ClientError("metrics_context_not_verified")
+            self._validate_context(latest)
+        except (AttributeError, KeyError, TypeError, ValueError, RecursionError) as exc:
+            raise ClientError("metrics_context_not_verified") from exc
+        return latest  # A preceding batch may already have refreshed a short grant.
+
+    def metrics(self, nodes, *, context=None):
+        context = self.context() if context is None else self._metrics_context(context)
         for attempt in range(2):
             source = (context.get("utilization") or {}).get("configuration") or {}
             if source.get("type") != "prometheus" or source.get("profile") != "lockbot-v1":
@@ -3541,7 +3562,134 @@ def select_inventory(snapshot, *, nodes=(), model=None):
     return result
 
 
-def attach_metrics(client, snapshot, *, full=False):
+def merge_summary_metrics(rows, metrics, *, device_limit=20):
+    """Attach bounded telemetry to observed rows without changing resource authority."""
+    if type(device_limit) is not int or not 1 <= device_limit <= 20:
+        raise ClientError("invalid_summary_device_limit")
+    metrics = metrics if isinstance(metrics, dict) else {}
+    readings = metrics.get("utilization")
+    readings = readings if isinstance(readings, list) else []
+    indexed = {}
+    for reading in readings:
+        if isinstance(reading, dict) and isinstance(reading.get("node"), str):
+            indexed.setdefault(reading["node"], []).append(reading)
+
+    def sample(value, *, field="percent"):
+        value = value if isinstance(value, dict) else {}
+        status = value.get("status")
+        status = status if status in {"ok", "missing", "stale", "failed", "invalid"} else "invalid"
+        number, age = metric_number(value.get(field)), metric_number(value.get("sample_age_seconds"))
+        if status == "ok" and (number is None or number < 0 or field == "percent" and number > 100):
+            status = "invalid"
+        return {
+            "status": status,
+            field: number if status == "ok" else None,
+            "sample_age_seconds": age if age is not None and age >= 0 else None,
+        }
+
+    def memory(value):
+        value = value if isinstance(value, dict) else {}
+        return {
+            key: sample(value[key], field="bytes") for key in ("used", "total", "available", "cache") if key in value
+        }
+
+    def identifier(value):
+        return str(value) if _summary_identifier(value) else None
+
+    result = []
+    for row in rows:
+        node = row.get("node")
+        matches = indexed.get(node, [])
+        reading = matches[0] if len(matches) == 1 else {}
+        projected = {
+            "best_effort": True,
+            "does_not_authorize_resources": True,
+            "status": "reported" if len(matches) == 1 else "missing" if not matches else "invalid",
+        }
+        errors = []
+        if len(matches) > 1:
+            errors.append({"error": "ambiguous_node_metrics"})
+        unread = metrics.get("unread")
+        for error in unread if isinstance(unread, list) else []:
+            if not isinstance(error, dict) or not isinstance(error.get("nodes"), list) or node not in error["nodes"]:
+                continue
+            code = error.get("error")
+            entry = {
+                "error": code
+                if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,159}", code)
+                else "metrics_unavailable"
+            }
+            if type(error.get("http_status")) is int and 100 <= error["http_status"] <= 599:
+                entry["http_status"] = error["http_status"]
+            retry = metric_number(error.get("retry_after_seconds"))
+            if retry is not None and retry >= 0:
+                entry["retry_after_seconds"] = retry
+            errors.append(entry)
+        if errors:
+            projected.update(errors=errors[:20], errors_has_more=len(errors) > 20)
+        if reading:
+            projected["cpu"] = sample(reading.get("cpu"))
+            if "memory" in reading:
+                projected["memory"] = memory(reading["memory"])
+            allowed = set()
+            if row.get("unit") == "card":
+                ids = row.get("matched_device_ids")
+                if isinstance(ids, list):
+                    allowed.update(identifier(value) for value in ids if identifier(value) is not None)
+                for field in ("holdings", "bookings"):
+                    children = row.get(field)
+                    for child in children if isinstance(children, list) else []:
+                        device = identifier(child.get("device")) if isinstance(child, dict) else None
+                        if device is not None:
+                            allowed.add(device)
+            cards = reading.get("cards")
+            cards = cards if isinstance(cards, list) else []
+            counts = Counter(identifier(card.get("device")) for card in cards if isinstance(card, dict))
+            selected = []
+            for card in cards:
+                device = identifier(card.get("device")) if isinstance(card, dict) else None
+                if device is None or row.get("unit") != "whole_node" and device not in allowed or counts[device] != 1:
+                    continue
+                selected.append(
+                    {
+                        "device": device,
+                        **sample(card),
+                        **({"memory": memory(card["memory"])} if "memory" in card else {}),
+                    }
+                )
+            status = reading.get("cards_status")
+            projected.update(
+                cards=selected[:device_limit],
+                cards_status=status
+                if status in {"reported", "ok", "missing", "stale", "failed", "invalid"}
+                else "invalid",
+                cards_has_more=len(selected) > device_limit,
+                reported_cards=len(selected),
+            )
+            filesystems = reading.get("filesystems")
+            selected = []
+            for filesystem in filesystems if isinstance(filesystems, list) else []:
+                name = filesystem.get("filesystem") if isinstance(filesystem, dict) else None
+                if not isinstance(name, str) or not name or not name.isprintable():
+                    continue
+                selected.append(
+                    {
+                        "filesystem": name[:160],
+                        "filesystem_truncated": len(name) > 160,
+                        **{field: sample(filesystem.get(field), field="bytes") for field in ("used", "total")},
+                    }
+                )
+            if isinstance(filesystems, list):
+                projected.update(
+                    filesystems=selected[:device_limit],
+                    filesystems_has_more=len(selected) > device_limit,
+                    reported_filesystems=len(selected),
+                )
+        result.append({**row, "metrics": projected})
+    return result
+
+
+def attach_metrics(client, snapshot, *, full=False, context=None):
     """Batch only selected nodes; optional telemetry failure never erases ownership."""
     rows = snapshot.get("resources", snapshot.get("holdings", []) + snapshot.get("bookings", []))
     nodes = list(dict.fromkeys(str(row.get("id", row.get("node"))) for row in rows))
@@ -3551,13 +3699,19 @@ def attach_metrics(client, snapshot, *, full=False):
     for offset in range(0, len(nodes), 64):
         batch = nodes[offset : offset + 64]
         try:
-            reading = client.metrics(batch)
+            reading = (
+                client.metrics(batch, context=context)
+                if context is not None and isinstance(client, Client)
+                else client.metrics(batch)
+            )
             result["utilization"].extend(reading["utilization"])
             if full:
                 result["responses"].append(reading)
         except ClientError as error:
             result["complete"] = False
             result["unread"].append({"nodes": batch, "error": error.code})
+            if error.status is not None:
+                result["unread"][-1]["http_status"] = error.status
             if error.retry_after_seconds is not None:
                 result["unread"][-1]["retry_after_seconds"] = error.retry_after_seconds
             # A failed scope, source or request budget is not a reason to keep polling.
