@@ -69,7 +69,8 @@ def aggregate(tmp_path):
                     assert self.headers.get("Authorization") is None
                     body = manifest
                 elif self.path in {"/api/agent/resources", "/api/agent/context"}:
-                    if self.headers.get("Authorization") != "Bearer " + state.key:
+                    accepted = [state.key, *getattr(state, "accepted_keys", [])]
+                    if self.headers.get("Authorization") not in {"Bearer " + key for key in accepted}:
                         self.send_response(401)
                         self.end_headers()
                         self.wfile.write(b"{}")

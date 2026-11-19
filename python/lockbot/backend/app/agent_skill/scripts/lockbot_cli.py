@@ -2818,7 +2818,13 @@ def node_summary_rows(snapshot, context=None, *, reference_factory, model=None, 
     if not isinstance(resources, list):
         raise ClientError("invalid_resource_summary")
     node_ids = Counter(row.get("id") for row in resources if isinstance(row, dict) and isinstance(row.get("id"), str))
-    result = {"rows": [], "unknown_match_nodes": 0, "unidentified_nodes": 0, "projection_complete": True}
+    result = {
+        "rows": [],
+        "unknown_match_nodes": 0,
+        "unknown_hardware_nodes": [],
+        "unidentified_nodes": 0,
+        "projection_complete": True,
+    }
     fresh = snapshot.get("snapshot_fresh_for_write") is True and snapshot.get("health") == "running"
     for node in resources:
         identifier = node.get("id") if isinstance(node, dict) else None
@@ -2915,6 +2921,8 @@ def node_summary_rows(snapshot, context=None, *, reference_factory, model=None, 
             category = _summary_unit_state(node, fresh=fresh, queued=bot_type == "QUEUE", valid=not inconsistent_type)
             if definite:
                 states[category] = 1
+        if unknown_model:
+            result["unknown_hardware_nodes"].append(identifier)
         if not definite:
             if unknown_model:
                 result["unknown_match_nodes"] += 1
@@ -2953,7 +2961,9 @@ def node_summary_rows(snapshot, context=None, *, reference_factory, model=None, 
     return result
 
 
-def summary_page(rows, *, offset=0, limit=SUMMARY_NODE_LIMIT, byte_limit=SUMMARY_BYTE_LIMIT, scope_complete=True):
+def summary_page(
+    rows, *, offset=0, limit=SUMMARY_NODE_LIMIT, byte_limit=SUMMARY_BYTE_LIMIT, scope_complete=True, ensure_ascii=False
+):
     """Return a bounded, deterministic local projection, not server pagination.
 
     A deferred record retains its exact reference in order. An offset is only a
@@ -2967,6 +2977,7 @@ def summary_page(rows, *, offset=0, limit=SUMMARY_NODE_LIMIT, byte_limit=SUMMARY
         or type(offset) is not int
         or offset < 0
         or type(scope_complete) is not bool
+        or type(ensure_ascii) is not bool
     ):
         raise ClientError("invalid_summary_page")
     if not isinstance(rows, list) or offset > len(rows):
@@ -2983,7 +2994,7 @@ def summary_page(rows, *, offset=0, limit=SUMMARY_NODE_LIMIT, byte_limit=SUMMARY
 
     def size(value):
         try:
-            return len(json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode())
+            return len(json.dumps(value, ensure_ascii=ensure_ascii, separators=(",", ":"), allow_nan=False).encode())
         except (ValueError, TypeError, UnicodeError) as exc:
             raise ClientError("invalid_summary_value") from exc
 
@@ -3017,6 +3028,128 @@ def summary_page(rows, *, offset=0, limit=SUMMARY_NODE_LIMIT, byte_limit=SUMMARY
         candidate["rows"][-1] = json.loads(json.dumps(row, ensure_ascii=False, allow_nan=False))
         result = candidate
     return result
+
+
+def query_summary_output(output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offset=0, model=None, private_values=()):
+    """An opt-in bounded response; never replaces a snapshot used for a write."""
+    value = output.get("result") if isinstance(output, dict) else None
+    if not isinstance(value, dict):
+        raise ClientError("invalid_resource_summary")
+    groups = value.get("groups")
+    if groups is None:
+        groups = [{"snapshot": value}]
+    rows, unknown, unidentified = [], 0, 0
+    complete = value.get("complete", True) is True
+    for group in groups:
+        snapshot = group.get("snapshot", {})
+        context = snapshot.get("context", {})
+        server, bot, actor = context.get("server", {}), context.get("bot", {}), context.get("actor")
+        approved = group.get("identity", {}).get("origin") or group.get("_approved_origin")
+        if approved is None and len(groups) == 1:
+            approved = output.get("_approved_origin")
+        record = {
+            "approved_origin": approved,
+            "instance_id": server.get("instance_id"),
+            "bot_uuid": bot.get("uuid"),
+            "actor": actor,
+        }
+        selection = snapshot.get("selection", {})
+        ambiguous = set(selection.get("ambiguous_node_ids", []))
+        summary_snapshot = (
+            {**snapshot, "resources": [row for row in snapshot["resources"] if row.get("id") not in ambiguous]}
+            if ambiguous
+            else snapshot
+        )
+        projected = node_summary_rows(
+            summary_snapshot,
+            context,
+            reference_factory=lambda node, record=record: resource_reference(record, node, width=64),
+            model=model,
+        )
+        rows.extend(projected["rows"])
+        unknown += len(
+            set(projected["unknown_hardware_nodes"])
+            | set(snapshot.get("selection", {}).get("unknown_hardware_nodes", []))
+        )
+        unidentified += projected["unidentified_nodes"] + selection.get("ambiguous_node_records", 0)
+        complete &= projected["projection_complete"] and not ambiguous
+    # Distinct credentials can observe the same exact scope. Display identical
+    # evidence once; conflicting observations supply only a locator, never a
+    # union of states, devices or capabilities. Raw source observations stay intact.
+    distinct, duplicates, conflicts = {}, 0, set()
+    for row in rows:
+        reference = row["ref"]
+        if reference not in distinct:
+            distinct[reference] = row
+        else:
+            duplicates += 1
+            if distinct[reference] != row:
+                conflicts.add(reference)
+                distinct[reference] = {"ref": reference, "node": row["node"], "observation_conflict": True}
+    rows = list(distinct.values())
+    complete &= not conflicts
+    if fields is not None:
+        # Exact references remain available even when selecting fewer display fields.
+        rows = [{key: item[key] for key in ("ref", "observation_conflict", *fields) if key in item} for item in rows]
+    unread = value.get("unread", [])
+    notes = {
+        "unknown_hardware_nodes": unknown,
+        "unidentified_nodes": unidentified,
+        "duplicate_observations": duplicates,
+        "conflicting_observations": len(conflicts),
+        "unread_scopes": sum(item.get("count", 1) for item in unread),
+        "unread_reasons": sorted({item.get("error", "unknown") for item in unread})[:8],
+        "update_required": bool(output.get("update_required") or any(group.get("update_required") for group in groups)),
+        "http_requests": value.get("http_requests", output.get("_http_requests")),
+        "max_snapshot_age_seconds": max(
+            (metric_number(group.get("snapshot", {}).get("age_seconds")) or 0 for group in groups), default=None
+        )
+        if all(metric_number(group.get("snapshot", {}).get("age_seconds")) is not None for group in groups)
+        else None,
+    }
+    # Use the final serializer for both pagination and framing, including Windows
+    # ASCII escapes. Reserve metadata, the outer wrapper and the printed newline.
+    ascii_json = os.name == "nt"
+    allowance = (
+        SUMMARY_BYTE_LIMIT - len(json.dumps(notes, ensure_ascii=ascii_json, separators=(",", ":")).encode()) - 32
+    )
+    if allowance < 1024:
+        raise ClientError("summary_output_exceeds_byte_budget")
+    page = summary_page(
+        rows, offset=offset, limit=limit, byte_limit=allowance, scope_complete=bool(complete), ensure_ascii=ascii_json
+    )
+    page.update(notes)
+    encoded = json.dumps(
+        redacted_values({"result": page}, private_values), ensure_ascii=ascii_json, separators=(",", ":")
+    )
+    if len(encoded.encode()) + 1 > SUMMARY_BYTE_LIMIT:
+        raise ClientError("summary_output_exceeds_byte_budget")
+    return encoded
+
+
+SUMMARY_FIELDS = (
+    "ref",
+    "node",
+    "unit",
+    "hardware",
+    "hardware_has_more",
+    "hardware_incomplete",
+    "total_units",
+    "matched_units",
+    "total_cards",
+    "matched_cards",
+    "states",
+    "snapshot_fresh",
+    "alias",
+    "alias_truncated",
+    "matched_device_ids",
+    "idle_device_ids",
+    "devices_has_more",
+    "idle_devices_has_more",
+    "unidentified_devices",
+    "device_inventory_complete",
+    "observation_conflict",
+)
 
 
 def inventory_output(snapshot, *, full=False):
@@ -3146,6 +3279,15 @@ def select_inventory(snapshot, *, nodes=(), model=None):
         "unknown_hardware_nodes": sorted(unknown),
         "full_inventory": False,
     }
+    if snapshot.get("scope") != "own":
+        counts = Counter(row.get("id") for row in snapshot["resources"] if isinstance(row.get("id"), str))
+        ambiguous = sorted(node for node, count in counts.items() if count > 1)
+        if ambiguous:
+            # Filtering must never turn two distinct records into one exact node.
+            result["selection"].update(
+                ambiguous_node_ids=ambiguous,
+                ambiguous_node_records=sum(counts[node] for node in ambiguous),
+            )
     excluded_unknown = [unknown_details[node] for node in sorted(unknown_details.keys() - matched)]
     if excluded_unknown:
         result["selection"]["unknown_hardware_resources"] = excluded_unknown
@@ -3922,12 +4064,25 @@ def main(argv=None):
     resources.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     details_help = "Include complete verified response details for explicit debugging; do not persist a cache."
     resources.add_argument("--full", action="store_true", help=details_help)
+    resources.add_argument("--ref", help="Exact resource reference returned by an observed node summary (read only)")
     aggregate = sub.add_parser("resources-all", help="Read all existing private catalog connections without enrollment")
     aggregate.add_argument("--directory", help="Read only this private connection catalog")
     aggregate.add_argument("--mine", action="store_true", help="Separate your holdings and bookings in every group")
     aggregate.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     aggregate.add_argument("--full", action="store_true", help=details_help)
     for query in (resources, aggregate):
+        query.add_argument("--summary", action="store_true", help="Opt in to a bounded node-level JSON summary")
+        query.add_argument("--limit", type=int, help="Maximum summary nodes (default 20; implies --summary)")
+        query.add_argument(
+            "--offset", type=int, help="Local summary offset in a newly read observation; not a server cursor"
+        )
+        query.add_argument(
+            "--json",
+            nargs="?",
+            const="",
+            metavar="FIELDS",
+            help="Select summary fields, comma-separated; ref is retained. Without fields, list them without requests.",
+        )
         query.add_argument(
             "--node", action="append", default=[], help="Filter by exact observed node ID or alias; repeat as needed."
         )
@@ -4006,7 +4161,43 @@ def main(argv=None):
         args.device = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in args.device]
     client = None
     automatic = None
+    summary_requested = False
+    summary_fields = None
+    reference_node = None
     try:
+        if args.action in {"resources", "resources-all"}:
+            if args.json == "":
+                print(json.dumps({"json_fields": list(SUMMARY_FIELDS), "required_row_fields": ["ref"]}))
+                return 0
+            summary_requested = (
+                args.summary or args.json is not None or args.limit is not None or args.offset is not None
+            )
+            if args.json is not None:
+                summary_fields = list(dict.fromkeys(args.json.split(",")))
+                if not summary_fields or any(field not in SUMMARY_FIELDS for field in summary_fields):
+                    raise ClientError("invalid_summary_fields")
+            if summary_requested:
+                args.limit = SUMMARY_NODE_LIMIT if args.limit is None else args.limit
+                args.offset = 0 if args.offset is None else args.offset
+                if not 1 <= args.limit <= MAX_OVERVIEW_ENTRIES or args.offset < 0:
+                    raise ClientError("invalid_summary_page")
+                if args.mine or args.full or args.with_metrics:
+                    raise ClientError("summary_combination_not_supported")
+            if args.action == "resources" and args.ref:
+                if args.mine:
+                    raise ClientError("resource_reference_mine_not_supported")
+                if args.node:
+                    raise ClientError("resource_reference_conflicts_with_node_filter")
+                token, reference_node = parse_resource_reference(args.ref)
+                if args.connection:
+                    if not resource_scope_digest(private_json(args.connection)).startswith(token):
+                        raise ClientError("resource_reference_scope_mismatch")
+                else:
+                    located = resolve_resource_reference(args.ref)
+                    if len(located["connections"]) != 1:
+                        raise ClientError("resource_reference_connection_ambiguous")
+                    args.connection = located["connections"][0]["connection"]
+                args.node = [reference_node]
         if args.action == "command" and (
             args.whole_node and args.device or args.connection is not None and args.whole_node == bool(args.device)
         ):
@@ -4024,20 +4215,25 @@ def main(argv=None):
         if args.action == "resources-all":
             if args.connection:
                 raise ClientError("connection_not_used_for_aggregation")
+            output = resources_all(
+                args.directory,
+                mine=args.mine,
+                exact_lease_times=args.exact_lease_times,
+                nodes=args.node,
+                model=args.model,
+                with_metrics=args.with_metrics,
+                full=args.full,
+            )
+            if summary_requested:
+                print(
+                    query_summary_output(
+                        output, fields=summary_fields, limit=args.limit, offset=args.offset, model=args.model
+                    )
+                )
+                return 0
             print(
                 json.dumps(
-                    aggregate_output(
-                        resources_all(
-                            args.directory,
-                            mine=args.mine,
-                            exact_lease_times=args.exact_lease_times,
-                            nodes=args.node,
-                            model=args.model,
-                            with_metrics=args.with_metrics,
-                            full=args.full,
-                        ),
-                        full=args.full,
-                    ),
+                    aggregate_output(output, full=args.full),
                     ensure_ascii=os.name == "nt",
                 )
             )
@@ -4090,6 +4286,13 @@ def main(argv=None):
             result = client.context()
         elif args.action == "resources":
             result = client.own_inventory(exact_lease_times=True) if args.mine else client.inventory()
+            if reference_node is not None:
+                if args.mine:
+                    raise ClientError("resource_reference_mine_not_supported")
+                exact = [row for row in result["resources"] if row.get("id") == reference_node]
+                if len(exact) != 1:
+                    raise ClientError("resource_reference_node_unavailable")
+                result = {**result, "resources": exact}
             result = select_inventory(result, nodes=args.node, model=args.model)
             if args.with_metrics:
                 result = attach_metrics(client, result, full=args.full)
@@ -4133,6 +4336,23 @@ def main(argv=None):
             else:
                 format_lease_times(result if args.action == "resources" else result["verified_snapshot"])
         if args.action == "resources":
+            if summary_requested:
+                print(
+                    query_summary_output(
+                        {
+                            "result": result,
+                            "update_required": client.needs_update,
+                            "_approved_origin": client.base,
+                            "_http_requests": client.calls,
+                        },
+                        fields=summary_fields,
+                        limit=args.limit,
+                        offset=args.offset,
+                        model=args.model,
+                        private_values=client.secrets,
+                    )
+                )
+                return 0
             result = inventory_output(result, full=args.full)
         elif args.action == "command":
             result = command_output(result, full=args.full)
