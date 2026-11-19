@@ -36,7 +36,10 @@ how many matches a user can request. Select the fields needed for the question.
 Bare `resource list --json` or `resource devices --json` lists supported fields
 locally without reading credentials or making requests. `--help` explains options.
 
-Use `resource view REF` for one node's detail. Device IDs in a list can be clipped;
+Answer from fields already returned. Use `resource view REF` for missing detail;
+do not repeat a read merely because a reference is available. Describe allocation
+states as idle, held or queued; they do not establish machine health or successful
+login. Device IDs in a list can be clipped;
 use `resource devices REF`, optionally with `--model` or `--mine`, for the selected
 node's cards. For an explicit request for many IDs, select only `id,model` and raise
 `--limit` up to 256; the byte cap still applies. Never treat clipped arrays as the

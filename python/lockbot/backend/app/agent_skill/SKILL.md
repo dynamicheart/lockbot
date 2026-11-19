@@ -14,14 +14,14 @@ description: >
 
 ## Everyday requests
 
-- Usage questions: read reference, no sign-in. Search-only stays read-only; search-and-lock may act. “lock 一天”/“用完了释放吧” need a unique prior target; else ask. Missing hardware/state/queues stay UNKNOWN; idle is not ownership.
+- Usage questions: read reference, no sign-in. Search-only: read, report, stop; search-and-lock may act. “lock 一天”/“用完了释放吧” need a unique prior target; else ask. Missing hardware/state/queues stay UNKNOWN; idle is not ownership.
 - “我能申请什么”/“找台P800”: `resource list`, plus `--model P800` when requested; select `--json` fields and a small page. Own lock/book: add `--mine`, keeping holdings/bookings separate. Continue `next_command` as needed; partial results cannot prove absence/totals. See [queries](references/resource-queries.md). No bot ID/group name required.
 - “到时间提醒”: read own resources FIRST. `next_event_kind: own_early_warning` is an existing group warning, not a new timer/proof of delivery. Expiry alone doesn't prove a warning; API cannot create personal timers.
 - Briefly give target/cards and `remaining_time`: “已锁定19，约3小时后到期。” UTC/seconds only if asked; deadlines: `--exact-lease-times`. Unknown time stays unknown. Finite leases auto-expire; unlimited caps don't extend them. Hide setup/Keys; groups only for ambiguity.
 
 ## Select and act
 
-Use returned `ref` with `resource view REF` or `command --ref REF` to distinguish repeated names. `resource devices REF` returns exact card IDs (including 0); never renumber. Reads verify context; avoid immediate `discover/context` rereads. Recheck ownership/expiry before use; stop if unverified. Renew before expiry. Holder expiry isn't booking expiry/guaranteed start; label estimates/claim windows.
+Reuse returned facts. Use `ref` with `resource view REF` or `command --ref REF` to distinguish repeated names. `resource devices REF` returns exact card IDs (including 0); never renumber. Reads verify context; avoid immediate `discover/context` rereads. Recheck ownership/expiry before use; stop if unverified. Renew before expiry. Holder expiry isn't booking expiry/guaranteed start; label estimates/claim windows.
 
 Query filters are not full inventory. Add `--with-metrics` only for load questions; zero load is not availability. Required model unknown: ask for trusted hardware data; NO command probes, model omission or whole-node/card fallback.
 
