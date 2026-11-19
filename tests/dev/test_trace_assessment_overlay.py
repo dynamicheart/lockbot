@@ -15,8 +15,10 @@ import skill_consultation_eval as consultation  # noqa: E402
 from merge_snapshots import trial_identity  # noqa: E402
 
 
-def source_and_review(tmp_path, *, status="pass", findings=()):
-    source, row, _ = prepared_run(tmp_path)
+def source_and_review(
+    tmp_path, *, status="pass", findings=(), suite="resource-cli", scenario="find-p800", release_fixture_version=None
+):
+    source, row, _ = prepared_run(tmp_path, suite, scenario, release_fixture_version=release_fixture_version)
     target = {key: row[key] for key in ("suite", "scenario", "client", "model", "phase")}
     report = tmp_path / "review.md"
     report.write_text("Independent model review of the recorded phase.\n")

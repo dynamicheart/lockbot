@@ -4,6 +4,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/trace-viewer"))
 import assessment_overlay as assessments  # noqa: E402
 import publish_dataset as publisher  # noqa: E402
@@ -12,15 +14,19 @@ from test_trace_dataset_ui import INTERACTIONS, VIEWER, function, run  # noqa: E
 from test_trace_render_labels import label_functions  # noqa: E402
 
 
-def test_short_statuses_keep_original_failures_and_never_claim_human_approval(tmp_path):
-    source, review, report = source_and_review(tmp_path)
+@pytest.mark.parametrize("release_case", [False, True])
+def test_short_statuses_keep_original_failures_and_never_claim_human_approval(tmp_path, release_case):
+    options = {"suite": "cli-release", "scenario": "alias-set", "release_fixture_version": 6} if release_case else {}
+    source, review, report = source_and_review(tmp_path, **options)
     board, result, original = exported(tmp_path, source)
     data = json.loads(original["raw.json"])
     data["assessments"] = publisher.previous_assessments(board, result["dataset"]["dataset_id"])
+    if release_case:
+        assessments.add_assessments(data, source, release_assessments=True)
     pending = json.loads(json.dumps(data))
     assessments.attach_review(data, source, review, report)
     passed = json.loads(json.dumps(data))
-    finding = {"severity": "P3", "blocking": False, "text": "An avoidable extra read."}
+    finding = {"severity": "P2" if release_case else "P3", "blocking": release_case, "text": "Unsupported assurance."}
     correction = assessments.bind_review(
         source,
         review["target"],
@@ -56,13 +62,15 @@ console.log(JSON.stringify({labels,tones,texts,preserved,rows:Object.values(boar
  unchanged:original===JSON.stringify(variants)}));
 """
     )
-    assert observed["labels"] == ["待复核", "通过", "有建议"]
-    assert observed["tones"] == ["badge blocked", "badge pass", "badge pending"]
+    assert observed["labels"] == ["待复核", "通过", "有问题" if release_case else "有建议"]
+    assert observed["tones"] == ["badge blocked", "badge pass", "badge fail" if release_case else "badge pending"]
     assert observed["preserved"] == ["未通过", "超时", "受阻"]
     assert observed["rows"] == 1 and observed["unchanged"]
     assert all("人工确认：不需要" in value for value in observed["texts"])
     assert not any("人工审核通过" in text for values in observed["texts"] for text in values)
-    assert any("An avoidable extra read." in text for text in observed["texts"][-1])
-    assert "原始导出状态：待确认" in observed["texts"][-1]
+    assert any("Unsupported assurance." in text for text in observed["texts"][-1])
+    assert ("原始导出状态：通过" if release_case else "原始导出状态：待确认") in observed["texts"][-1]
+    if release_case:
+        assert "模型复核：有问题（Astra）" in observed["texts"][-1]
     assert any(text.startswith("报告 SHA-256：") for text in observed["texts"][-1])
     assert any("请求模型 gpt-6-astra" in text for text in observed["texts"][-1])

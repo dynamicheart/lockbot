@@ -5,6 +5,16 @@ import json
 import re
 
 SHA = re.compile(r"[a-f0-9]{64}")
+ADAPTER_VERSIONS = {"resource-cli": {1, 2}, "consultation": {1, 2, 3}, "cli-release": {3, 4, 5, 6}}
+RELEASE_SCENARIOS = {
+    "alias-set",
+    "alias-clear",
+    "queue-book",
+    "queue-claim",
+    "queue-mine",
+    "release-reconcile",
+    "update-inquiry",
+}
 
 
 def checked_assessment(value, source_run, data):
@@ -36,12 +46,13 @@ def checked_assessment(value, source_run, data):
         or target.get("source_run") != source_run
         or type(target.get("phase")) is not int
         or target["phase"] != 1
-        or target.get("suite") not in {"resource-cli", "consultation"}
+        or target.get("suite") not in ADAPTER_VERSIONS
+        or (target["suite"] == "cli-release" and target.get("scenario") not in RELEASE_SCENARIOS)
         or target.get("case_id") != f"{target['suite']}-{target.get('scenario')}"
         or not isinstance(adapter, dict)
         or adapter.get("family") != target["suite"]
         or type(adapter.get("version")) is not int
-        or adapter["version"] not in ({1, 2, 3} if target["suite"] == "consultation" else {1, 2})
+        or adapter["version"] not in ADAPTER_VERSIONS[target["suite"]]
         or not any(trial.get("source_run") == source_run for trial in data["cases"].get(target["case_id"], []))
         or value.get("execution") != "completed"
         or value.get("behavior") not in {"pass", "fail"}

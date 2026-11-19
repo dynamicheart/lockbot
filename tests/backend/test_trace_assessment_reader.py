@@ -4,6 +4,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 from backend.test_trace_review import review_api  # noqa: F401
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dev"))
@@ -14,10 +16,12 @@ from test_trace_assessment_overlay import saved_review, source_and_review  # noq
 ROOT = "/api/dev/trace-review"
 
 
-def test_registered_model_review_keeps_comment_and_run_ids_and_source_bytes(review_api, tmp_path):
+@pytest.mark.parametrize("release_case", [False, True])
+def test_registered_model_review_keeps_comment_and_run_ids_and_source_bytes(review_api, tmp_path, release_case):
     client, headers, _, _, directory, _ = review_api
-    source, record, report = source_and_review(tmp_path)
-    first = publisher.export_dataset(source, directory, minimal_summary=True)
+    options = {"suite": "cli-release", "scenario": "alias-set", "release_fixture_version": 6} if release_case else {}
+    source, record, report = source_and_review(tmp_path, **options)
+    first = publisher.export_dataset(source, directory, minimal_summary=True, release_assessments=release_case)
     identity = first["dataset"]["dataset_id"]
     folder = directory / "datasets" / identity
     original = {name: (folder / name).read_bytes() for name in ("raw.json", "latest.json", "metadata.json")}
@@ -42,7 +46,13 @@ def test_registered_model_review_keeps_comment_and_run_ids_and_source_bytes(revi
     )
     assert comment.status_code == 201, comment.text
     sidecar = saved_review(tmp_path, record)
-    second = publisher.export_dataset(source, directory, minimal_summary=True, assessment_reviews=[(sidecar, report)])
+    second = publisher.export_dataset(
+        source,
+        directory,
+        minimal_summary=True,
+        assessment_reviews=[(sidecar, report)],
+        release_assessments=release_case,
+    )
     assert second["dataset"] == first["dataset"]
     after = client.get(ROOT + "/catalog", headers=headers, params=params).json()
     assert after["review_runs"] == before["review_runs"]
@@ -54,7 +64,7 @@ def test_registered_model_review_keeps_comment_and_run_ids_and_source_bytes(revi
         ROOT + "/trial", headers=headers, params={**params, "case_id": case, "run_index": 0, "run_id": run_id}
     )
     assert trial.status_code == 200
-    assert trial.json()["trial"]["state"] == "pending"
+    assert trial.json()["trial"]["state"] == ("pass" if release_case else "pending")
     assert {name: (folder / name).read_bytes() for name in original} == original
     comments = client.get(ROOT + "/comments", headers=headers).json()
     assert any(item["id"] == comment.json()["id"] and item["run_id"] == run_id for item in comments["comments"])

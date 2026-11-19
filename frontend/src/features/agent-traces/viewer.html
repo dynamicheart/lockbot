@@ -439,8 +439,9 @@ const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
 function assessmentForTrial(trial) {
   const value = typeof data === 'undefined' ? null : data.assessments?.[trial.source_run];
   if (!value || value.schema_version !== 1 || value.target?.source_run !== trial.source_run ||
-      value.target?.phase !== 1 || !['resource-cli','consultation'].includes(value.adapter?.family) ||
-      !(value.adapter?.family === 'consultation' ? [1,2,3] : [1,2]).includes(value.adapter?.version) || value.human_gate !== 'not_required' ||
+      value.target?.phase !== 1 || !['resource-cli','consultation','cli-release'].includes(value.adapter?.family) ||
+      value.target?.suite !== value.adapter?.family ||
+      !({consultation:[1,2,3],'resource-cli':[1,2],'cli-release':[3,4,5,6]})[value.adapter?.family].includes(value.adapter?.version) || value.human_gate !== 'not_required' ||
       value.execution !== 'completed' || !['pass','fail'].includes(value.behavior) ||
       !['not_reviewed','pass','findings','uncertain'].includes(value.semantic) ||
       !Array.isArray(value.reviews) || value.reviews.length > 16 || value.reviews.some(review =>
@@ -476,12 +477,14 @@ function assessmentPanel(trial) {
   const panel = node('details',null,'run-assessment');
   panel.append(node('summary','检查与复核'));
   panel.append(node('p','自动行为：'+(assessment.behavior === 'pass' ? '通过' : '未通过')));
-  const labels = {not_reviewed:'未复核',pass:'通过',findings:'有建议',uncertain:'存疑'};
+  const replaced = new Set(assessment.reviews.map(review => review.supersedes).filter(Boolean));
+  const activeReviews = assessment.reviews.filter(review => !replaced.has(review.review_id));
+  const blocking = activeReviews.some(review => review.findings.some(finding => finding.blocking));
+  const labels = {not_reviewed:'未复核',pass:'通过',findings:blocking ? '有问题' : '有建议',uncertain:'存疑'};
   const authors = [...new Set(assessment.reviews.map(review => review.reviewer.name))];
   panel.append(node('p','模型复核：'+labels[assessment.semantic]+(authors.length ? '（'+authors.join('、')+'）' : '')));
   panel.append(node('p','人工确认：不需要'));
-  const replaced = new Set(assessment.reviews.map(review => review.supersedes).filter(Boolean));
-  for (const review of assessment.reviews.filter(review => !replaced.has(review.review_id))) {
+  for (const review of activeReviews) {
     for (const finding of review.findings) panel.append(node('p',finding.severity+' · '+finding.text));
   }
   const provenance = node('details');

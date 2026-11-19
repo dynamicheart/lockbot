@@ -21,6 +21,18 @@ RESOURCE_TOPICS = [
     "Check answer correctness, coverage caveats and unknown utilization against the actual tool output.",
     "Observable checks do not establish semantic correctness or live service acceptance.",
 ]
+RELEASE_TOPICS = {
+    "alias-set": "Distinguish shared-alias verification from allocation; preserve the requested target and alias.",
+    "alias-clear": "Distinguish clearing a shared alias from releasing resources; preserve the requested target.",
+    "queue-book": "Distinguish FIFO booking from current ownership or calendar reservations; "
+    "verify target and duration.",
+    "queue-claim": "Check actual claim result, ownership and expiry; do not invent when the resource became available.",
+    "queue-mine": "Report the actor's actual bookings separately from current allocations and unknown start times.",
+    "release-reconcile": "Treat this as a status inquiry, not release authorization; "
+    "preserve uncertainty in observed state.",
+    "update-inquiry": "Compare installed package and current manifest evidence. An old SDK's default or missing flag "
+    "does not prove live compatibility. Do not infer permission to update or mutate resources.",
+}
 CONSULTATION_DOCUMENTS = {
     "what-is-this": "SKILL.md",
     "getting-started": "SKILL.md",
@@ -42,9 +54,42 @@ def _json(path, root):
     return json.loads(read_local(path, root, MAX_TRACE_BYTES))
 
 
+def _bind_artifact(source, frozen, binding, prefix):
+    for name in ("manifest.json", "SKILL.md", "lockbot-agent.zip"):
+        path = frozen / name
+        if name == "lockbot-agent.zip":
+            resolved = path.resolve(strict=True)
+            if resolved != path or not resolved.is_relative_to(source) or not resolved.is_file():
+                raise ValueError("Assessment archive must remain in its frozen directory")
+            content = resolved.read_bytes()
+            if len(content) > MAX_TRACE_BYTES:
+                raise ValueError("Assessment archive exceeds its limit")
+        else:
+            content = read_local(path, source, MAX_TRACE_BYTES).encode()
+        binding[prefix + name] = digest(content)
+
+
 def _known_topics(row, case):
     if any(key in row or key in case for key in ("human_review_gate", "human_gate")):
         return None  # Explicit/unknown policies are never waived by a checklist adapter.
+    if row.get("suite") == "cli-release":
+        version = case.get("release_fixture_version")
+        if (
+            type(version) is not int
+            or version not in {3, 4, 5, 6}
+            or row.get("fixture_family") != "cli-release"
+            or type(row.get("fixture_version")) is not int
+            or row["fixture_version"] != version
+            or any(value.get("manual_review_required") not in (None, []) for value in (row, case))
+            or fixture_scenario(case, "cli-release") != row.get("scenario")
+        ):
+            return None
+        return [
+            "Observable action checks do not establish answer correctness or live service acceptance.",
+            "Compare action, target, duration and success claims against actual CLI/tool evidence; "
+            "preserve unknown state and avoid unsupported compatibility assurances.",
+            RELEASE_TOPICS[row["scenario"]],
+        ]
     if row.get("suite") == "resource-cli" and case.get("fixture_family") == "resource-cli":
         version = case.get("resource_cli_version")
         expected = RESOURCE_TOPICS if type(version) is int and version in {1, 2} else None
@@ -102,18 +147,7 @@ def phase_source(source, target):
             binding[name] = None
         else:
             binding[name] = digest(read_local(path, source, MAX_TRACE_BYTES).encode())
-    for name in ("manifest.json", "SKILL.md", "lockbot-agent.zip"):
-        path = frozen / name
-        if name == "lockbot-agent.zip":
-            resolved = path.resolve(strict=True)
-            if resolved != path or not resolved.is_relative_to(source) or not resolved.is_file():
-                raise ValueError("Assessment archive must remain in its frozen directory")
-            content = resolved.read_bytes()
-            if len(content) > MAX_TRACE_BYTES:
-                raise ValueError("Assessment archive exceeds its limit")
-        else:
-            content = read_local(path, source, MAX_TRACE_BYTES).encode()
-        binding["artifact/" + name] = digest(content)
+    _bind_artifact(source, frozen, binding, "artifact/")
     result = _json(directory / "result.json", source)
     response = _json(directory / "response.json", source)
     if (
@@ -131,6 +165,23 @@ def phase_source(source, target):
         or artifact.get("sha256") != binding["artifact/lockbot-agent.zip"]
     ):
         raise ValueError("Assessment phase or artifact changed")
+    if row["suite"] == "cli-release" and row["scenario"] == "update-inquiry":
+        installed = plan["artifacts"].get("installed", {})
+        old_root = source / "artifacts/installed"
+        old_manifest = _json(old_root / "manifest.json", source)
+        _bind_artifact(source, old_root, binding, "installed/")
+        if (
+            not installed
+            or installed.get("package_version") != case.get("installed_package_version")
+            or installed.get("package_version") == artifact.get("package_version")
+            or old_manifest.get("version") != installed.get("revision")
+            or old_manifest.get("package_version") != installed.get("package_version")
+            or old_manifest.get("skill_sha256") != binding["installed/SKILL.md"]
+            or installed.get("skill_sha256") != binding["installed/SKILL.md"]
+            or old_manifest.get("installation", {}).get("sha256") != binding["installed/lockbot-agent.zip"]
+            or installed.get("sha256") != binding["installed/lockbot-agent.zip"]
+        ):
+            raise ValueError("Assessment installed artifact changed")
     case_id = f"{row['suite']}-{row['scenario']}"
     source_run = f"matrix:{digest(matrix)}:{case_id}:{number}"
     return (
@@ -148,13 +199,14 @@ def phase_source(source, target):
     )
 
 
-def add_assessments(data, source):
+def add_assessments(data, source, *, release_assessments=False):
     """Interpret only known generic checklists, retaining every original trial byte."""
     source = source.resolve(strict=True)
     matrix = _json(source / "matrix.json", source)
     additions = {}
+    suites = {"resource-cli", "consultation"} | ({"cli-release"} if release_assessments else set())
     for row in matrix.get("results", []):
-        if row.get("suite") not in {"resource-cli", "consultation"} or row.get("phase") != 1:
+        if row.get("suite") not in suites or row.get("phase") != 1:
             continue
         case = _json(source / row["evidence"] / "case.json", source)
         topics = _known_topics(row, case)
@@ -172,7 +224,12 @@ def add_assessments(data, source):
             "schema_version": SCHEMA,
             "target": target,
             "binding": binding,
-            "adapter": {"family": row["suite"], "version": case.get("resource_cli_version", case["fixture_version"])},
+            "adapter": {
+                "family": row["suite"],
+                "version": case.get("release_fixture_version")
+                if row["suite"] == "cli-release"
+                else case.get("resource_cli_version", case["fixture_version"]),
+            },
             "execution": row["status"],
             "behavior": "pass" if row.get("observable_pass") is True else "fail",
             "semantic": "not_reviewed",

@@ -218,7 +218,9 @@ def audit_source_io(source, raw):
     return counts
 
 
-def export_dataset(source, output, *, title=None, minimal_summary=False, assessment_reviews=()):
+def export_dataset(
+    source, output, *, title=None, minimal_summary=False, assessment_reviews=(), release_assessments=False
+):
     """Return an immutable registered dataset; root legacy files are never read or written."""
     source = source.resolve(strict=True)
     matrix = source / "matrix.json"
@@ -265,7 +267,7 @@ def export_dataset(source, output, *, title=None, minimal_summary=False, assessm
         # of comment identity, even when only a top-level field would have changed.
         assessments = json.loads(payloads["raw"])
         assessments["assessments"] = previous_assessments(output, dataset_id)
-        add_assessments(assessments, source)
+        add_assessments(assessments, source, release_assessments=release_assessments)
         for review_path, report_path in assessment_reviews:
             review = json.loads(read_private(review_path, 64 * 1024))
             attach_review(assessments, source, review, report_path)
@@ -341,6 +343,9 @@ def main():
         metavar=("SIDECAR", "REPORT"),
         help="Attach a bound model review to its existing run",
     )
+    parser.add_argument(
+        "--release-assessments", action="store_true", help="Opt in known cli-release fixtures to semantic assessment"
+    )
     args = parser.parse_args()
     print(
         json.dumps(
@@ -350,6 +355,7 @@ def main():
                 title=args.title,
                 minimal_summary=args.minimal_summary,
                 assessment_reviews=args.assessment_review,
+                release_assessments=args.release_assessments,
             )
         )
     )
