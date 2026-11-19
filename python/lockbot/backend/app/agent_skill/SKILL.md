@@ -33,10 +33,8 @@ Query filters are not full inventory. Add `--with-metrics` only for load questio
 
 ## Install or connect
 
-“Skill有新版吗”: read [update checks](references/connections.md#check-for-a-skill-update); inspect only, no installation or binding.
-
 Bare link: inspect/explain only, NEVER install or bind. An install request authorizes verified manifest/ZIP SHA-256 installation; install-only stops. A resource request authorizes necessary sign-in setup: continue without asking whether to begin. Reuse saved access/verified `deployment_origin`. Private seed + known origin: `init --key-file` FIRST; follow `result.next_command` once to recover supported groups BEFORE resource queries; no new binding. Without access, `key-challenge --origin <approved-origin> --authorized` returns `user_instruction[_zh]`: quote it verbatim for your OWN chat account; it may restore identity. After confirmation, resume SAME `enrollment-status`/`finish-enrollment`; continue the request. Reset: explain old-Key invalidation/other-Agent impact; require acknowledgement BEFORE `--purpose reset`/RST confirmation.
 
-[Setup/reset/update](references/connections.md); [hardware/leases](references/resource-operations.md). Only preset categories are public; details stay private.
+[Setup/reset/“Skill有新版吗”](references/connections.md); [hardware/leases](references/resource-operations.md). Only preset categories are public; details stay private.
 
 Panels/metrics: read [workbench](references/workbench-and-metrics.md). “打开资源台”: browser-open fixed home/bookmark; no browser: provide it, say not opened. First sign-in in verified private chat: `panel-link` ONCE, deliver `login_url` privately with `result.home` for bookmarking; human confirms. NEVER consume the ticket. Failure: follow `home`/`next_step`, no reissue. Metrics need approved origins/scoped grants; missing/stale is not zero/current.
