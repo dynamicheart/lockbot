@@ -175,10 +175,12 @@ def _response(body, status=200):
     return {"status": status, "body": body}
 
 
-def prepare(root, artifact, scenario, *, installed_artifact=None):
+def prepare(root, artifact, scenario, *, installed_artifact=None, fixture_version=4):
     """Prepare one independent model case against a frozen packaged CLI."""
     if scenario not in SCENARIOS:
         raise ValueError(f"Unknown cli-release scenario: {scenario}")
+    if fixture_version not in {3, 4}:
+        raise ValueError("Unsupported release fixture version")
     if scenario == "update-inquiry":
         if installed_artifact is None:
             raise ValueError("update-inquiry requires --installed-artifacts")
@@ -189,12 +191,17 @@ def prepare(root, artifact, scenario, *, installed_artifact=None):
         case_installed_package = installed_stamp.get("package_version")
     else:
         case_installed_package = None
-    cli.prepare(root, artifact, UNDERLYING[scenario], fixture_version=29)
+    cli.prepare(root, artifact, UNDERLYING[scenario], fixture_version=33 if fixture_version >= 4 else 29)
     # Each independent release case has one approved resource scope.
     shutil.rmtree(root / "workspace/private/connections/group-8", ignore_errors=True)
     if scenario == "update-inquiry":
         old = load_artifact(installed_artifact)
         installation = root / "workspace/skills/lockbot-agent"
+        if fixture_version >= 4:
+            # The actual prior package may predate a newly added reference.
+            # Do not leave current-only files inside the modeled old install.
+            shutil.rmtree(installation)
+            installation.mkdir(mode=0o700)
         for relative, content in old["contents"].items():
             target = installation / relative
             target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -208,7 +215,7 @@ def prepare(root, artifact, scenario, *, installed_artifact=None):
     case = json.loads(case_path.read_text())
     case.update(
         fixture_family="cli-release",
-        release_fixture_version=FIXTURE_VERSION,
+        release_fixture_version=fixture_version,
         release_scenario=scenario,
         installed_package_version=case_installed_package,
     )
@@ -274,6 +281,11 @@ class ReleaseFixture(cli.Fixture):
         return super().call(name, args)
 
     def run_cli(self, args, execution):
+        if cli.argv_host.enabled(self.case) and "argv" in args:
+            actions = next(row for row in self.tool_catalog() if row["name"] == "run_lockbot")["inputSchema"][
+                "properties"
+            ]["action"]["enum"]
+            return cli.argv_host.invoke(self, args, execution, actions)
         if self.release_scenario == "update-inquiry":
             action = args.get("action")
             if action in {"connections", "resources-all"}:

@@ -437,7 +437,7 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
             row["args"].get("group")
             for row in inspected
             if row["args"].get("action") == "resources" and "result" in row["result"]
-        }
+        } | {group for row in inspected for group in row.get("verified_read_groups", [])}
     if scenario in EXPECTED:
         attempts, _ = command_attempts(tools)
         bot, command = EXPECTED[scenario]
@@ -487,6 +487,13 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
                 for row in tools[: tools.index(attempts[0])]
             )
         )
+        if fixture_version >= 33 and attempts:
+            checks["agent_read_inventory_before_target_selection"] |= any(
+                group in row.get("verified_read_groups", [])
+                for row in tools[: tools.index(attempts[0])]
+                for group, identifier in groups.items()
+                if identifier == bot
+            )
         if fixture_version >= 19 and explicit_target:
             checks["agent_read_inventory_before_target_selection"] = checks["verified_before_and_after"]
         if scenario in WHOLE_MACHINE_MODELS:
@@ -648,9 +655,18 @@ def sdk_resolution_checks(scenario, phase, tools, final, checks, evidence, *, fi
     unscoped = [
         row
         for row in commands
-        if ("group" not in row["args"] and "connection" not in row["args"])
-        or "resolution" in row.get("result", {}).get("result", {})
-        or ("command" in row.get("argv", []) and "--connection" not in row["argv"])
+        if (
+            ("group" not in row["args"] and "connection" not in row["args"])
+            or "resolution" in row.get("result", {}).get("result", {})
+            or ("command" in row.get("argv", []) and "--connection" not in row["argv"])
+        )
+        and not (
+            fixture_version >= 33
+            and row["args"].get("ref")
+            and "--ref" in row.get("argv", [])
+            and row["argv"].index("--ref") + 1 < len(row["argv"])
+            and row["argv"][row["argv"].index("--ref") + 1] == row["args"]["ref"]
+        )
     ]
     expected_write = scenario in EXPECTED or (
         scenario in TASK_SCENARIOS and task_expectation(scenario, phase) is not None
@@ -975,6 +991,23 @@ def verified_p800_candidate(tools, final, *, allow_observed_aliases=False):
         return False
     mentioned = reported_nodes(final)
     for row in tools:
+        for evidence in row.get("verified_bounded_rows", []):
+            node, age = evidence["row"], evidence.get("age_seconds")
+            states = node.get("states", {})
+            if (
+                evidence.get("group") == MACHINES
+                and node.get("node") in mentioned
+                and node.get("unit") == "whole_node"
+                and type(age) in {int, float}
+                and 0 <= age <= 30
+                and states.get("idle") == 1
+                and sum(states.values()) == 1
+                and any(
+                    card.get("model", "").lower() == "p800" and type(card.get("count")) is int and card["count"] > 0
+                    for card in node.get("hardware", [])
+                )
+            ):
+                return True
         if row.get("args", {}).get("action") != "resources" or row["args"].get("group") != MACHINES:
             continue
         snapshot = row.get("result", {}).get("result", {})
@@ -1005,6 +1038,7 @@ def task_score(scenario, phase, requests, tools, final, *, prior_groups=(), fixt
         for row in inspected
         if row["args"].get("action") == "resources" and "result" in row["result"]
     }
+    groups_read.update(group for row in inspected for group in row.get("verified_read_groups", []))
     if phase == 2 and scenario in CONVERSATIONAL_PROMPTS and scenario not in INSTALL_FOLLOWUPS:
         groups_read.update(prior_groups)
     expected = task_expectation(scenario, phase)

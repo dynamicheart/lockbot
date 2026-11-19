@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urljoin, urlsplit
 
+import skill_cli_argv as argv_host
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
 from lockbot.backend.app.agent_skill.scripts.lockbot_cli import REFERENCE_PATHS, Client, ClientError
@@ -70,7 +71,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -267,6 +268,9 @@ def prepare(root, artifact, scenario, *, fixture_version=18):
         base.save_json(case_path, {**case, "fixture_version": fixture_version})
     (root / "system.txt").write_text(system)
     configure(root)
+    if fixture_version >= 33:
+        case = json.loads(case_path.read_text())
+        base.save_json(case_path, {**case, "fixture_version": fixture_version, "cli_argv_protocol": argv_host.PROTOCOL})
 
 
 def configure(root):
@@ -346,7 +350,7 @@ def resume(source, destination):
         configure(destination)
         return
     if fixture.uses_challenge and fixture.case["phase"] == (3 if reset else 2):
-        connection = fixture.workspace / "private/binding/connection.json"
+        connection = argv_host.enrollment_directory(fixture) / "connection.json"
         if not connection.is_file():
             raise ValueError("A completed enrollment must have saved a connection before a fresh read")
         continuity.resume(source, destination)
@@ -800,12 +804,17 @@ class Fixture(continuity.Fixture):
         return payload
 
     def run_cli(self, args, execution):
+        if argv_host.enabled(self.case) and "argv" in args:
+            actions = next(row for row in tools(self.root) if row["name"] == "run_lockbot")["inputSchema"][
+                "properties"
+            ]["action"]["enum"]
+            return argv_host.invoke(self, args, execution, actions)
         installed = self.artifact is not None and all(
             (self.installation / name).is_file() and (self.installation / name).read_bytes() == content
             for name, content in self.artifact["contents"].items()
         )
         private = self.workspace / "private"
-        directory = private / "binding"
+        directory = argv_host.enrollment_directory(self)
         action = args.get("action")
         if (
             action == "key-challenge"
@@ -1094,6 +1103,11 @@ class Fixture(continuity.Fixture):
 
 
 def tools(root):
+    case = json.loads((root / "case.json").read_text())
+    return argv_host.add_argv_schema(legacy_tools(root), case)
+
+
+def legacy_tools(root):
     case = json.loads((root / "case.json").read_text())
     scenario = case["scenario"]
     is_intent = scenario in intent.PROMPTS
@@ -1447,6 +1461,9 @@ def verified_catalog_reads(fixture, tools, requests):
     expanded = []
     groups = {identifier: name for name, identifier in intent.group_ids(fixture.case["scenario"]).items()}
     for event in tools:
+        if argv_host.enabled(fixture.case) and event.get("args", {}).get("action") == "resource":
+            expanded.append(argv_host.bounded_evidence(fixture, event, requests, groups))
+            continue
         action = event.get("args", {}).get("action")
         verified_aggregate = None
         if fixture.case.get("fixture_version", 0) >= 26 and action == "resources-all":
@@ -2157,7 +2174,9 @@ def resumed_pending_locator(root, fixture, final, calls):
         prior = [json.loads(line) for line in (source / "trace.jsonl").read_text().splitlines()]
         prior_wire = [json.loads(line) for line in (source / "cli-http.jsonl").read_text().splitlines()]
         wire = [json.loads(line) for line in (root / "cli-http.jsonl").read_text().splitlines()]
-        locator = "private/binding"
+        locator = argv_host.enrollment_directory(fixture).relative_to(fixture.workspace).as_posix()
+        if argv_host.enabled(fixture.case):
+            prior = argv_host.for_grading(prior, fixture.case)
         old_state = json.loads((source / "workspace" / locator / "enrollment.json").read_text())
         state = json.loads((fixture.workspace / locator / "enrollment.json").read_text())
         connection = json.loads((fixture.workspace / locator / "connection.json").read_text())
@@ -2183,8 +2202,12 @@ def resumed_pending_locator(root, fixture, final, calls):
                 or not argv
                 or not str(argv[0]).endswith("/scripts/lockbot_cli.py")
                 or action not in argv
-                or directory_flag not in argv
-                or argv[argv.index(directory_flag) + 1] != str(directory)
+                or (
+                    (directory_flag not in argv or argv[argv.index(directory_flag) + 1] != str(directory))
+                    and not (
+                        argv_host.enabled(fixture.case) and action == "key-challenge" and directory_flag not in argv
+                    )
+                )
                 or not isinstance(span, list)
                 or len(span) != 2
                 or not all(type(value) is int for value in span)
@@ -2196,7 +2219,7 @@ def resumed_pending_locator(root, fixture, final, calls):
         issued = False
         for event in prior:
             result = event.get("result", {}).get("result", {})
-            if result.get("enrollment_dir") != locator or result.get("status") != "pending":
+            if argv_host.private_locator(result.get("enrollment_dir")) != locator or result.get("status") != "pending":
                 continue
             issued = any(
                 row.get("url") == fixture.origin + CHALLENGES
@@ -2218,7 +2241,7 @@ def resumed_pending_locator(root, fixture, final, calls):
                 or result.get("status") != "confirmed"
                 or result.get("connection_created") is not True
                 or result.get("purpose") != "recover"
-                or result.get("connection") != locator + "/connection.json"
+                or argv_host.private_locator(result.get("connection")) != locator + "/connection.json"
                 or result.get("bot", {}).get("uuid") != connection["bot_uuid"]
             ):
                 continue
@@ -2304,9 +2327,12 @@ def prior_observed_groups(root, fixture, final):
             return set()
         observed = {}
         calls = [json.loads(line) for line in trace.decode().splitlines()]
+        calls = argv_host.for_grading(calls, fixture.case)
         http = source / "cli-http.jsonl"
         source_requests = [json.loads(line) for line in http.read_text().splitlines()] if http.is_file() else []
-        for event in verified_catalog_reads(Fixture(source), calls, source_requests):
+        events = verified_catalog_reads(Fixture(source), calls, source_requests)
+        bounded = [item for event in events for item in event.get("verified_bounded_rows", [])]
+        for event in events:
             args, result = event.get("args", {}), event.get("result", {}).get("result", {})
             group = args.get("group")
             if event.get("tool") != "run_lockbot" or args.get("action") != "resources" or group not in intent.GROUP_IDS:
@@ -2332,9 +2358,20 @@ def prior_observed_groups(root, fixture, final):
                 observed[group] = result
         if scenario == "intent-context-lock-day":
             machines = observed.get(intent.MACHINES, {}).get("resources", [])
-            if intent.contextual_p800_candidates(previous["text"], machines) != {intent.MATCHING_MACHINE}:
+            bounded_targets = {
+                item["row"].get("node")
+                for item in bounded
+                if item["group"] == intent.MACHINES
+                and item["row"].get("unit") == "whole_node"
+                and item["row"].get("node") in intent.reported_nodes(previous["text"])
+            }
+            if intent.contextual_p800_candidates(previous["text"], machines) != {intent.MATCHING_MACHINE} and not (
+                argv_host.enabled(fixture.case)
+                and bounded_targets == {intent.MATCHING_MACHINE}
+                and intent.verified_p800_candidate(events, previous["text"])
+            ):
                 return set()
-        return set(observed)
+        return set(observed) | {item["group"] for item in bounded}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return set()
 
@@ -2342,7 +2379,7 @@ def prior_observed_groups(root, fixture, final):
 def score(root, final):
     fixture = Fixture(root)
     private = fixture.workspace / "private"
-    enrollment = private / "binding"
+    enrollment = argv_host.enrollment_directory(fixture)
     trace = root / "cli-http.jsonl"
     requests = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
     for row in requests:
@@ -2451,6 +2488,7 @@ def score(root, final):
             if tool_trace.exists()
             else []
         )
+        cli_tools = argv_host.for_grading(cli_tools, fixture.case)
         checks.update(
             intent.score(
                 scenario,
@@ -2475,12 +2513,22 @@ def score(root, final):
             )
             singular_find = scenario == "intent-find-p800" or (scenario == "intent-context-lock-day" and phase == 1)
             if find_only and not own_scope and not (fixture.case["fixture_version"] >= 19 and singular_find):
+                observations = verified_catalog_reads(fixture, cli_tools, requests)
                 checks["full_inventory_scope_read"] = set(intent.group_ids(scenario)) <= {
                     row.get("args", {}).get("group")
-                    for row in verified_catalog_reads(fixture, cli_tools, requests)
+                    for row in observations
                     if row.get("args", {}).get("action") == "resources"
                     and isinstance(row.get("result", {}).get("result", {}).get("resources"), list)
                 }
+                if argv_host.enabled(fixture.case):
+                    complete_groups = set().union(
+                        *(
+                            set(row.get("verified_read_groups", []))
+                            for row in observations
+                            if row.get("result", {}).get("result", {}).get("scope_complete") is True
+                        )
+                    )
+                    checks["full_inventory_scope_read"] |= set(intent.group_ids(scenario)) <= complete_groups
     elif scenario == "recover":
         recovered = private / "groups" / continuity.SECOND_UUID
         key = recovered / "key"
@@ -2590,6 +2638,7 @@ def score(root, final):
                 and intent.equivalent(commands[0]["command"], COLD_COMMAND)
             )
             calls = [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
+            calls = argv_host.for_grading(calls, fixture.case)
             mutations = [
                 row for row in calls if row["tool"] == "run_lockbot" and row["args"].get("action") == "command"
             ]
@@ -2599,16 +2648,20 @@ def score(root, final):
         if fixture.case.get("pending_enrollment_catalog"):
             tool_trace = root / "trace.jsonl"
             calls = [json.loads(line) for line in tool_trace.read_text().splitlines()] if tool_trace.exists() else []
+            calls = argv_host.for_grading(calls, fixture.case)
             catalog = "pending_enrollments" if enrollment_phase == 2 else "connections"
             field, path = (
-                ("enrollment_dir", "private/binding")
+                ("enrollment_dir", enrollment.relative_to(fixture.workspace).as_posix())
                 if enrollment_phase == 2
-                else ("connection", "private/binding/connection.json")
+                else ("connection", (enrollment / "connection.json").relative_to(fixture.workspace).as_posix())
             )
             checks["pending_enrollment_discovered" if enrollment_phase == 2 else "saved_connection_discovered"] = any(
                 row["tool"] == "run_lockbot"
                 and row["args"].get("action") == "connections"
-                and any(item.get(field) == path for item in row["result"]["result"].get(catalog, []))
+                and any(
+                    argv_host.private_locator(item.get(field)) == path
+                    for item in row["result"]["result"].get(catalog, [])
+                )
                 for row in calls
                 if "result" in row["result"]
             )
@@ -2685,7 +2738,10 @@ def main():
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
     parser.add_argument(
-        "--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32), default=18
+        "--fixture-version",
+        type=int,
+        choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33),
+        default=18,
     )
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)

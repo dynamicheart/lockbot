@@ -76,6 +76,9 @@ def prepare(root, suite, scenario, artifacts, *, cli_fixture_version=19, onboard
         return cli.score
     if suite == "onboarding":
         onboarding.prepare(root, None, scenario, artifacts=current, fixture_version=onboarding_fixture_version)
+        if cli_fixture_version >= 33:
+            path = root / "case.json"
+            onboarding.save_json(path, {**json.loads(path.read_text()), "cli_argv_protocol": 1})
         return onboarding.score
     if suite == "continuity":
         artifact = artifacts / "panel" if scenario == "panel" else current
@@ -86,6 +89,9 @@ def prepare(root, suite, scenario, artifacts, *, cli_fixture_version=19, onboard
             artifact,
             fixture_version=continuity.host_v11.VERSION if scenario in continuity.host_v11.SCENARIOS else None,
         )
+        if cli_fixture_version >= 33 and scenario in continuity.host_v11.SCENARIOS:
+            path = root / "case.json"
+            onboarding.save_json(path, {**json.loads(path.read_text()), "cli_argv_protocol": 1})
         return continuity.score
     if suite == "consultation":
         consultation.prepare(root, current, scenario)
@@ -374,7 +380,10 @@ def main():
     run.add_argument("--output", type=Path, required=True, help="New private evidence directory outside the repository")
     run.add_argument("--workers", type=positive_int, default=4)
     run.add_argument(
-        "--cli-fixture-version", type=int, choices=(19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32), default=19
+        "--cli-fixture-version",
+        type=int,
+        choices=(19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33),
+        default=19,
     )
     run.add_argument("--onboarding-fixture-version", type=int, choices=(7, 8), default=7)
     run.add_argument(

@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 USER_ROOT = PurePosixPath("/synthetic-user")
 SKILL_ROOT = USER_ROOT / "skills"
 LOCKBOT_ROOT = USER_ROOT / "lockbot"
-PATH_OPTIONS = {"--connection", "--destination", "--key-file", "--directory"}
+PATH_OPTIONS = {"--connection", "--destination", "--key-file", "--directory", "--enrollment-dir", "--metadata-file"}
 OPTIONS = {
     "discover": {"--origin", "--destination"},
     "init": {"--origin", "--key-file", "--destination", "--scope", "--agent-label"},
@@ -24,6 +24,20 @@ OPTIONS = {
     "resources-all": {"--directory", "--mine", "--exact-lease-times"},
 }
 SWITCHES = {"--mine", "--exact-lease-times", "--help"}
+RESOURCE_OPTIONS = {
+    "list": {"--directory", "--node", "--model", "--search", "--limit", "--cursor", "--json"},
+    "view": {"--json"},
+    "devices": {"--model", "--limit", "--cursor", "--json"},
+}
+RESOURCE_SWITCHES = {"--mine", "--with-metrics", "--exact-lease-times", "--help"}
+PROTOCOL_SWITCHES = SWITCHES | {
+    "--authorized",
+    "--whole-node",
+    "--same-devices-on-all-nodes",
+    "--full",
+    "--with-metrics",
+    "--clear",
+}
 
 
 def enabled(case):
@@ -54,6 +68,9 @@ class PackagedCliHost:
     def __init__(self, fixture, *, artifact=None, options=None):
         self.artifact = artifact if artifact is not None else fixture.frozen
         self.options = OPTIONS if options is None else options
+        self.argv_protocol = fixture.case.get("cli_argv_protocol") == 1
+        if self.argv_protocol:
+            self.options = {**self.options, "resource": set()}
         self.fixture = fixture
         self.workspace = fixture.workspace
         self.user = self.workspace / "client-user"
@@ -163,12 +180,26 @@ class PackagedCliHost:
             raise ValueError("Use a nonempty bounded CLI argv array")
         if not all(isinstance(value, str) and len(value) <= 4096 and "\0" not in value for value in supplied):
             raise ValueError("Invalid CLI argument")
-        result, action = [], None
+        result, action, resource_action, reference = [], None, None, None
         index = 0
         while index < len(supplied):
             item = supplied[index]
             option, equals, inline = item.partition("=")
             if not item.startswith("-"):
+                if action == "resource" and resource_action is None:
+                    if item not in RESOURCE_OPTIONS:
+                        raise ValueError("Unsupported fixture resource action")
+                    resource_action = item
+                    execution["cli_resource_action"] = item
+                    result.append(item)
+                    index += 1
+                    continue
+                if action == "resource" and resource_action in {"view", "devices"} and reference is None:
+                    reference = item
+                    execution["cli_resource_ref"] = item
+                    result.append(item)
+                    index += 1
+                    continue
                 if action is not None:
                     raise ValueError("Unexpected positional CLI argument")
                 action = item
@@ -179,12 +210,28 @@ class PackagedCliHost:
                 index += 1
                 continue
             allowed = {"--connection"} if action is None else self.options[action]
-            if option in SWITCHES and (action is not None or option == "--help") and not equals:
+            if action == "resource":
+                if resource_action is None:
+                    raise ValueError("Resource subcommand required")
+                allowed = RESOURCE_OPTIONS[resource_action]
+            switches = (
+                RESOURCE_SWITCHES if action == "resource" else PROTOCOL_SWITCHES if self.argv_protocol else SWITCHES
+            )
+            if option in switches and (action is not None or option == "--help") and not equals:
                 result.append(option)
                 index += 1
                 continue
             if option not in allowed:
                 raise ValueError("Unsupported fixture CLI option")
+            if (
+                action == "resource"
+                and option == "--json"
+                and not equals
+                and (index + 1 == len(supplied) or supplied[index + 1].startswith("-"))
+            ):
+                result.append(option)
+                index += 1
+                continue
             if equals:
                 value = inline
             else:
@@ -200,6 +247,10 @@ class PackagedCliHost:
             index += 1
         if action is None and supplied != ["--help"]:
             raise ValueError("CLI action required")
+        if action == "resource" and (
+            resource_action is None or resource_action in {"view", "devices"} and reference is None
+        ):
+            raise ValueError("Resource subcommand/reference required")
         return result
 
     def validate_connection_files(self, argv, action):
@@ -211,7 +262,7 @@ class PackagedCliHost:
             elif option == "--directory":
                 directory = Path(value)
         paths = [selected] if selected is not None else []
-        if action in {"connections", "resources-all"} and directory.is_dir():
+        if action in {"connections", "resources-all", "resource"} and directory.is_dir():
             # Catalog traversal in the real CLI is bounded and does not follow directory symlinks.
             if directory.resolve() != directory:
                 raise ValueError("Connection catalog contains a symlink")

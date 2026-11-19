@@ -7,9 +7,20 @@ import stat
 import zipfile
 from pathlib import Path
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_cli import BUNDLE_FORMAT, REFERENCE_PATHS, content_version
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
+    BUNDLE_FORMAT,
+    REFERENCE_PATHS,
+    ClientError,
+    canonical_package_version,
+    content_version,
+)
 
 FILES = {"SKILL.md", "scripts/lockbot_cli.py", "installation.json"}
+LEGACY_REFERENCE_PATHS = (
+    "references/connections.md",
+    "references/resource-operations.md",
+    "references/workbench-and-metrics.md",
+)
 LIMIT = 1024 * 1024
 
 
@@ -40,14 +51,21 @@ def load(directory):
         if digest(raw["lockbot-agent.zip"]) != descriptor["sha256"]:
             raise ArtifactBlocked("artifact_digest_mismatch")
         prefix = descriptor["name"] + "/"
-        reference_paths = REFERENCE_PATHS if meta.get("package_format") == BUNDLE_FORMAT else ()
-        expected = {*FILES, *reference_paths}
         with zipfile.ZipFile(io.BytesIO(raw["lockbot-agent.zip"])) as archive:
             entries = archive.infolist()
-            if len(entries) != len(expected) or {entry.filename for entry in entries} != {
-                prefix + item for item in expected
-            }:
+            layouts = (
+                (REFERENCE_PATHS, LEGACY_REFERENCE_PATHS) if meta.get("package_format") == BUNDLE_FORMAT else ((),)
+            )
+            matched = [
+                names
+                for names in layouts
+                if len(entries) == len(FILES) + len(names)
+                and {entry.filename for entry in entries} == {prefix + item for item in (*FILES, *names)}
+            ]
+            if not matched:
                 raise ArtifactBlocked("complete_helper_bundle_required")
+            reference_paths = matched[0]
+            expected = {*FILES, *reference_paths}
             if sum(entry.file_size for entry in entries) > LIMIT or any(
                 stat.S_ISLNK(entry.external_attr >> 16) for entry in entries
             ):
@@ -73,10 +91,31 @@ def load(directory):
             raise ArtifactBlocked("artifact_revision_mismatch")
         if stamp["files"] != {name: digest(contents[name]) for name in expected - {"installation.json"}}:
             raise ArtifactBlocked("artifact_file_digest_mismatch")
+        if meta.get("package_format") == BUNDLE_FORMAT and (
+            stamp.get("package_format") != meta["package_format"]
+            or stamp.get("package_version") != meta.get("package_version")
+            or canonical_package_version(
+                contents["SKILL.md"],
+                contents["scripts/lockbot_cli.py"],
+                stamp.get("deployment_origin"),
+                {name: contents[name] for name in reference_paths},
+            )
+            != meta.get("package_version")
+        ):
+            raise ArtifactBlocked("artifact_package_metadata_mismatch")
         return {"manifest": meta, "archive": raw["lockbot-agent.zip"], "contents": contents}
     except ArtifactBlocked:
         raise
-    except (OSError, ValueError, TypeError, KeyError, UnicodeError, RecursionError, zipfile.BadZipFile) as error:
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        UnicodeError,
+        RecursionError,
+        zipfile.BadZipFile,
+        ClientError,
+    ) as error:
         raise ArtifactBlocked("complete_artifact_invalid_or_missing") from error
 
 
