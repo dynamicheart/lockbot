@@ -4,13 +4,18 @@
 
 Use the bundled CLI. If the provided Key has no saved connection yet, verify it with
 `init --key-file` and pass `--metrics-origin <origin>` only for the separately approved
-source. Then run `--connection <file> resources` for ownership and
-`--connection <file> metrics --node <node-id>` for utilization. The helper refreshes
-an expired grant once and reports valid percentages with `sample_age_seconds`.
-Repeat `--node` to query several nodes together. For a resource-and-load task, use
-`resources --node <id-or-alias> --with-metrics`, or narrow `resources-all` with `--model`
-and add `--with-metrics`. The helper batches the selected nodes inside one invocation;
-telemetry failure does not erase the resource result. Default metric output contains
+source. Reuse saved access thereafter. For a resource-and-load task, use
+`resource list --model <model> --with-metrics --json node,states,metrics`, or
+`resource view <ref> --with-metrics` for a selected node. Use
+`resource devices <ref> --with-metrics` for mapped card detail. The helper batches
+selected native nodes inside one invocation; telemetry failure does not erase the
+resource result. Compact readers return summaries with coverage and freshness;
+sources that only report percentages retain unknown hardware sample time. See
+[resource queries](resource-queries.md) for paging and field selection. The separate
+`metrics` command is available for explicit source diagnostics or detail absent from
+combined readers; repeat `--node` to query several nodes together. It refreshes an
+expired grant once and reports `sample_age_seconds` only for sources with a known
+sample time. Its default output contains
 normalized CPU/card percentages, available reported memory/filesystem readings, and
 per-reading health/freshness rather than a duplicate raw Prometheus vector. Use `metrics --full`
 only when debugging that vector. Missing memory readings are unknown, not zero.

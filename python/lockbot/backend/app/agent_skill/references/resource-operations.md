@@ -1,5 +1,9 @@
 # Resource operations and leases
 
+For resource discovery, bounded JSON fields and pagination, start with
+[resource queries](resource-queries.md). The compatibility readers below remain
+useful for rules, reminder events or diagnostics not included in compact rows.
+
 ## Resolve a short node request in one CLI invocation
 
 For an explicit node request such as “lock 19”, preserve the user's literal target:
@@ -199,7 +203,10 @@ the former holder in a queue. A separate booking needs its own user authorizatio
 
 ### Own resources and reminder requests
 
-For holdings or bookings, use `resources-all --mine` (or `resources --mine` with one
+For holdings or bookings, start with `resource list --mine`, selecting `holdings`
+and `bookings` when their details are needed. Continue remaining pages and inspect
+clipped records with `resource view REF --mine`. For reminder event details absent
+from compact rows, use `resources --ref REF --mine` (or `resources --mine` with one
 selected connection). The CLI matches the exact verified actor and separates `holdings`
 from `bookings`, retaining node, alias, card/model and applicable remaining time or queue
 rank. Unknown fields stay null; bookings never inherit a holder's expiry. Check every

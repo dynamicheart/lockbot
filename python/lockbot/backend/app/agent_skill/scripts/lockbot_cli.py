@@ -38,6 +38,7 @@ LEGACY_BUNDLE_FORMAT = "canonical-origin-v1"
 REFERENCE_PATHS = (
     "references/connections.md",
     "references/resource-operations.md",
+    "references/resource-queries.md",
     "references/workbench-and-metrics.md",
 )
 ENROLLMENT_PATH = "/api/resource-auth/bindings"

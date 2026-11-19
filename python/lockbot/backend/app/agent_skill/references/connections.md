@@ -28,7 +28,7 @@ freshness is measured from the original observation, and no Key fingerprint is r
 python3 "$LOCKBOT_CLI" --help
 python3 "$LOCKBOT_CLI" command --help
 python3 "$LOCKBOT_CLI" connections
-python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
+python3 "$LOCKBOT_CLI" resource list --limit 5 --json node,unit,hardware,states
 ```
 
 | Goal | Subcommand |
@@ -38,8 +38,8 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
 | Request a binding and finish after the user confirms | `key-challenge`, then `finish-enrollment` |
 | Invalidate the old Key after explicit authorization and group confirmation | `key-challenge --purpose reset`, then `finish-enrollment` |
 | Restore additional bindings using a verified existing Key | `recover` |
-| Find or verify a saved connection | `connections` or `context` |
-| Read status or use an exact resource | `resources` or `command` |
+| Find saved access or inspect additional context capabilities | `connections` or `context` |
+| Find resources, inspect one, or act on it | `resource list`, `resource view REF`, or `command` |
 | Open the workbench or check utilization | `panel-link` or `metrics` |
 
 ## Install the complete ZIP and use the fixed client
@@ -152,8 +152,9 @@ requests with their group, service and `enrollment_dir`. Use that directory with
 `enrollment-status` to check current server state, even if the displayed code expiry
 has passed. A binding confirmed before expiry can still be finished. For an explicit
 enrollment directory outside the two catalogs, use `connections --directory <directory>`.
-Verify the live identity with `context`
-using the chosen record. By default, `init`, `key-challenge` and `recover` save under the
+The next resource read verifies the live identity; a separate `context` call is only
+needed for additional capabilities or explicit diagnostics. By default, `init`,
+`key-challenge` and `recover` save under the
 current user's private `~/.lockbot/connections/` catalog. For isolated tests set
 `LOCKBOT_HOME` to an absolute directory. Default reads and writes use only its
 `connections/` catalog while the variable is set. Without the override, `connections`
@@ -168,12 +169,9 @@ Start with an already-approved service URL and an existing private personal-key 
 `init` command discovers the bot UUID through context; the user need not know a bot ID:
 
 ```sh
-python3 "$LOCKBOT_CLI" init --origin <approved-origin> --key-file /private/resource.key --destination /private/connection.json
-python3 "$LOCKBOT_CLI" --connection /private/connection.json context
-python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation release --node node-a --whole-node
+python3 "$LOCKBOT_CLI" init --origin <approved-origin> --key-file /private/resource.key
+# If init returns result.next_command, run that exact command once before querying.
+python3 "$LOCKBOT_CLI" resource list --limit 5 --json node,unit,hardware,states
 ```
 
 Give each Agent installation a stable, recognizable label when you want to track its recent activity.
@@ -206,19 +204,28 @@ that it belongs here. Another Lockbot implementation can have a different authen
 protocol and permission scope. Check the advertised service identity and API version;
 never transfer credentials or assumptions such as one token authorizing every bot.
 
-Run `discover --origin <approved-service>` before setting up a connection. Use `init` for an existing Key or `key-challenge` with the user's approval when there is no valid local Key. In later sessions, run `connections` from the project and use `context` with the selected private connection. The CLI verifies the service, instance and Key's group. Ask for the address if it is missing and for the intended service if several match. Keep credentials scoped to the approved service and verified group.
+Use `init` for an existing Key or an authorized `key-challenge` when there is no valid
+local Key. Both verify the service before authentication; no preliminary `discover`
+is required. Use `discover` for anonymous inspection or explicitly saving a service.
+Later resource reads verify saved service, instance and principal directly. Run
+`connections` when locating saved access or unfinished sign-in, and `context` when
+additional capabilities are needed. Ask for the address only if it is unknown, or
+clarify the intended service when several match. Keep credentials scoped to the
+approved service and verified group.
 
 ## Keep credentials and resource assignments scoped
 
 ### Discover your existing bindings before enrolling again
 
-For “看看我能申请什么资源”, run `recover` once with an existing verified seed
-connection when supported. `init` returns `result.next_command` only after verifying
-the recovery capability and same-origin endpoint. For this resource request, run that
-exact CLI command once before inventory reads; use its returned seed path, not a
-guessed `seed.json`. Installation-only requests still stop without recovery.
-Read each returned group with its matching connection, then
-report actual resources, hardware and availability. The user need not know the group names.
+For “看看我能申请什么资源” with a healthy saved catalog, start with `resource list`;
+ordinary queries do not require recovery first. When importing a private seed,
+`init` returns `result.next_command` only after verifying the recovery capability
+and same-origin endpoint. Run that exact command once before the initial resource
+query; use its returned seed path, not a guessed `seed.json`. Also use `recover`
+for an explicit restore/additional-binding request. Installation-only stops without
+recovery. Read recovered access through `resource list` and its continuation, rather
+than querying every group separately. Report actual hardware and availability;
+the user need not know group names.
 Keep the seed usable if another group cannot be recovered; report only the scope verified.
 On Feishu, recovery requires the same verified application and tenant. Equal user IDs from
 different applications do not establish the same identity.
