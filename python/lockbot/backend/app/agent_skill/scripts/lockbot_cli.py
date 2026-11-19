@@ -5012,8 +5012,10 @@ def resource_list_text(encoded):
             state = "conflicting observations"
         elif row.get("observation_incomplete"):
             state = "peer observations incomplete"
-        elif "holding_units" in row:
-            state = f"held:{row['holding_units']} booked:{row['booking_units']}"
+        elif "holding_units" in row or "booking_units" in row:
+            counts = [row.get("holding_units"), row.get("booking_units")]
+            shown = [value if type(value) is int and value >= 0 else "?" for value in counts]
+            state = f"held:{shown[0]} booked:{shown[1]}"
         else:
             state = " ".join(f"{key}:{count}" for key, count in row.get("states", {}).items() if count) or "unknown"
         lines.append(f"{node}  {row.get('unit', '?')}  {hardware}  {state}  {row['ref']}")

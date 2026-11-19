@@ -57,6 +57,10 @@ value = {"result": {"rows": rows, "has_more": more, "next_cursor": "opaque curso
 result = value["result"]
 if mode == "write_capability":
     result["capabilities"].append("write")
+elif mode == "holding_only":
+    result["rows"] = [{"ref": "x-demo/node", "holding_units": 1}]
+elif mode == "booking_only":
+    result["rows"] = [{"ref": "x-demo/node", "booking_units": 0}]
 elif mode == "native_ref":
     rows[0]["ref"] = "s-" + "a" * 64 + "/node"
 elif mode == "duplicate":
@@ -300,3 +304,10 @@ def test_parent_timeout_terminates_a_real_provider_process(provider, monkeypatch
     assert helper.main(["--resource-provider", str(provider.path), "resource", "list"]) == 2
     value = capsys.readouterr()
     assert value.out == "" and json.loads(value.err)["error"] == "resource_provider_timeout"
+
+
+@pytest.mark.parametrize("mode,expected", [("holding_only", "held:1 booked:?"), ("booking_only", "held:? booked:0")])
+def test_generic_terminal_rows_tolerate_optional_personal_counts(provider, mode, expected):
+    provider.register(mode)
+    text = provider.invoke("resource", "list", text=True)
+    assert expected in text and "x-demo/node" in text
