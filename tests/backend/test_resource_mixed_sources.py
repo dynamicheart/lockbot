@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from lockbot.backend.app.resource_api import skill
 
 from backend.test_resource_agent_helper import helper
 from backend.test_resource_agent_resources_all import aggregate  # noqa: F401
@@ -163,6 +164,82 @@ def test_one_page_contains_native_and_external_without_name_or_credential_mergin
     assert request["budget"]["max_http_requests"] == 10
     assert request["budget"]["max_rows"] == 19 and request["query"]["limit"] == 20
     assert len(native.events) == 2
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_native_skill_update_survives_packaged_mixed_read_without_extra_http(mixed, monkeypatch, empty):
+    artifacts = skill.skill_artifacts
+
+    def changed_manifest():
+        markdown, script, manifest = artifacts()
+        return markdown, script, {**manifest, "version": "a" * 16, "package_version": "b" * 16}
+
+    monkeypatch.setattr(skill, "skill_artifacts", changed_manifest)
+    native = mixed.aggregate.server(1)
+    if empty:
+        native.extra["resources"] = []
+    mixed.aggregate.record(native, "native")
+    mixed.register(names=["external"])
+    path = mixed.sources()
+    result = mixed.execute(path, "resource", "list", "--json", "node")["result"]
+    assert result["update_required"] is True
+    assert result["http_requests"] == result["http_budget_used"] == 4
+    assert len(native.events) == 2 and all(event[1] == "GET" for event in native.events)
+    assert [row["node"] for row in result["rows"]] == (["external"] if empty else ["same-node", "external"])
+    assert result["scope_complete"]
+    assert "Skill update required before resource changes." in mixed.execute(
+        path, "resource", "list", human=True
+    )
+    assert len(native.events) == 4 and len(mixed.requests()) == 2
+
+
+@pytest.mark.parametrize("native", [False, True])
+def test_provider_cannot_inject_native_skill_update_authority(mixed, native):
+    mixed.register()
+
+    def native_reader(*args, **kwargs):
+        return json.dumps({"result": {
+            "rows": [], "has_more": False, "next_cursor": None, "scope_complete": True,
+            "http_requests": 2, "valid_for_seconds": 60, "coverage_valid_for_seconds": 60,
+            "update_required": False,
+        }})
+
+    def provider_reader(*args, **kwargs):
+        return json.dumps({"result": {
+            "rows": [], "has_more": False, "next_cursor": None, "scope_complete": True,
+            "http_requests": 2, "valid_for_seconds": 60, "coverage_valid_for_seconds": 60,
+            "inventory_scope": "full_inventory", "update_required": True,
+            "instruction_refresh_required": True, "instruction_state": "changed",
+            "skill_update": {"current_version": "untrusted"},
+        }})
+
+    result = json.loads(helper.mixed_resource_list(
+        mixed.sources(native=native), query=helper._mixed_query(), clock=lambda: 0,
+        native_reader=native_reader, provider_reader=provider_reader,
+    ))["result"]
+    assert result["http_requests"] == (4 if native else 2)
+    assert result["scope_complete"]
+    assert not {"update_required", "instruction_refresh_required", "instruction_state", "skill_update"} & result.keys()
+
+
+@pytest.mark.parametrize("state", ["changed", "unknown"])
+def test_native_legacy_instruction_notice_survives_empty_mixed_page(mixed, state):
+    def native_reader(*args, **kwargs):
+        return json.dumps({"result": {
+            "rows": [], "has_more": False, "next_cursor": None, "scope_complete": True,
+            "http_requests": 2, "valid_for_seconds": 60, "coverage_valid_for_seconds": 60,
+            "instruction_refresh_required": True, "instruction_state": state,
+        }})
+
+    encoded = helper.mixed_resource_list(
+        mixed.sources(), query=helper._mixed_query(), clock=lambda: 0, native_reader=native_reader,
+    )
+    result = json.loads(encoded)["result"]
+    assert result["instruction_refresh_required"] is True
+    assert result["instruction_state"] == state
+    assert result["api_profiles"] == ["native-legacy-read-v1"]
+    assert result["http_requests"] == 2
+    assert "Refresh service instructions before resource changes." in helper.resource_list_text(encoded)
 
 
 def test_search_is_applied_by_each_source_before_selected_fields_and_paging(mixed):

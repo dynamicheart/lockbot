@@ -6052,6 +6052,10 @@ def resource_list_text(encoded, *, mine=None):
         lines.append("No matching rows observed." if value.get("catalog_scopes", 1) else "No saved connections.")
     if not value["scope_complete"]:
         lines.append("Partial observation; this page does not establish a complete inventory.")
+    if value.get("update_required") is True:
+        lines.append("Skill update required before resource changes.")
+    elif value.get("instruction_refresh_required") is True:
+        lines.append("Refresh service instructions before resource changes.")
     if with_metrics:
         lines.append("Utilization is best effort; zero does not mean free.")
         if any(row.get("metrics", {}).get("mode") == REPORTED_METRICS_MODE for row in rows):
@@ -7608,6 +7612,7 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
     position, inner = _mixed_position(cursor, fingerprint, query_digest, len(phases))
     chunks, coverage, reasons = [], [], set()
     metrics_chunks, metrics_reasons, metrics_complete, metrics_retry = [], set(), True, None
+    native_notices = {}
     with_metrics = query.get("with_metrics") is True
     known_calls, charged, calls_complete, all_complete, retry_after = 0, 0, True, True, None
     packing_requeries, page_override = 0, None
@@ -7667,6 +7672,7 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
             "unread_reasons": errors[:4],
             "additional_unread_reasons": max(0, len(errors) - 4),
             "retry_after_seconds": retry_after,
+            **native_notices,
         }
         if worst_case:
             # Reserve framing for later source failures and every row's larger
@@ -7782,6 +7788,18 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
                 error = ClientError("source_continuation_invalid")
                 error.http_requests = count
                 raise error from None
+            # Only our native reader can report the installed bundle's revision.
+            # Providers cannot require updates to or certify this CLI/Skill. Keep
+            # actual notices even if row packing defers this observation's rows.
+            if phase["kind"] == "native":
+                if page.get("update_required") is True:
+                    native_notices["update_required"] = True
+                if page.get("instruction_refresh_required") is True:
+                    native_notices.update(
+                        api_profiles=["native-legacy-read-v1"],
+                        instruction_refresh_required=True,
+                        instruction_state="changed" if page.get("instruction_state") == "changed" else "unknown",
+                    )
             ttl = _mixed_duration(page.get("valid_for_seconds"))
             cover_ttl = _mixed_duration(page.get("coverage_valid_for_seconds"))
             chunk = (page["rows"], phase_started + ttl)
