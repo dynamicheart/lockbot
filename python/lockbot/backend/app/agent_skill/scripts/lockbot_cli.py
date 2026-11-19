@@ -45,6 +45,7 @@ CREDENTIAL_CHALLENGE_PATH = "/api/resource-auth/credential-challenges"
 RECOVERY_PATH = "/api/agent/bindings/recover"
 MAX_BYTES = 1024 * 1024
 MAX_CALLS = 12
+REPORTED_METRICS_MODE = "reported_resource_utilization_v1"
 MAX_CATALOG_RECORDS = 256
 MAX_CATALOG_ENTRIES = 4096
 MAX_CATALOG_BYTES = 4 * 1024 * 1024
@@ -5596,6 +5597,32 @@ class _ResourceListReader:
         finally:
             self.calls = client.calls
 
+    def metrics_validity(self, groups, node):
+        """Conservative summary lifetime, independent of resource snapshot age."""
+        if not groups:
+            return 0.0
+        group = groups[0]
+        receipt = group.get("_metrics_receipts", {}).get(node)
+        matches = [row for row in group.get("_metrics", {}).get("utilization", []) if row.get("node") == node]
+        if receipt is None or len(matches) != 1:
+            return 0.0
+        ages = []
+
+        def samples(value):
+            if isinstance(value, dict):
+                if value.get("status") == "ok" and metric_number(value.get("sample_age_seconds")) is not None:
+                    ages.append(value["sample_age_seconds"])
+                for item in value.values():
+                    samples(item)
+            elif isinstance(value, list):
+                for item in value:
+                    samples(item)
+
+        samples(matches[0])
+        received, threshold = receipt
+        elapsed = self.clock() - received
+        return max(0.0, min(60, threshold - max(ages) - elapsed)) if ages and elapsed >= 0 else 0.0
+
     def project(self, groups, query, *, incomplete=False):
         aged = []
         for group in groups:
@@ -5754,6 +5781,7 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
     def encoded(entries, position, *, reserve=0):
         final_rows, totals, valid = [], Counter(), True
         metrics_errors, metrics_retry = set(), None
+        metrics_lifetimes = []
         validity, coverage_validity = [], []
         per_scope = {}
         legacy_notes = []
@@ -5771,6 +5799,12 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
                 elif not groups or node not in groups[0].get("_metrics_nodes", set()):
                     metrics_errors.add("metrics_not_read")
                 else:
+                    reading = row.get("metrics", {})
+                    cpu, accelerator = reading.get("cpu", {}), reading.get("accelerator", {})
+                    if (cpu.get("status") == "ok" and cpu.get("percent") is not None) or (
+                        accelerator.get("ok_devices", 0) > 0 and accelerator.get("mean_percent") is not None
+                    ):
+                        metrics_lifetimes.append(reader.metrics_validity(groups, node))
                     for error in groups[0].get("_metrics", {}).get("unread", []):
                         if node in error.get("nodes", []):
                             metrics_errors.add(error["error"])
@@ -5866,6 +5900,7 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
                 metrics_scope="returned_nodes",
                 metrics_unread_reasons=sorted(metrics_errors)[:8],
                 metrics_retry_after_seconds=metrics_retry,
+                metrics_valid_for_seconds=min(metrics_lifetimes, default=0.0),
             )
         if token is not None:
             result["next_command"] = command(token)
@@ -5977,7 +6012,7 @@ def resource_list_text(encoded, *, mine=None):
     value = json.loads(encoded)["result"]
     rows = value["rows"]
     with_metrics = value.get("metrics_requested")
-    columns = "  CPU %  ACCEL % (OK/SELECTED)" if with_metrics else ""
+    columns = "  CPU %  COMPUTE % (SAMPLES/SELECTED)" if with_metrics else ""
     lines = ["NODE  UNIT  HARDWARE  OBSERVATION" + columns + "  REF"]
     for row in rows:
         node = row.get("node")
@@ -6001,11 +6036,17 @@ def resource_list_text(encoded, *, mine=None):
             reading = row.get("metrics", {})
             cpu, accelerator = reading.get("cpu", {}), reading.get("accelerator", {})
             cpu_text = str(cpu["percent"]) if cpu.get("status") == "ok" else "?"
-            percent = accelerator.get("mean_percent")
-            accelerator_text = str(round(percent, 2)) if percent is not None else "?"
-            expected = accelerator.get("selected_devices")
+            if reading.get("mode") == REPORTED_METRICS_MODE:
+                reported = reading["resource"]
+                percent = reported["reported_mean_percent"]
+                accelerator_text = "reported:" + str(round(percent, 2)) if percent is not None else "?"
+                expected, samples = reported["selected_units"], reported["reported_units"]
+            else:
+                percent = accelerator.get("mean_percent")
+                accelerator_text = str(round(percent, 2)) if percent is not None else "?"
+                expected, samples = accelerator.get("selected_devices"), accelerator.get("ok_devices", 0)
             denominator = expected if expected is not None else "?"
-            metrics = f"  {cpu_text}  {accelerator_text} ({accelerator.get('ok_devices', 0)}/{denominator})"
+            metrics = f"  {cpu_text}  {accelerator_text} ({samples}/{denominator})"
         lines.append(f"{node}  {row.get('unit', '?')}  {hardware}  {state}{metrics}  {row['ref']}")
     if not rows:
         lines.append("No matching rows observed." if value.get("catalog_scopes", 1) else "No saved connections.")
@@ -6013,6 +6054,8 @@ def resource_list_text(encoded, *, mine=None):
         lines.append("Partial observation; this page does not establish a complete inventory.")
     if with_metrics:
         lines.append("Utilization is best effort; zero does not mean free.")
+        if any(row.get("metrics", {}).get("mode") == REPORTED_METRICS_MODE for row in rows):
+            lines.append("Reported percentages have unknown device sample times.")
         if not value.get("metrics_read_complete"):
             lines.append("Metrics incomplete: " + ", ".join(value.get("metrics_unread_reasons", [])))
     if value.get("unread_reasons"):
@@ -6862,7 +6905,10 @@ def _provider_registration(path):
     """Load executable registration only; the provider owns its private config."""
     try:
         registration = private_json(path)
-        if set(registration) != {"schema_version", "command", "config_file"}:
+        if (
+            not {"schema_version", "command", "config_file"} <= set(registration)
+            or set(registration) - {"schema_version", "command", "config_file", "capabilities"}
+        ):
             raise ValueError
         command, config = registration["command"], registration["config_file"]
         if (
@@ -6879,6 +6925,15 @@ def _provider_registration(path):
             or not Path(config).is_absolute()
         ):
             raise ValueError
+        if "capabilities" in registration:
+            capabilities = registration["capabilities"]
+            if (
+                not isinstance(capabilities, list) or len(capabilities) > 16
+                or any(not isinstance(item, str) or re.fullmatch(r"[a-z][a-z0-9_]{0,79}", item) is None
+                       for item in capabilities)
+                or len(capabilities) != len(set(capabilities))
+            ):
+                raise ValueError
         return registration
     except (ClientError, ValueError, TypeError, KeyError, UnicodeError, OSError):
         raise ClientError("resource_provider_registration_invalid") from None
@@ -6921,6 +6976,91 @@ def _provider_safe_value(value, private_paths):
             and not any(path in value for path in private_paths)
         )
     return value is None or type(value) in (bool, int) or type(value) is float and math.isfinite(value)
+
+
+def _provider_reported_metrics_valid(value):
+    """Only percentages reported by resource units; never invented sample health."""
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"mode", "best_effort", "does_not_authorize_resources", "resource"}
+        or value["mode"] != REPORTED_METRICS_MODE or value["best_effort"] is not True
+        or value["does_not_authorize_resources"] is not True
+    ):
+        return False
+    resource = value["resource"]
+    fields = {
+        "status", "reported_mean_percent", "reported_memory_mean_percent", "percent", "sample_age_seconds",
+        "sample_time_known", "report_age_seconds", "reported_units", "memory_reported_units", "selected_units",
+        "sample_states", "memory_sample_states", "selection_complete",
+    }
+    if (
+        not isinstance(resource, dict) or set(resource) != fields
+        or resource["percent"] is not None or resource["sample_age_seconds"] is not None
+        or resource["sample_time_known"] is not False or type(resource["selection_complete"]) is not bool
+    ):
+        return False
+
+    def count(value):
+        return type(value) is int and 0 <= value <= 2**31 - 1
+
+    age, selected = resource["report_age_seconds"], resource["selected_units"]
+    if age is not None and (type(age) not in (int, float) or metric_number(age) is None or age < 0):
+        return False
+    if resource["selection_complete"]:
+        if not count(selected):
+            return False
+    elif selected is not None:
+        return False
+    totals = []
+    for mean_field, count_field, states_field in (
+        ("reported_mean_percent", "reported_units", "sample_states"),
+        ("reported_memory_mean_percent", "memory_reported_units", "memory_sample_states"),
+    ):
+        mean, reported, states = resource[mean_field], resource[count_field], resource[states_field]
+        if (
+            not count(reported) or not isinstance(states, dict)
+            or set(states) - {"reported", "missing", "invalid", "stale"}
+            or any(not count(value) for value in states.values())
+            or states.get("reported", 0) != reported
+            or (mean is None if reported else mean is not None)
+            or mean is not None and (
+                type(mean) not in (int, float) or metric_number(mean) is None or not 0 <= mean <= 100
+            )
+        ):
+            return False
+        total = sum(states.values())
+        if total > 2**31 - 1 or selected is not None and total != selected:
+            return False
+        totals.append(total)
+    if totals[0] != totals[1]:
+        return False
+    states, reported = resource["sample_states"], resource["reported_units"]
+    status = (
+        "not_required" if selected == 0 else
+        "reported" if reported and resource["selection_complete"] and reported == selected else
+        "partial" if reported else "stale" if states.get("stale", 0) else
+        "invalid" if states.get("invalid", 0) or age is None else "missing"
+    )
+    return resource["status"] == status and (
+        age is not None or resource["reported_units"] == resource["memory_reported_units"] == 0
+    )
+
+
+def _provider_metrics_metadata_valid(result):
+    reasons, retry, lifetime = (
+        result.get("metrics_unread_reasons"), result.get("metrics_retry_after_seconds"),
+        result.get("metrics_valid_for_seconds"),
+    )
+    return (
+        result.get("metrics_mode") == REPORTED_METRICS_MODE and result.get("metrics_requested") is True
+        and type(result.get("metrics_read_complete")) is bool
+        and isinstance(reasons, list) and len(reasons) <= 8
+        and all(isinstance(reason, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", reason) for reason in reasons)
+        and len(reasons) == len(set(reasons))
+        and (not result["metrics_read_complete"] or not reasons)
+        and (retry is None or type(retry) in (int, float) and metric_number(retry) is not None and 0 <= retry <= 2**31)
+        and type(lifetime) in (int, float) and metric_number(lifetime) is not None and 0 <= lifetime <= 60
+    )
 
 
 def _provider_response(
@@ -7023,6 +7163,36 @@ def _provider_response(
         error = ClientError("source_search_not_supported")
         error.http_requests = result["http_requests"]
         raise error
+    if query.get("with_metrics"):
+        def invalid_metrics():
+            error = ClientError("resource_provider_response_invalid")
+            error.http_requests = result["http_requests"]
+            raise error
+
+        if not _provider_metrics_metadata_valid(result):
+            if any("metrics" in row for row in rows):
+                invalid_metrics()
+            # A valid inventory reply which ignored the optional feature remains
+            # inventory evidence, with an explicit telemetry gap and no fallback.
+            result.update(metrics_requested=True, metrics_read_complete=False,
+                          metrics_unread_reasons=["source_metrics_not_supported"],
+                          metrics_retry_after_seconds=None, metrics_valid_for_seconds=0)
+            return value
+        for row in rows:
+            if "metrics" in row:
+                if not _provider_reported_metrics_valid(row["metrics"]):
+                    invalid_metrics()
+            elif (
+                (query["fields"] is None or "metrics" in query["fields"])
+                and not row.get("detail_deferred") and not (
+                    row.get("observation_incomplete") is True
+                    and "metrics_detail_deferred" in result["metrics_unread_reasons"]
+                    and result["metrics_read_complete"] is False
+                )
+            ):
+                invalid_metrics()
+    elif any("metrics" in row for row in rows):
+        raise ClientError("resource_provider_response_invalid")
     return value
 
 
@@ -7065,6 +7235,8 @@ def resource_provider_output(
             raise ClientError("resource_provider_registration_changed")
         if ref_namespace is not None and _mixed_provider_id(path, registration) != ref_namespace:
             raise ClientError("resource_provider_registration_changed")
+        if query.get("with_metrics") and REPORTED_METRICS_MODE not in registration.get("capabilities", []):
+            raise ClientError("resource_provider_metrics_not_supported")
     except ClientError as error:
         error.http_requests = 0
         raise
@@ -7159,7 +7331,14 @@ def resource_provider_output(
         page_limit=page_limit,
         ref_namespace=ref_namespace,
     )
-    if ref_namespace is not None and _mixed_provider_id(path, _provider_registration(path)) != ref_namespace:
+    try:
+        latest_registration = _provider_registration(path)
+    except ClientError as error:
+        error.http_requests = value.get("result", {}).get("http_requests", 0)
+        raise
+    if latest_registration != registration or (
+        ref_namespace is not None and _mixed_provider_id(path, latest_registration) != ref_namespace
+    ):
         error = ClientError("resource_provider_registration_changed")
         error.http_requests = value.get("result", {}).get("http_requests", 0)
         raise error
@@ -7183,6 +7362,7 @@ MIXED_FIELDS = (
     "snapshot_fresh",
     "holding_units",
     "booking_units",
+    "metrics",
 )
 
 
@@ -7199,7 +7379,8 @@ def _mixed_provider_id(path, registration):
         stamp = [stat_info.st_dev, stat_info.st_ino, stat_info.st_size, stat_info.st_mtime_ns]
     except OSError:
         stamp = None
-    return _mixed_hash(["provider-reference-v1", str(Path(path).resolve()), registration, stamp])
+    identity = {key: value for key, value in registration.items() if key != "capabilities"}
+    return _mixed_hash(["provider-reference-v1", str(Path(path).resolve()), identity, stamp])
 
 
 def mixed_reference(namespace, reference):
@@ -7291,7 +7472,8 @@ def _mixed_sources(path):
                 }
             )
         provider_entries = [phase for phase in phases if phase["kind"] == "provider"]
-        if not phases or len({_mixed_hash(phase["registration"]) for phase in provider_entries}) != len(
+        if not phases or len({_mixed_hash({key: value for key, value in phase["registration"].items()
+                                           if key != "capabilities"}) for phase in provider_entries}) != len(
             value["providers"]
         ):
             raise ValueError
@@ -7356,17 +7538,64 @@ def _mixed_position(token, fingerprint, query_digest, count):
         raise ClientError("mixed_cursor_invalid") from None
 
 
-def _mixed_query(*, nodes=(), model=None, fields=None, limit=20, mine=False, search=None):
+def _mixed_query(*, nodes=(), model=None, fields=None, limit=20, mine=False, search=None, with_metrics=False):
     if fields is not None and (
         not isinstance(fields, (list, tuple)) or not fields or any(field not in MIXED_FIELDS for field in fields)
     ):
         raise ClientError("mixed_fields_invalid")
-    query = resource_list_query(nodes, model, fields, limit, mine, search=search)
+    query = resource_list_query(nodes, model, fields, limit, mine, search=search, with_metrics=with_metrics)
     return {key: value for key, value in query.items() if key != "legacy_read"}
 
 
 def _mixed_duration(value):
     return value if type(value) in (int, float) and 0 <= value <= 60 else 0
+
+
+def mixed_metrics_at_completion(row, *, elapsed, expired):
+    """Retire combined observations without inventing a device sample timestamp."""
+    result = deepcopy(row)
+    metrics = result.get("metrics")
+    if not isinstance(metrics, dict):
+        return result
+    if metrics.get("mode") == REPORTED_METRICS_MODE:
+        resource = metrics["resource"]
+        if resource["report_age_seconds"] is not None:
+            resource["report_age_seconds"] += max(0, elapsed)
+        if expired:
+            for mean, count, states_key in (
+                ("reported_mean_percent", "reported_units", "sample_states"),
+                ("reported_memory_mean_percent", "memory_reported_units", "memory_sample_states"),
+            ):
+                resource[mean] = None
+                resource[count] = 0
+                states = resource[states_key]
+                reported = states.pop("reported", 0)
+                if reported:
+                    states["stale"] = states.get("stale", 0) + reported
+            states = resource["sample_states"]
+            resource["status"] = (
+                "not_required" if resource["selected_units"] == 0 else "stale" if states.get("stale", 0)
+                else "invalid" if states.get("invalid", 0) or resource["report_age_seconds"] is None else "missing"
+            )
+    else:
+        cpu = metrics.get("cpu")
+        if isinstance(cpu, dict):
+            age = cpu.get("sample_age_seconds")
+            if metric_number(age) is not None:
+                cpu["sample_age_seconds"] = age + max(0, elapsed)
+            if expired and cpu.get("status") == "ok":
+                cpu.update(status="stale", percent=None)
+        accelerator = metrics.get("accelerator")
+        if expired and isinstance(accelerator, dict):
+            ok = accelerator.get("ok_devices", 0)
+            accelerator.update(mean_percent=None, ok_devices=0,
+                               non_ok_devices=accelerator.get("non_ok_devices", 0) + ok)
+            states = accelerator.get("sample_states", {})
+            healthy = states.pop("ok", 0)
+            if healthy:
+                states["stale"] = states.get("stale", 0) + healthy
+            accelerator["status"] = "not_required" if accelerator.get("selected_devices") == 0 else "missing"
+    return result
 
 
 def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, native_reader=None, provider_reader=None):
@@ -7378,6 +7607,8 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
     query_digest = _mixed_hash(["mixed-query-v1", query])
     position, inner = _mixed_position(cursor, fingerprint, query_digest, len(phases))
     chunks, coverage, reasons = [], [], set()
+    metrics_chunks, metrics_reasons, metrics_complete, metrics_retry = [], set(), True, None
+    with_metrics = query.get("with_metrics") is True
     known_calls, charged, calls_complete, all_complete, retry_after = 0, 0, True, True, None
     packing_requeries, page_override = 0, None
     native_reader = native_reader or resource_list
@@ -7388,10 +7619,19 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
         token = None if exhausted else mixed_cursor(fingerprint, query_digest, next_position, next_inner)
         rows, expired = [], False
         now = clock()
-        for entries, valid_until in chunks:
+        for index, (entries, valid_until) in enumerate(chunks):
             for original in entries:
-                row = dict(original)
-                stale = dict(row)
+                if with_metrics:
+                    received, metrics_until = metrics_chunks[index]
+                    row = mixed_metrics_at_completion(
+                        original, elapsed=60.12345678901234 if worst_case else max(0, now - received),
+                        expired=not worst_case and now >= min(metrics_until, valid_until),
+                    )
+                    stale = mixed_metrics_at_completion(
+                        row, elapsed=0, expired=True,
+                    )
+                else:
+                    row, stale = dict(original), dict(original)
                 stale["observation_incomplete"] = True
                 if "snapshot_fresh" in stale:
                     stale["snapshot_fresh"] = False
@@ -7434,8 +7674,19 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
             result["scope_complete"] = False
             result["unread_reasons"] = ["x" * 80] * 4
             result["additional_unread_reasons"] = 99
+        if with_metrics:
+            result.update(
+                metrics_requested=True, metrics_read_complete=metrics_complete,
+                metrics_unread_reasons=sorted(metrics_reasons)[:4],
+                additional_metrics_unread_reasons=max(0, len(metrics_reasons) - 4),
+                metrics_retry_after_seconds=metrics_retry,
+            )
+            if worst_case:
+                result.update(metrics_read_complete=False, metrics_unread_reasons=["x" * 80] * 4,
+                              additional_metrics_unread_reasons=99, metrics_retry_after_seconds=2**31)
         encoded = json.dumps({"result": result}, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
-        return encoded, len(encoded.encode()) + 1 + (128 if worst_case else 0) <= SUMMARY_BYTE_LIMIT
+        reserve = 128 + (64 * len(rows) if with_metrics else 0)
+        return encoded, len(encoded.encode()) + 1 + (reserve if worst_case else 0) <= SUMMARY_BYTE_LIMIT
 
     while position < len(phases):
         phase = phases[position]
@@ -7447,18 +7698,28 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
                 [row for rows, _until in chunks for row in rows], ensure_ascii=os.name == "nt", separators=(",", ":")
             ).encode()
         )
-        byte_limit = SUMMARY_BYTE_LIMIT - used_bytes - 1152 - len(json.dumps(sorted(reasons)[:4]).encode())
+        reserve = 2048 if with_metrics else 1152
+        byte_limit = SUMMARY_BYTE_LIMIT - used_bytes - reserve - len(json.dumps(sorted(reasons)[:4]).encode())
         if byte_limit < 1024:
             break
         phase_started = clock()
         available = MAX_CALLS - charged
         accounted = False
         previous_metadata = all_complete, set(reasons), retry_after
+        previous_metrics = metrics_complete, set(metrics_reasons), metrics_retry
         requested_rows = min(query["limit"] - row_count, page_override or query["limit"])
         try:
             if phase["kind"] == "native":
+                metrics_supported = with_metrics and not phase["legacy_read"]
+                fields = query["fields"] or [field for field in MIXED_FIELDS if field != "metrics"]
+                if with_metrics and query["fields"] is None:
+                    fields = [*fields, "metrics"]
+                if not metrics_supported:
+                    fields = [field for field in fields if field != "metrics"] or ["ref"]
+                native_options = {key: value for key, value in query.items() if key != "with_metrics"}
                 native_query = resource_list_query(
-                    **{**query, "fields": query["fields"] or list(MIXED_FIELDS)}, legacy_read=phase["legacy_read"]
+                    **{**native_options, "fields": fields}, legacy_read=phase["legacy_read"],
+                    with_metrics=metrics_supported,
                 )
                 encoded = native_reader(
                     phase["directory"],
@@ -7472,7 +7733,18 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
                     include_validity=True,
                 )
             else:
-                provider_query = {**query, "fields": query["fields"] or list(MIXED_FIELDS)}
+                metrics_supported = with_metrics and (
+                    REPORTED_METRICS_MODE in phase["registration"].get("capabilities", [])
+                )
+                fields = query["fields"] or [field for field in MIXED_FIELDS if field != "metrics"]
+                if with_metrics and query["fields"] is None:
+                    fields = [*fields, "metrics"]
+                if not metrics_supported:
+                    fields = [field for field in fields if field != "metrics"] or ["ref"]
+                provider_query = {key: value for key, value in query.items() if key != "with_metrics"}
+                provider_query["fields"] = fields
+                if metrics_supported:
+                    provider_query["with_metrics"] = True
                 encoded = provider_reader(
                     phase["path"],
                     action="list",
@@ -7514,7 +7786,21 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
             cover_ttl = _mixed_duration(page.get("coverage_valid_for_seconds"))
             chunk = (page["rows"], phase_started + ttl)
             chunks.append(chunk)
+            metrics_chunks.append((clock(), clock() + _mixed_duration(page.get("metrics_valid_for_seconds"))))
             coverage.append(phase_started + cover_ttl)
+            if with_metrics and page["rows"]:
+                if not metrics_supported or page.get("metrics_requested") is not True:
+                    metrics_complete = False
+                    metrics_reasons.add("source_metrics_not_supported")
+                else:
+                    metrics_complete &= page.get("metrics_read_complete") is True
+                    for reason in page.get("metrics_unread_reasons", []):
+                        metrics_reasons.add(reason if isinstance(reason, str)
+                                            and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", reason)
+                                            else "metrics_unavailable")
+                    delay = page.get("metrics_retry_after_seconds")
+                    if type(delay) in (int, float) and 0 <= delay <= 2**31:
+                        metrics_retry = max(metrics_retry or 0, delay)
             inventory_scope = (
                 page.get("inventory_scope", "unknown") if phase["kind"] == "provider" else "full_inventory"
             )
@@ -7539,8 +7825,10 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
             candidate, fits = output(next_position, next_inner, worst_case=True)
             if not fits:
                 chunks.pop()
+                metrics_chunks.pop()
                 coverage.pop()
                 all_complete, reasons, retry_after = previous_metadata
+                metrics_complete, metrics_reasons, metrics_retry = previous_metrics
                 if not row_count:
                     if (
                         packing_requeries == 0
@@ -7583,6 +7871,9 @@ def mixed_resource_list(path, *, query, cursor=None, clock=time.monotonic, nativ
                     raise ClientError("mixed_page_exceeds_output_budget") from None
                 break
             reasons.add(error.code if re.fullmatch(r"[a-z][a-z0-9_]{0,79}", error.code) else "source_unavailable")
+            if with_metrics:
+                metrics_complete = False
+                metrics_reasons.add("source_not_read")
             delay = error.retry_after_seconds
             if type(delay) in (int, float) and 0 <= delay <= 2**31:
                 retry_after = max(retry_after or 0, delay)
@@ -7607,8 +7898,6 @@ def _resource_sources_dispatch(args):
     if args.action == "resource-list":
         if args.json == "":
             return json.dumps({"json_fields": MIXED_FIELDS, "required_row_fields": ["ref"]})
-        if args.with_metrics:
-            raise ClientError("mixed_metrics_not_supported")
         return mixed_resource_list(
             args.resource_sources,
             query=_mixed_query(
@@ -7618,6 +7907,7 @@ def _resource_sources_dispatch(args):
                 limit=args.limit,
                 mine=args.mine,
                 search=args.search,
+                with_metrics=args.with_metrics,
             ),
             cursor=args.cursor,
         )
@@ -7626,7 +7916,6 @@ def _resource_sources_dispatch(args):
     if args.ref.startswith("e1."):
         if (
             getattr(args, "resource_action", None) != "view"
-            or getattr(args, "with_metrics", False)
             or args.exact_lease_times
         ):
             raise ClientError("external_resource_read_only")
@@ -7643,6 +7932,8 @@ def _resource_sources_dispatch(args):
             "limit": 1,
             "mine": args.mine,
         }
+        if args.with_metrics:
+            query["with_metrics"] = True
         return resource_provider_output(
             phase["path"],
             action="fields" if args.json == "" else "view",
@@ -7810,7 +8101,6 @@ def _resource_provider_dispatch(args):
         or args.connection is not None
         or args.legacy_read
         or getattr(args, "directory", None) is not None
-        or getattr(args, "with_metrics", False)
         or getattr(args, "exact_lease_times", False)
     ):
         raise ClientError("resource_provider_combination_not_supported")
@@ -7833,6 +8123,8 @@ def _resource_provider_dispatch(args):
     if normalized.get("search") is not None:
         query["search"] = normalized["search"]
     query["fields"] = fields
+    if args.with_metrics:
+        query["with_metrics"] = True
     return resource_provider_output(
         args.resource_provider,
         action="fields" if args.json == "" else action,

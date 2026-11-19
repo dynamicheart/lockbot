@@ -47,7 +47,7 @@ python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resour
 python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resource view x-example/node-01
 ```
 
-The registration is a private JSON file, outside Git, with exactly these keys:
+The registration is a private JSON file, outside Git, with these required keys:
 
 ```json
 {
@@ -64,8 +64,23 @@ stdin, and never reads the provider's config or native connection catalog/Keys.
 The provider is responsible for its own private configuration and credentials.
 This selects one read source. The [mixed-source configuration](../design/cli-mixed-resource-sources.md)
 can instead combine it with pinned native connections. Native `s-...` references, writes, device listing, native connections,
-custom native directories, legacy mode, metrics and exact lease-time options
+custom native directories, legacy mode and exact lease-time options
 cannot be combined with `--resource-provider`.
+
+A provider implementing the generic reported-utilization contract can opt in
+through an optional registration field:
+
+```json
+{"capabilities": ["reported_resource_utilization_v1"]}
+```
+
+This is a local executable feature declaration, not a resource authorization.
+Only add it for a provider which implements the contract below. Direct
+`--resource-provider ... resource list|view ... --with-metrics` rejects a
+registration without this capability before starting the process. An older
+provider in a mixed list still supplies ordinary inventory once, with an explicit
+unsupported-metrics gap. No native credential, source endpoint or HTTP fallback
+is borrowed for it.
 
 The stdio request has `schema_version: 1`, an `action` of `list`, `view` or
 `fields`, a `query` containing `nodes`, `model`, `fields` (or null), `limit` and
@@ -316,10 +331,36 @@ field alone does not query the source; bare `--json` remains local discovery.
 
 Device pagination currently limits output, while the existing gateway still
 queries the selected node. Oversized source responses retain explicit failure;
-no device-level network pagination is claimed. Mixed-source/provider telemetry
-is not enabled and rejects the flag before source dispatch. See the
+no device-level network pagination is claimed. Mixed lists support native
+telemetry and explicitly capable read-only providers. See the
 [candidate contract](../design/cli-resource-contract-draft.md#optional-utilization-in-the-same-invocation)
 for coverage and continuation details.
+
+### Reported resource percentages
+
+The generic `reported_resource_utilization_v1` provider mode carries compact
+resource-unit percentages without assuming CPU or accelerator attribution.
+The row's `metrics.resource` reports independent compute and memory means,
+valid counts and state counts. A provider must select the full requested
+model/own subset before computing a mean; `--mine` cannot include peer units
+merely because the same node contains an own allocation.
+
+Reported percentages use `reported_mean_percent` and
+`reported_memory_mean_percent`. They never become fresh `percent` readings:
+`percent` and `sample_age_seconds` stay null, and `sample_time_known` is false.
+`report_age_seconds` describes the source report's age, including validated
+transit and output delay, not the unknown hardware acquisition time. Invalid or
+missing report timing withholds the means; zero is a valid reported percentage.
+
+Successful replies acknowledge `metrics_mode`, `metrics_requested`,
+`metrics_read_complete`, `metrics_unread_reasons`, `metrics_retry_after_seconds`
+and a conservative `metrics_valid_for_seconds` of at most sixty seconds. Compute
+and memory state counts each cover the same selected units. Unknown selection
+coverage retains a null denominator. Expiry clears the reported means without
+rewriting a successful source read into a failed request. The parent revalidates
+the full registration after the process exits, including capability changes.
+Capabilities do not change an existing `e1` locator's identity; they still bind
+the mixed catalogue cursor. Duplicate executable/config registrations are rejected.
 
 ```sh
 python3 scripts/lockbot_cli.py --connection /private/connection.json metrics --node node-a

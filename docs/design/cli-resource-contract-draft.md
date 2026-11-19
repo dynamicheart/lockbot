@@ -32,7 +32,7 @@ Continuation skips fully consumed scopes. If a page ends inside one scope, the n
 
 Before emitting a scope, the CLI checks its locally recorded same-scope credential peers. Contradictory observations retain `observation_conflict`. A failed or budget-limited peer leaves locator-only rows with `observation_incomplete`; neither field selection nor a page boundary can turn them into state, device or ownership claims. Credential cohorts exceeding the budget can yield conservative partial results and advance without an unbounded retry loop. References still require an explicitly selected connection when multiple credentials match.
 
-The list is sequential, shares the unchanged 12-request/60-second budget and never creates a resource snapshot cache. It currently reads each old API scope's full response; client-side paging does not reduce those response bytes. Exhaustive scans can reread a scope when its rows cross pages. Server-side filtering/paging is separate future work. Native list telemetry is opt-in with `--with-metrics`; `resource view REF --with-metrics` retains the bounded single-scope detail path. Mixed-source/provider list telemetry is not implemented and rejects the flag before source dispatch.
+The list is sequential, shares the unchanged 12-request/60-second budget and never creates a resource snapshot cache. It currently reads each old API scope's full response; client-side paging does not reduce those response bytes. Exhaustive scans can reread a scope when its rows cross pages. Server-side filtering/paging is separate future work. Native list telemetry is opt-in with `--with-metrics`; `resource view REF --with-metrics` retains the bounded single-scope detail path. Mixed lists can add native telemetry and explicitly capable read-only providers; older sources retain inventory and a separate metrics gap.
 
 ### Optional utilization in the same invocation
 
@@ -65,6 +65,14 @@ Selecting `--json node,metrics` alone does not fetch telemetry. The explicit fla
 controls fetching independently of field selection. Bare `--json` remains local
 field discovery. The active flag is bound to the cursor and repeated in the next
 command; omitting it preserves the previous non-metrics cursor format.
+
+For a source which reports percentages without a hardware sample timestamp,
+the optional generic provider mode keeps them as `reported_mean_percent` and
+`reported_memory_mean_percent`, with independent coverage counts. Report age
+does not become sample age; no CPU/accelerator family is inferred. Mixed output
+ages both native sample validity and reported-value visibility while later
+sources finish. Expired values are retired, and metrics errors remain separate
+from resource coverage. See [reported resource percentages](../usage/resource-agent-helper.md#reported-resource-percentages).
 
 ### Search names, aliases and hardware
 
@@ -214,12 +222,12 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 ## Review boundaries and remaining work
 
 - Exact-reference commands are implemented and tested against a local packaged backend. Production writes and deployed-client verification have not been performed for this candidate.
-- Summary mode rejects `--full`. Native `resource list` and `resource devices` support optional telemetry under the shared budget; compatibility `resources-all --summary --with-metrics` and mixed/provider telemetry are not enabled.
+- Summary mode rejects `--full`. Native `resource list`/`resource devices` and capable mixed/provider lists support optional telemetry under the shared budget; compatibility `resources-all --summary --with-metrics` is not enabled.
 - Scoped card telemetry uses explicit datasource `deviceMapping`, keeping source labels separate from resource IDs. Missing or ambiguous mappings stay unknown; mapping changes during short-grant refresh cannot be combined with an earlier resource snapshot. The detailed mapping contract is in the [helper guide](../usage/resource-agent-helper.md#best-effort-metrics).
 - The collector candidate retains explicit XML `product_name`/`uuid` fields as bounded, timestamped device observations. Existing metric labels and collection cadence are unchanged. Missing or conflicting facts stay unknown. This local capture does not register hardware, establish trusted inventory, or provide a new API; authenticated ingestion and actual driver acceptance remain pending.
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
 - External protocol implementations remain private plugins. The explicit generic provider entrypoint and mixed-source traversal are implemented locally; existing own-allocation bridges still cannot establish full fleet inventory. Native credentials/references cannot be reused as external authority.
-- Literal candidate search, private labels, paged device telemetry and the terminal list/view entrypoint are implemented locally for review. Trusted device-fact ingestion, provider telemetry and source-side selective device queries remain future work. The published Skill should follow the reviewed CLI contract.
+- Literal candidate search, private labels, paged native device telemetry, reported provider utilization and the terminal list/view entrypoint are implemented locally for review. Trusted device-fact ingestion and source-side selective device queries remain future work. External per-device paging and writes require their own explicit provider support. The published Skill should follow the reviewed CLI contract.
 
 The implementation borrows field discovery and bounded-list ideas from [`gh` formatting](https://cli.github.com/manual/gh_help_formatting) and [`gh repo list`](https://cli.github.com/manual/gh_repo_list). LockBot's shared resource contention requires its own server limits; GitHub's quota numbers are not adopted here.

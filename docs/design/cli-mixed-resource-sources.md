@@ -53,6 +53,27 @@ The node selector uses observed IDs and any aliases the source actually supplies
 it does not require bot IDs or group names. Model filters use observed hardware.
 Exact view commands retain the selected source's own field discovery.
 
+Add `--with-metrics --json node,states,metrics` for optional compact utilization.
+Native phases use their verified source configuration; a registered provider
+must explicitly implement `reported_resource_utilization_v1`. These reported
+resource percentages have no verified hardware sample time and do not identify
+CPU/GPU families. Compute and memory coverage remain separate. A legacy provider
+still returns ordinary inventory once, with an explicit metrics gap; the CLI
+does not probe, retry or borrow native authority for it.
+
+Metrics share the same request budget and deadline. Their read-completion and
+retry fields are separate from inventory coverage. During later phases, the
+parent ages native metric validity and reported-value visibility independently;
+expired means are retired without turning a successful read into a failed
+request. A missing metric in one source does not retire unrelated healthy values.
+Source-read and formatting failures retain validated request costs when known.
+
+Registration capabilities are part of the catalog cursor, but changing them does
+not change an existing external resource locator. Full registrations are checked
+again after the subprocess exits. Executable/config aliases cannot bypass
+duplicate-source checks by declaring different capabilities. See the
+[reported percentages contract](../usage/resource-agent-helper.md#reported-resource-percentages).
+
 The optional literal `--search` filter follows the [native search contract](cli-resource-contract-draft.md#search-names-aliases-and-hardware).
 Each source applies it to full observed permitted metadata before paging and field
 selection. Successful searched provider pages must confirm the same canonical

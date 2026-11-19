@@ -220,7 +220,6 @@ def test_public_registration_permissions_do_not_launch_a_provider(provider):
         ["--connection", "", "resource", "list"],
         ["--legacy-read", "resource", "list"],
         ["resource", "list", "--directory", "/missing/catalog"],
-        ["resource", "view", "x-demo/node", "--with-metrics"],
         ["resource", "view", "x-demo/node", "--exact-lease-times"],
     ],
 )
