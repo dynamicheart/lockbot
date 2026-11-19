@@ -1768,19 +1768,19 @@ class Client:
                 self.instruction_state = "changed"
         # A server's current/unknown response cannot certify instructions loaded locally.
 
-    def _response_bytes(self, response):
+    def _response_bytes(self, response, *, limit=MAX_BYTES):
         chunks, size = [], 0
         reader = getattr(response, "read1", response.read)
         while True:
             if self.clock() >= self.deadline:
                 raise ClientError("request_budget_exhausted")
-            chunk = reader(min(65536, MAX_BYTES + 1 - size))
+            chunk = reader(min(65536, limit + 1 - size))
             if self.clock() >= self.deadline:
                 raise ClientError("request_budget_exhausted")
             if not chunk:
                 break
             size += len(chunk)
-            if size > MAX_BYTES:
+            if size > limit:
                 raise ClientError("response_too_large")
             chunks.append(chunk)
         raw = b"".join(chunks)
@@ -1802,6 +1802,8 @@ class Client:
         binary=False,
         include_started=False,
         _response_headers=None,
+        _max_response_bytes=MAX_BYTES,
+        _query_errors=False,
     ):
         if self.legacy_read and (
             method != "GET"
@@ -1863,7 +1865,7 @@ class Client:
                         and self._version_differs(revision, response.headers.get("X-Lockbot-Package-Version"))
                     ):
                         self.needs_update = True
-                    raw = self._response_bytes(response)
+                    raw = self._response_bytes(response, limit=_max_response_bytes)
                     if binary:
                         return raw
                     try:
@@ -1895,6 +1897,26 @@ class Client:
                     except (ValueError, UnicodeError, RecursionError) as exc:
                         raise ClientError("invalid_json_response") from exc
             except urllib.error.HTTPError as exc:
+                query_error = None
+                if _query_errors and exc.code in {400, 404, 409, 422}:
+                    try:
+                        value = json.loads(self._response_bytes(exc, limit=_max_response_bytes))
+                        code = value.get("detail", {}).get("code") if isinstance(value, dict) else None
+                        if code in {
+                            "resource_query_invalid",
+                            "resource_query_cursor_invalid",
+                            "resource_query_restart_required",
+                            "resource_query_target_missing",
+                            "resource_query_item_too_large",
+                            "resource_query_projection_invalid",
+                            "resource_query_projection_unstable",
+                        }:
+                            query_error = code
+                    except (ValueError, TypeError, AttributeError, UnicodeError, RecursionError):
+                        pass
+                    except BaseException:
+                        exc.close()
+                        raise
                 if self.legacy_read:
                     try:
                         self._legacy_metadata(exc.headers)
@@ -1923,7 +1945,7 @@ class Client:
                     self.sleep(delay)
                     continue
                 raise ClientError(
-                    "mutation_outcome_unknown" if not readonly and status >= 500 else f"http_{status}",
+                    query_error or ("mutation_outcome_unknown" if not readonly and status >= 500 else f"http_{status}"),
                     status,
                     retry_after_seconds=delay,
                 ) from None
@@ -2581,6 +2603,90 @@ class Client:
         if "context" not in snapshot:
             snapshot = {**snapshot, "context": context, "context_source": "separate_verified_read"}
         return snapshot
+
+    def resource_query_descriptor(self):
+        """Negotiate a separate read protocol; never probe or downgrade a failed query."""
+        if self.manifest is None:
+            self.discover()
+        if self.legacy_read or "resource_query_v1" not in self.manifest.get("capabilities", []):
+            return None
+        descriptor = self.manifest.get("resource_query")
+        expected = {
+            "version",
+            "path",
+            "views",
+            "filters",
+            "node_fields",
+            "device_fields",
+            "max_limit",
+            "max_response_bytes",
+            "max_cursor_bytes",
+            "cursor_format",
+        }
+        if (
+            not isinstance(descriptor, dict)
+            or set(descriptor) != expected
+            or type(descriptor.get("version")) is not int
+            or descriptor["version"] != 1
+            or descriptor.get("path") != "/api/agent/resources/query"
+            or descriptor.get("views") != ["nodes", "devices"]
+            or descriptor.get("filters") != ["node_id", "model", "mine"]
+            or type(descriptor.get("max_limit")) is not int
+            or descriptor["max_limit"] != 256
+            or type(descriptor.get("max_response_bytes")) is not int
+            or descriptor["max_response_bytes"] != 65536
+            or type(descriptor.get("max_cursor_bytes")) is not int
+            or descriptor["max_cursor_bytes"] != 2048
+            or descriptor.get("cursor_format") != "row_mac_v1"
+        ):
+            raise ClientError("resource_query_capability_invalid")
+        for name, allowed in (
+            ("node_fields", set(SUMMARY_FIELDS) - {"ref", "metrics"}),
+            ("device_fields", set(DEVICE_FIELDS) - {"metrics"}),
+        ):
+            fields = descriptor.get(name)
+            if (
+                not isinstance(fields, list)
+                or any(not isinstance(value, str) for value in fields)
+                or (len(set(fields)) != len(fields) or set(fields) != allowed)
+            ):
+                raise ClientError("resource_query_capability_invalid")
+        return descriptor
+
+    def resource_query(self, query, *, cursor=None):
+        """Return validated discovery rows, never a full/prepared command observation."""
+        descriptor = self.resource_query_descriptor()
+        if descriptor is None:
+            raise ClientError("resource_query_not_supported")
+        query = resource_query_request(**query)
+        if cursor is not None and not resource_query_token(cursor):
+            raise ClientError("resource_query_cursor_invalid")
+        if not self.config.get("instance_id") or not self.config.get("bot_uuid"):
+            raise ClientError("connection_identity_not_pinned")
+        self._check_installed_version()
+        if self.key is None:
+            try:
+                self.key = private_bytes(self._file("key_file")).decode().strip()
+            except UnicodeError as exc:
+                raise ClientError("invalid_resource_key") from exc
+            if not re.fullmatch(r"lbr_[A-Za-z0-9_-]{20,200}", self.key):
+                raise ClientError("invalid_resource_key")
+            self.secrets.append(self.key)
+        params = {**query, "fields": ",".join(query["fields"]), "mine": str(query["mine"]).lower()}
+        params = {key: value for key, value in params.items() if value is not None}
+        if cursor is not None:
+            params["cursor"] = cursor
+        page, started = self._request(
+            self.base + descriptor["path"] + "?" + urllib.parse.urlencode(params),
+            token=self.key,
+            include_started=True,
+            _max_response_bytes=descriptor["max_response_bytes"],
+            _query_errors=True,
+        )
+        validate_resource_query_page(self, page, query)
+        # Deliberately no _remember_resources, _prepared_resources, node-access
+        # cache, verified-context registry, metrics grant or mutation authority.
+        return {**page, "_received_at": started}
 
     def own_inventory(self, *, exact_lease_times=False, node=None):
         """Project only the verified actor's holdings and queued bookings."""
@@ -4477,7 +4583,11 @@ def resource_summary_projection(output, *, fields=None, nodes=(), model=None, se
         complete &= not search_unknown
     if fields is not None:
         # Exact references remain available even when selecting fewer display fields.
-        rows = [{key: item[key] for key in ("ref", "observation_conflict", *fields) if key in item} for item in rows]
+        companions = resource_field_companions(fields)
+        rows = [
+            {key: item[key] for key in ("ref", "observation_conflict", *companions, *fields) if key in item}
+            for item in rows
+        ]
     unread = value.get("unread", [])
     notes = {
         "view": value.get("view", "own" if value.get("scope") == "own" else "resources"),
@@ -5189,6 +5299,471 @@ def resource_list_query_digest(query):
     ).hexdigest()
 
 
+def resource_query_request(*, view="nodes", node_id=None, model=None, mine=False, fields=None, limit=20):
+    """One-bot source query, independent of local catalog continuation."""
+    if view not in {"nodes", "devices"} or view == "devices" and node_id is None:
+        raise ClientError("resource_query_invalid")
+    if node_id is not None:
+        _resource_list_text(node_id, "resource_query_invalid")
+        if redacted_values(node_id) != node_id or _RESOURCE_CREDENTIAL_IN_TEXT.search(node_id):
+            raise ClientError("resource_query_invalid")
+    allowed = set(SUMMARY_FIELDS) - {"ref", "metrics"} if view == "nodes" else set(DEVICE_FIELDS) - {"metrics"}
+    fields = sorted(allowed) if fields is None else fields
+    if (
+        not isinstance(fields, (list, tuple))
+        or not fields
+        or any(not isinstance(field, str) or field not in allowed for field in fields)
+        or len(set(fields)) != len(fields)
+        or type(mine) is not bool
+        or type(limit) is not int
+        or not 1 <= limit <= 256
+    ):
+        raise ClientError("resource_query_invalid")
+    if model is not None:
+        if _summary_model(model) is None:
+            raise ClientError("resource_query_invalid")
+        model = model.strip().casefold()
+        if redacted_values(model) != model or _RESOURCE_CREDENTIAL_IN_TEXT.search(model):
+            raise ClientError("resource_query_invalid")
+    return {"view": view, "node_id": node_id, "model": model, "mine": mine, "fields": sorted(fields), "limit": limit}
+
+
+def resource_query_token(value):
+    return isinstance(value, str) and len(value) <= 2048 and re.fullmatch(r"rq1\.[A-Za-z0-9_.-]+", value) is not None
+
+
+def resource_query_resume_cursor(frame, key, mark):
+    if (
+        not isinstance(frame, str)
+        or len(frame) > 1024
+        or re.fullmatch(r"rqf1\.[A-Za-z0-9_-]+", frame) is None
+        or (not isinstance(mark, str) or re.fullmatch(r"[A-Za-z0-9_-]{43}", mark) is None)
+    ):
+        raise ClientError("resource_query_cursor_invalid")
+    resource_query_frame(frame)
+    _resource_list_text(key, "resource_query_cursor_invalid")
+    token = (
+        "rq1."
+        + base64.urlsafe_b64encode(json.dumps([frame, key, mark], ensure_ascii=True, separators=(",", ":")).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    if len(token) > 2048:
+        raise ClientError("resource_query_cursor_invalid")
+    return token
+
+
+def resource_query_frame(frame):
+    """Only version/expiry are public; the row MAC binds every scope/query pin."""
+    try:
+        if not isinstance(frame, str) or re.fullmatch(r"rqf1\.[A-Za-z0-9_-]+", frame) is None or len(frame) > 1024:
+            raise ValueError
+        text = frame[5:]
+        raw = base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True)
+        value = json.loads(raw)
+        if (
+            not isinstance(value, list)
+            or len(value) != 2
+            or type(value[0]) is not int
+            or value[0] != 1
+            or (
+                type(value[1]) is not int
+                or value[1] <= 0
+                or base64.urlsafe_b64encode(raw).rstrip(b"=").decode() != text
+            )
+        ):
+            raise ValueError
+        return value
+    except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        raise ClientError("resource_query_cursor_invalid") from exc
+
+
+def resource_field_companions(fields):
+    """Clipped values never lose the flags that distinguish a prefix from a set."""
+    mapping = {
+        "hardware": {"hardware_has_more", "hardware_incomplete"},
+        "alias": {"alias_truncated"},
+        "matched_device_ids": {"devices_has_more", "device_inventory_complete", "unidentified_devices"},
+        "idle_device_ids": {"idle_devices_has_more", "device_inventory_complete", "unidentified_devices"},
+        "holdings": {"holdings_has_more", "holding_units"},
+        "bookings": {"bookings_has_more", "booking_units"},
+    }
+    return set().union(*(mapping.get(field, set()) for field in fields))
+
+
+def _validate_query_row_values(row):
+    """Reject arbitrary/private nested data even from an announced query route."""
+    for field, value in row.items():
+        if field in {
+            "snapshot_fresh",
+            "alias_truncated",
+            "hardware_has_more",
+            "hardware_incomplete",
+            "devices_has_more",
+            "idle_devices_has_more",
+            "device_inventory_complete",
+            "holdings_has_more",
+            "bookings_has_more",
+            "observation_conflict",
+            "observation_incomplete",
+            "ownership_match_unknown",
+            "detail_deferred",
+        }:
+            if type(value) is not bool:
+                raise ValueError
+        elif field in {"held_by_you", "booked_by_you", "claimable_by_you"}:
+            if value is not None and type(value) is not bool:
+                raise ValueError
+        elif field in {
+            "total_units",
+            "matched_units",
+            "total_cards",
+            "matched_cards",
+            "holding_units",
+            "booking_units",
+            "unidentified_devices",
+            "queue_rank",
+        }:
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError
+        elif field == "states":
+            if (
+                not isinstance(value, dict)
+                or set(value) != {"idle", "busy", "shared", "queued", "unknown"}
+                or any(v is not None and (type(v) is not int or v < 0) for v in value.values())
+            ):
+                raise ValueError
+        elif field in {"matched_device_ids", "idle_device_ids"}:
+            if (
+                not isinstance(value, list)
+                or len(value) > 20
+                or any(_device_summary_identifier(v, ()) is None for v in value)
+            ):
+                raise ValueError
+            if len({str(item) for item in value}) != len(value):
+                raise ValueError
+        elif field == "hardware":
+            if (
+                not isinstance(value, list)
+                or len(value) > 20
+                or any(
+                    not isinstance(v, dict)
+                    or set(v) != {"model", "count"}
+                    or _summary_model(v["model"]) is None
+                    or type(v["count"]) is not int
+                    or v["count"] <= 0
+                    for v in value
+                )
+            ):
+                raise ValueError
+        elif field in {"holdings", "bookings"}:
+            if not isinstance(value, list) or len(value) > 20:
+                raise ValueError
+            for v in value:
+                if not isinstance(v, dict) or set(v) - {
+                    "device",
+                    "model",
+                    "mode",
+                    "remaining_time",
+                    "remaining_seconds",
+                    "expires_at",
+                    "queue_rank",
+                    "claimable_by_you",
+                }:
+                    raise ValueError
+                if not {"device", "model"} <= set(v):
+                    raise ValueError
+                _validate_query_row_values(v)
+        elif field == "state":
+            if value not in {"idle", "busy", "shared", "queued", "unknown"}:
+                raise ValueError
+        elif field == "mode":
+            if value not in {None, "exclusive", "shared"}:
+                raise ValueError
+        elif field == "model":
+            if value is not None and _summary_model(value) is None:
+                raise ValueError
+        elif field == "device":
+            if value is not None and _device_summary_identifier(value, ()) is None:
+                raise ValueError
+        elif field == "remaining_seconds":
+            if value is not None and (type(value) not in (float, int) or not math.isfinite(value) or value < 0):
+                raise ValueError
+        elif (
+            value is not None
+            and field in {"node", "alias", "remaining_time", "expires_at"}
+            and (
+                not isinstance(value, str) or len(value) > (256 if field == "node" else 160) or not value.isprintable()
+            )
+        ):
+            raise ValueError
+
+
+def validate_resource_query_page(client, page, query):
+    """Selective rows never enter Client._remember_resources or command preflight."""
+    required = {
+        "protocol_version",
+        "context",
+        "view",
+        "query",
+        "query_digest",
+        "captured_at",
+        "aliases_observed_at",
+        "age_seconds",
+        "health",
+        "rows",
+        "coverage",
+        "has_more",
+        "traversal_exhausted",
+        "next_cursor",
+        "row_cursors",
+        "cursor_frame",
+        "scope_generation",
+        "configuration_digest",
+        "valid_for_seconds",
+    }
+    coverage_keys = {
+        "projection_complete",
+        "unknown_hardware_nodes",
+        "unidentified_nodes",
+        "unknown_ownership_units",
+        "unknown_model_devices",
+        "unidentified_devices",
+        "unknown_ownership_devices",
+        "total_devices",
+        "matched_devices",
+        "examined_nodes",
+        "examined_devices",
+    }
+    try:
+        if (
+            not isinstance(page, dict)
+            or set(page) != required
+            or type(page["protocol_version"]) is not int
+            or (
+                page["protocol_version"] != 1
+                or page["view"] != query["view"]
+                or json.dumps(page["query"], sort_keys=True, separators=(",", ":"))
+                != json.dumps(query, sort_keys=True, separators=(",", ":"))
+                or page["query_digest"]
+                != hashlib.sha256(
+                    json.dumps(query, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()
+                ).hexdigest()
+            )
+        ):
+            raise ValueError
+        if not isinstance(page["context"], dict) or set(page["context"]) != {
+            "server",
+            "actor",
+            "bot",
+            "bot_rules",
+            "agent_access_enabled",
+            "credential_scope",
+            "usage_privacy",
+            "links",
+            "skill",
+        }:
+            raise ValueError
+        client._validate_context(page["context"])
+        bot = page["context"]["bot"]
+        if (
+            type(bot.get("id")) is not int
+            or bot["id"] <= 0
+            or bot.get("type") not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"}
+            or page["context"].get("agent_access_enabled") is not True
+        ):
+            raise ValueError
+        for field in ("captured_at", "aliases_observed_at"):
+            if (
+                not isinstance(page[field], str)
+                or len(page[field]) > 80
+                or datetime.fromisoformat(page[field].replace("Z", "+00:00")).tzinfo is None
+            ):
+                raise ValueError
+        age = page["age_seconds"]
+        if (
+            type(age) not in (int, float)
+            or not math.isfinite(age)
+            or age < 0
+            or page["health"] not in {"running", "error", "stopped"}
+            or type(page["scope_generation"]) is not int
+            or page["scope_generation"] < 0
+            or not re.fullmatch(r"[a-f0-9]{64}", page["configuration_digest"])
+        ):
+            raise ValueError
+        validity = page["valid_for_seconds"]
+        if (
+            type(validity) not in (float, int)
+            or not math.isfinite(validity)
+            or not 0 <= validity <= 5
+            or (validity > max(0.0, 5 - age) + 0.01)
+        ):
+            raise ValueError
+        coverage = page["coverage"]
+        if (
+            not isinstance(coverage, dict)
+            or set(coverage) != coverage_keys
+            or type(coverage["projection_complete"]) is not bool
+        ):
+            raise ValueError
+        for field in coverage_keys - {"projection_complete"}:
+            value = coverage[field]
+            if value is None and field in {"total_devices", "matched_devices"}:
+                continue
+            if type(value) is not int or value < 0:
+                raise ValueError
+        rows, tokens = page["rows"], page["row_cursors"]
+        if (
+            not isinstance(rows, list)
+            or len(rows) > query["limit"]
+            or not isinstance(tokens, list)
+            or (
+                len(tokens) != len(rows)
+                or any(not isinstance(t, str) or re.fullmatch(r"[A-Za-z0-9_-]{43}", t) is None for t in tokens)
+                or len(set(tokens)) != len(tokens)
+                or type(page["has_more"]) is not bool
+                or type(page["traversal_exhausted"]) is not bool
+                or page["has_more"] == page["traversal_exhausted"]
+                or page["has_more"]
+                and (
+                    not rows
+                    or page["next_cursor"]
+                    != resource_query_resume_cursor(
+                        page["cursor_frame"],
+                        str(rows[-1]["node" if query["view"] == "nodes" else "id"]),
+                        tokens[-1],
+                    )
+                )
+                or not page["has_more"]
+                and page["next_cursor"] is not None
+            )
+        ):
+            raise ValueError
+        # Validate the shared frame even on an exhausted/empty source page.
+        resource_query_frame(page["cursor_frame"])
+        mandatory = {"node", "unit", "snapshot_fresh"} if query["view"] == "nodes" else {"id", "snapshot_fresh"}
+        keys = []
+        for row in rows:
+            if (
+                not isinstance(row, dict)
+                or not mandatory <= set(row)
+                or set(row)
+                - set(query["fields"])
+                - mandatory
+                - resource_field_companions(query["fields"])
+                - {"observation_incomplete", "ownership_match_unknown", "detail_deferred"}
+                or type(row["snapshot_fresh"]) is not bool
+                or row["snapshot_fresh"]
+                and (age > MAX_RESOURCE_SNAPSHOT_AGE or page["health"] != "running")
+            ):
+                raise ValueError
+            if query["view"] == "nodes":
+                node = _resource_list_text(row["node"], "resource_query_response_invalid")
+                if (
+                    row["unit"] not in {"whole_node", "card", "unknown"}
+                    or query["node_id"] is not None
+                    and node != query["node_id"]
+                ):
+                    raise ValueError
+                keys.append(node.encode("utf-8"))
+            else:
+                if _device_summary_identifier(row["id"], client.secrets) is None:
+                    raise ValueError
+                keys.append(device_summary_sort_key(row["id"]))
+            if redacted_values(row, client.secrets) != row:
+                raise ValueError
+            if not resource_field_companions(set(query["fields"]).intersection(row)) <= set(row):
+                raise ValueError
+            _validate_query_row_values(row)
+        if keys != sorted(keys) or len(set(keys)) != len(keys):
+            raise ValueError
+    except ClientError:
+        raise
+    except (KeyError, ValueError, TypeError, AttributeError, OverflowError, RecursionError) as exc:
+        raise ClientError("resource_query_response_invalid") from exc
+
+
+def resource_query_rows_at_completion(page, client):
+    elapsed = max(0, client.clock() - page["_received_at"])
+    age = page["age_seconds"] + elapsed
+    fresh = age <= MAX_RESOURCE_SNAPSHOT_AGE and page["health"] == "running"
+    if page["query"]["mine"] and elapsed >= page["valid_for_seconds"]:
+        fresh = False
+    rows = deepcopy(page["rows"])
+    for row in rows:
+        if not fresh or not row["snapshot_fresh"]:
+            row["snapshot_fresh"] = False
+            row["observation_incomplete"] = True
+            for field in (
+                "states",
+                "holding_units",
+                "booking_units",
+                "held_by_you",
+                "booked_by_you",
+                "claimable_by_you",
+            ):
+                if field in row:
+                    row[field] = dict.fromkeys(row[field], None) if field == "states" else None
+            for field in ("holdings", "bookings", "matched_device_ids", "idle_device_ids"):
+                row.pop(field, None)
+            if page["view"] == "devices":
+                row.update(state="unknown", ownership_match_unknown=True)
+        if page["view"] == "nodes":
+            row["ref"] = resource_reference(client.config, row["node"], width=64)
+    return rows, fresh, age
+
+
+def resource_source_cursor(fingerprint, query_digest, position, after_node, source_cursor, *, prefix="rl2."):
+    resource_list_cursor(fingerprint, query_digest, position, after_node)
+    if after_node is None or not resource_query_token(source_cursor):
+        raise ClientError("resource_list_cursor_invalid")
+    try:
+        text = source_cursor[4:]
+        frame, key, mark = json.loads(base64.b64decode(text + "=" * (-len(text) % 4), altchars=b"-_", validate=True))
+        if key != after_node or resource_query_resume_cursor(frame, key, mark) != source_cursor:
+            raise ValueError
+    except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        raise ClientError("resource_list_cursor_invalid") from exc
+    # The exact after-key is already here: do not base64-wrap an entire source
+    # cursor again. Its compact frame and MAC remain bound to that same key.
+    payload = [2, fingerprint, query_digest, position, after_node, frame, mark]
+    encoded = (
+        prefix
+        + base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode())
+        .rstrip(b"=")
+        .decode()
+    )
+    if len(encoded) > 8192:
+        raise ClientError("resource_list_cursor_invalid")
+    return encoded
+
+
+def resource_source_cursor_start(token, fingerprint, query_digest, total, *, prefix="rl2."):
+    if token is None or not isinstance(token, str) or not token.startswith(prefix):
+        position, after = resource_list_cursor_start(token, fingerprint, query_digest, total)
+        return position, after, None
+    try:
+        if len(token) > 8192 or re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9_-]+", token) is None:
+            raise ValueError
+        raw = token[len(prefix) :]
+        payload = json.loads(base64.b64decode(raw + "=" * (-len(raw) % 4), altchars=b"-_", validate=True))
+        if not isinstance(payload, list) or len(payload) != 7 or type(payload[0]) is not int or payload[0] != 2:
+            raise ValueError
+        _, catalog, bound_query, position, after, frame, mark = payload
+        source = resource_query_resume_cursor(frame, after, mark)
+        if resource_source_cursor(catalog, bound_query, position, after, source, prefix=prefix) != token:
+            raise ValueError
+        # Reuse existing canonical query/catalog checks before discovery or Key I/O.
+        resource_list_cursor_start(
+            resource_list_cursor(catalog, bound_query, position, after), fingerprint, query_digest, total
+        )
+        return position, after, source
+    except ClientError:
+        raise
+    except (ValueError, TypeError, UnicodeError, RecursionError) as exc:
+        raise ClientError("resource_list_cursor_invalid") from exc
+
+
 def resource_list_cursor(fingerprint, query_digest, position, after_node=None):
     """Encode an untrusted read position, never coverage or authorization evidence."""
     if (
@@ -5655,6 +6230,51 @@ class _ResourceListReader:
             if connection_scope(client.config) != identity:
                 raise ClientError("resource_list_scope_changed")
             client.discover()
+            descriptor = client.resource_query_descriptor()
+            selective = getattr(self, "_selective_query", None)
+            source_cursor = getattr(self, "_selective_cursor", None)
+            eligible = (
+                selective is not None
+                and not selective["nodes"]
+                and not selective.get("search")
+                and not (selective.get("with_metrics") or selective["legacy_read"])
+                and "metrics" not in (selective["fields"] or [])
+                and getattr(self, "_allow_selective", False)
+                and not (client.hardware_notes and client.hardware_notes.exists())
+            )
+            if source_cursor is not None and (descriptor is None or not eligible):
+                raise ClientError("resource_query_capability_changed")
+            if descriptor is not None and eligible:
+                if client.calls + 1 > self.max_calls:
+                    raise _ResourceListBudget
+                fields = sorted(
+                    (set(selective["fields"] or descriptor["node_fields"]) - {"ref"})
+                    | {
+                        "node",
+                        "unit",
+                        "snapshot_fresh",
+                    }
+                )
+                page = client.resource_query(
+                    resource_query_request(
+                        model=selective["model"],
+                        mine=mine,
+                        fields=fields,
+                        limit=selective["limit"],
+                    ),
+                    cursor=source_cursor,
+                )
+                return {
+                    "_source_query": page,
+                    "_client": client,
+                    "_approved_origin": client.base,
+                    "snapshot": {
+                        "context": page["context"],
+                        "age_seconds": page["age_seconds"],
+                        "health": page["health"],
+                        "read_projection_only": True,
+                    },
+                }
             minimum = 1 if "coherent_resource_snapshot" in client.manifest.get("capabilities", ()) else 2
             if client.calls + minimum > self.max_calls or self.clock() >= self.deadline:
                 raise _ResourceListBudget
@@ -5684,6 +6304,9 @@ class _ResourceListReader:
         """Bound snapshot evidence age, never continued holding or command authority."""
         if not groups:
             return 0.0
+        if "_source_query" in groups[0]:
+            _rows, fresh, age = resource_query_rows_at_completion(groups[0]["_source_query"], groups[0]["_client"])
+            return max(0.0, MAX_RESOURCE_SNAPSHOT_AGE - age) if fresh and not mine else 0.0
         remaining = MAX_RESOURCE_SNAPSHOT_AGE
         for group in groups:
             snapshot = observation_at_completion(group["_client"], group["snapshot"])
@@ -5838,6 +6461,23 @@ class _ResourceListReader:
         return max(0.0, min(60, threshold - max(ages) - elapsed)) if ages and elapsed >= 0 else 0.0
 
     def project(self, groups, query, *, incomplete=False):
+        if groups and "_source_query" in groups[0]:
+            group = groups[0]
+            page = group["_source_query"]
+            rows, fresh, _age = resource_query_rows_at_completion(page, group["_client"])
+            coverage = page["coverage"]
+            if incomplete:
+                rows = [{"ref": row["ref"], "node": row["node"], "observation_incomplete": True} for row in rows]
+            notes = {
+                field: coverage[field]
+                for field in (
+                    "unknown_hardware_nodes",
+                    "unidentified_nodes",
+                    "unknown_ownership_units",
+                )
+            }
+            notes.update(duplicate_observations=0, conflicting_observations=0, conflicting_scopes=0)
+            return rows, notes, bool(fresh and not incomplete and coverage["projection_complete"])
         aged = []
         for group in groups:
             snapshot = deepcopy(observation_at_completion(group["_client"], group["snapshot"]))
@@ -5960,7 +6600,8 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
         cohorts.setdefault(identities[locator["connection"]], []).append(locator)
     cohorts = list(cohorts.items())
     query_digest = resource_list_query_digest(query)
-    start, after = resource_list_cursor_start(cursor, fingerprint, query_digest, len(cohorts))
+    start, after, source_cursor = resource_source_cursor_start(cursor, fingerprint, query_digest, len(cohorts))
+    reader._selective_query = query
     selected, observations, gaps = [], {}, []
     boundary = (start, after)
     stop = False
@@ -6044,9 +6685,19 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
                 }
                 row.update(detail_deferred=True)
             elif query["fields"] is not None:
+                groups, _incomplete = observations[index]
+                mandatory_freshness = ("snapshot_fresh",) if groups and "_source_query" in groups[0] else ()
+                companions = resource_field_companions(query["fields"])
                 row = {
                     key: row[key]
-                    for key in ("ref", "observation_conflict", "observation_incomplete", *query["fields"])
+                    for key in (
+                        "ref",
+                        "observation_conflict",
+                        "observation_incomplete",
+                        *mandatory_freshness,
+                        *companions,
+                        *query["fields"],
+                    )
                     if key in row
                 }
             final_rows.append(row)
@@ -6076,7 +6727,28 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
                 )
                 coverage_validity.append(0.0 if uncertain else reader.validity(group, None, mine=query["mine"]))
         exhausted = position[0] >= len(cohorts)
-        token = None if exhausted else resource_list_cursor(fingerprint, query_digest, *position)
+        source_token = None
+        if not exhausted and position[1] is not None and position[0] in observations:
+            groups, _incomplete = observations[position[0]]
+            if groups and "_source_query" in groups[0]:
+                page = groups[0]["_source_query"]
+                source_token = next(
+                    resource_query_resume_cursor(page["cursor_frame"], row["node"], token)
+                    for row, token in zip(page["rows"], page["row_cursors"], strict=True)
+                    if row["node"] == position[1]
+                )
+        token = (
+            None
+            if exhausted
+            else resource_source_cursor(
+                fingerprint,
+                query_digest,
+                *position,
+                source_token,
+            )
+            if source_token is not None
+            else resource_list_cursor(fingerprint, query_digest, *position)
+        )
         result = {
             "scope": "saved_connections_only",
             "rows": final_rows,
@@ -6142,6 +6814,10 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
 
     for index in range(start, len(cohorts)):
         identity, locators = cohorts[index]
+        # Filtered pages cannot reproduce whole-observation peer comparisons.
+        # Choose the released read path before any query for duplicate credentials.
+        reader._allow_selective = len(locators) == 1 and (source_cursor is not None or after is None or index != start)
+        reader._selective_cursor = source_cursor if index == start else None
         groups, incomplete, deferred_scope = [], False, False
         for peer, locator in enumerate(locators):
             try:
@@ -6187,7 +6863,8 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
                 if index != start or after is None or row["node"].encode("utf-8") > after.encode("utf-8")
             ]
         for number, row in enumerate(rows):
-            position = (index + 1, None) if number == len(rows) - 1 else (index, row["node"])
+            source_more = groups and "_source_query" in groups[0] and groups[0]["_source_query"]["has_more"]
+            position = (index + 1, None) if number == len(rows) - 1 and not source_more else (index, row["node"])
             candidate = (*selected, (index, row["node"], False))
             _value, fits = encoded(candidate, position, reserve=display_reserve)
             if not fits:
@@ -6206,6 +6883,8 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
                 stop = True
                 break
         if stop:
+            break
+        if groups and "_source_query" in groups[0] and groups[0]["_source_query"]["has_more"]:
             break
         boundary = (index + 1, None)
     # Later reads can age earlier observations. Re-project at the final clock and
@@ -6364,8 +7043,10 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
     digest = hashlib.sha256(
         json.dumps(query, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()
     ).hexdigest()
-    after = None
-    if cursor is not None:
+    after, source_cursor = None, None
+    if isinstance(cursor, str) and cursor.startswith("dc2."):
+        _position, after, source_cursor = resource_source_cursor_start(cursor, fingerprint, digest, 1, prefix="dc2.")
+    elif cursor is not None:
         if not isinstance(cursor, str) or not cursor.startswith("dc1."):
             raise ClientError("resource_devices_cursor_invalid")
         try:
@@ -6382,6 +7063,41 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
             device_summary_sort_key(after)
         except ClientError:
             raise ClientError("resource_devices_cursor_invalid") from None
+
+    descriptor = client.resource_query_descriptor() if isinstance(client, Client) else None
+    eligible = (
+        descriptor is not None
+        and not query.get("with_metrics")
+        and "metrics" not in (query["fields"] or [])
+        and (cursor is None or source_cursor is not None)
+        and not (client.hardware_notes and client.hardware_notes.exists())
+    )
+    if descriptor is not None and eligible:
+        fields = sorted(set(query["fields"] or descriptor["device_fields"]) | {"id", "snapshot_fresh"})
+        page = client.resource_query(
+            resource_query_request(
+                view="devices",
+                node_id=node,
+                model=query["model"],
+                mine=query["mine"],
+                fields=fields,
+                limit=query["limit"],
+            ),
+            cursor=source_cursor,
+        )
+        return resource_query_cli_page(
+            client,
+            page,
+            query=query,
+            cursor=cursor,
+            fingerprint=fingerprint,
+            query_digest=digest,
+            reference=canonical,
+            connection=connection,
+            directory=directory,
+        )
+    if source_cursor is not None:
+        raise ClientError("resource_query_capability_changed")
 
     def command(next_cursor):
         args = ["--connection", str(connection)] if connection is not None else []
@@ -6572,6 +7288,169 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
             else:
                 raise ClientError("resource_devices_output_exceeds_byte_budget")
     raise ClientError("resource_devices_observation_unstable")
+
+
+def resource_query_cli_page(
+    client,
+    page,
+    *,
+    query,
+    cursor=None,
+    fingerprint=None,
+    query_digest=None,
+    reference=None,
+    connection=None,
+    directory=None,
+):
+    """Pack one selective observation, retaining internal per-row source cursors."""
+    device = page["view"] == "devices"
+    identity = "id" if device else "node"
+    original = page["rows"]
+    selected = []
+    tokens = {str(row[identity]): token for row, token in zip(original, page["row_cursors"], strict=True)}
+
+    def encode(entries):
+        rows, fresh, age = resource_query_rows_at_completion(page, client)
+        indexed = {str(row[identity]): row for row in rows}
+        packed = []
+        for identifier, deferred in entries:
+            row = indexed[identifier]
+            if deferred:
+                mandatory = (
+                    ("id", "ownership_match_unknown", "observation_incomplete")
+                    if device
+                    else (
+                        "ref",
+                        "node",
+                        "snapshot_fresh",
+                        "observation_incomplete",
+                    )
+                )
+                row = {key: row[key] for key in mandatory if key in row} | {"detail_deferred": True}
+            elif query["fields"] is not None:
+                mandatory = (
+                    ("id", "ownership_match_unknown", "observation_incomplete")
+                    if device
+                    else (
+                        "ref",
+                        "node",
+                        "snapshot_fresh",
+                        "observation_incomplete",
+                    )
+                )
+                companions = resource_field_companions(query["fields"]) if not device else ()
+                row = {key: row[key] for key in (*mandatory, *companions, *query["fields"]) if key in row}
+            packed.append(row)
+        more = len(entries) < len(original) or page["has_more"]
+        continuation = None
+        if more and entries:
+            continuation = (
+                resource_source_cursor(
+                    fingerprint,
+                    query_digest,
+                    0,
+                    entries[-1][0],
+                    resource_query_resume_cursor(
+                        page["cursor_frame"],
+                        entries[-1][0],
+                        tokens[entries[-1][0]],
+                    ),
+                    prefix="dc2.",
+                )
+                if device
+                else None
+            )
+        coverage = page["coverage"]
+        result = {
+            "rows": packed,
+            "has_more": more,
+            "next_cursor": continuation,
+            "traversal_exhausted": not more,
+            "scope_complete": cursor is None and not more and coverage["projection_complete"] and fresh,
+            "snapshot_fresh": fresh,
+            "age_seconds": age,
+            "http_requests": client.calls,
+            "update_required": client.needs_update,
+            "page_kind": "live_device_list" if device else "live_resource_view",
+        }
+        if device:
+            result.update(
+                node_ref=reference,
+                unit="card",
+                displayed_devices=len(packed),
+                **{
+                    key: coverage[key]
+                    for key in (
+                        "total_devices",
+                        "matched_devices",
+                        "unknown_ownership_devices",
+                        "unidentified_devices",
+                        "unknown_model_devices",
+                    )
+                },
+            )
+        else:
+            result.update(
+                displayed_nodes=len(packed),
+                **{
+                    key: coverage[key]
+                    for key in (
+                        "unknown_hardware_nodes",
+                        "unidentified_nodes",
+                        "unknown_ownership_units",
+                    )
+                },
+            )
+        if continuation is not None:
+            args = ["--connection", str(connection)] if connection is not None else []
+            args += ["resource", "devices", reference, "--limit", str(query["limit"])]
+            if directory is not None:
+                args += ["--directory", str(directory)]
+            if query["mine"]:
+                args += ["--mine"]
+            if query["model"] is not None:
+                args += ["--model", query["model"]]
+            if query["fields"] is not None:
+                args += ["--json", ",".join(query["fields"])]
+            result["next_command"] = [*args, "--cursor", continuation]
+        text = json.dumps(
+            client.redacted({"result": result}), ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False
+        )
+        if len(text.encode()) + 1 > SUMMARY_BYTE_LIMIT and "next_command" in result:
+            result.pop("next_command")
+            result["repeat_query_with_next_cursor"] = True
+            text = json.dumps(
+                client.redacted({"result": result}),
+                ensure_ascii=os.name == "nt",
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        return text, len(text.encode()) + 1 <= SUMMARY_BYTE_LIMIT
+
+    for row in original:
+        candidate = [*selected, (str(row[identity]), False)]
+        _text, fits = encode(candidate)
+        if not fits:
+            if not selected:
+                candidate = [(str(row[identity]), True)]
+                _text, fits = encode(candidate)
+                if not fits:
+                    raise ClientError("resource_query_item_exceeds_output_budget")
+                selected = candidate
+            break
+        selected = candidate
+    while True:
+        text, fits = encode(selected)
+        if fits:
+            return text
+        if not selected:
+            raise ClientError("resource_query_output_exceeds_byte_budget")
+        if len(selected) > 1:
+            selected.pop()
+        elif not selected[0][1]:
+            selected = [(selected[0][0], True)]
+        else:
+            raise ClientError("resource_query_item_exceeds_output_budget")
 
 
 def resource_devices_text(encoded):
@@ -8895,6 +9774,31 @@ def main(argv=None):
             )
             print(resource_devices_text(encoded) if human_read else encoded)
             return 0
+        if (
+            getattr(args, "resource_action", None) == "view"
+            and not args.with_metrics
+            and not args.exact_lease_times
+            and (
+                "metrics" not in (summary_fields or [])
+                and not (client.hardware_notes and client.hardware_notes.exists())
+            )
+        ):
+            descriptor = client.resource_query_descriptor()
+            if descriptor is not None:
+                fields = sorted(
+                    (set(summary_fields or descriptor["node_fields"]) - {"ref"})
+                    | {
+                        "node",
+                        "unit",
+                        "snapshot_fresh",
+                    }
+                )
+                page = client.resource_query(
+                    resource_query_request(node_id=reference_node, mine=args.mine, fields=fields, limit=1)
+                )
+                encoded = resource_query_cli_page(client, page, query={"fields": summary_fields}, reference=args.ref)
+                print(resource_list_text(encoded, mine=args.mine) if human_read else encoded)
+                return 0
         if args.action == "discover":
             result = client.discover()
             discovery_update = client.discovery_update_check()

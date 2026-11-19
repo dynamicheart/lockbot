@@ -10,6 +10,7 @@ from lockbot.backend.app.resource_api.ingress import AgentIngressMiddleware, Ing
         "/api/bots/4/resources",
         "/api/agent/context",
         "/api/agent/resources",
+        "/api/agent/resources/query",
         "/api/agent/commands",
         "/api/agent/usage-declarations",
         "/api/agent/usage-declarations/n1",

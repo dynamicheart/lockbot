@@ -43,6 +43,8 @@ def ensure_instance_id(db: Session) -> str:
 
 
 def server_metadata(request: Request, db: Session) -> dict:
+    from lockbot.backend.app.resource_api.resource_query import capability_descriptor
+
     return {
         "service_id": SERVICE_ID,
         "instance_id": ensure_instance_id(db),
@@ -59,7 +61,9 @@ def server_metadata(request: Request, db: Session) -> dict:
             "skill_version_headers",
             "resource_view_link",
             "coherent_resource_snapshot",
+            "resource_query_v1",
         ],
+        "resource_query": capability_descriptor(),
         "context_url": "/api/agent/context",
         "bindings_url": "/api/agent/bindings",
         "binding_recovery_url": "/api/agent/bindings/recover",
@@ -75,6 +79,7 @@ class ServerIdentity(BaseModel):
     api_version: Literal["1"]
     credential_scheme: Literal["lbr_bot_scoped"]
     capabilities: list[str]
+    resource_query: dict[str, Any] | None = None
     context_url: str
     bindings_url: str
     binding_recovery_url: str

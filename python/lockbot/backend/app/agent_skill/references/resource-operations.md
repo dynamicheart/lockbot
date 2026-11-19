@@ -13,6 +13,15 @@ python /absolute/path/scripts/lockbot_cli.py command --operation lock --node 19
 python /absolute/path/scripts/lockbot_cli.py command --operation slock --node 19 --device 0 --duration 4h
 ```
 
+When the user asks to release this task's verified holding on card `0` of node `19`:
+
+```sh
+python /absolute/path/scripts/lockbot_cli.py command --operation release --node 19 --device 0
+```
+
+Keep the original target and card selection; omit duration. A search or usage question
+does not authorize this release.
+
 CLI card selectors accept canonical IDs such as `0` and chat labels such as `dev0`
 (case-insensitive). Both select the exact same card; malformed labels, leading zeros
 and duplicate canonical IDs are rejected. Group selectors never stand for card labels.

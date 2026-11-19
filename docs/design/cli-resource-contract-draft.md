@@ -115,6 +115,55 @@ An external provider must acknowledge the exact canonical search using
 the option cannot return unfiltered rows as search results. They leave a source
 gap, with validated actual request cost retained and earlier healthy rows kept.
 
+## Selective reads from a capable native service
+
+The local candidate negotiates `resource_query_v1` from discovery. Its separate
+`GET /api/agent/resources/query` route reads only the bot authenticated by the
+existing personal Key. The initial fixed schema supports `view=nodes|devices`,
+exact `node_id`, observed `model`, `mine`, selected `fields`, `limit` (1–256), and
+a source cursor. Device queries require an exact node. Discovery lists the
+supported row fields and bounds; the public Agent OpenAPI namespace documents
+the parameters. Unknown, duplicate and contradictory parameters are rejected.
+
+Responses contain mandatory identity, capture/alias times, age, health, coverage,
+and a conservative observation lifetime independently of selected fields. Own
+lease/event horizons can shorten that lifetime below five seconds; expiry
+retires current ownership/time claims rather than inferring an idle resource.
+Clipped hardware, aliases, card-ID arrays and own-role arrays retain their
+companion truncation/uncertainty markers. These companions also remain present
+when selecting bounded fields through existing native, explicit legacy, or
+compatibility summary reads. Server bodies are capped at 64 KiB,
+including all cursor framing; CLI output retains its separate 8 KiB cap.
+
+A small shared cursor frame contains only version and expiry. Each internal
+row mark authenticates that frame, exact row key, normalized query, instance,
+verified actor/binding generation, bot UUID/identity revision, admitted bot
+generation and stable inventory/configuration digest. The SDK constructs a
+continuation for the last row actually emitted, so byte trimming cannot skip
+the remaining source page. Every source page authenticates and rechecks current
+authority. These live cursors retain neither a snapshot nor allocation rights.
+Lock/queue changes alone do not invalidate configuration traversal; configuration,
+identity, credential-generation or query changes require a new traversal.
+
+The SDK uses a separate strict validator and projected-row path for these reads.
+Partial query data never enters the full coherent snapshot or command-preflight
+path. Writes retain their existing independent full observations and checks.
+Search, node/alias hints, telemetry, legacy mode, local hardware-note joins and
+duplicate-credential cohorts deliberately select the existing read path before
+query I/O; those semantics are not silently dropped. In particular, peer
+credentials still compare full observations so an included-versus-missing own
+record or an alias disagreement cannot be hidden by different filtered pages.
+An announced malformed capability/response, authentication failure or rate limit
+never triggers a downgrade from a query that was already attempted.
+
+This increment reduces per-scope response bytes. It does not combine bindings,
+reduce cross-group discovery fan-out, add grants or create a client resource
+cache. The server retains the existing single-flight, generation-bound snapshot
+cache and one read-budget/admission/authority sequence per request. Cold copying
+and projection can still scan O(nodes + devices); smaller responses do not imply
+less state-lock work. Large-scope and full-traversal byte/request measurements
+must be reported separately from CLI stdout size and local ASGI timing.
+
 ## Inspect many cards on one node
 
 `resource devices REF` pages the observed card inventory for one exact selected node. It does not derive a card number from a node name such as `dev0`; whole-node groups use `resource view` for hardware facts.

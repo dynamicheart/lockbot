@@ -163,6 +163,24 @@ def legacy(tmp_path):
         thread.join(timeout=5)
 
 
+@pytest.mark.parametrize("action", ["list", "resources", "resources-all"])
+def test_legacy_selected_card_prefixes_keep_truncation_evidence(legacy, action):
+    legacy.scope.resources["resources"][0]["devices"] = [
+        {"id": number, "dev_model": "P800", "lock_status": "idle", "holders": [], "booking_list": []}
+        for number in range(1000)
+    ]
+    fields = "node,matched_device_ids,idle_device_ids"
+    arguments = ["resource", "list"] if action == "list" else [action]
+    if action != "resources":
+        arguments += ["--directory", str(legacy.scope.path.parent.parent)]
+    output = legacy.run(*arguments, "--json", fields, scoped=action == "resources")
+    row = output["result"]["rows"][0]
+    assert row["matched_device_ids"] == row["idle_device_ids"] == list(range(20))
+    assert row["devices_has_more"] and row["idle_devices_has_more"]
+    assert row["device_inventory_complete"] and row["unidentified_devices"] == 0
+    assert all(event["method"] == "GET" and not event["path"].endswith("/query") for event in legacy.events)
+
+
 def test_packaged_legacy_separate_read_is_opt_in_and_revision_independent(legacy):
     assert legacy.run("resources", opt_in=False, code=2)["error"] == "unsupported_service"
     legacy.events.clear()

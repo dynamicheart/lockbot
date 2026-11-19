@@ -20,13 +20,13 @@ MESSAGES = {
     "help.agent_skill": "Agent 使用：",
     "help.agent_lock_hint": "LockBot Skill 安装清单：{url}",
     "public_docs.agent_api_intro": "使用在群内完成绑定的个人 Agent Key，操作该群中属于你自己的资源。",
-    "public_docs.resource_queries": "查询资源先用 `GET /api/agent/context` 核对绑定，再展开 "
-    "`GET /api/agent/resources` 查看查询示例。",
+    "public_docs.resource_queries": "精简分页见 `GET /api/agent/resources/query`，完整资源见 "
+    "`GET /api/agent/resources`。响应包含绑定身份。",
     "public_docs.resource_query_example": (
         "### 用个人 Agent Key 查询资源\n\n"
         "`LOCKBOT_ORIGIN` 填已确认的服务地址，从私有凭证存储加载 `LOCKBOT_AGENT_KEY`。"
-        "第一条请求返回 Key 绑定的身份和群，核对后再发第二条请求，读取该群的资源、占用和队列。"
-        "两条请求使用同一个 Key。\n\n"
+        "以下示例先单独核对身份和群规则，再读取完整资源、占用和队列；两条请求使用同一个 Key。"
+        "精简查询也会返回绑定身份，不必在每次查询前重复核对。\n\n"
         "{commands}"
     ),
     "public_docs.title": "LockBot API 文档",

@@ -37,6 +37,12 @@ how many matches a user can request. Select the fields needed for the question.
 Bare `resource list --json` or `resource devices --json` lists supported fields
 locally without reading credentials or making requests. `--help` explains options.
 
+On services advertising `resource_query_v1`, the same commands can use bounded
+one-bot source pages. Unsupported filters and duplicate credential comparisons
+keep the existing read path; an attempted query never downgrades after an error.
+Identity, freshness, partial coverage and truncation markers still apply. Query
+rows locate resources; commands independently recheck a full current observation.
+
 Answer from fields already returned. Use `resource view REF` for missing detail;
 do not repeat a read merely because a reference is available. Describe allocation
 states as idle, held or queued; they do not establish machine health or successful

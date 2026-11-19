@@ -14,7 +14,7 @@ from collections import OrderedDict
 from starlette.responses import JSONResponse
 
 _PATH = re.compile(
-    r"^/api/(?:agent/(?:bindings(?:/recover)?|context|commands|resources|usage-declarations(?:/[^/]+)?)|bot-views/[^/]+/state|resource-auth/(?:bindings|credential-challenges)(?:/[^/]+)?|bots/[^/]+/(?:commands|resources|usage-declarations(?:/[^/]+)?))/?$"
+    r"^/api/(?:agent/(?:bindings(?:/recover)?|context|commands|resources(?:/query)?|usage-declarations(?:/[^/]+)?)|bot-views/[^/]+/state|resource-auth/(?:bindings|credential-challenges)(?:/[^/]+)?|bots/[^/]+/(?:commands|resources|usage-declarations(?:/[^/]+)?))/?$"
 )
 
 

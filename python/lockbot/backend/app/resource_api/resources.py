@@ -39,6 +39,7 @@ from lockbot.backend.app.bots.node_hardware import saved_node_hardware
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.commands import AGENT_ALLOWED_COMMANDS
+from lockbot.backend.app.resource_api.resource_query import query_openapi_extra
 from lockbot.backend.app.resource_api.snapshot import (
     ALIAS_DOC,
     LOCK_STATUS_DOC,
@@ -211,7 +212,7 @@ def get_resources(
         raise errors.admission_http_error(exc, bot_id) from None
 
 
-def resource_payload(bot_row, request, response, actor, db, lease, *, observation=None):
+def resource_payload(bot_row, request, response, actor, db, lease, *, observation=None, query_only=False):
     """Build one authorized observation while its bot generation is admitted.
 
     Command observations supply the detached state captured under their original
@@ -229,11 +230,11 @@ def resource_payload(bot_row, request, response, actor, db, lease, *, observatio
     else:
         captured_at, raw_state = observation
         from_cache = False
-    rows = active_declarations(db, bot_row, datetime.utcnow())
+    rows = [] if query_only else active_declarations(db, bot_row, datetime.utcnow())
     # Authoritative health from the admitted generation. Addresses require a
     # running allocator and a fresh hold, including for chat releases.
     health = lease.health or bot_row.status
-    access = saved_node_access(bot_row) if health == "running" else {}
+    access = saved_node_access(bot_row) if health == "running" and not query_only else {}
     if from_cache and (rows or access):
         # A declaration may refer to a newer hold/booking than the cached state,
         # or a release/reacquire may invalidate it. Join against a fresh instant.
@@ -269,7 +270,7 @@ def resource_payload(bot_row, request, response, actor, db, lease, *, observatio
     from lockbot.backend.app.resource_api.usage import visible_declarations
 
     attach_declarations(resources, visible_declarations(declarations, caller_id=actor.external_user_id))
-    if platform == "feishu":
+    if platform == "feishu" and not query_only:
         from lockbot.core.platforms.feishu import decorate_people
 
         decorate_people(resources, config)
@@ -365,3 +366,47 @@ def get_agent_resources(
 ) -> dict:
     """Read the resource snapshot for the bot bound to this personal key."""
     return get_resources(bot_id=actor.bot_id, request=request, response=response, actor=actor, db=db)
+
+
+@agent_router.get("/resources/query", openapi_extra=query_openapi_extra())
+def get_agent_resource_query(
+    request: Request,
+    response: Response,
+    actor: ResourceActor = Depends(require_agent_resource_actor),
+    db: Session = Depends(get_db),
+):
+    """A bounded discovery page for exactly the bot selected by the personal key.
+
+    This deliberately does not call get_resources: one request spends one read
+    budget and takes one admitted lease, with the same fresh authority barrier.
+    Its partial rows never become an allocation preflight observation.
+    """
+    from lockbot.backend.app.resource_api.resource_query import parse_query, query_response
+
+    query, cursor = parse_query(request.query_params)
+    bot_id = actor.bot_id
+    bot_row = db.get(Bot, bot_id)
+    if not bot_row or bot_row.is_deleted:
+        raise errors.bot_not_running(bot_id)
+    allowed, retry_after = credential_budget.check(actor.binding_record_id, "read")
+    if not allowed:
+        raise errors.rate_limited(retry_after)
+    try:
+        with (
+            bot_manager.admit(bot_id, for_read=True) as lease,
+            authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id),
+        ):
+            if not reverify_actor(db, request, actor):
+                raise errors.credential_invalid()
+            payload = resource_payload(bot_row, request, response, actor, db, lease, query_only=True)
+            return query_response(
+                payload,
+                query,
+                cursor,
+                actor=actor,
+                bot_row=bot_row,
+                generation=lease.generation,
+                headers=dict(response.headers),
+            )
+    except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise errors.admission_http_error(exc, bot_id) from None
