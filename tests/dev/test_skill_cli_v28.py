@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from dev.cli_legacy_grader_unit_data import legacy_intent_checks
 from dev.test_skill_cli_eval import evaluation, run
 from dev.test_skill_cli_v20 import events, versioned
 from lockbot.backend.app.resource_api.snapshot import build_resources
@@ -80,14 +81,19 @@ def test_repeated_reads_keep_expiry_and_start_but_extend_once_after_a_write(scen
     ).total_seconds() == delta
 
 
-@pytest.mark.parametrize("version,passes", [(27, False), (28, True)])
+@pytest.mark.parametrize("version,passes", [(27, False), (28, True), (34, True)])
 def test_actual_sdk_renew_only_works_with_the_new_healthy_queue_fixture(tmp_path, monkeypatch, version, passes):
     _, fixture = versioned(tmp_path, monkeypatch, "intent-renew", version)
     output = run(fixture, "command", nodes=["node-20"], operation="renew", whole_node=True, duration="2h")
     posts = [row for row in events(fixture, "cli-http.jsonl") if row["method"] == "POST"]
     if passes:
         assert output["result"]["verified"] and len(posts) == 1
-        assert evaluation.score(fixture.root, "node-20训练节点已续两小时，约2小时30分后到期。")["observable_pass"]
+        final = "node-20训练节点已续两小时，约2小时30分后到期。"
+        # v28's grader unit receives explicit legacy-shaped copies; v34 is actual SDK JSON.
+        checks = (
+            legacy_intent_checks(fixture, final) if version < 34 else evaluation.score(fixture.root, final)["checks"]
+        )
+        assert all(checks.values())
     else:
         assert output["error"] == "automatic_inventory_invalid" and not posts
 
@@ -123,7 +129,7 @@ def held(fixture):
 
 
 def test_raw_lock_on_a_fresh_same_mode_holding_is_proven_as_exactly_one_renewal(tmp_path, monkeypatch):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-ip-tail-held", 28)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-ip-tail-held", 34)
     output = held(fixture)
     resolution = output["result"]["resolution"]
     assert {
@@ -163,8 +169,10 @@ def test_raw_lock_on_a_fresh_same_mode_holding_is_proven_as_exactly_one_renewal(
     ],
 )
 def test_relock_proof_cannot_ignore_lease_rule_or_original_operation_pins(tmp_path, monkeypatch, fault):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-ip-tail-held", 28)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-ip-tail-held", 34)
     held(fixture)
+    final = "raven已续四小时，约六小时后到期。"
+    assert evaluation.score(fixture.root, final)["observable_pass"]
     trace, wire = events(fixture), events(fixture, "cli-http.jsonl")
     result = trace[0]["result"]["result"]
     resolution = result["resolution"]
@@ -210,24 +218,30 @@ def test_relock_proof_cannot_ignore_lease_rule_or_original_operation_pins(tmp_pa
             )
     write_events(fixture, "trace.jsonl", trace)
     write_events(fixture, "cli-http.jsonl", wire)
-    grade = evaluation.score(fixture.root, "raven已续四小时。")
+    grade = evaluation.score(fixture.root, final)
     assert not grade["checks"]["sdk_resolved_target_before_post"] and not grade["observable_pass"]
 
 
-@pytest.mark.parametrize("version,passes", [(27, False), (28, True)])
+@pytest.mark.parametrize("version,passes", [(27, False), (28, True), (34, True)])
 def test_concise_verified_original_hint_is_valid_only_in_v28(tmp_path, monkeypatch, version, passes):
     _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", version)
     assert run(fixture, "command", nodes=["19"], operation="lock")["result"]["verified"]
-    grade = evaluation.score(fixture.root, "已锁定19（整机），约3小时后到期。")
-    assert grade["observable_pass"] is passes
+
+    def checks(final):
+        return legacy_intent_checks(fixture, final) if version < 34 else evaluation.score(fixture.root, final)["checks"]
+
+    baseline = checks("已锁定19（整机），约3小时后到期。")
+    assert baseline["sdk_resolved_target_before_post"]  # Historical failure concerns reply wording, not health.
+    assert all(baseline.values()) is passes
     for invalid in ("已锁定119。", "已锁定node-19。", "已锁定19.example.test。", "已锁定，19小时后到期。"):
-        assert not evaluation.score(fixture.root, invalid)["observable_pass"]
+        assert not all(checks(invalid).values())
 
 
 @pytest.mark.parametrize("fault", ["wire", "scope", "resolution"])
 def test_hint_report_requires_actual_verified_unique_mapping(tmp_path, monkeypatch, fault):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 28)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 34)
     run(fixture, "command", nodes=["19"], operation="lock")
+    assert evaluation.score(fixture.root, "已锁定19（整机），约3小时后到期。")["observable_pass"]
     trace, wire = events(fixture), events(fixture, "cli-http.jsonl")
     if fault == "resolution":
         trace[0]["result"]["result"]["resolution"]["matches"][0]["node"] = "cedar"

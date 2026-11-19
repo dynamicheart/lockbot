@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from dev.cli_legacy_grader_unit_data import legacy_intent_checks
 from dev.test_skill_cli_eval import evaluation, run
 from dev.test_skill_cli_v20 import events, versioned
 
@@ -17,7 +18,7 @@ def unique(fixture):
     return output
 
 
-@pytest.mark.parametrize("version,passes", [(26, False), (27, True)])
+@pytest.mark.parametrize("version,passes", [(26, False), (27, True), (34, True)])
 def test_public_alias_octet_uses_real_sdk_and_only_new_grading_proof(tmp_path, monkeypatch, version, passes):
     _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", version)
     output = unique(fixture)
@@ -32,9 +33,11 @@ def test_public_alias_octet_uses_real_sdk_and_only_new_grading_proof(tmp_path, m
     assert "node_access" not in output["result"]["verified_snapshot"]["resources"][0]
     assert all("resource_selector_observation" in row for row in wire if row["url"].endswith("/resources")) is passes
     originals = {name: (fixture.root / name).read_bytes() for name in ("trace.jsonl", "cli-http.jsonl", "case.json")}
-    grade = evaluation.score(fixture.root, "raven已锁定，约3小时后到期。")
-    assert grade["observable_pass"] is passes
-    assert grade["checks"]["sdk_resolved_target_before_post"] is passes
+    final = "raven已锁定，约3小时后到期。"
+    # Historical versions exercise a controlled legacy DTO unit, not an old SDK.
+    checks = legacy_intent_checks(fixture, final) if version < 34 else evaluation.score(fixture.root, final)["checks"]
+    assert all(checks.values()) is passes
+    assert checks["sdk_resolved_target_before_post"] is passes
     assert all((fixture.root / name).read_bytes() == value for name, value in originals.items())
 
 
@@ -80,8 +83,9 @@ def test_public_alias_ambiguity_requires_two_real_candidates_and_no_post(tmp_pat
     ],
 )
 def test_positive_credit_requires_original_hint_identity_all_reads_and_exact_alias_pin(tmp_path, monkeypatch, fault):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 27)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 34)
     unique(fixture)
+    assert evaluation.score(fixture.root, "raven已锁定三小时。")["observable_pass"]
     trace, wire = events(fixture), events(fixture, "cli-http.jsonl")
     result = trace[0]["result"]["result"]
     reads = [row for row in wire if row["url"].endswith("/resources")]
@@ -206,7 +210,7 @@ def test_v27_refusal_still_cannot_erase_a_known_unknown_model_probe(tmp_path, mo
 
 @pytest.mark.parametrize("guess", ["raven", "198.51.100.19"])
 def test_initial_command_cannot_replace_the_users_selector_with_a_guessed_name_or_full_ip(tmp_path, monkeypatch, guess):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 27)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 34)
     output = run(fixture, "command", nodes=[guess], operation="lock")
     assert output["result"]["verified"]  # The product SDK still supports exact IDs and full aliases.
     grade = evaluation.score(fixture.root, "raven已锁定三小时。")
@@ -244,8 +248,9 @@ def test_real_prior_query_can_map_the_public_alias_to_a_scoped_canonical_command
 def test_grader_independently_parses_a_canonical_ipv4_alias_not_address_permissions(
     tmp_path, monkeypatch, alias, passes
 ):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 27)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 34)
     unique(fixture)
+    assert evaluation.score(fixture.root, "raven已锁定三小时。")["observable_pass"]
     trace, wire = events(fixture), events(fixture, "cli-http.jsonl")
     for row in wire:
         if row.get("resource_bot") == 8 and "resource_selector_observation" in row:

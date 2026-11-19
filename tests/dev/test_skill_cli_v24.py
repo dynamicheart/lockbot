@@ -102,8 +102,8 @@ def test_v24_negated_refusal_preserves_v23_score(tmp_path, monkeypatch):
     assert result["checks"]["sdk_resolver_refused_before_post"]
 
 
-def test_v24_card_label_proof_matches_the_real_normalized_cli(tmp_path, monkeypatch):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 24)
+def test_current_v34_card_label_proof_matches_the_real_normalized_cli(tmp_path, monkeypatch):
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 34)
     assert run(fixture, "command", nodes=["19"], devices=["dev0"], operation="slock", duration="4h")["result"][
         "verified"
     ]
@@ -139,8 +139,9 @@ def test_negation_correction_is_opt_in_and_cannot_invent_refusal_evidence():
 def test_card_label_normalization_cannot_retarget_recorded_arguments(tmp_path, monkeypatch):
     import json
 
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 24)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 34)
     run(fixture, "command", nodes=["19"], devices=["dev0"], operation="slock", duration="4h")
+    assert evaluation.score(fixture.root, "node-19卡0已共享锁定4小时。")["observable_pass"]
     path = fixture.root / "trace.jsonl"
     rows = [json.loads(line) for line in path.read_text().splitlines()]
     rows[0]["args"]["devices"] = ["dev1"]

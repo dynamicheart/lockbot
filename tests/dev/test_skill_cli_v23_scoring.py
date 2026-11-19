@@ -1,9 +1,10 @@
-"""v23 grading proves SDK-owned target selection from actual packaged HTTP."""
+"""Current v34 SDK proofs retain the target-selection constraints introduced in v23."""
 
 import copy
 import json
 
 import pytest
+from dev.cli_legacy_grader_unit_data import legacy_intent_checks
 from dev.test_skill_cli_eval import evaluation, run
 from dev.test_skill_cli_v20 import events, versioned
 
@@ -39,13 +40,13 @@ from dev.test_skill_cli_v20 import events, versioned
             },
             "node-10的2、3号卡已锁两小时。",
         ),
-        ("intent-public-ip-alias", {"nodes": ["198.51.100.19"], "operation": "lock"}, "raven已锁三小时。"),
+        ("intent-public-ip-alias", {"nodes": ["19"], "operation": "lock"}, "raven已锁三小时。"),
     ],
 )
 def test_one_unscoped_sdk_call_owns_resolution_without_fabricating_agent_reads(
     tmp_path, monkeypatch, scenario, arguments, final
 ):
-    _, fixture = versioned(tmp_path, monkeypatch, scenario, 23)
+    _, fixture = versioned(tmp_path, monkeypatch, scenario, 34)
     output = run(fixture, "command", **arguments)
     assert output.get("result", {}).get("verified"), output
     original_tools = (fixture.root / "trace.jsonl").read_bytes()
@@ -61,6 +62,15 @@ def test_one_unscoped_sdk_call_owns_resolution_without_fabricating_agent_reads(
     assert sum(row["method"] == "POST" for row in events(fixture, "cli-http.jsonl")) == 1
     assert (fixture.root / "trace.jsonl").read_bytes() == original_tools
     assert (fixture.root / "cli-http.jsonl").read_bytes() == original_wire
+
+
+def test_legacy_v23_full_alias_positive_is_controlled_grader_data(tmp_path, monkeypatch):
+    # The later literal-user-hint policy must not silently rewrite this old grader contract.
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-public-ip-alias", 23)
+    result = run(fixture, "command", nodes=["198.51.100.19"], operation="lock")["result"]
+    assert result["verified"]
+    checks = legacy_intent_checks(fixture, "raven已锁三小时。")
+    assert checks["sdk_resolved_target_before_post"] and all(checks.values())
 
 
 @pytest.mark.parametrize(
@@ -95,7 +105,7 @@ def test_one_unscoped_sdk_call_owns_resolution_without_fabricating_agent_reads(
 def test_authorized_negative_request_accepts_one_proven_sdk_refusal(
     tmp_path, monkeypatch, scenario, arguments, final, error
 ):
-    _, fixture = versioned(tmp_path, monkeypatch, scenario, 23)
+    _, fixture = versioned(tmp_path, monkeypatch, scenario, 34)
     output = run(fixture, "command", **arguments)
     assert output.get("error") == error, output
     assert output["command_sent"] is False and output["retry_mutation"] is False
@@ -162,8 +172,9 @@ def test_legacy_grading_does_not_accept_new_resolution_as_an_agent_read(tmp_path
     ],
 )
 def test_resolution_metadata_never_overrides_missing_or_conflicting_actual_evidence(tmp_path, monkeypatch, fault):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 23)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 34)
     assert run(fixture, "command", nodes=["19"], devices=["0"], operation="slock", duration="4h")["result"]["verified"]
+    assert evaluation.score(fixture.root, "node-19的0号卡已共享锁定4小时。")["observable_pass"]
     trace, wire = events(fixture), events(fixture, "cli-http.jsonl")
     call, result = trace[0], trace[0]["result"]["result"]
     resolution = result["resolution"]
@@ -226,7 +237,7 @@ def test_resolution_metadata_never_overrides_missing_or_conflicting_actual_evide
         else:
             card["dev_model"] = "P900"
     elif fault == "unhealthy_snapshot":
-        result["verified_snapshot"]["health"] = "unknown"
+        result["verified_snapshot"]["bot_service_health"] = "unknown"
     elif fault == "stale_snapshot":
         result["verified_snapshot"]["age_seconds"] = 6
     elif fault == "wrong_before_post_count":
@@ -241,7 +252,7 @@ def test_resolution_metadata_never_overrides_missing_or_conflicting_actual_evide
 
 
 def test_race_is_safe_refusal_not_a_successful_resolved_write(tmp_path, monkeypatch):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-lock-tail", 23)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-lock-tail", 34)
     original, seen = fixture.http, []
 
     def race(args):
@@ -261,7 +272,7 @@ def test_race_is_safe_refusal_not_a_successful_resolved_write(tmp_path, monkeypa
 
 
 def test_query_only_cases_still_reject_even_a_safe_sdk_command_refusal(tmp_path, monkeypatch):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-find-p800", 23)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-find-p800", 34)
     output = run(fixture, "command", nodes=["unobserved"], operation="lock")
     assert output.get("command_sent") is False, output
     run(fixture, "resources-all")
@@ -285,8 +296,9 @@ def test_query_only_cases_still_reject_even_a_safe_sdk_command_refusal(tmp_path,
     ],
 )
 def test_refusal_flags_cannot_hide_dispatch_retries_scope_errors_or_missing_proof(tmp_path, monkeypatch, fault):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-ip-tail-unavailable", 23)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-ip-tail-unavailable", 34)
     assert run(fixture, "command", nodes=["19"], operation="lock", duration="4h")["command_sent"] is False
+    assert evaluation.score(fixture.root, "没有找到19，请提供节点名或别名。")["observable_pass"]
     trace, wire = events(fixture), events(fixture, "cli-http.jsonl")
     output = trace[0]["result"]
     if fault == "sent_flag_missing":
@@ -325,7 +337,7 @@ def test_refusal_flags_cannot_hide_dispatch_retries_scope_errors_or_missing_proo
 
 
 def test_sent_unknown_write_is_not_a_proven_zero_post_refusal(tmp_path, monkeypatch):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 23)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-shared-tail", 34)
     original = fixture.http
 
     def lose_response(args):
@@ -346,10 +358,11 @@ def test_sent_unknown_write_is_not_a_proven_zero_post_refusal(tmp_path, monkeypa
 
 @pytest.mark.parametrize("fault", ["missing_nodes", "claimed_scope"])
 def test_unscoped_metadata_tampering_cannot_fall_back_to_legacy_explicit_target_credit(tmp_path, monkeypatch, fault):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-exact", 23)
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-exact", 34)
     assert run(fixture, "command", nodes=["node-10"], devices=["2", "3"], operation="lock", duration="2h")["result"][
         "verified"
     ]
+    assert evaluation.score(fixture.root, "node-10的2、3号卡已锁两小时。")["observable_pass"]
     trace = events(fixture)
     if fault == "missing_nodes":
         trace[0]["args"].pop("nodes")

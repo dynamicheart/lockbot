@@ -48,11 +48,11 @@ def test_v26_only_adds_missing_queue_lists_in_whole_machine_positive_inventory(m
     assert current == expected
 
 
-@pytest.mark.parametrize("version", [25, 26])
+@pytest.mark.parametrize("version", [25, 34])
 @pytest.mark.parametrize(
     "scenario,model,count", [("intent-model-whole-machine", "P900", 2), ("intent-model-p800-whole-machine", "P800", 6)]
 )
-def test_real_whole_machine_auto_command_only_succeeds_with_v26_queue_evidence(
+def test_current_sdk_whole_machine_command_keeps_the_legacy_missing_queue_guard(
     tmp_path, monkeypatch, version, scenario, model, count
 ):
     _, fixture = versioned(tmp_path, monkeypatch, scenario, version)

@@ -88,13 +88,14 @@ def test_query_flags_reach_actual_packaged_cli_and_http(tmp_path, monkeypatch, a
 
 
 def test_query_unknown_hardware_remains_partial_information(tmp_path, monkeypatch):
-    _, fixture = versioned(tmp_path, monkeypatch, "intent-model-p800-unknown-node")
+    _, fixture = versioned(tmp_path, monkeypatch, "intent-model-p800-unknown-node", 34)
     result = run(fixture, "resources-all", model="P800")["result"]
     machines = next(row["snapshot"] for row in result["groups"] if row["identity"]["bot"]["id"] == 8)
     assert machines["resources"] == []
     assert machines["selection"]["unknown_hardware_nodes"] == ["node-20"]
     assert machines["selection"]["full_inventory"] is False
-    assert machines["health"] == "running"
+    assert machines["bot_service_health"] == "running"
+    assert "health" not in machines
     assert machines["context"]["actor"]["external_user_id"] == "demo-user"
     assert result["complete"]  # Complete observation, with explicitly unknown hardware.
     assert not any(row["method"] == "POST" for row in events(fixture, "cli-http.jsonl"))
