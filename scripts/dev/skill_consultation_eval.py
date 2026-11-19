@@ -28,7 +28,7 @@ REFERENCES = {
 }
 ORIGINAL_TOOLS = base.tools
 OriginalFixture = base.Fixture
-VERSION = 2
+VERSION = 3
 
 
 def prepare(root, artifact, scenario):
@@ -114,8 +114,12 @@ def score(root, final):
     if scenario == "booking-vs-lock":
         # The main Skill also explains acquisition versus booking/claiming.
         sources.add("SKILL.md")
-    if fixture.case.get("fixture_version", 1) >= 2 and scenario == "zero-utilization":
-        # The entrypoint already states that zero load is not availability.
+    if fixture.case.get("fixture_version", 1) >= 3 or (
+        fixture.case.get("fixture_version", 1) >= 2 and scenario == "zero-utilization"
+    ):
+        # The entrypoint also covers these basic questions. A particular file
+        # visit is not required when its rule was already read in the Skill.
+        # Default-duration still requires the live rule below.
         sources.add("SKILL.md")
     document_read = False
     for row in trace:

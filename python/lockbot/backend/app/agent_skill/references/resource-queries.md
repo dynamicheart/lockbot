@@ -10,6 +10,7 @@ is a setup problem, not evidence that no resources exist.
 | --- | --- |
 | 看看能用什么 | `resource list --limit 5 --json node,unit,hardware,states` |
 | 找台 P800 | `resource list --model P800 --limit 5 --json node,unit,hardware,states` |
+| 资源都列一下 | `resource list --limit 256 --json node,unit,hardware,states`，继续返回的 `next_command` |
 | 找一下 node07 | `resource list --search node07 --limit 5 --json node,alias,unit,hardware,states` |
 | 我 lock 了哪些 / book 了哪些 | `resource list --mine --json node,holding_units,booking_units,holdings,bookings` |
 | 这台有哪些卡 | `resource devices REF --json id,model,state` |
@@ -40,6 +41,9 @@ Answer from fields already returned. Use `resource view REF` for missing detail;
 do not repeat a read merely because a reference is available. Describe allocation
 states as idle, held or queued; they do not establish machine health or successful
 login. Device IDs in a list can be clipped;
+Carry explicit unknown/partial markers into the reply, including when detail
+reveals uncertainty absent from an earlier aggregate. A field omitted by JSON
+selection is not evidence that its value is absent or zero.
 use `resource devices REF`, optionally with `--model` or `--mine`, for the selected
 node's cards. For an explicit request for many IDs, select only `id,model` and raise
 `--limit` up to 256; the byte cap still applies. Never treat clipped arrays as the
@@ -58,6 +62,9 @@ Use the returned `next_command` argument array to continue the same query. If on
 can continue, not that more matching rows are already known.
 
 For “全部” or a complete own-resource list, continue through the remaining pages.
+This read request already covers its continuation; do not stop to ask whether to
+fetch the next page. Use explicit JSON fields so the returned continuation can be
+followed directly. Bare `--json` only discovers fields, not resource rows.
 If an initial page has no suitable candidate, continue before claiming no match.
 If sources fail, are stale or lack hardware/ownership evidence, preserve those gaps:
 `scope_complete:false` is not an empty result. `traversal_exhausted` only means the
@@ -81,6 +88,8 @@ only report percentages: `reported_mean_percent` and
 `reported_memory_mean_percent` have no known hardware sample time. Their report age
 must not be described as sample age. Missing, invalid or stale readings stay unknown;
 a valid zero is still not proof of an idle, permitted or unqueued resource.
+A zero without verified sample freshness is a reported reading, not a claim
+about current physical load.
 
 For source setup, grants or individual metric details, read
 [workbench and metrics](workbench-and-metrics.md).

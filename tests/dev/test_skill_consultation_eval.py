@@ -88,6 +88,22 @@ def test_zero_utilization_can_use_rule_already_read_in_main_skill(create):
     assert evaluation.score(fixture.root, "0%不代表空闲或能申请。")["checks"]["relevant_source_read"]
 
 
+@pytest.mark.parametrize("scenario", ["binding-help", "share-login-link"])
+def test_setup_or_private_link_explanation_can_use_primary_instructions(create, scenario):
+    fixture = create(scenario)
+    fixture.call("read_consultation_skill", {})
+    assert evaluation.score(fixture.root, "Explanation still needs semantic review.")["checks"]["relevant_source_read"]
+
+
+def test_archived_v2_link_question_keeps_its_specific_source_requirement(create):
+    fixture = create("share-login-link")
+    fixture.call("read_consultation_skill", {})
+    case = fixture.case.copy()
+    case["fixture_version"] = 2
+    evaluation.base.save_json(fixture.root / "case.json", case)
+    assert not evaluation.score(fixture.root, "链接仅限私聊。")["checks"]["relevant_source_read"]
+
+
 def test_archived_zero_utilization_source_grading_is_preserved(create):
     fixture = create("zero-utilization")
     fixture.call("read_consultation_skill", {})
