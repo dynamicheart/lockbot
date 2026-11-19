@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 
+from lockbot.trace_evidence_files import NATIVE_PHASE_FILES
+
 PHASE_COUNTS = {
     "approved-enrollment": 2,
     "reset-personal-key": 4,
@@ -36,14 +38,11 @@ FILES = (
     "trace.jsonl",
     "cli-http.jsonl",
     "system.txt",
-    "native-invocation.json",
-    "native-ducc.jsonl",
-    "native-ducc.stderr",
     "runner.stdout",
     "binding.json",
     "browser.json",
     "mcp.json",
-    "native-ducc-settings.json",
+    *NATIVE_PHASE_FILES,
 )
 SHA = re.compile(r"[a-f0-9]{64}")
 

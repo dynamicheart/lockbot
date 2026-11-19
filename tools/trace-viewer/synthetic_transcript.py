@@ -4,9 +4,13 @@ import json
 import os
 import re
 import stat
+import sys
 import tempfile
 from hashlib import sha256
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python"))
+from lockbot.trace_evidence_files import NATIVE_PROTOCOL_FILES, NATIVE_RENDER_FILES, NATIVE_STDERR_FILES  # noqa: E402
 
 TOOL_LABELS = {
     "discover_local_state": "查找已安装 Skill 与本地连接",
@@ -217,7 +221,7 @@ def tool_steps(lines: str, phase: int, *, raw=False):
 
 
 def native_records(directory, root):
-    for name in ("codex-native.jsonl", "native-ducc.jsonl"):
+    for name in NATIVE_PROTOCOL_FILES:
         path = directory / name
         if path.is_file():
             records = []
@@ -306,13 +310,7 @@ def native_artifact_manifest(artifacts):
 
 def external_native_evidence(directory, root, artifacts):
     events = []
-    for name in (
-        "codex-native.jsonl",
-        "native-ducc.jsonl",
-        "codex-native.stderr",
-        "native-ducc.stderr",
-        "runner.stderr",
-    ):
+    for name in NATIVE_RENDER_FILES:
         path = directory / name
         if not path.is_file() or not path.stat().st_size:
             continue
@@ -344,7 +342,7 @@ def native_evidence(directory, root, *, artifacts=None):
         }
         for name, records in native_records(directory, root)
     ]
-    for name in ("codex-native.stderr", "native-ducc.stderr", "runner.stderr"):
+    for name in NATIVE_STDERR_FILES:
         path = directory / name
         if path.is_file() and path.stat().st_size:
             events.append(

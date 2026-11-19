@@ -17,7 +17,8 @@ from lockbot.trace_cli_assessment import (  # noqa: E402
 def run_source(source, target):
     # Delayed import keeps the existing phase adapter independent of CLI opt-in.
     from assessment_overlay import _bind_artifact, _json, digest
-    from synthetic_transcript import MAX_TRACE_BYTES, read_local
+    from lockbot.trace_evidence_files import NATIVE_RENDER_FILES
+    from synthetic_transcript import MAX_TRACE_BYTES, read_local, read_native_bytes
 
     source = source.resolve(strict=True)
     if not isinstance(target, dict) or target.get("suite") != "cli" or target.get("phase_scope") != "all":
@@ -88,11 +89,12 @@ def run_source(source, target):
         hashes = {}
         for name in FILES:
             path = directory / name
-            hashes[name] = (
-                digest(read_local(path, source, MAX_TRACE_BYTES).encode())
-                if (path.exists() or path.is_symlink())
-                else None
-            )
+            if not path.exists() and not path.is_symlink():
+                hashes[name] = None
+            elif name in NATIVE_RENDER_FILES:
+                hashes[name] = digest(read_native_bytes(path, source))
+            else:
+                hashes[name] = digest(read_local(path, source, MAX_TRACE_BYTES).encode())
         status = row.get("status", "missing") if row else "missing"
         if observed:
             case, result = _json(directory / "case.json", source), _json(directory / "result.json", source)

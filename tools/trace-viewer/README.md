@@ -249,3 +249,9 @@ python3 publish_dataset.py /private/terminal-matrix /private/dataset-stage \
 文件都会使旧复核失效。只有全部阶段已完成且已复核才能给出整条运行语义通过。
 部分阶段的意见或存疑可附加，但未覆盖所有预期阶段时总语义结论保持存疑；运行缺失、
 超时、受阻及自动失败的原始状态仍优先。复核依据中显示具体已复核阶段。
+
+原生证据文件名由 `lockbot.trace_evidence_files` 统一声明，渲染器与 CLI35 旁证
+共用协议和诊断别名。绑定也覆盖 `native-session.json`、`conversation.json`、
+客户端调用参数及 fixture 原生记录；空文件与文件不存在分别绑定。
+渲染器原生记录沿用 16 MiB 的严格常规文件读取限制。变更这些证据需要重新复核，
+不能将旧旁证用于变更后的运行；schema 1 的历史旁证处理保持不变。
