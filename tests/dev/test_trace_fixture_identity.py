@@ -22,7 +22,7 @@ def write(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False) + "\n")
 
 
-def prepared_run(tmp_path, suite="resource-cli", scenario="find-p800"):
+def prepared_run(tmp_path, suite="resource-cli", scenario="find-p800", *, release_fixture_version=None):
     """Prepare and execute the shipped fixture; never invent its case.json schema."""
     artifact = tmp_path / "artifact"
     artifact.mkdir(mode=0o700)
@@ -34,7 +34,11 @@ def prepared_run(tmp_path, suite="resource-cli", scenario="find-p800"):
     source.mkdir(mode=0o700)
     frozen = evaluation.freeze(artifact, source / "artifacts/current", evaluation.onboarding.ORIGIN)
     location = source / suite / scenario / "001/phase-1"
-    evaluation.prepare(location, suite, scenario, source / "artifacts")
+    if release_fixture_version is None:
+        evaluation.prepare(location, suite, scenario, source / "artifacts")
+    else:
+        assert suite == "cli-release"
+        release.prepare(location, source / "artifacts/current", scenario, fixture_version=release_fixture_version)
     if suite == "resource-cli":
         fixture = resources.Fixture(location)
         fixture.call("read_lockbot_skill", {"offset": 0})
@@ -91,6 +95,7 @@ def test_release_wrapper_exports_executed_alias_case_without_changing_source(tmp
     meta = json.loads((location / "case.json").read_text())
     assert meta["scenario"] == "intent-lock-tail"
     assert meta["release_scenario"] == "alias-set"
+    assert meta["release_fixture_version"] == 4  # Exercise the matrix's actual default separately.
     before = tree_hashes(source)
     report = publisher.export_dataset(source, tmp_path / "board", minimal_summary=True)
     dataset = tmp_path / "board/datasets" / report["dataset"]["dataset_id"]
@@ -114,9 +119,9 @@ def test_known_wrapper_versions_export_prepared_evidence(tmp_path, monkeypatch, 
         monkeypatch.setattr(resources, "VERSION", version)
         scenario, field = "find-p800", "resource_cli_version"
     else:
-        monkeypatch.setattr(release, "FIXTURE_VERSION", version)
         scenario, field = "alias-set", "release_fixture_version"
-    source, _, location = prepared_run(tmp_path, suite, scenario)
+    options = {"release_fixture_version": version} if suite == "cli-release" else {}
+    source, _, location = prepared_run(tmp_path, suite, scenario, **options)
     assert json.loads((location / "case.json").read_text())[field] == version
     report = publisher.export_dataset(source, tmp_path / "board", minimal_summary=True)
     assert report["source_io_audit"]["prompts"] == report["source_io_audit"]["finals"] == 1
