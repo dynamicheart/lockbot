@@ -27,28 +27,27 @@ def export(tmp_path, **kwargs):
     "scenario", ["find-p800", "list-resources", "all-resources", "node-detail", "device-detail", "metrics"]
 )
 def test_bounded_resource_cli_cases_export_without_losing_raw_io(tmp_path, scenario):
-    source, terminal = matrix(tmp_path, terminal=True, scenario=scenario)
-    plan = json.loads((source / "run.json").read_text())
-    plan["cases"] = [f"resource-cli:{scenario}"]
-    (source / "run.json").write_text(json.dumps(plan))
-    terminal["cases"] = plan["cases"]
-    terminal["results"][0]["suite"] = "resource-cli"
-    old_location = source / terminal["results"][0]["evidence"]
-    location = source / "resource-cli" / scenario / "001/phase-1"
-    location.parent.mkdir(parents=True)
-    old_location.rename(location)
-    terminal["results"][0]["evidence"] = location.relative_to(source).as_posix()
-    (source / "matrix.json").write_text(json.dumps(terminal))
+    from test_trace_fixture_identity import prepared_run, tree_hashes
+
+    source, result, location = prepared_run(tmp_path, "resource-cli", scenario)
+    meta = json.loads((location / "case.json").read_text())
+    assert meta["scenario"] == "intent-find-p800"
+    assert meta["resource_cli_scenario"] == scenario
+    before = tree_hashes(source)
     report = publisher.export_dataset(source, tmp_path / "board", minimal_summary=True)
     directory = tmp_path / "board/datasets" / report["dataset"]["dataset_id"]
     raw = json.loads((directory / "raw.json").read_text())
     key = f"resource-cli-{scenario}"
     assert list(raw["cases"]) == [key]
     assert raw["groups"][key] == "资源查询"
-    assert raw["cases"][key][0]["state"] == "fail"
-    assert {"role": "user", "text": "Actual user request"} in raw["cases"][key][0]["sessions"][0]
-    assert {"role": "assistant", "text": "Actual native reply"} in raw["cases"][key][0]["sessions"][0]
-    assert report["source_io_audit"] == {"prompts": 1, "finals": 1, "fixture_tools": 1}
+    # Resource host checks do not establish answer semantics; preserve that review state.
+    assert result["manual_review_required"]
+    assert raw["cases"][key][0]["state"] == ("pending" if result["observable_pass"] else "fail")
+    assert {"role": "user", "text": (location / "prompt.txt").read_text()} in raw["cases"][key][0]["sessions"][0]
+    assert {"role": "assistant", "text": "Local fixture execution only."} in raw["cases"][key][0]["sessions"][0]
+    assert report["source_io_audit"]["prompts"] == report["source_io_audit"]["finals"] == 1
+    assert report["source_io_audit"]["fixture_tools"] > 1
+    assert tree_hashes(source) == before
 
 
 @pytest.mark.parametrize("scenario", ["intent-context-reminder-configured", "intent-context-reminder-unavailable"])

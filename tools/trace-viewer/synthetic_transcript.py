@@ -380,6 +380,42 @@ def native_partial_replies(directory, root):
     return replies
 
 
+def fixture_scenario(meta, suite):
+    """Resolve only the explicitly versioned wrappers around existing CLI fixtures."""
+    if suite == "resource-cli":
+        version, field = "resource_cli_version", "resource_cli_scenario"
+        underlying = dict.fromkeys(
+            ("find-p800", "list-resources", "all-resources", "node-detail", "device-detail", "metrics"),
+            "intent-find-p800",
+        )
+        expected_versions = {1, 2}
+    elif suite == "cli-release":
+        version, field = "release_fixture_version", "release_scenario"
+        underlying = {
+            "alias-set": "intent-lock-tail",
+            "alias-clear": "intent-lock-tail",
+            "queue-book": "intent-book",
+            "queue-claim": "intent-claim",
+            "queue-mine": "intent-my-books",
+            "release-reconcile": "intent-my-books",
+            "update-inquiry": "intent-lock-tail",
+        }
+        expected_versions = {3, 4}
+    else:
+        return meta["scenario"]
+    scenario = meta.get(field)
+    if (
+        meta.get("fixture_family") != suite
+        or type(meta.get(version)) is not int
+        or meta[version] not in expected_versions
+        or not isinstance(scenario, str)
+        or scenario not in underlying
+        or meta.get("scenario") != underlying[scenario]
+    ):
+        raise ValueError("Unexpected versioned synthetic fixture")
+    return scenario
+
+
 def synthetic_sessions(
     root: Path, case: str, runner: int, rows: list[dict], *, suite="cli", raw=False, native_artifacts=None
 ) -> list[list[dict]]:
@@ -398,7 +434,7 @@ def synthetic_sessions(
             meta = json.loads(read_local(directory / "case.json", root, 8192))
             subject = read_local(directory / "subject.md", root, 65_536)
             if (
-                meta["scenario"] != case
+                fixture_scenario(meta, suite) != case
                 or meta.get("phase", 1) != phase
                 or meta["skill_sha256"] != row["skill_sha256"]
                 or sha256(subject.encode()).hexdigest() != meta.get("subject_sha256", meta["skill_sha256"])
