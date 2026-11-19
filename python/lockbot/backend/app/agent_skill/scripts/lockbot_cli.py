@@ -41,6 +41,14 @@ REFERENCE_PATHS = (
     "references/resource-queries.md",
     "references/workbench-and-metrics.md",
 )
+# Both are complete canonical-origin-v2 layouts. Do not infer support for arbitrary
+# subsets: pre-query-guide bundles must remain usable without claiming newer files.
+PREVIOUS_V2_REFERENCE_PATHS = (
+    "references/connections.md",
+    "references/resource-operations.md",
+    "references/workbench-and-metrics.md",
+)
+V2_REFERENCE_LAYOUTS = (REFERENCE_PATHS, PREVIOUS_V2_REFERENCE_PATHS)
 ENROLLMENT_PATH = "/api/resource-auth/bindings"
 CREDENTIAL_CHALLENGE_PATH = "/api/resource-auth/credential-challenges"
 RECOVERY_PATH = "/api/agent/bindings/recover"
@@ -1564,6 +1572,18 @@ def canonical_package_version(markdown, script, deployment_origin, references=No
     return content_version(markdown, script, references)
 
 
+def _installed_reference_paths(stamp):
+    if stamp.get("package_format") != BUNDLE_FORMAT:
+        return ()
+    files = stamp.get("files")
+    if not isinstance(files, dict):
+        raise ValueError("invalid_bundle_file_manifest")
+    for paths in V2_REFERENCE_LAYOUTS:
+        if set(files) == {"SKILL.md", SCRIPT_PATH, *paths}:
+            return paths
+    raise ValueError("unknown_bundle_reference_layout")
+
+
 def installed_package_version(root):
     installed_version(root)  # retain full rendered file/bundle integrity checks
     try:
@@ -1572,11 +1592,8 @@ def installed_package_version(root):
             return None
         if stamp.get("package_format") not in (LEGACY_BUNDLE_FORMAT, BUNDLE_FORMAT):
             raise ClientError("unsupported_bundle_package_format")
-        references = (
-            {name: (root / name).read_bytes() for name in REFERENCE_PATHS}
-            if (stamp["package_format"] == BUNDLE_FORMAT)
-            else None
-        )
+        paths = _installed_reference_paths(stamp)
+        references = {name: (root / name).read_bytes() for name in paths} if paths else None
         package = canonical_package_version(
             (root / "SKILL.md").read_bytes(),
             (root / SCRIPT_PATH).read_bytes(),
@@ -1593,9 +1610,9 @@ def installed_package_version(root):
 def installed_version(root):
     try:
         stamp = json.loads((root / "installation.json").read_bytes())
-        if stamp["service_id"] != SERVICE or stamp["api_version"] != API_VERSION:
+        if not isinstance(stamp, dict) or stamp["service_id"] != SERVICE or stamp["api_version"] != API_VERSION:
             raise ValueError
-        reference_paths = REFERENCE_PATHS if stamp.get("package_format") == BUNDLE_FORMAT else ()
+        reference_paths = _installed_reference_paths(stamp)
         contents = {
             relative: (root / relative).read_bytes() for relative in ("SKILL.md", SCRIPT_PATH, *reference_paths)
         }
@@ -3419,12 +3436,15 @@ class Client:
         package_format = meta.get("package_format")
         if package_format == BUNDLE_FORMAT and "package_version" not in meta:
             raise ClientError("bundle_package_mismatch")
-        reference_paths = REFERENCE_PATHS if package_format == BUNDLE_FORMAT else ()
-        expected = (SCRIPT_PATH, "installation.json", "SKILL.md", *reference_paths)
         try:
             with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
                 root = meta["installation"]["name"] + "/"
-                if set(zipped.namelist()) != {root + item for item in expected}:
+                layouts = V2_REFERENCE_LAYOUTS if package_format == BUNDLE_FORMAT else ((),)
+                for reference_paths in layouts:
+                    expected = (SCRIPT_PATH, "installation.json", "SKILL.md", *reference_paths)
+                    if set(zipped.namelist()) == {root + item for item in expected}:
+                        break
+                else:
                     raise ClientError("unsafe_or_incomplete_bundle")
                 entries = zipped.infolist()
                 if len(entries) != len(expected) or sum(entry.file_size for entry in entries) > MAX_BYTES:
@@ -3435,9 +3455,17 @@ class Client:
                 if sum(map(len, contents.values())) > MAX_BYTES:
                     raise ClientError("bundle_too_large")
                 stamp = json.loads(contents["installation.json"])
+                if not isinstance(stamp, dict) or _installed_reference_paths(stamp) != reference_paths:
+                    raise ClientError("bundle_metadata_mismatch")
                 if (
-                    stamp["version"] != meta["version"]
+                    stamp["service_id"] != SERVICE
+                    or stamp["api_version"] != API_VERSION
+                    or stamp["version"] != meta["version"]
                     or hashlib.sha256(contents["SKILL.md"]).hexdigest() != meta["skill_sha256"]
+                    or content_version(
+                        contents["SKILL.md"], contents[SCRIPT_PATH], {name: contents[name] for name in reference_paths}
+                    )
+                    != stamp["version"]
                 ):
                     raise ClientError("bundle_metadata_mismatch")
                 for name in ("SKILL.md", SCRIPT_PATH, *reference_paths):
