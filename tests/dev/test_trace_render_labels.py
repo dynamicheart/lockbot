@@ -24,7 +24,10 @@ const data={cases:{one:[
  {model:'GPT-6.1 Sol',source_run:'matrix:second'},
  {model:'training13-codex · official:gpt-6.1-sol · 阶段 2 语义复核',source_run:'semantic:exact'},
  {model:'ducc · MiniMax-M3'}, {model:'ducc · GLM-5.3'}, {model:'ducc · Kimi K3'},
- {model:'ducc · DeepSeek-V4.1-Flash'}, {model:'Unknown client · exact-model-id'}]}};
+ {model:'ducc · DeepSeek-V4.1-Flash'}, {model:'Unknown client · exact-model-id'},
+ {model:'ducc-luna · gpt-6-luna'}, {model:'Luna'}, {model:'ducc-kimi · Kimi K3'},
+ {model:'ducc-glm · GLM-5.3'}, {model:'ducc-deepseek · DeepSeek-V4.1-Flash'},
+ {model:'Unknown client · gpt-6-luna'}]}};
 const before=JSON.stringify(data);
 console.log(JSON.stringify({labels:data.cases.one.map((row,index)=>modelLabel(row,index)),unchanged:before===JSON.stringify(data)}));
 """
@@ -35,10 +38,16 @@ console.log(JSON.stringify({labels:data.cases.one.map((row,index)=>modelLabel(ro
             "GPT-6.1 Sol · 记录 2",
             "GPT-6.1 Sol · 复核 2",
             "MiniMax M3",
-            "GLM 5.3",
-            "Kimi K3",
-            "DeepSeek V4.1 Flash",
+            "GLM 5.3 · 记录 1",
+            "Kimi K3 · 记录 1",
+            "DeepSeek V4.1 Flash · 记录 1",
             "Unknown client · exact-model-id",
+            "Luna · 记录 1",
+            "Luna · 记录 2",
+            "Kimi K3 · 记录 2",
+            "GLM 5.3 · 记录 2",
+            "DeepSeek V4.1 Flash · 记录 2",
+            "Unknown client · gpt-6-luna",
         ],
         "unchanged": True,
     }
