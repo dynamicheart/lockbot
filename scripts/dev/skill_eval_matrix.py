@@ -13,6 +13,7 @@ import skill_cli_eval as cli
 import skill_consultation_eval as consultation
 import skill_continuity_eval as continuity
 import skill_operations_eval as operations
+import skill_resource_cli_eval as resource_cli
 from skill_eval_artifact import load
 
 CASES = {
@@ -21,6 +22,7 @@ CASES = {
     "continuity": tuple(continuity.PROMPTS),
     "operations": tuple(operations.PROMPTS),
     "consultation": tuple(consultation.PROMPTS),
+    "resource-cli": tuple(resource_cli.PROMPTS),
 }
 SECOND_PHASE = {
     "cli": {*cli.ENROLLMENT_SCENARIOS, *cli.intent.CONVERSATIONAL_PROMPTS, "panel"},
@@ -51,6 +53,9 @@ def freeze(source, destination, expected_origin):
 def prepare(root, suite, scenario, artifacts, *, cli_fixture_version=19, onboarding_fixture_version=7):
     current = artifacts / "current"
     source = current / "SKILL.md"
+    if suite == "resource-cli":
+        resource_cli.prepare(root, current, scenario)
+        return resource_cli.score
     if suite == "cli":
         cli.prepare(
             root,

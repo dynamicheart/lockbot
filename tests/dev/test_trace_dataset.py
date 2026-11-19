@@ -23,6 +23,34 @@ def export(tmp_path, **kwargs):
     return source, publisher.export_dataset(source, tmp_path / "board", **kwargs)
 
 
+@pytest.mark.parametrize(
+    "scenario", ["find-p800", "list-resources", "all-resources", "node-detail", "device-detail", "metrics"]
+)
+def test_bounded_resource_cli_cases_export_without_losing_raw_io(tmp_path, scenario):
+    source, terminal = matrix(tmp_path, terminal=True, scenario=scenario)
+    plan = json.loads((source / "run.json").read_text())
+    plan["cases"] = [f"resource-cli:{scenario}"]
+    (source / "run.json").write_text(json.dumps(plan))
+    terminal["cases"] = plan["cases"]
+    terminal["results"][0]["suite"] = "resource-cli"
+    old_location = source / terminal["results"][0]["evidence"]
+    location = source / "resource-cli" / scenario / "001/phase-1"
+    location.parent.mkdir(parents=True)
+    old_location.rename(location)
+    terminal["results"][0]["evidence"] = location.relative_to(source).as_posix()
+    (source / "matrix.json").write_text(json.dumps(terminal))
+    report = publisher.export_dataset(source, tmp_path / "board", minimal_summary=True)
+    directory = tmp_path / "board/datasets" / report["dataset"]["dataset_id"]
+    raw = json.loads((directory / "raw.json").read_text())
+    key = f"resource-cli-{scenario}"
+    assert list(raw["cases"]) == [key]
+    assert raw["groups"][key] == "资源查询"
+    assert raw["cases"][key][0]["state"] == "fail"
+    assert {"role": "user", "text": "Actual user request"} in raw["cases"][key][0]["sessions"][0]
+    assert {"role": "assistant", "text": "Actual native reply"} in raw["cases"][key][0]["sessions"][0]
+    assert report["source_io_audit"] == {"prompts": 1, "finals": 1, "fixture_tools": 1}
+
+
 @pytest.mark.parametrize("scenario", ["intent-context-reminder-configured", "intent-context-reminder-unavailable"])
 def test_context_reminder_cases_export_actual_dialogue_without_catalog_omissions(tmp_path, scenario):
     source, _ = matrix(tmp_path, terminal=True, scenario=scenario)

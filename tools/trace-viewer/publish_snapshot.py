@@ -86,6 +86,17 @@ GROUPS = {
 }
 CASES = {f"cli:{key}": (group, label) for group, labels in GROUPS.items() for key, label in labels.items()}
 SUITE_GROUPS = {
+    "resource-cli": (
+        "资源查询",
+        {
+            "find-p800": "查找 P800 机器",
+            "list-resources": "查看可申请的资源",
+            "all-resources": "分批查看全部资源",
+            "node-detail": "查看一台机器",
+            "device-detail": "查看机器上的卡",
+            "metrics": "查看 P800 利用率",
+        },
+    ),
     "onboarding": (
         "安装诊断",
         {
