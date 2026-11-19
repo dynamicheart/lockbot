@@ -65,6 +65,7 @@ METRICS = (
     "lockbot_sample_timestamp_seconds",
     "lockbot_collector_success",
 )
+_RESOURCE_CREDENTIAL_IN_TEXT = re.compile(r"(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,200}|lb[ac]1\.")
 
 
 def metric_number(value):
@@ -255,7 +256,16 @@ def utilization_sample(values, success, stamps, now, stale_seconds, *, value_fie
     return {"status": status, value_field: value if status == "ok" else None, "sample_age_seconds": age}
 
 
-def utilization_summary(vector, mappings, now, stale_seconds):
+def metrics_resource_device(value):
+    """Current lockbot-v1 mapping keys identify canonical numeric resource IDs."""
+    if type(value) is int and value >= 0:
+        value = str(value)
+    return value if isinstance(value, str) and re.fullmatch(r"0|[1-9][0-9]*", value) else None
+
+
+def utilization_summary(
+    vector, mappings, now, stale_seconds, *, device_mapping=None, resource_type=None, ambiguous_nodes=()
+):
     collectors = {}
     samples = {}
     devices = {}
@@ -307,16 +317,55 @@ def utilization_summary(vector, mappings, now, stale_seconds):
             else {}
         )
 
-    return [
-        {
+    card_resources = resource_type in {"DEVICE", "QUEUE_DEVICE"}
+    device_mapping = device_mapping or {}
+    result = []
+    for node, target in mappings.items():
+        if node in ambiguous_nodes:
+            result.append(
+                {"node": node, "source_node": target, "device_identity": "source",
+                 "mapping_status": "ambiguous_node", "cpu": {"status": "invalid", "percent": None,
+                 "sample_age_seconds": None}, "cards": [], "cards_status": "invalid"}
+            )
+            continue
+        resolved, collisions, invalid = {}, Counter(), False
+        if card_resources:
+            for key, source_device in device_mapping.items():
+                owner, separator, suffix = key.rpartition(":dev")
+                if not separator or owner != node:
+                    continue
+                collisions[source_device] += 1
+                resource_device = metrics_resource_device(suffix)
+                if resource_device is None:
+                    invalid = True
+                    continue
+                resolved.setdefault(source_device, []).append(resource_device)
+        source_devices = set(devices.get(target, ())) | set(resolved)
+        cards = []
+        for device in sorted(source_devices):
+            card = {"device": device, **reading(target, "accelerator", device), **memory(target, "accelerator", device)}
+            if not card_resources:
+                card["mapping_status"] = "source_only"
+            elif collisions[device] > 1:
+                card["mapping_status"] = "ambiguous"
+            elif len(resolved.get(device, [])) == 1:
+                card.update(resource_device=resolved[device][0], mapping_status="mapped")
+            else:
+                card["mapping_status"] = "unmapped"
+            cards.append(card)
+        mapping_status = (
+            "invalid" if invalid else "ambiguous" if any(count > 1 for count in collisions.values())
+            else "missing" if not resolved else "partial" if any(card["mapping_status"] != "mapped" for card in cards)
+            else "mapped"
+        ) if card_resources else "source_only"
+        result.append({
             "node": node,
             "source_node": target,
+            "device_identity": "source",
+            "mapping_status": mapping_status,
             "cpu": reading(target, "host"),
             **memory(target, "host"),
-            "cards": [
-                {"device": device, **reading(target, "accelerator", device), **memory(target, "accelerator", device)}
-                for device in sorted(devices.get(target, ()))
-            ],
+            "cards": cards,
             "cards_status": "reported" if target in devices else reading(target, "accelerator")["status"],
             **(
                 {
@@ -334,9 +383,8 @@ def utilization_summary(vector, mappings, now, stale_seconds):
                 if target in filesystems
                 else {}
             ),
-        }
-        for node, target in mappings.items()
-    ]
+        })
+    return result
 
 
 class ClientError(Exception):
@@ -3202,6 +3250,15 @@ class Client:
     def _context_digest(context):
         return hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":")).encode()).digest()
 
+    @staticmethod
+    def _metrics_identity(context):
+        try:
+            value = {"bot_type": context.get("bot", {}).get("type"),
+                     "configuration": (context.get("utilization") or {}).get("configuration")}
+            return hashlib.sha256(json.dumps(value, sort_keys=True, allow_nan=False).encode()).digest()
+        except (AttributeError, TypeError, ValueError, RecursionError):
+            raise ClientError("invalid_metrics_configuration") from None
+
     def _metrics_context(self, context):
         # Reuse is invocation-local and only accepts an unchanged response read by this client.
         verified = next((digest for observed, digest in self._verified_contexts if observed is context), None)
@@ -3213,13 +3270,18 @@ class Client:
             if self._context_digest(latest) != digest:
                 raise ClientError("metrics_context_not_verified")
             self._validate_context(latest)
+            if self._metrics_identity(context) != self._metrics_identity(latest):
+                raise ClientError("metrics_mapping_changed")
         except (AttributeError, KeyError, TypeError, ValueError, RecursionError) as exc:
             raise ClientError("metrics_context_not_verified") from exc
         return latest  # A preceding batch may already have refreshed a short grant.
 
     def metrics(self, nodes, *, context=None):
         context = self.context() if context is None else self._metrics_context(context)
+        identity = self._metrics_identity(context)
         for attempt in range(2):
+            if self._metrics_identity(context) != identity:
+                raise ClientError("metrics_mapping_changed")
             source = (context.get("utilization") or {}).get("configuration") or {}
             if source.get("type") != "prometheus" or source.get("profile") != "lockbot-v1":
                 raise ClientError("unsupported_metrics_profile")
@@ -3231,15 +3293,47 @@ class Client:
                 raise ClientError("metrics_origin_requires_approval")
             url = same_origin_url(target_origin, endpoint + "/api/v1/query")
             mapping = source.get("nodeMapping", {})
-            if not isinstance(mapping, dict) or not nodes or len(nodes) > 64 or set(nodes) - set(mapping):
+            if (
+                not isinstance(mapping, dict) or len(mapping) > 512 or not nodes or len(nodes) > 64
+                or set(nodes) - set(mapping)
+            ):
                 raise ClientError("explicit_mapped_metrics_nodes_required")
-            mappings = {node: mapping[node] for node in nodes}
-            if any(not isinstance(target, str) or not target or len(target) > 256 for target in mappings.values()):
+            if any(
+                not isinstance(key, str) or not key or len(key) > 256 or not key.isprintable()
+                or not isinstance(target, str) or not target or len(target) > 256 or not target.isprintable()
+                or redacted_values(key, self.secrets) != key or redacted_values(target, self.secrets) != target
+                or _RESOURCE_CREDENTIAL_IN_TEXT.search(key) or _RESOURCE_CREDENTIAL_IN_TEXT.search(target)
+                for key, target in mapping.items()
+            ):
                 raise ClientError("invalid_metrics_mapping")
-            targets = sorted(set(mappings.values()))
+            resource_type = context.get("bot", {}).get("type")
+            if resource_type not in {"NODE", "QUEUE", "DEVICE", "QUEUE_DEVICE"}:
+                raise ClientError("unsupported_metrics_resource_type")
+            device_mapping = source.get("deviceMapping", {})
+            if not isinstance(device_mapping, dict) or len(device_mapping) > 512 or any(
+                not isinstance(key, str) or not key or len(key) > 256 or not key.isprintable()
+                or not isinstance(target, str) or not target or len(target) > 256 or not target.isprintable()
+                or redacted_values(key, self.secrets) != key or redacted_values(target, self.secrets) != target
+                or _RESOURCE_CREDENTIAL_IN_TEXT.search(key) or _RESOURCE_CREDENTIAL_IN_TEXT.search(target)
+                for key, target in device_mapping.items()
+            ):
+                raise ClientError("invalid_metrics_device_mapping")
+            mappings = {node: mapping[node] for node in nodes}
+            counts = Counter(mapping.values())
+            ambiguous_nodes = {node for node in nodes if counts[mapping[node]] != 1}
+            targets = sorted({mapping[node] for node in nodes if node not in ambiguous_nodes})
             stale_seconds = source.get("staleSeconds", 90)
             if type(stale_seconds) is not int or not 30 <= stale_seconds <= 3600:
                 raise ClientError("invalid_metrics_freshness")
+            if not targets:
+                return {
+                    "best_effort": True, "verification": "mapping_only_no_source_query",
+                    "utilization": utilization_summary(
+                        [], mappings, time.time(), stale_seconds, device_mapping=device_mapping,
+                        resource_type=resource_type, ambiguous_nodes=ambiguous_nodes,
+                    ),
+                    "does_not_authorize_resources": True,
+                }
             if source.get("accessMode") == "short_lived":
                 access = (context.get("utilization") or {}).get("access") or {}
                 credential = access.get("token")
@@ -3249,7 +3343,12 @@ class Client:
                 credential = private_bytes(self._file("metrics_key_file")).decode().strip()
             else:
                 raise ClientError("unsupported_metrics_authentication")
-            if credential.startswith(("lbr_", "lbk_", "lbc1.")) or credential == self.key:
+            if (
+                credential.startswith(("lbr_", "lbp_", "lbk_", "lbc1.", "lba1."))
+                or isinstance(self.key, str) and self.key and self.key in credential
+                or _RESOURCE_CREDENTIAL_IN_TEXT.search(credential)
+                or redacted_values(credential) != credential
+            ):
                 raise ClientError("resource_key_for_metrics_refused")
             self.secrets.append(credential)
             selector = "{__name__=~" + json.dumps("^(?:" + "|".join(METRICS) + ")$")
@@ -3290,7 +3389,10 @@ class Client:
                     "best_effort": True,
                     "verification": "query_response_only",
                     "data": data,
-                    "utilization": utilization_summary(vector, mappings, time.time(), stale_seconds),
+                    "utilization": utilization_summary(
+                        vector, mappings, time.time(), stale_seconds, device_mapping=device_mapping,
+                        resource_type=resource_type, ambiguous_nodes=ambiguous_nodes,
+                    ),
                     "does_not_authorize_resources": True,
                 }
             except ClientError as exc:
@@ -4483,6 +4585,7 @@ def merge_summary_metrics(rows, metrics, *, device_limit=20):
             "best_effort": True,
             "does_not_authorize_resources": True,
             "status": "reported" if len(matches) == 1 else "missing" if not matches else "invalid",
+            "device_identity": "resource" if row.get("unit") == "card" else "source",
         }
         errors = []
         if len(matches) > 1:
@@ -4506,6 +4609,8 @@ def merge_summary_metrics(rows, metrics, *, device_limit=20):
         if errors:
             projected.update(errors=errors[:20], errors_has_more=len(errors) > 20)
         if reading:
+            if reading.get("mapping_status") == "ambiguous_node":
+                projected["status"] = "invalid"
             projected["cpu"] = sample(reading.get("cpu"))
             if "memory" in reading:
                 projected["memory"] = memory(reading["memory"])
@@ -4523,10 +4628,21 @@ def merge_summary_metrics(rows, metrics, *, device_limit=20):
             cards = reading.get("cards")
             cards = cards if isinstance(cards, list) else []
             counts = Counter(identifier(card.get("device")) for card in cards if isinstance(card, dict))
+            mapped_counts = Counter(
+                metrics_resource_device(card.get("resource_device")) for card in cards if isinstance(card, dict)
+            )
             selected = []
             for card in cards:
-                device = identifier(card.get("device")) if isinstance(card, dict) else None
-                if device is None or row.get("unit") != "whole_node" and device not in allowed or counts[device] != 1:
+                source_device = identifier(card.get("device")) if isinstance(card, dict) else None
+                if source_device is None or counts[source_device] != 1:
+                    continue
+                if row.get("unit") == "whole_node":
+                    device = source_device
+                elif row.get("unit") == "card":
+                    device = metrics_resource_device(card.get("resource_device"))
+                    if card.get("mapping_status") != "mapped" or device not in allowed or mapped_counts[device] != 1:
+                        continue
+                else:
                     continue
                 selected.append(
                     {
@@ -4536,12 +4652,38 @@ def merge_summary_metrics(rows, metrics, *, device_limit=20):
                     }
                 )
             status = reading.get("cards_status")
+            known_empty_selection = (
+                row.get("unit") == "card" and not allowed and row.get("device_inventory_complete") is True
+                and isinstance(row.get("matched_device_ids"), list) and not row["matched_device_ids"]
+                and type(row.get("total_cards")) is int and row["total_cards"] == 0
+                and type(row.get("matched_cards")) is int and row["matched_cards"] == 0
+            )
+            incomplete_selection = row.get("unit") == "card" and (
+                any(row.get(field) is True for field in ("devices_has_more", "holdings_has_more", "bookings_has_more"))
+                or not allowed and not known_empty_selection
+            )
+            if row.get("unit") == "card":
+                if reading.get("mapping_status") == "ambiguous_node":
+                    projected["mapping_status"] = "ambiguous_node"
+                    status = "invalid"
+                elif allowed - {card["device"] for card in selected} or incomplete_selection:
+                    projected["mapping_status"] = "partial" if selected else "missing"
+                    if not selected:
+                        status = "missing"
+                else:
+                    projected["mapping_status"] = "not_required" if known_empty_selection else "mapped"
+                if incomplete_selection:
+                    projected["selection_incomplete"] = True
+            else:
+                projected["mapping_status"] = (
+                    "ambiguous_node" if reading.get("mapping_status") == "ambiguous_node" else "source_only"
+                )
             projected.update(
                 cards=selected[:device_limit],
                 cards_status=status
                 if status in {"reported", "ok", "missing", "stale", "failed", "invalid"}
                 else "invalid",
-                cards_has_more=len(selected) > device_limit,
+                cards_has_more=len(selected) > device_limit or incomplete_selection,
                 reported_cards=len(selected),
             )
             filesystems = reading.get("filesystems")
@@ -4583,6 +4725,13 @@ def attach_metrics(client, snapshot, *, full=False, context=None):
                 else client.metrics(batch)
             )
             result["utilization"].extend(reading["utilization"])
+            ambiguous_nodes = sorted({
+                row["node"] for row in reading["utilization"]
+                if isinstance(row, dict) and row.get("node") in batch and row.get("mapping_status") == "ambiguous_node"
+            })
+            if ambiguous_nodes:
+                result["complete"] = False
+                result["unread"].append({"nodes": ambiguous_nodes, "error": "ambiguous_metrics_node_mapping"})
             if full:
                 result["responses"].append(reading)
         except ClientError as error:

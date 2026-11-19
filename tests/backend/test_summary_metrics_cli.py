@@ -66,6 +66,7 @@ def test_scoped_summary_metrics_reuse_verified_context_without_redundant_get(cas
 
 def test_personal_card_telemetry_does_not_expand_to_peer_cards(case):
     case.state.bot_type = "DEVICE"
+    case.state.device_mapping = {"node-a:dev0": "0", "node-a:dev1": "1"}
     case.state.metrics_rows = samples()
     case.state.resource_devices = [
         {

@@ -95,6 +95,47 @@ def test_packaged_reuse_retains_source_scope_credentials_and_request_budget(case
     assert not any(row[0].startswith("/metrics/") for row in case.state.requests)
 
 
+@pytest.mark.parametrize(
+    "credential",
+    [KEY, "lbp_" + "P" * 43, "lba1.synthetic.private", "Bearer " + KEY,
+     "prefix" + KEY, KEY + "suffix", "prefixlbp_" + "P" * 43, "prefixlbk_" + "K" * 43],
+)
+def test_metrics_never_forwards_resource_credentials_or_enrollment_proofs(case, packaged_metrics, credential):
+    module, client = packaged_metrics
+    request = client._request
+
+    def wrong_grant(*args, **kwargs):
+        result = request(*args, **kwargs)
+        if "utilization" in result:
+            result["utilization"]["access"]["token"] = credential
+        return result
+
+    client._request = wrong_grant
+    context = client.context()
+    with pytest.raises(module.ClientError, match="resource_key_for_metrics_refused"):
+        client.metrics(["node-a"], context=context)
+    assert not any(row[0].startswith("/metrics/") for row in case.state.requests)
+
+
+@pytest.mark.parametrize("field", ["nodeMapping", "deviceMapping"])
+def test_mapping_text_cannot_smuggle_another_resource_credential_into_source_query(case, packaged_metrics, field):
+    module, client = packaged_metrics
+    request = client._request
+
+    def wrong_mapping(*args, **kwargs):
+        result = request(*args, **kwargs)
+        if "utilization" in result:
+            key = "node-a" if field == "nodeMapping" else "node-a:dev0"
+            result["utilization"]["configuration"][field] = {key: "prefixlbk_" + "X" * 43}
+        return result
+
+    client._request = wrong_mapping
+    context = client.context()
+    with pytest.raises(module.ClientError, match="invalid_metrics_(device_)?mapping"):
+        client.metrics(["node-a"], context=context)
+    assert not any(row[0].startswith("/metrics/") for row in case.state.requests)
+
+
 def test_packaged_optional_outage_keeps_snapshot_and_preserves_error_metadata(case, packaged_metrics):
     module, client = packaged_metrics
     context = client.context()
@@ -180,14 +221,19 @@ def test_summary_metrics_match_exact_nodes_and_device_ids_including_own_children
             {
                 "node": "node-a",
                 "cards_status": "reported",
-                "cards": [{"device": device, **reading()} for device in ("0", "00", "7", "1")],
+                "cards": [
+                    {"device": "collector-" + device, "resource_device": device,
+                     "mapping_status": "mapped", **reading()}
+                    for device in ("0", "00", "7", "1")
+                ],
             }
         ]
     }
     result = helper.merge_summary_metrics(rows, metrics)
-    assert [card["device"] for card in result[0]["metrics"]["cards"]] == ["0", "00", "7"]
+    # The current mapping schema cannot prove an opaque/padded resource ID.
+    assert [card["device"] for card in result[0]["metrics"]["cards"]] == ["0", "7"]
     assert result[1]["metrics"]["status"] == "missing"
-    assert [card["device"] for card in result[2]["metrics"]["cards"]] == ["00", "7"]
+    assert [card["device"] for card in result[2]["metrics"]["cards"]] == ["7"]
     assert result[3]["metrics"]["cards"] == []
 
 

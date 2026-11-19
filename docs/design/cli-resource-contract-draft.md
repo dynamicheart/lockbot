@@ -175,6 +175,7 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 
 - Exact-reference commands are implemented and tested against a local packaged backend. Production writes and deployed-client verification have not been performed for this candidate.
 - Summary mode rejects `--full`. Aggregate summary plus `--with-metrics` still needs a shared request-budget plan; scoped summary telemetry and bounded personal records are implemented locally.
+- Scoped card telemetry uses explicit datasource `deviceMapping`, keeping source labels separate from resource IDs. Missing or ambiguous mappings stay unknown; mapping changes during short-grant refresh cannot be combined with an earlier resource snapshot. The detailed mapping contract is in the [helper guide](../usage/resource-agent-helper.md#best-effort-metrics).
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
 - External protocol implementations remain private plugins. The explicit generic provider entrypoint and mixed-source traversal are implemented locally; existing own-allocation bridges still cannot establish full fleet inventory. Native credentials/references cannot be reused as external authority.

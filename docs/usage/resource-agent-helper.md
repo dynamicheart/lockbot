@@ -303,11 +303,30 @@ observation alone cannot attribute the change or guarantee it survives restart.
 python3 scripts/lockbot_cli.py --connection /private/connection.json metrics --node node-a
 ```
 
-This implementation supports only the existing `type: prometheus`, `profile: lockbot-v1` source configuration and its fixed metric family. The generic/custom profile and arbitrary PromQL are not implemented. Select at most 64 explicit configured node names per query; the helper translates only the context's node mapping and refuses unmapped targets. It reads compute/memory/CPU/memory/cache/filesystem/collector-timestamp/success series, not arbitrary process or command information. The data source still enforces its own ACL.
+This implementation supports only the existing `type: prometheus`, `profile: lockbot-v1` source configuration and its fixed metric family. The generic/custom profile and arbitrary PromQL are not implemented. Select at most 64 explicit configured node names per query; the helper translates the context's node/device mappings and refuses unmapped node targets. It reads compute/memory/CPU/memory/cache/filesystem/collector-timestamp/success series, not arbitrary process or command information. The data source still enforces its own ACL.
 
-A short-lived source uses the context's `metrics:read` grant. An auth failure refreshes context and retries once; the original personal key is never sent to the source. Independent authorization uses a separate private `metrics_key_file`; personal `lbr_` and OP `lbk_` keys are explicitly refused. Source origin must match the separate approval, including scheme/port. No redirects or fallback through the Lockbot server are attempted.
+A short-lived source uses the context's `metrics:read` grant. An auth failure refreshes context and retries once; the original personal key is never sent to the source. The datasource configuration and bot type are pinned across refresh and later batches: a change returns `metrics_mapping_changed`, preserving the resource observation. Independent authorization uses a separate private `metrics_key_file`; personal `lbr_` and OP `lbk_` keys are explicitly refused. Source origin must match the separate approval, including scheme/port. No redirects or fallback through the Lockbot server are attempted.
 
-The result is marked `best_effort` and `verification: query_response_only`. The raw vector is under `data`. The `utilization` array contains one entry per requested Lockbot node and reports CPU and cards found in the response. `sample_age_seconds` derives from the relevant collector's sample timestamp. `percent` is populated only for `ok` readings, including valid zero. Missing, failed, stale and invalid readings return `null`. A card omitted by the source does not appear in the array. Compare against known inventory before drawing conclusions about coverage. Resource ownership and workload progress require independent evidence.
+The result is marked `best_effort` and normally `verification: query_response_only`. The duplicate raw vector is diagnostic `--full` output under `data`. The `utilization` array contains one entry per requested Lockbot node. `sample_age_seconds` derives from the relevant collector's sample timestamp. `percent` is populated only for `ok` readings, including valid zero. Missing, failed, stale and invalid readings return `null`. A configured device mapping without a source sample may appear as an explicitly missing reading; this does not prove the physical card exists. Resource ownership and workload progress require independent evidence.
+
+For DEVICE/QUEUE_DEVICE, `deviceMapping` explicitly maps `node:devN` to a source
+device label or UUID. Current `lockbot-v1` IDs are canonical ASCII decimal strings;
+opaque/padded forms are never converted into another resource ID. Raw normalized
+cards retain `device` as the source label and gain `resource_device` only for an
+unambiguous mapping, with `mapping_status: mapped`. Compact resource summaries
+join only that explicit mapping and show their `device` in the resource-ID domain,
+without raw source identifiers. Empty/partial/duplicate/malformed mappings never
+fall back to label equality or array order. Full configured maps are checked
+before resource/model/ownership filters, so an omitted peer cannot hide a collision.
+Exact node names containing `:dev` remain independent.
+
+NODE/QUEUE cards remain source-device observations (`device_identity: source`),
+not independently allocatable resource IDs. Duplicate node targets are ambiguous
+even when one colliding node was not selected. Healthy unrelated targets remain
+usable; an all-ambiguous request returns `mapping_only_no_source_query` with no
+fabricated source response or credential send. Truncated selected-card arrays
+retain `selection_incomplete`/`cards_has_more`; their prefix never proves full
+metric coverage. None of these observations establishes that a resource is free.
 
 Unreachable, unsupported, unauthorized, oversized or malformed sources fail explicitly. The helper queries existing samples and does not trigger hardware collection or resource mutations.
 
