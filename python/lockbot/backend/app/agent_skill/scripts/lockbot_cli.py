@@ -3888,7 +3888,7 @@ def device_summary_sort_key(identifier):
     return (0, len(text), encoded) if re.fullmatch(r"0|[1-9][0-9]*", text) else (1, 0, encoded)
 
 
-def _device_summary_owners(unit, actor):
+def _device_summary_owners(unit, actor, *, queued):
     """Return complete platform-aware identities, or unknown ownership evidence."""
     if not isinstance(actor, dict) or any(
         not isinstance(actor.get(field), str)
@@ -3900,7 +3900,9 @@ def _device_summary_owners(unit, actor):
         return None
     owners = {}
     for field in ("holders", "booking_list"):
-        records = unit.get(field)
+        # The native DEVICE schema omits queues because they are unsupported.
+        # Explicit null/malformed values and missing queued evidence stay unknown.
+        records = unit.get(field, [] if field == "booking_list" and not queued else None)
         if not isinstance(records, list):
             return None
         identities = []
@@ -3972,7 +3974,7 @@ def device_summary_rows(snapshot, context, *, node, model=None, mine=False, priv
     for _canonical, card, label in sorted(identified, key=lambda item: device_summary_sort_key(item[0])):
         if label is None and wanted is not None:
             result["projection_complete"] = matching_complete = False
-        owners = _device_summary_owners(card, actor)
+        owners = _device_summary_owners(card, actor, queued=kind == "QUEUE_DEVICE")
         state = _summary_unit_state(card, fresh=fresh, queued=kind == "QUEUE_DEVICE", valid=owners is not None)
         unknown = state == "unknown"
         if unknown:
