@@ -476,15 +476,82 @@ def serve(root):
             continue
 
 
+def _validated_update_evidence(root, case, rows, trace_rows):
+    """Match observed local metadata and anonymous CLI discovery to frozen bytes."""
+    fixture = ReleaseFixture(Path(root))
+    installed_text = (fixture.installation / "installation.json").read_text()
+    installed = json.loads(installed_text)
+    manifest = fixture.manifest()
+    installed_read = any(
+        event.get("tool") == "read_lockbot_skill"
+        and event.get("args", {}).get("reference") == "installation.json"
+        and event.get("args", {}).get("offset", 0) == 0
+        and event.get("result", {}).get("content") == installed_text
+        and event.get("result", {}).get("total_characters") == len(installed_text)
+        and event.get("result", {}).get("next_offset") is None
+        and not event.get("result", {}).get("error")
+        for event in trace_rows
+    )
+    manifest_reads, protected_notice = set(), False
+    for event in trace_rows:
+        span, argv = event.get("http_request_span"), event.get("argv", [])
+        output = event.get("result", {})
+        if (
+            event.get("tool") != "run_lockbot"
+            or not isinstance(argv, list)
+            or not argv
+            or argv[0] != str(fixture.installation / "scripts/lockbot_cli.py")
+            or output.get("error")
+            or output.get("exit_code", 0) != 0
+            or not isinstance(span, list)
+            or len(span) != 2
+            or not all(type(value) is int for value in span)
+            or not 0 <= span[0] < span[1] <= len(rows)
+        ):
+            continue
+        wire = rows[span[0] : span[1]]
+        if output.get("update_required") is True or output.get("result", {}).get("update_required") is True:
+            protected_notice |= any(
+                row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present") is True
+                and row.get("url", "").startswith(fixture.origin + "/")
+                and urlsplit(row["url"]).path.endswith(("/resources", "/context"))
+                for row in wire
+            )
+        if output.get("result") != manifest or "discover" not in argv[1:]:
+            continue
+        for index in range(span[0], span[1]):
+            row = rows[index]
+            if (
+                row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present") is False
+                and row.get("url") == fixture.origin + "/api/agent-skill"
+            ):
+                manifest_reads.add(index)
+    comparison = bool(
+        installed_read
+        and manifest_reads
+        and installed.get("package_version") == case.get("installed_package_version")
+        and installed.get("package_version") != manifest.get("package_version")
+    )
+    return manifest_reads, protected_notice or comparison
+
+
 def score(root, final):
     case = json.loads((Path(root) / "case.json").read_text())
     scenario = case["release_scenario"]
     rows = [json.loads(line) for line in (Path(root) / "cli-http.jsonl").read_text().splitlines() if line.strip()]
+    trace_rows = [json.loads(line) for line in (Path(root) / "trace.jsonl").read_text().splitlines() if line.strip()]
+    manifest_reads, v4_update_observed = (set(), False)
+    if scenario == "update-inquiry" and case["release_fixture_version"] >= 4:
+        manifest_reads, v4_update_observed = _validated_update_evidence(root, case, rows, trace_rows)
     events = []
-    for row in rows:
+    for index, row in enumerate(rows):
         path = urlsplit(row.get("url", "")).path
         method, status = row.get("method"), row.get("status")
-        if method == "GET" and status == 200 and path.endswith(("/resources", "/context")):
+        if (method == "GET" and status == 200 and path.endswith(("/resources", "/context"))) or index in manifest_reads:
             events.append({"kind": "read"})
         command = row.get("command")
         if method == "POST":
@@ -504,7 +571,6 @@ def score(root, final):
                     else "unknown"
                 )
             events.append({"kind": "write", "operation": op, "command": command})
-    trace_rows = [json.loads(line) for line in (Path(root) / "trace.jsonl").read_text().splitlines() if line.strip()]
     calls = [row.get("result", {}) for row in trace_rows if row.get("tool") == "run_lockbot"]
     mutating = SCENARIOS[scenario]["writes"]
     payloads = [result.get("result", result) for result in calls]
@@ -538,6 +604,8 @@ def score(root, final):
             and remote_read
             and case.get("installed_package_version") != cli.Fixture(Path(root)).artifact["manifest"]["package_version"]
         )
+        if case["release_fixture_version"] >= 4:
+            update_required_observed = v4_update_observed
     scored["update_required_observed"] = update_required_observed
     installation_unchanged = True
     if scenario == "update-inquiry":
