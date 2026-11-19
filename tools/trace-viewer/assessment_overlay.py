@@ -271,7 +271,7 @@ def bind_review(source, target, report, *, reviewer, status, findings=(), supers
         checked_coverage({"status": status, "reviewed_phases": reviewed_phases}, entry)
     else:
         if reviewed_phases is not None:
-            raise ValueError("Phase coverage is only supported for CLI35 run reviews")
+            raise ValueError("Phase coverage is only supported for CLI35/36 run reviews")
         row, case, binding, exact = phase_source(source, target)
         if _known_topics(row, case) is None or row.get("status") != "completed":
             raise ValueError("This phase has no supported checklist adapter")
@@ -400,7 +400,12 @@ def attach_review(data, source, record, report):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--target", type=Path, required=True, help="JSON suite/scenario/client/model plus phase, or CLI35 phase_scope=all")
+    parser.add_argument(
+        "--target",
+        type=Path,
+        required=True,
+        help="JSON suite/scenario/client/model plus phase, or CLI35/36 phase_scope=all",
+    )
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--reviewer", required=True)
     parser.add_argument("--requested-model", required=True)
@@ -411,7 +416,7 @@ def main():
         "--reviewed-phase",
         type=int,
         action="append",
-        help="Explicit observed phase reviewed (repeat for CLI35 whole-run reviews)",
+        help="Explicit observed phase reviewed (repeat for CLI35/36 whole-run reviews)",
     )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()

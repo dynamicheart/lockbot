@@ -225,11 +225,11 @@ CLI 发布夹具 v3/v4/v5/v6 可显式启用同一机制：为 `publish_dataset.
 安装包的 manifest、Skill 和 ZIP；只检查更新不代表允许更新。原始判定和批次字节不改写，
 失败、超时或阻塞不会被语义通过覆盖，阻塞性模型意见显示「有问题」。
 
-### CLI35 整条运行复核
+### CLI35/36 整条运行复核
 
-`--cli-assessments` 仅显式开启 CLI35 的十二个定向场景；名单和阶段数由
+`--cli-assessments` 仅显式开启 CLI35/36 的十二个定向场景；名单和阶段数由
 `lockbot.trace_cli_assessment.PHASE_COUNTS` 固定。旧版本、未知场景、未知复核要求和
-任何显式人工门禁都不能借此免除。原有阶段 1 旁证继续使用 schema 1；CLI35 使用
+任何显式人工门禁都不能借此免除。原有阶段 1 旁证继续使用 schema 1；CLI35/36 使用
 schema 2，目标包含 `suite: "cli"`、`scenario`、`client`、`model` 和
 `phase_scope: "all"`，绑定原始整条运行，而不是新增一次复核运行。
 
@@ -250,7 +250,7 @@ python3 publish_dataset.py /private/terminal-matrix /private/dataset-stage \
 部分阶段的意见或存疑可附加，但未覆盖所有预期阶段时总语义结论保持存疑；运行缺失、
 超时、受阻及自动失败的原始状态仍优先。复核依据中显示具体已复核阶段。
 
-原生证据文件名由 `lockbot.trace_evidence_files` 统一声明，渲染器与 CLI35 旁证
+原生证据文件名由 `lockbot.trace_evidence_files` 统一声明，渲染器与 CLI35/36 旁证
 共用协议和诊断别名。绑定也覆盖 `native-session.json`、`conversation.json`、
 客户端调用参数及 fixture 原生记录；空文件与文件不存在分别绑定。
 渲染器原生记录沿用 16 MiB 的严格常规文件读取限制。变更这些证据需要重新复核，

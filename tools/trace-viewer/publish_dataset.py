@@ -354,7 +354,7 @@ def main():
         "--release-assessments", action="store_true", help="Opt in known cli-release fixtures to semantic assessment"
     )
     parser.add_argument(
-        "--cli-assessments", action="store_true", help="Opt in exact CLI35 whole-run semantic assessments"
+        "--cli-assessments", action="store_true", help="Opt in exact CLI35/36 whole-run semantic assessments"
     )
     args = parser.parse_args()
     print(

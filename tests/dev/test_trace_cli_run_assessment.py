@@ -340,7 +340,7 @@ def test_reader_rejects_forged_schema2_policy_or_coverage(tmp_path, change):
     elif change == "phase-count":
         altered["phase_evidence"].pop()
     elif change == "version":
-        altered["adapter"]["version"] = 36
+        altered["adapter"]["version"] = 37
     elif change == "family":
         altered["adapter"]["family"] = "cli-release"
     elif change == "topics":

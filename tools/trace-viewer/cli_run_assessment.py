@@ -1,4 +1,4 @@
-"""Bind the explicitly supported CLI35 whole-run policy to immutable local evidence."""
+"""Bind the explicitly supported CLI35/36 whole-run policy to immutable local evidence."""
 
 import sys
 from pathlib import Path
@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python"))
 from lockbot.trace_cli_assessment import (  # noqa: E402
     FILES,
+    KNOWN_VERSIONS,
     PHASE_COUNTS,
     TOPICS,
     case_id,
@@ -27,11 +28,12 @@ def run_source(source, target):
     if scenario not in PHASE_COUNTS:
         raise ValueError("Unsupported CLI assessment scenario")
     plan, matrix = _json(source / "run.json", source), _json(source / "matrix.json", source)
+    version = plan.get("cli_fixture_version")
     if (
         plan.get("simulation_only") is not True
-        or plan.get("cli_fixture_version") != 35
-        or type(plan.get("cli_fixture_version")) is not int
-        or matrix.get("cli_fixture_version") != 35
+        or type(version) is not int
+        or version not in KNOWN_VERSIONS
+        or matrix.get("cli_fixture_version") != version
         or type(matrix.get("cli_fixture_version")) is not int
         or matrix.get("simulation_only") is not True
         or matrix.get("artifacts") != plan.get("artifacts")
@@ -39,7 +41,7 @@ def run_source(source, target):
         or "cli:" + scenario not in plan.get("cases", [])
         or not all(known_policy(value, scenario) for value in (plan, matrix))
     ):
-        raise ValueError("Unsupported CLI35 frozen plan or policy")
+        raise ValueError("Unsupported CLI35/36 frozen plan or policy")
     pair = {key: target.get(key) for key in ("client", "model")}
     if plan["runners"].count(pair) != 1:
         raise ValueError("CLI runner identity is ambiguous")
@@ -80,7 +82,7 @@ def run_source(source, target):
         if row is not None and (
             row.get("fixture_family") not in (None, "cli")
             or not known_policy(row, scenario)
-            or row.get("cli_fixture_version") != 35
+            or row.get("cli_fixture_version") != version
             or type(row.get("cli_fixture_version")) is not int
         ):
             raise ValueError("Unsupported CLI phase policy")
@@ -99,9 +101,9 @@ def run_source(source, target):
         if observed:
             case, result = _json(directory / "case.json", source), _json(directory / "result.json", source)
             if (
-                row.get("fixture_version") != 35
+                row.get("fixture_version") != version
                 or type(row.get("fixture_version")) is not int
-                or case.get("fixture_version") != 35
+                or case.get("fixture_version") != version
                 or type(case.get("fixture_version")) is not int
                 or case.get("scenario") != scenario
                 or type(case.get("phase")) is not int
@@ -152,7 +154,7 @@ def run_source(source, target):
         "schema_version": 2,
         "target": exact,
         "binding": binding,
-        "adapter": {"family": "cli", "version": 35},
+        "adapter": {"family": "cli", "version": version},
         "phase_evidence": evidence,
         "execution": "completed" if complete else "incomplete",
         "behavior": behavior,
@@ -174,7 +176,11 @@ def additions(source):
         if row.get("suite") != "cli" or row.get("scenario") not in PHASE_COUNTS or row.get("phase") != 1:
             continue
         # Unknown versions and explicit gates remain entirely under their original policy.
-        if row.get("cli_fixture_version") != 35 or not row.get("evidence"):
+        if (
+            type(row.get("cli_fixture_version")) is not int
+            or row["cli_fixture_version"] not in KNOWN_VERSIONS
+            or not row.get("evidence")
+        ):
             continue
         entry = run_source(source, {**row, "phase_scope": "all"})
         entries[entry["target"]["source_run"]] = entry

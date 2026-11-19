@@ -443,7 +443,7 @@ function assessmentForTrial(trial) {
     'intent-choose':1,'intent-whole':1,'intent-claim':1,'intent-model-p800-unknown-node':1};
   const cli = value?.schema_version === 2 && value.target?.suite === 'cli';
   const validTarget = cli ? value.target.phase_scope === 'all' && value.adapter?.family === 'cli' &&
-    value.adapter.version === 35 && Object.hasOwn(cliCounts,value.target.scenario) &&
+    [35,36].includes(value.adapter.version) && Object.hasOwn(cliCounts,value.target.scenario) &&
     Array.isArray(value.phase_evidence) && value.phase_evidence.length === cliCounts[value.target.scenario] &&
     value.phase_evidence.every((phase,index) => phase.phase === index+1 && typeof phase.observed === 'boolean' &&
       typeof phase.completed === 'boolean') && ['completed','incomplete'].includes(value.execution) &&

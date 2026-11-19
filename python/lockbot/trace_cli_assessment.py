@@ -1,10 +1,12 @@
-"""Explicit CLI35 review policy shared by the private publisher and trace reader."""
+"""Explicit CLI35/36 review policy shared by the private publisher and trace reader."""
 
 import hashlib
 import json
 import re
 
 from lockbot.trace_evidence_files import NATIVE_PHASE_FILES
+
+KNOWN_VERSIONS = frozenset({35, 36})
 
 PHASE_COUNTS = {
     "approved-enrollment": 2,
@@ -88,7 +90,11 @@ def checked_header(value, source_run, data):
         or target.get("source_run") != source_run
         or target.get("scenario") not in PHASE_COUNTS
         or target.get("case_id") != case_id(target.get("scenario"))
-        or value.get("adapter") != {"family": "cli", "version": 35}
+        or not isinstance(value.get("adapter"), dict)
+        or set(value["adapter"]) != {"family", "version"}
+        or value["adapter"]["family"] != "cli"
+        or type(value["adapter"]["version"]) is not int
+        or value["adapter"]["version"] not in KNOWN_VERSIONS
         or value.get("human_gate") != "not_required"
         or value.get("topics") != TOPICS
         or not any(trial.get("source_run") == source_run for trial in data["cases"].get(target["case_id"], []))
