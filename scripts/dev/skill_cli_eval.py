@@ -305,6 +305,30 @@ def continue_conversation(source, destination, prompt):
 
 
 def enrollment_instruction_negated(final, *, fixture_version):
+    candidates = [final]
+    if fixture_version >= 36:
+        # Parenthetical emphasis is not a sentence boundary. Preserve its text,
+        # including negations inside it; mask only punctuation in balanced pairs.
+        stack, pairs = [], []
+        closing = {")": "(", "）": "（"}
+        for index, char in enumerate(final):
+            if char in closing.values():
+                stack.append((char, index))
+            elif char in closing and stack and stack[-1][0] == closing[char]:
+                _, start = stack.pop()
+                pairs.append((start, index))
+        chars = list(final)
+        for start, end in pairs:
+            for index in range(start + 1, end):
+                if chars[index] in "。！？!?；;\n.":
+                    chars[index] = " "
+        collapsed = list(chars)
+        for start, end in pairs:
+            # Drop emphasis for distance counting, but never discard a negative
+            # instruction nested in parentheses while doing so.
+            if not re.search(r"不要|别|无需|不用|不必|不能|禁止", final[start + 1 : end]):
+                collapsed[start : end + 1] = [""] * (end - start + 1)
+        candidates = ["".join(chars), "".join(collapsed)]
     gap = r"[^。！？!?；;\n.]" if fixture_version >= 36 else "."
     pattern = (
         rf"(?:不要|别|无需|不用|不必|不能|禁止){gap}{{0,8}}"
@@ -312,7 +336,7 @@ def enrollment_instruction_negated(final, *, fixture_version):
         rf"|(?:让|找|请|改用|换用){gap}{{0,8}}(?:其他人|别人|他人|同事){gap}{{0,16}}(?:本人|账号|账户|帐号)"
         rf"|(?:不要|别|无需|不用|不必|不能|禁止){gap}{{0,12}}(?:发送|发出|执行){gap}{{0,16}}bind"
     )
-    return bool(re.search(pattern, final, re.IGNORECASE))
+    return any(re.search(pattern, candidate, re.IGNORECASE) for candidate in candidates)
 
 
 def reset_impact_checks(final, *, fixture_version=18):
@@ -767,7 +791,11 @@ class Fixture(continuity.Fixture):
                         **(
                             {"resource_resolution_snapshot": result["body"]}
                             if self.case.get("fixture_version", 0) >= 30
-                            and self.case["scenario"] == "intent-write-unknown"
+                            and (
+                                self.case["scenario"] == "intent-write-unknown"
+                                or self.case.get("fixture_version", 0) >= 36
+                                and self.case["scenario"] == "intent-claim"
+                            )
                             and request.method == "GET"
                             and path.endswith("/resources")
                             and result["status"] == 200
@@ -1687,11 +1715,133 @@ def resource_relock_observation(snapshot):
     }
 
 
+def proven_claim_diagnostic(fixture, tools, requests):
+    """v36 positive claim only: remove one wire-proven read-only lock diagnostic.
+
+    This is not a general retry/error waiver. The subsequent claim must itself
+    pass the existing SDK selection bridge and retain the exact CLI arguments.
+    """
+    version = fixture.case.get("fixture_version", 0)
+    if version < 36 or fixture.case["scenario"] != "intent-claim":
+        return tools, 0
+    commands = [row for row in tools if intent.command_attempt(row, version)]
+    if len(commands) != 2:
+        return tools, 0
+    diagnostic, claim = commands
+    result = diagnostic.get("result", {})
+    claim_output = claim.get("result", {})
+    if (
+        result.get("error") != "booking_claimable_use_explicit_claim"
+        or result.get("command_sent") is not False
+        or result.get("retry_mutation") is not False
+        or result.get("exit_code") not in (None, 2)
+        or claim_output.get("result", {}).get("verified") is not True
+        or "error" in claim_output
+        or claim_output.get("command_sent") is False
+        or claim_output.get("exit_code") not in (None, 0)
+    ):
+        return tools, 0
+    args, next_args = diagnostic.get("args", {}), claim.get("args", {})
+    if args.get("operation") != "lock" or next_args != {**args, "operation": "claim"}:
+        return tools, 0
+    # Validate delivered argv, not just potentially inconsistent parsed metadata.
+    argv, next_argv = diagnostic.get("argv", []), claim.get("argv", [])
+    if not isinstance(argv, list) or argv.count("--operation") != 1:
+        return tools, 0
+    op = argv.index("--operation") + 1
+    if op >= len(argv) or argv[op] != "lock" or next_argv != argv[:op] + ["claim"] + argv[op + 1 :]:
+        return tools, 0
+    spans = [row.get("http_request_span") for row in commands]
+    if any(
+        not isinstance(span, list)
+        or len(span) != 2
+        or any(type(value) is not int for value in span)
+        or not 0 <= span[0] < span[1] <= len(requests)
+        for span in spans
+    ):
+        return tools, 0
+    before, after = spans
+    posts = [i for i, row in enumerate(requests) if row.get("method") == "POST"]
+    if (
+        before[1] > after[0]
+        or len(posts) != 1
+        or not after[0] <= posts[0] < after[1]
+        or requests[posts[0]].get("status") != 200
+    ):
+        return tools, 0
+    if any(row.get("method") != "GET" or row.get("status") != 200 for row in requests[before[0] : before[1]]):
+        return tools, 0
+    kept = [row for row in tools if row is not diagnostic]
+    evidence = verified_sdk_resolutions(fixture, kept, requests)
+    if evidence.get(id(claim), {}).get("positive") is not True:
+        return tools, 0
+    try:
+        pin = json.loads((fixture.workspace / "private/group-8.json").read_text())
+        expected = {"bot_id": 8, "actor": pin["actor"], "instance_id": pin["instance_id"], "bot_uuid": pin["bot_uuid"]}
+        resolution = claim["result"]["result"]["resolution"]
+        if resolution.get("matches") != [
+            {"hint": args["nodes"][0], "node": "node-20", "match_kinds": ["alias" if args["nodes"] == ["20"] else "id"]}
+        ]:
+            return tools, 0
+        for start, end in (before, [after[0], posts[0]]):
+            reads = [
+                row
+                for row in requests[start:end]
+                if row.get("resource_bot") == 8
+                and row.get("method") == "GET"
+                and row.get("url")
+                in {pin["approved_origin"] + "/api/agent/resources", pin["approved_origin"] + "/api/bots/8/resources"}
+            ]
+            if not reads:
+                return tools, 0
+            for row in reads:
+                snapshot = row.get("resource_resolution_snapshot", {})
+                identity = intent.observation_identity(snapshot)
+                state = row.get("resource_read_state", {})
+                captured = datetime.fromisoformat(identity["captured_at"].replace("Z", "+00:00"))
+                recorded = datetime.fromisoformat(state["recorded_at"].replace("Z", "+00:00"))
+                age = snapshot.get("age_seconds")
+                resources = [node for node in snapshot.get("resources", []) if node.get("id") == "node-20"]
+                if (
+                    row.get("status") != 200
+                    or row.get("authorization_present") is not True
+                    or any(identity.get(key) != value for key, value in expected.items())
+                    or row.get("resource_observation") != identity
+                    or snapshot.get("health") != "running"
+                    or state.get("health") != "running"
+                    or type(age) not in (int, float)
+                    or not 0 <= age <= 5
+                    or state.get("age_seconds") != age
+                    or captured.tzinfo is None
+                    or recorded.tzinfo is None
+                    or not 0 <= (recorded - captured).total_seconds() <= 5
+                    or len(resources) != 1
+                ):
+                    return tools, 0
+                node = resources[0]
+                if (
+                    args.get("nodes") not in ([node["id"]], [node.get("alias")])
+                    or node.get("claimable_by_you") is not True
+                    or node.get("lock_status") != "idle"
+                    or node.get("holders") != []
+                    or node.get("claim_command") != "lock node-20"
+                    or not any(
+                        booking.get("external_user_id") == pin["actor"]["external_user_id"]
+                        for booking in node.get("booking_list", [])
+                    )
+                ):
+                    return tools, 0
+    except (KeyError, ValueError, TypeError, AttributeError, OSError):
+        return tools, 0
+    return kept, 1
+
+
 def verified_sdk_resolutions(fixture, tools, requests):
     """Validate SDK-owned selection from real wire records, never synthetic reads."""
     if fixture.case.get("fixture_version", 0) < 23:
         return {}
     version = fixture.case.get("fixture_version", 0)
+    tools, _ = proven_claim_diagnostic(fixture, tools, requests)
     if version >= 35:
         tools, _ = intent.argument_correction_prefix(tools)
     commands = [row for row in tools if intent.command_attempt(row, version)]
@@ -2496,7 +2646,8 @@ def telemetry_invocation_retry(requests, events):
             return False
         if any(requests[i].get("selector") != expected for i in batch):
             return False
-        if [requests[i].get("metrics_grant_generation") for i in batch] != ([0, 1] if number == 0 else [1]):
+        generations = [requests[i].get("metrics_grant_generation") for i in batch]
+        if any(type(value) is not int for value in generations) or generations != ([0, 1] if number == 0 else [1]):
             return False
     first, second = batches[0]
     return any(
@@ -2626,6 +2777,7 @@ def score(root, final):
             else []
         )
         cli_tools = argv_host.for_grading(cli_tools, fixture.case)
+        cli_tools, claim_diagnostics = proven_claim_diagnostic(fixture, cli_tools, requests)
         checks.update(
             intent.score(
                 scenario,
@@ -2824,11 +2976,13 @@ def score(root, final):
             cli_tools, fixture_version=fixture.case.get("fixture_version", 0)
         )
         result["cli_command_metrics"] = {
-            "tool_attempts": len(attempts) + corrections,
+            "tool_attempts": len(attempts) + corrections + claim_diagnostics,
             "pre_http_argument_corrections": corrections,
             "mutation_attempts": len(attempts),
             "resource_posts": len(posts),
         }
+        if fixture.case.get("fixture_version", 0) >= 36 and scenario == "intent-claim":
+            result["cli_command_metrics"]["read_only_claim_diagnostics"] = claim_diagnostics
         if fixture.case.get("fixture_version", 0) >= 23:
             resolver_evidence = verified_sdk_resolutions(fixture, cli_tools, requests)
             result["cli_command_metrics"]["sdk_resolution_refusals"] = sum(
