@@ -5034,6 +5034,224 @@ def resource_list_text(encoded):
     return text if len(text.encode()) + 1 <= SUMMARY_BYTE_LIMIT else encoded
 
 
+def resource_devices_query(*, model=None, mine=False, fields=None, limit=SUMMARY_DEVICE_LIMIT, legacy_read=False):
+    """Validate device selectors before resolving credentials or starting requests."""
+    if model is not None:
+        model = _summary_model(model)
+        if model is None:
+            raise ClientError("resource_devices_model_invalid")
+        model = model.casefold()
+    if type(mine) is not bool or type(legacy_read) is not bool:
+        raise ClientError("resource_devices_query_invalid")
+    if type(limit) is not int or not 1 <= limit <= MAX_OVERVIEW_ENTRIES:
+        raise ClientError("resource_devices_limit_invalid")
+    if fields is not None:
+        if not isinstance(fields, (list, tuple)) or not fields or any(field not in DEVICE_FIELDS for field in fields):
+            raise ClientError("resource_devices_fields_invalid")
+        fields = sorted(set(fields))
+    return {"model": model, "mine": mine, "fields": fields, "limit": limit, "legacy_read": legacy_read}
+
+
+def resource_devices(client, reference, *, query, cursor=None, connection=None, directory=None):
+    """Read one exact node's card inventory, never a display-name or alias match."""
+    query = resource_devices_query(**query)
+    token, node = parse_resource_reference(reference)
+    if redacted_values(node) != node:
+        raise ClientError("secret_in_resource_identifier")
+    if not resource_scope_digest(client.config).startswith(token):
+        raise ClientError("resource_reference_scope_mismatch")
+    canonical = resource_reference(client.config, node, width=64)
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            ["resource-devices-v1", canonical, str(client.connection_dir), client.config.get("key_file")],
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    digest = hashlib.sha256(
+        json.dumps(query, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    after = None
+    if cursor is not None:
+        if not isinstance(cursor, str) or not cursor.startswith("dc1."):
+            raise ClientError("resource_devices_cursor_invalid")
+        try:
+            position, after = resource_list_cursor_start("rl1." + cursor[4:], fingerprint, digest, 1)
+        except ClientError as error:
+            code = {
+                "resource_list_cursor_catalog_changed": "resource_devices_cursor_target_changed",
+                "resource_list_cursor_query_changed": "resource_devices_cursor_query_changed",
+            }.get(error.code, "resource_devices_cursor_invalid")
+            raise ClientError(code) from None
+        if position != 0 or after is None:
+            raise ClientError("resource_devices_cursor_invalid")
+        try:
+            device_summary_sort_key(after)
+        except ClientError:
+            raise ClientError("resource_devices_cursor_invalid") from None
+
+    def command(next_cursor):
+        args = ["--connection", str(connection)] if connection is not None else []
+        if query["legacy_read"]:
+            args += ["--legacy-read"]
+        args += ["resource", "devices", canonical, "--limit", str(query["limit"])]
+        if directory is not None:
+            args += ["--directory", str(directory)]
+        if query["model"] is not None:
+            args += ["--model", query["model"]]
+        if query["mine"]:
+            args += ["--mine"]
+        if query["fields"] is not None:
+            args += ["--json", ",".join(query["fields"])]
+        return args + ["--cursor", next_cursor]
+
+    # Do not populate persistent address metadata while listing observed devices.
+    client.node_access = None
+    snapshot = client.inventory()
+    if redacted_values(node, client.secrets) != node:
+        raise ClientError("secret_in_resource_identifier")
+
+    def projection():
+        observed = observation_at_completion(client, snapshot)
+        return observed, device_summary_rows(
+            observed,
+            observed["context"],
+            node=node,
+            model=query["model"],
+            mine=query["mine"],
+            private_values=client.secrets,
+        )
+
+    def encoded(selected, *, more, observed, projected):
+        next_cursor = None
+        if more and selected:
+            next_cursor = "dc1." + resource_list_cursor(fingerprint, digest, 0, str(selected[-1]["id"]))[4:]
+        rows = selected
+        if query["fields"] is not None:
+            rows = [
+                {key: row[key] for key in ("id", "detail_deferred", *query["fields"]) if key in row}
+                | ({"ownership_match_unknown": True} if row.get("ownership_match_unknown") else {})
+                for row in rows
+            ]
+        result = {
+            "node_ref": canonical,
+            "unit": "card",
+            "rows": rows,
+            **{
+                key: projected[key]
+                for key in (
+                    "total_devices",
+                    "matched_devices",
+                    "unknown_ownership_devices",
+                    "unidentified_devices",
+                    "unknown_model_devices",
+                )
+            },
+            "displayed_devices": len(rows),
+            "has_more": more,
+            "next_cursor": next_cursor,
+            "traversal_exhausted": not more,
+            "scope_complete": cursor is None and not more and projected["projection_complete"],
+            "snapshot_fresh": read_snapshot_fresh(observed) and observed.get("health") == "running",
+            "age_seconds": observed.get("age_seconds"),
+            "http_requests": client.calls,
+            "update_required": client.needs_update,
+            "page_kind": "live_device_list",
+        }
+        if client.api_profile == "native-legacy-read-v1":
+            result.update(
+                api_profile=client.api_profile,
+                instruction_state=client.instruction_state,
+                instruction_refresh_required=True,
+            )
+        if next_cursor is not None:
+            result["next_command"] = command(next_cursor)
+
+        def serialize():
+            return json.dumps(
+                client.redacted({"result": result}),
+                ensure_ascii=os.name == "nt",
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+
+        text = serialize()
+        if len(text.encode()) + 1 > SUMMARY_BYTE_LIMIT and "next_command" in result:
+            result.pop("next_command")
+            result["repeat_query_with_next_cursor"] = True
+            text = serialize()
+        return text, len(text.encode()) + 1 <= SUMMARY_BYTE_LIMIT
+
+    def minimal(row):
+        return {
+            "id": row["id"],
+            "detail_deferred": True,
+            **({"ownership_match_unknown": True} if row.get("ownership_match_unknown") else {}),
+        }
+
+    for _attempt in range(2):
+        observed, projected = projection()
+        candidates = [
+            row
+            for row in projected["rows"]
+            if after is None or device_summary_sort_key(row["id"]) > device_summary_sort_key(after)
+        ]
+        selected = []
+        for row in candidates[: query["limit"]]:
+            _value, fits = encoded(
+                [*selected, row], more=len(selected) + 1 < len(candidates), observed=observed, projected=projected
+            )
+            if not fits:
+                if not selected:
+                    small = minimal(row)
+                    _value, fits = encoded([small], more=len(candidates) > 1, observed=observed, projected=projected)
+                    if not fits:
+                        raise ClientError("device_identifier_exceeds_output_budget")
+                    selected.append(small)
+                break
+            selected.append(row)
+        current, final_projection = projection()
+        if read_snapshot_fresh(current) != read_snapshot_fresh(observed):
+            # Aging can expand a --mine query from known non-owned rows to unknown
+            # ownership. Rebuild the prefix rather than skipping those earlier IDs.
+            continue
+        while True:
+            more = len(selected) < len(candidates)
+            text, fits = encoded(selected, more=more, observed=current, projected=final_projection)
+            if fits:
+                return text
+            if len(selected) > 1:
+                selected.pop()
+            elif selected and not selected[0].get("detail_deferred"):
+                selected = [minimal(selected[0])]
+            else:
+                raise ClientError("resource_devices_output_exceeds_byte_budget")
+    raise ClientError("resource_devices_observation_unstable")
+
+
+def resource_devices_text(encoded):
+    result = json.loads(encoded)["result"]
+    lines = ["ID  MODEL  STATE  HELD BY YOU  BOOKED BY YOU"]
+    for row in result["rows"]:
+        lines.append(
+            "  ".join(str(row.get(field, "?")) for field in ("id", "model", "state", "held_by_you", "booked_by_you"))
+        )
+    if not result["rows"]:
+        lines.append("No matching devices observed.")
+    if not result["scope_complete"]:
+        lines.append("Partial or unverifiable observation; not an allocation guarantee.")
+    if result.get("next_command"):
+        lines.append("Next: " + shlex.join(["lockbot", *result["next_command"]]))
+    elif result.get("next_cursor"):
+        lines.append("Repeat the same query with --cursor " + result["next_cursor"])
+    text = "\n".join(lines)
+    try:
+        text.encode(sys.stdout.encoding or "utf-8")
+    except UnicodeEncodeError:
+        return encoded
+    return text if len(text.encode()) + 1 <= SUMMARY_BYTE_LIMIT else encoded
+
+
 def _automatic_resources(snapshot, context):
     """Validate full observations; a compact overview cannot prove uniqueness."""
     resources = snapshot.get("resources")
@@ -5643,11 +5861,30 @@ def main(argv=None):
     )
     resource_view = resource_commands.add_parser("view", help="Read one exact reference; never search other groups")
     resource_view.add_argument("ref", help="Resource reference from a list row")
+    resource_view.add_argument("--directory", help="Resolve the reference only in this private catalog")
     resource_view.add_argument("--mine", action="store_true")
     resource_view.add_argument("--with-metrics", action="store_true")
     resource_view.add_argument("--json", nargs="?", const="", metavar="FIELDS")
     resource_view.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
     resource_view.set_defaults(node=[], model=None, summary=True, limit=SUMMARY_NODE_LIMIT, offset=0, full=False)
+    device_listing = resource_commands.add_parser(
+        "devices", help="Page exact card IDs and observed models for one node"
+    )
+    device_listing.add_argument("ref", nargs="?", help="Exact resource reference from a list row")
+    device_listing.add_argument("--directory", help="Resolve the reference only in this private catalog")
+    device_listing.add_argument("--model", help="Filter reported card models")
+    device_listing.add_argument(
+        "--mine", action="store_true", help="Your observed holds/bookings; unknown ownership stays marked"
+    )
+    device_listing.add_argument("--limit", type=int, default=SUMMARY_DEVICE_LIMIT, help="Maximum cards (default 20)")
+    device_listing.add_argument("--cursor", help="Continue the same live device query")
+    device_listing.add_argument(
+        "--json",
+        nargs="?",
+        const="",
+        metavar="FIELDS",
+        help="Select card JSON fields; bare --json lists fields without requests",
+    )
     aggregate = sub.add_parser("resources-all", help="Read all existing private catalog connections without enrollment")
     aggregate.add_argument("--directory", help="Read only this private connection catalog")
     aggregate.add_argument("--mine", action="store_true", help="Separate your holdings and bookings in every group")
@@ -5749,7 +5986,9 @@ def main(argv=None):
     human_read = False
     if args.action == "resource":
         human_read = args.json is None
-        args.action = "resource-list" if args.resource_action == "list" else "resources"
+        args.action = {"list": "resource-list", "view": "resources", "devices": "resource-devices"}[
+            args.resource_action
+        ]
     if args.action == "command":
         args.device = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in args.device]
     client = None
@@ -5758,6 +5997,7 @@ def main(argv=None):
     summary_fields = None
     reference_node = None
     reference_token = None
+    explicit_reference_connection = args.connection
     try:
         if args.legacy_read and args.action not in {
             "discover",
@@ -5765,10 +6005,24 @@ def main(argv=None):
             "resources",
             "resources-all",
             "resource-list",
+            "resource-devices",
         }:
             raise ClientError("legacy_read_only")
         if args.legacy_read and getattr(args, "with_metrics", False):
             raise ClientError("legacy_read_only")
+        if args.action == "resource-devices":
+            if args.json == "":
+                print(json.dumps({"json_fields": list(DEVICE_FIELDS), "required_row_fields": ["id"]}))
+                return 0
+            device_query = resource_devices_query(
+                model=args.model,
+                mine=args.mine,
+                fields=None if args.json is None else args.json.split(","),
+                limit=args.limit,
+                legacy_read=args.legacy_read,
+            )
+            if not args.ref:
+                raise ClientError("resource_reference_required")
         if args.action == "resource-list":
             if args.connection:
                 raise ClientError("connection_not_used_for_listing")
@@ -5806,7 +6060,7 @@ def main(argv=None):
                     raise ClientError("summary_combination_not_supported")
                 if args.with_metrics and args.action == "resources-all":
                     raise ClientError("summary_aggregate_metrics_not_supported")
-        if args.action in {"resources", "command"} and args.ref:
+        if args.action in {"resources", "command", "resource-devices"} and args.ref:
             if args.action == "resources" and args.node:
                 raise ClientError("resource_reference_conflicts_with_node_filter")
             reference_token, reference_node = parse_resource_reference(args.ref)
@@ -5816,7 +6070,7 @@ def main(argv=None):
                 if not resource_scope_digest(private_json(args.connection)).startswith(reference_token):
                     raise ClientError("resource_reference_scope_mismatch")
             else:
-                located = resolve_resource_reference(args.ref)
+                located = resolve_resource_reference(args.ref, directory=getattr(args, "directory", None))
                 if len(located["connections"]) != 1:
                     raise ClientError("resource_reference_connection_ambiguous")
                 args.connection = located["connections"][0]["connection"]
@@ -5886,6 +6140,17 @@ def main(argv=None):
             # The file can change between catalog lookup and Client construction.
             # Recheck the actual loaded pins before any Key read or network request.
             raise ClientError("resource_reference_scope_mismatch")
+        if args.action == "resource-devices":
+            encoded = resource_devices(
+                client,
+                args.ref,
+                query=device_query,
+                cursor=args.cursor,
+                connection=explicit_reference_connection,
+                directory=args.directory,
+            )
+            print(resource_devices_text(encoded) if human_read else encoded)
+            return 0
         if args.action == "discover":
             result = client.discover()
             if args.destination:

@@ -27,6 +27,26 @@ Before emitting a scope, the CLI checks its locally recorded same-scope credenti
 
 The list is sequential, shares the unchanged 12-request/60-second budget and never creates a resource snapshot cache. It currently reads each old API scope's full response; client-side paging does not reduce those response bytes. Exhaustive scans can reread a scope when its rows cross pages. Server-side filtering/paging is separate future work. Aggregate list telemetry is not enabled; `resource view REF --with-metrics` supports the existing bounded single-scope telemetry path.
 
+## Inspect many cards on one node
+
+`resource devices REF` pages the observed card inventory for one exact selected node. It does not derive a card number from a node name such as `dev0`; whole-node groups use `resource view` for hardware facts.
+
+```sh
+lockbot resource devices '<ref>'
+lockbot resource devices '<ref>' --model P800 --json id,model,state
+lockbot resource devices '<ref>' --mine --json id,held_by_you,booked_by_you
+lockbot resource devices '<ref>' --limit 200 --json id,model
+lockbot resource devices --json
+```
+
+The default is at most 20 cards and 8 KiB for the complete output. Exact `id` is always retained. For an explicit inventory of many IDs, request only needed fields and raise `--limit` (maximum 256); the byte cap still applies. A 200-card coherent localhost fixture returned all IDs and models in one CLI invocation, two GETs and 5,474 bytes. Paging that same fixture at 20 rows used ten invocations and twenty GETs. Neither comparison means that a live server provides transactionally consistent state across calls.
+
+Canonical decimal IDs sort numerically, preserving zero and gaps. Opaque IDs such as `00` retain their spelling and sort separately. Canonical collisions such as numeric `0` and string `"0"` are rejected before model or ownership filtering. Invalid IDs are counted as unidentified, never renumbered or replaced with array positions. Cursor validation precedes protected reads; it binds the exact target, selected credential metadata, profile, fields, filters and limit. Missing boundary IDs can be skipped by keyset order on a new observation; new IDs before the boundary require a fresh traversal.
+
+`held_by_you` and `booked_by_you` are null when ownership evidence is missing, malformed or stale. `--mine` retains those unknown rows with `ownership_match_unknown`; it does not declare them owned or turn unknown into zero. The marker survives JSON field selection. Queue position and claimability describe only a uniquely identified own booking, not a current holder's lease. Raw owner identities, notes and expiry fields are not emitted. `total_devices` and `matched_devices` count observed configuration records, never free or authorized cards; matching counts are null when matching coverage is incomplete.
+
+Device continuation uses `next_cursor`/`next_command`, without a local resource cache. A source snapshot is still reread for each page; scoped telemetry and a server-side device-query capability remain separate work. A resumed page never asserts complete inventory coverage, and legacy read mode remains unable to write.
+
 ## Try the implemented read contract
 
 In these examples, `lockbot` means a launcher for the candidate's `scripts/lockbot_cli.py`, using a separate private connection directory. The examples do not create bindings or change resources.
@@ -111,6 +131,6 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
 - External P800 reports remain a separate provider integration. Existing own-allocation bridges cannot supply fleet inventory, and native credentials/references cannot be reused as external authority.
-- Candidate search, private labels, device-fact ingestion and detailed device pagination remain separate work. The new terminal list/view entrypoint is implemented locally for review. The published Skill should follow the reviewed CLI contract.
+- Candidate search, private labels and device-fact ingestion remain separate work. Device pagination and the terminal list/view entrypoint are implemented locally for review; detailed telemetry paging and source-side query limits remain future work. The published Skill should follow the reviewed CLI contract.
 
 The implementation borrows field discovery and bounded-list ideas from [`gh` formatting](https://cli.github.com/manual/gh_help_formatting) and [`gh repo list`](https://cli.github.com/manual/gh_repo_list). LockBot's shared resource contention requires its own server limits; GitHub's quota numbers are not adopted here.
