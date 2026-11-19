@@ -11,9 +11,11 @@ In these examples, `lockbot` means a launcher for the candidate's `scripts/lockb
 ```sh
 lockbot resources-all --summary
 lockbot resources-all --summary --model P800
+lockbot resources-all --mine --summary
 lockbot resources-all --json
 lockbot resources-all --json node,unit,hardware,matched_cards,states --limit 10
 lockbot resources --ref '<ref from a returned row>' --summary
+lockbot resources --ref '<ref from a returned row>' --summary --with-metrics
 ```
 
 Bare `--json` lists supported fields without reading a Key or making HTTP requests. `--json FIELDS` selects summary fields and retains `ref`. A conflict marker is also retained when observations disagree, even if it was not requested as a field.
@@ -32,6 +34,10 @@ Bare `--json` lists supported fields without reading a Key or making HTTP reques
 Summary output defaults to at most 20 nodes and is capped at 8 KiB including metadata and the printed newline. Byte limits can reduce the number of returned nodes. A single oversized row retains its reference and marks `detail_deferred`; use that reference to inspect the node. Arrays of device IDs and hardware categories are separately bounded and report when more exist.
 
 Equal display observations of the same reference collapse to one row. This does not merge credentials, permissions, leases or physical machines across different scopes. An ambiguous local reference with multiple credential candidates requires an explicit existing connection in this draft.
+
+`--mine --summary` groups only the verified caller's records by node. `holding_units` and `booking_units` count separate observations; at most 20 holdings and 20 bookings appear per node. Bookings retain their own queue rank and claimability and do not inherit the current holder's mode or lease. Missing ownership/queue data, ambiguous identifiers or an unknown allocation type cannot confirm zero personal occupancy. Conflicting same-scope observations, including an occupied versus empty own set, withhold the affected rows' claims.
+
+For one selected scope, `--with-metrics --summary` fetches telemetry for the bounded reference prefix, reuses that invocation's verified context and recomputes resource freshness after the optional read. CPU/card/memory/filesystem samples preserve missing, stale, failed and invalid states. Telemetry errors remain separate from resource-query coverage. Successful zero utilization never grants allocation authority. Metrics cards and filesystems are bounded separately; the full result still obeys the 8 KiB cap.
 
 ## Continue a large saved catalog
 
@@ -61,9 +67,10 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 ## Review boundaries and remaining work
 
 - Resource references are read-only in this draft; mutation routes retain their existing validation and single-submit behavior.
-- Summary mode currently rejects combinations with `--mine`, `--full` or `--with-metrics`. Ownership and utilization need deliberate bounded views before this becomes the default entry.
+- Summary mode rejects `--full`. Aggregate summary plus `--with-metrics` still needs a shared request-budget plan; scoped summary telemetry and bounded personal records are implemented locally.
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
-- Legacy native manifests and external P800 reports still need explicit compatibility profiles and packaged tests. A successful current-protocol fixture is not evidence of compatibility with a deployed older service.
+- The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
+- External P800 reports remain a separate provider integration. Existing own-allocation bridges cannot supply fleet inventory, and native credentials/references cannot be reused as external authority.
 - Candidate search, private labels, device-fact ingestion and the final human-readable list/view command layout remain separate work. The published Skill should follow the reviewed CLI contract.
 
 The implementation borrows field discovery and bounded-list ideas from [`gh` formatting](https://cli.github.com/manual/gh_help_formatting) and [`gh repo list`](https://cli.github.com/manual/gh_repo_list). LockBot's shared resource contention requires its own server limits; GitHub's quota numbers are not adopted here.
