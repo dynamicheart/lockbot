@@ -506,6 +506,10 @@ def score(scenario, requests, tools, final, *, phase=1, prior_groups=(), fixture
                 and "释放" in final
             )
     else:
+        if fixture_version >= 32 and scenario in UNVERIFIED_MACHINE_MODELS:
+            # A parser rejection without a target and before any HTTP request is
+            # an argument correction, not a hardware probe or mutation attempt.
+            attempts, _ = command_attempts(tools, fixture_version=fixture_version)
         checks["zero_write_attempts"] = not posts and not attempts
         suffixes = {row["url"].split("/api/")[-1] for row in reads}
         if scenario in {"intent-ambiguous", "intent-ambiguous-tail"}:

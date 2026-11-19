@@ -70,7 +70,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -258,7 +258,10 @@ def prepare(root, artifact, scenario, *, fixture_version=18):
             case_path, {**case, "fixture_version": max(SKILL_CATALOG_FIXTURE_VERSION, case["fixture_version"])}
         )
     if fixture_version >= 19 and (
-        scenario in intent.PROMPTS or scenario == COLD_REQUEST or (fixture_version >= 21 and scenario == "telemetry")
+        scenario in intent.PROMPTS
+        or scenario == COLD_REQUEST
+        or (fixture_version >= 21 and scenario == "telemetry")
+        or (fixture_version >= 31 and scenario == "install-with-key")
     ):
         case = json.loads(case_path.read_text())
         base.save_json(case_path, {**case, "fixture_version": fixture_version})
@@ -818,6 +821,9 @@ class Fixture(continuity.Fixture):
                 "enrollment_directory_present": (directory / "enrollment.json").is_file(),
                 "enrollment_connection_present": (directory / "connection.json").is_file(),
             }
+            if self.case.get("fixture_version", 0) >= 31 and self.case["scenario"] in SAVED_LOGIN_SCENARIOS:
+                state["saved_connection_present"] = self.saved_connection.is_file()
+                state["next_command"] = ["connections"]
             if self.case["scenario"] == "panel":
                 state["browser_bookmarks"] = json.loads((self.root / "browser.json").read_text())["bookmarks"]
             return {"result": state}
@@ -829,7 +835,10 @@ class Fixture(continuity.Fixture):
                 action == "resources-all"
                 and self.case.get("fixture_version", 0) >= 18
                 and self.case.get("resource_aggregation")
-                and self.case["scenario"] in intent.PROMPTS
+                and (
+                    self.case["scenario"] in intent.PROMPTS
+                    or (self.case.get("fixture_version", 0) >= 31 and self.case["scenario"] == "install-with-key")
+                )
             )
             or (action == "command" and self.case["scenario"] == COLD_REQUEST)
             or (
@@ -1133,7 +1142,11 @@ def tools(root):
             "minimum": 1,
             "description": "Exact number of requested cards to select together in one command.",
         }
-    if is_intent and case.get("fixture_version", 0) >= 18 and case.get("resource_aggregation"):
+    if (
+        (is_intent or (case.get("fixture_version", 0) >= 31 and scenario == "install-with-key"))
+        and case.get("fixture_version", 0) >= 18
+        and case.get("resource_aggregation")
+    ):
         actions = (*actions, "resources-all")
         extra.update(
             mine={
@@ -2672,7 +2685,7 @@ def main():
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
     parser.add_argument(
-        "--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30), default=18
+        "--fixture-version", type=int, choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32), default=18
     )
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import skill_agent_eval as onboarding
 import skill_cli_eval as cli
+import skill_cli_release_eval as cli_release
 import skill_consultation_eval as consultation
 import skill_continuity_eval as continuity
 import skill_operations_eval as operations
@@ -18,6 +19,7 @@ from skill_eval_artifact import load
 
 CASES = {
     "cli": cli.SCENARIOS,
+    "cli-release": tuple(cli_release.SCENARIOS),
     "onboarding": tuple(onboarding.SCENARIOS),
     "continuity": tuple(continuity.PROMPTS),
     "operations": tuple(operations.PROMPTS),
@@ -53,6 +55,14 @@ def freeze(source, destination, expected_origin):
 def prepare(root, suite, scenario, artifacts, *, cli_fixture_version=19, onboarding_fixture_version=7):
     current = artifacts / "current"
     source = current / "SKILL.md"
+    if suite == "cli-release":
+        cli_release.prepare(
+            root,
+            current,
+            scenario,
+            installed_artifact=artifacts / "installed" if scenario == "update-inquiry" else None,
+        )
+        return lambda root, final: cli_release.score(root, final)
     if suite == "resource-cli":
         resource_cli.prepare(root, current, scenario)
         return resource_cli.score
@@ -106,6 +116,8 @@ def evaluate_phase(root, metadata, command, grader, limits):
             artifact_revision=case["artifact_revision"],
             origin=case["origin"],
         )
+    if case.get("fixture_family") == "cli-release":
+        result.update(fixture_family="cli-release", fixture_version=case["release_fixture_version"])
     onboarding.save_json(root / "result.json", result)
     return result
 
@@ -149,6 +161,8 @@ def run_case(
         "evidence": first.relative_to(output).as_posix(),
         "simulated_user_actions": [],
     }
+    if suite == "cli-release":
+        first_metadata["simulated_user_actions"] = list(cli_release.SCENARIOS[scenario]["synthetic_actions"])
     try:
         grader = prepare(
             first,
@@ -360,7 +374,7 @@ def main():
     run.add_argument("--output", type=Path, required=True, help="New private evidence directory outside the repository")
     run.add_argument("--workers", type=positive_int, default=4)
     run.add_argument(
-        "--cli-fixture-version", type=int, choices=(19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29), default=19
+        "--cli-fixture-version", type=int, choices=(19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32), default=19
     )
     run.add_argument("--onboarding-fixture-version", type=int, choices=(7, 8), default=7)
     run.add_argument(
@@ -382,10 +396,13 @@ def main():
     ]
     panel = any(scenario == "panel" and suite in {"cli", "continuity"} for suite, scenario in cases)
     update = ("operations", "update") in cases
+    release_update = ("cli-release", "update-inquiry") in cases
     if panel and args.panel_artifacts is None:
         run.error("cli:panel and continuity:panel require --panel-artifacts")
     if update and args.installed_artifacts is None:
         run.error("operations:update requires --installed-artifacts")
+    if release_update and args.installed_artifacts is None:
+        run.error("cli-release:update-inquiry requires --installed-artifacts")
     pairs = {(client, model) for client, model, _ in args.runner}
     if len(pairs) != len(args.runner) or any(not client.strip() or not model.strip() for client, model in pairs):
         run.error("Provide each nonempty client/model pair only once")
@@ -400,10 +417,10 @@ def main():
                 artifacts["panel"]["package_version"] != artifacts["current"]["package_version"]
             ):
                 raise ValueError("--panel-artifacts must use the same portable package version as --artifacts")
-        if update:
+        if update or release_update:
             artifacts["installed"] = freeze(args.installed_artifacts, output / "artifacts/installed", onboarding.ORIGIN)
             if artifacts["installed"]["revision"] == artifacts["current"]["revision"]:
-                raise ValueError("operations:update requires different installed and current revisions")
+                raise ValueError("An update case requires different installed and current revisions")
             if artifacts["installed"]["instance_id"] != artifacts["current"]["instance_id"]:
                 raise ValueError("operations:update requires installed and current artifacts from the same instance")
     except (OSError, ValueError) as error:

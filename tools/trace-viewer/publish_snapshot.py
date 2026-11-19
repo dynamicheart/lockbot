@@ -123,6 +123,18 @@ SUITE_GROUPS = {
             "telemetry": "利用率授权刷新",
         },
     ),
+    "cli-release": (
+        "CLI 操作回归",
+        {
+            "alias-set": "修改共享别名",
+            "alias-clear": "清除共享别名",
+            "queue-book": "预约19一天",
+            "queue-claim": "开始使用预约机器",
+            "queue-mine": "查看我的预约",
+            "release-reconcile": "确认19的占用状态",
+            "update-inquiry": "询问Skill更新",
+        },
+    ),
     "operations": (
         "资源操作回归",
         {
@@ -158,6 +170,8 @@ MODELS = {
     "Kimi K3": "Kimi K3",
     "MiniMax-M3": "MiniMax-M3",
     "official:gpt-6.1-sol": "GPT-6.1 Sol",
+    "official:gpt-6-luna": "GPT-6 Luna",
+    "gpt-6-luna": "GPT-6 Luna",
     "Claude Sonnet 5.5": "Claude Sonnet 5.5",
     "deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
     "glm-5.3": "GLM-5.3",
