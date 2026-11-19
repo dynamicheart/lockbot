@@ -16,7 +16,7 @@ from backend.test_resource_agent_helper import helper
 from backend.test_resource_agent_resources_all import aggregate  # noqa: F401
 
 PROVIDER = r"""
-import base64, hashlib, json, pathlib, sys, urllib.parse
+import base64, hashlib, json, pathlib, sys, urllib.parse, unicodedata
 request = json.load(sys.stdin)
 config_path = pathlib.Path(sys.argv[sys.argv.index('--config') + 1])
 config = json.loads(config_path.read_text())
@@ -50,6 +50,9 @@ for name in config.get('names', ['same-node']):
            'holding_units':config.get('holding_units',0),'booking_units':0,'states':{'idle':1},'snapshot_fresh':True}
     if query['nodes'] and name.casefold() not in query['nodes']: continue
     if query['model'] is not None and query['model'].casefold() != 'p800': continue
+    if query.get('search') and not config.get('ignore_search'):
+        facts = [unicodedata.normalize('NFKC', name).casefold(), 'p800']
+        if not all(any(term in fact for fact in facts) for term in query['search'].split()): continue
     if query['mine'] and not row['holding_units']: continue
     if request['action'] == 'view' and raw_ref != request['ref']: continue
     all_rows.append(row)
@@ -63,12 +66,15 @@ if query['fields'] is not None:
     rows = [{field:row[field] for field in ['ref',*query['fields']] if field in row} for row in rows]
 def envelope(rows):
     more = offset + len(rows) < len(all_rows)
-    return {'result':{'rows':rows, 'has_more':more,
+    value = {'result':{'rows':rows, 'has_more':more,
             'next_cursor':('page:'+digest+':'+str(offset+len(rows))) if more else None,
             'scope_complete':request['cursor'] is None and not more,
             'http_requests':cost,'capabilities':['read_only'],'observed_only':True,
             'valid_for_seconds':config.get('ttl',60),'coverage_valid_for_seconds':config.get('coverage_ttl',60),
             'inventory_scope':config.get('inventory_scope','full_inventory')}}
+    if query.get('search') and not config.get('ignore_search'):
+        value['result'].update(search_applied=query['search'], search_mode='literal_terms_v1')
+    return value
 while len((json.dumps(envelope(rows),ensure_ascii=False)+'\n').encode()) > budget.get('max_output_bytes',8192):
     if len(rows)>1: rows.pop()
     elif rows and set(rows[0]) != {'ref','observation_incomplete'}:
@@ -157,6 +163,32 @@ def test_one_page_contains_native_and_external_without_name_or_credential_mergin
     assert request["budget"]["max_http_requests"] == 10
     assert request["budget"]["max_rows"] == 19 and request["query"]["limit"] == 20
     assert len(native.events) == 2
+
+
+def test_search_is_applied_by_each_source_before_selected_fields_and_paging(mixed):
+    native = mixed.aggregate.server(1)
+    mixed.aggregate.record(native, "native")
+    mixed.register(names=["no-match", "same-node", "other"])
+    result = mixed.execute(
+        mixed.sources(), "resource", "list", "--search", "ＳＡＭＥ", "--json", "unit", "--limit", 2
+    )["result"]
+    assert len(result["rows"]) == 2
+    assert result["rows"][0]["ref"].startswith("s-")
+    assert result["rows"][1]["ref"].startswith("e1.")
+    assert all("node" not in row for row in result["rows"])
+    assert result["http_requests"] == 4
+    assert mixed.requests()[0]["query"]["search"] == "same"
+
+
+def test_old_provider_cannot_silently_ignore_search_or_erase_prior_native_rows(mixed):
+    native = mixed.aggregate.server(1)
+    mixed.aggregate.record(native, "native")
+    mixed.register(names=["not-a-match"], ignore_search=True)
+    result = mixed.execute(mixed.sources(), "resource", "list", "--search", "same", "--json", "node")["result"]
+    assert len(result["rows"]) == 1 and result["rows"][0]["ref"].startswith("s-")
+    assert result["http_requests"] == result["http_budget_used"] == 4
+    assert result["unread_reasons"] == ["source_search_not_supported"]
+    assert not result["scope_complete"]
 
 
 def test_runtime_row_limits_change_but_inner_query_and_cursor_remain_stable(mixed):

@@ -89,6 +89,19 @@ Missing durations are zero in mixed mode. They bound observed evidence age, not
 continued holding or write authority. Known deadlines shorten them; missing
 expiry does not invent a permanent lease or invalidate a fresh known booking.
 
+An active list `--search TEXT` adds an optional canonical `search` string to the
+query. Its literal word matching and input bounds follow the
+[resource search contract](../design/cli-resource-contract-draft.md#search-names-aliases-and-hardware).
+Apply it to full permitted observations before field selection or paging, not
+to an already clipped response. A successful searched page includes
+`search_mode: "literal_terms_v1"` and `search_applied` equal to the requested
+canonical string, within the same output byte cap. Missing/incorrect confirmation
+leaves `source_search_not_supported`; validated request cost is retained. Unknown
+hardware that could match must prevent a complete negative result. Omit the
+optional query key and acknowledgement fields when search is absent; ordinary
+v1 requests, field discovery and cursor identity remain compatible. Exact views
+must reject active search.
+
 The parent enforces a 60-second process timeout and an 8-KiB final stdout limit.
 It captures stdout in a private temporary file and reads only the bounded
 response into memory. Trusted code can still grow that temporary file before

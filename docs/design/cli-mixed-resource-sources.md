@@ -36,6 +36,7 @@ network responses. The CLI does not install providers or initialize credentials.
 ```sh
 lockbot --resource-sources /absolute/private/sources.json resource list
 lockbot --resource-sources /absolute/private/sources.json resource list --model P800 --limit 5 --json node,unit,hardware
+lockbot --resource-sources /absolute/private/sources.json resource list --search 'P800 07' --limit 5 --json node,hardware
 lockbot --resource-sources /absolute/private/sources.json resource list --mine --json node,holding_units,booking_units
 lockbot --resource-sources /absolute/private/sources.json resource list --json
 ```
@@ -51,6 +52,14 @@ than inventing values. Missing hardware, ownership or queue facts remain unknown
 The node selector uses observed IDs and any aliases the source actually supplies;
 it does not require bot IDs or group names. Model filters use observed hardware.
 Exact view commands retain the selected source's own field discovery.
+
+The optional literal `--search` filter follows the [native search contract](cli-resource-contract-draft.md#search-names-aliases-and-hardware).
+Each source applies it to full observed permitted metadata before paging and field
+selection. Successful searched provider pages must confirm the same canonical
+query with `search_mode: literal_terms_v1` and `search_applied`; an older provider
+cannot silently supply unfiltered rows. Missing matching evidence keeps coverage
+incomplete. The parent never emulates search over an already bounded old page or
+starts an extra capability-probe process. Unsearched query/wire shapes stay unchanged.
 
 ## One budget and one continuation
 

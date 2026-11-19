@@ -14,6 +14,7 @@ The new local entrypoint is `resource list`; `resource view REF` reads a selecte
 ```sh
 lockbot resource list
 lockbot resource list --model P800 --json node,unit,hardware --limit 5
+lockbot resource list --search 'P800 07' --json node,unit,hardware --limit 5
 lockbot resource list --mine --json node,holding_units,booking_units
 lockbot resource list --json
 lockbot resource view '<ref from a returned row>'
@@ -29,6 +30,43 @@ Continuation skips fully consumed scopes. If a page ends inside one scope, the n
 Before emitting a scope, the CLI checks its locally recorded same-scope credential peers. Contradictory observations retain `observation_conflict`. A failed or budget-limited peer leaves locator-only rows with `observation_incomplete`; neither field selection nor a page boundary can turn them into state, device or ownership claims. Credential cohorts exceeding the budget can yield conservative partial results and advance without an unbounded retry loop. References still require an explicitly selected connection when multiple credentials match.
 
 The list is sequential, shares the unchanged 12-request/60-second budget and never creates a resource snapshot cache. It currently reads each old API scope's full response; client-side paging does not reduce those response bytes. Exhaustive scans can reread a scope when its rows cross pages. Server-side filtering/paging is separate future work. Aggregate list telemetry is not enabled; `resource view REF --with-metrics` supports the existing bounded single-scope telemetry path.
+
+### Search names, aliases and hardware
+
+`resource list --search TEXT` matches literal words against observed node IDs,
+public node aliases and known hardware model labels. Each word must occur in at
+least one of those fields within the same observation. For example, `P800 07`
+can match model `P800` plus node `node07`; it also matches an actual node named
+`P80007`. Add `--model P800` when the hardware model itself must be P800. Search
+does not narrow the displayed card inventory; the exact model filter does.
+
+Search uses NFKC and case folding, collapses whitespace, and sorts/deduplicates
+at most eight words. Both raw and normalized input are limited to 160 UTF-8
+bytes; non-whitespace control/format characters are rejected. Punctuation is
+literal, with no regex, spelling correction, ranking or identity rewriting.
+Search combines with `--node`, `--model` and `--mine`; exact view, device and
+mutation commands do not accept it.
+
+All observed allowed fields participate before display clipping, selected JSON
+fields and pagination. Models beyond the first twenty displayed categories and
+aliases beyond their displayed prefix can match. With `--mine`, only the hardware
+evidence in the caller's own records is searched. Group/bot names, owners, task
+notes, metrics labels, private tags and secret-shaped values are excluded. Terms
+from conflicting credential observations are never pooled into a synthetic match;
+a matching conflict retains its mandatory locator/uncertainty marker.
+
+Unmatched nodes with missing hardware may still match an unknown model. Native
+output reports `search_unknown_nodes` and keeps coverage incomplete, including
+empty pages and combined model/search filters. A known node/alias match does not
+require guessing its hardware. An absent search preserves the old query and
+cursor hash. A changed canonical search rejects an old cursor before protected
+reads. Search adds no HTTP requests or persistent resource cache; exhaustive
+matching still needs to read the selected sources within the shared budget.
+
+An external provider must acknowledge the exact canonical search using
+`search_mode: literal_terms_v1` and `search_applied`. Older providers that ignore
+the option cannot return unfiltered rows as search results. They leave a source
+gap, with validated actual request cost retained and earlier healthy rows kept.
 
 ## Inspect many cards on one node
 
@@ -134,6 +172,6 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
 - External protocol implementations remain private plugins. The explicit generic provider entrypoint and mixed-source traversal are implemented locally; existing own-allocation bridges still cannot establish full fleet inventory. Native credentials/references cannot be reused as external authority.
-- Candidate search, private labels and device-fact ingestion remain separate work. Device pagination and the terminal list/view entrypoint are implemented locally for review; detailed telemetry paging and source-side query limits remain future work. The published Skill should follow the reviewed CLI contract.
+- Literal candidate search, device pagination and the terminal list/view entrypoint are implemented locally for review. Private labels, device-fact ingestion, detailed telemetry paging and source-side query limits remain future work. The published Skill should follow the reviewed CLI contract.
 
 The implementation borrows field discovery and bounded-list ideas from [`gh` formatting](https://cli.github.com/manual/gh_help_formatting) and [`gh repo list`](https://cli.github.com/manual/gh_repo_list). LockBot's shared resource contention requires its own server limits; GitHub's quota numbers are not adopted here.

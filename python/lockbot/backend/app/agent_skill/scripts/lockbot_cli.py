@@ -3732,8 +3732,10 @@ def _query_summary_projection(snapshot, context, reference_factory, *, nodes=(),
     return node_summary_rows(selected, context, reference_factory=reference_factory, model=model)
 
 
-def resource_summary_projection(output, *, fields=None, nodes=(), model=None):
+def resource_summary_projection(output, *, fields=None, nodes=(), model=None, search=None, private_values=()):
     """Compare source evidence before formatting or applying a display page."""
+    search = resource_search_text(search)
+    search_matches, search_unknown, search_observations = set(), set(), {}
     value = output.get("result") if isinstance(output, dict) else None
     if not isinstance(value, dict):
         raise ClientError("invalid_resource_summary")
@@ -3766,6 +3768,12 @@ def resource_summary_projection(output, *, fields=None, nodes=(), model=None):
             return resource_reference(record, node, width=64)
 
         unfiltered = _query_summary_projection(snapshot, context, reference_factory)
+        unsafe_search_nodes = set()
+        search_index = (
+            resource_search_index(snapshot, private_values=private_values, incomplete_nodes=unsafe_search_nodes)
+            if search is not None
+            else None
+        )
         if snapshot.get("scope") == "own":
             # An observed empty own set is evidence too. Comparing only visible
             # rows would hide "owned" versus "not owned" for the same scope.
@@ -3782,12 +3790,30 @@ def resource_summary_projection(output, *, fields=None, nodes=(), model=None):
         for row in unfiltered["rows"]:
             if row["ref"] in raw_observations and raw_observations[row["ref"]] != row:
                 raw_conflicts.add(row["ref"])
+            if search_index is not None:
+                facts = tuple(sorted(set(search_index.get(row["node"], []))))
+                if row["ref"] in search_observations and search_observations[row["ref"]] != facts:
+                    raw_conflicts.add(row["ref"])
+                search_observations[row["ref"]] = facts
             raw_observations[row["ref"]] = row
         projected = (
             unfiltered
             if model is None and not nodes
             else _query_summary_projection(snapshot, context, reference_factory, nodes=nodes, model=model)
         )
+        if search is not None:
+            unknown_nodes = set(projected["unknown_hardware_nodes"])
+            # A model filter can omit an unidentified model before search runs.
+            # Those nodes remain possible matches for the combined query.
+            visible_nodes = {row["node"] for row in projected["rows"]}
+            unknown_nodes |= unsafe_search_nodes.intersection(visible_nodes)
+            search_unknown.update(reference_factory(node) for node in unknown_nodes - visible_nodes)
+            for row in projected["rows"]:
+                matched = resource_search_matches(snapshot, row["node"], search, index=search_index)
+                if matched:
+                    search_matches.add(row["ref"])
+                elif row["node"] in unknown_nodes:
+                    search_unknown.add(row["ref"])
         rows.extend(projected["rows"])
         unknown.update(
             reference_factory(node)
@@ -3837,6 +3863,10 @@ def resource_summary_projection(output, *, fields=None, nodes=(), model=None):
             metric_refs.add(row["ref"])
     rows = list(distinct.values())
     complete &= not conflicts and not own_scope_conflicts
+    if search is not None:
+        rows = [row for row in rows if row["ref"] in search_matches]
+        search_unknown -= search_matches
+        complete &= not search_unknown
     if fields is not None:
         # Exact references remain available even when selecting fewer display fields.
         rows = [{key: item[key] for key in ("ref", "observation_conflict", *fields) if key in item} for item in rows]
@@ -3863,6 +3893,8 @@ def resource_summary_projection(output, *, fields=None, nodes=(), model=None):
         if all(metric_number(group.get("snapshot", {}).get("age_seconds")) is not None for group in groups)
         else None,
     }
+    if search is not None:
+        notes["search_unknown_nodes"] = len(search_unknown)
     legacy_snapshots = [
         group.get("snapshot", {})
         for group in groups
@@ -4314,7 +4346,90 @@ def _resource_list_text(value, error):
     return value
 
 
-def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False, legacy_read=False):
+def resource_search_text(value):
+    """Normalize a literal discovery filter without rewriting resource identities."""
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or any(not (char.isprintable() or char.isspace()) for char in value)
+        or len(value.encode("utf-8")) > 160
+    ):
+        raise ClientError("resource_search_invalid")
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    terms = sorted(set(normalized.split()))
+    if (
+        any(not (char.isprintable() or char.isspace()) for char in normalized)
+        or len(normalized.encode("utf-8")) > 160
+        or not 1 <= len(terms) <= 8
+    ):
+        raise ClientError("resource_search_invalid")
+    return " ".join(terms)
+
+
+def resource_search_index(snapshot, *, private_values=(), incomplete_nodes=None):
+    """Index one observation's public facts, not a persistent resource cache."""
+    indexed = {}
+    if snapshot.get("scope") == "own":
+        records = [
+            record
+            for field in ("holdings", "bookings")
+            for record in snapshot.get(field, [])
+            if isinstance(record, dict)
+        ]
+    else:
+        records = [
+            record
+            for record in snapshot.get("resources", [])
+            if isinstance(record, dict)
+        ]
+    for record in records:
+        node = record.get("node" if snapshot.get("scope") == "own" else "id")
+        if not isinstance(node, str) or not node or not node.isprintable():
+            continue
+        facts = indexed.setdefault(node, [node])
+        alias = record.get("alias")
+        if isinstance(alias, str) and alias.isprintable():
+            facts.append(alias)
+        if snapshot.get("scope") == "own":
+            label = _summary_model(record.get("model"))
+            if record.get("allocation") == "card" and label is not None:
+                facts.append(label)
+        devices = record.get("devices")
+        for device in devices if isinstance(devices, list) else []:
+            label = _summary_model(device.get("dev_model")) if isinstance(device, dict) else None
+            if label is not None:
+                facts.append(label)
+        inventory = record.get("accelerators")
+        if inventory is None and isinstance(record.get("local_hardware_note"), dict):
+            inventory = record["local_hardware_note"].get("accelerators")
+        for accelerator in inventory if isinstance(inventory, list) else []:
+            if not isinstance(accelerator, dict):
+                continue
+            label, count = _summary_model(accelerator.get("model")), accelerator.get("count")
+            if label is not None and type(count) is int and count > 0:
+                facts.append(label)
+    safe = {}
+    for node, facts in indexed.items():
+        safe[node] = []
+        for fact in facts:
+            normalized = unicodedata.normalize("NFKC", fact).casefold()
+            if redacted_values(fact, private_values) != fact or redacted_values(normalized) != normalized:
+                if incomplete_nodes is not None:
+                    incomplete_nodes.add(node)
+                continue
+            safe[node].append(normalized)
+    return safe
+
+
+def resource_search_matches(snapshot, node, search, *, index=None):
+    """Search public observed facts, including models omitted by display limits."""
+    index = resource_search_index(snapshot) if index is None else index
+    facts = index.get(node, [unicodedata.normalize("NFKC", node).casefold()])
+    return all(any(term in fact for fact in facts) for term in search.split())
+
+
+def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False, legacy_read=False, search=None):
     """Validate read selectors before I/O and return a stable, independent query."""
     if not isinstance(nodes, (list, tuple, set, frozenset)):
         raise ClientError("resource_list_nodes_invalid")
@@ -4348,13 +4463,17 @@ def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False,
         "mine": mine,
         "legacy_read": legacy_read,
     }
+    search = resource_search_text(search)
+    if search is not None:
+        query["search"] = search
     if len(json.dumps(query, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 2048:
         raise ClientError("resource_list_query_too_large")
     return query
 
 
 def resource_list_query_digest(query):
-    if not isinstance(query, dict) or set(query) != {"nodes", "model", "fields", "limit", "mine", "legacy_read"}:
+    required = {"nodes", "model", "fields", "limit", "mine", "legacy_read"}
+    if not isinstance(query, dict) or not required <= set(query) or set(query) - required - {"search"}:
         raise ClientError("resource_list_query_invalid")
     canonical = resource_list_query(**query)
     return hashlib.sha256(
@@ -4853,6 +4972,8 @@ class _ResourceListReader:
             {"result": {"groups": aged, "complete": fresh and not incomplete}},
             nodes=query["nodes"],
             model=query["model"],
+            search=query.get("search"),
+            private_values=self.secrets,
         )
         safe = []
         for row in rows:
@@ -4967,6 +5088,8 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
             args += ["--node", node]
         if query["model"] is not None:
             args += ["--model", query["model"]]
+        if query.get("search") is not None:
+            args += ["--search", query["search"]]
         if query["fields"] is not None:
             args += ["--json", ",".join(query["fields"])]
         return args + ["--cursor", token]
@@ -5025,6 +5148,8 @@ def _resource_list_page(directory, *, query, cursor, reader, clock, byte_limit, 
                 "conflicting_scopes",
             ):
                 totals[name] += notes[name]
+            if query.get("search") is not None:
+                totals["search_unknown_nodes"] += notes["search_unknown_nodes"]
             valid &= complete
             if include_validity:
                 uncertain = (
@@ -6117,6 +6242,12 @@ def _provider_response(
             )
         ):
             raise ClientError("resource_provider_response_invalid")
+    if query.get("search") is not None and (
+        result.get("search_applied") != query["search"] or result.get("search_mode") != "literal_terms_v1"
+    ):
+        error = ClientError("source_search_not_supported")
+        error.http_requests = result["http_requests"]
+        raise error
     return value
 
 
@@ -6450,13 +6581,13 @@ def _mixed_position(token, fingerprint, query_digest, count):
         raise ClientError("mixed_cursor_invalid") from None
 
 
-def _mixed_query(*, nodes=(), model=None, fields=None, limit=20, mine=False):
+def _mixed_query(*, nodes=(), model=None, fields=None, limit=20, mine=False, search=None):
     if fields is not None and (
         not isinstance(fields, (list, tuple)) or not fields or any(field not in MIXED_FIELDS for field in fields)
     ):
         raise ClientError("mixed_fields_invalid")
-    query = resource_list_query(nodes, model, fields, limit, mine)
-    return {key: query[key] for key in ("nodes", "model", "fields", "limit", "mine")}
+    query = resource_list_query(nodes, model, fields, limit, mine, search=search)
+    return {key: value for key, value in query.items() if key != "legacy_read"}
 
 
 def _mixed_duration(value):
@@ -6709,6 +6840,7 @@ def _resource_sources_dispatch(args):
                 fields=None if args.json is None else args.json.split(","),
                 limit=args.limit,
                 mine=args.mine,
+                search=args.search,
             ),
             cursor=args.cursor,
         )
@@ -6769,9 +6901,16 @@ def _resource_provider_dispatch(args):
     if fields is not None and any(not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", field) for field in fields):
         raise ClientError("resource_provider_fields_invalid")
     normalized = resource_list_query(
-        nodes=args.node, model=args.model, fields=None, limit=1 if action == "view" else args.limit, mine=args.mine
+        nodes=args.node,
+        model=args.model,
+        fields=None,
+        limit=1 if action == "view" else args.limit,
+        mine=args.mine,
+        search=getattr(args, "search", None),
     )
     query = {key: normalized[key] for key in ("nodes", "model", "limit", "mine")}
+    if normalized.get("search") is not None:
+        query["search"] = normalized["search"]
     query["fields"] = fields
     return resource_provider_output(
         args.resource_provider,
@@ -6881,6 +7020,9 @@ def main(argv=None):
     resource_listing.add_argument("--mine", action="store_true", help="Show your holdings and bookings")
     resource_listing.add_argument("--node", action="append", default=[], help="Observed exact node ID or alias")
     resource_listing.add_argument("--model", help="Reported accelerator model")
+    resource_listing.add_argument(
+        "--search", metavar="TEXT", help="Literal words across observed node ID, public alias and hardware models"
+    )
     resource_listing.add_argument("--limit", type=int, default=SUMMARY_NODE_LIMIT, help="Maximum rows (default 20)")
     resource_listing.add_argument("--cursor", help="Continue the same live query without rereading completed scopes")
     resource_listing.add_argument(
@@ -7076,6 +7218,7 @@ def main(argv=None):
                 limit=args.limit,
                 mine=args.mine,
                 legacy_read=args.legacy_read,
+                search=args.search,
             )
             result = resource_list(args.directory, query=query, cursor=args.cursor)
             print(resource_list_text(result, mine=args.mine) if human_read else result)
