@@ -365,6 +365,15 @@ def test_loader_rejects_package_identity_mismatch_even_with_correct_zip_hash(tmp
         load(source)
 
 
+def test_raw_connection_locator_can_be_reused_by_legacy_action_alternative(tmp_path):
+    fixture = prepare(tmp_path)
+    connection = run(fixture, "connections")["result"]["connections"][0]["connection"]
+    assert connection.startswith("/synthetic-user/")
+    response = fixture.call("run_lockbot", {"action": "resources", "connection": connection})
+    assert "error" not in response, response
+    assert response["result"]["resources"]
+
+
 def test_bounded_read_does_not_gain_omitted_state_facts_for_grading(tmp_path):
     fixture = prepare(tmp_path)
     page = run(fixture, "resource", "list", "--model", "P800", "--json", "node,hardware")

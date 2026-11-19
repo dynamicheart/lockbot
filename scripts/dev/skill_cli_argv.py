@@ -114,12 +114,21 @@ def for_grading(rows, case):
                     parsed[field] = int(parsed[field])
             result.append({**row, "args": parsed, "recorded_model_args": row["args"]})
         else:
-            result.append(row)
+            parsed = legacy_arguments(row.get("args", {}))
+            result.append(
+                {**row, "args": parsed, "recorded_model_args": row["args"]} if parsed != row.get("args", {}) else row
+            )
     return result
 
 
 def private_locator(value):
     return value.removeprefix("/synthetic-user/") if isinstance(value, str) else value
+
+
+def legacy_arguments(args):
+    """Map the documented user namespace for mixed calls; keep recorded args intact."""
+    paths = {"connection", "directory", "enrollment_dir", "destination", "key_file"}
+    return {name: private_locator(value) if name in paths else value for name, value in args.items()}
 
 
 def enrollment_directory(fixture):

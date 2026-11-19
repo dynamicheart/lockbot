@@ -809,6 +809,8 @@ class Fixture(continuity.Fixture):
                 "properties"
             ]["action"]["enum"]
             return argv_host.invoke(self, args, execution, actions)
+        if argv_host.enabled(self.case):
+            args = argv_host.legacy_arguments(args)
         installed = self.artifact is not None and all(
             (self.installation / name).is_file() and (self.installation / name).read_bytes() == content
             for name, content in self.artifact["contents"].items()
