@@ -17,11 +17,11 @@ from unittest.mock import patch
 
 import skill_cli_eval as cli
 
-VERSION = 1
+VERSION = 2
 PROMPTS = {
     "find-p800": "帮我找台P800的机器",
     "list-resources": "看看我能申请什么资源？",
-    "all-resources": "全部列一下",
+    "all-resources": "资源都列一下",
     "node-detail": "node-10什么情况",
     "device-detail": "node-10有哪些卡？",
     "metrics": "P800的利用率多少？",
@@ -194,11 +194,23 @@ def score(root, final):
             page.get("has_more") is False and page.get("traversal_exhausted") is True for page in pages
         )
     elif scenario == "node-detail":
-        checks["exact_detail_observed"] = any(
-            call["args"]["argv"][1] == "view"
-            and any(row.get("node") == "node-10" for row in call["result"].get("result", {}).get("rows", []))
-            for call in successful
-        )
+        if fixture.case.get("resource_cli_version", 1) < 2:
+            checks["exact_detail_observed"] = any(
+                call["args"]["argv"][1] == "view"
+                and any(row.get("node") == "node-10" for row in call["result"].get("result", {}).get("rows", []))
+                for call in successful
+            )
+        else:
+            # A compact list can already carry the requested status and hardware.
+            # Requiring another view would reward a redundant network read.
+            checks["exact_detail_observed"] = any(
+                row.get("node") == "node-10"
+                and isinstance(row.get("ref"), str)
+                and isinstance(row.get("hardware"), list)
+                and isinstance(row.get("states"), dict)
+                for page in pages
+                for row in page.get("rows", [])
+            )
     elif scenario == "device-detail":
         checks["device_page_observed"] = any(
             call["args"]["argv"][1] == "devices"

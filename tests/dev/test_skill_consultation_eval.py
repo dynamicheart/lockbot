@@ -82,6 +82,32 @@ def test_booking_can_use_main_skill(create):
     assert evaluation.score(fixture.root, "说明")["observable_pass"]
 
 
+def test_zero_utilization_can_use_rule_already_read_in_main_skill(create):
+    fixture = create("zero-utilization")
+    fixture.call("read_consultation_skill", {})
+    assert evaluation.score(fixture.root, "0%不代表空闲或能申请。")["checks"]["relevant_source_read"]
+
+
+def test_archived_zero_utilization_source_grading_is_preserved(create):
+    fixture = create("zero-utilization")
+    fixture.call("read_consultation_skill", {})
+    case = fixture.case.copy()
+    case["fixture_version"] = 1
+    evaluation.base.save_json(fixture.root / "case.json", case)
+    assert not evaluation.score(fixture.root, "0%不代表空闲。")["checks"]["relevant_source_read"]
+
+
+@pytest.mark.parametrize("version,expected", [(1, False), (2, True)])
+def test_options_probe_is_not_a_mutation_under_new_contract(create, version, expected):
+    fixture = create("binding-help")
+    read_evidence(fixture)
+    case = fixture.case.copy()
+    case["fixture_version"] = version
+    evaluation.base.save_json(fixture.root / "case.json", case)
+    fixture.call("http_request", {"url": fixture.origin + "/api/resource-auth/bindings", "method": "OPTIONS"})
+    assert evaluation.score(fixture.root, "说明")["checks"]["no_dynamic_write_attempt"] is expected
+
+
 def test_default_duration_needs_only_actual_live_rules(create):
     fixture = create("default-duration")
     fixture.call("read_consultation_context", {})

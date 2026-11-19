@@ -1,5 +1,13 @@
 # Bundled CLI
 
+For usage questions, explain the workflow from the instructions. For “怎么绑定”,
+briefly explain: the Agent requests a confirmation command, the user sends it from
+their own account in the intended robot's chat, and the Agent resumes after
+confirmation. Explaining this needs no binding request or API probe. Give shell
+commands when the user asks how to use the CLI; otherwise guide the user through
+the chat step rather than handing them a setup script. For an actual setup or
+resource request, continue the authorized connection workflow below.
+
 From the project directory, invoke the bundled `scripts/lockbot_cli.py` beside the
 installed `SKILL.md` directly. In examples, replace `$LOCKBOT_CLI` with the script's
 absolute path and substitute the actual connection or enrollment paths before running.

@@ -44,6 +44,40 @@ def test_actual_packaged_resource_list_view_and_devices(tmp_path, monkeypatch):
     assert requests and all(row["method"] == "GET" for row in requests)
 
 
+def test_status_answer_can_use_one_exact_list_without_redundant_view(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "node-detail")
+    fixture.call("read_lockbot_skill", {"offset": 0})
+    page = run(fixture, "resource", "list", "--node", "node-10", "--json", "node,hardware,states")["result"]
+    assert page["rows"][0]["node"] == "node-10"
+    assert evaluation.score(fixture.root, "Observed node-10 status.")["observable_pass"]
+    trace = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
+    assert len([row for row in trace if row["tool"] == "run_lockbot"]) == 1
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["resource", "list", "--node", "node-23", "--json", "node,hardware,states"],
+        ["resource", "list", "--node", "node-10", "--json", "node"],
+    ],
+)
+def test_other_node_or_missing_status_facts_cannot_satisfy_status_question(tmp_path, monkeypatch, argv):
+    fixture = prepare(tmp_path, monkeypatch, "node-detail")
+    fixture.call("read_lockbot_skill", {"offset": 0})
+    assert run(fixture, *argv).get("result")
+    assert not evaluation.score(fixture.root, "Observed status.")["checks"]["exact_detail_observed"]
+
+
+def test_archived_v1_status_grading_keeps_its_old_contract(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "node-detail")
+    run(fixture, "resource", "list", "--node", "node-10", "--json", "node,hardware,states")
+    path = fixture.root / "case.json"
+    case = json.loads(path.read_text())
+    case["resource_cli_version"] = 1
+    evaluation.cli.base.save_json(path, case)
+    assert not evaluation.score(fixture.root, "Observed status.")["checks"]["exact_detail_observed"]
+
+
 def test_pagination_runs_real_cursor_and_completes_coverage(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "all-resources")
     fixture.call("read_lockbot_skill", {"offset": 0})
@@ -153,7 +187,7 @@ def test_detail_grader_requires_the_requested_node(tmp_path, monkeypatch, scenar
     assert not evaluation.score(fixture.root, "Observed the list.")["observable_pass"]
     ref = page["rows"][0]["ref"]
     if scenario == "node-detail":
-        run(fixture, "resource", "view", ref, "--json", "node,hardware")
+        run(fixture, "resource", "view", ref, "--json", "node,hardware,states")
     else:
         run(fixture, "resource", "devices", ref, "--json", "id,model")
     assert evaluation.score(fixture.root, "Observed node-10 details.")["observable_pass"]
