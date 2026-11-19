@@ -163,6 +163,10 @@ def equivalent(command, expected, *, default_duration=None):
 
 def inventory(bot, command="", *, scenario=None, phase=1, writes=0, fixture_version=16, lease_reference=None):
     snapshot = _inventory(bot, command, scenario=scenario, phase=phase, writes=writes)
+    if fixture_version >= 36 and scenario == "intent-claim" and bot == 8:
+        for resource in snapshot["resources"]:
+            if resource["id"] == MACHINE_NODE:
+                resource["alias"] = "20"
     if fixture_version >= 28 and (
         scenario in {"intent-renew", "intent-ip-tail-held"}
         and bot == 8

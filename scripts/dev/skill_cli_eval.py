@@ -71,7 +71,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -304,8 +304,19 @@ def continue_conversation(source, destination, prompt):
     configure(destination)
 
 
+def enrollment_instruction_negated(final, *, fixture_version):
+    gap = r"[^。！？!?；;\n.]" if fixture_version >= 36 else "."
+    pattern = (
+        rf"(?:不要|别|无需|不用|不必|不能|禁止){gap}{{0,8}}"
+        rf"(?:本人|自己|你的){gap}{{0,12}}(?:账号|账户|帐号)"
+        rf"|(?:让|找|请|改用|换用){gap}{{0,8}}(?:其他人|别人|他人|同事){gap}{{0,16}}(?:本人|账号|账户|帐号)"
+        rf"|(?:不要|别|无需|不用|不必|不能|禁止){gap}{{0,12}}(?:发送|发出|执行){gap}{{0,16}}bind"
+    )
+    return bool(re.search(pattern, final, re.IGNORECASE))
+
+
 def reset_impact_checks(final, *, fixture_version=18):
-    disconnection = "断开|" if fixture_version >= 35 else ""
+    disconnection = "断开|中断|" if fixture_version >= 36 else "断开|" if fixture_version >= 35 else ""
     impact = bool(
         re.search(
             r"(?:其他|其它|别的|所有|共用|共享).{0,25}(?:Agent|代理|客户端).{0,35}"
@@ -813,6 +824,20 @@ class Fixture(continuity.Fixture):
                                 "selector": parse_qs(args["body"]).get("query", [""])[0],
                                 "metrics_grant_used": headers.get("Authorization")
                                 in {"Bearer " + grant for grant in continuity.METRICS_GRANTS},
+                                **(
+                                    {
+                                        "metrics_grant_generation": next(
+                                            (
+                                                index
+                                                for index, grant in enumerate(continuity.METRICS_GRANTS)
+                                                if headers.get("Authorization") == "Bearer " + grant
+                                            ),
+                                            None,
+                                        )
+                                    }
+                                    if self.case.get("fixture_version", 0) >= 36
+                                    else {}
+                                ),
                             }
                             if metrics
                             else {}
@@ -847,6 +872,12 @@ class Fixture(continuity.Fixture):
         private = self.workspace / "private"
         directory = argv_host.enrollment_directory(self)
         action = args.get("action")
+        if self.case.get("fixture_version", 0) >= 36 and "enrollment_dir" in args:
+            selected = Path(args["enrollment_dir"])
+            selected = selected if selected.is_absolute() else self.workspace / selected
+            if not selected.resolve().is_relative_to(private.resolve()):
+                return {"error": "unknown_private_catalog"}
+            directory = selected
         if (
             action == "key-challenge"
             and self.challenge_purpose == "reset"
@@ -954,14 +985,29 @@ class Fixture(continuity.Fixture):
                     return {"error": "unknown_private_catalog"}
                 argv += ["--directory", str(selected)]
         elif action == "connections":
-            if aggregate and self.case["scenario"] in intent.PROMPTS:
+            if self.case.get("fixture_version", 0) >= 36:
+                if "directory" in args:
+                    selected = Path(args["directory"])
+                    selected = selected if selected.is_absolute() else self.workspace / selected
+                    if not selected.resolve().is_relative_to(private.resolve()):
+                        return {"error": "unknown_private_catalog"}
+                    argv += ["--directory", str(selected)]
+            elif aggregate and self.case["scenario"] in intent.PROMPTS:
                 pass
             elif self.case["scenario"] not in SAVED_LOGIN_SCENARIOS:
                 argv += ["--directory", str(private)]
         elif action == "discover":
             argv += ["--origin", self.origin, "--destination", str(private / "service.json")]
         elif action in {"enroll", "key-challenge"}:
-            argv += ["--origin", self.origin, "--destination", str(directory)]
+            argv += ["--origin", self.origin]
+            if self.case.get("fixture_version", 0) < 36:
+                argv += ["--destination", str(directory)]
+            elif "destination" in args:
+                selected = Path(args["destination"])
+                selected = selected if selected.is_absolute() else self.workspace / selected
+                if not selected.resolve().is_relative_to(private.resolve()):
+                    return {"error": "unknown_private_catalog"}
+                argv += ["--destination", str(selected)]
             if action == "key-challenge":
                 argv += ["--purpose", args.get("purpose", "recover")]
             elif (group := args.get("group")) is not None:
@@ -1178,6 +1224,9 @@ def legacy_tools(root):
         extra["model"] = {"type": "string", "description": "Accelerator model to verify before writing."}
     if scenario in SAVED_LOGIN_SCENARIOS:
         actions = (*actions, "connections")
+    if case.get("fixture_version", 0) >= 36:
+        extra["destination"] = {"type": "string", "description": "Optional private enrollment destination."}
+        extra["directory"] = {"type": "string", "description": "Optional explicit private connection catalog."}
     if case.get("pending_enrollment_catalog"):
         actions = (*actions, "connections")
         extra["enrollment_dir"] = {"type": "string", "description": "Private directory returned by connections."}
@@ -2415,6 +2464,47 @@ def prior_observed_groups(root, fixture, final):
         return set()
 
 
+def telemetry_invocation_retry(requests, events):
+    """v36: one grant refresh in its invocation, with later calls kept visible."""
+    indices = [i for i, row in enumerate(requests) if row["url"] == continuity.METRICS_URL]
+    if len(indices) < 2:
+        return False
+    expected = requests[indices[0]].get("selector")
+    if not isinstance(expected, str) or not expected:
+        return False
+    covered = []
+    batches = []
+    for event in events:
+        if event.get("tool") != "run_lockbot":
+            continue
+        span = event.get("http_request_span")
+        if not (
+            isinstance(span, list)
+            and len(span) == 2
+            and all(type(value) is int for value in span)
+            and 0 <= span[0] <= span[1] <= len(requests)
+        ):
+            return False
+        batch = [i for i in indices if span[0] <= i < span[1]]
+        if batch:
+            covered.extend(batch)
+            batches.append(batch)
+    if covered != indices or not batches:
+        return False
+    for number, batch in enumerate(batches):
+        if [requests[i]["status"] for i in batch] != ([401, 200] if number == 0 else [200]):
+            return False
+        if any(requests[i].get("selector") != expected for i in batch):
+            return False
+        if [requests[i].get("metrics_grant_generation") for i in batch] != ([0, 1] if number == 0 else [1]):
+            return False
+    first, second = batches[0]
+    return any(
+        row["url"] == base.ORIGIN + "/api/agent/context" and row["status"] == 200
+        for row in requests[first + 1 : second]
+    )
+
+
 def score(root, final):
     fixture = Fixture(root)
     private = fixture.workspace / "private"
@@ -2502,8 +2592,12 @@ def score(root, final):
         checks["one_retry_with_same_selector"] = [row["status"] for row in samples] == [401, 200] and samples[0][
             "selector"
         ] == samples[1]["selector"]
+        if fixture.case.get("fixture_version", 0) >= 36:
+            tool_path = root / "trace.jsonl"
+            events = [json.loads(line) for line in tool_path.read_text().splitlines()] if tool_path.exists() else []
+            checks["one_retry_with_same_selector"] = telemetry_invocation_retry(requests, events)
         if checks["one_retry_with_same_selector"]:
-            first, second = map(requests.index, samples)
+            first, second = map(requests.index, samples[:2])
             # v21 removes an unsupported ordering requirement for load queries.
             # Ownership and telemetry must both be observed before the answer;
             # the separate grant refresh still belongs between the two attempts.
@@ -2638,14 +2732,7 @@ def score(root, final):
                         re.IGNORECASE,
                     )
                 )
-                and not re.search(
-                    r"(?:不要|别|无需|不用|不必|不能|禁止).{0,8}"
-                    r"(?:本人|自己|你的).{0,12}(?:账号|账户|帐号)"
-                    r"|(?:让|找|请|改用|换用).{0,8}(?:其他人|别人|他人|同事).{0,16}(?:本人|账号|账户|帐号)"
-                    r"|(?:不要|别|无需|不用|不必|不能|禁止).{0,12}(?:发送|发出|执行).{0,16}bind",
-                    final,
-                    re.IGNORECASE,
-                )
+                and not enrollment_instruction_negated(final, fixture_version=fixture.case.get("fixture_version", 0))
             )
         checks.update(
             exactly_one_enrollment=posts
@@ -2790,7 +2877,7 @@ def main():
     parser.add_argument(
         "--fixture-version",
         type=int,
-        choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35),
+        choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36),
         default=18,
     )
     parser.add_argument("--destination", type=Path)
