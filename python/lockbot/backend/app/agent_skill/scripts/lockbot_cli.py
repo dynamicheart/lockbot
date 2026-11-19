@@ -6444,6 +6444,14 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
             # Aging can expand a --mine query from known non-owned rows to unknown
             # ownership. Rebuild the prefix rather than skipping those earlier IDs.
             continue
+        # Sample freshness can change while the resource snapshot stays fresh.
+        # Preserve the packed ID prefix, but emit the final aged readings rather
+        # than the row objects captured before byte packing. No source refetch.
+        current_rows = {str(row["id"]): row for row in final_projection["rows"]}
+        selected = [
+            minimal(current_rows[str(row["id"])]) if row.get("detail_deferred") else current_rows[str(row["id"])]
+            for row in selected
+        ]
         while True:
             more = len(selected) < len(candidates)
             text, fits = encoded(selected, more=more, observed=current, projected=final_projection)

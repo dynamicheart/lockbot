@@ -370,3 +370,58 @@ def test_metrics_packing_retry_reages_ownership_without_extra_source_http(case, 
     assert result["rows"][0]["ownership_match_unknown"]
     assert result["rows"][0]["metrics"]["percent"] == 0
     assert len(encoded.encode()) + 1 <= 8192
+
+
+@pytest.mark.parametrize("elapsed", [0, 0.2])
+def test_byte_packed_metrics_use_final_sample_age_without_refetch(case, monkeypatch, elapsed):
+    reference = prepare(case, count=200, memory=True)
+    module = packaged_module(case)
+    current, projections = [0], [0]
+    client = module.Client(case.path, root=case.root, clock=lambda: current[0])
+    original_metrics = client.metrics
+    original_observation = module.observation_at_completion
+
+    def near_expiry(*args, **kwargs):
+        reading = original_metrics(*args, **kwargs)
+
+        def set_age(value):
+            if isinstance(value, dict):
+                if "sample_age_seconds" in value:
+                    value["sample_age_seconds"] = 89.9
+                for nested in value.values():
+                    set_age(nested)
+            elif isinstance(value, list):
+                for nested in value:
+                    set_age(nested)
+
+        set_age(reading)
+        return reading
+
+    def packing_elapsed(client, snapshot):
+        projections[0] += 1
+        if projections[0] == 3:
+            current[0] = elapsed
+        return original_observation(client, snapshot)
+
+    monkeypatch.setattr(client, "metrics", near_expiry)
+    monkeypatch.setattr(module, "observation_at_completion", packing_elapsed)
+    encoded = module.resource_devices(
+        client, reference,
+        query=module.resource_devices_query(fields=["id", "metrics"], limit=200, with_metrics=True),
+    )
+    result = json.loads(encoded)["result"]
+    assert result["snapshot_fresh"] and result["age_seconds"] == elapsed
+    assert result["metrics_read_complete"] and result["http_requests"] == 4
+    assert len(source_requests(case)) == 1
+    assert result["has_more"] and len(encoded.encode()) + 1 <= 8192
+    assert [row["id"] for row in result["rows"]] == list(range(len(result["rows"])))
+    for row in result["rows"]:
+        reading = row["metrics"]
+        assert reading["status"] == ("stale" if elapsed else "ok")
+        assert reading["sample_age_seconds"] == pytest.approx(89.9 + elapsed)
+        assert reading["percent"] == (None if elapsed else row["id"] % 101)
+        for key, value in (("used", 1024), ("total", 8192)):
+            memory = reading["memory"][key]
+            assert memory["status"] == ("stale" if elapsed else "ok")
+            assert memory["bytes"] == (None if elapsed else value)
+            assert memory["sample_age_seconds"] == pytest.approx(89.9 + elapsed)
