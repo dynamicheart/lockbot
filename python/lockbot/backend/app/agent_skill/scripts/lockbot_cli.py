@@ -11,6 +11,7 @@ import math
 import os
 import re
 import secrets
+import shlex
 import stat
 import sys
 import tempfile
@@ -3555,10 +3556,8 @@ def _query_summary_projection(snapshot, context, reference_factory, *, nodes=(),
     return node_summary_rows(selected, context, reference_factory=reference_factory, model=model)
 
 
-def query_summary_output(
-    output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offset=0, nodes=(), model=None, private_values=()
-):
-    """An opt-in bounded response; never replaces a snapshot used for a write."""
+def resource_summary_projection(output, *, fields=None, nodes=(), model=None):
+    """Compare source evidence before formatting or applying a display page."""
     value = output.get("result") if isinstance(output, dict) else None
     if not isinstance(value, dict):
         raise ClientError("invalid_resource_summary")
@@ -3709,6 +3708,14 @@ def query_summary_output(
         )
     if "scope_page" in value:
         notes["scope_page"] = value["scope_page"]
+    return rows, notes, bool(complete)
+
+
+def query_summary_output(
+    output, *, fields=None, limit=SUMMARY_NODE_LIMIT, offset=0, nodes=(), model=None, private_values=()
+):
+    """An opt-in bounded response; never replaces a snapshot used for a write."""
+    rows, notes, complete = resource_summary_projection(output, fields=fields, nodes=nodes, model=model)
     # Use the final serializer for both pagination and framing, including Windows
     # ASCII escapes. Reserve metadata, the outer wrapper and the printed newline.
     ascii_json = os.name == "nt"
@@ -4143,6 +4150,8 @@ def resource_list_query(nodes=(), model=None, fields=None, limit=20, mine=False,
     if model is not None:
         model = _resource_list_text(model, "resource_list_model_invalid").strip().casefold()
         model = _resource_list_text(model, "resource_list_model_invalid")
+        if len(model) > 80:
+            raise ClientError("resource_list_model_invalid")
     if fields is not None:
         if (
             not isinstance(fields, (list, tuple, set, frozenset))
@@ -4504,6 +4513,351 @@ def resources_all(
         },
         [value for client in clients for value in client.secrets],
     )
+
+
+class _ResourceListBudget(Exception):
+    pass
+
+
+class _ResourceListReader:
+    """One sequential read budget; only anonymous discovery can cross credentials."""
+
+    def __init__(self, *, root, opener, clock, legacy_read):
+        self.root, self.opener, self.clock, self.legacy_read = root, opener, clock, legacy_read
+        self.deadline, self.calls = clock() + 60, 0
+        self.discovery, self.clients = {}, []
+
+    @property
+    def secrets(self):
+        return [secret for client in self.clients for secret in client.secrets]
+
+    def read(self, locator, identity, *, mine):
+        if self.clock() >= self.deadline or self.calls >= MAX_CALLS:
+            raise _ResourceListBudget
+        client = Client(
+            locator["connection"],
+            root=self.root,
+            opener=self.opener,
+            clock=self.clock,
+            legacy_read=self.legacy_read,
+            _discovery_cache=self.discovery,
+        )
+        self.clients.append(client)
+        client.calls, client.deadline, client.node_access = self.calls, self.deadline, None
+        try:
+            # Metadata may change between catalog enumeration and Client loading.
+            if connection_scope(client.config) != identity:
+                raise ClientError("resource_list_scope_changed")
+            client.discover()
+            minimum = 1 if "coherent_resource_snapshot" in client.manifest.get("capabilities", ()) else 2
+            if client.calls + minimum > MAX_CALLS or self.clock() >= self.deadline:
+                raise _ResourceListBudget
+            if mine:
+                snapshot = client.own_inventory(exact_lease_times=True)
+            else:
+                context = client._read_context(with_resources=True)
+                snapshot = client.resources_with_hardware_notes(context)
+                snapshot = {**snapshot, "context": context}
+            return {"snapshot": snapshot, "_approved_origin": client.base, "_client": client}
+        except (ClientError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
+            for key in list(self.discovery):
+                if key[0] == client.base:
+                    del self.discovery[key]
+            raise
+        finally:
+            self.calls = client.calls
+
+    def project(self, groups, query, *, incomplete=False):
+        aged = []
+        for group in groups:
+            snapshot = deepcopy(observation_at_completion(group["_client"], group["snapshot"]))
+            if query["mine"]:
+                format_lease_times(
+                    {"age_seconds": snapshot["age_seconds"], "resources": [{"holders": snapshot["holdings"]}]}
+                )
+            else:
+                format_lease_times(snapshot)
+            aged.append({"snapshot": snapshot, "_approved_origin": group["_approved_origin"]})
+        fresh = all(
+            read_snapshot_fresh(group["snapshot"]) and group["snapshot"].get("health") == "running" for group in aged
+        )
+        rows, notes, complete = resource_summary_projection(
+            {"result": {"groups": aged, "complete": fresh and not incomplete}},
+            nodes=query["nodes"],
+            model=query["model"],
+        )
+        safe = []
+        for row in rows:
+            node = row["node"]
+            # A cursor is encoded, so redact/reject before encoding rather than
+            # relying on plaintext redaction of the final JSON.
+            if redacted_values(node, self.secrets) != node or re.search(
+                r"(?:lbr_|lbp_|lbk_)[A-Za-z0-9_-]{20,200}", node
+            ):
+                notes["unidentified_nodes"] += 1
+                complete = False
+                continue
+            if incomplete:
+                row = {
+                    "ref": row["ref"],
+                    "node": node,
+                    "observation_incomplete": True,
+                    **({"observation_conflict": True} if row.get("observation_conflict") else {}),
+                }
+            safe.append(row)
+        return sorted(safe, key=lambda row: row["node"].encode("utf-8")), notes, complete
+
+
+def resource_list(directory=None, *, query, cursor=None, root=None, opener=None, clock=time.monotonic):
+    """Stop on returned results and resume by exact node, without a snapshot cache."""
+    query = resource_list_query(**query)
+    reader = _ResourceListReader(root=root, opener=opener, clock=clock, legacy_read=query["legacy_read"])
+    scan_budget = CatalogScanBudget(reader.deadline, clock)
+    descriptors, identities = [], {}
+
+    def observe(path, record):
+        identity = connection_scope(record)
+        identities[str(path)] = identity
+        descriptors.append([str(path), *identity, record.get("key_file")])
+
+    catalog = listed_connections(directory, scan_budget=scan_budget, _observe_record=observe)
+    if not catalog["scan"]["complete"] or catalog["unavailable_count"]:
+        raise ClientError("resource_list_catalog_incomplete")
+    fingerprint = hashlib.sha256(
+        json.dumps(["resource-list-v1", descriptors], ensure_ascii=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    cohorts = {}
+    for locator in catalog["connections"]:
+        cohorts.setdefault(identities[locator["connection"]], []).append(locator)
+    cohorts = list(cohorts.items())
+    query_digest = resource_list_query_digest(query)
+    start, after = resource_list_cursor_start(cursor, fingerprint, query_digest, len(cohorts))
+    selected, observations, gaps = [], {}, []
+    boundary = (start, after)
+    stop = False
+
+    def command(token):
+        args = (["--legacy-read"] if query["legacy_read"] else []) + [
+            "resource",
+            "list",
+            "--limit",
+            str(query["limit"]),
+        ]
+        if directory is not None:
+            args += ["--directory", str(directory)]
+        if query["mine"]:
+            args += ["--mine"]
+        for node in query["nodes"]:
+            args += ["--node", node]
+        if query["model"] is not None:
+            args += ["--model", query["model"]]
+        if query["fields"] is not None:
+            args += ["--json", ",".join(query["fields"])]
+        return args + ["--cursor", token]
+
+    # Reject an unreturnable query command before opening a Key or making HTTP.
+    if len(json.dumps(command(""), ensure_ascii=os.name == "nt").encode()) > 3072:
+        raise ClientError("resource_list_command_too_large")
+
+    def encoded(entries, position, *, reserve=0):
+        final_rows, totals, valid = [], Counter(), True
+        per_scope = {}
+        legacy_notes = []
+        for index, node, deferred in entries:
+            if index not in per_scope:
+                group, incomplete = observations[index]
+                per_scope[index] = reader.project(group, query, incomplete=incomplete)
+            row = next((row for row in per_scope[index][0] if row["node"] == node), None)
+            if row is None:
+                raise ClientError("resource_list_observation_changed")
+            if deferred:
+                row = {
+                    key: row[key]
+                    for key in ("ref", "node", "observation_conflict", "observation_incomplete")
+                    if key in row
+                }
+                row.update(detail_deferred=True)
+            elif query["fields"] is not None:
+                row = {
+                    key: row[key]
+                    for key in ("ref", "observation_conflict", "observation_incomplete", *query["fields"])
+                    if key in row
+                }
+            final_rows.append(row)
+        for index, (group, incomplete) in observations.items():
+            _rows, notes, complete = per_scope.get(index) or reader.project(group, query, incomplete=incomplete)
+            if notes.get("instruction_refresh_required"):
+                legacy_notes.append(notes)
+            for name in (
+                "unknown_hardware_nodes",
+                "unidentified_nodes",
+                "unknown_ownership_units",
+                "duplicate_observations",
+                "conflicting_observations",
+                "conflicting_scopes",
+            ):
+                totals[name] += notes[name]
+            valid &= complete
+        exhausted = position[0] >= len(cohorts)
+        token = None if exhausted else resource_list_cursor(fingerprint, query_digest, *position)
+        result = {
+            "scope": "saved_connections_only",
+            "rows": final_rows,
+            "displayed_nodes": len(final_rows),
+            "scope_complete": cursor is None
+            and exhausted
+            and not gaps
+            and valid
+            and not catalog["pending_enrollments"],
+            "has_more": not exhausted,
+            "next_cursor": token,
+            "traversal_exhausted": exhausted,
+            "page_kind": "live_resource_list",
+            "http_requests": reader.calls,
+            "observed_scopes": sum(bool(group) for group, _incomplete in observations.values()),
+            "attempted_scopes": len(observations),
+            "catalog_scopes": len(cohorts),
+            "unread_scopes": sum(gap.get("count", 1) for gap in gaps),
+            "unread_reasons": sorted({gap["error"] for gap in gaps})[:8],
+            "pending_enrollments": len(catalog["pending_enrollments"]),
+            "retry_after_seconds": max(
+                (gap["retry_after_seconds"] for gap in gaps if gap.get("retry_after_seconds") is not None), default=None
+            ),
+            "update_required": any(client.needs_update for client in reader.clients),
+            **totals,
+        }
+        if token is not None:
+            result["next_command"] = command(token)
+        if legacy_notes:
+            result.update(
+                api_profiles=["native-legacy-read-v1"],
+                instruction_refresh_required=True,
+                instruction_state="changed"
+                if any(note["instruction_state"] == "changed" for note in legacy_notes)
+                else "unknown",
+            )
+        wrapper = {"result": redacted_values(result, reader.secrets)}
+        value = json.dumps(wrapper, ensure_ascii=os.name == "nt", separators=(",", ":"), allow_nan=False)
+        if len(value.encode()) + 1 + reserve > SUMMARY_BYTE_LIMIT and "next_command" in result:
+            result.pop("next_command")
+            result["repeat_query_with_next_cursor"] = True
+            value = json.dumps(
+                {"result": redacted_values(result, reader.secrets)},
+                ensure_ascii=os.name == "nt",
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+        return value, len(value.encode()) + 1 + reserve <= SUMMARY_BYTE_LIMIT
+
+    for index in range(start, len(cohorts)):
+        identity, locators = cohorts[index]
+        groups, incomplete, deferred_scope = [], False, False
+        for peer, locator in enumerate(locators):
+            try:
+                groups.append(reader.read(locator, identity, mine=query["mine"]))
+            except _ResourceListBudget:
+                if not groups and peer == 0:
+                    deferred_scope = True
+                else:
+                    incomplete = True
+                    gaps.append({"error": "peer_observations_not_read", "count": len(locators) - peer})
+                break
+            except ClientError as error:
+                incomplete = True
+                gaps.append({"error": error.code, "retry_after_seconds": error.retry_after_seconds})
+            except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
+                incomplete = True
+                gaps.append({"error": "invalid_server_or_local_data"})
+        if deferred_scope:
+            boundary = (index, after if index == start else None)
+            break
+        observations[index] = (groups, incomplete)
+        try:
+            rows, _notes, _complete = reader.project(groups, query, incomplete=incomplete)
+        except (ClientError, ValueError, TypeError, KeyError, AttributeError, UnicodeError, RecursionError, OSError):
+            # Invalid display data is a source gap, not evidence of no matches.
+            # Invalidate anonymous reuse before opening another Key at this origin.
+            reader.discovery = {key: value for key, value in reader.discovery.items() if key[0] != identity[0]}
+            observations[index] = ([], True)
+            gaps.append({"error": "invalid_resource_projection"})
+            rows = []
+        rows = [
+            row
+            for row in rows
+            if index != start or after is None or row["node"].encode("utf-8") > after.encode("utf-8")
+        ]
+        for number, row in enumerate(rows):
+            position = (index + 1, None) if number == len(rows) - 1 else (index, row["node"])
+            candidate = (*selected, (index, row["node"], False))
+            _value, fits = encoded(candidate, position, reserve=256)
+            if not fits:
+                _single, single_fits = encoded([(index, row["node"], False)], position, reserve=256)
+                if not single_fits:
+                    candidate = (*selected, (index, row["node"], True))
+                    _value, fits = encoded(candidate, position, reserve=256)
+            if not fits:
+                if not selected:
+                    raise ClientError("summary_reference_exceeds_output_budget")
+                stop = True
+                break
+            selected = list(candidate)
+            boundary = position
+            if len(selected) >= query["limit"]:
+                stop = True
+                break
+        if stop:
+            break
+        boundary = (index + 1, None)
+    # Later reads can age earlier observations. Re-project at the final clock and
+    # account for the exact final framing; trimmed rows remain on the next page.
+    while True:
+        value, fits = encoded(selected, boundary)
+        if fits:
+            return value
+        if not selected:
+            raise ClientError("summary_output_exceeds_byte_budget")
+        dropped = selected.pop()
+        prior = next(
+            (entry[1] for entry in reversed(selected) if entry[0] == dropped[0]), after if dropped[0] == start else None
+        )
+        boundary = (dropped[0], prior)
+
+
+def resource_list_text(encoded):
+    """Compact terminal output; exact refs remain resolvable by the normal client."""
+    value = json.loads(encoded)["result"]
+    rows = value["rows"]
+    lines = ["NODE  UNIT  HARDWARE  OBSERVATION  REF"]
+    for row in rows:
+        node = row.get("node", parse_resource_reference(row["ref"])[1])
+        hardware = ",".join(f"{item['model']}×{item['count']}" for item in row.get("hardware", [])) or "?"
+        if row.get("observation_conflict"):
+            state = "conflicting observations"
+        elif row.get("observation_incomplete"):
+            state = "peer observations incomplete"
+        elif "holding_units" in row:
+            state = f"held:{row['holding_units']} booked:{row['booking_units']}"
+        else:
+            state = " ".join(f"{key}:{count}" for key, count in row.get("states", {}).items() if count) or "unknown"
+        lines.append(f"{node}  {row.get('unit', '?')}  {hardware}  {state}  {row['ref']}")
+    if not rows:
+        lines.append("No matching rows observed." if value.get("catalog_scopes", 1) else "No saved connections.")
+    if not value["scope_complete"]:
+        lines.append("Partial observation; this page does not establish a complete inventory.")
+    if value.get("unread_reasons"):
+        lines.append("Unavailable: " + ", ".join(value["unread_reasons"]))
+    if value.get("next_command"):
+        lines.append("Next: " + shlex.join(["lockbot", *value["next_command"]]))
+    elif value.get("next_cursor"):
+        lines.append("Repeat the same query with --cursor " + shlex.quote(value["next_cursor"]))
+    text = "\n".join(lines)
+    try:
+        text.encode(sys.stdout.encoding or "utf-8")
+    except UnicodeEncodeError:
+        return encoded
+    # Extremely long identifiers can make a table less compact than its bounded
+    # JSON. Preserve the complete bounded result rather than clipping a locator.
+    return text if len(text.encode()) + 1 <= SUMMARY_BYTE_LIMIT else encoded
 
 
 def _automatic_resources(snapshot, context):
@@ -5017,7 +5371,8 @@ def main(argv=None):
         return 2
     parser = SafeParser(
         description="Install the LockBot Skill, manage private connections, and query or allocate compute resources.",
-        epilog="Run SUBCOMMAND --help for its options. Use resources-all to query saved groups. command without "
+        epilog="Run SUBCOMMAND --help for its options. Use resource list for bounded discovery and resource view REF "
+        "for one selected resource. resources-all retains the compatibility read interface. command without "
         "--connection resolves node hints across saved groups. Other scoped actions need --connection FILE. "
         "Supply Key file paths only.",
     )
@@ -5096,6 +5451,29 @@ def main(argv=None):
     details_help = "Include complete verified response details for explicit debugging; do not persist a cache."
     resources.add_argument("--full", action="store_true", help=details_help)
     resources.add_argument("--ref", help="Exact resource reference returned by an observed node summary (read only)")
+    resource = sub.add_parser("resource", help="List a bounded page or view an exact resource reference")
+    resource_commands = resource.add_subparsers(dest="resource_action", required=True)
+    resource_listing = resource_commands.add_parser("list", help="Read only enough saved scopes for one result page")
+    resource_listing.add_argument("--directory", help="Read only this private connection catalog")
+    resource_listing.add_argument("--mine", action="store_true", help="Show your holdings and bookings")
+    resource_listing.add_argument("--node", action="append", default=[], help="Observed exact node ID or alias")
+    resource_listing.add_argument("--model", help="Reported accelerator model")
+    resource_listing.add_argument("--limit", type=int, default=SUMMARY_NODE_LIMIT, help="Maximum rows (default 20)")
+    resource_listing.add_argument("--cursor", help="Continue the same live query without rereading completed scopes")
+    resource_listing.add_argument(
+        "--json",
+        nargs="?",
+        const="",
+        metavar="FIELDS",
+        help="Select JSON fields; bare --json lists fields without requests",
+    )
+    resource_view = resource_commands.add_parser("view", help="Read one exact reference; never search other groups")
+    resource_view.add_argument("ref", help="Resource reference from a list row")
+    resource_view.add_argument("--mine", action="store_true")
+    resource_view.add_argument("--with-metrics", action="store_true")
+    resource_view.add_argument("--json", nargs="?", const="", metavar="FIELDS")
+    resource_view.add_argument("--exact-lease-times", action="store_true", help=exact_times_help)
+    resource_view.set_defaults(node=[], model=None, summary=True, limit=SUMMARY_NODE_LIMIT, offset=0, full=False)
     aggregate = sub.add_parser("resources-all", help="Read all existing private catalog connections without enrollment")
     aggregate.add_argument("--directory", help="Read only this private connection catalog")
     aggregate.add_argument("--mine", action="store_true", help="Separate your holdings and bookings in every group")
@@ -5194,6 +5572,10 @@ def main(argv=None):
         "--node", action="append", required=True, help="Exact node ID from resources. Repeat as needed."
     )
     args = parser.parse_args(argv)
+    human_read = False
+    if args.action == "resource":
+        human_read = args.json is None
+        args.action = "resource-list" if args.resource_action == "list" else "resources"
     if args.action == "command":
         args.device = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in args.device]
     client = None
@@ -5203,10 +5585,33 @@ def main(argv=None):
     reference_node = None
     reference_token = None
     try:
-        if args.legacy_read and args.action not in {"discover", "context", "resources", "resources-all"}:
+        if args.legacy_read and args.action not in {
+            "discover",
+            "context",
+            "resources",
+            "resources-all",
+            "resource-list",
+        }:
             raise ClientError("legacy_read_only")
         if args.legacy_read and getattr(args, "with_metrics", False):
             raise ClientError("legacy_read_only")
+        if args.action == "resource-list":
+            if args.connection:
+                raise ClientError("connection_not_used_for_listing")
+            if args.json == "":
+                print(json.dumps({"json_fields": list(SUMMARY_FIELDS), "required_row_fields": ["ref"]}))
+                return 0
+            query = resource_list_query(
+                nodes=args.node,
+                model=args.model,
+                fields=None if args.json is None else args.json.split(","),
+                limit=args.limit,
+                mine=args.mine,
+                legacy_read=args.legacy_read,
+            )
+            result = resource_list(args.directory, query=query, cursor=args.cursor)
+            print(resource_list_text(result) if human_read else result)
+            return 0
         if args.action in {"resources", "resources-all"}:
             if args.json == "":
                 print(json.dumps({"json_fields": list(SUMMARY_FIELDS), "required_row_fields": ["ref"]}))
@@ -5272,16 +5677,15 @@ def main(argv=None):
                 legacy_read=args.legacy_read,
             )
             if summary_requested:
-                print(
-                    query_summary_output(
-                        output,
-                        fields=summary_fields,
-                        limit=args.limit,
-                        offset=args.offset,
-                        nodes=args.node,
-                        model=args.model,
-                    )
+                encoded = query_summary_output(
+                    output,
+                    fields=summary_fields,
+                    limit=args.limit,
+                    offset=args.offset,
+                    nodes=args.node,
+                    model=args.model,
                 )
+                print(resource_list_text(encoded) if human_read else encoded)
                 return 0
             print(
                 json.dumps(
@@ -5412,22 +5816,21 @@ def main(argv=None):
                 format_lease_times(result if args.action == "resources" else result["verified_snapshot"])
         if args.action == "resources":
             if summary_requested:
-                print(
-                    query_summary_output(
-                        {
-                            "result": result,
-                            "update_required": client.needs_update,
-                            "_approved_origin": client.base,
-                            "_http_requests": client.calls,
-                        },
-                        fields=summary_fields,
-                        limit=args.limit,
-                        offset=args.offset,
-                        nodes=args.node,
-                        model=args.model,
-                        private_values=client.secrets,
-                    )
+                encoded = query_summary_output(
+                    {
+                        "result": result,
+                        "update_required": client.needs_update,
+                        "_approved_origin": client.base,
+                        "_http_requests": client.calls,
+                    },
+                    fields=summary_fields,
+                    limit=args.limit,
+                    offset=args.offset,
+                    nodes=args.node,
+                    model=args.model,
+                    private_values=client.secrets,
                 )
+                print(resource_list_text(encoded) if human_read else encoded)
                 return 0
             result = inventory_output(result, full=args.full)
         elif args.action == "command":

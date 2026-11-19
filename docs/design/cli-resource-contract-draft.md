@@ -4,6 +4,29 @@ Status: local implementation for review. These options have not been deployed or
 
 The CLI should help a user find a machine without knowing a bot ID or relying on a group/bot name. Names and aliases can repeat. A resource reference identifies an exact native node within its saved service, instance, bot UUID and verified principal. It is a locator; each read still verifies the service and credential online.
 
+## Start with a bounded resource list
+
+The new local entrypoint is `resource list`; `resource view REF` reads a selected resource. Lists use a compact terminal table by default. Select JSON fields for agent use:
+
+```sh
+lockbot resource list
+lockbot resource list --model P800 --json node,unit,hardware --limit 5
+lockbot resource list --mine --json node,holding_units,booking_units
+lockbot resource list --json
+lockbot resource view '<ref from a returned row>'
+lockbot resource view '<ref from a returned row>' --json node,unit,hardware,matched_device_ids
+```
+
+The list stops before reading another scope once its row or byte budget is filled. It defaults to 20 nodes and retains the 8 KiB whole-output cap. Large rows can be deferred to a smaller field selection. Device IDs, hardware categories and own records keep their independent bounds.
+
+JSON returns `next_cursor` and normally a ready-to-run `next_command` argument array. Execute that command to continue. For unusually large query/identifier framing, the command array is omitted to keep output bounded; repeat the original query with `--cursor NEXT_CURSOR`. The cursor is tied to normalized filters, selected fields, limit, principal/profile and the local catalog. A changed query or catalog is rejected before any Key read or HTTP request. An incomplete/unavailable local catalog is rejected; the compatibility readers remain available for diagnosis.
+
+Continuation skips fully consumed scopes. If a page ends inside one scope, the next call rereads that scope and continues after its last emitted exact node ID, ordered by UTF-8 bytes. Frozen observations traverse without lost or duplicate rows. Every page is a new live observation: insertions before the prior boundary require a fresh traversal, and a resumed tail never proves a complete, simultaneously fresh inventory. `has_more` means traversal can continue, not that further matches are already known. `traversal_exhausted` is independent of freshness, missing hardware and read failures.
+
+Before emitting a scope, the CLI checks its locally recorded same-scope credential peers. Contradictory observations retain `observation_conflict`. A failed or budget-limited peer leaves locator-only rows with `observation_incomplete`; neither field selection nor a page boundary can turn them into state, device or ownership claims. Credential cohorts exceeding the budget can yield conservative partial results and advance without an unbounded retry loop. References still require an explicitly selected connection when multiple credentials match.
+
+The list is sequential, shares the unchanged 12-request/60-second budget and never creates a resource snapshot cache. It currently reads each old API scope's full response; client-side paging does not reduce those response bytes. Exhaustive scans can reread a scope when its rows cross pages. Server-side filtering/paging is separate future work. Aggregate list telemetry is not enabled; `resource view REF --with-metrics` supports the existing bounded single-scope telemetry path.
+
 ## Try the implemented read contract
 
 In these examples, `lockbot` means a launcher for the candidate's `scripts/lockbot_cli.py`, using a separate private connection directory. The examples do not create bindings or change resources.
@@ -66,7 +89,7 @@ lockbot resources-all --summary
 lockbot resources-all --summary --after-scope '<returned cursor>'
 ```
 
-There are two independent kinds of continuation:
+The compatibility `resources-all` reader retains two independent kinds of continuation; prefer `resource list` for result-driven paging:
 
 | Field / option | Scope |
 | --- | --- |
@@ -88,6 +111,6 @@ Attempted failures stay in that invocation's `unread` list. Continuation advance
 - Server limits and per-bot admission caps are unchanged. Client traversal budgets and server contention protection solve different problems.
 - The opt-in [native legacy read profile](cli-native-legacy-read-profile.md) validates known old discovery and scoped separate reads while blocking mutations. Its package and instruction states remain independent. Credentialed reads against a deployed older service still require their own evidence.
 - External P800 reports remain a separate provider integration. Existing own-allocation bridges cannot supply fleet inventory, and native credentials/references cannot be reused as external authority.
-- Candidate search, private labels, device-fact ingestion and the final human-readable list/view command layout remain separate work. The published Skill should follow the reviewed CLI contract.
+- Candidate search, private labels, device-fact ingestion and detailed device pagination remain separate work. The new terminal list/view entrypoint is implemented locally for review. The published Skill should follow the reviewed CLI contract.
 
 The implementation borrows field discovery and bounded-list ideas from [`gh` formatting](https://cli.github.com/manual/gh_help_formatting) and [`gh repo list`](https://cli.github.com/manual/gh_repo_list). LockBot's shared resource contention requires its own server limits; GitHub's quota numbers are not adopted here.
