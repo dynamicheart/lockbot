@@ -71,7 +71,7 @@ SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *
 
 
 def prepare(root, artifact, scenario, *, fixture_version=18):
-    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33}:
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34}:
         raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
@@ -2110,8 +2110,13 @@ def verified_sdk_resolutions(fixture, tools, requests):
                     )
                 ):
                     return checked
+        health_field = (
+            "bot_service_health"
+            if fixture.case.get("fixture_version", 0) >= 34 and not unknown_attempt and "--full" not in argv
+            else "health"
+        )
         if (
-            snapshot.get("health") != "running"
+            snapshot.get(health_field) != "running"
             or (not unknown_attempt and snapshot.get("snapshot_fresh_for_write") is not True)
             or type(snapshot.get("age_seconds")) not in (int, float)
             or not 0 <= snapshot["age_seconds"] <= 5
@@ -2742,7 +2747,7 @@ def main():
     parser.add_argument(
         "--fixture-version",
         type=int,
-        choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33),
+        choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34),
         default=18,
     )
     parser.add_argument("--destination", type=Path)

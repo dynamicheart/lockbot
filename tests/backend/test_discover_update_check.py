@@ -26,7 +26,9 @@ def run_discover(case, script=None):  # noqa: F811
     path, method, headers, _ = case.state.requests[0]
     assert (path, method) == ("/api/agent-skill", "GET")
     assert "Authorization" not in headers
-    return json.loads(result.stdout)
+    payload = json.loads(result.stdout)
+    assert payload["update_check"]["source"] == "cli"
+    return payload
 
 
 def tree_hashes(root):
@@ -42,6 +44,7 @@ def test_packaged_discovery_verifies_current_bundle_without_installing(case):  #
     result = run_discover(case)
     assert result["update_required"] is False
     assert result["update_check"] == {
+        "source": "cli",
         "status": "current",
         "installed_version": case.state.manifest["version"],
         "installed_package_version": case.state.manifest["package_version"],
@@ -103,6 +106,7 @@ def test_bootstrap_or_unverified_installation_reports_unknown_not_current(case, 
     result = run_discover(case, script)
     assert result["update_required"] is None
     assert result["update_check"]["status"] == "unknown"
+    assert result["update_check"]["source"] == "cli"
     assert "installed_version" not in result["update_check"]
     assert result["result"]["package_version"] == case.state.manifest["package_version"]
     assert tree_hashes(case.root) == before
@@ -156,7 +160,7 @@ def test_failed_canonical_check_is_atomic_and_cannot_bypass_later_guards(case, p
     case.client.needs_update = prior_notice
     for _ in range(2):
         status = case.client.discovery_update_check()
-        assert status == {"status": "unknown", "reason": "installed_package_modified"}
+        assert status == {"source": "cli", "status": "unknown", "reason": "installed_package_modified"}
         assert case.client.version is None and case.client.package_version is None
         assert case.client.needs_update is prior_notice
     for action in (case.client.context, lambda: case.client.command("lock", ["node-a"], [], "2m")):

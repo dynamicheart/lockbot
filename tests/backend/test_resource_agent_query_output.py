@@ -42,7 +42,8 @@ def test_actual_default_output_shrinks_without_new_requests_or_losing_scope(aggr
         assert set(context["server"]) <= {"service_id", "instance_id", "api_version", "server_version"}
         assert context["actor"] == detailed["snapshot"]["context"]["actor"]
         assert context["bot_rules"] == detailed["snapshot"]["context"]["bot_rules"]
-        assert short["snapshot"]["health"] == detailed["snapshot"]["health"]
+        assert short["snapshot"]["bot_service_health"] == detailed["snapshot"]["health"]
+        assert "health" not in short["snapshot"]
         assert short["snapshot"]["resources"][0]["holders"]
         assert short["snapshot"]["snapshot_fresh_for_write"] is True
         assert "skill" in detailed["snapshot"]["context"]

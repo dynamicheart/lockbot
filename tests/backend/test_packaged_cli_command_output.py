@@ -35,7 +35,7 @@ def test_projection_keeps_one_complete_verified_state_without_extra_requests(sdk
     for key in ("verified", "verification", "command_outcome", "duration_source", "update_required", "job_runner"):
         assert result.get(key) == before.get(key)
     actual, raw = result["verified_snapshot"], before["verified_snapshot"]
-    for key in raw.keys() - {"context"}:
+    for key in raw.keys() - {"context", "health"}:
         assert actual[key] == raw[key]
     for key in ("actor", "bot", "bot_rules"):
         assert actual["context"][key] == raw["context"][key]
@@ -44,6 +44,7 @@ def test_projection_keeps_one_complete_verified_state_without_extra_requests(sdk
         assert result == before
         assert embedded == actual
     else:
+        assert actual["bot_service_health"] == raw["health"] and "health" not in actual
         assert embedded["reference"] == "verified_snapshot" and "resources" not in embedded
         assert embedded["captured_at"] == actual["captured_at"]
         assert embedded["bot_id"] == actual["bot_id"] and embedded["actor"] == actual["actor"]
@@ -65,4 +66,30 @@ def test_nonidentical_observations_and_unverified_results_are_not_deduplicated(s
     before = copy.deepcopy(result)
     assert sdk.module.command_output(result) == before
     result["verified"] = False
-    assert sdk.module.command_output(result) is result
+    assert sdk.module.command_output(result) == result
+
+
+@pytest.mark.parametrize("verified", [True, False, None])
+def test_compact_health_names_bot_lifecycle_without_rewriting_observations(sdk, verified):
+    result = {
+        "verified": verified,
+        "verified_snapshot": {"health": "running", "resources": [{"id": "n1", "health": "node-metric"}]},
+        "command_result": {"resource_snapshot": {"health": "error", "captured_at": "older"}},
+    }
+    before = copy.deepcopy(result)
+    compact = sdk.module.command_output(result)
+    assert compact["verified"] is verified
+    assert compact["verified_snapshot"] == {
+        "bot_service_health": "running",
+        "resources": [{"id": "n1", "health": "node-metric"}],
+    }
+    assert compact["command_result"]["resource_snapshot"] == {"bot_service_health": "error", "captured_at": "older"}
+    assert result == before
+    assert sdk.module.command_output(result, full=True) is result
+
+
+@pytest.mark.parametrize("result", [{}, {"verified": True}, {"verified_snapshot": None}, {"command_result": []}])
+def test_sparse_command_projection_does_not_invent_health_or_snapshots(sdk, result):
+    before = copy.deepcopy(result)
+    assert sdk.module.command_output(result) == before
+    assert result == before

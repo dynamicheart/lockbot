@@ -2012,8 +2012,9 @@ class Client:
         try:
             self._check_installed_version()
         except ClientError as exc:
-            return {"status": "unknown", "reason": exc.code}
+            return {"source": "cli", "status": "unknown", "reason": exc.code}
         return {
+            "source": "cli",
             "status": "update_available" if self.needs_update else "current",
             "installed_version": self.version,
             "installed_package_version": self.package_version,
@@ -4457,6 +4458,8 @@ def inventory_output(snapshot, *, full=False):
     if full or not isinstance(snapshot, dict):
         return snapshot
     result = dict(snapshot)
+    if "health" in result:
+        result["bot_service_health"] = result.pop("health")
     context = snapshot.get("context")
     if isinstance(context, dict):
         result["context"] = {
@@ -4486,12 +4489,18 @@ def aggregate_output(output, *, full=False):
 
 def command_output(result, *, full=False):
     """Keep one verified state; retain the server observation identity beside its outcome."""
-    if full or not isinstance(result, dict) or result.get("verified") is not True:
+    if full or not isinstance(result, dict):
         return result
     snapshot = result.get("verified_snapshot")
     outcome = result.get("command_result")
-    projected = {**result, "verified_snapshot": inventory_output(snapshot)}
+    projected = dict(result)
+    if "verified_snapshot" in result:
+        projected["verified_snapshot"] = inventory_output(snapshot)
     supplied = outcome.get("resource_snapshot") if isinstance(outcome, dict) else None
+    if isinstance(supplied, dict):
+        projected["command_result"] = {**outcome, "resource_snapshot": inventory_output(supplied)}
+    if result.get("verified") is not True:
+        return projected
     if not isinstance(snapshot, dict) or supplied != snapshot:
         return projected
     context = snapshot.get("context")

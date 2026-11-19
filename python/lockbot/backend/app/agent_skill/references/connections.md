@@ -63,6 +63,10 @@ without `update_check` need an explicit comparison of local installation metadat
 with the returned manifest; their default `update_required: false` is not evidence.
 An update inquiry authorizes inspection only; do not install, bind or query resources.
 
+Default snapshot JSON names the bot lifecycle field `bot_service_health` (formerly
+`health`), not machine or workload health. `--full` retains the raw snapshot schema.
+`update_check.source: cli` identifies the helper's comparison, not a server upgrade recommendation.
+
 ## Install the complete ZIP and use the fixed client
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
