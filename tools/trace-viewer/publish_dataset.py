@@ -10,12 +10,19 @@ import re
 import shutil
 import stat
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from assessment_overlay import add_assessments, attach_review
 from merge_snapshots import LEGACY_IDS, add_matrix, add_semantic_reviews, atomic_write, load, validate
-from synthetic_transcript import MAX_TRACE_BYTES, native_artifact_manifest, read_local, tool_steps
+from synthetic_transcript import (
+    MAX_TRACE_BYTES,
+    native_artifact_manifest,
+    read_local,
+    store_native_artifact,
+    tool_steps,
+)
 
 SHA256 = re.compile(r"[a-f0-9]{64}")
 MAX_INDEX_BYTES = 1024 * 1024
@@ -218,6 +225,57 @@ def audit_source_io(source, raw):
     return counts
 
 
+@contextmanager
+def publication(output):
+    """Serialize immutable membership changes without resolving away symlinks."""
+    output = output.absolute()
+    private_directory(output)
+    output = output.resolve(strict=True)
+    directory = output / "datasets"
+    private_directory(directory)
+    descriptor = os.open(directory / ".publish.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "a+b") as lock:
+        if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode) or os.fstat(lock.fileno()).st_mode & 0o077:
+            raise ValueError("Unsafe dataset publication lock")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield output, registry(directory)
+
+
+def seal_dataset(output, index, payloads, metadata):
+    """Verify immutable bytes and diagnostics before appending registry membership."""
+    directory = output / "datasets"
+    dataset_id = metadata["dataset_id"]
+    target = directory / dataset_id
+    if target.exists() or target.is_symlink():
+        previous = verify_dataset(directory, dataset_id)
+        if {k: v for k, v in previous.items() if k != "created_at"} != {
+            k: v for k, v in metadata.items() if k != "created_at"
+        }:
+            raise ValueError("Refusing to overwrite an existing immutable dataset")
+        metadata = previous
+    else:
+        temporary = Path(tempfile.mkdtemp(prefix=".dataset-", dir=directory))
+        try:
+            for name, content in payloads.items():
+                atomic_write(temporary / f"{name}.json", content)
+            atomic_write(temporary / "metadata.json", json.dumps(metadata, ensure_ascii=False).encode() + b"\n")
+            os.rename(temporary, target)
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+    verify_dataset(directory, dataset_id)
+    evidence = native_artifact_manifest(output / "evidence")
+    if dataset_id not in index["datasets"]:
+        if len(index["datasets"]) >= MAX_DATASETS:
+            raise ValueError("Dataset registry is full; no registered dataset was removed")
+        index["datasets"].append(dataset_id)
+        content = json.dumps(index, separators=(",", ":")).encode() + b"\n"
+        if len(content) > MAX_INDEX_BYTES:
+            raise ValueError("Dataset registry exceeds its limit")
+        atomic_write(directory / "index.json", content)
+    return metadata, evidence
+
+
 def export_dataset(
     source,
     output,
@@ -238,18 +296,7 @@ def export_dataset(
     title = title or source.name
     if not isinstance(title, str) or not title.strip() or len(title) > 256:
         raise ValueError("Dataset title must be 1–256 characters")
-    # Do not resolve away a caller-supplied symlink before checking the output.
-    output = output.absolute()
-    private_directory(output)
-    output = output.resolve(strict=True)
-    directory = output / "datasets"
-    private_directory(directory)
-    descriptor = os.open(directory / ".publish.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "a+b") as lock:
-        if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode) or os.fstat(lock.fileno()).st_mode & 0o077:
-            raise ValueError("Unsafe dataset publication lock")
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        index = registry(directory)
+    with publication(output) as (output, index):
         payloads = {}
         for raw, name in ((True, "raw"), (False, "latest")):
             data = {"schema": 1, "title": title, "version": version, "cases": {}}
@@ -294,35 +341,7 @@ def export_dataset(
             "run_count": sum(len(items) for items in record["cases"].values()),
             "case_count": len(record["cases"]),
         }
-        target = directory / dataset_id
-        if target.exists() or target.is_symlink():
-            previous = verify_dataset(directory, dataset_id)
-            if {k: v for k, v in previous.items() if k != "created_at"} != {
-                k: v for k, v in metadata.items() if k != "created_at"
-            }:
-                raise ValueError("Refusing to overwrite an existing immutable dataset")
-            metadata = previous
-        else:
-            temporary = Path(tempfile.mkdtemp(prefix=".dataset-", dir=directory))
-            try:
-                for name, content in payloads.items():
-                    atomic_write(temporary / f"{name}.json", content)
-                atomic_write(temporary / "metadata.json", json.dumps(metadata, ensure_ascii=False).encode() + b"\n")
-                os.rename(temporary, target)
-            finally:
-                if temporary.exists():
-                    shutil.rmtree(temporary)
-        verify_dataset(directory, dataset_id)
-        evidence = native_artifact_manifest(output / "evidence")
-        if dataset_id not in index["datasets"]:
-            if len(index["datasets"]) >= MAX_DATASETS:
-                raise ValueError("Dataset registry is full; no registered dataset was removed")
-            index["datasets"].append(dataset_id)
-            content = json.dumps(index, separators=(",", ":")).encode() + b"\n"
-            if len(content) > MAX_INDEX_BYTES:
-                raise ValueError("Dataset registry exceeds its limit")
-            # Publish membership only after the immutable pair and all diagnostics exist.
-            atomic_write(directory / "index.json", content)
+        metadata, evidence = seal_dataset(output, index, payloads, metadata)
         assessment = publish_assessments(output, dataset_id, assessments.get("assessments", {}))
         return {
             "dataset": metadata,
@@ -333,11 +352,114 @@ def export_dataset(
         }
 
 
+def export_actual_api_observation(source, output, *, title=None, minimal_summary=False):
+    """Publish only the explicitly versioned, interrupted actual-ASGI producer."""
+    from actual_api_observation import CASE, KIND, digest, encoded, load_observation, safe_text
+
+    observation, prompt = load_observation(source)
+    title = safe_text(title or "本机实际 API · 资源查询观测", 256)
+    blob = encoded(observation) + b"\n"
+    observation_id = digest(blob)
+    version = observation["package"]["package_version"]
+    with publication(output) as (output, index):
+        # Store only the reconstructed allowlist, never any raw producer file.
+        with tempfile.TemporaryDirectory(prefix=".observation-", dir=output) as temporary:
+            temporary = Path(temporary)
+            projected = temporary / "actual-api-observation.json"
+            atomic_write(projected, blob)
+            artifact = store_native_artifact(projected, temporary, output / "evidence")
+        statuses = sorted({row["error_status"] for row in observation["native_status"]["native_API_retries"]})
+        reason = "原生客户端报告 HTTP " + "/".join(map(str, statuses)) if statuses else "原生客户端未完成"
+        trial = {
+            "case": CASE,
+            "model": "ducc · " + observation["requested_model"],
+            "state": observation["state"],
+            "package_version": version,
+            "source_run": "observation:" + observation_id,
+            "note": "本机实际 API 准备；模型未发资源查询。"
+            + reason
+            + "；没有模型答复、工具执行或评分，上游模型执行及用量未确认。关联尝试仅为诊断附件。",
+            "sessions": [
+                [
+                    {"role": "user", "text": prompt},
+                    {
+                        "role": "missing",
+                        "text": "未产生模型答复或资源查询；本次观察未完成，不能判定行为或语义通过/失败。",
+                    },
+                    {
+                        "role": "tools",
+                        "total": 1,
+                        "steps": [["native_client_diagnostic", "原生状态与关联尝试", "脱敏诊断附件", "已记录"]],
+                        "evidence": [{"input": {"kind": KIND}, "output": {"artifact": artifact}}],
+                    },
+                ]
+            ],
+            "metrics": {
+                "phases": [
+                    {
+                        "phase": 1,
+                        "duration_seconds": observation["duration_seconds"],
+                        "tool_calls": 0,
+                        "model_tool_calls": 0,
+                        "cli_calls": 0,
+                        "http_requests": 0,
+                    }
+                ]
+            },
+            "observation_kind": KIND,
+        }
+        data = {
+            "schema": 1,
+            "title": title,
+            "version": version,
+            "labels": {CASE: "查询已授权资源"},
+            "groups": {CASE: "实际 API 观察"},
+            "cases": {CASE: [trial]},
+        }
+        payloads = {"raw": validate({**data, "visibility": "raw"}, True)}
+        if minimal_summary:
+            data = json.loads(json.dumps(data))
+            data["cases"][CASE][0]["sessions"] = []
+            data["cases"][CASE][0]["summary_only"] = True
+        payloads["latest"] = validate(data, False)
+        dataset_id = digest(payloads["raw"])
+        metadata = {
+            "schema_version": 1,
+            "dataset_id": dataset_id,
+            "raw_sha256": dataset_id,
+            "latest_sha256": digest(payloads["latest"]),
+            "raw_size_bytes": len(payloads["raw"]),
+            "latest_size_bytes": len(payloads["latest"]),
+            "title": title,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "version": version,
+            "source_run": observation["source_id"],
+            "source_package_version": version,
+            "source_kind": KIND,
+            "source_observation_sha256": observation_id,
+            "run_count": 1,
+            "case_count": 1,
+        }
+        metadata, evidence = seal_dataset(output, index, payloads, metadata)
+        return {
+            "dataset": metadata,
+            "source_io_audit": {"prompts": 1, "finals": 0, "fixture_tools": 0},
+            "evidence": evidence,
+            "assessment_overlay": None,
+            "publication_authorized": False,
+        }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="Private terminal matrix directory")
     parser.add_argument("output", type=Path, help="Private local staging root; never the frontend static directory")
     parser.add_argument("--title", help="Human-readable immutable batch label")
+    parser.add_argument(
+        "--actual-api-observation",
+        action="store_true",
+        help="Import a private actual_api_observation_v1 manifest instead of a synthetic matrix",
+    )
     parser.add_argument(
         "--minimal-summary", action="store_true", help="Project summary verdicts; retain complete raw I/O"
     )
@@ -357,6 +479,20 @@ def main():
         "--cli-assessments", action="store_true", help="Opt in exact CLI35/36 whole-run semantic assessments"
     )
     args = parser.parse_args()
+    if args.actual_api_observation:
+        if args.assessment_review or args.release_assessments or args.cli_assessments:
+            parser.error("Actual API observations do not accept synthetic assessment policies")
+        print(
+            json.dumps(
+                export_actual_api_observation(
+                    args.source,
+                    args.output,
+                    title=args.title,
+                    minimal_summary=args.minimal_summary,
+                )
+            )
+        )
+        return
     print(
         json.dumps(
             export_dataset(

@@ -173,6 +173,24 @@ python3 publish_dataset.py /private/terminal-matrix /private/dataset-stage \
 继续保留。工具最后原子更新 `datasets/index.json`，格式为
 `{"schema_version":1,"datasets":["<sha256>"]}`；同一文件标识不会重复登记。
 
+### 未完成的本机实际 API 观察
+
+`--actual-api-observation` 显式导入版本化的私有来源清单，不使用合成矩阵评分。
+当前仅支持实际 ASGI 只读准备完成、但原生客户端在模型答复或工具调用前中断的
+`actual_api_observation_v1` 来源。它保留用户原文和缺失答复状态，在一组折叠运行日志中
+附上允许发布的诊断投影；不会把原生错误判成 Skill 行为失败，也不补造答复、工具调用、用量或评分。
+
+```sh
+python3 publish_dataset.py /private/observation.json /private/dataset-stage \
+  --actual-api-observation --minimal-summary
+```
+
+来源必须通过请求、原生事件、安装包、实际 API 夹具与 SHA-256 绑定检查。
+原始设置、辅助认证信息、私有路径和生产器文件不会复制到看板；旧超时与最小连接对照
+只作为有类型的关联诊断附件。不同包版本复用稳定测例标识，历史批次保持不可变。
+新事件种类、已有模型答复或工具执行、身份矛盾及评分字段会拒绝导入。
+清单格式与当前限制见 [Actual API observation input](actual-api-observation.md)。
+
 经授权上传时先安装所需诊断文件，再安装完整不可变批次目录，最后更新登记表。
 已有登记表须作为本地准备基线保留，不能用不含旧批次的临时登记表覆盖线上版本。
 当前看板合并已登记的来源；直接来源链接使用 `dataset_id`，
