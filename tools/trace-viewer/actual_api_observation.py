@@ -101,6 +101,20 @@ def require(condition, reason):
         raise ValueError("Invalid actual API observation: " + reason)
 
 
+def strict_json(content):
+    def object_pairs(pairs):
+        value = {}
+        for key, child in pairs:
+            require(key not in value, "duplicate JSON object key")
+            value[key] = child
+        return value
+
+    def invalid_constant(_value):
+        raise ValueError("Invalid actual API observation: non-finite JSON constant")
+
+    return json.loads(content, object_pairs_hook=object_pairs, parse_constant=invalid_constant)
+
+
 def exact(value, expected):
     return type(value) is type(expected) and value == expected
 
@@ -165,7 +179,7 @@ class BoundFiles:
         return content
 
     def json(self, role):
-        value = json.loads(self.read(role))
+        value = strict_json(self.read(role))
         require(isinstance(value, dict), "expected evidence object")
         no_grade(value)
         return value
@@ -195,7 +209,7 @@ def native_projection(content, model, *, control=False):
     ui_sessions = []
     for line in content.decode().splitlines():
         if line.strip():
-            value = json.loads(line)
+            value = strict_json(line)
             require(isinstance(value, dict), "invalid native event")
             no_grade(value)
             if control and value.get("type") == "system" and value.get("subtype") == "ui_invalidate":
@@ -238,6 +252,11 @@ def native_projection(content, model, *, control=False):
     for row in events:
         if row["subtype"] != "api_retry":
             continue
+        if "session_id" in row:
+            require(
+                isinstance(row["session_id"], str) and row["session_id"] == initial[0]["session_id"],
+                "native retry session identity changed",
+            )
         for key, minimum, maximum in (
             ("attempt", 1, 100),
             ("max_retries", 1, 100),
@@ -309,7 +328,7 @@ def artifact_identity(files, inputs, manifest):
         and digest(contents["SKILL.md"]) == metadata.get("skill_sha256"),
         "packaged SDK/Skill changed",
     )
-    stamp = json.loads(contents["installation.json"])
+    stamp = strict_json(contents["installation.json"])
     require(
         stamp.get("package_version") == manifest["package_version"] and stamp.get("version") == metadata["version"],
         "package stamp changed",
@@ -528,7 +547,7 @@ def _load_observation(path):
     root = path.parent
     content = read_native_bytes(path, root)
     require(not path.stat().st_mode & 0o077 and len(content) <= 65536, "private bounded manifest required")
-    manifest = json.loads(content)
+    manifest = strict_json(content)
     shape(manifest, MANIFEST_KEYS)
     require(
         exact(manifest["schema_version"], 1)

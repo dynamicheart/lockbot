@@ -28,6 +28,9 @@ readable by other users are rejected. The manifest is bounded to 64 KiB and each
 input to 2 MiB. The request's prompt path must point at its bound prompt; its
 system and MCP configuration paths must remain within the same private root.
 Those latter files are not published.
+All manifest, bound evidence, native event and installed-stamp JSON rejects
+duplicate object keys and nonstandard numeric constants rather than silently
+choosing one contradictory value.
 
 `fixture` has exactly `kind: actual_local_asgi_v1`,
 `configuration: saved_names_and_models`, `allocation_state: synthetic_empty`,
@@ -48,6 +51,8 @@ Native events are limited to one matching `system/init` and sequential
 metadata; a timeout can have no captured native events. Native identity, MCP
 connection, retry metadata, summary, termination and duration must agree. Neither
 an init event nor a retry establishes upstream model dispatch or token usage.
+An optional retry `session_id` must match the init event when present; the producer
+may omit it, but an explicit unrelated or malformed identity is rejected.
 Raw native fields, error strings, session identifiers and private paths are not
 copied into the exported allowlist.
 

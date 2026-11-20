@@ -14,7 +14,7 @@ from test_trace_dataset import publisher
 from test_trace_merge import matrix
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools/trace-viewer"))
-from actual_api_observation import CASE, KIND, PRIMARY_FILES  # noqa: E402
+from actual_api_observation import CASE, KIND, PRIMARY_FILES, native_projection, strict_json  # noqa: E402
 from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (  # noqa: E402
     BUNDLE_FORMAT,
     REFERENCE_PATHS,
@@ -382,6 +382,93 @@ def mutate_related(path, index, role, change):
 
 def tree(root):
     return {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize(
+    "role", ["manifest", "request", "response", "result", "inputs", "summary", "artifact_manifest", "native"]
+)
+def test_duplicate_json_keys_are_rejected_in_every_producer_json_surface(tmp_path, role):
+    source = fixture(tmp_path)
+    manifest = json.loads(source.read_text())
+    if role == "manifest":
+        target = source
+        prefix = b'{"schema_version":2,'
+    else:
+        target = source.parent / manifest["files"][role]["path"]
+        keys = {
+            "request": ("model", '"OtherModel"'),
+            "response": ("kind", '"forged_answer"'),
+            "result": ("actual_http_requests", "1"),
+            "inputs": ("head", '"forged_source"'),
+            "summary": ("model_tools_recorded", "1"),
+            "artifact_manifest": ("version", '"forged_version"'),
+            "native": ("model", '"OtherModel"'),
+        }
+        key, value = keys[role]
+        prefix = ("{" + json.dumps(key) + ":" + value + ",").encode()
+    write(target, prefix + target.read_bytes()[1:])
+    if role != "manifest":
+        manifest["files"][role]["sha256"] = sha256(target.read_bytes()).hexdigest()
+        write(source, manifest)
+    with pytest.raises(ValueError, match="duplicate JSON"):
+        publisher.export_actual_api_observation(source, tmp_path / "board")
+    assert not (tmp_path / "board/datasets/index.json").exists()
+
+
+@pytest.mark.parametrize(
+    "content", ['{"nested":{"count":1,"count":0}}', '{"value":NaN}', '{"value":Infinity}', '{"value":-Infinity}']
+)
+def test_strict_json_rejects_nested_duplicates_and_nonstandard_numeric_constants(content):
+    with pytest.raises(ValueError):
+        strict_json(content)
+
+
+def test_duplicate_installed_stamp_keys_are_rejected_after_archive_hashes_are_rebound(tmp_path):
+    source = fixture(tmp_path)
+    manifest = json.loads(source.read_text())
+    target = source.parent / manifest["files"]["artifact_zip"]["path"]
+    with zipfile.ZipFile(target) as zipped:
+        entries = {name: zipped.read(name) for name in zipped.namelist()}
+    stamp_name = "lockbot-agent/installation.json"
+    entries[stamp_name] = b'{"package_version":"forged_version",' + entries[stamp_name][1:]
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zipped:
+        for name, content in entries.items():
+            zipped.writestr(name, content)
+    write(target, buffer.getvalue())
+    archive_hash = sha256(target.read_bytes()).hexdigest()
+    manifest["files"]["artifact_zip"]["sha256"] = archive_hash
+    write(source, manifest)
+    mutate(
+        source,
+        "inputs",
+        lambda v: (
+            v.update(rendered_zip_sha256=archive_hash),
+            v["installed_files"].update({"installation.json": sha256(entries[stamp_name]).hexdigest()}),
+        ),
+    )
+    mutate(source, "artifact_manifest", lambda v: v["installation"].update(sha256=archive_hash))
+    with pytest.raises(ValueError, match="duplicate JSON"):
+        publisher.export_actual_api_observation(source, tmp_path / "board")
+    assert not (tmp_path / "board/datasets/index.json").exists()
+
+
+@pytest.mark.parametrize(
+    "session", ["absent", None, "b335b64d-df43-4b21-81e4-8b604f8f3333", "other-session", False, 3, ""]
+)
+def test_retry_session_is_optional_but_must_match_init_when_explicit(tmp_path, session):
+    source = fixture(tmp_path)
+    manifest = json.loads(source.read_text())
+    target = source.parent / manifest["files"]["native"]["path"]
+    events = [json.loads(line) for line in target.read_text().splitlines()]
+    if session != "absent":
+        events[1]["session_id"] = session
+    native = ("\n".join(json.dumps(row) for row in events) + "\n").encode()
+    if session in ("absent", events[0]["session_id"]):
+        assert native_projection(native, MODEL)["native_API_retries"][0]["error_status"] == 503
+    else:
+        with pytest.raises(ValueError, match="retry session identity"):
+            native_projection(native, MODEL)
 
 
 @pytest.mark.parametrize("timeout", [False, True])
