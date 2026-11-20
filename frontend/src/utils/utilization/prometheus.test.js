@@ -85,6 +85,26 @@ describe('browser Prometheus provider', () => {
     const checked = validateConfig({ ...config(), bearer: 'never-save', jwt: 'never-save' })
     expect(JSON.stringify(checked)).not.toContain('never-save')
   })
+  it('preserves an explicit exact-card declaration without adding a default field', () => {
+    const legacy = validateConfig(config())
+    expect(Object.keys(legacy)).toEqual(Object.keys(DEFAULT_CONFIG))
+    expect(JSON.parse(JSON.stringify(legacy))).not.toHaveProperty('deviceQuery')
+    const declared = validateConfig({ ...config(), profile: 'lockbot-v1', deviceQuery: 'exact-v1' })
+    expect(declared.deviceQuery).toBe('exact-v1')
+    expect(validateConfig(JSON.parse(JSON.stringify(declared)))).toEqual(declared)
+    expect(declared).not.toHaveProperty('bearer')
+  })
+  it.each([null, undefined, true, false, 1, '', 'exact-v2', {}, ['exact-v1']])(
+    'rejects an invalid exact-card declaration %s',
+    (deviceQuery) => {
+      expect(() => validateConfig({ ...config(), profile: 'lockbot-v1', deviceQuery })).toThrow(
+        'configuration'
+      )
+    }
+  )
+  it('rejects the exact-card declaration for a custom profile', () => {
+    expect(() => validateConfig({ ...config(), deviceQuery: 'exact-v1' })).toThrow('configuration')
+  })
   it('escapes label values as regex literals and as PromQL strings', () => {
     const c = { ...config(), nodeMapping: { a: 'host.*"\\\n' } }
     const expression = selector('gpu_metric', c, ['a'])

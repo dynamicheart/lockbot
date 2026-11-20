@@ -376,6 +376,7 @@ export default {
     hostStatus: 'Host status',
     profile: 'Metric protocol',
     profileLockbot: 'Lockbot unified metrics (XPU / GPU / host)',
+    deviceQueryExact: 'Source supports exact-card queries (exact-v1)',
     hostMemory: 'RAM',
     disk: 'Disk',
     processCount: '{count} processes',
