@@ -360,12 +360,21 @@ def zero_execution(result):
     )
 
 
+def no_tool_trace(files):
+    # The producer records tool activity beside its request, independently of
+    # summary counters. Never import a contradictory transcript as zero activity.
+    for name in ("trace.jsonl", "cli-http.jsonl"):
+        target = files.paths["request"].parent / name
+        if target.exists() or target.is_symlink():
+            require(read_native_bytes(target, files.root).strip() == b"", "observed tools are unsupported")
+
+
 def related_projection(root, item, model, package):
     shape(item, {"kind", "files"})
     kind = item["kind"]
     require(kind in {"prior_native_timeout_v1", "minimal_native_control_v1"}, "unsupported related observation")
     expected = (
-        {"prompt", "request", "inputs", "result", "summary", "artifact_manifest", "artifact_zip"}
+        {"prompt", "request", "response", "inputs", "result", "summary", "artifact_manifest", "artifact_zip"}
         if kind == "prior_native_timeout_v1"
         else {
             "prompt",
@@ -381,6 +390,8 @@ def related_projection(root, item, model, package):
     if kind == "prior_native_timeout_v1":
         inputs, result = files.json("inputs"), files.json("result")
         zero_execution(result)
+        require(files.json("response") == {"kind": "empty_or_timed_out"}, "prior model response is unsupported")
+        no_tool_trace(files)
         require(
             exact(result.get("timed_out"), True)
             and result.get("model") == model
@@ -648,11 +659,7 @@ def _load_observation(path):
     )
     duration = number(summary.get("stopped_after_seconds"))
     require(duration >= 180 if result["timed_out"] else duration < 180, "termination duration changed")
-    # Any actual model/CLI trace or answer is outside this first producer contract.
-    for name in ("trace.jsonl", "cli-http.jsonl"):
-        target = files.paths["request"].parent / name
-        if target.exists() or target.is_symlink():
-            require(read_native_bytes(target, root).strip() == b"", "observed tools are unsupported")
+    no_tool_trace(files)
     package = artifact_identity(files, inputs, manifest)
     related = manifest["related"]
     require(isinstance(related, list) and len(related) <= 2, "too many related observations")

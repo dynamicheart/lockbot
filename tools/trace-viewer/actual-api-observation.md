@@ -53,7 +53,7 @@ copied into the exported allowlist.
 
 Each related attempt has exactly `kind` and `files`:
 
-- `prior_native_timeout_v1`: `prompt`, `request`, `inputs`, `result`, `summary`,
+- `prior_native_timeout_v1`: `prompt`, `request`, `response`, `inputs`, `result`, `summary`,
   `artifact_manifest`, `artifact_zip`; the older bounded timeout without a native
   stream, checked against its own rendered archive and the same canonical SDK.
 - `minimal_native_control_v1`: `prompt`, `request`, `summary`, `verification`,

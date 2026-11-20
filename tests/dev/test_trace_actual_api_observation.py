@@ -268,7 +268,7 @@ def add_related(source):
     }
     mutate(prior, "summary", lambda value: (value.clear(), value.update(summary)))
     prior_manifest = json.loads(prior.read_text())
-    prior_roles = {"prompt", "request", "inputs", "result", "summary", "artifact_manifest", "artifact_zip"}
+    prior_roles = {"prompt", "request", "response", "inputs", "result", "summary", "artifact_manifest", "artifact_zip"}
     prior_refs = {
         role: {**ref, "path": str((prior.parent / ref["path"]).relative_to(root))}
         for role, ref in prior_manifest["files"].items()
@@ -438,6 +438,8 @@ def test_related_attempts_are_distinct_hash_bound_diagnostics_not_new_runs(tmp_p
         "prior-source",
         "prior-timeout",
         "prior-probes",
+        "prior-answer",
+        "prior-trace",
         "control-init",
         "control-retry",
         "control-identity",
@@ -455,6 +457,11 @@ def test_related_attempt_contradictions_fail_closed(tmp_path, bad):
         mutate_related(source, 0, "summary", lambda v: v.update(observed_runner_wall_seconds=1))
     elif bad == "prior-probes":
         mutate_related(source, 0, "summary", lambda v: v.update(separate_provider_or_auth_probes=1))
+    elif bad == "prior-answer":
+        mutate_related(source, 0, "response", lambda v: v.update(text="forged answer"))
+    elif bad == "prior-trace":
+        request = json.loads(source.read_text())["related"][0]["files"]["request"]["path"]
+        write(source.parent / Path(request).parent / "trace.jsonl", b'{"tool":"run_lockbot"}\n')
     elif bad == "control-init":
         mutate_related(source, 1, "verification", lambda v: v.update(native_init_count=0))
     elif bad == "control-retry":
