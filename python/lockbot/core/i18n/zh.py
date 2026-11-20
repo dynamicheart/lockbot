@@ -20,19 +20,25 @@ MESSAGES = {
     "help.agent_skill": "Agent 使用：",
     "help.agent_lock_hint": "LockBot Skill 安装清单：{url}",
     "public_docs.agent_api_intro": "使用在群内完成绑定的个人 Agent Key，操作该群中属于你自己的资源。",
-    "public_docs.resource_queries": "查询资源先用 `GET /api/agent/context` 核对绑定，再展开 "
-    "`GET /api/agent/resources` 查看查询示例。",
+    "public_docs.resource_queries": "精简分页见 `GET /api/agent/resources/query`，完整资源见 "
+    "`GET /api/agent/resources`。响应包含绑定身份。",
     "public_docs.resource_query_example": (
         "### 用个人 Agent Key 查询资源\n\n"
         "`LOCKBOT_ORIGIN` 填已确认的服务地址，从私有凭证存储加载 `LOCKBOT_AGENT_KEY`。"
-        "第一条请求返回 Key 绑定的身份和群，核对后再发第二条请求，读取该群的资源、占用和队列。"
-        "两条请求使用同一个 Key。\n\n"
+        "以下示例先单独核对身份和群规则，再读取完整资源、占用和队列；两条请求使用同一个 Key。"
+        "精简查询也会返回绑定身份，不必在每次查询前重复核对。\n\n"
         "{commands}"
     ),
     "public_docs.title": "LockBot API 文档",
     "public_docs.schema": "完整 OpenAPI 定义",
     "public_docs.agent.title": "Agent API",
     "public_docs.agent.description": "绑定 Agent 后，使用个人 Key 查询资源、申请或释放自己的资源。",
+    "public_docs.deprecated_agent.title": "旧版 Agent API（已弃用）",
+    "public_docs.deprecated_agent.description": (
+        "仅供旧客户端兼容和迁移参考。新接入请使用 Agent API；每个旧接口均列出替代路径。"
+    ),
+    "public_docs.deprecated_agent.credential": "已绑定该机器人的个人 Agent Key；旧版路径不扩大 Key 的权限范围。",
+    "public_docs.deprecated_agent.replacement": "此接口已弃用。请改用 `{operation}`，机器人范围由个人 Key 确定。",
     "public_docs.op.title": "OP 运维 API",
     "public_docs.op.description": "用机器人的 OP Key 查询占用或强制释放资源。",
     "public_docs.configuration.title": "机器人配置 API",
@@ -65,6 +71,7 @@ MESSAGES = {
     "label.queue_list": "⌛️ 排队:\n",
     "label.queue_item": "  {index}. {user_id} {duration} 预计等待 {wait_time}\n",
     # ── Error messages ──
+    "feishu.query_busy": "查询繁忙，请稍后重新查询。",
     "feishu.command_format": "❌ 未执行：请 @机器人，发送一条命令或单个单行代码块，不要附带标题、引用或多条命令。",
     "error.invalid_command_format": "❌【命令格式有误】{command}",
     "error.invalid_node_key": "【节点{node_key}有误】\n\n节点应在{valid_keys}里面选择\n",

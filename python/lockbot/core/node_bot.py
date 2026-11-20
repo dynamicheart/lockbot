@@ -113,7 +113,7 @@ class NodeBot(BaseLockBot):
             content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
         return self._query_reply(content, user_id)
 
-    def lock(self, user_id, command, *, acquisition_limit=None):
+    def lock(self, user_id, command):
         """
         Lock nodes
         """
@@ -124,7 +124,6 @@ class NodeBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._state_guard():
-            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys)
             if policy_error:
@@ -177,7 +176,7 @@ class NodeBot(BaseLockBot):
             self._save_and_notify()
             return completed_reply(reply, "lock")
 
-    def slock(self, user_id, command, *, acquisition_limit=None):
+    def slock(self, user_id, command):
         """
         Share lock nodes
         """
@@ -188,7 +187,6 @@ class NodeBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._state_guard():
-            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys)
             if policy_error:

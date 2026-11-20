@@ -1,14 +1,16 @@
-"""Do not let HTTP caches retain authenticated resource snapshots or failures."""
+"""Do not let HTTP caches retain resource observations, including command results."""
 
 import re
 
 from starlette.datastructures import MutableHeaders
 
-_RESOURCE_PATH = re.compile(r"^/api/(?:agent/resources|bots/[^/]+/(?:op/)?resources)/?$")
+_RESOURCE_PATH = re.compile(
+    r"^/api/(?:agent/(?:resources(?:/query)?|commands)|bots/[^/]+/(?:op/)?(?:resources|commands))/?$"
+)
 
 
 class ResourceSnapshotCacheMiddleware:
-    """Cover dependency, validation and rate-limit errors as well as successful reads.
+    """Cover errors and successful reads or command responses containing observations.
 
     The internal snapshot cache remains unchanged; it is scoped by bot generation
     and does not replace authentication or HTTP cache isolation.

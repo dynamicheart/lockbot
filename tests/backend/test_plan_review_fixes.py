@@ -277,35 +277,36 @@ def test_r4b_reset_row_does_not_claim_stopped_when_cleanup_unconfirmed(client, a
 # R5 — the per-identity holdings cap is judged on PROJECTED holdings (current ∪ targets),
 # so a multi-target single request cannot bypass it and a renewal/claim is not falsely blocked.
 # =====================================================================================
-def _set_cap(monkeypatch, n):
-    import lockbot.backend.app.resource_api.commands as commands_mod
-
-    monkeypatch.setattr(commands_mod, "RESOURCE_API_MAX_HELD_PER_IDENTITY", n)
+def _set_cap(api, n):
+    api["bot"].config.set_val("MAX_RESOURCES_PER_USER", n)
 
 
 def _cmd(client, api, command):
     return client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": command})
 
 
-def test_r5_multi_target_single_request_cannot_bypass_cap(client, api, monkeypatch):
-    _set_cap(monkeypatch, 1)
+def test_r5_multi_target_single_request_cannot_bypass_cap(client, api):
+    _set_cap(api, 1)
     # One request targeting two nodes would take the caller to 2 held, past the cap of 1.
     resp = _cmd(client, api, "lock n1,n2 1h")
-    assert resp.status_code == 409
-    assert resp.json()["detail"]["code"] == "identity_cap_reached"
+    assert resp.status_code == 200
+    assert "❌" in resp.json()["reply"]
+    assert all(not node["current_users"] for node in api["bot"].state_snapshot()[1].values())
 
 
-def test_r5_renewal_of_held_resource_is_not_blocked(client, api, monkeypatch):
-    _set_cap(monkeypatch, 1)
+def test_r5_renewal_of_held_resource_is_not_blocked(client, api):
+    _set_cap(api, 1)
     assert _cmd(client, api, "lock n1 1h").status_code == 200  # now holds 1 (== cap)
     # Renewing the SAME node adds no new resource, so it must not be rejected by the cap.
-    assert _cmd(client, api, "lock n1 1h").status_code == 200
+    renewed = _cmd(client, api, "lock n1 1h")
+    assert renewed.status_code == 200
+    assert "❌" not in renewed.json()["reply"]
 
 
-def test_r5_additional_distinct_resource_past_cap_is_blocked(client, api, monkeypatch):
-    _set_cap(monkeypatch, 1)
+def test_r5_additional_distinct_resource_past_cap_is_blocked(client, api):
+    _set_cap(api, 1)
     assert _cmd(client, api, "lock n1 1h").status_code == 200
     # A DIFFERENT node would grow holdings to 2, past the cap.
     resp = _cmd(client, api, "lock n2 1h")
-    assert resp.status_code == 409
-    assert resp.json()["detail"]["code"] == "identity_cap_reached"
+    assert resp.status_code == 200
+    assert "❌" in resp.json()["reply"]

@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 from contextlib import closing
+from datetime import datetime
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -122,7 +123,12 @@ def test_fakeim_bind_command_notify_and_snapshot(client, fakeim_api, db_session)
     assert json.dumps(resources.json()).find("n1") != -1
 
     # 5. Nothing in the whole path carried an Infoflow payload shape.
-    blobs = [webhook_resp.text, cmd.text, resources.text, json.dumps(bot.adapter.sent)]
+    command_body, snapshot_body = cmd.json(), resources.json()
+    for snapshot in (command_body["resource_snapshot"], snapshot_body):
+        # This is HTTP conditional-cleanup documentation, not an IM envelope.
+        cleanup = snapshot["context"]["usage_privacy"]["conditional_cleanup"]
+        assert cleanup.pop("header") == "If-Match"
+    blobs = [webhook_resp.text, json.dumps(command_body), json.dumps(snapshot_body), json.dumps(bot.adapter.sent)]
     for blob in blobs:
         for field in INFOFLOW_FIELDS:
             assert field not in blob, f"{field!r} leaked into {blob[:80]!r}"
@@ -188,7 +194,7 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
     assert hashlib.sha256(bundle).hexdigest() == installation["sha256"]
     with ZipFile(io.BytesIO(bundle)) as archive:
         archive.extractall(tmp_path)
-    script = tmp_path / "lockbot-resource-agent/scripts/lockbot_resource.py"
+    script = tmp_path / "lockbot-agent/scripts/lockbot_cli.py"
     project = tmp_path / "project"
     project.mkdir()
     monkeypatch.setenv("no_proxy", "127.0.0.1")
@@ -200,9 +206,10 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
             capture_output=True,
             text=True,
             timeout=10,
-            check=True,
+            check=False,
         )
         assert not re.search(r"\b(?:lbr|lbp)_[A-Za-z0-9_-]{32,}", completed.stdout + completed.stderr)
+        assert completed.returncode == 0, completed.stderr
         return json.loads(completed.stdout)["result"]
 
     with socket.socket() as listener:
@@ -245,7 +252,8 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
                     assert not (directory / "key").exists()
                 finished = cli(*finish)
                 assert finished["connection_created"]
-                assert finished.get("outcome") == ("created" if creates_key else None)
+                expected_outcome = ("created" if creates_key else "recovered") if purpose == "recover" else None
+                assert finished.get("outcome") == expected_outcome
                 key = (directory / "key").read_text()
                 assert key not in resp.text + json.dumps(bot.adapter.sent)
                 assert code not in resp.text + json.dumps(bot.adapter.sent)
@@ -256,16 +264,17 @@ def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command
                 if creates_key:
                     old_key = key
                     old_auth = {"Authorization": f"Bearer {old_key}"}
-                    client.post(
-                        f"/api/bots/{bot_id}/commands", headers=old_auth, json={"command": "lock n1 1h"}
-                    ).raise_for_status()
+                    acquired = cli(*connection, "command", "--operation", "lock", "--node", "n1", "--whole-node")
+                    assert acquired["verified"] and acquired["duration_source"] == "group-default"
                 else:
                     assert (key == old_key) == (purpose == "recover")
-                snapshot = cli(*connection, "resources")
+                snapshot = cli(*connection, "resources", "--exact-lease-times")
                 holder = next(resource for resource in snapshot["resources"] if resource["id"] == "n1")["holders"][0]
                 assert holder["external_user_id"] == ACTOR
                 if creates_key:
                     original_expiry = holder["expires_at"]
+                    duration = datetime.fromisoformat(original_expiry) - datetime.fromisoformat(holder["start_time"])
+                    assert duration.total_seconds() == context["bot_rules"]["default_duration_seconds"]
                 else:
                     assert holder["expires_at"] == original_expiry
 

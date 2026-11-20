@@ -60,7 +60,7 @@
 | --- | --- | --- |
 | 进群引导/退群观察 | `im:chat.members:bot_access`；订阅 [`im.chat.member.bot.added_v1`](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/chat-member-bot/events/added) / [`im.chat.member.bot.deleted_v1`](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/chat-member-bot/events/deleted) | 本站相关开关默认关闭；不是群成员列表读取权限。不影响基线真实 @ 后的未绑定群引导 |
 | 成功操作表情回复 | [`im:message.reactions:write_only`](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message-reaction/create) | `FEISHU_REACTION_REPLIES` 默认关闭；需单独确认权限及版本发布，失败回退文字，不重放操作 |
-| 原地更新查询面板 | 当前[编辑消息接口](https://open.feishu.cn/document/server-docs/im-v1/message/update)与本实现沿用基线发送权限，编辑本应用自己发送的消息 | `FEISHU_QUERY_PANEL` 默认关闭；不为面板申请全部消息读取，实际企业编辑能力/时限仍需授权群验收 |
+| 回复时原地刷新查询 | 当前[编辑消息接口](https://open.feishu.cn/document/server-docs/im-v1/message/update)与本实现沿用基线发送权限，仅直接回复本群最新查询消息时编辑本应用消息 | `FEISHU_QUERY_PANEL` 默认关闭；普通查询仍发送新消息，不为面板申请全部消息读取，实际企业编辑能力/时限仍需授权群验收 |
 
 本次提交的 7 项 API 权限为上表五项基线，加上 `im:chat.members:bot_access` 与 `im:message.reactions:write_only`；3 项事件为 `im.message.receive_v1` 及上表两项机器人入/退群事件。可选增强已经维护者审核并随本次版本通过审批及发布；权限已配置不表示功能开关自动启用或实际验收完成。
 

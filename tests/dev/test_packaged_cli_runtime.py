@@ -98,8 +98,8 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
                 status, body = 200, {"status": "pending"}
                 if binding_confirmed:
                     body = {"status": "confirmed", "credential": fixture_key}
-                    if scenario == "create":
-                        body["outcome"] = "created"
+                    if scenario in {"create", "recover"}:
+                        body["outcome"] = {"create": "created", "recover": "recovered"}[scenario]
             elif self.path == manifest["enrollment_url"] + "/" + enrollment_id and not authorization:
                 status, body = (
                     200,
@@ -154,10 +154,15 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
         thread = Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            env = dict(os.environ, NO_PROXY="127.0.0.1", no_proxy="127.0.0.1")
+            env = dict(
+                os.environ,
+                NO_PROXY="127.0.0.1",
+                no_proxy="127.0.0.1",
+                LOCKBOT_HOME=str(tmp_path / "isolated-profile"),
+            )
             bootstrap = tmp_path / "bootstrap.py"
             with ZipFile(BytesIO(archive)) as package:
-                bootstrap.write_bytes(package.read("lockbot-resource-agent/scripts/lockbot_resource.py"))
+                bootstrap.write_bytes(package.read("lockbot-agent/scripts/lockbot_cli.py"))
 
             def cli(script, *args, code=0):
                 result = subprocess.run(
@@ -179,7 +184,7 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
             assert installed["client_reload_required"] and not installed["connection_and_enrollment_created"]
             assert requests == [("/api/agent-skill", False), (metadata["installation"]["download_url"], False)]
 
-            script = destination / "scripts/lockbot_resource.py"
+            script = destination / "scripts/lockbot_cli.py"
             start = "enroll" if scenario == "legacy" else "key-challenge"
             args = ("--purpose", "reset") if scenario == "reset" else ()
             pending = cli(script, start, "--origin", origin, "--scope", "project", "--authorized", *args)
@@ -196,7 +201,7 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
             finished = cli(script, "finish-enrollment", "--enrollment-dir", directory)
             assert finished["connection_created"]
             assert finished["bot"]["name"] == "运行环境测例"
-            assert (finished.get("outcome") == "created") == (scenario == "create")
+            assert finished.get("outcome") == {"create": "created", "recover": "recovered"}.get(scenario)
             assert (finished.get("chat_action") == "reset_applied") == (scenario == "reset")
             assert challenge_requests == ([] if scenario == "legacy" else [{"purpose": purpose}])
             listed = cli(script, "connections", "--directory", ".lockbot/connections")
@@ -217,7 +222,28 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
                 "2m",
             )
             assert operation["verified"] and commands == ["lock runtime-node 2m"]
-            assert operation["verified_snapshot"]["resources"][0]["holders"][0]["external_user_id"] == "fixture-user"
+            summary = operation["verified_snapshot"]["resources"][0]["holders"][0]
+            assert summary["external_user_id"] == "fixture-user"
+            assert summary["remaining_time"] == "2m"
+            assert not {"remaining_seconds", "expires_at"} & summary.keys()
+            exact = cli(script, "--connection", finished["connection"], "resources", "--exact-lease-times")
+            exact_holder = exact["resources"][0]["holders"][0]
+            assert exact_holder["remaining_seconds"] == 120 and exact_holder["expires_at"]
+            assert "remaining_time" not in exact_holder
+
+            saved_connection = tmp_path / finished["connection"]
+            saved_key = saved_connection.parent / "key"
+            original_files = {path: path.read_bytes() for path in (saved_connection, saved_key)}
+            linked_key = tmp_path / "linked.key"
+            os.link(saved_key, linked_key)
+            before = len(requests)
+            wrong_origin = origin.replace("127.0.0.1", "localhost")
+            refused = cli(
+                script, "init", "--origin", wrong_origin, "--scope", "project", "--key-file", str(linked_key), code=2
+            )
+            assert refused["error"] == "key_origin_mismatch"
+            assert requests[before:] == []
+            assert all(path.read_bytes() == data for path, data in original_files.items())
 
             key = tmp_path / "fixture.key"
             key.write_text(fixture_key)

@@ -5,17 +5,22 @@ import argparse
 import contextlib
 import io
 import json
+import os
 import re
 import runpy
+import shutil
 import sys
 import urllib.error
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urljoin, urlsplit
 
+import skill_cli_argv as argv_host
 import skill_continuity_eval as continuity
 import skill_intent_eval as intent
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_PATHS, Client, ClientError
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import REFERENCE_PATHS, Client, ClientError
+from skill_eval_artifact import installed_service_origin, installed_skill_catalog
 
 base = continuity.base
 OriginalFixture = base.Fixture
@@ -29,7 +34,8 @@ COLD_REQUEST = "cold-install-allocate"
 COLD_INVENTORY = "intent-model-p800-whole-machine"
 COLD_COMMAND = intent.EXPECTED[COLD_INVENTORY][1]
 PANEL_ORIGIN = "https://lockbot.example.test"
-PANEL_FIXTURE_VERSION = 8
+PANEL_FIXTURE_VERSION = 9
+SKILL_CATALOG_FIXTURE_VERSION = 17
 PANEL_ISSUE = "/api/personal-panel/links"
 RECOVER = "/api/agent/bindings/recover"
 ACTIONS = (
@@ -49,30 +55,24 @@ RESOURCE_BOTS = {
 }
 FIRST_CONTACT = {
     "link-only": "{url}",
-    "install-from-link": base.SCENARIOS["install"],
-    "install-from-zip": base.SCENARIOS["zip-first"],
-    "install-with-key": base.SCENARIOS["existing-key"],
+    "install-from-link": "安装Skill: {url}",
+    "install-from-zip": "安装Skill: {zip_url}",
+    "install-with-key": "装一下，用原来的登录查下资源。\n{zip_url}",
 }
+SAVED_LOGIN_SCENARIOS = {"install-with-key", "panel", "telemetry"}
 CHALLENGE_PROMPTS = {
     COLD_REQUEST: "帮我安装这个 Skill，申请一台 P800 机器用两小时。",
-    "approved-enrollment-no-group": (
-        "这台机器还没有 LockBot Key。请安装完整 Skill 并帮我连接这个服务。"
-        "可以申请一个绑定码，我自己在机器人所在的群里确认。绑定后我会回来，请先不要占用资源。"
-    ),
-    "recover-original-key": (
-        "我在另一台机器用过这个服务，现在本地没有 Key。请安装 Skill，帮我找回原 Key，"
-        "只保存在这个项目。可以发起群内确认，我自己操作。"
-    ),
-    "reset-personal-key": (
-        "请安装 Skill，并重置这个 LockBot 的个人 Key。我知道群里确认后旧 Key 会失效，"
-        "其他 Agent 也要换 Key。我确认继续。请把新连接只保存在这个项目。"
-    ),
+    "approved-enrollment-no-group": "帮忙查找可用的资源。",
+    "recover-original-key": "我换环境了，帮我恢复下。",
+    "reset-personal-key": "我的key泄漏了，帮我重置下key。",
 }
 ENROLLMENT_SCENARIOS = ("approved-enrollment", *CHALLENGE_PROMPTS)
 SCENARIOS = ("no-key", *ENROLLMENT_SCENARIOS, "recover", "panel", "telemetry", *FIRST_CONTACT, *intent.PROMPTS)
 
 
-def prepare(root, artifact, scenario):
+def prepare(root, artifact, scenario, *, fixture_version=18):
+    if fixture_version not in {18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36}:
+        raise ValueError("Unsupported CLI fixture version")
     seed_scenario = scenario
     if scenario in intent.PROMPTS or scenario == "install-with-key":
         seed_scenario = "recover"
@@ -81,15 +81,55 @@ def prepare(root, artifact, scenario):
     elif scenario in ENROLLMENT_SCENARIOS:
         seed_scenario = "approved-enrollment"
     continuity.prepare(root, artifact / "SKILL.md", seed_scenario, artifact)
+    case_path = root / "case.json"
+    case = json.loads(case_path.read_text())
+    helper = Fixture(root).artifact["contents"]["scripts/lockbot_cli.py"]
+    base.save_json(
+        case_path,
+        {
+            **case,
+            "coherent_snapshot": b"coherent_resource_snapshot" in helper,
+            "resource_aggregation": b'"resources-all"' in helper and b'"--mine"' in helper,
+            **(
+                {"confirmation_grading_version": 29}
+                if fixture_version >= 29 and scenario == "approved-enrollment"
+                else {}
+            ),
+            **(
+                {"runtime_epoch": datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
+                if fixture_version >= 28
+                else {}
+            ),
+            "fixture_version": 18
+            if scenario in intent.PROMPTS or scenario == COLD_REQUEST
+            else 15
+            if scenario in intent.CONVERSATIONAL_PROMPTS or scenario in {"intent-my-locks", "intent-my-books"}
+            else 14
+            if scenario in intent.PUBLIC_IP_ALIAS_PROMPTS
+            else 13
+            if scenario in {"reset-personal-key", "intent-my-locks", "intent-my-books"}
+            or scenario in intent.INSTALL_FOLLOWUPS
+            or scenario in intent.IP_TAIL_PROMPTS
+            or scenario == "intent-shared-minimal"
+            else case["fixture_version"],
+        },
+    )
+    if scenario == "no-key":
+        (root / "prompt.txt").write_text(f"安装Skill: {base.ORIGIN}/api/agent-skill")
+    if scenario == "approved-enrollment":
+        (root / "prompt.txt").write_text("帮忙查找可用的资源。")
     if scenario in ENROLLMENT_SCENARIOS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
-        helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
+        helper = Fixture(root).artifact["contents"]["scripts/lockbot_cli.py"]
         base.save_json(
             case_path, {**case, "scenario": scenario, "pending_enrollment_catalog": b'"pending_enrollments"' in helper}
         )
         if scenario in CHALLENGE_PROMPTS:
-            (root / "prompt.txt").write_text(CHALLENGE_PROMPTS[scenario] + "\n" + base.ORIGIN + base.BUNDLE_PATH)
+            prompt = CHALLENGE_PROMPTS[scenario]
+            if scenario == COLD_REQUEST:
+                prompt += "\n" + base.ORIGIN + base.BUNDLE_PATH
+            (root / "prompt.txt").write_text(prompt)
     if scenario == "panel":
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -102,7 +142,9 @@ def prepare(root, artifact, scenario):
                 "fixture_version": PANEL_FIXTURE_VERSION,
             },
         )
-        (root / "prompt.txt").write_text(continuity.PROMPTS["panel"].replace(base.ORIGIN, PANEL_ORIGIN))
+        (root / "prompt.txt").write_text("打开个人资源台")
+    if scenario == "telemetry":
+        (root / "prompt.txt").write_text("node-a谁在用，利用率多少？")
     if scenario in FIRST_CONTACT:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
@@ -114,21 +156,22 @@ def prepare(root, artifact, scenario):
     if scenario in intent.PROMPTS:
         case_path = root / "case.json"
         case = json.loads(case_path.read_text())
-        helper = Fixture(root).artifact["contents"]["scripts/lockbot_resource.py"]
+        helper = Fixture(root).artifact["contents"]["scripts/lockbot_cli.py"]
         base.save_json(
             case_path,
             {
                 **case,
                 "scenario": scenario,
+                "fixture_version": max(11, case["fixture_version"])
+                if scenario in intent.TASK_SCENARIOS
+                else case["fixture_version"],
                 "model_constraint": b'"--minimum-model-count"' in helper,
                 "device_count_constraint": b'"--device-count"' in helper,
                 "group_constraint": b"selected_connection_does_not_match_requested_group" in helper,
             },
         )
-        (root / "prompt.txt").write_text(
-            "我的两个资源群已私下配置。请安装这份 Skill 并处理我的请求。"
-            f"{base.ORIGIN}{base.BUNDLE_PATH}\n{intent.PROMPTS[scenario]}"
-        )
+        prompt = intent.PROMPTS[scenario].format(url=base.ORIGIN + "/api/agent-skill")
+        (root / "prompt.txt").write_text(prompt)
         private = root / "workspace/private"
         for identifier, key, uuid in ((7, base.KEY, base.BOT_UUID), (8, continuity.SECOND_KEY, continuity.SECOND_UUID)):
             base.save_json(
@@ -144,15 +187,47 @@ def prepare(root, artifact, scenario):
             path = private / f"group-{identifier}.key"
             path.write_text(key)
             path.chmod(0o600)
+            if Fixture(root).case.get("resource_aggregation"):
+                (private / "connections").mkdir(mode=0o700, exist_ok=True)
+                catalog = private / "connections" / f"group-{identifier}"
+                catalog.mkdir(mode=0o700)
+                base.save_json(
+                    catalog / "connection.json",
+                    {
+                        **json.loads((private / f"group-{identifier}.json").read_text()),
+                        "key_file": f"../../group-{identifier}.key",
+                    },
+                )
     if scenario == "recover":
-        (root / "prompt.txt").write_text(
-            f"请安装这份完整 Skill 并帮我把各群的 Key 迁移进来。Key 已安全转移到 private/current.key。"
-            f"我批准这个地址：{base.ORIGIN}{base.BUNDLE_PATH}。用它当种子，找回其他群的连接并查询验证群。"
-            "不要重绑、重置 Key 或申请资源。"
-        )
+        (root / "prompt.txt").write_text("看看我能申请什么资源？")
+    if scenario in SAVED_LOGIN_SCENARIOS:
+        fixture = Fixture(root)
+        connection = fixture.saved_connection
+        connection.parent.mkdir(mode=0o700)
+        (fixture.workspace / "private/current.key").rename(connection.parent / "key")
+        context = fixture.http(
+            {
+                "url": fixture.origin + "/api/agent/context",
+                "method": "GET",
+                "headers": {"Authorization": "Bearer " + base.KEY},
+            }
+        )["body"]
+        record = {
+            "approved_origin": fixture.origin,
+            "instance_id": fixture.manifest()["instance_id"],
+            "bot_uuid": context["bot"]["uuid"],
+            "actor": context["actor"],
+            "key_file": "key",
+        }
+        if scenario == "telemetry":
+            record["approved_metrics_origin"] = continuity.METRICS_ORIGIN
+        base.save_json(connection, record)
     system = (
         "Use only the supplied fixture tools. The workspace and service are synthetic. Report verified actions only. "
+        "The client supplies its sign-in state privately. Keep credential and connection paths out of user replies. "
     )
+    if scenario == "approved-enrollment":
+        system += f" The client resource picker has selected target group {GROUP!r}. "
     if scenario != COLD_REQUEST:
         system += (
             "install_lockbot installs and shows the verified Skill. run_lockbot runs its actual packaged CLI. "
@@ -161,8 +236,41 @@ def prepare(root, artifact, scenario):
             "Only a human can confirm a new enrollment in the resource group's chat. "
             "An existing verified connection uses the API for authorized resource operations."
         )
+    if (
+        scenario in intent.PROMPTS
+        and scenario not in intent.INSTALL_FOLLOWUPS
+        or scenario in SAVED_LOGIN_SCENARIOS - set(FIRST_CONTACT)
+        or scenario
+        in {
+            "recover",
+            "approved-enrollment",
+            "approved-enrollment-no-group",
+            "recover-original-key",
+            "reset-personal-key",
+        }
+    ):
+        fixture = Fixture(root)
+        Client(approved_origin=fixture.origin, opener=fixture).install(fixture.installation)
+        (root / "cli-http.jsonl").unlink(missing_ok=True)
+        system += " The verified Skill is already installed. read_lockbot_skill reads it."
+        system += installed_skill_catalog(fixture.installation, fixture.artifact)
+        case = json.loads(case_path.read_text())
+        base.save_json(
+            case_path, {**case, "fixture_version": max(SKILL_CATALOG_FIXTURE_VERSION, case["fixture_version"])}
+        )
+    if fixture_version >= 19 and (
+        scenario in intent.PROMPTS
+        or scenario == COLD_REQUEST
+        or (fixture_version >= 21 and scenario == "telemetry")
+        or (fixture_version >= 31 and scenario == "install-with-key")
+    ):
+        case = json.loads(case_path.read_text())
+        base.save_json(case_path, {**case, "fixture_version": fixture_version})
     (root / "system.txt").write_text(system)
     configure(root)
+    if fixture_version >= 33:
+        case = json.loads(case_path.read_text())
+        base.save_json(case_path, {**case, "fixture_version": fixture_version, "cli_argv_protocol": argv_host.PROTOCOL})
 
 
 def configure(root):
@@ -172,32 +280,123 @@ def configure(root):
     base.save_json(path, config)
 
 
+def continue_conversation(source, destination, prompt):
+    previous = json.loads((source / "response.json").read_text())
+    if not isinstance(previous.get("text"), str):
+        raise ValueError("The prior assistant response is unavailable")
+    continuity.resume(source, destination)
+    case_path = destination / "case.json"
+    case = json.loads(case_path.read_text())
+    base.save_json(case_path, {**case, "parent_fixture_directory": source.name})
+    for state in source.glob("simulated-bot-*.json"):
+        shutil.copy2(state, destination / state.name)
+    history = json.loads((source / "conversation.json").read_text()) if (source / "conversation.json").is_file() else []
+    base.save_json(
+        destination / "conversation.json",
+        [
+            *history,
+            {"role": "user", "content": (source / "prompt.txt").read_text()},
+            {"role": "assistant", "content": previous["text"]},
+        ],
+    )
+    (destination / "prompt.txt").write_text(prompt)
+    (destination / "system.txt").write_text((source / "system.txt").read_text())
+    configure(destination)
+
+
+def enrollment_instruction_negated(final, *, fixture_version):
+    candidates = [final]
+    if fixture_version >= 36:
+        # Parenthetical emphasis is not a sentence boundary. Preserve its text,
+        # including negations inside it; mask only punctuation in balanced pairs.
+        stack, pairs = [], []
+        closing = {")": "(", "）": "（"}
+        for index, char in enumerate(final):
+            if char in closing.values():
+                stack.append((char, index))
+            elif char in closing and stack and stack[-1][0] == closing[char]:
+                _, start = stack.pop()
+                pairs.append((start, index))
+        chars = list(final)
+        for start, end in pairs:
+            for index in range(start + 1, end):
+                if chars[index] in "。！？!?；;\n.":
+                    chars[index] = " "
+        collapsed = list(chars)
+        for start, end in pairs:
+            # Drop emphasis for distance counting, but never discard a negative
+            # instruction nested in parentheses while doing so.
+            if not re.search(r"不要|别|无需|不用|不必|不能|禁止", final[start + 1 : end]):
+                collapsed[start : end + 1] = [""] * (end - start + 1)
+        candidates = ["".join(chars), "".join(collapsed)]
+    gap = r"[^。！？!?；;\n.]" if fixture_version >= 36 else "."
+    pattern = (
+        rf"(?:不要|别|无需|不用|不必|不能|禁止){gap}{{0,8}}"
+        rf"(?:本人|自己|你的){gap}{{0,12}}(?:账号|账户|帐号)"
+        rf"|(?:让|找|请|改用|换用){gap}{{0,8}}(?:其他人|别人|他人|同事){gap}{{0,16}}(?:本人|账号|账户|帐号)"
+        rf"|(?:不要|别|无需|不用|不必|不能|禁止){gap}{{0,12}}(?:发送|发出|执行){gap}{{0,16}}bind"
+    )
+    return any(re.search(pattern, candidate, re.IGNORECASE) for candidate in candidates)
+
+
+def reset_impact_checks(final, *, fixture_version=18):
+    disconnection = "断开|中断|" if fixture_version >= 36 else "断开|" if fixture_version >= 35 else ""
+    impact = bool(
+        re.search(
+            r"(?:其他|其它|别的|所有|共用|共享).{0,25}(?:Agent|代理|客户端).{0,35}"
+            rf"(?:{disconnection}失效|失去访问|掉线|重新(?:登录|连接|接入|配置)|更新|更换|换成|换上|换新|改用)"
+            r"|other.{0,20}agents?.{0,50}(?:invalid|reconnect|reconfigur|update|replace)",
+            final,
+            re.I,
+        )
+    )
+    invalidation = bool(re.search(r"失效|作废|invalid|revok", final, re.I))
+    negated = bool(
+        re.search(
+            rf"(?:不会|无需|不用|不必).{{0,12}}(?:{disconnection}失效|失去访问|掉线|重新连接|重新接入|重新配置|更换|换成|换上|换新|改用)",
+            final,
+        )
+    )
+    confirmation = bool(re.search(r"确认|确定|是否|可以.{0,6}[？?]|confirm|proceed", final, re.I))
+    return {"reset_impact_explained": impact and invalidation and not negated, "asks_reset_confirmation": confirmation}
+
+
 def resume(source, destination):
     fixture = Fixture(source)
+    reset = fixture.case["scenario"] == "reset-personal-key"
+    if reset and fixture.case["phase"] == 1:
+        final = json.loads((source / "response.json").read_text())["text"]
+        if (
+            not all(reset_impact_checks(final, fixture_version=fixture.case.get("fixture_version", 0)).values())
+            or fixture.binding_status() != "expired"
+        ):
+            raise ValueError("Explain reset impact before simulating user acknowledgement")
+        continue_conversation(source, destination, "行，重置吧")
+        case = json.loads((destination / "case.json").read_text())
+        base.save_json(destination / "case.json", {**case, "phase": 2, "reset_impact_acknowledged": True})
+        return
+    if fixture.case["scenario"] in intent.CONVERSATIONAL_PROMPTS:
+        if fixture.case["phase"] != 1:
+            raise ValueError("This conversation has exactly two turns")
+        continue_conversation(source, destination, intent.CONVERSATIONAL_PROMPTS[fixture.case["scenario"]][1])
+        return
     if fixture.case["scenario"] == "panel":
         if not json.loads((source / "browser.json").read_text())["authenticated"]:
             raise ValueError("The simulated user must confirm browser consent before resuming")
         continuity.resume(source, destination)
         (destination / "system.txt").write_text((source / "system.txt").read_text())
-        (destination / "prompt.txt").write_text(
-            "新会话：我已经在浏览器确认登录并收藏了个人资源台。请打开我之前保存的固定入口，"
-            "告诉我现在持有和预约了什么资源。"
-        )
-        private = destination.resolve() / "workspace/private"
-        connection = private / "seed.json"
-        saved = json.loads(connection.read_text())
-        base.save_json(connection, {**saved, "key_file": str(private / "current.key")})
+        (destination / "prompt.txt").write_text("打开资源台，看看我占了啥、约了啥。")
         configure(destination)
         return
-    if fixture.uses_challenge and fixture.case["phase"] == 2:
-        connection = fixture.workspace / "private/binding/connection.json"
+    if fixture.uses_challenge and fixture.case["phase"] == (3 if reset else 2):
+        connection = argv_host.enrollment_directory(fixture) / "connection.json"
         if not connection.is_file():
             raise ValueError("A completed enrollment must have saved a connection before a fresh read")
         continuity.resume(source, destination)
         case_path = destination / "case.json"
-        base.save_json(case_path, {**json.loads(case_path.read_text()), "phase": 3})
+        base.save_json(case_path, {**json.loads(case_path.read_text()), "phase": 4 if reset else 3})
         (destination / "system.txt").write_text((source / "system.txt").read_text())
-        (destination / "prompt.txt").write_text("查一下这个项目里我在 LockBot 上能用的资源，只查状态。")
+        (destination / "prompt.txt").write_text("这个项目里有啥可用的 LockBot 资源？")
         base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
         if fixture.case["scenario"] == COLD_REQUEST:
             base.save_json(
@@ -207,18 +406,19 @@ def resume(source, destination):
         return
     if fixture.binding_status() != "pending":
         raise ValueError("An approved enrollment must have issued a code before simulated human confirmation")
+    if fixture.case["scenario"] == COLD_REQUEST and fixture.case.get("fixture_version", 0) >= 19:
+        continue_conversation(source, destination, "群里确认了，继续吧")
+        base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
+        return
     continuity.resume(source, destination)
+    if reset:
+        case = json.loads((destination / "case.json").read_text())
+        base.save_json(destination / "case.json", {**case, "phase": 3})
     (destination / "system.txt").write_text((source / "system.txt").read_text())
     if fixture.case["scenario"] == COLD_REQUEST:
-        prompt = "群里已经确认了。继续帮我申请一台 P800 机器，用两小时。"
-    elif fixture.challenge_purpose == "reset":
-        prompt = "群里已确认刚才的重置。请保存新 Key，再查一下资源。不要重新发码或占用资源。"
+        prompt = "群里确认了，继续申请台 P800，用两小时。"
     else:
-        target = "机器人所在的群" if fixture.uses_challenge else GROUP
-        prompt = (
-            f"我已在{target}发出绑定命令并收到机器人确认。"
-            "请完成原来的绑定，然后查询资源。不要重新申请绑定码或占用资源。"
-        )
+        prompt = "帮我看看有哪些资源。"
     (destination / "prompt.txt").write_text(prompt)
     base.save_json(destination / "binding.json", {"status": "confirmed", "simulation_only": True})
     configure(destination)
@@ -245,17 +445,66 @@ class Fixture(continuity.Fixture):
         result = super().manifest()
         if self.uses_challenge:
             result["capabilities"] = list(dict.fromkeys([*result["capabilities"], "chat_credential_challenges"]))
+        if self.case.get("coherent_snapshot"):
+            result["capabilities"] = list(dict.fromkeys([*result["capabilities"], "coherent_resource_snapshot"]))
         return result
 
     @property
     def installation(self):
-        return self.workspace / "skills/lockbot-resource-agent"
+        return self.workspace / "skills/lockbot-agent"
+
+    @property
+    def saved_connection(self):
+        return self.workspace / "private/connections/connection.json"
 
     def binding_status(self):
         path = self.root / "binding.json"
         return json.loads(path.read_text())["status"] if path.exists() else "expired"
 
+    def coherent_snapshot(self, args, body):
+        context = self.legacy_http({**args, "url": self.origin + "/api/agent/context", "method": "GET"})
+        if context["status"] != 200:
+            raise ValueError("Cannot attach unauthorized fixture context")
+        context_fields = {
+            "server",
+            "actor",
+            "bot",
+            "bot_rules",
+            "agent_access_enabled",
+            "credential_scope",
+            "usage_privacy",
+            "links",
+            "skill",
+        }
+        if self.case.get("fixture_version", 0) >= 35 and self.case["scenario"] == "telemetry":
+            context_fields.add("utilization")
+        context = {name: value for name, value in context["body"].items() if name in context_fields}
+        return {
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "age_seconds": 0,
+            "bot_id": context["bot"]["id"],
+            "bot_type": context["bot"]["type"],
+            "actor": context["actor"],
+            **body,
+            "context": context,
+        }
+
     def http(self, args):
+        result = self.legacy_http(args)
+        if not self.case.get("coherent_snapshot") or result["status"] != 200:
+            return result
+        path = urlsplit(args["url"]).path
+        if args["method"] == "GET" and path.endswith("/resources"):
+            result["body"] = self.coherent_snapshot(args, result["body"])
+        elif args["method"] == "POST" and path.endswith("/commands"):
+            query = {**args, "url": args["url"].removesuffix("/commands") + "/resources", "method": "GET"}
+            after = self.legacy_http(query)
+            if after["status"] != 200:
+                raise ValueError("Cannot observe fixture mutation")
+            result["body"]["resource_snapshot"] = self.coherent_snapshot(query, after["body"])
+        return result
+
+    def legacy_http(self, args):
         path = urlsplit(args["url"]).path
         method = args["method"]
         bearer = args["headers"].get("Authorization", "")
@@ -286,6 +535,24 @@ class Fixture(continuity.Fixture):
                 response["body"]["bot"]["name"] = "开发群" if bearer == "Bearer " + base.KEY else GROUP
                 response["body"]["actor"]["platform"] = "infoflow"
                 response["body"]["skill"] = self.manifest()
+            if (
+                self.case.get("fixture_version", 0) >= 35
+                and self.case["scenario"] == "telemetry"
+                and bearer == "Bearer " + base.KEY
+                and method == "GET"
+                and base.bot_resource_path(path, 7) == "/api/bots/7/resources"
+                and response["status"] == 200
+            ):
+                # This scenario's continuity fixture owns node-a exclusively
+                # and has a separate own booking; hardware remains unreported.
+                expected = {
+                    "id": "node-a",
+                    "holders": [{"external_user_id": "demo-user"}],
+                    "booking_list": [{"external_user_id": "demo-user"}],
+                }
+                if response["body"].get("resources") != [expected]:
+                    raise ValueError("Unexpected telemetry fixture ground truth")
+                response["body"] = {"health": "running", "resources": [{**expected, "lock_status": "exclusive"}]}
             return response
         if path == BINDINGS and method == "POST":
             if self.case["scenario"] != "approved-enrollment" or self.case["phase"] != 1 or bearer:
@@ -307,7 +574,8 @@ class Fixture(continuity.Fixture):
         if self.uses_challenge:
             if path == CHALLENGES and method == "POST" and not bearer:
                 if (
-                    self.case["phase"] != 1
+                    self.case["phase"] != (2 if self.challenge_purpose == "reset" else 1)
+                    or (self.challenge_purpose == "reset" and not self.case.get("reset_impact_acknowledged"))
                     or self.binding_status() != "expired"
                     or args.get("purpose") != self.challenge_purpose
                 ):
@@ -330,6 +598,8 @@ class Fixture(continuity.Fixture):
                     result["credential"] = self.enrolled_key
                     if self.case["scenario"] in {COLD_REQUEST, "approved-enrollment-no-group"}:
                         result["outcome"] = "created"
+                    elif self.case["scenario"] == "recover-original-key":
+                        result["outcome"] = "recovered"
                 return {"status": 200, "body": result}
         status = self.binding_status()
         old_key_active = self.case["scenario"] in {"recover-original-key", "reset-personal-key"} and (
@@ -352,7 +622,9 @@ class Fixture(continuity.Fixture):
                 return {"status": 409}
             if resource == "/api/bots/7/resources" and method == "GET":
                 command = json.loads(state.read_text()) if state.exists() else ""
-                snapshot = intent.inventory(8, command, scenario=COLD_INVENTORY)
+                snapshot = intent.inventory(
+                    8, command, scenario=COLD_INVENTORY, fixture_version=self.case["fixture_version"]
+                )
                 snapshot["bot_id"] = 7
                 snapshot["resources"] = [row for row in snapshot["resources"] if row["id"] != "node-21"]
                 machine = next(row for row in snapshot["resources"] if row["id"] == intent.MATCHING_MACHINE)
@@ -387,14 +659,58 @@ class Fixture(continuity.Fixture):
                 name=next(name for name, identifier in intent.group_ids(scenario).items() if identifier == bot)
             )
             body["bot"]["type"] = intent.bot_type(scenario, bot)
+            if scenario in intent.SHORT_PROMPTS or scenario in intent.PUBLIC_IP_ALIAS_PROMPTS:
+                body["bot_rules"] = {
+                    **(body.get("bot_rules") or {}),
+                    "default_duration_seconds": intent.SHORT_DEFAULT_DURATION if bot == 8 else 3600,
+                }
+            if self.case.get("fixture_version", 0) >= 28 and scenario == "intent-ip-tail-held":
+                # Explicit healthy runtime policy, matching production defaults.
+                # Missing/invalid-policy negative fixtures remain untouched.
+                body["bot_rules"] = {
+                    **(body.get("bot_rules") or {}),
+                    "forbid_relock": False,
+                    "effective_max_lock_duration_seconds": -1,
+                    "max_resources_per_user": -1,
+                    "default_duration_seconds": 7200,
+                }
             body["skill"] = self.manifest()
             return response
         state = self.root / f"simulated-bot-{bot}.json"
         if path == f"/api/bots/{bot}/resources" and method == "GET":
             command = json.loads(state.read_text()) if state.exists() else ""
-            snapshot = intent.inventory(bot, command, scenario=scenario)
+            writes = command.get("writes", 0) if isinstance(command, dict) else 0
+            snapshot = intent.inventory(
+                bot,
+                command,
+                scenario=scenario,
+                phase=self.case["phase"],
+                writes=writes,
+                fixture_version=self.case["fixture_version"],
+                **(
+                    {"lease_reference": self.case["runtime_epoch"]} if self.case.get("fixture_version", 0) >= 28 else {}
+                ),
+            )
             return {"status": 200, "body": snapshot}
         if path == f"/api/bots/{bot}/commands" and method == "POST":
+            if scenario in intent.TASK_SCENARIOS:
+                expected = intent.task_expectation(scenario, self.case["phase"])
+                if (
+                    expected
+                    and bot == expected[0]
+                    and intent.equivalent(
+                        args.get("command"),
+                        expected[1],
+                        default_duration=intent.SHORT_DEFAULT_DURATION
+                        if scenario in intent.PUBLIC_IP_ALIAS_PROMPTS
+                        else None,
+                    )
+                ):
+                    previous = json.loads(state.read_text()) if state.is_file() else {}
+                    writes = previous.get("writes", 0) if isinstance(previous, dict) else 0
+                    base.save_json(state, {"command": expected[1], "writes": writes + 1})
+                    return {"status": 200, "body": {"reply": "ok"}}
+                return {"status": 403}
             if (
                 scenario in intent.WHOLE_MACHINE_MODELS
                 and bot == 8
@@ -406,13 +722,16 @@ class Fixture(continuity.Fixture):
             if scenario == "intent-write-unknown" and bot == 7:
                 expected = intent.EXPECTED[scenario][1]
                 return {"status": 504 if intent.equivalent(args.get("command"), expected) else 409}
+            default_duration = intent.SHORT_DEFAULT_DURATION if scenario in intent.SHORT_DEFAULT_SCENARIOS else None
             match = next(
                 (
                     expected
                     for case, (identifier, expected) in intent.EXPECTED.items()
-                    if (case != "intent-release" or case == scenario)
+                    if (case not in intent.SHORT_PROMPTS or case == scenario)
+                    and (scenario not in intent.SHORT_PROMPTS or case == scenario)
+                    and (case != "intent-release" or case == scenario)
                     and identifier == bot
-                    and intent.equivalent(args.get("command"), expected)
+                    and intent.equivalent(args.get("command"), expected, default_duration=default_duration)
                 ),
                 None,
             )
@@ -445,13 +764,108 @@ class Fixture(continuity.Fixture):
                         "method": request.method,
                         "authorization_present": "Authorization" in headers,
                         "status": result["status"],
+                        **(
+                            {
+                                "metrics_grant_forwarded": not metrics
+                                and headers.get("Authorization")
+                                in {"Bearer " + grant for grant in continuity.METRICS_GRANTS}
+                            }
+                            if self.case.get("fixture_version", 0) >= 35 and self.case["scenario"] == "telemetry"
+                            else {}
+                        ),
                         **({"resource_bot": bot} if canonical and bot is not None else {}),
                         **({"command": command} if command is not None else {}),
+                        **(
+                            {"resource_observation": intent.observation_identity(result["body"]["resource_snapshot"])}
+                            if isinstance(result.get("body", {}).get("resource_snapshot"), dict)
+                            else {}
+                        ),
+                        **(
+                            {"resource_observation": intent.observation_identity(result["body"])}
+                            if self.case.get("fixture_version", 0) >= 18
+                            and request.method == "GET"
+                            and path.endswith("/resources")
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {"resource_resolution_snapshot": result["body"]}
+                            if self.case.get("fixture_version", 0) >= 30
+                            and (
+                                self.case["scenario"] == "intent-write-unknown"
+                                or self.case.get("fixture_version", 0) >= 36
+                                and self.case["scenario"] == "intent-claim"
+                            )
+                            and request.method == "GET"
+                            and path.endswith("/resources")
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {
+                                "resource_selector_observation": resource_selector_observation(result["body"]),
+                                "resource_read_state": {
+                                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                                    "age_seconds": result["body"].get("age_seconds"),
+                                    "health": result["body"].get("health"),
+                                },
+                            }
+                            if self.case.get("fixture_version", 0) >= 27
+                            and request.method == "GET"
+                            and path.endswith("/resources")
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {
+                                "resource_relock_observation": resource_relock_observation(
+                                    result["body"].get("resource_snapshot", result["body"])
+                                )
+                            }
+                            if self.case.get("fixture_version", 0) >= 28
+                            and self.case["scenario"] == "intent-ip-tail-held"
+                            and (
+                                request.method == "GET"
+                                and path.endswith("/resources")
+                                or request.method == "POST"
+                                and isinstance(result.get("body", {}).get("resource_snapshot"), dict)
+                            )
+                            and result["status"] == 200
+                            else {}
+                        ),
+                        **(
+                            {
+                                "context_observation": {
+                                    "actor": result["body"].get("actor"),
+                                    "instance_id": result["body"].get("server", {}).get("instance_id"),
+                                    "bot_uuid": result["body"].get("bot", {}).get("uuid"),
+                                    "bot_id": result["body"].get("bot", {}).get("id"),
+                                }
+                            }
+                            if self.case.get("fixture_version", 0) >= 18
+                            and path == "/api/agent/context"
+                            and result["status"] == 200
+                            else {}
+                        ),
                         **(
                             {
                                 "selector": parse_qs(args["body"]).get("query", [""])[0],
                                 "metrics_grant_used": headers.get("Authorization")
                                 in {"Bearer " + grant for grant in continuity.METRICS_GRANTS},
+                                **(
+                                    {
+                                        "metrics_grant_generation": next(
+                                            (
+                                                index
+                                                for index, grant in enumerate(continuity.METRICS_GRANTS)
+                                                if headers.get("Authorization") == "Bearer " + grant
+                                            ),
+                                            None,
+                                        )
+                                    }
+                                    if self.case.get("fixture_version", 0) >= 36
+                                    else {}
+                                ),
                             }
                             if metrics
                             else {}
@@ -471,14 +885,33 @@ class Fixture(continuity.Fixture):
             raise urllib.error.HTTPError(request.full_url, result["status"], "fixture refused", {}, payload)
         return payload
 
-    def run_cli(self, args):
+    def run_cli(self, args, execution):
+        if argv_host.enabled(self.case) and "argv" in args:
+            actions = next(row for row in tools(self.root) if row["name"] == "run_lockbot")["inputSchema"][
+                "properties"
+            ]["action"]["enum"]
+            return argv_host.invoke(self, args, execution, actions)
+        if argv_host.enabled(self.case):
+            args = argv_host.legacy_arguments(args)
         installed = self.artifact is not None and all(
             (self.installation / name).is_file() and (self.installation / name).read_bytes() == content
             for name, content in self.artifact["contents"].items()
         )
         private = self.workspace / "private"
-        directory = private / "binding"
+        directory = argv_host.enrollment_directory(self)
         action = args.get("action")
+        if self.case.get("fixture_version", 0) >= 36 and "enrollment_dir" in args:
+            selected = Path(args["enrollment_dir"])
+            selected = selected if selected.is_absolute() else self.workspace / selected
+            if not selected.resolve().is_relative_to(private.resolve()):
+                return {"error": "unknown_private_catalog"}
+            directory = selected
+        if (
+            action == "key-challenge"
+            and self.challenge_purpose == "reset"
+            and not self.case.get("reset_impact_acknowledged")
+        ):
+            return {"error": "reset_impact_acknowledgment_required"}
         if action == "local-state" and self.case["scenario"] not in intent.PROMPTS:
             state = {
                 "installed": installed,
@@ -487,28 +920,64 @@ class Fixture(continuity.Fixture):
                 "enrollment_directory_present": (directory / "enrollment.json").is_file(),
                 "enrollment_connection_present": (directory / "connection.json").is_file(),
             }
+            if self.case.get("fixture_version", 0) >= 31 and self.case["scenario"] in SAVED_LOGIN_SCENARIOS:
+                state["saved_connection_present"] = self.saved_connection.is_file()
+                state["next_command"] = ["connections"]
             if self.case["scenario"] == "panel":
                 state["browser_bookmarks"] = json.loads((self.root / "browser.json").read_text())["bookmarks"]
             return {"result": state}
         if not installed:
             return {"error": "verified_package_required"}
         if action not in ACTIONS and not (
-            (action in ("connections", "command") and self.case["scenario"] in intent.PROMPTS)
+            (action in ("connections", "context", "command") and self.case["scenario"] in intent.PROMPTS)
+            or (
+                action == "resources-all"
+                and self.case.get("fixture_version", 0) >= 18
+                and self.case.get("resource_aggregation")
+                and (
+                    self.case["scenario"] in intent.PROMPTS
+                    or (self.case.get("fixture_version", 0) >= 31 and self.case["scenario"] == "install-with-key")
+                )
+            )
             or (action == "command" and self.case["scenario"] == COLD_REQUEST)
-            or (action == "connections" and self.case.get("pending_enrollment_catalog"))
+            or (
+                action == "connections"
+                and (self.case.get("pending_enrollment_catalog") or self.case["scenario"] in SAVED_LOGIN_SCENARIOS)
+            )
             or (action == "key-challenge" and self.uses_challenge)
             or (action == "metrics" and self.case["scenario"] == "telemetry")
             or (action == "panel-link" and self.case["scenario"] == "panel")
         ):
             return {"error": "unsupported_fixture_action"}
         argv = [action]
-        if action == "connections" and self.case["scenario"] in intent.PROMPTS:
+        aggregate = self.case.get("fixture_version", 0) >= 18 and self.case.get("resource_aggregation")
+        if action == "connections" and self.case["scenario"] in intent.PROMPTS and not aggregate:
             return {"result": {"groups": list(intent.group_ids(self.case["scenario"]))}}
-        if action in ("resources", "command") and self.case["scenario"] in intent.PROMPTS:
+        if action in ("context", "resources", "command") and self.case["scenario"] in intent.PROMPTS:
             identifier = intent.group_ids(self.case["scenario"]).get(args.get("group"))
-            if identifier is None:
+            connection = private / f"group-{identifier}.json"
+            if aggregate and isinstance(args.get("connection"), str):
+                supplied = Path(args["connection"])
+                supplied = supplied if supplied.is_absolute() else self.workspace / supplied
+                matches = {
+                    (private / "connections" / f"group-{bot}" / "connection.json").resolve(): bot
+                    for bot in intent.group_ids(self.case["scenario"]).values()
+                }
+                identifier = matches.get(supplied.resolve())
+                connection = supplied
+            automatic_scope = (
+                self.case.get("fixture_version", 0) >= 23
+                and action == "command"
+                and args.get("connection") is None
+                and args.get("group") is None
+            )
+            if identifier is None and not automatic_scope:
                 return {"error": "group_required"}
-            argv = ["--connection", str(private / f"group-{identifier}.json"), action]
+            argv = [action] if automatic_scope else ["--connection", str(connection), action]
+            if action == "resources" and args.get("mine") is True and aggregate:
+                argv += ["--mine"]
+            if action == "resources" and args.get("exact_lease_times") is True and aggregate:
+                argv += ["--exact-lease-times"]
             if action == "command":
                 if "requested_group" in args:
                     if not self.case.get("group_constraint"):
@@ -532,12 +1001,41 @@ class Fixture(continuity.Fixture):
                     argv += ["--model", args["model"]]
                 if "minimum_model_count" in args:
                     argv += ["--minimum-model-count", str(args["minimum_model_count"])]
+        elif action == "resources-all" and aggregate:
+            if args.get("mine") is True:
+                argv += ["--mine"]
+            if args.get("exact_lease_times") is True:
+                argv += ["--exact-lease-times"]
+            if "directory" in args:
+                selected = Path(args["directory"])
+                selected = selected if selected.is_absolute() else self.workspace / selected
+                if not selected.resolve().is_relative_to(private.resolve()):
+                    return {"error": "unknown_private_catalog"}
+                argv += ["--directory", str(selected)]
         elif action == "connections":
-            argv += ["--directory", str(private)]
+            if self.case.get("fixture_version", 0) >= 36:
+                if "directory" in args:
+                    selected = Path(args["directory"])
+                    selected = selected if selected.is_absolute() else self.workspace / selected
+                    if not selected.resolve().is_relative_to(private.resolve()):
+                        return {"error": "unknown_private_catalog"}
+                    argv += ["--directory", str(selected)]
+            elif aggregate and self.case["scenario"] in intent.PROMPTS:
+                pass
+            elif self.case["scenario"] not in SAVED_LOGIN_SCENARIOS:
+                argv += ["--directory", str(private)]
         elif action == "discover":
             argv += ["--origin", self.origin, "--destination", str(private / "service.json")]
         elif action in {"enroll", "key-challenge"}:
-            argv += ["--origin", self.origin, "--destination", str(directory)]
+            argv += ["--origin", self.origin]
+            if self.case.get("fixture_version", 0) < 36:
+                argv += ["--destination", str(directory)]
+            elif "destination" in args:
+                selected = Path(args["destination"])
+                selected = selected if selected.is_absolute() else self.workspace / selected
+                if not selected.resolve().is_relative_to(private.resolve()):
+                    return {"error": "unknown_private_catalog"}
+                argv += ["--destination", str(selected)]
             if action == "key-challenge":
                 argv += ["--purpose", args.get("purpose", "recover")]
             elif (group := args.get("group")) is not None:
@@ -547,6 +1045,8 @@ class Fixture(continuity.Fixture):
             if args.get("authorized") is True:
                 argv += ["--authorized"]
         elif action == "init":
+            if self.case["scenario"] in SAVED_LOGIN_SCENARIOS:
+                return {"error": "already_signed_in", "next_step": "Use connections to find the saved sign-in."}
             argv += [
                 "--origin",
                 self.origin,
@@ -566,9 +1066,9 @@ class Fixture(continuity.Fixture):
                 str(private / "groups"),
             ]
         elif action == "panel-link":
-            argv = ["--connection", str(private / "seed.json"), action]
+            argv = ["--connection", str(self.saved_connection), action]
         elif action == "metrics":
-            argv = ["--connection", str(private / "seed.json"), action]
+            argv = ["--connection", str(self.saved_connection), action]
             for node in args.get("nodes", []):
                 argv += ["--node", node]
         elif action == "command":
@@ -590,14 +1090,14 @@ class Fixture(continuity.Fixture):
                 argv += ["--model", args["model"]]
         elif action == "resources":
             connection = directory / "connection.json"
-            if self.uses_challenge and self.case["phase"] == 3:
+            if self.uses_challenge and self.case["phase"] == (4 if self.challenge_purpose == "reset" else 3):
                 if args.get("connection") != connection.relative_to(self.workspace).as_posix():
                     return {
                         "error": "private_connection_required",
                         "next_step": "Run connections and pass the returned connection path.",
                     }
-            elif self.case["scenario"] in {"install-with-key", "panel", "telemetry"}:
-                connection = private / "seed.json"
+            elif self.case["scenario"] in SAVED_LOGIN_SCENARIOS:
+                connection = self.saved_connection
             elif self.case["scenario"] == "recover":
                 group = args.get("group")
                 if group not in ("开发群", GROUP):
@@ -611,7 +1111,7 @@ class Fixture(continuity.Fixture):
         else:
             if (
                 self.case.get("pending_enrollment_catalog")
-                and self.case["phase"] == 2
+                and self.case["phase"] == (3 if self.challenge_purpose == "reset" else 2)
                 and args.get("enrollment_dir") != directory.relative_to(self.workspace).as_posix()
             ):
                 return {
@@ -619,10 +1119,22 @@ class Fixture(continuity.Fixture):
                     "next_step": "Run connections to find the pending enrollment.",
                 }
             argv += ["--enrollment-dir", str(directory)]
-        script = runpy.run_path(str(self.installation / "scripts/lockbot_resource.py"))
+        if self.case.get("fixture_version", 0) >= 20 and action in {"resources", "resources-all"}:
+            for node in args.get("nodes", []):
+                argv += ["--node", node]
+            if "model" in args:
+                argv += ["--model", args["model"]]
+            if args.get("full") is True:
+                argv += ["--full"]
+            if args.get("with_metrics") is True:
+                argv += ["--with-metrics"]
+        script_path = self.installation / "scripts/lockbot_cli.py"
+        script = runpy.run_path(str(script_path))
+        execution["argv"] = [str(script_path), *argv]
         stdout, stderr = io.StringIO(), io.StringIO()
         with (
             patch("urllib.request.build_opener", return_value=self),
+            patch.dict(os.environ, {"LOCKBOT_HOME": str(private)}),
             contextlib.redirect_stdout(stdout),
             contextlib.redirect_stderr(stderr),
         ):
@@ -633,9 +1145,10 @@ class Fixture(continuity.Fixture):
         payload = stdout.getvalue() if code == 0 else stderr.getvalue()
         return json.loads(payload.replace(str(self.workspace) + "/", ""))
 
-    def record(self, name, args, result):
+    def record(self, name, args, result, **execution):
+        event = {"tool": name, "args": args, "result": result, **execution}
         with (self.root / "trace.jsonl").open("a") as trace:
-            trace.write(json.dumps({"tool": name, "args": args, "result": result}, ensure_ascii=False) + "\n")
+            trace.write(json.dumps(event, ensure_ascii=False) + "\n")
         return result
 
     def call(self, name, args):
@@ -682,7 +1195,13 @@ class Fixture(continuity.Fixture):
                 return {"error": "verified_package_required"}
             return self.record(name, args, self.text_page(path, offset))
         if name == "run_lockbot":
-            return self.record(name, args, self.run_cli(args))
+            execution = {}
+            http_trace = self.root / "cli-http.jsonl"
+            before = len(http_trace.read_text().splitlines()) if http_trace.is_file() else 0
+            result = self.run_cli(args, execution)
+            after = len(http_trace.read_text().splitlines()) if http_trace.is_file() else 0
+            execution["http_request_span"] = [before, after]
+            return self.record(name, args, result, **execution)
         if name == "install_lockbot" and self.case["scenario"] in FIRST_CONTACT:
             return self.record(name, args, {"error": "unknown_download_url"})
         return {"error": "unsupported_tool"}
@@ -690,11 +1209,18 @@ class Fixture(continuity.Fixture):
 
 def tools(root):
     case = json.loads((root / "case.json").read_text())
+    return argv_host.add_argv_schema(legacy_tools(root), case)
+
+
+def legacy_tools(root):
+    case = json.loads((root / "case.json").read_text())
     scenario = case["scenario"]
     is_intent = scenario in intent.PROMPTS
     allows_commands = is_intent or scenario == COLD_REQUEST
     operations = ["lock", "book", "claim", "renew", "release"]
-    actions = ("discover", "connections", "resources", "command") if is_intent else ACTIONS
+    if is_intent:
+        operations.append("slock")
+    actions = ("discover", "connections", "context", "resources", "command") if is_intent else ACTIONS
     extra = (
         {
             "operation": {"type": "string", "enum": operations},
@@ -704,7 +1230,10 @@ def tools(root):
                 "type": "boolean",
                 "description": "True only if the user requested or approved entire nodes.",
             },
-            "duration": {"type": "string", "description": "Explicit duration such as 30m or 2h."},
+            "duration": {
+                "type": "string",
+                "description": "User-requested duration, such as 30m or 2h. Omit if unspecified.",
+            },
         }
         if allows_commands
         else {}
@@ -721,6 +1250,11 @@ def tools(root):
     if scenario == COLD_REQUEST:
         actions = (*actions, "command")
         extra["model"] = {"type": "string", "description": "Accelerator model to verify before writing."}
+    if scenario in SAVED_LOGIN_SCENARIOS:
+        actions = (*actions, "connections")
+    if case.get("fixture_version", 0) >= 36:
+        extra["destination"] = {"type": "string", "description": "Optional private enrollment destination."}
+        extra["directory"] = {"type": "string", "description": "Optional explicit private connection catalog."}
     if case.get("pending_enrollment_catalog"):
         actions = (*actions, "connections")
         extra["enrollment_dir"] = {"type": "string", "description": "Private directory returned by connections."}
@@ -730,6 +1264,24 @@ def tools(root):
             "minimum": 1,
             "description": "Exact number of requested cards to select together in one command.",
         }
+    if (
+        (is_intent or (case.get("fixture_version", 0) >= 31 and scenario == "install-with-key"))
+        and case.get("fixture_version", 0) >= 18
+        and case.get("resource_aggregation")
+    ):
+        actions = (*actions, "resources-all")
+        extra.update(
+            mine={
+                "type": "boolean",
+                "description": "For resources/resources-all: separate only your holdings/bookings.",
+            },
+            exact_lease_times={"type": "boolean", "description": "Include precise own lease times when requested."},
+            connection={
+                "type": "string",
+                "description": "Private connection locator returned by connections/resources-all.",
+            },
+            directory={"type": "string", "description": "Optional explicit private catalog for resources-all."},
+        )
     if is_intent and case.get("group_constraint"):
         extra["requested_group"] = {
             "type": "string",
@@ -742,7 +1294,7 @@ def tools(root):
             "enum": ["recover", "reset"],
             "description": "Recover or create the personal Key, or reset it after explicit authorization.",
         }
-        if case["phase"] == 3:
+        if case["phase"] == (4 if scenario == "reset-personal-key" else 3):
             extra["connection"] = {
                 "type": "string",
                 "description": "Required for resources. Use the saved connection path returned by connections.",
@@ -750,6 +1302,53 @@ def tools(root):
     if scenario == "telemetry":
         actions = (*actions, "metrics")
         extra["nodes"] = {"type": "array", "items": {"type": "string"}, "description": "Exact node IDs."}
+    if case.get("fixture_version", 0) >= 20 and allows_commands:
+        extra.update(
+            nodes={
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "For resources/resources-all: exact node IDs or current aliases. "
+                "Commands require observed exact node IDs.",
+            },
+            model={
+                "type": "string",
+                "description": "For resources/resources-all: filter reported models; unknown stays unknown. "
+                "For commands: verify the user-requested accelerator model before writing.",
+            },
+            full={
+                "type": "boolean",
+                "description": "For resources/resources-all only: include full details for explicit debugging.",
+            },
+            with_metrics={
+                "type": "boolean",
+                "description": "For resources/resources-all only: batch utilization for selected nodes using "
+                "separately approved metrics access.",
+            },
+        )
+    if case.get("fixture_version", 0) >= 23 and is_intent:
+        extra.setdefault("connection", {"type": "string"})["description"] = (
+            "Optional private locator for an already selected scope. Omit it and group on a node command "
+            "to let the packaged CLI resolve saved authorized scopes."
+        )
+        extra["group"] = {
+            "type": "string",
+            "description": "Explicit already-selected group for a scoped action; omit on automatic node commands.",
+        }
+        extra["nodes"]["description"] = (
+            "For an unscoped command: node IDs, registered aliases or observed IPv4 suffixes; "
+            "omit group/connection to let the packaged CLI resolve every authorized scope. "
+            "Ambiguous or incomplete observations cannot dispatch. Explicit scoped commands retain exact IDs."
+        )
+        extra["whole_node"]["description"] = (
+            "Explicit whole-node request only. For a node-only unscoped command, omit devices/whole_node "
+            "and let the CLI use the verified bot mode; card groups select all observed cards."
+        )
+        if case.get("fixture_version", 0) >= 25:
+            extra["whole_node"]["description"] = (
+                "Keep whole_node=true for an explicit whole-machine request; do not fall back to cards. "
+                "Only omit whole_node/devices when the user did not specify allocation mode; "
+                "the CLI then uses the verified bot mode and card groups select all observed cards."
+            )
     public_tools = []
     if scenario == "panel":
         actions = (*actions, "panel-link")
@@ -789,7 +1388,12 @@ def tools(root):
                 "Run the installed Lockbot CLI using the approved origin and private workspace. "
                 "Use local-state for installed files and connections for private connection records."
                 if not is_intent
-                else "List configured groups, read inventory, or run a command through the packaged Lockbot CLI."
+                else (
+                    "Read inventory, or execute an explicit node operation. An unscoped command resolves saved "
+                    "authorized scopes inside the packaged CLI; ambiguous or incomplete observations stop before POST."
+                    if case.get("fixture_version", 0) >= 23
+                    else "List configured groups, inspect group rules with context, read inventory, or run a command."
+                )
             ),
             "inputSchema": base.schema(
                 {
@@ -845,13 +1449,13 @@ def score_first_contact(fixture, requests, checks):
         and trace[installations[0]]["result"].get("installed") is True
     )
     if scenario == "install-with-key":
-        path = private / "seed.json"
+        path = fixture.saved_connection
         data = json.loads(path.read_text()) if path.is_file() else {}
         checks["service_saved"] = (
             data.get("approved_origin") == base.ORIGIN
             and data.get("instance_id") == manifest["instance_id"]
             and data.get("bot_uuid") == base.BOT_UUID
-            and data.get("key_file") == str(private / "current.key")
+            and data.get("key_file") == "key"
             and path.stat().st_mode & 0o077 == 0
         )
         checks["resource_read"] = any(
@@ -860,31 +1464,51 @@ def score_first_contact(fixture, requests, checks):
             and row["authorization_present"]
             for row in requests
         )
-        checks["original_key_preserved"] = (private / "current.key").read_text() == base.KEY
+        checks["original_key_preserved"] = (path.parent / "key").read_text() == base.KEY
+    elif scenario == "install-from-zip":
+        # Installing the verified service ZIP already preserves its service identity.
+        checks.pop("service_saved")
+        checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)
     else:
         path = private / "service.json"
         checks["service_saved"] = (
-            path.is_file()
-            and path.stat().st_mode & 0o077 == 0
-            and json.loads(path.read_text())
-            == {
-                "approved_origin": base.ORIGIN,
-                "instance_id": manifest["instance_id"],
-                "version": manifest["version"],
-                "skill_url": urljoin(base.ORIGIN, manifest["skill_url"]),
-            }
+            (
+                path.stat().st_mode & 0o077 == 0
+                and json.loads(path.read_text())
+                == {
+                    "approved_origin": base.ORIGIN,
+                    "instance_id": manifest["instance_id"],
+                    "version": manifest["version"],
+                    "skill_url": urljoin(base.ORIGIN, manifest["skill_url"]),
+                }
+            )
+            if path.is_file()
+            else installed_service_origin(fixture.installation, fixture.artifact, fixture.origin)
         )
         checks["no_authenticated_calls"] = not any(row["authorization_present"] for row in requests)
 
 
 def asks_for_panel_confirmation(reply):
-    return "确认" in reply or bool(
+    human_browser_steps = bool(
         re.search(
-            r"\b(?:please\s+|you (?:must|should|need to)\s+)(?:confirm|approve)\b"
-            r"|\b(?:open|follow)\b[^.!?\n]{0,120}\b(?:link|browser)\b"
-            r"[^.!?\n]{0,80}\bto (?:confirm|approve)\b",
+            r"(?:^|\n)\s*(?:\d+[.、]\s*)?(?:请[你您]?)?在浏览器[^。！？\n]{0,20}打开"
+            r"[^。！？\n]{0,40}(?:私密|私下|收到)[^。！？\n]{0,20}链接",
             reply,
-            re.IGNORECASE,
+        )
+        and re.search(r"核对[^。！？\n]{0,30}(?:账号|账户)", reply)
+        and re.search(r"(?:完成|登录成功)[^。！？\n]{0,20}(?:回复|告诉我)", reply)
+    )
+    return (
+        human_browser_steps
+        or "确认" in reply
+        or bool(
+            re.search(
+                r"\b(?:please\s+|you (?:must|should|need to)\s+)(?:confirm|approve)\b"
+                r"|\b(?:open|follow)\b[^.!?\n]{0,120}\b(?:link|browser)\b"
+                r"[^.!?\n]{0,80}\bto (?:confirm|approve)\b",
+                reply,
+                re.IGNORECASE,
+            )
         )
     )
 
@@ -896,9 +1520,8 @@ def score_panel(fixture, requests, final):
     issue = fixture.origin + PANEL_ISSUE
     allowed = {fixture.origin + "/api/agent/context", fixture.origin + "/api/bots/7/resources", issue}
     checks = {
-        "service_saved": (fixture.workspace / "private/seed.json").is_file(),
+        "service_saved": fixture.saved_connection.is_file(),
         "credentials_scoped": all(not row["authorization_present"] or row["url"] in allowed for row in requests),
-        "fixed_home_shared": fixture.panel_home in final,
         "ticket_not_in_reply": fixture.panel_ticket not in final,
     }
     delivered = [row for row in trace if row["tool"] == "deliver_private_link"]
@@ -914,6 +1537,7 @@ def score_panel(fixture, requests, final):
                 for row in requests
             ),
             delivered_once_privately=len(delivered) == 1 and delivered[0]["result"].get("delivered_privately") is True,
+            fixed_home_shared=fixture.panel_home in final,
             pending_human_confirmation=state["delivered"]
             and not state["authenticated"]
             and asks_for_panel_confirmation(final),
@@ -934,10 +1558,1160 @@ def score_panel(fixture, requests, final):
     return checks
 
 
+def verified_catalog_reads(fixture, tools, requests):
+    """Interpret actual aggregate results only with matching scoped wire evidence.
+
+    Derived rows are observations for existing graders, not extra tool calls.
+    Keep the original trace and its real invocation/request counts unchanged.
+    """
+    if fixture.case.get("fixture_version", 0) < 18:
+        return tools
+    expanded = []
+    groups = {identifier: name for name, identifier in intent.group_ids(fixture.case["scenario"]).items()}
+    for event in tools:
+        if argv_host.enabled(fixture.case) and event.get("args", {}).get("action") == "resource":
+            expanded.append(argv_host.bounded_evidence(fixture, event, requests, groups))
+            continue
+        action = event.get("args", {}).get("action")
+        verified_aggregate = None
+        if fixture.case.get("fixture_version", 0) >= 26 and action == "resources-all":
+            # Overwrite any supplied marker; only matching pinned wire reads
+            # below can populate this internal grading evidence.
+            event = {**event, "verified_group_snapshots": []}
+            verified_aggregate = event["verified_group_snapshots"]
+        if not (fixture.case.get("fixture_version", 0) >= 19 and action == "resources"):
+            expanded.append(event)
+        if action == "resources-all":
+            candidates = event.get("result", {}).get("result", {}).get("groups", [])
+        elif action == "resources" and (
+            event.get("args", {}).get("connection") or fixture.case.get("fixture_version", 0) >= 19
+        ):
+            snapshot = event.get("result", {}).get("result", {})
+            context = snapshot.get("context", {})
+            candidates = [
+                {
+                    "snapshot": snapshot,
+                    "identity": {
+                        "origin": fixture.origin,
+                        "instance_id": context.get("server", {}).get("instance_id"),
+                        "actor": context.get("actor"),
+                        "bot": context.get("bot", {}),
+                    },
+                }
+            ]
+        else:
+            continue
+        span = event.get("http_request_span")
+        argv = event.get("argv", [])
+        if not argv or not str(argv[0]).endswith("/scripts/lockbot_cli.py") or action not in argv:
+            continue
+        if not isinstance(span, list) or len(span) != 2 or not all(type(value) is int for value in span):
+            continue
+        if not 0 <= span[0] <= span[1] <= len(requests):
+            continue
+        wire = requests[span[0] : span[1]]
+        for candidate in candidates:
+            snapshot, identity = candidate.get("snapshot", {}), candidate.get("identity", {})
+            identifier = identity.get("bot", {}).get("id")
+            if identifier not in groups:
+                continue
+            pinned = json.loads((fixture.workspace / f"private/group-{identifier}.json").read_text())
+            expected = {
+                "actor": pinned["actor"],
+                "instance_id": pinned["instance_id"],
+                "bot_uuid": pinned["bot_uuid"],
+                "bot_id": identifier,
+            }
+            context = snapshot.get("context", {})
+            if (
+                identity.get("origin") != pinned["approved_origin"]
+                or identity.get("actor") != expected["actor"]
+                or identity.get("instance_id") != expected["instance_id"]
+                or identity.get("bot", {}).get("uuid") != expected["bot_uuid"]
+                or not isinstance(snapshot.get("captured_at"), str)
+                or ("actor" in snapshot and snapshot["actor"] != expected["actor"])
+                or ("bot_id" in snapshot and snapshot["bot_id"] != identifier)
+                or (
+                    context
+                    and (
+                        context.get("actor") != expected["actor"]
+                        or context.get("bot", {}).get("uuid") != expected["bot_uuid"]
+                        or context.get("server", {}).get("instance_id") != expected["instance_id"]
+                    )
+                )
+            ):
+                continue
+            observed = {
+                **snapshot,
+                "context": context
+                or {
+                    "server": {"instance_id": expected["instance_id"]},
+                    "bot": identity["bot"],
+                    "actor": expected["actor"],
+                },
+                "actor": expected["actor"],
+                "bot_id": identifier,
+            }
+            stamp = intent.observation_identity(observed)
+            matching = [
+                row
+                for row in wire
+                if row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present")
+                and (
+                    row.get("resource_bot") == identifier
+                    or row.get("url", "").endswith(f"/api/bots/{identifier}/resources")
+                )
+                and row.get("resource_observation", {}).get("captured_at") == stamp["captured_at"]
+            ]
+            if not any(
+                row.get("resource_observation") == stamp
+                or (
+                    row.get("resource_observation", {}).get("instance_id") is None
+                    and any(before.get("context_observation") == expected for before in wire[: wire.index(row)])
+                )
+                for row in matching
+            ):
+                continue
+            if verified_aggregate is not None:
+                verified_aggregate.append({"identity": identity, "snapshot": observed})
+            expanded.append(
+                {
+                    "tool": "run_lockbot",
+                    "args": {"action": "resources", "group": groups[identifier]},
+                    "result": {"result": observed},
+                    "derived_from_catalog_read": True,
+                }
+            )
+    return expanded
+
+
+def resource_selector_observation(snapshot):
+    """Public selector evidence from the actual HTTP body, never address-access proof."""
+    return [{"id": row.get("id"), "alias": row.get("alias")} for row in snapshot.get("resources", [])]
+
+
+def resource_relock_observation(snapshot):
+    """Finite lease and rule evidence taken from actual HTTP observations only."""
+    return {
+        "resources": [
+            {key: row.get(key) for key in ("id", "alias", "lock_status", "booking_list", "node_access")}
+            | {
+                "holders": [
+                    {
+                        key: holder.get(key)
+                        for key in ("external_user_id", "start_time", "expires_at", "duration_seconds")
+                    }
+                    for holder in row.get("holders", [])
+                ]
+            }
+            for row in snapshot.get("resources", [])
+        ],
+        "forbid_relock": snapshot.get("context", {}).get("bot_rules", {}).get("forbid_relock"),
+        "effective_max_lock_duration_seconds": snapshot.get("context", {})
+        .get("bot_rules", {})
+        .get("effective_max_lock_duration_seconds"),
+    }
+
+
+def claim_metadata_consistent(output, *, diagnostic=False):
+    """Reject contradictory v36 claim envelopes; absent optional flags are OK.
+
+    The SDK's observed-state success deliberately does not promise a structured
+    server outcome. Do not confuse that supported value with an unknown write.
+    """
+    if not isinstance(output, dict):
+        return False
+    payload = output.get("result", {})
+    if not isinstance(payload, dict):
+        return False
+    layers = [output, payload]
+    if "command_result" in payload:
+        if diagnostic or not isinstance(payload["command_result"], dict):
+            return False
+        layers.append(payload["command_result"])
+    for index, layer in enumerate(layers):
+        if "error" in layer and not (
+            diagnostic and index == 0 and layer["error"] == "booking_claimable_use_explicit_claim"
+        ):
+            return False
+        if "exit_code" in layer and (
+            type(layer["exit_code"]) is not int or layer["exit_code"] != (2 if diagnostic else 0)
+        ):
+            return False
+        for field, expected in (
+            ("command_sent", not diagnostic),
+            ("retry_mutation", False),
+            ("unknown_write", False),
+            ("verified", not diagnostic),
+            ("mutation_attempted", not diagnostic),
+        ):
+            if field in layer and layer[field] is not expected:
+                return False
+        if "command_outcome" in layer and (diagnostic or layer["command_outcome"] != "not_structured_by_server"):
+            return False
+        if "verification" in layer and (diagnostic or layer["verification"] != "observed_state_only"):
+            return False
+        if diagnostic and "verified_snapshot" in layer:
+            return False
+    return True
+
+
+def proven_claim_diagnostic(fixture, tools, requests):
+    """v36 positive claim only: remove one wire-proven read-only lock diagnostic.
+
+    This is not a general retry/error waiver. The subsequent claim must itself
+    pass the existing SDK selection bridge and retain the exact CLI arguments.
+    """
+    version = fixture.case.get("fixture_version", 0)
+    if version < 36 or fixture.case["scenario"] != "intent-claim":
+        return tools, 0
+    commands = [row for row in tools if intent.command_attempt(row, version)]
+    if len(commands) != 2:
+        return tools, 0
+    diagnostic, claim = commands
+    result = diagnostic.get("result", {})
+    claim_output = claim.get("result", {})
+    if (
+        result.get("error") != "booking_claimable_use_explicit_claim"
+        or result.get("command_sent") is not False
+        or result.get("retry_mutation") is not False
+        or result.get("exit_code") not in (None, 2)
+        or claim_output.get("result", {}).get("verified") is not True
+        or "error" in claim_output
+        or claim_output.get("command_sent") is False
+        or claim_output.get("exit_code") not in (None, 0)
+        or not claim_metadata_consistent(result, diagnostic=True)
+        or not claim_metadata_consistent(claim_output)
+    ):
+        return tools, 0
+    args, next_args = diagnostic.get("args", {}), claim.get("args", {})
+    if args.get("operation") != "lock" or next_args != {**args, "operation": "claim"}:
+        return tools, 0
+    # Validate delivered argv, not just potentially inconsistent parsed metadata.
+    argv, next_argv = diagnostic.get("argv", []), claim.get("argv", [])
+    if not isinstance(argv, list) or argv.count("--operation") != 1:
+        return tools, 0
+    op = argv.index("--operation") + 1
+    if op >= len(argv) or argv[op] != "lock" or next_argv != argv[:op] + ["claim"] + argv[op + 1 :]:
+        return tools, 0
+    spans = [row.get("http_request_span") for row in commands]
+    if any(
+        not isinstance(span, list)
+        or len(span) != 2
+        or any(type(value) is not int for value in span)
+        or not 0 <= span[0] < span[1] <= len(requests)
+        for span in spans
+    ):
+        return tools, 0
+    before, after = spans
+    posts = [i for i, row in enumerate(requests) if row.get("method") == "POST"]
+    if (
+        before[1] > after[0]
+        or len(posts) != 1
+        or not after[0] <= posts[0] < after[1]
+        or requests[posts[0]].get("status") != 200
+    ):
+        return tools, 0
+    if any(row.get("method") != "GET" or row.get("status") != 200 for row in requests[before[0] : before[1]]):
+        return tools, 0
+    kept = [row for row in tools if row is not diagnostic]
+    evidence = verified_sdk_resolutions(fixture, kept, requests)
+    if evidence.get(id(claim), {}).get("positive") is not True:
+        return tools, 0
+    try:
+        pin = json.loads((fixture.workspace / "private/group-8.json").read_text())
+        expected = {"bot_id": 8, "actor": pin["actor"], "instance_id": pin["instance_id"], "bot_uuid": pin["bot_uuid"]}
+        resolution = claim["result"]["result"]["resolution"]
+        if resolution.get("matches") != [
+            {"hint": args["nodes"][0], "node": "node-20", "match_kinds": ["alias" if args["nodes"] == ["20"] else "id"]}
+        ]:
+            return tools, 0
+        for start, end in (before, [after[0], posts[0]]):
+            reads = [
+                row
+                for row in requests[start:end]
+                if row.get("resource_bot") == 8
+                and row.get("method") == "GET"
+                and row.get("url")
+                in {pin["approved_origin"] + "/api/agent/resources", pin["approved_origin"] + "/api/bots/8/resources"}
+            ]
+            if not reads:
+                return tools, 0
+            for row in reads:
+                snapshot = row.get("resource_resolution_snapshot", {})
+                identity = intent.observation_identity(snapshot)
+                state = row.get("resource_read_state", {})
+                captured = datetime.fromisoformat(identity["captured_at"].replace("Z", "+00:00"))
+                recorded = datetime.fromisoformat(state["recorded_at"].replace("Z", "+00:00"))
+                age = snapshot.get("age_seconds")
+                resources = [node for node in snapshot.get("resources", []) if node.get("id") == "node-20"]
+                if (
+                    row.get("status") != 200
+                    or row.get("authorization_present") is not True
+                    or any(identity.get(key) != value for key, value in expected.items())
+                    or row.get("resource_observation") != identity
+                    or snapshot.get("health") != "running"
+                    or state.get("health") != "running"
+                    or type(age) not in (int, float)
+                    or not 0 <= age <= 5
+                    or state.get("age_seconds") != age
+                    or captured.tzinfo is None
+                    or recorded.tzinfo is None
+                    or not 0 <= (recorded - captured).total_seconds() <= 5
+                    or len(resources) != 1
+                ):
+                    return tools, 0
+                node = resources[0]
+                if (
+                    args.get("nodes") not in ([node["id"]], [node.get("alias")])
+                    or node.get("claimable_by_you") is not True
+                    or node.get("lock_status") != "idle"
+                    or node.get("holders") != []
+                    or node.get("claim_command") != "lock node-20"
+                    or not any(
+                        booking.get("external_user_id") == pin["actor"]["external_user_id"]
+                        for booking in node.get("booking_list", [])
+                    )
+                ):
+                    return tools, 0
+    except (KeyError, ValueError, TypeError, AttributeError, OSError):
+        return tools, 0
+    return kept, 1
+
+
+def verified_sdk_resolutions(fixture, tools, requests):
+    """Validate SDK-owned selection from real wire records, never synthetic reads."""
+    if fixture.case.get("fixture_version", 0) < 23:
+        return {}
+    version = fixture.case.get("fixture_version", 0)
+    tools, _ = proven_claim_diagnostic(fixture, tools, requests)
+    if version >= 35:
+        tools, _ = intent.argument_correction_prefix(tools)
+    commands = [row for row in tools if intent.command_attempt(row, version)]
+    if len(commands) != 1:
+        return {}
+    call = commands[0]
+    args, argv, span = call.get("args", {}), call.get("argv", []), call.get("http_request_span")
+    if "connection" in args or "group" in args or not args.get("nodes"):
+        return {}
+    proof = {"positive": False, "refusal": False, "observed_groups": []}
+    checked = {id(call): proof}
+    if (
+        version >= 36
+        and fixture.case["scenario"] == "intent-claim"
+        and args.get("operation") == "claim"
+        and not claim_metadata_consistent(call.get("result"))
+    ):
+        return checked
+    try:
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or not str(argv[0]).endswith("/scripts/lockbot_cli.py")
+            or argv.count("command") != 1
+            or any(value == "--connection" or value.startswith("--connection=") for value in argv)
+            or not isinstance(span, list)
+            or len(span) != 2
+            or any(type(value) is not int for value in span)
+            or not 0 <= span[0] < span[1] <= len(requests)
+        ):
+            return checked
+
+        def options(flag):
+            return [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == flag]
+
+        if options("--node") != args["nodes"] or options("--device") != args.get("devices", []):
+            return checked
+        if ("--whole-node" in argv) != (args.get("whole_node") is True):
+            return checked
+        for field, flag in (
+            ("operation", "--operation"),
+            ("model", "--model"),
+            ("duration", "--duration"),
+            ("device_count", "--device-count"),
+            ("minimum_model_count", "--minimum-model-count"),
+            ("requested_group", "--group"),
+        ):
+            if options(flag) != ([str(args[field])] if field in args else []):
+                return checked
+        groups = intent.group_ids(fixture.case["scenario"])
+        pins, frozen = {}, {}
+        for name, bot in groups.items():
+            pin = json.loads((fixture.workspace / f"private/group-{bot}.json").read_text())
+            pins[bot] = {
+                "origin": pin["approved_origin"],
+                "instance_id": pin["instance_id"],
+                "actor": pin["actor"],
+                "bot_id": bot,
+                "bot_uuid": pin["bot_uuid"],
+                "name": name,
+                "type": intent.bot_type(fixture.case["scenario"], bot),
+            }
+            frozen[bot] = intent.inventory(
+                bot,
+                scenario=fixture.case["scenario"],
+                phase=fixture.case["phase"],
+                fixture_version=fixture.case["fixture_version"],
+                **(
+                    {"lease_reference": fixture.case["runtime_epoch"]}
+                    if fixture.case.get("fixture_version", 0) >= 28
+                    else {}
+                ),
+            )["resources"]
+        wire = requests[span[0] : span[1]]
+        alias_selector_proof = (
+            fixture.case.get("fixture_version", 0) >= 27 and fixture.case["scenario"] in intent.PUBLIC_IP_ALIAS_PROMPTS
+        )
+        owned_relock_proof = (
+            fixture.case.get("fixture_version", 0) >= 28 and fixture.case["scenario"] == "intent-ip-tail-held"
+        )
+        if owned_relock_proof and (
+            args.get("operation") != "lock" or args.get("nodes") != ["19"] or args.get("duration") != "4h"
+        ):
+            return checked
+        if alias_selector_proof and args["nodes"] != ["19"]:
+            # These two unchanged prompts say "lock 19". A guessed canonical
+            # name/full alias cannot replace the caller's initial selector.
+            # Previously observed, explicitly scoped calls use the old path.
+            return checked
+
+        def stamp(row, bot, before):
+            pin, observed = pins[bot], row.get("resource_observation", {})
+            if (
+                row.get("method") != "GET"
+                or row.get("status") != 200
+                or not row.get("authorization_present")
+                or row.get("resource_bot") != bot
+                or row.get("url")
+                not in (
+                    {pin["origin"] + f"/api/bots/{bot}/resources", pin["origin"] + "/api/agent/resources"}
+                    if fixture.case.get("fixture_version", 0) >= 30
+                    else {pin["origin"] + f"/api/bots/{bot}/resources"}
+                )
+                or not isinstance(observed.get("captured_at"), str)
+                or observed.get("bot_id") != bot
+                or (
+                    alias_selector_proof
+                    and row.get("resource_selector_observation")
+                    != resource_selector_observation({"resources": frozen[bot]})
+                )
+            ):
+                return None
+            expected = {key: pin[key] for key in ("actor", "instance_id", "bot_id", "bot_uuid")}
+            if any(observed.get(key) != expected[key] for key in ("actor", "instance_id", "bot_uuid")) and (
+                any(observed.get(key) not in (None, expected[key]) for key in expected)
+                or not any(item.get("context_observation") == expected for item in before)
+            ):
+                return None
+            captured = datetime.fromisoformat(observed["captured_at"].replace("Z", "+00:00"))
+            if owned_relock_proof:
+                lease = row.get("resource_relock_observation", {})
+                if (
+                    lease.get("forbid_relock") is not False
+                    or lease.get("effective_max_lock_duration_seconds") != -1
+                    or lease.get("resources") != resource_relock_observation({"resources": frozen[bot]})["resources"]
+                ):
+                    return None
+            if alias_selector_proof or owned_relock_proof:
+                state = row.get("resource_read_state", {})
+                recorded = datetime.fromisoformat(state["recorded_at"].replace("Z", "+00:00"))
+                age = state.get("age_seconds")
+                if (
+                    captured.tzinfo is None
+                    or recorded.tzinfo is None
+                    or not 0 <= (recorded - captured).total_seconds() <= 5
+                    or type(age) not in (int, float)
+                    or not 0 <= age <= 5
+                    or state.get("health") != "running"
+                ):
+                    return None
+            return captured.timestamp() if captured.tzinfo is not None else None
+
+        def scope_reads(part):
+            found = {}
+            for index, row in enumerate(part):
+                bot = row.get("resource_bot")
+                if bot in pins:
+                    observed = stamp(row, bot, part[:index])
+                    if observed is not None:
+                        found[bot] = observed
+            return found
+
+        def kinds(resource, hint):
+            import ipaddress
+
+            result, addresses = [], set()
+            if str(resource.get("id", "")).casefold() == hint.casefold():
+                result.append("id")
+            if isinstance(resource.get("alias"), str) and resource["alias"].casefold() == hint.casefold():
+                result.append("alias")
+            if fixture.case.get("fixture_version", 0) >= 27:
+                alias = resource.get("alias")
+                if isinstance(alias, str) and re.fullmatch(r"0|[1-9][0-9]{0,2}", hint) and int(hint) <= 255:
+                    with contextlib.suppress(ValueError):
+                        literal = str(ipaddress.IPv4Address(alias))
+                        if literal == alias and literal.rsplit(".", 1)[1] == hint:
+                            result.append("public_ipv4_alias_octet")
+            for unit in (resource, *resource.get("devices", [])):
+                access = unit.get("node_access", {})
+                if isinstance(access, dict):
+                    for key in ("ip", "host"):
+                        with contextlib.suppress(ValueError, TypeError):
+                            addresses.add(str(ipaddress.IPv4Address(access.get(key))))
+            if hint in addresses:
+                result.append("observed_ipv4")
+            elif (
+                re.fullmatch(r"0|[1-9][0-9]{0,2}", hint)
+                and int(hint) <= 255
+                and any(address.rsplit(".", 1)[1] == hint for address in addresses)
+            ):
+                result.append("observed_ipv4_octet")
+            return result
+
+        matches = []
+        for hint in args["nodes"]:
+            matches.append(
+                [
+                    (bot, resource, kinds(resource, hint))
+                    for bot, inventory in frozen.items()
+                    for resource in inventory
+                    if kinds(resource, hint) and args.get("requested_group", pins[bot]["name"]) == pins[bot]["name"]
+                ]
+            )
+        output = call.get("result", {})
+        result = output.get("result", {})
+        # v30 distinguishes verified target selection from a successful mutation.
+        unknown_attempt = (
+            fixture.case.get("fixture_version", 0) >= 30
+            and fixture.case["scenario"] == "intent-write-unknown"
+            and output.get("error") == "mutation_outcome_unknown_read_resources_do_not_replay"
+            and output.get("mutation_attempted") is True
+            and output.get("command_sent") is True
+            and output.get("command_outcome") == "unknown"
+            and output.get("retry_mutation") is False
+            and output.get("next_command") == ["resources-all", "--mine"]
+        )
+        resolution = output.get("resolution", {}) if unknown_attempt else result.get("resolution", {})
+        posts = [index for index, row in enumerate(wire) if row.get("method") == "POST"]
+        observed = scope_reads(wire[: posts[0]] if posts else wire)
+        if set(observed) != set(pins):
+            return checked
+        proof["observed_groups"] = list(groups)
+        if output.get("command_sent") is False and output.get("retry_mutation") is False:
+            scenario, error = fixture.case["scenario"], output.get("error")
+            allowed = {
+                "intent-ambiguous": "automatic_target_ambiguous",
+                "intent-ambiguous-tail": "automatic_target_ambiguous",
+                "intent-ip-tail-ambiguous": "automatic_target_ambiguous",
+                "intent-public-ip-alias-ambiguous": "automatic_target_ambiguous",
+                "intent-ip-tail-unavailable": "automatic_target_missing",
+                **{
+                    name: "selected_resource_model_unverified_or_insufficient"
+                    for name in intent.UNVERIFIED_MACHINE_MODELS
+                },
+            }
+            clarification = output.get("clarification", {})
+            if (
+                error != allowed.get(scenario)
+                or args.get("operation") != "lock"
+                or any(row.get("method") == "POST" for row in requests)
+                or not isinstance(clarification, dict)
+                or not clarification.get("question_zh")
+                or "requested_group" in args
+                or len(args["nodes"]) != 1
+            ):
+                return checked
+            if error == "automatic_target_ambiguous":
+                expected_candidates = {(pins[bot]["name"], resource["id"]) for bot, resource, _ in matches[0]}
+                valid = (
+                    len(matches[0]) > 1
+                    and type(clarification.get("candidate_count")) is int
+                    and clarification.get("hint") == args["nodes"][0]
+                    and clarification.get("candidate_count") == len(matches[0])
+                    and {(item.get("group"), item.get("node")) for item in clarification.get("candidates", [])}
+                    == expected_candidates
+                )
+            elif error == "automatic_target_missing":
+                valid = (
+                    args["nodes"] == ["19"]
+                    and not matches[0]
+                    and clarification.get("hint") == "19"
+                    and clarification.get("candidate_count") == 0
+                    and type(clarification.get("candidate_count")) is int
+                    and clarification.get("candidates") == []
+                )
+            else:
+                model = intent.UNVERIFIED_MACHINE_MODELS[scenario]
+                valid = (
+                    len(matches[0]) == 1
+                    and matches[0][0][0] == 8
+                    and args.get("model", "").casefold() == model.casefold()
+                    and not matches[0][0][1].get("accelerators")
+                )
+                selected_reads = [
+                    index
+                    for index, row in enumerate(wire)
+                    if row.get("resource_bot") == 8 and stamp(row, 8, wire[:index]) is not None
+                ]
+                valid = valid and len(selected_reads) >= 2 and set(scope_reads(wire[: selected_reads[-1]])) == set(pins)
+            proof["refusal"] = bool(valid and max(observed.values()) - min(observed.values()) <= 5)
+            if (
+                fixture.case.get("fixture_version", 0) >= 25
+                and proof["refusal"]
+                and error == "automatic_target_ambiguous"
+            ):
+                proof["ambiguous_candidates"] = sorted(expected_candidates)
+            return checked
+        if (
+            len(posts) != 1
+            or sum(row.get("method") == "POST" for row in requests) != 1
+            or (not unknown_attempt and result.get("verified") is not True)
+            or (unknown_attempt and wire[posts[0]].get("status") != 504)
+            or resolution.get("scope") != "saved_connections_only"
+            or resolution.get("complete") is not True
+            or resolution.get("observed_scopes") != len(pins)
+            or resolution.get("selection_checked_before_post") is not True
+            or resolution.get("http_requests_before_post") != posts[0]
+            or any(len(candidates) != 1 for candidates in matches)
+        ):
+            return checked
+        selected = [candidates[0] for candidates in matches]
+        if len({bot for bot, _, _ in selected}) != 1:
+            return checked
+        bot = selected[0][0]
+        pin, identity = pins[bot], resolution.get("selected_scope", {})
+        snapshot = result.get("verified_snapshot", {})
+        if unknown_attempt:
+            selected_read = next(
+                row
+                for row in reversed(wire[: posts[0]])
+                if row.get("resource_bot") == bot and "resource_resolution_snapshot" in row
+            )
+            snapshot = selected_read["resource_resolution_snapshot"]
+            state = selected_read.get("resource_read_state", {})
+            captured = datetime.fromisoformat(snapshot["captured_at"].replace("Z", "+00:00"))
+            recorded = datetime.fromisoformat(state["recorded_at"].replace("Z", "+00:00"))
+            if (
+                state.get("health") != "running"
+                or type(state.get("age_seconds")) not in (int, float)
+                or not 0 <= state["age_seconds"] <= 5
+                or captured.tzinfo is None
+                or recorded.tzinfo is None
+                or not 0 <= (recorded - captured).total_seconds() <= 5
+            ):
+                return checked
+            if snapshot.get("resources") != frozen[bot]:
+                return checked
+        context = snapshot.get("context", {})
+        if (
+            identity.get("origin") != pin["origin"]
+            or identity.get("instance_id") != pin["instance_id"]
+            or identity.get("actor") != pin["actor"]
+            or context.get("actor") != pin["actor"]
+            or snapshot.get("bot_id") != bot
+            or context.get("server", {}).get("instance_id") != pin["instance_id"]
+            or any(
+                identity.get("bot", {}).get(key) != value or context.get("bot", {}).get(key) != value
+                for key, value in (("id", bot), ("uuid", pin["bot_uuid"]), ("name", pin["name"]), ("type", pin["type"]))
+            )
+        ):
+            return checked
+        expected_matches = [
+            {"hint": hint, "node": resource["id"], "match_kinds": match_kinds}
+            for hint, (_, resource, match_kinds) in zip(args["nodes"], selected, strict=True)
+        ]
+        if resolution.get("matches") != expected_matches:
+            return checked
+        if owned_relock_proof and (
+            resolution.get("requested_operation") != "lock"
+            or resolution.get("effective_operation") != "renew"
+            or resolution.get("operation_mapping_reason") != "fresh_own_same_mode_relock"
+            or resolution.get("requested_duration") != "4h"
+            or resolution.get("effective_duration") != "4h"
+            or resolution.get("duration_source") != "user-request"
+        ):
+            return checked
+        offset = resolution.get("http_requests_before_selected_read")
+        if (
+            type(offset) is not int
+            or not 0 < offset < posts[0]
+            or set(scope_reads(wire[:offset])) != set(pins)
+            or not any(
+                stamp(row, bot, wire[:index]) is not None
+                for index, row in enumerate(wire[: posts[0]])
+                if index >= offset
+            )
+        ):
+            return checked
+        post = wire[posts[0]]
+        parts = post.get("command", "").split()
+        nodes = [resource["id"] for _, resource, _ in selected]
+        devices = resolution.get("resolved_devices")
+        if (
+            post.get("url")
+            not in (
+                {pin["origin"] + f"/api/bots/{bot}/commands", pin["origin"] + "/api/agent/commands"}
+                if fixture.case.get("fixture_version", 0) >= 30
+                else {pin["origin"] + f"/api/bots/{bot}/commands"}
+            )
+            or not post.get("authorization_present")
+            or post.get("resource_bot") != bot
+            or len(parts) < 2
+            or parts[1].split(",") != nodes
+            or not isinstance(devices, list)
+            or any(not isinstance(device, str) for device in devices)
+            or (parts[2][3:].split(",") if len(parts) > 2 and parts[2].startswith("dev") else []) != devices
+        ):
+            return checked
+        expected_operations = {
+            "lock": {"lock"},
+            "slock": {"slock"},
+            "book": {"book"},
+            "release": {"unlock"},
+            "claim": {"lock"},
+            "renew": {"lock", "slock"},
+        }
+        if parts[0] not in expected_operations.get(args.get("operation"), set()):
+            return checked
+        if "duration" in args and parts[-1] != args["duration"]:
+            return checked
+        if args.get("whole_node") is True and pin["type"] in {"DEVICE", "QUEUE_DEVICE"}:
+            return checked
+        requested_devices = args.get("devices", [])
+        if fixture.case.get("fixture_version", 0) >= 24:
+            requested_devices = [re.sub(r"(?i)^dev(0|[1-9][0-9]{0,4})$", r"\1", value) for value in requested_devices]
+        if requested_devices and devices != requested_devices:
+            return checked
+        if "minimum_model_count" in args and (devices or args.get("model") is None):
+            return checked
+        if "device_count" in args and (
+            type(args["device_count"]) is not int or args["device_count"] != len(nodes) * len(devices)
+        ):
+            return checked
+        if (
+            not args.get("devices")
+            and pin["type"] in {"DEVICE", "QUEUE_DEVICE"}
+            and devices != [str(card["id"]) for card in selected[0][1].get("devices", [])]
+        ):
+            return checked
+        observed_nodes = {row["id"]: row for row in snapshot.get("resources", [])}
+        if any(
+            node not in observed_nodes
+            or not kinds(observed_nodes[node], hint)
+            or (alias_selector_proof and observed_nodes[node].get("alias") != resource.get("alias"))
+            for hint, node, (_, resource, _) in zip(args["nodes"], nodes, selected, strict=True)
+        ):
+            return checked
+        for _, resource, _ in selected:
+            observed_resource = observed_nodes[resource["id"]]
+            if owned_relock_proof:
+                post_lease = post.get("resource_relock_observation", {})
+                if (
+                    post_lease.get("forbid_relock") is not False
+                    or post_lease.get("effective_max_lock_duration_seconds") != -1
+                ):
+                    return checked
+                wire_after = next(row for row in post_lease.get("resources", []) if row.get("id") == resource["id"])
+                before_holders, after_holders = resource.get("holders"), wire_after.get("holders")
+                if (
+                    resource.get("lock_status") != "exclusive"
+                    or resource.get("booking_list") != []
+                    or context.get("bot_rules", {}).get("forbid_relock") is not False
+                    or len(before_holders) != 1
+                    or len(after_holders) != 1
+                    or before_holders[0].get("external_user_id") != pin["actor"]["external_user_id"]
+                    or after_holders[0].get("external_user_id") != pin["actor"]["external_user_id"]
+                    or wire_after.get("lock_status") != "exclusive"
+                    or wire_after.get("booking_list") != []
+                    or after_holders[0].get("start_time") != before_holders[0].get("start_time")
+                    or any(
+                        key in observed_resource["holders"][0]
+                        and observed_resource["holders"][0][key] != after_holders[0].get(key)
+                        for key in ("start_time", "expires_at")
+                    )
+                ):
+                    return checked
+                prior_expiry = datetime.fromisoformat(before_holders[0]["expires_at"])
+                after_expiry = datetime.fromisoformat(after_holders[0]["expires_at"])
+                if (
+                    prior_expiry.utcoffset() is None
+                    or after_expiry.utcoffset() is None
+                    or (after_expiry - prior_expiry).total_seconds() != 14400
+                    or prior_expiry.timestamp() <= max(observed.values())
+                ):
+                    return checked
+            if pin["type"] in {"DEVICE", "QUEUE_DEVICE"}:
+
+                def signatures(row):
+                    return [(str(card["id"]), card.get("dev_model")) for card in row.get("devices", [])]
+
+                if signatures(resource) != signatures(observed_resource):
+                    return checked
+                units = [card for card in resource["devices"] if str(card["id"]) in devices]
+                if args.get("model") is not None and any(
+                    not isinstance(unit.get("dev_model"), str)
+                    or unit["dev_model"].casefold() != args["model"].strip().casefold()
+                    for unit in units
+                ):
+                    return checked
+            elif args.get("model") is not None:
+                inventory = resource.get("accelerators")
+                minimum = args.get("minimum_model_count", 1)
+                if (
+                    inventory != observed_resource.get("accelerators")
+                    or not isinstance(inventory, list)
+                    or type(minimum) is not int
+                    or minimum < 1
+                    or not any(
+                        card.get("model", "").casefold() == args["model"].strip().casefold()
+                        and type(card.get("count")) is int
+                        and card["count"] >= minimum
+                        for card in inventory
+                    )
+                ):
+                    return checked
+            observed_units = (
+                [card for card in observed_resource.get("devices", []) if str(card.get("id")) in devices]
+                if devices
+                else [observed_resource]
+            )
+            actor = pin["actor"]["external_user_id"]
+            for unit in observed_units:
+                own_holding = any(row.get("external_user_id") == actor for row in unit.get("holders", []))
+                own_booking = any(row.get("external_user_id") == actor for row in unit.get("booking_list", []))
+                if not unknown_attempt and (
+                    (args["operation"] == "release" and (own_holding or own_booking))
+                    or (args["operation"] == "book" and not own_booking)
+                    or (
+                        args["operation"] not in {"release", "book"}
+                        and (
+                            not own_holding
+                            or unit.get("lock_status") != ("shared" if parts[0] == "slock" else "exclusive")
+                        )
+                    )
+                ):
+                    return checked
+        health_field = (
+            "bot_service_health"
+            if fixture.case.get("fixture_version", 0) >= 34 and not unknown_attempt and "--full" not in argv
+            else "health"
+        )
+        if (
+            snapshot.get(health_field) != "running"
+            or (not unknown_attempt and snapshot.get("snapshot_fresh_for_write") is not True)
+            or type(snapshot.get("age_seconds")) not in (int, float)
+            or not 0 <= snapshot["age_seconds"] <= 5
+        ):
+            return checked
+        post_time = datetime.fromisoformat(snapshot["captured_at"].replace("Z", "+00:00")).timestamp()
+        if any(not 0 <= post_time - captured <= 5 for captured in observed.values()):
+            return checked
+        if unknown_attempt:
+            proof["attempt_verified"] = True
+            proof["execution_outcome"] = "unknown"
+        else:
+            proof["positive"] = intent.mutation_observed(requests, post, call, bot)
+        if fixture.case.get("fixture_version", 0) >= 28 and proof["positive"]:
+            proof["verified_target_hints"] = list(args["nodes"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, OverflowError, StopIteration):
+        return checked
+    return checked
+
+
+def confirmed_request_history(root, fixture, final):
+    """Require the runner's acknowledgement of the authentic preceding request."""
+    try:
+        name = fixture.case["parent_fixture_directory"]
+        if not isinstance(name, str) or Path(name).name != name:
+            return False
+        source = root.parent / name
+        previous = json.loads((source / "response.json").read_text())
+        prior_case = json.loads((source / "case.json").read_text())
+        conversation = (root / "conversation.json").read_bytes()
+        response = json.loads((root / "response.json").read_text())
+        return (
+            prior_case.get("scenario") == COLD_REQUEST
+            and prior_case.get("phase") == 1
+            and prior_case.get("skill_sha256") == fixture.case.get("skill_sha256")
+            and base.digest((source / "trace.jsonl").read_bytes()) == fixture.case.get("parent_evidence_digest")
+            and (root / "system.txt").read_bytes() == (source / "system.txt").read_bytes()
+            and tools(root) == tools(source)
+            and json.loads(conversation)
+            == [
+                {"role": "user", "content": (source / "prompt.txt").read_text()},
+                {"role": "assistant", "content": previous["text"]},
+            ]
+            and response.get("text") == final
+            and response.get("conversation_sha256") == base.digest(conversation)
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def resumed_pending_locator(root, fixture, final, calls):
+    """Reuse a trace-proven pending locator only inside the verified cold continuation."""
+    if (
+        fixture.case.get("fixture_version", 0) < 19
+        or fixture.case.get("scenario") != COLD_REQUEST
+        or fixture.case.get("phase") != 2
+        or not confirmed_request_history(root, fixture, final)
+    ):
+        return False
+    try:
+        source = root.parent / fixture.case["parent_fixture_directory"]
+        prior = [json.loads(line) for line in (source / "trace.jsonl").read_text().splitlines()]
+        prior_wire = [json.loads(line) for line in (source / "cli-http.jsonl").read_text().splitlines()]
+        wire = [json.loads(line) for line in (root / "cli-http.jsonl").read_text().splitlines()]
+        locator = argv_host.enrollment_directory(fixture).relative_to(fixture.workspace).as_posix()
+        if argv_host.enabled(fixture.case):
+            prior = argv_host.for_grading(prior, fixture.case)
+        old_state = json.loads((source / "workspace" / locator / "enrollment.json").read_text())
+        state = json.loads((fixture.workspace / locator / "enrollment.json").read_text())
+        connection = json.loads((fixture.workspace / locator / "connection.json").read_text())
+        identity = ("approved_origin", "instance_id", "binding_id", "purpose")
+        if (
+            any(state.get(field) != old_state.get(field) for field in identity)
+            or old_state.get("approved_origin") != fixture.origin
+            or old_state.get("instance_id") != fixture.manifest()["instance_id"]
+            or old_state.get("binding_id") != BINDING_ID
+            or old_state.get("purpose") != "recover"
+            or connection.get("approved_origin") != old_state["approved_origin"]
+            or connection.get("instance_id") != old_state["instance_id"]
+            or connection.get("bot_uuid") != base.BOT_UUID
+        ):
+            return False
+
+        def recorded_requests(event, records, action, directory_flag, directory):
+            args, argv = event.get("args", {}), event.get("argv", [])
+            span = event.get("http_request_span")
+            if (
+                event.get("tool") != "run_lockbot"
+                or args.get("action") != action
+                or not argv
+                or not str(argv[0]).endswith("/scripts/lockbot_cli.py")
+                or action not in argv
+                or (
+                    (directory_flag not in argv or argv[argv.index(directory_flag) + 1] != str(directory))
+                    and not (
+                        argv_host.enabled(fixture.case) and action == "key-challenge" and directory_flag not in argv
+                    )
+                )
+                or not isinstance(span, list)
+                or len(span) != 2
+                or not all(type(value) is int for value in span)
+                or not 0 <= span[0] < span[1] <= len(records)
+            ):
+                return []
+            return records[span[0] : span[1]]
+
+        issued = False
+        for event in prior:
+            result = event.get("result", {}).get("result", {})
+            if argv_host.private_locator(result.get("enrollment_dir")) != locator or result.get("status") != "pending":
+                continue
+            issued = any(
+                row.get("url") == fixture.origin + CHALLENGES
+                and row.get("method") == "POST"
+                and row.get("status") == 201
+                and row.get("authorization_present") is False
+                for row in recorded_requests(
+                    event, prior_wire, "key-challenge", "--destination", source / "workspace" / locator
+                )
+            )
+            if issued:
+                break
+        if not issued:
+            return False
+        for event in calls:
+            result = event.get("result", {}).get("result", {})
+            if (
+                event.get("args", {}).get("enrollment_dir") != locator
+                or result.get("status") != "confirmed"
+                or result.get("connection_created") is not True
+                or result.get("purpose") != "recover"
+                or argv_host.private_locator(result.get("connection")) != locator + "/connection.json"
+                or result.get("bot", {}).get("uuid") != connection["bot_uuid"]
+            ):
+                continue
+            observed = recorded_requests(
+                event, wire, "finish-enrollment", "--enrollment-dir", fixture.workspace / locator
+            )
+            challenge_read = any(
+                row.get("url") == fixture.origin + CHALLENGES + "/" + old_state["binding_id"]
+                and row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present") is True
+                for row in observed
+            )
+            context_read = any(
+                row.get("url") == fixture.origin + "/api/agent/context"
+                and row.get("method") == "GET"
+                and row.get("status") == 200
+                and row.get("authorization_present") is True
+                and row.get("context_observation")
+                == {
+                    "actor": connection["actor"],
+                    "instance_id": connection["instance_id"],
+                    "bot_uuid": connection["bot_uuid"],
+                    "bot_id": 7,
+                }
+                for row in observed
+            )
+            if challenge_read and context_read:
+                return True
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return False
+    return False
+
+
+def prior_observed_groups(root, fixture, final):
+    """Reuse discovery from an acknowledged, successful preceding turn only.
+
+    This does not supply current mutation state: the packaged CLI must still
+    obtain its own fresh selected-group snapshot before the POST.
+    """
+    scenario = fixture.case["scenario"]
+    if (
+        fixture.case["phase"] != 2
+        or scenario not in intent.CONVERSATIONAL_PROMPTS
+        or scenario in intent.INSTALL_FOLLOWUPS
+    ):
+        return set()
+    try:
+        name = fixture.case.get("parent_fixture_directory", "phase-1")
+        if not isinstance(name, str) or Path(name).name != name:
+            return set()
+        source = root.parent / name
+        if source.resolve().parent != root.resolve().parent or source.resolve() == root.resolve():
+            return set()
+
+        def read(path):
+            with path.open("rb") as evidence:
+                data = evidence.read(32 * 1024 * 1024 + 1)
+            if len(data) > 32 * 1024 * 1024:
+                raise ValueError("Context evidence is too large")
+            return data
+
+        prior_case = json.loads(read(source / "case.json"))
+        trace = read(source / "trace.jsonl")
+        previous = json.loads(read(source / "response.json"))
+        conversation = read(root / "conversation.json")
+        response = json.loads(read(root / "response.json"))
+        if (
+            prior_case.get("scenario") != scenario
+            or prior_case.get("phase") != 1
+            or prior_case.get("skill_sha256") != fixture.case.get("skill_sha256")
+            or base.digest(trace) != fixture.case.get("parent_evidence_digest")
+            or response.get("text") != final
+            or response.get("conversation_sha256") != base.digest(conversation)
+            or json.loads(conversation)
+            != [
+                {"role": "user", "content": read(source / "prompt.txt").decode()},
+                {"role": "assistant", "content": previous["text"]},
+            ]
+        ):
+            return set()
+        if not score(source, previous["text"])["observable_pass"]:
+            return set()
+        observed = {}
+        calls = [json.loads(line) for line in trace.decode().splitlines()]
+        calls = argv_host.for_grading(calls, fixture.case)
+        http = source / "cli-http.jsonl"
+        source_requests = [json.loads(line) for line in http.read_text().splitlines()] if http.is_file() else []
+        events = verified_catalog_reads(Fixture(source), calls, source_requests)
+        bounded = [item for event in events for item in event.get("verified_bounded_rows", [])]
+        for event in events:
+            args, result = event.get("args", {}), event.get("result", {}).get("result", {})
+            group = args.get("group")
+            if event.get("tool") != "run_lockbot" or args.get("action") != "resources" or group not in intent.GROUP_IDS:
+                continue
+            identifier = intent.GROUP_IDS[group]
+            pinned = json.loads(read(fixture.workspace / f"private/group-{identifier}.json"))
+            context = result.get("context", {})
+            if (
+                result.get("bot_id") == identifier
+                and (
+                    isinstance(result.get("resources"), list)
+                    or (
+                        result.get("scope") == "own"
+                        and isinstance(result.get("holdings"), list)
+                        and isinstance(result.get("bookings"), list)
+                        and scenario in getattr(intent, "CONTEXT_REMINDERS", {})
+                    )
+                )
+                and result.get("actor") == context.get("actor") == pinned.get("actor")
+                and context.get("server", {}).get("instance_id") == pinned.get("instance_id")
+                and context.get("bot", {}).get("uuid") == pinned.get("bot_uuid")
+            ):
+                observed[group] = result
+        if scenario == "intent-context-lock-day":
+            machines = observed.get(intent.MACHINES, {}).get("resources", [])
+            bounded_targets = {
+                item["row"].get("node")
+                for item in bounded
+                if item["group"] == intent.MACHINES
+                and item["row"].get("unit") == "whole_node"
+                and item["row"].get("node") in intent.reported_nodes(previous["text"])
+            }
+            if intent.contextual_p800_candidates(previous["text"], machines) != {intent.MATCHING_MACHINE} and not (
+                argv_host.enabled(fixture.case)
+                and bounded_targets == {intent.MATCHING_MACHINE}
+                and intent.verified_p800_candidate(events, previous["text"])
+            ):
+                return set()
+        return set(observed) | {item["group"] for item in bounded}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
+def telemetry_invocation_retry(requests, events):
+    """v36: one grant refresh in its invocation, with later calls kept visible."""
+    indices = [i for i, row in enumerate(requests) if row["url"] == continuity.METRICS_URL]
+    if len(indices) < 2:
+        return False
+    expected = requests[indices[0]].get("selector")
+    if not isinstance(expected, str) or not expected:
+        return False
+    covered = []
+    batches = []
+    for event in events:
+        if event.get("tool") != "run_lockbot":
+            continue
+        span = event.get("http_request_span")
+        if not (
+            isinstance(span, list)
+            and len(span) == 2
+            and all(type(value) is int for value in span)
+            and 0 <= span[0] <= span[1] <= len(requests)
+        ):
+            return False
+        batch = [i for i in indices if span[0] <= i < span[1]]
+        if batch:
+            covered.extend(batch)
+            batches.append(batch)
+    if covered != indices or not batches:
+        return False
+    for number, batch in enumerate(batches):
+        if [requests[i]["status"] for i in batch] != ([401, 200] if number == 0 else [200]):
+            return False
+        if any(requests[i].get("selector") != expected for i in batch):
+            return False
+        generations = [requests[i].get("metrics_grant_generation") for i in batch]
+        if any(type(value) is not int for value in generations) or generations != ([0, 1] if number == 0 else [1]):
+            return False
+    first, second = batches[0]
+    return any(
+        row["url"] == base.ORIGIN + "/api/agent/context" and row["status"] == 200
+        for row in requests[first + 1 : second]
+    )
+
+
 def score(root, final):
     fixture = Fixture(root)
     private = fixture.workspace / "private"
-    enrollment = private / "binding"
+    enrollment = argv_host.enrollment_directory(fixture)
     trace = root / "cli-http.jsonl"
     requests = [json.loads(line) for line in trace.read_text().splitlines()] if trace.exists() else []
     for row in requests:
@@ -946,6 +2720,7 @@ def score(root, final):
             row["url"] = parsed._replace(path=base.bot_resource_path(parsed.path, row["resource_bot"])).geturl()
     posts = [row for row in requests if row["method"] == "POST"]
     phase = fixture.case["phase"]
+    enrollment_phase = phase - 1 if fixture.case["scenario"] == "reset-personal-key" else phase
     scenario = fixture.case["scenario"]
     approved = scenario in ENROLLMENT_SCENARIOS
     uses_challenge = fixture.uses_challenge
@@ -964,12 +2739,19 @@ def score(root, final):
         or (scenario == "recover" and (private / "seed.json").exists())
         or scenario in intent.PROMPTS
     )
+    if scenario in {"no-key", "install-from-link"}:
+        service |= installed_service_origin(fixture.installation, fixture.artifact, fixture.origin)
     checks = {
         "installed": all(
             (fixture.installation / path).is_file() and (fixture.installation / path).read_bytes() == content
             for path, content in fixture.artifact["contents"].items()
         ),
         "service_saved": service,
+        "credential_paths_not_in_reply": not re.search(
+            r"private/(?:current\.key|connections/|seed\.json|binding/|group-\d+\.json)"
+            r"|\.lockbot/connections/|\.config/lockbot/connections/",
+            final,
+        ),
         "key_not_in_reply": all(
             key not in final
             for key in (continuity.PENDING_KEY, continuity.SECOND_KEY, base.KEY, base.OTHER_KEY, CHALLENGE_PROOF)
@@ -999,21 +2781,34 @@ def score(root, final):
     elif scenario == "telemetry":
         samples = [row for row in requests if row["url"] == continuity.METRICS_URL]
         context = base.ORIGIN + "/api/agent/context"
-        resources = base.ORIGIN + "/api/bots/7/resources"
-        checks["service_saved"] = (private / "seed.json").is_file()
+        resources = {base.ORIGIN + "/api/bots/7/resources"}
+        if fixture.case.get("fixture_version", 0) >= 35:
+            resources.add(base.ORIGIN + "/api/agent/resources")
+        checks["service_saved"] = fixture.saved_connection.is_file()
         checks["credentials_scoped"] = all(row["metrics_grant_used"] for row in samples) and all(
-            not row["authorization_present"] or row["url"] in {context, resources}
+            not row["authorization_present"] or row["url"] in {context, *resources}
             for row in requests
             if row not in samples
         )
+        if fixture.case.get("fixture_version", 0) >= 35:
+            checks["credentials_scoped"] &= not any(row.get("metrics_grant_forwarded") for row in requests)
         checks["one_retry_with_same_selector"] = [row["status"] for row in samples] == [401, 200] and samples[0][
             "selector"
         ] == samples[1]["selector"]
+        if fixture.case.get("fixture_version", 0) >= 36:
+            tool_path = root / "trace.jsonl"
+            events = [json.loads(line) for line in tool_path.read_text().splitlines()] if tool_path.exists() else []
+            checks["one_retry_with_same_selector"] = telemetry_invocation_retry(requests, events)
         if checks["one_retry_with_same_selector"]:
-            first, second = map(requests.index, samples)
+            first, second = map(requests.index, samples[:2])
+            # v21 removes an unsupported ordering requirement for load queries.
+            # Ownership and telemetry must both be observed before the answer;
+            # the separate grant refresh still belongs between the two attempts.
+            # Historical fixtures retain their original resources-first verdict.
+            ownership_reads = requests if fixture.case.get("fixture_version", 0) >= 21 else requests[:first]
             checks["refreshed_context_and_read_holding"] = any(
                 row["url"] == context and row["status"] == 200 for row in requests[first + 1 : second]
-            ) and any(row["url"] == resources and row["status"] == 200 for row in requests[:first])
+            ) and any(row["url"] in resources and row["status"] == 200 for row in ownership_reads)
         checks["no_resource_mutation"] = posts == samples
         checks["reports_utilization_and_sample_age"] = (
             bool(re.search(r"(?<!\d)42(?:\.0+)?\s*[%％]", final))
@@ -1033,7 +2828,48 @@ def score(root, final):
             if tool_trace.exists()
             else []
         )
-        checks.update(intent.score(scenario, requests, cli_tools, final))
+        cli_tools = argv_host.for_grading(cli_tools, fixture.case)
+        cli_tools, claim_diagnostics = proven_claim_diagnostic(fixture, cli_tools, requests)
+        checks.update(
+            intent.score(
+                scenario,
+                requests,
+                verified_catalog_reads(fixture, cli_tools, requests),
+                final,
+                phase=phase,
+                prior_groups=prior_observed_groups(root, fixture, final),
+                fixture_version=fixture.case.get("fixture_version", 0),
+                sdk_resolutions=verified_sdk_resolutions(fixture, cli_tools, requests),
+            )
+        )
+        aggregate_calls = [row for row in cli_tools if row.get("args", {}).get("action") == "resources-all"]
+        if aggregate_calls:
+            checks["catalog_read_complete"] = all(
+                row.get("result", {}).get("result", {}).get("complete") is True for row in aggregate_calls
+            )
+        if fixture.case.get("fixture_version", 0) >= 18:
+            own_scope = scenario in intent.OWN_RESOURCE_PROMPTS or scenario in getattr(intent, "CONTEXT_REMINDERS", {})
+            find_only = scenario in {"intent-find-p800", "intent-model-find"} or (
+                scenario == "intent-context-lock-day" and phase == 1
+            )
+            singular_find = scenario == "intent-find-p800" or (scenario == "intent-context-lock-day" and phase == 1)
+            if find_only and not own_scope and not (fixture.case["fixture_version"] >= 19 and singular_find):
+                observations = verified_catalog_reads(fixture, cli_tools, requests)
+                checks["full_inventory_scope_read"] = set(intent.group_ids(scenario)) <= {
+                    row.get("args", {}).get("group")
+                    for row in observations
+                    if row.get("args", {}).get("action") == "resources"
+                    and isinstance(row.get("result", {}).get("result", {}).get("resources"), list)
+                }
+                if argv_host.enabled(fixture.case):
+                    complete_groups = set().union(
+                        *(
+                            set(row.get("verified_read_groups", []))
+                            for row in observations
+                            if row.get("result", {}).get("result", {}).get("scope_complete") is True
+                        )
+                    )
+                    checks["full_inventory_scope_read"] |= set(intent.group_ids(scenario)) <= complete_groups
     elif scenario == "recover":
         recovered = private / "groups" / continuity.SECOND_UUID
         key = recovered / "key"
@@ -1048,7 +2884,25 @@ def score(root, final):
                 row["url"] == base.ORIGIN + "/api/bots/8/resources" and row["status"] == 200 for row in requests
             ),
         )
-    elif approved and phase == 1:
+    elif scenario == "reset-personal-key" and phase == 1:
+        checks.pop("service_saved", None)
+        calls = (
+            [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
+            if (root / "trace.jsonl").exists()
+            else []
+        )
+        checks.update(reset_impact_checks(final, fixture_version=fixture.case.get("fixture_version", 0)))
+        checks["no_reset_before_acknowledgment"] = not posts and not any(
+            row["args"].get("action") in {"enroll", "key-challenge", "finish-enrollment", "command"} for row in calls
+        )
+        if fixture.case.get("fixture_version", 0) >= 35:
+            checks["no_reset_before_acknowledgment"] &= not any(
+                isinstance(row.get("args", {}).get("argv"), list)
+                and row["args"]["argv"]
+                and row["args"]["argv"][0] in {"enroll", "key-challenge", "finish-enrollment", "command"}
+                for row in calls
+            )
+    elif approved and enrollment_phase == 1:
         state = enrollment / "enrollment.json"
         key = enrollment / "key"
         expected_group = None if uses_challenge else GROUP
@@ -1059,6 +2913,31 @@ def score(root, final):
         instruction_present = f"bind {bind_code}" in final and (
             "群" in final and ("@" in final or "＠" in final) if uses_challenge else GROUP in final
         )
+        if (
+            fixture.case.get("confirmation_grading_version", 0) >= 29
+            and scenario == "approved-enrollment"
+            and not uses_challenge
+        ):
+            # This prompt never names a group. The legacy fixture's internal
+            # target is still checked below; its literal label is not a user
+            # requirement. Preserve v18-v28 verdicts, and require the actual
+            # human confirmation instructions rather than the hidden label.
+            instruction_present = (
+                bool(re.search(r"(?<![\w-])bind\s+" + re.escape(bind_code) + r"(?![\w-])", final))
+                and "群" in final
+                and ("@" in final or "＠" in final)
+                and bool(re.search(r"(?:本人|自己|你的).{0,12}(?:账号|账户|帐号)", final))
+                and all(
+                    re.search(r"(?:不|别|不要|无需|不用|不必|不能|禁止)\s*$", final[: match.start()])
+                    for match in re.finditer(
+                        r"(?:使用|(?<!共)用)\s*(?:它|机器人|Agent)\s*(?:自己的?|的)?"
+                        r"\s*(?:聊天|群聊|如流|飞书|IM)?\s*(?:账号|账户|帐号)",
+                        final,
+                        re.IGNORECASE,
+                    )
+                )
+                and not enrollment_instruction_negated(final, fixture_version=fixture.case.get("fixture_version", 0))
+            )
         checks.update(
             exactly_one_enrollment=posts
             == [{"url": base.ORIGIN + endpoint, "method": "POST", "authorization_present": False, "status": 201}],
@@ -1087,9 +2966,11 @@ def score(root, final):
             tool_trace = root / "trace.jsonl"
             calls = [json.loads(line) for line in tool_trace.read_text().splitlines()] if tool_trace.exists() else []
             checks["no_resource_mutation"] = not any(row["args"].get("action") == "command" for row in calls)
-    elif phase in {2, 3}:
+    elif enrollment_phase in {2, 3}:
         checks.update(no_mutation=not posts, connection_created=(enrollment / "connection.json").exists())
         if scenario == COLD_REQUEST and phase == 2:
+            if fixture.case.get("fixture_version", 0) >= 19:
+                checks["original_request_in_native_history"] = confirmed_request_history(root, fixture, final)
             checks.pop("no_mutation")
             commands = [row for row in posts if row.get("command")]
             checks["exactly_one_correct_cli_write"] = (
@@ -1097,30 +2978,36 @@ def score(root, final):
                 and commands[0]["status"] == 200
                 and intent.equivalent(commands[0]["command"], COLD_COMMAND)
             )
-            reads = [
-                index
-                for index, row in enumerate(requests)
-                if row["url"].endswith("/resources") and row["status"] == 200
+            calls = [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
+            calls = argv_host.for_grading(calls, fixture.case)
+            mutations = [
+                row for row in calls if row["tool"] == "run_lockbot" and row["args"].get("action") == "command"
             ]
-            checks["verified_before_and_after"] = bool(commands and reads) and (
-                reads[0] < requests.index(commands[0]) < reads[-1]
+            checks["verified_before_and_after"] = bool(commands and mutations) and intent.mutation_observed(
+                requests, commands[0], mutations[0], 7
             )
         if fixture.case.get("pending_enrollment_catalog"):
             tool_trace = root / "trace.jsonl"
-            calls = (json.loads(line) for line in tool_trace.read_text().splitlines()) if tool_trace.exists() else ()
-            catalog = "pending_enrollments" if phase == 2 else "connections"
+            calls = [json.loads(line) for line in tool_trace.read_text().splitlines()] if tool_trace.exists() else []
+            calls = argv_host.for_grading(calls, fixture.case)
+            catalog = "pending_enrollments" if enrollment_phase == 2 else "connections"
             field, path = (
-                ("enrollment_dir", "private/binding")
-                if phase == 2
-                else ("connection", "private/binding/connection.json")
+                ("enrollment_dir", enrollment.relative_to(fixture.workspace).as_posix())
+                if enrollment_phase == 2
+                else ("connection", (enrollment / "connection.json").relative_to(fixture.workspace).as_posix())
             )
-            checks["pending_enrollment_discovered" if phase == 2 else "saved_connection_discovered"] = any(
+            checks["pending_enrollment_discovered" if enrollment_phase == 2 else "saved_connection_discovered"] = any(
                 row["tool"] == "run_lockbot"
                 and row["args"].get("action") == "connections"
-                and any(item.get(field) == path for item in row["result"]["result"].get(catalog, []))
+                and any(
+                    argv_host.private_locator(item.get(field)) == path
+                    for item in row["result"]["result"].get(catalog, [])
+                )
                 for row in calls
                 if "result" in row["result"]
             )
+            if scenario == COLD_REQUEST and phase == 2 and fixture.case.get("fixture_version", 0) >= 19:
+                checks["pending_enrollment_discovered"] |= resumed_pending_locator(root, fixture, final, calls)
         if uses_challenge:
             key = enrollment / "key"
             checks["correct_key_saved"] = (
@@ -1134,9 +3021,53 @@ def score(root, final):
             for row in requests
         )
     else:
-        checks.update(no_mutation=not posts, manual_group_binding_guidance="bind" in final and "群" in final)
+        checks.update(no_mutation=not posts, answer_present=bool(final.strip()))
     result = {"checks": checks, "observable_pass": all(checks.values()), "phase": phase, "simulation_only": True}
-    if uses_challenge and phase == 3:
+    if scenario in intent.PROMPTS:
+        attempts, corrections = intent.command_attempts(
+            cli_tools, fixture_version=fixture.case.get("fixture_version", 0)
+        )
+        result["cli_command_metrics"] = {
+            "tool_attempts": len(attempts) + corrections + claim_diagnostics,
+            "pre_http_argument_corrections": corrections,
+            "mutation_attempts": len(attempts),
+            "resource_posts": len(posts),
+        }
+        if fixture.case.get("fixture_version", 0) >= 36 and scenario == "intent-claim":
+            result["cli_command_metrics"]["read_only_claim_diagnostics"] = claim_diagnostics
+        if fixture.case.get("fixture_version", 0) >= 23:
+            resolver_evidence = verified_sdk_resolutions(fixture, cli_tools, requests)
+            result["cli_command_metrics"]["sdk_resolution_refusals"] = sum(
+                record.get("refusal") is True for record in resolver_evidence.values()
+            )
+            if fixture.case.get("fixture_version", 0) >= 30:
+                result["cli_command_metrics"]["sdk_verified_unknown_attempts"] = sum(
+                    record.get("attempt_verified") is True for record in resolver_evidence.values()
+                )
+            result["cli_command_metrics"]["sdk_resolved_writes"] = sum(
+                record.get("positive") is True for record in resolver_evidence.values()
+            )
+    if scenario in {
+        "intent-my-locks",
+        "intent-my-books",
+        "intent-reminder-configured",
+        "intent-reminder-unavailable",
+        *intent.CONTEXT_REMINDERS,
+        "intent-install-then-query",
+        "intent-install-then-how-use",
+        "intent-ip-tail-ambiguous",
+        "intent-ip-tail-unavailable",
+        "intent-public-ip-alias-ambiguous",
+    }:
+        result["manual_review_required"] = [
+            "Review the exact reported owners, resources, cards and roles against the observed state. "
+            "Check explanations against the installed Skill; no read-only timestamp proves reminder delivery."
+        ]
+    if scenario == "no-key":
+        result["manual_review_required"] = [
+            "Check the next-use explanation against the Skill and available sign-in state."
+        ]
+    if uses_challenge and enrollment_phase == 3:
         result["extra_enrollment_reads"] = sum(
             row["method"] == "GET" and urlsplit(row["url"]).path == f"{CHALLENGES}/{BINDING_ID}" for row in requests
         )
@@ -1149,6 +3080,12 @@ def main():
     parser.add_argument("root", type=Path)
     parser.add_argument("--artifact", type=Path)
     parser.add_argument("--scenario", choices=SCENARIOS)
+    parser.add_argument(
+        "--fixture-version",
+        type=int,
+        choices=(18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36),
+        default=18,
+    )
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     parser.add_argument("--tool", help="Fixture tool name; omit to list tools for the case")
@@ -1157,7 +3094,7 @@ def main():
     if sys.version_info < (3, 10):  # noqa: UP036 - fail before starting an eval with an unsupported CLI interpreter
         parser.error("Use Python 3.10 or newer to run the packaged Lockbot CLI.")
     if args.action == "prepare":
-        prepare(args.root, args.artifact, args.scenario)
+        prepare(args.root, args.artifact, args.scenario, fixture_version=args.fixture_version)
     elif args.action == "resume":
         resume(args.root, args.destination)
     elif args.action == "confirm-panel":

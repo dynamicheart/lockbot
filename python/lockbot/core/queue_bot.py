@@ -30,7 +30,7 @@ class QueueBot(NodeBot):
     def supported_commands(self):
         return ["lock", "unlock", "free", "kickout", "kicklock", "help", "h", "book", "take", "query", "alias"]
 
-    def lock(self, user_id, command, *, acquisition_limit=None):
+    def lock(self, user_id, command):
         """
         Lock nodes
         """
@@ -42,7 +42,6 @@ class QueueBot(NodeBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._state_guard():
-            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(
                 user_id, node_keys, claim_duration=duration if command_has_duration else None
@@ -135,7 +134,7 @@ class QueueBot(NodeBot):
     def slock(self, user_id, command):
         return self.show_error(user_id, t("error.slock_not_supported", config=self.config))
 
-    def book(self, user_id, command, *, acquisition_limit=None):
+    def book(self, user_id, command):
         """
         book nodes
         """
@@ -146,7 +145,6 @@ class QueueBot(NodeBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._state_guard():
-            self._check_acquisition_limit_locked(user_id, node_keys, acquisition_limit)
             nodes = [self._resource_state()[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys)
             if policy_error:

@@ -1,4 +1,8 @@
-"""Low-frequency cached Prometheus exporter, independent of the Lockbot backend."""
+"""Low-frequency cached Prometheus exporter, independent of the Lockbot backend.
+
+Optional structured device facts are observations only. They do not register or
+attest trusted resource inventory and are not exposed by a new HTTP route.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import unicodedata
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -25,6 +30,18 @@ from pathlib import Path
 
 MAX_XML_BYTES = 4 * 1024 * 1024
 MIN_INTERVAL = 60
+MAX_DEVICE_FACTS = 256
+MAX_DEVICE_FACT_MODEL_BYTES = 128
+MAX_DEVICE_FACT_UUID_BYTES = 128
+MAX_DEVICE_FACTS_BYTES = 128 * 1024
+_FACT_SECRET = re.compile(
+    r"(?:lbr_|lbp_|lbk_|sk-|ghp_|github_pat_)[a-z0-9_.-]{12,}"
+    r"|lb[ac]1\.[a-z0-9_.-]+|eyj[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+",
+    re.I,
+)
+_FACT_UNKNOWN = frozenset(
+    {"0", "-", "n/a", "na", "none", "null", "unknown", "unsupported", "not supported", "[not supported]"}
+)
 
 
 def number(value, *, percent=False):
@@ -69,6 +86,114 @@ class Card:
     memory_used: float | None
     memory_total: float | None
     processes: tuple[int, ...] | None
+    model: str | None = None
+    uuid: str | None = None
+
+
+def _fact_text(value, *, identity=False):
+    """Bound an explicit field; reject unsafe text rather than repairing it."""
+    if not isinstance(value, str) or not value.isprintable():
+        return None
+    value = value.strip()
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    maximum = MAX_DEVICE_FACT_UUID_BYTES if identity else MAX_DEVICE_FACT_MODEL_BYTES
+    try:
+        if (
+            not value
+            or not normalized.isprintable()
+            or normalized in _FACT_UNKNOWN
+            or len(value.encode("utf-8")) > maximum
+            or len(normalized.encode("utf-8")) > maximum
+            or _FACT_SECRET.search(value)
+            or _FACT_SECRET.search(normalized)
+        ):
+            return None
+    except UnicodeError:
+        return None
+    if identity and (
+        re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", value) is None
+        or re.fullmatch(r"(?:GPU-|XPU-)?[0:.-]+", value, re.I) is not None
+    ):
+        return None
+    return value
+
+
+def _xml_fact(element, field, *, identity=False):
+    # Direct fields only: do not guess names, models, indices or nested aliases.
+    fields = element.findall(field)
+    if len(fields) != 1 or len(fields[0]):
+        return None
+    return _fact_text(fields[0].text, identity=identity)
+
+
+def device_fact_observation(cards, observed_at):
+    """Bound one probe's field coverage, not resource availability or uniqueness.
+
+    UUIDs are driver-reported opaque identifiers. No registration, mapping or
+    global-fleet uniqueness is attested. Process metadata and XML are excluded.
+    Limits: 256 reported cards, 128 UTF-8 bytes per model, 128 ASCII bytes per
+    UUID, and 128 KiB per serialized observation. Oversized observations become
+    partial/truncated; absent fields never become inferred identities or models.
+    """
+    try:
+        valid_time = type(observed_at) in (int, float) and math.isfinite(observed_at) and observed_at > 0
+    except OverflowError:
+        valid_time = False
+    result = {
+        "schema_version": 1,
+        "source": "structured_xml",
+        "observed_at": observed_at if valid_time else None,
+        "coverage": "partial",
+        "cards": [],
+        "unidentified_devices": 0,
+        "truncated": False,
+    }
+    if not isinstance(cards, (list, tuple)):
+        return result
+    if len(cards) > MAX_DEVICE_FACTS:
+        result["truncated"] = True
+        return result
+    rows, identities = [], []
+    for card in cards:
+        if isinstance(card, Card):
+            card = {"device": card.device, "model": card.model, "uuid": card.uuid}
+        if not isinstance(card, dict):
+            result["unidentified_devices"] += 1
+            continue
+        identity = _fact_text(card.get("uuid"), identity=True)
+        if identity is not None:
+            # Even an unaddressable/dropped row can contradict a retained UUID.
+            identities.append(identity.casefold())
+        device = card.get("device")
+        if not isinstance(device, str) or len(device) > 32 or re.fullmatch(r"0|[1-9][0-9]*", device) is None:
+            result["unidentified_devices"] += 1
+            continue
+        rows.append(
+            {
+                "device": device,
+                "model": _fact_text(card.get("model")),
+                "uuid": identity,
+            }
+        )
+    devices = [row["device"] for row in rows]
+    duplicate_devices = {device for device in devices if devices.count(device) > 1}
+    result["unidentified_devices"] += sum(row["device"] in duplicate_devices for row in rows)
+    rows = [row for row in rows if row["device"] not in duplicate_devices]
+    duplicate_uuids = {identity for identity in identities if identities.count(identity) > 1}
+    for row in rows:
+        if row["uuid"] is not None and row["uuid"].casefold() in duplicate_uuids:
+            row["uuid"] = None
+    result["cards"] = sorted(rows, key=lambda row: int(row["device"]))
+    if (
+        valid_time
+        and rows
+        and not result["unidentified_devices"]
+        and all(row["model"] is not None and row["uuid"] is not None for row in rows)
+    ):
+        result["coverage"] = "complete"
+    if len(json.dumps(result, ensure_ascii=True, allow_nan=False).encode()) > MAX_DEVICE_FACTS_BYTES:
+        result.update(cards=[], coverage="partial", truncated=True)
+    return result
 
 
 def parse_xml(raw: str) -> list[Card]:
@@ -80,7 +205,9 @@ def parse_xml(raw: str) -> list[Card]:
     if len(raw.encode()) > MAX_XML_BYTES or re.search(r"<!ENTITY", raw, re.I):
         raise ValueError("invalid XML")
     root = ET.fromstring(raw)
-    elements = root.findall("./gpu") or root.findall("./xpu") or root.findall("./device")
+    layouts = [root.findall("./" + name) for name in ("gpu", "xpu", "device")]
+    elements = next((layout for layout in layouts if layout), [])
+    facts_supported = sum(bool(layout) for layout in layouts) == 1
     if not elements or len(elements) > 256:
         raise ValueError("no structured devices")
     cards, identifiers = [], set()
@@ -115,8 +242,16 @@ def parse_xml(raw: str) -> list[Card]:
                 used,
                 total,
                 processes,
+                _xml_fact(element, "product_name") if facts_supported else None,
+                _xml_fact(element, "uuid", identity=True) if facts_supported else None,
             )
         )
+    identities = [card.uuid.casefold() for card in cards if card.uuid is not None]
+    duplicates = {identity for identity in identities if identities.count(identity) > 1}
+    cards = [
+        dataclasses.replace(card, uuid=None) if card.uuid is not None and card.uuid.casefold() in duplicates else card
+        for card in cards
+    ]
     return sorted(cards, key=lambda card: int(card.device))
 
 
@@ -290,11 +425,14 @@ class Collector:
         self.cpu_previous = None
         self.proc_root = Path(config.get("proc_root", "/proc"))
         self.node = config["node"]
+        self.device_facts = None
 
-    def _update(self, kind, body, success, started, observed_at):
+    def _update(self, kind, body, success, started, observed_at, *, device_facts=None):
         with self.lock:
             if success:
                 setattr(self, kind + "_body", body)
+            if kind == "accelerator":
+                self.device_facts = device_facts if success else None
             self.status[kind] = (
                 success,
                 self.monotonic() - started,
@@ -334,6 +472,7 @@ class Collector:
         start, observed_at = self.monotonic(), self.clock()
         try:
             cards = parse_xml(run_xml(self.config["command"], self.config.get("timeout_seconds", 10)))
+            facts = device_fact_observation(cards, self.clock())
             body = ""
             details = process_metadata(cards, self.proc_root)
             for card in cards:
@@ -356,7 +495,7 @@ class Collector:
                 for pid in (card.processes or ())[:128]:
                     if pid in details:
                         body += sample("lockbot_accelerator_process_info", 1, {**tags, **details[pid]})
-            self._update("accelerator", body, True, start, observed_at)
+            self._update("accelerator", body, True, start, observed_at, device_facts=facts)
         except (OSError, ValueError, ET.ParseError, subprocess.TimeoutExpired):
             self._update("accelerator", "", False, start, observed_at)
 
@@ -417,7 +556,7 @@ def validate_config(config):
 def probe(config):
     """One SSH probe; emit only normalized metrics, never XML, process IDs or names."""
     proc = Path(config.get("proc_root", "/proc"))
-    result = {"host_success": False, "accelerator_success": False}
+    result = {"host_success": False, "accelerator_success": False, "device_facts": None}
     started = time.monotonic()
     try:
         result["cpu"] = cpu_counters(proc)
@@ -459,6 +598,7 @@ def probe(config):
             item.pop("processes", None)
             result["cards"].append(item)
         result["accelerator_observed_at"] = observed_at
+        result["device_facts"] = device_fact_observation(cards, observed_at)
         result["accelerator_success"] = True
     except (OSError, ValueError, ET.ParseError, subprocess.TimeoutExpired):
         pass
@@ -476,6 +616,7 @@ class FleetCollector:
         self.bodies = {}
         self.statuses = {}
         self.previous_cpu = {}
+        self.device_facts = {}
         # Cache code once. It has no environment-specific values or credentials.
         self.probe_source = Path(__file__).read_text().split('\nif __name__ == "__main__":')[0]
 
@@ -516,12 +657,22 @@ class FleetCollector:
                 data = json.loads(run_xml(command, 25))
             else:
                 data = probe(remote_config)
+            # Prepare optional observations before publishing any new metric
+            # body/status, so a failed normalization cannot publish a partial sample.
+            facts = (
+                device_fact_observation(data["cards"], data["accelerator_observed_at"])
+                if data.get("accelerator_success")
+                else None
+            )
             for kind in ("host", "accelerator"):
                 if data.get(kind + "_success"):
                     body = self.render_data(target, data, kind)
                     stamp = data[kind + "_observed_at"]
                     with self.lock:
                         self.bodies[node, kind] = body
+                        if kind == "accelerator":
+                            # Bind only to the already configured target; never a remote node claim.
+                            self.device_facts[node] = facts
                         self.statuses[node, kind] = (1, data[kind + "_duration"], stamp)
                 else:
                     self.failure(node, kind, data.get(kind + "_duration", 0))
@@ -533,6 +684,8 @@ class FleetCollector:
         with self.lock:
             previous = self.statuses.get((node, kind), (0, 0, 0))[2]
             self.statuses[node, kind] = (0, duration, previous)
+            if kind == "accelerator":
+                self.device_facts[node] = None
 
     def render_data(self, target, data, kind):
         node, body = target["node"], ""

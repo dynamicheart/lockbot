@@ -172,8 +172,8 @@ class TrafficStats:
         if self.history:
             self.history.operation(bot_id, source)
         key = (source, command, outcome)
-        minute = int(self.clock() // 60)
         with self.lock:
+            minute = int(self.clock() // 60)
             self._record_operation_locked(key, minute)
             if self.scoped:
                 child = self._ensure_bot(bot_id)
@@ -214,8 +214,6 @@ class TrafficStats:
     def record(
         self, *, source, route, status, duration_ms, received=0, sent=0, failed=False, bot_id=None, credential=None
     ):
-        now = self.clock()
-        minute, second = int(now // 60), int(now)
         duration_ms = max(0, duration_ms)
         if self.history:
             self.history.record(
@@ -228,6 +226,8 @@ class TrafficStats:
                 failed=failed,
             )
         with self.lock:
+            now = self.clock()
+            minute, second = int(now // 60), int(now)
             self.minutes = {key: value for key, value in self.minutes.items() if minute - 59 <= key <= minute}
             self.seconds = {key: value for key, value in self.seconds.items() if second - 59 <= key <= second}
             bucket = self.minutes.setdefault(minute, Counters())
@@ -279,9 +279,9 @@ class TrafficStats:
             # The global payload below keeps its existing cumulative counters and history.
         else:
             options, ranked = [], []
-        now = self.clock()
-        minute, second = int(now // 60), int(now)
         with self.lock:
+            now = self.clock()
+            minute, second = int(now // 60), int(now)
             recent = sum(value for key, value in self.seconds.items() if second - 59 <= key <= second)
             return {
                 "business_operations": self._operation_payload(now),

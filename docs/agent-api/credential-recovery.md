@@ -75,7 +75,7 @@ revoking only the initial bot key removes copies already recovered.
 2. Verify that existing keys still resolve their original `/api/agent/context`
    and that resource routes reject keys belonging to a different bot. Check the
    manifest for `own_binding_directory` and `own_binding_recovery`.
-3. Update the downloaded `lockbot-resource-agent` Skill and reload it in each
+3. Update the downloaded `lockbot-agent` Skill and reload it in each
    Agent environment. Use the manifest's bundle URL and hashes. Existing clients
    remain functional; a server update cannot force an old client to reload.
 4. In each Agent's private store, enumerate existing keys by approved origin and

@@ -172,24 +172,16 @@ def _reset_resource_auth():
 
 @pytest.fixture(autouse=True)
 def _relax_credential_budget():
-    """The per-credential traffic budget and the per-resource poll tier are production flood
-    guards; most tests issue bursts that would trip them. Raise the budget limits and zero the
-    tier floors, resetting counters around each test (mirroring the disabled rate limiter).
-    Budget/tier-specific tests set their own low limits on the singletons explicitly."""
-    from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
+    """Raise production request budgets for unrelated burst tests and reset their counters."""
+    from lockbot.backend.app.resource_api.traffic import credential_budget
 
     saved = (credential_budget.read_limit, credential_budget.write_limit)
-    saved_tiers = (resource_tier_gate.active, resource_tier_gate.booking, resource_tier_gate.discovery)
     credential_budget.read_limit = 10_000
     credential_budget.write_limit = 10_000
     credential_budget.reset()
-    resource_tier_gate.active = resource_tier_gate.booking = resource_tier_gate.discovery = 0
-    resource_tier_gate.reset()
     yield
     credential_budget.read_limit, credential_budget.write_limit = saved
     credential_budget.reset()
-    resource_tier_gate.active, resource_tier_gate.booking, resource_tier_gate.discovery = saved_tiers
-    resource_tier_gate.reset()
 
 
 @pytest.fixture()

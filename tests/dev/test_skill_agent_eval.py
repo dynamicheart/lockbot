@@ -14,6 +14,51 @@ evaluation = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(evaluation)
 
 
+@pytest.mark.parametrize(
+    ("kind", "exit_code", "status"),
+    [
+        ("unsupported_context", 0, "unsupported_context"),
+        ("unsupported_context", 1, "unsupported_context"),
+        ("error_output_limit", 1, "budget_exhausted"),
+        ("timeout", 1, "timeout"),
+        ("native_isolation_failure", 1, "runner_error"),
+        ("unknown_diagnostic_kind", 1, "runner_error"),
+    ],
+)
+def test_native_runner_limitations_are_distinct_from_model_failures(tmp_path, kind, exit_code, status):
+    command = [
+        sys.executable,
+        "-c",
+        f"import json;print(json.dumps({{'kind': {kind!r}}}));raise SystemExit({exit_code})",
+    ]
+    response, result = evaluation._call_runner(tmp_path, command, {}, timeout=5)
+    assert response is None
+    assert result["status"] == status
+    assert (tmp_path / "runner.stdout").stat().st_mode & 0o077 == 0
+    assert json.loads((tmp_path / "runner.stdout").read_text())["kind"] == kind
+    if kind == "native_isolation_failure":
+        assert result["error_type"] == kind
+        assert result["observable_pass"] is False
+    if status == "unsupported_context":
+        assert result["observable_pass"] is False
+        assert result["context_consumed"] is False
+
+
+def test_failed_runner_keeps_private_raw_diagnostics_without_trusting_unknown_kinds(tmp_path):
+    (tmp_path / "runner.stdout").write_text("old")
+    (tmp_path / "runner.stdout").chmod(0o644)
+    command = [
+        sys.executable,
+        "-c",
+        "import sys;print('not JSON diagnostic');print('private stderr',file=sys.stderr);raise SystemExit(1)",
+    ]
+    response, result = evaluation._call_runner(tmp_path, command, {}, timeout=5)
+    assert response is None and result == {"status": "runner_error", "exit_code": 1}
+    assert (tmp_path / "runner.stdout").read_text() == "not JSON diagnostic\n"
+    assert (tmp_path / "runner.stderr").read_text() == "private stderr\n"
+    assert all((tmp_path / name).stat().st_mode & 0o077 == 0 for name in ("runner.stdout", "runner.stderr"))
+
+
 @pytest.fixture
 def subject(tmp_path):
     skill = tmp_path / "SKILL.md"
@@ -60,7 +105,7 @@ def frozen_package(tmp_path, monkeypatch):
     artifacts = tmp_path / "artifacts"
     artifacts.mkdir()
     (artifacts / "manifest.json").write_text(json.dumps(skill.skill_artifacts()[2]))
-    (artifacts / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    (artifacts / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     return artifacts
 
 
@@ -90,11 +135,11 @@ def test_frozen_zip_fixture_preserves_candidate_bytes_and_references(tmp_path, f
     download = fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
     assert download["sha256"] == original["installation"]["sha256"]
     assert (fixture.workspace / download["download_file"]).read_bytes() == (
-        frozen_package / "lockbot-resource-agent.zip"
+        frozen_package / "lockbot-agent.zip"
     ).read_bytes()
     inspected = fixture.call("inspect_archive", {"path": download["download_file"]})
     contents = evaluation.load(frozen_package)["contents"]
-    assert inspected["members"] == [f"lockbot-resource-agent/{name}" for name in sorted(contents)]
+    assert inspected["members"] == [f"lockbot-agent/{name}" for name in sorted(contents)]
     assert not (fixture.workspace / "skills").exists()
     for name, data in contents.items():
         assert (fixture.workspace / "downloads/package" / name).read_bytes() == data
@@ -121,6 +166,7 @@ def test_frozen_missing_origin_does_not_expose_candidate_deployment(tmp_path, fr
     assert evaluation.ORIGIN not in (root / "prompt.txt").read_text()
     assert "Deployment API addresses" not in fixture.markdown
     assert fixture.manifest()["skill_sha256"] == fixture.case["skill_sha256"]
+    assert evaluation.digest((root / "subject.md").read_bytes()) == fixture.case["subject_sha256"]
 
 
 def test_unattributed_markdown_does_not_gain_a_deployment_hint(tmp_path, subject):
@@ -162,7 +208,7 @@ def test_zip_first_input_can_be_inspected_before_installation(tmp_path, subject)
     response = fixture.call("http_request", {"url": evaluation.ORIGIN + evaluation.BUNDLE_PATH})
     assert response["sha256"] == fixture.manifest()["installation"]["sha256"]
     inspected = fixture.call("inspect_archive", {"path": response["download_file"]})
-    assert inspected["members"] == ["lockbot-resource-agent/SKILL.md"]
+    assert inspected["members"] == ["lockbot-agent/SKILL.md"]
     assert inspected["content"] == fixture.markdown
     assert not (fixture.workspace / "skills").exists()
     # Binary archive artifacts must not be mistaken for a model-runner protocol error.
@@ -203,7 +249,7 @@ def test_claiming_success_is_not_a_passing_installation(tmp_path, subject):
     result = evaluation.score(fixture.root, "Everything is installed and connected.")
     assert not result["observable_pass"]
     assert not result["checks"]["verified_installation"]
-    assert not result["checks"]["connection_origin_and_instance_saved"]
+    assert not result["checks"]["service_origin_persisted"]
 
 
 def test_credential_does_not_discover_manifest_and_keys_do_not_leak(tmp_path, subject):
@@ -303,3 +349,30 @@ def test_archived_failure_trace_keeps_original_scoring(tmp_path, subject):
     fixture.case["fixture_version"] = 3
     evaluation.save_json(fixture.root / "case.json", fixture.case)
     assert evaluation.score(fixture.root, "Unable to install.")["observable_pass"]
+
+
+@pytest.mark.parametrize("damaged", ["installation.json", "scripts/lockbot_cli.py"])
+def test_installation_preserves_origin_without_an_extra_config(tmp_path, frozen_package, damaged):
+    root = tmp_path / "install"
+    evaluation.prepare(root, None, "install", artifacts=frozen_package)
+    fixture = evaluation.Fixture(root)
+    fixture.call("http_request", {"url": evaluation.ORIGIN + "/api/agent-skill"})
+    fixture.call(
+        "install_skill",
+        {
+            "url": evaluation.ORIGIN + evaluation.BUNDLE_PATH,
+            "sha256": fixture.manifest()["installation"]["sha256"],
+            "destination": "skills/lockbot-agent",
+        },
+    )
+    assert evaluation.score(root, "装好了")["checks"]["service_origin_persisted"]
+    (fixture.workspace / "skills/lockbot-agent" / damaged).write_text("damaged")
+    assert not evaluation.score(root, "装好了")["checks"]["service_origin_persisted"]
+
+
+def test_category_consultation_keeps_natural_language_for_manual_review(tmp_path, subject):
+    fixture = make_fixture(tmp_path, subject, "category-feedback")
+    result = evaluation.score(fixture.root, "下次选算子测试这个分类。")
+    assert result["observable_pass"]
+    assert result["manual_review_required"]
+    assert not (fixture.workspace / "skills").exists()

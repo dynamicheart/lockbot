@@ -8,6 +8,10 @@ export default [
   ...pluginVue.configs['flat/recommended'],
   configPrettier,
   {
+    files: ['src/features/agent-traces/interactions.js'],
+    languageOptions: { sourceType: 'script' },
+  },
+  {
     languageOptions: {
       globals: {
         ...globals.browser,

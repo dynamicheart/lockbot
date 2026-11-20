@@ -35,7 +35,7 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
     response = client.get("/api/agent-skill")
     meta = response.json()
     assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
-    assert meta["name"] == meta["skill_id"] == meta["installation"]["name"] == "lockbot-resource-agent"
+    assert meta["name"] == meta["skill_id"] == meta["installation"]["name"] == "lockbot-agent"
     assert meta["service_id"] == "lockbot.resource-api"
     assert meta["credential_scheme"] == "lbr_bot_scoped" and meta["api_version"] == "1"
     assert meta["server_version"] == client.get("/api/public-openapi.json").json()["info"]["version"]
@@ -50,13 +50,13 @@ def test_manifest_adds_stable_service_identity_and_namespaced_bundle(client, db_
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as zipped:
         assert set(zipped.namelist()) == {
             root + "/SKILL.md",
-            root + "/scripts/lockbot_resource.py",
+            root + "/scripts/lockbot_cli.py",
             root + "/installation.json",
             *(root + "/" + name for name in REFERENCE_PATHS),
         }
         markdown = zipped.read(zipped.namelist()[0])
         assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
-        assert b"name: lockbot-resource-agent" in markdown
+        assert b"name: lockbot-agent" in markdown
 
 
 @pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE"], indirect=True)
@@ -167,12 +167,12 @@ def test_version_headers_follow_skill_updates_and_old_etag_does_not_hide_new_con
     before = client.get("/api/agent-skill").json()
     markdown = tmp_path / "agent_skill/SKILL.md"
     markdown.parent.mkdir()
-    markdown.write_text("---\nname: lockbot-resource-agent\n---\nUpdated instructions\n")
+    markdown.write_text("---\nname: lockbot-agent\n---\nUpdated instructions\n")
     from importlib.resources import files
 
-    script = markdown.parent / "scripts/lockbot_resource.py"
+    script = markdown.parent / "scripts/lockbot_cli.py"
     script.parent.mkdir()
-    script.write_bytes(files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_resource.py").read_bytes())
+    script.write_bytes(files("lockbot.backend.app").joinpath("agent_skill/scripts/lockbot_cli.py").read_bytes())
     for relative in REFERENCE_PATHS:
         reference = markdown.parent / relative
         reference.parent.mkdir(exist_ok=True)
@@ -196,7 +196,7 @@ def test_public_schema_authenticates_context_but_not_manifest_or_downloads(clien
     paths = client.get("/api/public-openapi.json").json()["paths"]
     assert paths["/api/agent/context"]["get"]["security"] == [{"AgentKey": []}]
     assert paths["/api/agent-skill"]["get"]["security"] == []
-    assert paths["/api/agent-skill/lockbot-resource-agent.zip"]["get"]["security"] == []
+    assert paths["/api/agent-skill/lockbot-agent.zip"]["get"]["security"] == []
     assert "AgentContextResponse" in json.dumps(paths["/api/agent/context"])
 
 

@@ -23,19 +23,31 @@ MESSAGES = {
     "help.agent_skill": "Agent usage: ",
     "help.agent_lock_hint": "LockBot Skill installation manifest: {url}",
     "public_docs.agent_api_intro": "Use a personal Agent Key bound in a group to operate your resources in that group.",
-    "public_docs.resource_queries": "To query resources, start with `GET /api/agent/context`, "
-    "then open `GET /api/agent/resources` for the query example.",
+    "public_docs.resource_queries": "Use `GET /api/agent/resources/query` for selective pages or "
+    "`GET /api/agent/resources` for full snapshots. Responses include the bound identity.",
     "public_docs.resource_query_example": (
         "### Query using a personal Agent Key\n\n"
         "Set `LOCKBOT_ORIGIN` to the approved service address and load `LOCKBOT_AGENT_KEY` from private storage. "
-        "The first request returns the identity and group for that Key. Verify them before running the second request. "
-        "The response lists resources, holders and queues for that group. Both requests use the same Key.\n\n"
+        "This example checks identity and group rules separately, then reads the full resources, holders and queues. "
+        "Both requests use the same Key. Selective pages also return the bound identity; "
+        "a separate identity request is not required before every query.\n\n"
         "{commands}"
     ),
     "public_docs.title": "LockBot API documentation",
     "public_docs.schema": "Combined OpenAPI schema",
     "public_docs.agent.title": "Agent API",
     "public_docs.agent.description": "Bind an Agent, then use its personal Key to query and manage your resources.",
+    "public_docs.deprecated_agent.title": "Legacy Agent API (deprecated)",
+    "public_docs.deprecated_agent.description": (
+        "For compatibility and migration of existing clients. Use Agent API for new integrations; "
+        "each legacy operation lists its replacement."
+    ),
+    "public_docs.deprecated_agent.credential": (
+        "A personal Agent Key bound to that bot; the legacy path does not broaden its scope."
+    ),
+    "public_docs.deprecated_agent.replacement": (
+        "This operation is deprecated. Use `{operation}` instead; the personal Key determines the bot scope."
+    ),
     "public_docs.op.title": "Operator API",
     "public_docs.op.description": "Use a bot's OP Key to query resource occupancy and perform administrative releases.",
     "public_docs.configuration.title": "Configuration API",
@@ -72,6 +84,7 @@ MESSAGES = {
     "label.queue_list": "⌛️ Queue:\n",
     "label.queue_item": "  {index}. {user_id} {duration} est. wait {wait_time}\n",
     # ── Error messages ──
+    "feishu.query_busy": "Query is busy. Please query again shortly.",
     "feishu.command_format": (
         "❌ Not executed: mention the bot and send one plain command or one single-line code block, "
         "without a title, quote or multiple commands."

@@ -118,7 +118,7 @@ def gallery():
         "links",
         [
             "🔗【超链接与特殊字符】\n\n",
-            ("Agent 使用：", "https://lockbot.example.test/api/agent-skill/lockbot-resource-agent.zip"),
+            ("Agent 使用：", "https://lockbot.example.test/api/agent-skill/lockbot-agent.zip"),
             ("GitHub：", "https://github.com/dynamicheart/lockbot"),
             "\n字面文本：<at user_id=all> 不应产生提及；A&B；**普通文本**。\n",
         ],

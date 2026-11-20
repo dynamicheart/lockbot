@@ -792,7 +792,7 @@ def create_app() -> FastAPI:
     app.include_router(view_router)
 
     # ── Integration API docs: personal Agent, operator, enrollment and downloads ──
-    public_doc_sections = ("agent", "op", "configuration")
+    public_doc_sections = ("agent", "op", "configuration", "deprecated_agent")
 
     def public_docs_language(request: Request):
         language = request.headers.get("accept-language", "").split(",", 1)[0].split(";", 1)[0].strip().lower()
@@ -803,7 +803,9 @@ def create_app() -> FastAPI:
 
     @app.get("/api/public-openapi.json", include_in_schema=False)
     def public_openapi(
-        request: Request, response: Response, scope: Literal["agent", "op", "configuration"] | None = None
+        request: Request,
+        response: Response,
+        scope: Literal["agent", "op", "configuration", "deprecated_agent"] | None = None,
     ):
         import json as _json
         import re as _re
@@ -818,6 +820,7 @@ def create_app() -> FastAPI:
                 "OP API": "op",
                 "Configuration API": "configuration",
                 "Skill 下载": "agent_download",
+                "Deprecated Agent API": "deprecated_agent",
             }
             if scope is not None
             else {}
@@ -829,10 +832,28 @@ def create_app() -> FastAPI:
         public_paths = {}
         used_schemes = set()
         used_tags = set()
+        legacy_agent_paths = {
+            "/api/bots/{bot_id}/resources",
+            "/api/bots/{bot_id}/commands",
+            "/api/bots/{bot_id}/usage-declarations",
+            "/api/bots/{bot_id}/usage-declarations/{resource_id}",
+        }
         for path, methods in schema.get("paths", {}).items():
             for method, detail in methods.items():
-                if "Public API" in detail.get("tags", []) and not detail.get("deprecated", False):
-                    if "/configuration-access" in path or path.startswith("/api/bot-provisioning/"):
+                if "Public API" in detail.get("tags", []):
+                    if detail.get("deprecated", False):
+                        if scope != "deprecated_agent" or path not in legacy_agent_paths:
+                            continue
+                        section, group, scheme = "deprecated_agent", "Deprecated Agent API", "AgentKey"
+                        replacement = path.replace("/api/bots/{bot_id}", "/api/agent", 1)
+                        migration = t(
+                            "public_docs.deprecated_agent.replacement",
+                            lang=lang,
+                            operation=f"{method.upper()} {replacement}",
+                        )
+                        detail["description"] = migration + "\n\n" + detail.get("description", "")
+                        detail["x-replacement-operation"] = {"method": method.upper(), "path": replacement}
+                    elif "/configuration-access" in path or path.startswith("/api/bot-provisioning/"):
                         section, group, scheme = "configuration", "Configuration API", "ConfigurationKey"
                     elif path.endswith(("/locked-users", "/opkick", "/kicklock")) or (
                         path.startswith("/api/bots/") and "/op/" in path
@@ -1005,6 +1026,8 @@ def create_app() -> FastAPI:
         )
         compact_style = """
         <style>
+          .public-doc-nav { margin: 16px 20px 0; font: 14px system-ui,sans-serif; }
+          .public-doc-nav a { color: #3b4151; margin-right: 20px; }
           #swagger-ui .info { margin: 20px 0 12px; }
           #swagger-ui .info .title { font-size: 28px; }
           #swagger-ui .info p { margin: 8px 0 0; }
@@ -1018,8 +1041,17 @@ def create_app() -> FastAPI:
           #swagger-ui .opblock-tag > small p { margin: 4px 0; }
         </style>
         """
+        navigation = (
+            '<nav class="public-doc-nav" aria-label="API documentation">'
+            f'<a href="/api/public-docs">{escape(t("public_docs.title", lang=lang))}</a>'
+            f'<a href="/api/public-docs/agent">{escape(t("public_docs.agent.title", lang=lang))}</a>'
+            '<a href="/api/public-docs/deprecated_agent">'
+            f"{escape(t('public_docs.deprecated_agent.title', lang=lang))}</a></nav>"
+        )
         return HTMLResponse(
-            page.body.decode("utf-8").replace("</head>", compact_style + "</head>", 1),
+            page.body.decode("utf-8")
+            .replace("</head>", compact_style + "</head>", 1)
+            .replace("<body>", "<body>" + navigation, 1),
             headers=localized_doc_headers(lang),
         )
 

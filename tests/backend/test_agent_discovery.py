@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import REFERENCE_PATHS
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import REFERENCE_PATHS
 from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.resource_api.usage import UsageDeclaration
 from lockbot.backend.app.resource_auth.models import ResourceBinding
@@ -23,7 +23,7 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     assert manifest.status_code == 200
     meta = manifest.json()
     assert meta["skill_url"] == meta["download_url"] == meta["installation"]["download_url"]
-    assert meta["download_url"] == "/api/agent-skill/lockbot-resource-agent.zip"
+    assert meta["download_url"] == "/api/agent-skill/lockbot-agent.zip"
     bundle = client.get(meta["download_url"])
     assert bundle.status_code == 200
     assert bundle.headers["content-type"] == "application/zip"
@@ -34,22 +34,25 @@ def test_public_skill_bundle_matches_manifest_and_text(client, db_session, monke
     assert "discover --origin <approved-service> --destination <new-private-file>" in instructions
     assert hashlib.sha256(bundle.content).hexdigest() == meta["sha256"] == meta["installation"]["sha256"]
     assert len(bundle.content) == meta["size_bytes"]
-    assert bundle.headers["content-disposition"] == 'attachment; filename="lockbot-resource-agent.zip"'
+    assert bundle.headers["content-disposition"] == 'attachment; filename="lockbot-agent.zip"'
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
         assert set(archive.namelist()) == {
-            "lockbot-resource-agent/SKILL.md",
-            "lockbot-resource-agent/scripts/lockbot_resource.py",
-            "lockbot-resource-agent/installation.json",
-            *("lockbot-resource-agent/" + name for name in REFERENCE_PATHS),
+            "lockbot-agent/SKILL.md",
+            "lockbot-agent/scripts/lockbot_cli.py",
+            "lockbot-agent/installation.json",
+            *("lockbot-agent/" + name for name in REFERENCE_PATHS),
         }
-        markdown = archive.read("lockbot-resource-agent/SKILL.md")
+        markdown = archive.read("lockbot-agent/SKILL.md")
         for name in REFERENCE_PATHS:
-            assert archive.read("lockbot-resource-agent/" + name)
+            assert archive.read("lockbot-agent/" + name)
             assert f"({name})".encode() in markdown
     assert hashlib.sha256(markdown).hexdigest() == meta["skill_sha256"]
     assert meta["issues_url"] == "https://github.com/dynamicheart/lockbot/issues"
     source = Path(__file__).resolve().parents[2] / "python/lockbot/backend/app/agent_skill/SKILL.md"
     assert source.read_bytes() == markdown
+    # Leave room for concrete interaction rules while retaining a single default
+    # 6,000-character read after deployment links are rendered below.
+    assert len(source.read_text()) <= 5500
     assert db_session.query(AuditLog).count() == before
     assert client.get(meta["download_url"], headers={"If-None-Match": bundle.headers["etag"]}).status_code == 304
     paths = client.get("/api/public-openapi.json").json()["paths"]
@@ -68,8 +71,9 @@ def test_deployment_skill_url_matches_all_distribution_paths(client, monkeypatch
     manifest = client.get("/api/agent-skill", headers=headers).json()
     installation = client.get(manifest["skill_url"], headers=headers)
     with zipfile.ZipFile(io.BytesIO(installation.content)) as archive:
-        markdown = archive.read("lockbot-resource-agent/SKILL.md")
-    assert b"Complete installation ZIP: `http://192.0.2.10:8155/api/agent-skill/lockbot-resource-agent.zip`" in markdown
+        markdown = archive.read("lockbot-agent/SKILL.md")
+    assert b"Complete installation ZIP: `http://192.0.2.10:8155/api/agent-skill/lockbot-agent.zip`" in markdown
+    assert len(markdown.decode()) < 6000
     assert b"GET http://192.0.2.10:8155/api/agent/context" in markdown
     assert b"untrusted.example" not in markdown
     assert manifest["version"] != generic["version"]

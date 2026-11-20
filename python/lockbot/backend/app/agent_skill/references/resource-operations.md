@@ -1,17 +1,78 @@
 # Resource operations and leases
 
+For resource discovery, bounded JSON fields and pagination, start with
+[resource queries](resource-queries.md). The compatibility readers below remain
+useful for rules, reminder events or diagnostics not included in compact rows.
+
+## Resolve a short node request in one CLI invocation
+
+For an explicit node request such as “lock 19”, preserve the user's literal target:
+
+```sh
+python /absolute/path/scripts/lockbot_cli.py command --operation lock --node 19
+python /absolute/path/scripts/lockbot_cli.py command --operation slock --node 19 --device 0 --duration 4h
+```
+
+When the user asks to release this task's verified holding on card `0` of node `19`:
+
+```sh
+python /absolute/path/scripts/lockbot_cli.py command --operation release --node 19 --device 0
+```
+
+Keep the original target and card selection; omit duration. A search or usage question
+does not authorize this release.
+
+CLI card selectors accept canonical IDs such as `0` and chat labels such as `dev0`
+(case-insensitive). Both select the exact same card; malformed labels, leading zeros
+and duplicate canonical IDs are rejected. Group selectors never stand for card labels.
+
+Omit `--connection` to let the SDK read every saved authorized scope, resolve a unique
+exact node ID, alias, canonical IPv4 alias last octet or observed IPv4 last octet, and recheck the selected scope and
+original evidence immediately before the single resource POST. `19` never matches
+`119`. An IPv4 alias is only a public resource selector, not an authorized address or
+SSH permission; it is never copied into `node_access` or address caches. Its complete
+alias value is pinned and rechecked before dispatch. No new credentials or resource
+cache is created. A two-group coherent command uses six GETs and one POST, but only
+one CLI/model tool roundtrip. If conversation already identifies a verified scope, reuse
+its exact private `--connection` and node ID. That scoped flow still requires
+`--whole-node` or explicit `--device` selectors; it does not infer allocation mode.
+
+Pass every user constraint, including model, card count, minimum accelerators and an
+explicit group; automatic selection cannot recover constraints omitted by the caller.
+Only when the user leaves allocation mode unspecified (for example `lock 19`), omit
+both `--whole-node` and `--device`: verified group mode selects the whole node or its
+entire observed card set. An explicit whole-machine request must retain `--whole-node`;
+never omit it to fall back to individual cards or an available subset.
+Repeated `--node` targets must resolve to one scope; shared card selections on multiple
+nodes require `--same-devices-on-all-nodes` and identical card sets. Card claim/renew/release
+still require explicit card IDs. For existing own holdings, follow the renewal rules below.
+
+Incomplete, stale, ambiguous, conflicting, unsupported or over-budget selection stops
+before POST. Proven unsent selection refusals include `command_sent:false` and clarification. Inspect or clarify a
+proven unsent refusal; never remove requested constraints, switch targets or bypass the
+CLI to force success. A sent or uncertain result must never be replayed. Success includes
+`result.resolution` evidence and the normal verified mutation result. The selection is
+rechecked before dispatch; this is not a cross-group transaction or a reservation while
+reading. With no node hint, query resources first; “lock 一天” still needs a unique target
+from conversation rather than a guess from inventory. Finding resources remains read-only.
+
 ## Hardware matching, node addresses and aliases
 
 For NODE and QUEUE resources, an operator may register accelerator inventory.
 When set, each resource's `accelerators` array lists configured models and counts.
-An absent array means unknown hardware. This is inventory for the entire machine,
+An absent array means unknown hardware. `not_reported_fields` lists absent/null source
+fields: report them as “未上报”, never zero GPUs, no queue, or available resources.
+Keep observed holdings/bookings separate from unknown state. This is inventory for the entire machine,
 not a count of individually available cards. Match the registered model against the
 user's constraints and verify live occupancy before selecting the machine.
-Pass the user's required model as `command --model P800`. For a whole machine that must
+If the requested model is unverified for a candidate, do not select that candidate.
+Use a verified match if one exists; otherwise ask for trusted hardware information. Do not probe `command`, omit the model, or switch allocation
+mode to bypass missing evidence. When the model is verified, pass it as
+`command --model P800`. For a whole machine that must
 have at least two P800 accelerators, pass `--whole-node --minimum-model-count 2`. The CLI rechecks
 the exact selected machine or cards against its fresh read before sending the request.
 To acquire two cards on the same node, repeat `--device` in one `lock` command and use
-`--device-count 2`. A request with only one selected card fails before contacting the service.
+`--device-count 2`. A request with only one selected card fails before any resource write.
 
 If the server omits `accelerators`, you may keep a private, local hardware note for a
 known node using user-confirmed information or a trusted machine inventory the user
@@ -34,8 +95,8 @@ Confirmed local notes can inform model matching; identify their source in the re
 Ask before relying on conflicting or uncertain inventory and never infer a card
 model from a node name. Occupancy, queue order and permission still come from the live service.
 
-After acquiring a node or a card, use the verified resource snapshot from the helper's
-`resources` command to look for `node_access` on your current holding. It contains the
+After acquiring a node or a card, use `command`'s `verified_snapshot` to look for
+`node_access` on your current holding. Use `resources` for a later fresh check. It contains the
 administrator-configured SSH `host` and `port`, with a separate `ip` when both a hostname
 and IPv4 address were registered. A card uses the addresses of its parent node. Recheck
 the snapshot before relying on either address. If the field is absent,
@@ -53,24 +114,84 @@ persistence or exclude another user's concurrent update.
 
 ## Read current bot rules and manage the lease lifecycle
 
-The CLI's `context` includes `bot_rules`, read from the bot's current
-persisted configuration even when the bot is stopped. Refresh your private rule cache at
-connection/resume and before renewal, and after a policy rejection or configuration change.
-Use `/resources` for polling and fetch context when you need refreshed connection or rule information.
-These rules can change; `/resources` and the actual command result remain authoritative.
+For usage questions, explain from these instructions without requesting sign-in
+or reading credentials. `book` joins a FIFO queue; it does not reserve a calendar
+start time. Its requested usage duration begins when the booking is claimed, not
+when it enters the queue. `claim` and `renew` are CLI operations mapped to the
+server's `lock`; their absence from `supported_operations` does not by itself
+make those CLI operations unavailable.
+
+For inventory replies, use the exact IDs and observed hardware from
+`inventory_overview` when present, checking raw resources for required details.
+Card ID `0` is valid: never renumber the list for presentation or infer an omitted
+model. Its grouped physical state is not a permission or allocation guarantee.
+For a duration-only request, use the uniquely selected conversational target or
+ask which resource; even one idle machine does not establish the user's intent.
+
+On services advertising `coherent_resource_snapshot`, `resources` includes `context`
+with the verified identity, `bot_rules` and task-category choices from the same request.
+It does not issue view links, metrics grants or personal-report capabilities. Do not
+make a separate `context` call before each inventory read or mutation. Use `context`
+when explicitly requesting those additional capabilities or inspecting a stopped bot.
+The CLI retains an anonymous manifest check before sending a saved credential: an
+ordinary inventory command uses two HTTP requests, and a resource mutation uses three
+(manifest, fresh inventory, one POST). The mutation returns the state copied under its
+allocator lock, so the CLI verifies that observation without a redundant follow-up GET.
+Older services without this capability retain the explicit context/readback flow.
+Rules can change; later ownership checks still require a new resource observation.
+
+Command output keeps the complete observed resource state once under `verified_snapshot`,
+with redundant installation metadata omitted as in inventory queries. When the server's
+embedded snapshot is exactly identical, `command_result.resource_snapshot` retains its
+capture time and bot/actor/instance identity plus `reference: "verified_snapshot"`, rather
+than repeating the inventory. Other server outcome fields remain unchanged. Nonidentical
+observations are never deduplicated. `command --full` restores the original redacted output
+shape; `--exact-lease-times` independently preserves exact lease fields. This is an output
+projection only: SDK results, HTTP requests, verification and local state are unchanged.
+
+`resources-all` reads the existing private user connection catalog in one CLI invocation.
+It verifies every service/instance/bot/actor separately and retains each group's private
+connection locator. Use `--directory` only for an explicitly selected private catalog;
+do not pass `--connection` to aggregation. It neither enrolls nor recovers credentials
+and does not update local address caches. A two-group coherent read uses four GETs,
+not one HTTP request. The existing bounded CLI request/deadline budget applies to the
+whole invocation. If any connection is unread, stale or unfinished, `complete:false`
+and `unread` describe the gaps. Report partial results honestly; use the returned
+locator for a focused read where appropriate, never infer that unread groups are empty.
+To recover additional authorized groups, use the verified seed recovery flow first.
+
+The default query output keeps resource state, scope, rules and freshness, but omits
+repeated service/Skill installation metadata. `resources --full` and `resources-all --full`
+include the complete verified response details for explicit debugging, without extra HTTP
+requests or a new local cache. Outputs still redact credentials.
+
+For a targeted request, use `--model P800` or repeat `--node <exact-id-or-alias>` on either
+query. This filters the CLI output after verification; it never changes a resource or
+chooses a target for the user. All matching groups remain distinct. `selection.full_inventory:false`
+means the displayed list is filtered; hardware in `selection.unknown_hardware_nodes` is
+unknown, not absent or a confirmed nonmatch. `selection.unknown_hardware_resources`
+retains the observed node, alias and occupancy for filtered-out unknown-model resources;
+these resources exist, but their requested model is unverified. A model filter alone does not prove that a
+resource is free, claimable or permitted. `--mine` remains limited to verified own resources.
+
+If the task asks about load, add `--with-metrics` to batch utilization for the selected
+nodes in the same CLI invocation, for example
+`resources-all --model P800 --with-metrics`. This may require additional internal
+context/source requests, but no additional model roundtrip. `metrics.unread` describes optional telemetry
+failures independently from the resource query's `complete`/`unread`. Metric samples retain
+their own missing, stale, failed or invalid status. Source access remains separately approved.
 
 | `bot_rules` field | Meaning |
 |---|---|
 | `forbid_relock` | Defaults to false for every bot type. When true, do not renew lock/slock or book a resource you currently hold. |
 | `max_resources_per_user`, `resource_unit` | Combined distinct held/booked resources per user and bot; `-1` means no bot-specific cap. Unit is `node` for NODE/QUEUE, `card` for DEVICE/QUEUE_DEVICE. |
 | `default_duration_seconds` | Duration used when a command omits it; a booking claim without a duration uses its booked duration. |
-| `max_lock_duration_seconds` | Configured maximum remaining lease duration after acquisition/renewal; `-1` means unlimited. |
-| `duration_limit_exempt`, `effective_max_lock_duration_seconds` | Caller-specific duration exemption and effective ceiling (`-1` unlimited). This exempts neither renewal restrictions nor resource-count limits; the exemption list is never disclosed. |
+| `max_lock_duration_seconds` | Configured maximum remaining lease duration after acquisition/renewal; `-1` means no policy ceiling, not an indefinite current lease. |
+| `duration_limit_exempt`, `effective_max_lock_duration_seconds` | Caller-specific duration exemption and effective ceiling (`-1` means no ceiling, not an indefinite lease). This exempts neither renewal restrictions nor resource-count limits; the exemption list is never disclosed. |
 | `queue_claim_window_seconds` | Time to claim when it is your turn; null for non-queue types. |
 | `supported_operations`, `allow_user_alias` | Server operations and whether alias editing is enabled. The CLI maps `claim` and `renew` to `lock`, and `release` to `unlock`. Access and policy checks still apply. |
 | `request_budget.read_per_minute`, `request_budget.write_per_minute` | Actual deployed per-key read/write budgets shared by all the user's Agents. Other endpoint/IP limits can also apply. |
 | `poll_minimum_seconds.active`, `.booking`, `.discovery` | Server-advertised polling guidance in seconds. Agents can choose an interval suited to the task. |
-| `api_max_machines_per_user` | The separate existing API machine-count ceiling, including held/booked machines; several cards on one machine count once here. A card quota does not redefine this machine limit. |
 
 `resource_policy` on `/resources` repeats the live acquisition switches and includes the
 caller's `claimed_resource_count`. All of the user's Agents and group commands share the
@@ -79,9 +200,38 @@ not evict existing holdings/bookings, but can prevent new acquisitions. When ren
 forbidden, claiming cannot exceed the original booked duration. Releasing does not let you
 jump ahead of other bookers. If an older service omits these new rule fields, do not assume
 the restrictions exist; follow its actual replies, timing fields and verified holdings.
-The `2h` values in command examples are examples, not a recommendation: use the actual
-caller-effective maximum, defaults, booked duration and task need. If the configured default
-exceeds the effective ceiling, request a valid explicit shorter duration.
+For a `lock`, `slock`, or `book` request with no time specified, omit `--duration`.
+The CLI verifies the current default and lets the selected group apply its configured duration.
+If the default is missing or exceeds the effective ceiling, the CLI stops before writing.
+Renewal still requires the amount of time to add. Claim uses the original booked duration.
+Finite `lock` and `slock` leases expire automatically. A 4h `slock` is shared for up to 4h,
+not until explicit release. Use verified `remaining_time` or `expires_at`; an unlimited
+maximum-duration policy does not extend the current lease or prove it indefinite.
+Releasing a holding ends that lease; it does not automatically create a booking or put
+the former holder in a queue. A separate booking needs its own user authorization.
+
+### Own resources and reminder requests
+
+For holdings or bookings, start with `resource list --mine`, selecting `holdings`
+and `bookings` when their details are needed. Continue remaining pages and inspect
+clipped records with `resource view REF --mine`. For reminder event details absent
+from compact rows, use `resources --ref REF --mine` (or `resources --mine` with one
+selected connection). The CLI matches the exact verified actor and separates `holdings`
+from `bookings`, retaining node, alias, card/model and applicable remaining time or queue
+rank. Unknown fields stay null; bookings never inherit a holder's expiry. Check every
+saved authorized group and retain partial-result warnings. A current
+holder's remaining lease time is not the queued user's expiry or a guaranteed start;
+describe `queue_estimate` as an estimate and any reported claim window as a claim window.
+
+For an expiry-reminder request, first read the user's current resources.
+`next_event_kind: own_early_warning` describes the bot's existing scheduled group
+warning. Explain that schedule without claiming a new reminder was created or delivered.
+Time until that warning is not its lead time before expiry. For example, a warning
+105 minutes from capture and expiry 120 minutes from capture means the warning is
+15 minutes before expiry, not 105 minutes before expiry. If the relationship is unclear,
+report the verified warning instant and lease display separately without guessing.
+An expiry timestamp alone does not prove a warning is enabled. The resource API cannot
+create personal timers; state that limit when no existing warning is reported.
 
 ### Interpret instants separately from human display time
 
@@ -91,7 +241,14 @@ offset; do not interpret them as the Agent machine's local time. Unix epoch valu
 lease durations do not change with timezone. Never add eight hours to an epoch or relabel
 an existing UTC timestamp as `+08:00` when calculating ownership, renewal or stop deadlines.
 
-For human-facing absolute deadlines, use the user's requested or saved timezone.
+The CLI formats the verified lease time after accounting for snapshot age. Use
+`remaining_time` in user-facing replies, such as “约 2 小时后到期” for `2h`, or
+“约 2 天后到期” for `2d`. A booking has a requested duration and a queue position
+until claimed. A current holder's expiry is neither the booking's validity deadline nor
+a guaranteed time of acquisition. Refresh when a reliable remaining time is needed and unavailable.
+
+Reserve absolute deadlines for explicit requests. When requested, use the user's
+requested or saved timezone.
 Do not infer a timezone from language: a Chinese conversation does not imply UTC+08:00.
 If no preference is known, use an explicitly available user-client/browser timezone;
 otherwise state UTC with its full date and offset, and offer a timezone preference.
@@ -104,8 +261,8 @@ the deadline as uncertain instead of guessing extra authorized time.
 
 ### Keep a conservative local stop deadline
 
-Record a local monotonic timestamp before and after each resource read. Use the
-verified lease's server `expires_at`, snapshot `captured_at` and `age_seconds` to estimate
+Read with `resources --exact-lease-times`. Record a local monotonic timestamp
+before and after each resource read. Use the verified lease's server `expires_at`, snapshot `captured_at` and `age_seconds` to estimate
 remaining time without trusting the Agent computer's UTC clock. A conservative calculation
 is `remaining = max(0, expires_at - captured_at - age_seconds - request_elapsed)` and
 `stop_deadline = received_monotonic + remaining`. Subtracting the full request elapsed time
@@ -119,6 +276,30 @@ because a query failed, a queue estimate changed, or a cached record still says 
 
 ### Renew only for necessary active work, and verify the result
 
+For a NEW explicit chat-style `lock` or `slock` targeting the user's existing
+holding, freshly verify exact ownership, group relock policy and allocation mode.
+For an unscoped node command, the CLI performs this translation once only if every
+selected resource is held by the caller in the SAME requested mode, relocking is
+explicitly allowed, the original lease is still verifiable and the queue is empty.
+It rechecks the original lease, rules, selectors and complete selection before the
+single POST. Mixed idle/held targets, changed leases or modes, and incomplete policy
+evidence stop without splitting the request. The result records the requested and
+effective operations; polling and uncertain writes never authorize this translation.
+
+With an explicit private connection, translate to `command --operation renew` after
+the same ownership/policy checks. The server wire operation remains `lock`/`slock`,
+adding time rather than setting a new total. Pass the requested increment with
+`--duration`. If omitted by the user, read the live positive
+`bot_rules.default_duration_seconds` and pass that increment explicitly. Convert seconds
+to an equivalent `m/h/d` duration (for example `7200` becomes `120m`); do not pass a
+seconds suffix to the chat command. Explicit CLI `renew` requires a duration. Unscoped relock conversion
+fills this increment itself and rechecks an unchanged default before dispatch.
+If no usable default is available,
+ask for the increment. Stop if renewal is forbidden, ownership/mode is uncertain,
+or the request changes allocation mode. This translation never authorizes renewal
+from polling, time passage, or a previous unknown write outcome. Forbidding an implicit
+retry is different from denying a fresh explicit user request.
+
 Before the stop deadline, refresh context once and verify current ownership and this task's
 lease. Renew only if renewal is allowed and active work actually needs more time; never renew
 indefinitely just to retain capacity. Leave enough margin for request latency and any
@@ -129,7 +310,16 @@ Choose an explicit added duration: repeated lock adds time rather than setting a
 Keep remaining time plus the increment within the caller-effective ceiling. Attempt one bounded
 renewal. Read the resulting snapshot and confirm the same resource/actor/lease
 has a genuinely later `expires_at`; HTTP 200 or a reply alone does not prove renewal. If POST
-has an unknown outcome, read resources and report what you can verify.
+has an unknown outcome, read resources and report what you can verify. The CLI returns
+`command_outcome: unknown` plus a read-only `next_command` (`resources-all --mine`).
+Use `message_zh` as the user-facing uncertainty statement, then append only observations
+from reads actually completed. It does not claim that a follow-up read already ran.
+Run the read-only `next_command`, report and end the turn; do not propose retrying after
+a wait or user confirmation. An absent holding or idle node cannot establish that the
+first write never executed. Do not offer a retry, another connection, or ask the user to
+approve resubmitting the same uncertain operation. A rejected HTTP request is labeled
+`rejected`, not successful or unknown execution. Request-attempt evidence does not
+prove execution; only a verified resource snapshot proves the resulting holding.
 Retrying a status check cannot move the old stop deadline. Adopt a new deadline only from a
 verified renewed lease, not from the requested extra duration or the POST's success status.
 
@@ -139,7 +329,8 @@ stopped, release only this task's still-owned resources where appropriate, and r
 the normal fair queue if more work remains. Never continue through expiry while retrying.
 If ownership cannot be confirmed because reads fail or are too stale, pause until verified.
 
-On Agent exit, cancellation or a long pause, clean up this task's workload and allocations.
+For a workload the user asked the Agent to execute or manage, clean up that
+workload and its allocations on Agent exit, cancellation or a long pause.
 A timer in a sleeping or exited Agent cannot reliably stop a remote GPU job: arrange deadline
 enforcement in the task's runner, or stop work before becoming unavailable.
 After sleep/restart, refresh context and live state before resuming; saved memory is not a
@@ -147,17 +338,46 @@ lease. If you cannot run timers, keep polling or stop your workload reliably, sa
 starting and do not promise unattended acquisition/renewal. Lockbot records leases and queues;
 it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's responsibility.
 
+A resource-management request such as “lock 19” or “book 19” hands the requested
+lease or queue entry to the user. Finishing the chat turn is not workload
+completion: leave that allocation intact. A finite holding still auto-expires;
+turn-end retention never extends its lease. Release only on the user's request,
+or as part of the separately authorized Agent-managed workload above.
+
 ## Choose resources and release promptly
+
+Finding resources is read-only. Follow-up requests such as “lock 一天” or “用完了，释放吧”
+refer to the uniquely selected machine in the actual conversation. Other old holdings
+do not erase that selection. Clarify only when the conversation leaves a real ambiguity;
+never invent a target. Resolve short IDs through exact inventory IDs, aliases or the
+last octet of an observed, intentionally shared IPv4 address or an alias that is
+exactly a canonical IPv4 literal: 19 matches 198.51.100.19, not 192.0.2.119. Decorated
+labels, hostnames, ports and malformed IPs do not supply IPv4 suffixes. Duplicate
+matches across or within groups require clarification. IPv4 aliases remain public
+labels and confer no login address or access rights. A numeric alias such as `19` is only a label; without
+an observed address or trusted explicit mapping, it proves no IP suffix or subnet.
+Report that match as an alias, not an address. Do not guess private addresses or
+infer hardware from group titles.
+
+A node-only `lock`, `slock` or `book` follows chat semantics. In a card group, select
+ALL observed cards on that node and enumerate every `--device` in one CLI command.
+Do not silently choose one card or ask which card when the node target already
+specifies all of them. Check supported operations and the entire selection; a conflict
+or shortfall is not permission to pick a subset. Whole-node groups use `--whole-node`.
+Explicit per-card requests never become whole-node allocations or switch groups.
 
 - Request only the resources needed for the next task stage, shortly before using them.
   When several suitable machines/cards are free, prefer consecutive machine IDs or
   contiguous card indexes for multi-resource tasks. Do not reserve extra machines merely
   to obtain a consecutive block, or assume consecutive names imply hardware locality.
-- Set an explicit lease duration that fits the work. Avoid unnecessarily long locks or
+- Use the requested duration. For a new lock/slock/book without one, omit
+  `--duration` and use the verified live group default; do not invent a duration
+  or ask unnecessarily. A renewal still needs an explicit increment or the
+  separately documented verified live default. Avoid unnecessarily long locks or
   reserving capacity "just in case". Only when renewal is permitted, renew long-running tasks in bounded increments
   while actively using the resources, after verifying current ownership and remaining time.
   Repeated `lock` adds time; never renew on every poll or blindly retry a renewal.
-- On completion, cancellation, failure that stops resource use, or a long pause, promptly
+- For an Agent-managed workload, on completion, cancellation, failure that stops resource use, or a long pause, promptly
   release this task's resources and cancel its unneeded bookings. Do not wait for expiry.
   Query afterwards to confirm. Specify exact resources/cards so another Agent sharing
   the user's key keeps its own active work.
@@ -167,21 +387,24 @@ it does not kill or pause GPU processes. Workload shutdown is the Agent/runner's
 Agents can poll `/resources` continuously when a task needs it. Choose the interval
 according to the task. The Skill adds no minimum interval or cap on repeated reads.
 
-- Default server budgets are `120 reads/min` and `6 writes/min` per credential. Use
+- Default server budgets are `120 reads/min` and `30 writes/min` per credential. Use
   the live `request_budget` in context for the deployed values. Agents using the same
   Key share these budgets.
 - The advertised `poll_minimum_seconds` values are pacing suggestions. Follow the
   server's `Retry-After` on 429 or 503, including either seconds or an HTTP date.
-- A repeated `lock` **adds** duration (not idempotent). After any mutation, read `/resources` to
-  verify; never assume a `reply` means success.
+- A repeated `lock` **adds** duration (not idempotent). Verify `command`'s returned
+  `verified_snapshot`; its HTTP reply text alone is not success. If the outcome is
+  unknown, make an explicit resource read, never replay the mutation.
 
 Use `next_event_at` to help plan checks. A holder may release early or extend their lease,
 so recalculate queue estimates from each snapshot. Observe `captured_at` and `age_seconds`
 before acting, and use the observed lease's `expires_at` for its deadline.
 
-When claimable, claim within `queue_claim_window_seconds` and verify ownership; never wait
-for the predicted expiry or a human to relay a group message. While working, keep checking
-ownership, including before critical operations and after resuming. Polling is not a push
+Claim only after the target resource is idle and your booking is `claimable_by_you`.
+The `queue_claim_window_seconds` window starts when that booking becomes claimable,
+not in the minutes before the current holder's expiry. Claim within that observed window
+and verify ownership; a predicted expiry or group message alone does not authorize claiming.
+While working, keep checking ownership, including before critical operations and after resuming. Polling is not a push
 subscription and cannot detect every change instantly. If ownership or lease identity no
 longer matches, pause the workload; do not continue based on a saved registry entry.
 
@@ -202,7 +425,8 @@ An optional stdlib [handoff/payload-gate reference](https://github.com/dynamiche
 provides executable checks and an offline example; clients may implement equivalent checks
 without installing a Python SDK. Lease evidence uses real actor/start time, never Agent labels.
 
-Check `/api/agent/context.usage_privacy` before sending notes. On servers advertising this
+Check the inventory's `context.usage_privacy` before sending notes (or explicit
+`/api/agent/context` on older services). On servers advertising this
 policy, `task_category` is the only public task description. Choose exactly one ID from
 `public_task_categories`, for example `operator_testing`, `communication_testing`,
 `model_load_testing`, `performance_testing` or `code_review`. Do not add a project name,

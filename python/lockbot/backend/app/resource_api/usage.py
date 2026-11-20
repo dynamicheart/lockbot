@@ -22,7 +22,6 @@ from lockbot.backend.app.bots.manager import (
 )
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import Base, get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.privacy import visible_declarations
 from lockbot.backend.app.resource_api.task_categories import TASK_CATEGORIES, TaskCategoryInput, validate_task_category
@@ -338,7 +337,6 @@ def prune_actor_usage(db, bot, actor):
 
 
 @router.put("/{bot_id}/usage-declarations/{resource_id}", deprecated=True)
-@limiter.limit("30/minute")
 def put_usage(
     bot_id: int,
     request: Request,
@@ -414,7 +412,6 @@ def put_usage(
 
 
 @router.get("/{bot_id}/usage-declarations", deprecated=True)
-@limiter.limit("60/minute")
 def get_usage(
     bot_id: int,
     request: Request,
@@ -447,7 +444,6 @@ def get_usage(
 
 
 @router.delete("/{bot_id}/usage-declarations/{resource_id}", deprecated=True)
-@limiter.limit("30/minute")
 def delete_usage(
     bot_id: int,
     request: Request,

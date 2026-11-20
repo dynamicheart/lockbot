@@ -108,7 +108,7 @@ def _dispatch_binding_command(user_id, text, bot, cmd, config):
     return adapter.build_reply(reply_text.rstrip() + "\n\n", [user_id])
 
 
-def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisition_limit=None, source="chat"):
+def execute_text_command(user_id, text, bot, allowed_commands=None, *, source="chat"):
     """Set a server-controlled origin while the shared dispatcher executes."""
     import uuid
 
@@ -137,7 +137,7 @@ def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisiti
     correlation_token = command_correlation.set(uuid.uuid4().hex)
     outcome = "dispatched"
     try:
-        return _execute_text_command(user_id, text, bot, allowed_commands, acquisition_limit=acquisition_limit)
+        return _execute_text_command(user_id, text, bot, allowed_commands)
     except CommandRejected:
         outcome = "rejected"
         raise
@@ -162,7 +162,7 @@ def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisiti
                 logger.exception("Operation telemetry metadata unavailable")
 
 
-def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisition_limit=None):
+def _execute_text_command(user_id, text, bot, allowed_commands=None):
     """Dispatch a raw command string to a bot, independent of any transport.
 
     This is the single seam shared by the chat path (via :func:`execute_command`) and by
@@ -219,17 +219,16 @@ def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisit
             raise CommandNotSupported(cmd)
         return bot.print_help(user_id, t("error.unrecognized_command", config=config, command=text))
 
-    acquisition_kwargs = {"acquisition_limit": acquisition_limit} if acquisition_limit is not None else {}
     if cmd == "lock":
-        return bot.lock(user_id, text, **acquisition_kwargs)
+        return bot.lock(user_id, text)
     elif cmd == "slock":
-        return bot.slock(user_id, text, **acquisition_kwargs)
+        return bot.slock(user_id, text)
     elif cmd in ("unlock", "free"):
         return bot.unlock(user_id, text)
     elif cmd == "kickout":
         return bot.kickout(user_id, text)
     elif cmd == "book":
-        return bot.book(user_id, text, **acquisition_kwargs)
+        return bot.book(user_id, text)
     elif cmd == "take":
         return bot.take(user_id, text)
     elif cmd == "query":

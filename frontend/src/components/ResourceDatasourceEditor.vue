@@ -57,7 +57,10 @@
               ><el-input v-model="draft.name" maxlength="64"
             /></el-form-item>
             <el-form-item class="connection-wide" :label="$t('utilization.endpoint')"
-              ><el-input v-model="draft.endpoint" placeholder="https://prometheus.example.com"
+              ><el-input
+                v-model="draft.endpoint"
+                placeholder="https://prometheus.example.com"
+                @input="clearDeviceQuery"
             /></el-form-item>
             <el-form-item :label="$t('utilization.accessMode')">
               <el-select v-model="draft.accessMode">
@@ -100,6 +103,11 @@
         </section>
         <details class="advanced-settings">
           <summary>{{ $t('utilization.advancedSection') }}</summary>
+          <el-form-item v-if="draft.profile === 'lockbot-v1'">
+            <el-checkbox v-model="exactDeviceQuery">{{
+              $t('utilization.deviceQueryExact')
+            }}</el-checkbox>
+          </el-form-item>
           <details class="mapping-import" @toggle="mappingExpanded = $event.target.open">
             <summary>{{ $t('utilization.importMapping') }}</summary>
             <div v-if="mappingExpanded && settings" class="mapping-import-body">
@@ -209,6 +217,13 @@ const deviceMapping = reactive({})
 const validationIssues = ref([])
 const settings = ref(false)
 const draft = reactive({ ...DEFAULT_CONFIG })
+const exactDeviceQuery = computed({
+  get: () => draft.deviceQuery === 'exact-v1',
+  set: (enabled) => {
+    if (enabled) draft.deviceQuery = 'exact-v1'
+    else clearDeviceQuery()
+  },
+})
 const nodeMappingText = ref('')
 const mappingExpanded = ref(false)
 const mappingSyntaxError = ref(false)
@@ -260,7 +275,11 @@ function importMapping() {
     else configError.value = 'configuration'
   }
 }
+function clearDeviceQuery() {
+  delete draft.deviceQuery
+}
 function applyPreset() {
+  clearDeviceQuery()
   draft.profile = preset.value === 'lockbot-v1' ? 'lockbot-v1' : 'custom'
   if (preset.value === 'lockbot-v1') {
     Object.assign(
@@ -286,6 +305,7 @@ function applyPreset() {
 }
 function openSettings() {
   cancelTest()
+  clearDeviceQuery()
   Object.assign(draft, props.modelValue || DEFAULT_CONFIG)
   preset.value =
     props.modelValue?.profile === 'lockbot-v1' || !props.modelValue

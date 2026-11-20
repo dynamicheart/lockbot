@@ -1,10 +1,12 @@
 # ruff: noqa: F811
 """Privacy must hold at API/transport boundaries, including old free-form clients."""
 
+import json
+
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from backend.test_resource_api_resources import api  # noqa: F401
+from backend.test_resource_api_resources import api, running_api  # noqa: F401
 
 
 @pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"], indirect=True)
@@ -29,8 +31,13 @@ def test_other_user_cannot_read_private_notes_from_any_agent_read(client, api, m
         assert own.status_code == other.status_code == 200
         assert "private-experiment-123" in own.text and "private-agent-name" in own.text
         assert "private-experiment-123" not in other.text and "private-agent-name" not in other.text
-        assert "operator_testing" in other.text
-        assert '"authorization_label"' not in other.text and '"binding_id"' not in other.text
+        # Context documents private field names; only the resource/declaration
+        # records represent another actor's data. Private values stay forbidden
+        # across the complete response above.
+        records = other.json()["resources" if endpoint == "/resources" else "items"]
+        rendered = json.dumps(records)
+        assert "operator_testing" in rendered
+        assert '"authorization_label"' not in rendered and '"binding_id"' not in rendered
 
 
 def test_legacy_notes_stay_private_and_categories_are_validated_before_execution(client, api, monkeypatch):
@@ -101,9 +108,10 @@ def test_non_agent_validation_retains_its_existing_contract(client):
     assert any("input" in error for error in response.json()["detail"])
 
 
-def test_group_notifications_never_publish_private_fields_even_on_release(client, api, monkeypatch):
+def test_group_notifications_never_publish_private_fields_even_on_release(client, running_api, monkeypatch):
     from lockbot.backend.app.resource_api.notifications import notification_budget
 
+    api = running_api
     sent = []
     monkeypatch.setattr(
         api["bot"].adapter, "send_notification", lambda message: sent.append(message) or ("accepted", "ok")

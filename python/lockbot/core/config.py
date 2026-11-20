@@ -35,7 +35,7 @@ _CONFIG_SCHEMA = {
         "default": "NODE",
         "description": "Bot type: NODE / DEVICE / QUEUE",
     },
-    "FEISHU_QUERY_PANEL": {"default": False, "description": "Update own Feishu query panels", "env": False},
+    "FEISHU_QUERY_PANEL": {"default": False, "description": "Refresh the latest Feishu query on reply", "env": False},
     "FEISHU_MEMBERSHIP_NOTICES": {
         "default": False,
         "description": "Observe Feishu bot membership and warn administrators on removal",

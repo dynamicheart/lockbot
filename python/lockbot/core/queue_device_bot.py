@@ -1,6 +1,6 @@
 """FIFO reservations and exclusive locks for individual devices, using the queue engine."""
 
-from lockbot.core.base_bot import BaseLockBot, BotState
+from lockbot.core.base_bot import BotState
 from lockbot.core.device_bot import DeviceBot
 from lockbot.core.i18n import t
 from lockbot.core.io import create_or_load_device_state
@@ -77,11 +77,6 @@ class QueueDeviceBot(QueueBot):
     def _usage_labels(self, resource_key):
         node, index = resource_key.rsplit(":dev", 1)
         return super()._display_node(node), self._card_label(node, index)
-
-    def _check_acquisition_limit_locked(self, user_id, node_keys, limit):
-        # Preserve the existing API's per-node cap, including bookings on any card.
-        nodes = [key.rsplit(":dev", 1)[0] for key in node_keys]
-        return BaseLockBot._check_acquisition_limit_locked(self, user_id, nodes, limit)
 
     def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
         # DeviceBot already targets exact cards and leaves booking_list untouched.

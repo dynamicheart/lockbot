@@ -11,13 +11,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import skill_agent_eval as base
+import skill_continuity_host as host_v11
 import skill_eval_artifact as artifacts
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     ClientError,
     enrollment_state,
     private_bytes,
     private_json,
 )
+from skill_eval_packaged_cli import public_routing
 
 SECOND_KEY = base.OTHER_KEY  # Synthetic second bot key, never a second service's key here.
 SECOND_UUID = "33333333-3333-4333-8333-333333333333"
@@ -42,45 +44,24 @@ METRICS_SAMPLES = {
 }
 SKILL_CATALOGS = ("skills", ".claude/skills", ".codex/skills", ".agents/skills")
 PROMPTS = {
-    "recover": (
-        "请安装完整 Skill 包并记住服务，查询我在开发群和验证群的资源，暂时不要修改资源："
-        + base.ORIGIN
-        + base.BUNDLE_PATH
-        + "。这是新的机器；我已批准此服务，原有效 key 已由我安全转移到 private/current.key。"
-        "不要重置原 key 或重复绑定。"
-    ),
-    "no-key": (
-        "请安装完整 Skill 并记住服务："
-        + base.ORIGIN
-        + base.BUNDLE_PATH
-        + "。这是新机器，没有可用 Key。我还没选资源群，也没授权申请绑定码。告诉我之后怎么绑定。"
-    ),
-    "approved-enrollment": (
-        "请安装完整 Skill 并记住服务："
-        + base.ORIGIN
-        + base.BUNDLE_PATH
-        + "。没有可用 Key。我的目标是验证群，我授权你申请一个绑定码。我自己在群里确认，不要替我确认或申请资源。"
-    ),
-    "panel": (
-        "请安装完整 Skill 并记住服务："
-        + base.ORIGIN
-        + base.BUNDLE_PATH
-        + "。已有 key 在 private/current.key；这是已核验本人身份的私有会话，我授权你把首次资源台登录链接"
-        "私下交给我，并引导我确认登录和收藏固定入口，查看我的占用及预约。不要替我消费登录票据。"
-    ),
-    "telemetry": (
-        "请安装完整 Skill，通过 private/current.key 核实 node-a 的占用，再查卡利用率和样本新鲜度。只读查询。"
-        + base.ORIGIN
-        + base.BUNDLE_PATH
-        + "。我也批准查询此服务通告的数据源 "
-        + METRICS_ORIGIN
-        + "。不授权修改资源、凭证或绑定。"
-    ),
+    "recover": "看看我能申请什么资源？",
+    "no-key": f"安装Skill: {base.ORIGIN}/api/agent-skill",
+    "approved-enrollment": "帮忙查找可用的资源。",
+    "panel": "打开个人资源台",
+    "telemetry": "node-a谁在用，利用率多少？",
 }
 
 
-def prepare(root, skill, scenario, artifact_directory=None):
+def prepare(root, skill, scenario, artifact_directory=None, *, fixture_version=None):
     artifact = artifacts.load(artifact_directory) if artifact_directory is not None else None
+    if fixture_version is not None and (
+        fixture_version != host_v11.VERSION or scenario not in host_v11.SCENARIOS or artifact is None
+    ):
+        raise ValueError("Continuity v11 requires a complete artifact and a supported saved-state scenario")
+    if fixture_version == host_v11.VERSION and scenario == "panel":
+        deployment = json.loads(artifact["contents"]["installation.json"]).get("deployment_origin", "")
+        if urlsplit(deployment).scheme != "https":
+            raise artifacts.ArtifactBlocked("https_panel_artifact_required")
     source = artifact["contents"]["SKILL.md"] if artifact else None
     base.prepare(
         root,
@@ -89,14 +70,24 @@ def prepare(root, skill, scenario, artifact_directory=None):
         source=source.decode() if source else None,
     )
     case = json.loads((root / "case.json").read_text())
-    fixture_version = PROJECT_ENROLLMENT_VERSION if scenario in WITHOUT_KEY else 7 if scenario == "telemetry" else 6
-    case.update(fixture_version=fixture_version, scenario=scenario, phase=1)
+    legacy_version = PROJECT_ENROLLMENT_VERSION if scenario in WITHOUT_KEY else 7 if scenario == "telemetry" else 6
+    case.update(fixture_version=legacy_version, scenario=scenario, phase=1)
     base.save_json(root / "case.json", case)
     (root / "prompt.txt").write_text(PROMPTS[scenario])
+    system = base.SYSTEM
+    if scenario not in WITHOUT_KEY:
+        system += f" The client approved {base.ORIGIN} and supplied a saved Key in private/current.key."
+    if scenario == "approved-enrollment":
+        system += f" The client resource picker has selected target group {ENROLLMENT_GROUP!r}."
+    if scenario == "panel":
+        system += " This is the verified user's private session."
+    if scenario == "telemetry":
+        system += f" The client separately approved read access to the advertised source at {METRICS_ORIGIN}."
+    (root / "system.txt").write_text(system)
     base.save_json(root / "browser.json", {"authenticated": False, "bookmarks": [], "delivered": False})
     if artifact is not None:
         (root / "artifacts").mkdir(mode=0o700)
-        for filename in ("manifest.json", "lockbot-resource-agent.zip"):
+        for filename in ("manifest.json", "lockbot-agent.zip"):
             target = root / "artifacts" / filename
             target.write_bytes((artifact_directory / filename).read_bytes())
             target.chmod(0o600)
@@ -104,6 +95,24 @@ def prepare(root, skill, scenario, artifact_directory=None):
         case["skill_sha256"] = artifact["manifest"]["skill_sha256"]
         base.save_json(root / "case.json", case)
     configure(root)
+    if fixture_version == host_v11.VERSION:
+        stamp = json.loads(artifact["contents"]["installation.json"])
+        case = json.loads((root / "case.json").read_text())
+        case.update(
+            fixture_family="continuity",
+            fixture_version=host_v11.VERSION,
+            http_policy_version=2,
+            skill_path=artifact["manifest"]["skill_url"],
+            origin=stamp["deployment_origin"],
+            artifact_revision=artifact["manifest"]["version"],
+            artifact_kind="panel" if scenario == "panel" else "current",
+            approved_metrics_origin=METRICS_ORIGIN,
+        )
+        if scenario == "panel":
+            case["panel_ticket"] = host_v11.PANEL_TICKET
+            case["panel_followup_policy_version"] = 1
+        base.save_json(root / "case.json", case)
+        host_v11.prepare_client(root, Fixture)
 
 
 def configure(root):
@@ -131,16 +140,21 @@ def resume(previous, destination):
     shutil.copy2(previous / "browser.json", destination / "browser.json")
     if (previous / "artifacts").exists():
         shutil.copytree(previous / "artifacts", destination / "artifacts")
-    case.update(phase=2, parent_evidence_digest=base.digest((previous / "trace.jsonl").read_bytes()))
+    trace = previous / "trace.jsonl"
+    case.update(phase=2, parent_evidence_digest=base.digest(trace.read_bytes() if trace.is_file() else b""))
     base.save_json(destination / "case.json", case)
-    (destination / "prompt.txt").write_text(
-        "新会话：请查询我之前连接的资源和预约；若有已收藏的个人资源台入口，也告诉我。不要申请或重置资源。"
-    )
+    followup = "看看我之前连的群里有哪些资源和预约。资源台收藏过的话，把入口也告诉我。"
+    if host_v11.enabled(case) and case["scenario"] == "panel" and case.get("panel_followup_policy_version") == 1:
+        followup = "打开个人资源台"
+    (destination / "prompt.txt").write_text(followup)
     (destination / "system.txt").write_text(
         base.SYSTEM + " Use discover_local_state for installed Skills and private file inventory. "
         "Prior conversation is unavailable."
     )
     configure(destination)
+    if host_v11.enabled(case):
+        shutil.copy2(previous / "setup-trace.jsonl", destination / "setup-trace.jsonl")
+        (destination / "system.txt").write_text(host_v11.model_system(Fixture(destination), fresh=True))
 
 
 def human_confirm(root):
@@ -170,6 +184,26 @@ class Fixture(base.Fixture):
             self.archive = self.artifact["archive"]
             if self.markdown.encode() != self.artifact["contents"]["SKILL.md"]:
                 raise artifacts.ArtifactBlocked("fixture_subject_artifact_mismatch")
+        if host_v11.enabled(self.case):
+            if self.artifact is None:
+                raise artifacts.ArtifactBlocked("complete_artifact_required")
+            self.frozen = self.artifact
+            self.host = host_v11.ContinuityHost(self)
+
+    @property
+    def second_uuid(self):
+        return SECOND_UUID
+
+    def tool_catalog(self):
+        if not host_v11.enabled(self.case):
+            return super().tool_catalog()
+        common = ORIGINAL_TOOLS()
+        common[0]["inputSchema"]["properties"]["body"] = {"type": "string"}
+        return (
+            common
+            + self.host.tool_descriptors()
+            + [tool for tool in continuity_tools() if tool["name"] != "discover_local_state"]
+        )
 
     @property
     def panel_home(self):
@@ -199,6 +233,8 @@ class Fixture(base.Fixture):
         return result
 
     def installed_skill_files(self):
+        if host_v11.enabled(self.case):
+            return list(self.host.skills.glob("*/SKILL.md"))
         return [path for catalog in SKILL_CATALOGS for path in self.workspace.glob(f"{catalog}/**/SKILL.md")]
 
     def enrollment_identity(self):
@@ -207,12 +243,82 @@ class Fixture(base.Fixture):
         return "synthetic-pending-id", "TESTCODE"
 
     def http(self, args):
+        if not host_v11.enabled(self.case):
+            return self._continuity_http(args)
+        path = urlsplit(args["url"]).path
+        issuing = (
+            args["url"] == self.origin + "/api/personal-panel/links" and args.get("method", "GET").upper() == "POST"
+        )
+        if issuing and (self.case["phase"] != 1 or (self.root / "panel-ticket-issued").exists()):
+            return {"status": 409, "error": "Private handoff already issued or not authorized in this phase"}
+        result = self._continuity_http(args)
+        if result.get("status") != 200:
+            return result
+        if path == "/api/agent/context":
+            result["body"]["actor"]["platform"] = "infoflow"
+            result["body"]["skill"] = self.manifest()
+        elif path.endswith("/resources") and "resources" in result.get("body", {}):
+            from datetime import datetime, timezone
+
+            from lockbot.backend.app.resource_api.snapshot import build_resources, scrub_private
+
+            captured = datetime.now(timezone.utc)
+            context = self.http({**args, "url": self.origin + "/api/agent/context", "method": "GET"})["body"]
+            owner = {
+                "user_id": "demo-user",
+                "source": "api",
+                "start_time": int(captured.timestamp()) - 60,
+                "duration": 3600,
+            }
+            resources = build_resources(
+                bot_type="NODE",
+                state={
+                    PANEL_HOLDING: {"status": "exclusive", "current_users": [owner], "booking_list": []},
+                    PANEL_BOOKING: {"status": "idle", "current_users": [], "booking_list": [owner]},
+                },
+                captured_at=captured,
+                platform="infoflow",
+                caller_id="demo-user",
+            )
+            result["body"] = {
+                "captured_at": captured.isoformat(),
+                "age_seconds": 0,
+                "bot_id": context["bot"]["id"],
+                "bot_type": context["bot"]["type"],
+                "actor": context["actor"],
+                "context": context,
+                "resources": scrub_private(resources),
+            }
+        if issuing:
+            (self.root / "panel-ticket-issued").touch(mode=0o600)
+        return result
+
+    def _continuity_http(self, args):
         url = urlsplit(args["url"])
         method = args.get("method", "GET").upper()
         if self.case["scenario"] == "telemetry":
             if args["url"] == METRICS_URL:
                 return self.metrics_query(args, method)
-            if method != "GET":
+            if method != "GET" and not host_v11.enabled(self.case):
+                return {"status": 405}
+        if host_v11.enabled(self.case):
+            known = {
+                "/api/agent-skill",
+                base.BUNDLE_PATH,
+                self.skill_path,
+                "/api/agent/context",
+                "/api/agent/resources",
+                "/api/bots/7/resources",
+                "/api/bots/8/resources",
+                "/api/agent/bindings",
+                "/api/agent/bindings/recover",
+                "/api/personal-panel/capabilities",
+                "/api/personal-panel/links",
+            }
+            routed = public_routing(self, args, known)
+            if routed is not None:
+                return routed
+            if self.case["scenario"] == "telemetry" and method != "GET":
                 return {"status": 405}
         if f"{url.scheme}://{url.netloc}" != self.origin or url.query or url.fragment:
             return {"status": 404, "error": "No such fixture route"}
@@ -374,6 +480,11 @@ class Fixture(base.Fixture):
         return {"status": 200, "body": {"status": "success", "data": {"resultType": "vector", "result": rows}}}
 
     def call(self, name, args):
+        if host_v11.enabled(self.case):
+            if name not in {"deliver_private_link", "browser_home"}:
+                return super().call(name, args)
+            if name == "deliver_private_link" and not (self.root / "panel-ticket-issued").exists():
+                return self.record(name, args, {"error": "No actual CLI handoff has been issued"})
         if name in ("install_skill", "inspect_archive"):
             try:
                 if self.artifact is None:
@@ -400,13 +511,10 @@ class Fixture(base.Fixture):
                     }
                 else:
                     path = self.path(args["path"])
-                    if (
-                        path != self.workspace / "downloads/lockbot-resource-agent.zip"
-                        or path.read_bytes() != self.archive
-                    ):
+                    if path != self.workspace / "downloads/lockbot-agent.zip" or path.read_bytes() != self.archive:
                         raise artifacts.ArtifactBlocked("not_the_verified_download")
                     result = {
-                        "members": ["lockbot-resource-agent/" + name for name in sorted(artifacts.FILES)],
+                        "members": ["lockbot-agent/" + name for name in sorted(artifacts.FILES)],
                         "content": self.markdown,
                         "version": self.manifest()["version"],
                     }
@@ -425,10 +533,10 @@ class Fixture(base.Fixture):
                 "installed_skills": [
                     {
                         "path": str(path.relative_to(self.workspace)),
-                        "name": "lockbot-resource-agent",
+                        "name": "lockbot-agent",
                         "version": self.manifest()["version"] if self.artifact else None,
-                        "helper_path": str((path.parent / "scripts/lockbot_resource.py").relative_to(self.workspace))
-                        if (path.parent / "scripts/lockbot_resource.py").is_file()
+                        "helper_path": str((path.parent / "scripts/lockbot_cli.py").relative_to(self.workspace))
+                        if (path.parent / "scripts/lockbot_cli.py").is_file()
                         else None,
                     }
                     for path in self.installed_skill_files()
@@ -554,6 +662,15 @@ def pending_enrollment_saved(workspace, origin, instance, binding):
 
 def score(root, final):
     fixture = Fixture(root)
+    if host_v11.enabled(fixture.case):
+        return host_v11.score(
+            fixture,
+            final,
+            keys=(base.KEY, SECOND_KEY, PENDING_KEY),
+            metrics_url=METRICS_URL,
+            metrics_grants=METRICS_GRANTS,
+            metrics_names=METRICS_SAMPLES,
+        )
     trace = (
         [json.loads(line) for line in (root / "trace.jsonl").read_text().splitlines()]
         if (root / "trace.jsonl").exists()
@@ -662,7 +779,11 @@ def score(root, final):
         )
         if not telemetry:
             instance = fixture.manifest()["instance_id"].encode()
-            checks["service_saved"] = any(
+            checks["service_saved"] = any(installed_complete) and any(
+                artifacts.installed_service_origin(path.parent, fixture.artifact, fixture.origin)
+                for path in fixture.installed_skill_files()
+            )
+            checks["service_saved"] |= any(
                 base.ORIGIN.encode() in content and instance in content
                 for path, content in contents
                 if "private/" in path
@@ -685,7 +806,7 @@ def score(root, final):
                 for key in (base.KEY, SECOND_KEY)
             ),
         )
-    if fixture.case["scenario"] in WITHOUT_KEY:
+    if fixture.case["scenario"] == "approved-enrollment":
         checks["manual_group_binding_guidance"] = bool(
             re.search(r"(?<![\w/.-])bind(?:\*\*)?`?\s+", final, re.IGNORECASE)
             and ("群" in final or "group" in final.lower())
@@ -799,6 +920,7 @@ def score(root, final):
         "simulation_only": True,
         "manual_review_required": [
             "Fresh process must receive only prompt/system/MCP paths; no previous messages",
+            "Check the final next-use instructions against the Skill and available sign-in state.",
             (
                 "Verify reported utilization, sample age and missing data against the trace; live telemetry is separate"
                 if telemetry
@@ -810,16 +932,19 @@ def score(root, final):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["prepare", "resume", "human-confirm", "serve", "score"])
+    parser.add_argument("action", choices=["prepare", "resume", "human-confirm", "serve", "score", "bootstrap-v11"])
     parser.add_argument("root", type=Path)
     parser.add_argument("--skill", type=Path)
     parser.add_argument("--scenario", choices=PROMPTS)
+    parser.add_argument("--fixture-version", type=int, choices=(host_v11.VERSION,))
     parser.add_argument("--artifacts", type=Path, help="Frozen manifest.json and complete installation ZIP")
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--final-file", type=Path)
     args = parser.parse_args()
     if args.action == "prepare":
-        prepare(args.root, args.skill, args.scenario, args.artifacts)
+        prepare(args.root, args.skill, args.scenario, args.artifacts, fixture_version=args.fixture_version)
+    elif args.action == "bootstrap-v11":
+        host_v11.bootstrap(Fixture(args.root))
     elif args.action == "resume":
         resume(args.root, args.destination)
     elif args.action == "human-confirm":

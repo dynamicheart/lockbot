@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.rules import BotRules, current_bot_rules
 from lockbot.backend.app.resource_api.traffic import credential_budget
@@ -44,6 +43,8 @@ def ensure_instance_id(db: Session) -> str:
 
 
 def server_metadata(request: Request, db: Session) -> dict:
+    from lockbot.backend.app.resource_api.resource_query import capability_descriptor
+
     return {
         "service_id": SERVICE_ID,
         "instance_id": ensure_instance_id(db),
@@ -59,7 +60,10 @@ def server_metadata(request: Request, db: Session) -> dict:
             "namespaced_skill",
             "skill_version_headers",
             "resource_view_link",
+            "coherent_resource_snapshot",
+            "resource_query_v1",
         ],
+        "resource_query": capability_descriptor(),
         "context_url": "/api/agent/context",
         "bindings_url": "/api/agent/bindings",
         "binding_recovery_url": "/api/agent/bindings/recover",
@@ -75,6 +79,7 @@ class ServerIdentity(BaseModel):
     api_version: Literal["1"]
     credential_scheme: Literal["lbr_bot_scoped"]
     capabilities: list[str]
+    resource_query: dict[str, Any] | None = None
     context_url: str
     bindings_url: str
     binding_recovery_url: str
@@ -135,7 +140,6 @@ class AgentContextResponse(BaseModel):
 
 
 @router.get("/context", response_model=AgentContextResponse, response_model_exclude_unset=True)
-@limiter.limit("60/minute")
 def agent_context(request: Request, response: Response, db: Session = Depends(get_db)):
     """Discover only the identity/bot bound to this key. Never scan or list other bots.
 
@@ -167,6 +171,44 @@ def agent_context(request: Request, response: Response, db: Session = Depends(ge
         return _context_payload(request, response, db, row)
 
 
+def operation_context(request, db, bot, actor):
+    """Identity and operation rules, without issuing grants, links or extensions.
+
+    Call only after authentication and fresh authorization, while holding the
+    caller's authority guard. Inventory and mutation observations share this shape.
+    """
+    from lockbot.backend.app.resource_api.skill import skill_artifacts
+    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
+
+    return {
+        "server": server_metadata(request, db),
+        "actor": {"platform": actor.platform, "external_user_id": actor.external_user_id},
+        "bot": {"id": bot.id, "uuid": bot.uuid, "name": bot.name, "type": bot.bot_type},
+        "bot_rules": current_bot_rules(bot, actor.external_user_id),
+        "agent_access_enabled": bot.resource_auth_enabled,
+        "credential_scope": "one_user_one_bot",
+        "usage_privacy": {
+            "conditional_cleanup": {
+                "header": "If-Match",
+                "revision_field": "revision",
+                "mismatch_status": 412,
+                "lease_required": True,
+            },
+            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id", "revision"],
+            "policy_version": 2,
+            "private_readers": ["same_verified_actor", "super_administrator"],
+            "management_private_capability": "task_private:read",
+            "management_private_requires_opt_in": True,
+            "ordinary_operator_private_access": False,
+            "delegated_private_access_supported": False,
+            "public_task_categories": TASK_CATEGORIES,
+            "legacy_purpose_visibility": "private",
+        },
+        "links": {"resources": "/api/agent/resources", "commands": "/api/agent/commands"},
+        "skill": skill_artifacts()[2],
+    }
+
+
 def _context_payload(request, response, db, row):
     bot = db.get(Bot, row.bound_bot_id)
     # Refresh even if another request retained this ORM identity in a reused Session.
@@ -174,7 +216,6 @@ def _context_payload(request, response, db, row):
     from lockbot.backend.app.bots.datasource import public_datasource
     from lockbot.backend.app.bots.metrics_access import issue_metrics_access
     from lockbot.backend.app.resource_api.skill import client_skill_notice, skill_artifacts
-    from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
     from lockbot.backend.app.resource_api.view_links import view_link
 
     response.headers["Cache-Control"] = "no-store"
@@ -209,23 +250,7 @@ def _context_payload(request, response, db, row):
         }
         if public_datasource(bot)
         else None,
-        "usage_privacy": {
-            "conditional_cleanup": {
-                "header": "If-Match",
-                "revision_field": "revision",
-                "mismatch_status": 412,
-                "lease_required": True,
-            },
-            "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id", "revision"],
-            "policy_version": 2,
-            "private_readers": ["same_verified_actor", "super_administrator"],
-            "management_private_capability": "task_private:read",
-            "management_private_requires_opt_in": True,
-            "ordinary_operator_private_access": False,
-            "delegated_private_access_supported": False,
-            "public_task_categories": TASK_CATEGORIES,
-            "legacy_purpose_visibility": "private",
-        },
+        "usage_privacy": operation_context(request, db, bot, row)["usage_privacy"],
         "links": {
             "bindings": "/api/agent/bindings",
             "binding_recovery": "/api/agent/bindings/recover",
@@ -243,7 +268,6 @@ def _context_payload(request, response, db, row):
 
 
 @router.get("/bindings", response_model=BindingDirectoryResponse)
-@limiter.limit("60/minute")
 def own_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
     """List live bindings for this verified principal on this instance, without keys.
 
@@ -254,7 +278,6 @@ def own_bindings(request: Request, response: Response, db: Session = Depends(get
 
 
 @router.post("/bindings/recover", response_model=BindingRecoveryResponse)
-@limiter.limit("60/minute")
 def recover_own_bindings(request: Request, response: Response, db: Session = Depends(get_db)):
     """Recover this principal's live per-bot keys and backfill the supplied legacy key.
 

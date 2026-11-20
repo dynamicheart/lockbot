@@ -5,18 +5,23 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from lockbot.backend.app.config import (
+    RESOURCE_API_TIER_ACTIVE_SECONDS,
+    RESOURCE_API_TIER_BOOKING_SECONDS,
+    RESOURCE_API_TIER_DISCOVERY_SECONDS,
+)
 from lockbot.backend.app.resource_api import commands
 from lockbot.backend.app.resource_api.snapshot import QUEUE_CLAIM_WINDOW_SECONDS
-from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
+from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.core.bot_instance import _BOT_CLASS_MAP
 from lockbot.core.config import Config
 
 
 class PollMinimumSeconds(BaseModel):
-    active: float = Field(description="Minimum resource poll interval for a holder or queue head, in seconds.")
-    booking: float = Field(description="Minimum resource poll interval for a waiting booker, in seconds.")
+    active: float = Field(description="Recommended resource poll interval for a holder or queue head, in seconds.")
+    booking: float = Field(description="Recommended resource poll interval for a waiting booker, in seconds.")
     discovery: float = Field(
-        description="Minimum resource poll interval for a caller without a holding/booking, in seconds."
+        description="Recommended resource poll interval for a caller without a holding/booking, in seconds."
     )
 
 
@@ -48,9 +53,6 @@ class BotRules(BaseModel):
     allow_user_alias: bool
     request_budget: RequestBudget
     poll_minimum_seconds: PollMinimumSeconds
-    api_max_machines_per_user: int = Field(
-        description="Separate existing API cap, counting held/booked machines even for card bots."
-    )
 
 
 def current_bot_rules(bot, user_id: str) -> dict:
@@ -77,9 +79,8 @@ def current_bot_rules(bot, user_id: str) -> dict:
             "write_per_minute": credential_budget.write_limit,
         },
         "poll_minimum_seconds": {
-            "active": resource_tier_gate.active,
-            "booking": resource_tier_gate.booking,
-            "discovery": resource_tier_gate.discovery,
+            "active": RESOURCE_API_TIER_ACTIVE_SECONDS,
+            "booking": RESOURCE_API_TIER_BOOKING_SECONDS,
+            "discovery": RESOURCE_API_TIER_DISCOVERY_SECONDS,
         },
-        "api_max_machines_per_user": commands.RESOURCE_API_MAX_HELD_PER_IDENTITY,
     }

@@ -313,19 +313,39 @@ watch(
   cursor: grabbing;
 }
 .node-input {
-  flex: 1;
+  flex: 0 1 180px;
+  min-width: 100px;
 }
 .alias-input {
-  width: 140px;
-  flex-shrink: 0;
+  flex: 1 1 220px;
+  min-width: 120px;
+}
+@media (max-width: 520px) {
+  .node-item {
+    flex-wrap: wrap;
+  }
+  .node-input {
+    flex: 1 1 100px;
+  }
+  .alias-input {
+    order: 2;
+    flex-basis: 100%;
+    margin-left: 46px;
+  }
 }
 .node-remove {
   opacity: 0;
   transition: opacity 0.2s;
   flex-shrink: 0;
 }
-.node-item:hover .node-remove {
+.node-item:hover .node-remove,
+.node-item:focus-within .node-remove {
   opacity: 1;
+}
+@media (hover: none) {
+  .node-remove {
+    opacity: 1;
+  }
 }
 .node-empty {
   text-align: center;

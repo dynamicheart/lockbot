@@ -30,18 +30,30 @@ def panel_env(feishu_setup, db_session, monkeypatch):
         bot.config.set_val("FEISHU_QUERY_PANEL", True)
     db_session.commit()
     events = []
-    monkeypatch.setattr(
-        FeishuClient, "create_query_panel", lambda self, payload: events.append(("create", payload)) or "om_panel"
-    )
+
+    def create(self, payload):
+        events.append(("create", payload))
+        return f"om_panel_{self.app_id}_{payload['receive_id']}_{len(events)}"
+
+    monkeypatch.setattr(FeishuClient, "create_query_panel", create)
     monkeypatch.setattr(
         FeishuClient, "update_query_panel", lambda self, mid, payload: events.append(("update", mid, payload))
     )
     monkeypatch.setattr(FeishuClient, "send", lambda self, payload: events.append(("normal", payload)) or [])
 
-    def panel(index=0):
+    def panel(index=0, *, reply_to_message_id=None):
         bot = bots[index]
         row = db_session.get(Bot, bot.config.get_val("BOT_ID"))
-        return QueryPanel(factory, row.id, app_id, row.uuid, row.identity_revision, row.group_id, bot.adapter)
+        return QueryPanel(
+            factory,
+            row.id,
+            app_id,
+            row.uuid,
+            row.identity_revision,
+            row.group_id,
+            bot.adapter,
+            reply_to_message_id=reply_to_message_id,
+        )
 
     def reply(index=0, text="Full query\n\nnode_a empty\n\n"):
         return bots[index].adapter.build_reply(text, ["ou_alice"], f"oc_group{index}")
@@ -52,10 +64,11 @@ def panel_env(feishu_setup, db_session, monkeypatch):
 def test_create_update_restart_and_scope_isolation(panel_env):
     factory, bots, events, panel, reply, _, _ = panel_env
     assert panel().send(reply())
-    assert panel().send(reply())  # Fresh handler simulates restart: verified DB reference reused.
+    assert panel(reply_to_message_id="om_panel_cli_demo_oc_group0_1").send(reply())  # Fresh handler after restart.
     assert panel(1).send(reply(1))
     assert [e[0] for e in events] == ["create", "update", "create"]
     assert events[0][1]["content"] == events[1][2]["content"]
+    assert events[1][1] == "om_panel_cli_demo_oc_group0_1"
     with factory() as db:
         assert db.query(FeishuQueryPanel).count() == 2
         row = db.get(FeishuQueryPanel, bots[0].config.get_val("BOT_ID"))
@@ -76,8 +89,57 @@ def test_rollover_and_membership_invalidation(panel_env, change):
         else:
             invalidate_query_panel(db, row.bot_id)
         db.commit()
-    panel().send(reply())
+    panel(reply_to_message_id="om_panel_cli_demo_oc_group0_1").send(reply())
     assert [e[0] for e in events] == ["create", "create"]
+
+
+@pytest.mark.parametrize("target", [None, "old", "unknown", "other_chat"])
+def test_only_current_same_chat_panel_can_be_edited(panel_env, target):
+    factory, bots, events, panel, reply, _, _ = panel_env
+    panel().send(reply())
+    old_id = "om_panel_cli_demo_oc_group0_1"
+    panel().send(reply())
+    current_id = "om_panel_cli_demo_oc_group0_2"
+    panel(1).send(reply(1))
+    targets = {None: None, "old": old_id, "unknown": "om_unknown", "other_chat": "om_panel_cli_demo_oc_group1_3"}
+    assert panel(reply_to_message_id=targets[target]).send(reply())
+    assert [event[0] for event in events] == ["create"] * 4
+    with factory() as db:
+        row = db.get(FeishuQueryPanel, bots[0].config.get_val("BOT_ID"))
+        assert row.message_id not in (old_id, current_id, targets["other_chat"])
+        assert row.edit_count == 0
+
+
+@pytest.mark.parametrize("transport", ["http", "websocket"])
+@pytest.mark.parametrize("command", ["", "query"])
+def test_verified_direct_reply_refreshes_latest_panel_without_replay(panel_env, client, db_session, transport, command):
+    from lockbot.backend.app.feishu.service import accept_sdk_event
+
+    factory, bots, events, _, _, app_id, calls = panel_env
+    app = db_session.get(FeishuApplication, app_id)
+    app.transport = transport
+    db_session.commit()
+
+    def submit(payload):
+        if transport == "http":
+            return client.post(f"/api/feishu/events/{app_id}", json=payload).json()
+        return accept_sdk_event(db_session, app, payload)
+
+    for index, target in enumerate([None, "om_panel_cli_demo_oc_group0_1", None, "om_panel_cli_demo_oc_group0_1"]):
+        payload = message(message_id=f"om_query{index}", command=command)
+        # Even the latest panel as thread root cannot substitute for a direct parent.
+        payload["event"]["message"]["root_id"] = "om_panel_cli_demo_oc_group0_1"
+        if target:
+            payload["event"]["message"]["parent_id"] = target
+        assert submit(payload) == {"accepted": True}
+        assert submit(payload) == {"accepted": True, "duplicate": True}
+        assert len(calls) == 1
+        fn, args = calls.pop(0)
+        fn(*args)
+    assert [event[0] for event in events] == ["create", "update", "create", "create"]
+    assert events[1][1] == "om_panel_cli_demo_oc_group0_1"
+    with factory() as db:
+        assert db.get(FeishuQueryPanel, bots[0].config.get_val("BOT_ID")).message_id == "om_panel_cli_demo_oc_group0_4"
 
 
 @pytest.mark.parametrize("code", [230027, 230011, 230110, 230075, 230072, 230020, 230002])
@@ -91,8 +153,8 @@ def test_update_failure_falls_back_once_and_cools_down(panel_env, monkeypatch, c
         raise FeishuPanelAPIError(code)
 
     monkeypatch.setattr(FeishuClient, "update_query_panel", fail)
-    assert panel().send(reply()) is False
-    assert panel().send(reply()) is False
+    assert panel(reply_to_message_id="om_panel_cli_demo_oc_group0_1").send(reply()) is False
+    assert panel(reply_to_message_id="om_panel_cli_demo_oc_group0_1").send(reply()) is False
     assert attempts == [1]
     assert [e[0] for e in events] == ["create"]
 
@@ -125,7 +187,7 @@ def test_accepted_without_proven_own_message_is_not_resent(panel_env, monkeypatc
 @pytest.mark.parametrize("change", ["revision", "uuid", "group", "owner", "app"])
 def test_identity_changes_never_reuse_old_reference(panel_env, change):
     factory, bots, events, panel, reply, app_id, _ = panel_env
-    old = panel()
+    old = panel(reply_to_message_id="om_panel_cli_demo_oc_group0_1")
     old.send(reply())
     with factory() as db:
         bot = db.get(Bot, bots[0].config.get_val("BOT_ID"))
@@ -183,7 +245,7 @@ def test_only_full_queries_use_panel_default_commands_untouched(panel_env, clien
         assert response.status_code == 200
         fn, args = calls.pop(0)
         fn(*args)
-    assert [e[0] for e in events] == ["create", "normal", "normal", "normal", "normal", "normal", "update"]
+    assert [e[0] for e in events] == ["create", "normal", "normal", "normal", "normal", "normal", "create"]
 
 
 def test_default_off_does_not_touch_panel_table_or_change_payload(feishu_setup, client, monkeypatch, db_session):
@@ -327,12 +389,24 @@ def test_two_applications_same_chat_never_share_panel_references(panel_env, monk
         db.commit()
     bots[1].config.set_val("_AUTHORIZED_GROUP_IDS", ["oc_group0"])
     bots[1].config.set_val("_FEISHU_CLIENT", FeishuClient("cli_second", "unused"))
-    second = QueryPanel(factory, bid, aid, uid, rev, "oc_group0", bots[1].adapter)
+    second = QueryPanel(
+        factory,
+        bid,
+        aid,
+        uid,
+        rev,
+        "oc_group0",
+        bots[1].adapter,
+        reply_to_message_id="om_panel_cli_demo_oc_group0_1",
+    )
     assert second.send(bots[1].adapter.build_reply("query", [], "oc_group0"))
-    assert [event[0] for event in events] == ["create", "create"]
+    assert second.send(bots[1].adapter.build_reply("query", [], "oc_group0"))
+    assert [event[0] for event in events] == ["create", "create", "create"]
     with factory() as db:
-        scopes = [row.scope for row in db.query(FeishuQueryPanel).all()]
+        rows = db.query(FeishuQueryPanel).all()
+        scopes = [row.scope for row in rows]
         assert len(scopes) == len(set(scopes)) == 2
+        assert len({row.message_id for row in rows}) == 2
 
 
 def test_runtime_toggle_off_never_edits_cached_message(panel_env):
@@ -342,7 +416,7 @@ def test_runtime_toggle_off_never_edits_cached_message(panel_env):
         row = db.get(Bot, bots[0].config.get_val("BOT_ID"))
         row.config_overrides = json.dumps({"FEISHU_QUERY_PANEL": False})
         db.commit()
-    assert panel().send(reply()) is False
+    assert panel(reply_to_message_id="om_panel_cli_demo_oc_group0_1").send(reply()) is False
     assert [event[0] for event in events] == ["create"]
 
 
@@ -383,7 +457,7 @@ def test_panel_and_reaction_modes_compose_without_swallowing_outcomes(panel_env,
         fn, args = calls.pop(0)
         fn(*args)
     assert reactions == ["om_combo1"]
-    assert [event[0] for event in events] == ["create", "update", "normal", "normal"]
+    assert [event[0] for event in events] == ["create", "create", "normal", "normal"]
 
 
 def test_real_membership_hook_invalidates_panel_with_notices_disabled(panel_env, client):

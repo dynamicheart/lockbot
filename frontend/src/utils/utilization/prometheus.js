@@ -47,6 +47,9 @@ export function validateConfig(input) {
   if (!['independent', 'short_lived'].includes(config.accessMode))
     throw new ProviderError('configuration')
   if (!['custom', 'lockbot-v1'].includes(config.profile)) throw new ProviderError('configuration')
+  const hasDeviceQuery = Object.hasOwn(config, 'deviceQuery')
+  if (hasDeviceQuery && (config.deviceQuery !== 'exact-v1' || config.profile !== 'lockbot-v1'))
+    throw new ProviderError('configuration')
   if (config.profile === 'lockbot-v1')
     Object.assign(config, {
       nodeLabel: 'node',
@@ -117,7 +120,11 @@ export function validateConfig(input) {
   config.intervalSeconds = Math.max(30, Math.min(3600, Number(config.intervalSeconds) || 30))
   config.staleSeconds = Math.max(30, Math.min(3600, Number(config.staleSeconds) || 90))
   // Explicit allowlist: no extra fields or credential values are persisted by callers.
-  return Object.fromEntries(Object.keys(DEFAULT_CONFIG).map((key) => [key, config[key]]))
+  const normalized = Object.fromEntries(
+    Object.keys(DEFAULT_CONFIG).map((key) => [key, config[key]])
+  )
+  if (hasDeviceQuery) normalized.deviceQuery = config.deviceQuery
+  return normalized
 }
 const quote = (value) => JSON.stringify(value)
 const regexEscape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

@@ -94,6 +94,16 @@
           </el-menu-item-group>
         </template>
       </el-menu>
+      <router-link
+        v-if="debugMode && authStore.isSuperAdmin && traceReviewEnabled"
+        to="/agent-traces"
+        class="trace-review-link"
+        :class="{ collapsed: isCollapsed }"
+        :title="$t('nav.agentTraces')"
+      >
+        <el-icon><Share /></el-icon>
+        <span v-if="!isCollapsed">{{ $t('nav.agentTraces') }}</span>
+      </router-link>
     </el-aside>
 
     <!-- Mobile drawer -->
@@ -190,6 +200,16 @@
           </el-menu-item-group>
         </template>
       </el-menu>
+      <router-link
+        v-if="debugMode && authStore.isSuperAdmin && traceReviewEnabled"
+        to="/agent-traces"
+        class="trace-review-link"
+        :title="$t('nav.agentTraces')"
+        @click="drawerOpen = false"
+      >
+        <el-icon><Share /></el-icon>
+        <span>{{ $t('nav.agentTraces') }}</span>
+      </router-link>
     </el-drawer>
 
     <el-container>
@@ -376,7 +396,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Close, Plus, Operation, Link, Key } from '@element-plus/icons-vue'
+import { Close, Plus, Operation, Link, Key, Share } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { setLocale, getLocale } from '../i18n'
@@ -384,11 +404,16 @@ import DemoChat from '../components/DemoChat.vue'
 import { LS_KEYS } from '../utils/demoMode'
 import { isDemoMode } from '../utils/demoMode'
 
+const debugMode = import.meta.env.DEV
 const personalPanelEnabled = ref(false)
+const traceReviewEnabled = ref(false)
 onMounted(async () => {
   try {
     const response = await fetch('/api/settings')
     const settings = await response.json()
+    traceReviewEnabled.value = settings.some(
+      (s) => s.key === 'agent_trace_review_url' && s.value === '/#/agent-traces'
+    )
     personalPanelEnabled.value = settings.some(
       (s) => s.key === 'personal_panel_url' && s.value === '/#/me'
     )
@@ -657,6 +682,24 @@ function handleRemoveAccount(username) {
 }
 .sidebar :deep(.el-menu-item.is-active) {
   background-color: var(--lb-sidebar-hover) !important;
+}
+.trace-review-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 20px;
+  color: var(--lb-sidebar-text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.trace-review-link:hover,
+.trace-review-link:focus-visible {
+  background: var(--lb-sidebar-hover);
+}
+.trace-review-link.collapsed {
+  justify-content: center;
+  padding: 0;
 }
 .account-list {
   display: flex;

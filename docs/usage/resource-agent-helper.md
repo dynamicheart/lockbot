@@ -1,6 +1,6 @@
 # Resource Agent helper and complete installation bundle
 
-The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_resource.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-resource-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
+The resource Skill installation ZIP contains `SKILL.md`, on-demand `references/`, a standard-library Python client (`scripts/lockbot_cli.py`) and a local `installation.json` integrity/version stamp. Prefer the **same approved service's** `/api/agent-skill/lockbot-agent.zip`, discovered through its public manifest. Use the client's installer or verify and extract the complete package, then reload the Skill.
 
 Existing API routes, personal keys and the legacy ZIP URL/root (`lockbot-agent-api`) remain supported. The public manifest points to the complete installation ZIP, which includes `SKILL.md`. Operator bundles remain separate and use operator credentials.
 
@@ -24,6 +24,117 @@ files grant access only to the current account, SYSTEM, and local Administrators
 or using an explicit destination, use a local private directory and verify the same ACL restrictions.
 Use the normal project or user scope for automatic private directory creation. On macOS and Linux the
 helper continues to use POSIX permissions.
+
+## Private local resource labels
+
+For private local annotations, use `resource label add REF LABEL`,
+`resource label view REF`, `resource label list --label LABEL`,
+`resource label remove REF LABEL`, or `resource label clear REF`.
+These commands do not start a provider or read credentials, even through a
+launcher configured with backend options. They use full canonical references
+and a separate private metadata file; see the
+[local label contract](../design/cli-private-resource-labels.md) for file location,
+field discovery and bounded pagination. They never edit shared aliases.
+
+## Explicit read-only resource providers
+
+An explicitly selected local provider can supply resource lists and exact resource
+views through the same CLI entry point:
+
+```sh
+python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resource list --limit 20
+python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resource list --json
+python3 scripts/lockbot_cli.py --resource-provider /private/provider.json resource view x-example/node-01
+```
+
+The registration is a private JSON file, outside Git, with these required keys:
+
+```json
+{
+  "schema_version": 1,
+  "command": ["/absolute/python3", "-I", "-S", "/absolute/provider.py"],
+  "config_file": "/private/provider-config.json"
+}
+```
+
+Choose trusted local code. The first command argument must be an absolute
+executable path; subsequent arguments are passed literally without a shell. The
+parent appends `--config CONFIG_FILE --provider-stdio`, sends one JSON request on
+stdin, and never reads the provider's config or native connection catalog/Keys.
+The provider is responsible for its own private configuration and credentials.
+This selects one read source. The [mixed-source configuration](../design/cli-mixed-resource-sources.md)
+can instead combine it with pinned native connections. Native `s-...` references, writes, device listing, native connections,
+custom native directories, legacy mode and exact lease-time options
+cannot be combined with `--resource-provider`.
+
+A provider implementing the generic reported-utilization contract can opt in
+through an optional registration field:
+
+```json
+{"capabilities": ["reported_resource_utilization_v1"]}
+```
+
+This is a local executable feature declaration, not a resource authorization.
+Only add it for a provider which implements the contract below. Direct
+`--resource-provider ... resource list|view ... --with-metrics` rejects a
+registration without this capability before starting the process. An older
+provider in a mixed list still supplies ordinary inventory once, with an explicit
+unsupported-metrics gap. No native credential, source endpoint or HTTP fallback
+is borrowed for it.
+
+The stdio request has `schema_version: 1`, an `action` of `list`, `view` or
+`fields`, a `query` containing `nodes`, `model`, `fields` (or null), `limit` and
+`mine`, plus `ref` and `cursor` (each a string or null). Its `budget` is
+`{"max_http_requests":12,"timeout_seconds":60}`. Field names belong to the
+provider; bare `--json` requests field discovery and must not open its config or
+credentials. Discovery returns `json_fields` and `required_row_fields: ["ref"]`.
+
+Successful reads return one JSON object with a `result` containing `rows`,
+`has_more`, `next_cursor`, `scope_complete`, `http_requests`,
+`capabilities: ["read_only"]` and `observed_only: true`. Each row needs a unique,
+opaque `x-...` reference. Views return only the requested reference. Provider
+cursors are preserved exactly: repeat the same provider query with `--cursor`.
+The parent rejects oversized pages instead of trimming rows and skipping their
+continuation. Controlled failures use exit code 2 and stdout JSON containing a
+safe lowercase `error` code, `retry_mutation: false`, and optionally a finite,
+nonnegative `retry_after_seconds`. An optional `http_requests` reports the actual
+spent count, including zero for pre-I/O failures; omit it when unknown. Child stderr is discarded.
+
+Mixed traversal extends the budget with `max_rows`, `max_output_bytes` and
+`reference_namespace`. These runtime packing limits never change the original
+query or cursor identity. A provider used in mixed mode must honor them. With a
+namespace it emits `e1.NAMESPACE.BASE64URL(X_REF)` references before byte sizing;
+the view request still carries its raw `x-...` locator. The parent validates the
+decoded locator as well as the wrapper. It never drops rows to repair an oversized
+provider response.
+
+`inventory_scope` declares `full_inventory`, `own_only` or `unknown` coverage.
+Optional `valid_for_seconds` and `coverage_valid_for_seconds` are durations from
+zero to sixty seconds for row evidence and whole-query coverage respectively.
+Missing durations are zero in mixed mode. They bound observed evidence age, not
+continued holding or write authority. Known deadlines shorten them; missing
+expiry does not invent a permanent lease or invalidate a fresh known booking.
+
+An active list `--search TEXT` adds an optional canonical `search` string to the
+query. Its literal word matching and input bounds follow the
+[resource search contract](../design/cli-resource-contract-draft.md#search-names-aliases-and-hardware).
+Apply it to full permitted observations before field selection or paging, not
+to an already clipped response. A successful searched page includes
+`search_mode: "literal_terms_v1"` and `search_applied` equal to the requested
+canonical string, within the same output byte cap. Missing/incorrect confirmation
+leaves `source_search_not_supported`; validated request cost is retained. Unknown
+hardware that could match must prevent a complete negative result. Omit the
+optional query key and acknowledgement fields when search is absent; ordinary
+v1 requests, field discovery and cursor identity remain compatible. Exact views
+must reject active search.
+
+The parent enforces a 60-second process timeout and an 8-KiB final stdout limit.
+It captures stdout in a private temporary file and reads only the bounded
+response into memory. Trusted code can still grow that temporary file before
+termination, and can access the local user's files or start other processes.
+This execution interface is not a sandbox. Providers must omit credentials,
+private paths and other people's records; the parent also rejects common secret
+fields, token-shaped values and known registration/config paths in responses.
 
 ## Register accelerator inventory for whole machines
 
@@ -67,7 +178,7 @@ whether the known hardware can be allocated now.
 4. Initialize a **new** private connection. The user need not supply a bot ID or UUID:
 
 ```sh
-python3 scripts/lockbot_resource.py init --origin https://resources.example.test --key-file /private/resource.key --destination /private/connection.json
+python3 scripts/lockbot_cli.py init --origin https://resources.example.test --key-file /private/resource.key --destination /private/connection.json
 ```
 
 `init` first checks the credential-free manifest, then sends the Key only to that approved service's advertised context endpoint. It discovers the bound bot UUID and writes a private connection containing approved origin, instance ID, bot UUID and the Key file reference. Reuse the original Key file when upgrading. If context authentication fails, investigate the intended service and binding.
@@ -90,13 +201,13 @@ The metrics origin is optional and must be separately approved; `init --metrics-
 
 If Codex can download the verified ZIP but its workspace sandbox refuses writes to `.agents`,
 finish the install in your own terminal. From the archive you already checked against
-`installation.sha256`, extract `scripts/lockbot_resource.py` to a temporary location.
+`installation.sha256`, extract `scripts/lockbot_cli.py` to a temporary location.
 Use that verified helper from the project root:
 
 ```sh
-python3 -I -S /path/to/verified/lockbot_resource.py install \
+python3 -I -S /path/to/verified/lockbot_cli.py install \
   --origin https://resources.example.test \
-  --destination "$PWD/.agents/skills/lockbot-resource-agent"
+  --destination "$PWD/.agents/skills/lockbot-agent"
 ```
 
 Replace the example origin with the same approved service. The installer fetches and
@@ -107,9 +218,9 @@ installation should use the client's update workflow.
 ### Connect without a usable local Key
 
 ```sh
-python3 scripts/lockbot_resource.py key-challenge --origin https://resources.example.test --destination /private/compute-team --authorized
-python3 scripts/lockbot_resource.py enrollment-status --enrollment-dir /private/compute-team
-python3 scripts/lockbot_resource.py finish-enrollment --enrollment-dir /private/compute-team
+python3 scripts/lockbot_cli.py key-challenge --origin https://resources.example.test --destination /private/compute-team --authorized
+python3 scripts/lockbot_cli.py enrollment-status --enrollment-dir /private/compute-team
+python3 scripts/lockbot_cli.py finish-enrollment --enrollment-dir /private/compute-team
 ```
 
 Request the code after the user authorizes it. They send the returned bind command
@@ -126,7 +237,7 @@ Privately copy one active Key into a file protected as described above on the re
 `init` with that file to create the seed connection, then run:
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/seed.json recover --destination /private/recovered-groups
+python3 scripts/lockbot_cli.py --connection /private/seed.json recover --destination /private/recovered-groups
 ```
 
 Keep using the original seed connection for its group. The CLI saves each available
@@ -139,15 +250,15 @@ through the receiving Agent's private credential storage.
 ## Fixed resource operations
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/connection.json context
-python3 scripts/lockbot_resource.py --connection /private/connection.json resources
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation claim --node node-a --whole-node
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
-python3 scripts/lockbot_resource.py --connection /private/connection.json command --operation release --node node-a --whole-node
+python3 scripts/lockbot_cli.py --connection /private/connection.json context
+python3 scripts/lockbot_cli.py --connection /private/connection.json resources
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation claim --node node-a --whole-node
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
+python3 scripts/lockbot_cli.py --connection /private/connection.json command --operation release --node node-a --whole-node
 ```
 
-Whole-node writes require `--whole-node`. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments. Repeat `--node` for multiple exact nodes. If a requested card cannot be selected in the named group, ask the user before switching the group or scope. Supported operations are `lock`, `slock`, `book`, `claim`, deliberate `renew`, and `release`. Duration is explicit for new acquisitions, booking and renewal. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
+Whole-node writes require `--whole-node`. DEVICE and QUEUE_DEVICE require explicit numeric `--device` arguments. Repeat `--node` for multiple exact nodes. If a requested card cannot be selected in the named group, ask the user before switching the group or scope. Supported operations are `lock`, `slock`, `book`, `claim`, deliberate `renew`, and `release`. For `lock`, `slock`, or `book`, omit `--duration` if the user did not specify a time. The helper checks the selected group's default before dispatch. If that default is missing or exceeds the applicable limit, specify a valid duration. Renewal always requires the amount of time to add. Claim uses the booked duration. An acquisition cannot silently renew an already held resource. Renewals require ownership, enabled renewal policy, a consistent shared/exclusive mode, and a genuinely later expiry in the readback. Booking an already owned/booked resource is rejected before POST. Resource IDs and supported operations come from verified context/resources; the helper does not guess a bot ID or send an arbitrary operation URL.
 
 Resource mutations require verifiably fresh snapshots before dispatch and at readback.
 The helper rejects a missing or invalid snapshot age and applies the server's five-second
@@ -180,7 +291,7 @@ The published `version` covers the rendered Skill, the helper and all reference 
 The packaged helper can fetch and verify a new installation into a **new** destination, without any key:
 
 ```sh
-python3 scripts/lockbot_resource.py install --origin https://resources.example.test --destination /private/new-skill
+python3 scripts/lockbot_cli.py install --origin https://resources.example.test --destination /private/new-skill
 ```
 
 It refuses an existing destination, unexpected/duplicate ZIP entries, symlinks, oversized expanded content and mismatched hashes. The complete installation becomes visible at the destination in one step. If a local write fails before publication, fix the storage or permissions and retry the same destination. After a successful install, reload the Skill using the client's workflow. Use the client's update workflow for an existing Skill and preserve external connection/key files.
@@ -188,9 +299,9 @@ It refuses an existing destination, unexpected/duplicate ZIP entries, symlinks, 
 ## Shared node aliases
 
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a
-python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a --set "Training"
-python3 scripts/lockbot_resource.py --connection /private/connection.json alias --node node-a --clear
+python3 scripts/lockbot_cli.py --connection /private/connection.json alias --node node-a
+python3 scripts/lockbot_cli.py --connection /private/connection.json alias --node node-a --set "Training"
+python3 scripts/lockbot_cli.py --connection /private/connection.json alias --node node-a --clear
 ```
 
 The alias is a public label on the parent node. Use at most 15 characters.
@@ -203,21 +314,99 @@ observation alone cannot attribute the change or guarantee it survives restart.
 
 ## Best-effort metrics
 
+For bounded native lists, add telemetry explicitly and select only needed fields:
+
 ```sh
-python3 scripts/lockbot_resource.py --connection /private/connection.json metrics --node node-a
+python3 scripts/lockbot_cli.py resource list --model P800 --with-metrics --json node,states,metrics
+python3 scripts/lockbot_cli.py resource devices REF --with-metrics --json id,model,state,metrics
 ```
 
-This implementation supports only the existing `type: prometheus`, `profile: lockbot-v1` source configuration and its fixed metric family. The generic/custom profile and arbitrary PromQL are not implemented. Select at most 64 explicit configured node names per query; the helper translates only the context's node mapping and refuses unmapped targets. It reads compute/memory/CPU/memory/cache/filesystem/collector-timestamp/success series, not arbitrary process or command information. The data source still enforces its own ACL.
+The list returns compact CPU/accelerator readings and sample-coverage counts;
+per-card values use the existing device pager. Both share the resource query's
+12-request/60-second budget and 8 KiB output limit. Source failures preserve
+resource rows and report separate `metrics_read_complete`,
+`metrics_unread_reasons` and `metrics_retry_after_seconds`. A completed source
+request does not prove every card was mapped or sampled. Selecting the `metrics`
+field alone does not query the source; bare `--json` remains local discovery.
 
-A short-lived source uses the context's `metrics:read` grant. An auth failure refreshes context and retries once; the original personal key is never sent to the source. Independent authorization uses a separate private `metrics_key_file`; personal `lbr_` and OP `lbk_` keys are explicitly refused. Source origin must match the separate approval, including scheme/port. No redirects or fallback through the Lockbot server are attempted.
+For a source explicitly configured with `deviceQuery: "exact-v1"`, the device
+pager requests only a bounded candidate page's mapped cards and their collector
+status/time. It reports `metrics_scope: "selected_devices"` and queried/returned
+counts. Final byte packing can trim queried cards; continuation starts after the
+last emitted inventory ID, so those cards can be read again on the next page.
+Unmapped, ambiguous or unqueried cards stay unknown. This does not change list/view
+whole-node means or make metrics an allocation grant.
 
-The result is marked `best_effort` and `verification: query_response_only`. The raw vector is under `data`. The `utilization` array contains one entry per requested Lockbot node and reports CPU and cards found in the response. `sample_age_seconds` derives from the relevant collector's sample timestamp. `percent` is populated only for `ok` readings, including valid zero. Missing, failed, stale and invalid readings return `null`. A card omitted by the source does not appear in the array. Compare against known inventory before drawing conclusions about coverage. Resource ownership and workload progress require independent evidence.
+Without that source declaration, the pager uses the existing whole-node metrics
+query and reports `metrics_scope: "selected_node"`. An advertised mode that fails
+does not fall back to a broader query. Oversized responses retain explicit failure.
+The source capability is independent of v2 grant authorization. Mixed lists support native
+telemetry and explicitly capable read-only providers. See the
+[candidate contract](../design/cli-resource-contract-draft.md#optional-utilization-in-the-same-invocation)
+for coverage and continuation details.
+
+### Reported resource percentages
+
+The generic `reported_resource_utilization_v1` provider mode carries compact
+resource-unit percentages without assuming CPU or accelerator attribution.
+The row's `metrics.resource` reports independent compute and memory means,
+valid counts and state counts. A provider must select the full requested
+model/own subset before computing a mean; `--mine` cannot include peer units
+merely because the same node contains an own allocation.
+
+Reported percentages use `reported_mean_percent` and
+`reported_memory_mean_percent`. They never become fresh `percent` readings:
+`percent` and `sample_age_seconds` stay null, and `sample_time_known` is false.
+`report_age_seconds` describes the source report's age, including validated
+transit and output delay, not the unknown hardware acquisition time. Invalid or
+missing report timing withholds the means; zero is a valid reported percentage.
+
+Successful replies acknowledge `metrics_mode`, `metrics_requested`,
+`metrics_read_complete`, `metrics_unread_reasons`, `metrics_retry_after_seconds`
+and a conservative `metrics_valid_for_seconds` of at most sixty seconds. Compute
+and memory state counts each cover the same selected units. Unknown selection
+coverage retains a null denominator. Expiry clears the reported means without
+rewriting a successful source read into a failed request. The parent revalidates
+the full registration after the process exits, including capability changes.
+Capabilities do not change an existing `e1` locator's identity; they still bind
+the mixed catalogue cursor. Duplicate executable/config registrations are rejected.
+
+```sh
+python3 scripts/lockbot_cli.py --connection /private/connection.json metrics --node node-a
+```
+
+This implementation supports only the existing `type: prometheus`, `profile: lockbot-v1` source configuration and its fixed metric family. The generic/custom profile and arbitrary PromQL are not implemented. Select at most 64 explicit configured node names per query; the helper translates the context's node/device mappings and refuses unmapped node targets. It reads compute/memory/CPU/memory/cache/filesystem/collector-timestamp/success series, not arbitrary process or command information. The data source still enforces its own ACL.
+
+A short-lived source uses the context's `metrics:read` grant. An auth failure refreshes context and retries once; the original personal key is never sent to the source. The datasource configuration and bot type are pinned across refresh and later batches: a change returns `metrics_mapping_changed`, preserving the resource observation. Independent authorization uses a separate private `metrics_key_file`; personal `lbr_` and OP `lbk_` keys are explicitly refused. Source origin must match the separate approval, including scheme/port. No redirects or fallback through the Lockbot server are attempted.
+
+The result is marked `best_effort` and normally `verification: query_response_only`. The duplicate raw vector is diagnostic `--full` output under `data`. The `utilization` array contains one entry per requested Lockbot node. `sample_age_seconds` derives from the relevant collector's sample timestamp. `percent` is populated only for `ok` readings, including valid zero. Missing, failed, stale and invalid readings return `null`. A configured device mapping without a source sample may appear as an explicitly missing reading; this does not prove the physical card exists. Resource ownership and workload progress require independent evidence.
+
+For DEVICE/QUEUE_DEVICE, `deviceMapping` explicitly maps `node:devN` to a source
+device label or UUID. Current `lockbot-v1` IDs are canonical ASCII decimal strings;
+opaque/padded forms are never converted into another resource ID. Raw normalized
+cards retain `device` as the source label and gain `resource_device` only for an
+unambiguous mapping, with `mapping_status: mapped`. Compact resource summaries
+join only that explicit mapping and show their `device` in the resource-ID domain,
+without raw source identifiers. Empty/partial/duplicate/malformed mappings never
+fall back to label equality or array order. Full configured maps are checked
+before resource/model/ownership filters, so an omitted peer cannot hide a collision.
+Exact node names containing `:dev` remain independent.
+
+NODE/QUEUE cards remain source-device observations (`device_identity: source`),
+not independently allocatable resource IDs. Duplicate node targets are ambiguous
+even when one colliding node was not selected. Healthy unrelated targets remain
+usable; an all-ambiguous request returns `mapping_only_no_source_query` with no
+fabricated source response or credential send. Truncated selected-card arrays
+retain `selection_incomplete`/`cards_has_more`; their prefix never proves full
+metric coverage. None of these observations establishes that a resource is free.
 
 Unreachable, unsupported, unauthorized, oversized or malformed sources fail explicitly. The helper queries existing samples and does not trigger hardware collection or resource mutations.
 
 ## Bounded transport and validation evidence
 
 The helper uses Python's standard library only: no shell subprocess, MPI, extra package, GUI dependency or automatic job process. One invocation has a 60-second check budget, up to 12 HTTP attempts, a 10-second network timeout per request, a 16-KiB request body limit and a 1-MiB response limit. Reads may retry a single explicit `429 Retry-After` of at most 30 seconds within the remaining budget. When a 429 reaches the caller, the CLI reports a valid server delay as `retry_after_seconds`. Read the current state after waiting that long before making another mutation decision. Slow network reads remain bounded by the per-request timeout and remaining-budget checks. Writes never retry automatically.
+
+Catalog reads reuse a validated anonymous discovery descriptor only within the current invocation, for the same approved origin, pinned instance and client profile. Each connection validates that descriptor against its own configuration before opening its Key, then reads and validates its own protected context and resources. Contexts, grants and Keys are never shared through discovery reuse, and no discovery cache is written to disk. A scope error clears descriptors for that origin before later Keys. A same-origin server replacement can still occur between discovery and a protected request; context checks detect contradictory responses but do not eliminate this time-of-check/time-of-use window. After discovery, the helper reserves the minimum protected read requests for the scope; a scope that cannot fit remains at the continuation cursor without opening its Key. The 12-attempt and 60-second invocation budgets stay unchanged.
 
 Tests use real bounded fake HTTP servers for redirects, identity/version checks, metadata validation, uncertainty, readback and grant refresh. Separate real API/core fixtures exercise initialization, acquisition, renewal and release across NODE, DEVICE, QUEUE and QUEUE_DEVICE. Distribution regressions check rendered addresses, hashes, revision headers, old URLs and actual wheel inclusion. These are not claims of deployment or a live hardware-source query: authenticated real-service/data-source acceptance is a separate gate.
 

@@ -18,31 +18,36 @@
           </router-link>
         </nav>
         <div v-if="!ticket" class="workbench-actions">
-          <router-link to="/bots" class="workbench-console">
-            <el-icon aria-hidden="true"><Monitor /></el-icon>
-            <span>{{ t('personalWorkbench.console') }}</span>
-          </router-link>
           <PersonalWorkbenchPlugins
             v-if="session.authenticated"
-            ref="pluginsDialog"
-            :show-trigger="tab !== 'connections'"
+            ref="workbenchPlugins"
+            :show-trigger="false"
             :inventory="session.workbench_plugins"
             :groups="groups"
             :metric-sources="utilizationGroups"
             :loading="resourceLoading"
           />
-          <el-dropdown
-            v-if="session.authenticated && tab === 'connections'"
-            trigger="click"
-            @command="handleCredentialAction"
-          >
-            <el-button>{{ t('personalWorkbench.more') }}</el-button>
+          <el-dropdown trigger="click" @command="handleCredentialAction">
+            <el-button
+              class="workbench-more"
+              :aria-label="t('personalWorkbench.more')"
+              :icon="MoreFilled"
+              text
+            />
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="plugins">{{
-                  t('personalWorkbench.plugins.title')
-                }}</el-dropdown-item>
-                <el-dropdown-item divided command="clear" :disabled="busy">
+                <el-dropdown-item command="console" :icon="Monitor">
+                  {{ t('personalWorkbench.console') }}
+                </el-dropdown-item>
+                <el-dropdown-item v-if="session.authenticated" command="plugins">
+                  {{ t('personalWorkbench.plugins.title') }}
+                </el-dropdown-item>
+                <el-dropdown-item
+                  v-if="session.authenticated"
+                  command="clear"
+                  divided
+                  :disabled="busy"
+                >
                   {{ t('personalWorkbench.clearBrowser') }}
                 </el-dropdown-item>
               </el-dropdown-menu>
@@ -737,9 +742,14 @@
             </div>
           </div>
           <p v-else class="group-meta group-pending">本次未取得资源数据</p>
-          <el-button v-if="fresh(group)" text type="primary" @click="openGroup(group)"
-            >查看群内明细</el-button
+          <el-button
+            v-if="fresh(group) && entries(group).length"
+            text
+            type="primary"
+            @click="openGroup(group)"
+            >查看我的占用与预约</el-button
           >
+          <p v-else-if="fresh(group)" class="scope">你在本群没有占用或预约。</p>
         </section>
         <p v-if="!groups.length && !initialResourceLoading" class="empty">
           {{ resourcesReady ? '当前没有已授权的群资源。' : '资源信息待更新。' }}
@@ -750,18 +760,6 @@
           :authenticated="session.authenticated"
           :scope-key="identityScope(session.identities)"
         />
-        <details class="credential-access-help">
-          <summary>如何添加其他机器群的 Key</summary>
-          <p class="scope">
-            在已绑定该群的 Agent 中说“打开我的资源台”，打开链接后确认添加。
-            <a
-              href="/api/agent-skill/lockbot-resource-agent.zip"
-              target="_blank"
-              rel="noopener noreferrer"
-              >{{ t('personalOnboarding.installPackage') }}</a
-            >
-          </p>
-        </details>
       </template>
     </main>
     <el-dialog
@@ -808,6 +806,7 @@ import {
   CopyDocument,
   Cpu,
   Monitor,
+  MoreFilled,
   Refresh,
 } from '@element-plus/icons-vue'
 import { pendingPanelTicket } from '../utils/personalPanelTicket'
@@ -828,7 +827,7 @@ import PersonalCredentialRotation from '../components/PersonalCredentialRotation
 
 const { copyText } = useHelpers()
 const { t, locale } = useI18n()
-const skillPackagePath = '/api/agent-skill/lockbot-resource-agent.zip'
+const skillPackagePath = '/api/agent-skill/lockbot-agent.zip'
 function copyOnboardingRequest() {
   copyText(t('personalOnboarding.request', { origin: window.location.origin }))
 }
@@ -855,7 +854,7 @@ const tab = computed(() => {
 })
 const detailSectionTitle = computed(() => {
   if (detailPage.value === 'reservations') return '预约与队列'
-  return detailPage.value === 'group' ? '群内资源' : '持有资源'
+  return detailPage.value === 'group' ? t('personalWorkbench.groupAllocations') : '持有资源'
 })
 const title = computed(() => {
   if (detailPage.value) return detail.value?.title || detailSectionTitle.value
@@ -876,11 +875,14 @@ const browserAccounts = computed(() =>
   new Intl.ListFormat(locale.value).format(session.value.identities.map(identityLabel))
 )
 const groups = ref([])
+const workbenchPlugins = ref(null)
 const guidanceDialog = ref(null)
 let guidanceRead = null
-const pluginsDialog = ref(null)
 function handleCredentialAction(command) {
-  if (command === 'plugins') pluginsDialog.value?.open()
+  if (ticket.value) return
+  if (command === 'console') return router.push('/bots')
+  if (!session.value.authenticated) return
+  if (command === 'plugins') workbenchPlugins.value?.open()
   if (command === 'clear') run(confirmLogout)
 }
 const ticket = ref(null)

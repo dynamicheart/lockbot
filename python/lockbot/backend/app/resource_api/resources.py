@@ -37,9 +37,9 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import attach_node_access, saved_node_access
 from lockbot.backend.app.bots.node_hardware import saved_node_hardware
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.commands import AGENT_ALLOWED_COMMANDS
+from lockbot.backend.app.resource_api.resource_query import query_openapi_extra
 from lockbot.backend.app.resource_api.snapshot import (
     ALIAS_DOC,
     LOCK_STATUS_DOC,
@@ -49,7 +49,7 @@ from lockbot.backend.app.resource_api.snapshot import (
     compute_next_event,
     scrub_private,
 )
-from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
+from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_api.usage import active_declarations, attach_declarations, declarations_for_state
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import (
@@ -65,9 +65,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/bots", tags=["Public API"])
 agent_router = APIRouter(prefix="/api/agent", tags=["Public API"])
 
-#: Chosen together with the minimum poll interval. A compliant agent polling at its tier's
-#: interval mostly hits the cache, so sustained polling costs roughly one locked deep copy
-#: per TTL per bot rather than one per request.
+#: Reuse short-lived snapshots so bursts need roughly one locked deep copy per TTL
+#: and bot. Fresh declarations or node access can require a new observation.
 SNAPSHOT_CACHE_TTL_SECONDS = 5.0
 
 
@@ -183,7 +182,6 @@ bot_manager.register_retire_hook(lambda bot_id, generation: snapshot_cache.inval
 
 
 @router.get("/{bot_id}/resources", deprecated=True)
-@limiter.limit("120/minute")
 def get_resources(
     bot_id: int,
     request: Request,
@@ -202,51 +200,57 @@ def get_resources(
     if not allowed:
         raise errors.rate_limited(retry_after)
 
-    # Per-resource poll tier: enforce the minimum interval for the caller's last-known tier.
-    allowed, retry_after = resource_tier_gate.check(actor.binding_record_id)
-    if not allowed:
-        raise errors.rate_limited(retry_after)
-
-    now = datetime.now(timezone.utc)
-
     try:
         with (
             bot_manager.admit(bot_id, for_read=True) as lease,
             authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id),
         ):
-            # Re-verify the credential against the fresh binding inside the lease: a
-            # restore/delete/revoke may have committed between authentication and here.
             if not reverify_actor(db, request, actor):
                 raise errors.credential_invalid()
-            # Node addresses require a current hold, so never authorize from cached state.
-            generation = lease.generation
-            # Single-flight: concurrent misses collapse onto one locked deep copy.
-            captured_at, raw_state, from_cache = snapshot_cache.get_or_compute(
-                bot_id, generation, now, lease.bot.state_snapshot
-            )
-            rows = active_declarations(db, bot_row, datetime.utcnow())
-            # Authoritative health from the admitted generation. Addresses require a
-            # running allocator and a fresh hold, including for chat releases.
-            health = lease.health or bot_row.status
-            access = saved_node_access(bot_row) if health == "running" else {}
-            if from_cache and (rows or access):
-                # A declaration may refer to a newer hold/booking than the cached state,
-                # or a release/reacquire may invalidate it. Join against a fresh instant.
-                captured_at, raw_state = lease.bot.state_snapshot()
-                from_cache = False
-            declarations = declarations_for_state(rows, raw_state, captured_at)
-            config = lease.bot.config
-            # Alias writes use configuration rather than the state lock/cache.
-            # Detach this observation while the admitted generation is still held;
-            # it is deliberately not claimed to be atomic with captured_at.
-            configured_aliases = config.get_val("NODE_ALIASES")
-            aliases = configured_aliases.copy() if isinstance(configured_aliases, dict) else {}
-            aliases_observed_at = datetime.now(timezone.utc).isoformat()
-            supported = sorted(set(lease.bot.supported_commands()) & AGENT_ALLOWED_COMMANDS)
-            early_notify = bool(config.get_val("EARLY_NOTIFY"))
-            time_alert = int(config.get_val("TIME_ALERT") or 0)
+            return resource_payload(bot_row, request, response, actor, db, lease)
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
+
+
+def resource_payload(bot_row, request, response, actor, db, lease, *, observation=None, query_only=False):
+    """Build one authorized observation while its bot generation is admitted.
+
+    Command observations supply the detached state captured under their original
+    allocator lock. No second admission, read-budget charge or capability issuance.
+    """
+    bot_id = bot_row.id
+    now = datetime.now(timezone.utc)
+    # Node addresses require a current hold, so never authorize from cached state.
+    generation = lease.generation
+    # Single-flight: concurrent misses collapse onto one locked deep copy.
+    if observation is None:
+        captured_at, raw_state, from_cache = snapshot_cache.get_or_compute(
+            bot_id, generation, now, lease.bot.state_snapshot
+        )
+    else:
+        captured_at, raw_state = observation
+        from_cache = False
+    rows = [] if query_only else active_declarations(db, bot_row, datetime.utcnow())
+    # Authoritative health from the admitted generation. Addresses require a
+    # running allocator and a fresh hold, including for chat releases.
+    health = lease.health or bot_row.status
+    access = saved_node_access(bot_row) if health == "running" and not query_only else {}
+    if from_cache and (rows or access):
+        # A declaration may refer to a newer hold/booking than the cached state,
+        # or a release/reacquire may invalidate it. Join against a fresh instant.
+        captured_at, raw_state = lease.bot.state_snapshot()
+        from_cache = False
+    declarations = declarations_for_state(rows, raw_state, captured_at)
+    config = lease.bot.config
+    # Alias writes use configuration rather than the state lock/cache.
+    # Detach this observation while the admitted generation is still held;
+    # it is deliberately not claimed to be atomic with captured_at.
+    configured_aliases = config.get_val("NODE_ALIASES")
+    aliases = configured_aliases.copy() if isinstance(configured_aliases, dict) else {}
+    aliases_observed_at = datetime.now(timezone.utc).isoformat()
+    supported = sorted(set(lease.bot.supported_commands()) & AGENT_ALLOWED_COMMANDS)
+    early_notify = bool(config.get_val("EARLY_NOTIFY"))
+    time_alert = int(config.get_val("TIME_ALERT") or 0)
 
     platform = normalize_platform_name(bot_row.platform)
     resources = build_resources(
@@ -266,7 +270,7 @@ def get_resources(
     from lockbot.backend.app.resource_api.usage import visible_declarations
 
     attach_declarations(resources, visible_declarations(declarations, caller_id=actor.external_user_id))
-    if platform == "feishu":
+    if platform == "feishu" and not query_only:
         from lockbot.core.platforms.feishu import decorate_people
 
         decorate_people(resources, config)
@@ -279,20 +283,18 @@ def get_resources(
     )
     scrub_private(resources)
 
-    # Record this poll's server-derived tier so the next poll's interval floor reflects the
-    # caller's current stake (holder/head poll fastest, bystanders slowest).
-    resource_tier_gate.record(actor.binding_record_id, next_event_kind)
-
     # age_seconds is measured at response-assembly time (now, re-read here), not request start,
     # so a client correcting a relative remaining_seconds by age_seconds uses the true staleness
     # of the served snapshot. next_event/remaining are all anchored to captured_at.
     age_seconds = max(0.0, round((datetime.now(timezone.utc) - captured_at).total_seconds(), 3))
 
+    from lockbot.backend.app.resource_api.discovery import operation_context
     from lockbot.backend.app.resource_api.skill import client_skill_notice
     from lockbot.core.resource_policy import public_policy
 
     return {
         "skill_update": client_skill_notice(request),
+        "context": operation_context(request, db, bot_row, actor),
         "resource_policy": public_policy(raw_state, config, actor.external_user_id, captured_at.timestamp()),
         "bot_id": bot_id,
         "bot_type": bot_row.bot_type,
@@ -364,3 +366,47 @@ def get_agent_resources(
 ) -> dict:
     """Read the resource snapshot for the bot bound to this personal key."""
     return get_resources(bot_id=actor.bot_id, request=request, response=response, actor=actor, db=db)
+
+
+@agent_router.get("/resources/query", openapi_extra=query_openapi_extra())
+def get_agent_resource_query(
+    request: Request,
+    response: Response,
+    actor: ResourceActor = Depends(require_agent_resource_actor),
+    db: Session = Depends(get_db),
+):
+    """A bounded discovery page for exactly the bot selected by the personal key.
+
+    This deliberately does not call get_resources: one request spends one read
+    budget and takes one admitted lease, with the same fresh authority barrier.
+    Its partial rows never become an allocation preflight observation.
+    """
+    from lockbot.backend.app.resource_api.resource_query import parse_query, query_response
+
+    query, cursor = parse_query(request.query_params)
+    bot_id = actor.bot_id
+    bot_row = db.get(Bot, bot_id)
+    if not bot_row or bot_row.is_deleted:
+        raise errors.bot_not_running(bot_id)
+    allowed, retry_after = credential_budget.check(actor.binding_record_id, "read")
+    if not allowed:
+        raise errors.rate_limited(retry_after)
+    try:
+        with (
+            bot_manager.admit(bot_id, for_read=True) as lease,
+            authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id),
+        ):
+            if not reverify_actor(db, request, actor):
+                raise errors.credential_invalid()
+            payload = resource_payload(bot_row, request, response, actor, db, lease, query_only=True)
+            return query_response(
+                payload,
+                query,
+                cursor,
+                actor=actor,
+                bot_row=bot_row,
+                generation=lease.generation,
+                headers=dict(response.headers),
+            )
+    except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
+        raise errors.admission_http_error(exc, bot_id) from None

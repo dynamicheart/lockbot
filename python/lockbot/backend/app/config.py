@@ -52,7 +52,7 @@ RESOURCE_AUTH_BIND_WINDOW_SECONDS = int(os.environ.get("RESOURCE_AUTH_BIND_WINDO
 # Caps on outstanding unconfirmed bindings. Because unconfirmed bindings live in memory
 # rather than in the database, these caps are what bound the flood target.
 RESOURCE_AUTH_MAX_PENDING_TOTAL = int(os.environ.get("RESOURCE_AUTH_MAX_PENDING_TOTAL", 200))
-RESOURCE_AUTH_MAX_PENDING_PER_SOURCE = int(os.environ.get("RESOURCE_AUTH_MAX_PENDING_PER_SOURCE", 5))
+RESOURCE_AUTH_MAX_PENDING_PER_SOURCE = int(os.environ.get("RESOURCE_AUTH_MAX_PENDING_PER_SOURCE", 50))
 
 # Optional bounded credential lifetime. 0 means "no expiry", which is the default:
 # revocation is then the only invalidation path.
@@ -68,17 +68,10 @@ RESOURCE_AUTH_BIND_FAILURE_WINDOW_SECONDS = int(os.environ.get("RESOURCE_AUTH_BI
 # Separate from the per-IP limiter and the per-bot admission cap. Conservative defaults; tune
 # against real load (the plan's capacity audit is not a substitute for measurement here).
 RESOURCE_API_READ_BUDGET_PER_MINUTE = int(os.environ.get("RESOURCE_API_READ_BUDGET_PER_MINUTE", 120))
-RESOURCE_API_WRITE_BUDGET_PER_MINUTE = int(os.environ.get("RESOURCE_API_WRITE_BUDGET_PER_MINUTE", 6))
+RESOURCE_API_WRITE_BUDGET_PER_MINUTE = int(os.environ.get("RESOURCE_API_WRITE_BUDGET_PER_MINUTE", 30))
 
-# Per-resource poll tier: the minimum interval between /resources polls for one credential,
-# derived server-side from the caller's current stake. A holder or head-of-queue (active) may
-# poll fastest; a waiting booker slower; a bystander discovering state slowest. A compliant
-# agent stays under its budget automatically; busy-polling is shed with a precise Retry-After.
+# Suggested resource polling intervals, advertised in bot rules. These are guidance only.
+# Per-credential request budgets above enforce traffic limits for interactive and background reads.
 RESOURCE_API_TIER_ACTIVE_SECONDS = int(os.environ.get("RESOURCE_API_TIER_ACTIVE_SECONDS", 10))
 RESOURCE_API_TIER_BOOKING_SECONDS = int(os.environ.get("RESOURCE_API_TIER_BOOKING_SECONDS", 20))
 RESOURCE_API_TIER_DISCOVERY_SECONDS = int(os.environ.get("RESOURCE_API_TIER_DISCOVERY_SECONDS", 40))
-
-# Per-identity concurrent-holdings cap for API acquisitions (lock/slock/book). Bounds how many
-# resources one verified identity can hold+book through the API at once. Checked atomically
-# with acquisition under the core state lock, across all credentials of the same identity.
-RESOURCE_API_MAX_HELD_PER_IDENTITY = int(os.environ.get("RESOURCE_API_MAX_HELD_PER_IDENTITY", 8))

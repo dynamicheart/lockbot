@@ -24,10 +24,13 @@ def _clear_cache():
 def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path, request):
     # Imported fixtures do not inherit this module's autouse cache fixture.
     snapshot_cache.clear()
-    bot_type = getattr(request, "param", "NODE")
+    options = getattr(request, "param", "NODE")
+    bot_type = options["bot_type"] if isinstance(options, dict) else options
     monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", session_factory)
 
     cluster = {"n1": ["gpu", "gpu"]} if bot_type in {"DEVICE", "QUEUE_DEVICE"} else {"n1": "m1", "n2": "m2"}
+    if isinstance(options, dict):
+        cluster = options["cluster_configs"]
     created = client.post(
         "/api/bots",
         headers=auth_header,
@@ -79,6 +82,24 @@ def api(client, auth_header, db_session, monkeypatch, session_factory, tmp_path,
             "auth_header": auth_header,
         }
     manager.shutdown_all()
+
+
+@pytest.fixture
+def running_api(client, api, db_session, monkeypatch):
+    """Opt into the persisted start lifecycle before testing notification delivery."""
+    from lockbot.backend.app.bots.models import Bot
+
+    # The generic read fixture starts only its manager after mocked auto-start.
+    # Retire that synthetic instance so the real route stages, commits and activates.
+    api["manager"].stop_bot(api["bot_id"])
+    monkeypatch.setattr("lockbot.backend.app.bots.router.bot_manager", api["manager"])
+    response = client.post(f"/api/bots/{api['bot_id']}/start", headers=api["auth_header"])
+    assert response.status_code == 200, response.text
+    assert response.json()["message"] == "Bot started"
+    db_session.expire_all()
+    assert db_session.get(Bot, api["bot_id"]).status == "running"
+    api["bot"] = api["manager"].get_instance(api["bot_id"]).bot
+    return api
 
 
 def _get(client, api, headers=None):

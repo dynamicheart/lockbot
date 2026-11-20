@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+"""Run native ducc for the Skill evaluation stdin/stdout protocol."""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import uuid
+from pathlib import Path
+
+
+class UnsupportedContext(ValueError):
+    pass
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def private_write(path, text):
+    path.write_text(text)
+    path.chmod(0o600)
+
+
+def private_output(path):
+    """Open native diagnostics privately before the child can emit any bytes."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise ValueError("private_native_output_required")
+        os.fchmod(descriptor, 0o600)
+        os.ftruncate(descriptor, 0)
+        return os.fdopen(descriptor, "wb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def private_metadata(path):
+    """Read only a private regular metadata file, never a symlink or device."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor) as stream:
+        info = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_mode & 0o077
+            or info.st_uid != os.getuid()
+            or info.st_size > 128 * 1024
+        ):
+            raise UnsupportedContext("private_native_metadata_required")
+        result = json.load(stream)
+        if not isinstance(result, dict):
+            raise UnsupportedContext("native_metadata_object_required")
+        return result
+
+
+def cwd_identity(path, *, private):
+    """Pin the original directory, rejecting symlinks in every component."""
+    if not path.is_absolute() or any(part in {".", ".."} for part in path.parts):
+        raise UnsupportedContext("invalid_native_cwd")
+    current = Path(path.anchor)
+    info = current.lstat()
+    for part in path.parts[1:]:
+        current /= part
+        info = current.lstat()
+        if not stat.S_ISDIR(info.st_mode):
+            raise UnsupportedContext("native_cwd_must_not_follow_symlinks")
+    if private and (info.st_mode & 0o077 or info.st_uid != os.getuid()):
+        raise UnsupportedContext("private_native_cwd_required")
+    return {"device": info.st_dev, "inode": info.st_ino}
+
+
+def new_native_cwd(root):
+    base = Path(tempfile.gettempdir()).resolve()
+    # Matrix phases are run/suite/scenario/trial/phase-N. A custom TMPDIR
+    # nested there would expose the scenario even with an opaque leaf name.
+    namespace = (
+        root.parents[3]
+        if root.name.startswith("phase-") and root.parent.name.isdecimal() and len(root.parents) >= 4
+        else root.parent
+    )
+    if base == namespace or namespace in base.parents:
+        raise UnsupportedContext("native_temp_directory_inside_evidence")
+    path = Path(tempfile.mkdtemp(prefix="skill-ducc-", dir=base))
+    return path, "opaque_private_directory", cwd_identity(path, private=True)
+
+
+def verified_native_cwd(first, state):
+    invocation = private_metadata(first / "native-invocation.json")
+    if invocation.get("client") != "ducc":
+        raise UnsupportedContext("native_cwd_invocation_required")
+    if "native_cwd_version" not in state:
+        if any(key.startswith("native_cwd") for key in (*state, *invocation)) or invocation.get("cwd") != str(first):
+            raise UnsupportedContext("unproven_legacy_native_cwd")
+        return first, "legacy_named_evidence_directory", cwd_identity(first, private=False)
+    scope = state.get("native_cwd_scope")
+    if (
+        type(state["native_cwd_version"]) is not int
+        or state["native_cwd_version"] != 1
+        or scope != "opaque_private_directory"
+    ):
+        raise UnsupportedContext("unsupported_native_cwd_metadata")
+    path = Path(state["native_cwd"])
+    if (
+        not re.fullmatch(r"skill-ducc-[A-Za-z0-9_-]{8,}", path.name)
+        or path == first.parent
+        or first.parent in path.parents
+        or invocation.get("cwd") != str(path)
+        or invocation.get("native_cwd_scope") != scope
+        or invocation.get("native_cwd_identity") != state.get("native_cwd_identity")
+    ):
+        raise UnsupportedContext("native_cwd_does_not_match_original_invocation")
+    identity = cwd_identity(path, private=True)
+    if identity != state.get("native_cwd_identity"):
+        raise UnsupportedContext("native_cwd_identity_changed")
+    return path, scope, identity
+
+
+def invocation_settings(executable, root, selected=None):
+    """Retain the wrapper's authentication and proxy while disabling hooks locally."""
+    binary = Path(shutil.which(executable) or executable).expanduser().resolve()
+    source = Path(selected).expanduser().resolve() if selected else binary.parent.parent / "settings.json"
+    settings = json.loads(source.read_text())
+    if not isinstance(settings, dict) or not isinstance(settings.get("env", {}), dict):
+        raise ValueError("invalid_ducc_managed_settings")
+    # An inline --settings object replaces ducc's injected settings, including
+    # apiKeyHelper. Start from its managed template; never rewrite that template.
+    settings["disableAllHooks"] = True
+    settings["hooks"] = {}
+    destination = root / "native-ducc-settings.json"
+    private_write(destination, json.dumps(settings, ensure_ascii=False))
+    return destination
+
+
+def previous_session(request, root, system):
+    """Only resume verified native history; never turn prior answers into a prompt."""
+    if "conversation_file" not in request:
+        return None
+    path = Path(request["conversation_file"]).resolve()
+    raw = path.read_bytes()
+    if digest(raw) != request.get("conversation_sha256"):
+        raise UnsupportedContext("conversation_digest_mismatch")
+    history = json.loads(raw)
+    if (
+        not isinstance(history, list)
+        or len(history) != 2
+        or not all(isinstance(row, dict) for row in history)
+        or [row.get("role") for row in history] != ["user", "assistant"]
+        or not all(isinstance(row.get("content"), str) for row in history)
+    ):
+        raise UnsupportedContext("native_two_turn_history_required")
+    if root.name != "phase-2":
+        raise UnsupportedContext("native_predecessor_not_identified")
+    first = root.parent / "phase-1"
+    try:
+        cwd_identity(first, private=False)
+        state = private_metadata(first / "native-session.json")
+        response = json.loads((first / "response.json").read_text())
+        original = (first / "prompt.txt").read_text()
+        session = str(uuid.UUID(state["session_id"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        raise UnsupportedContext("verified_native_predecessor_required") from None
+    if (
+        state.get("client") != "ducc"
+        or state.get("model") != request["model"]
+        or state.get("system_sha256") != digest(system.encode())
+        or state.get("prompt_sha256") != digest(original.encode())
+        or state.get("answer_sha256") != digest(response["text"].encode())
+        or history != [{"role": "user", "content": original}, {"role": "assistant", "content": response["text"]}]
+    ):
+        raise UnsupportedContext("native_history_does_not_match_supplied_turns")
+    try:
+        native_cwd, scope, identity = verified_native_cwd(first, state)
+    except (OSError, ValueError, KeyError, TypeError):
+        raise UnsupportedContext("verified_native_cwd_required") from None
+    return session, native_cwd, scope, identity
+
+
+def ducc_command(executable, request, system, session, settings):
+    config = json.loads(Path(request["mcp_config"]).read_text())
+    servers = config.get("mcpServers")
+    if not isinstance(servers, dict) or any(not name or not name.replace("_", "").isalnum() for name in servers):
+        raise ValueError("unsupported_mcp_server_name")
+    allowed = ",".join("mcp__" + name + "__*" for name in servers)
+    command = [
+        executable,
+        "-p",
+        "--model",
+        request["model"],
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--strict-mcp-config",
+        "--mcp-config",
+        str(Path(request["mcp_config"]).resolve()),
+        "--tools",
+        "",
+        "--permission-mode",
+        "dontAsk",
+        "--settings",
+        str(settings),
+        "--setting-sources",
+        "user",
+        "--disable-slash-commands",
+        "--max-turns",
+        str(request["max_turns"]),
+        "--system-prompt",
+        system,
+        "--system-prompt-snapshot",
+        "off",
+    ]
+    if allowed:
+        command.extend(["--allowedTools", allowed])
+    if session:
+        command.extend(["--resume", session, "--fork-session"])
+    return command
+
+
+def parse_ducc(stdout):
+    events = []
+    for line in stdout.splitlines():
+        if line.startswith("{"):
+            events.append(json.loads(line))
+    results = [event for event in events if event.get("type") == "result"]
+    if len(results) != 1:
+        raise ValueError("native_final_result_required")
+    result = results[0]
+    if result.get("is_error"):
+        return {"text": result.get("result", ""), "kind": result.get("subtype", "native_client_error")}, None
+    if not isinstance(result.get("result"), str) or not result["result"].strip():
+        raise ValueError("native_answer_missing")
+    session = str(uuid.UUID(result["session_id"]))
+    turns = result.get("num_turns")
+    if type(turns) is not int or turns < 0:
+        raise ValueError("native_turn_count_missing")
+    return {"text": result["result"], "turns": turns, "native_client": "ducc", "native_session_id": session}, session
+
+
+def run_ducc(request, executable, managed_settings=None):
+    root = Path.cwd()
+    prompt = Path(request["prompt_file"]).read_text()
+    system = Path(request["system_file"]).read_text()
+    previous = previous_session(request, root, system)
+    session = previous[0] if previous else None
+    for key in ("max_turns", "output_tokens"):
+        if type(request.get(key)) is not int or request[key] <= 0:
+            raise ValueError("invalid_" + key)
+    settings = invocation_settings(executable, root, managed_settings)
+    command = ducc_command(executable, request, system, session, settings)
+    # Native sessions are indexed by their original project directory. Keep an
+    # opaque directory across the native fork, while MCP targets the new phase.
+    native_cwd, cwd_scope, identity = previous[1:] if previous else new_native_cwd(root)
+    private_write(
+        root / "native-invocation.json",
+        json.dumps(
+            {
+                "client": "ducc",
+                "argv": command,
+                "cwd": str(native_cwd),
+                "native_cwd_scope": cwd_scope,
+                "native_cwd_identity": identity,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    environment = {**os.environ, "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(request["output_tokens"])}
+    # Inherit the matrix's process group: its timeout must kill the client and MCP children together.
+    # Give the child file descriptors directly: already emitted diagnostics must
+    # survive even when the external timeout terminates this entire group before
+    # subprocess.run returns. No native output is forwarded to runner stdout.
+    output_path = root / "native-ducc.jsonl"
+    with private_output(output_path) as output, private_output(root / "native-ducc.stderr") as errors:
+        result = subprocess.run(
+            command,
+            input=prompt,
+            text=True,
+            stdout=output,
+            stderr=errors,
+            env=environment,
+            cwd=native_cwd,
+            check=False,
+        )
+    stdout = output_path.read_text()
+    if result.returncode:
+        try:
+            error, _ = parse_ducc(stdout)
+        except (ValueError, KeyError, TypeError):
+            error = {"kind": "native_client_failed"}
+        return error, result.returncode
+    response, created = parse_ducc(stdout)
+    if not created:
+        return response, 2
+    if session and created == session:
+        raise ValueError("native_session_was_not_forked")
+    private_write(
+        root / "native-session.json",
+        json.dumps(
+            {
+                "client": "ducc",
+                "session_id": created,
+                "model": request["model"],
+                "system_sha256": digest(system.encode()),
+                "prompt_sha256": digest(prompt.encode()),
+                "answer_sha256": digest(response["text"].encode()),
+                "native_cwd_version": 1,
+                "native_cwd": str(native_cwd),
+                "native_cwd_scope": cwd_scope,
+                "native_cwd_identity": identity,
+            }
+        ),
+    )
+    response["native_evidence"] = "native-ducc.jsonl"
+    response["native_cwd_scope"] = cwd_scope
+    if session:
+        response["conversation_sha256"] = request["conversation_sha256"]
+        response["native_context_mode"] = "fork_verified_session"
+    return response, 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ducc", default="ducc", help="Native executable; authentication remains client-managed")
+    parser.add_argument(
+        "--managed-settings", help="Optional managed settings template for a nonstandard ducc installation"
+    )
+    args = parser.parse_args(argv)
+    os.umask(0o077)
+    try:
+        request = json.load(sys.stdin)
+        result, status = run_ducc(request, args.ducc, args.managed_settings)
+    except UnsupportedContext as error:
+        result, status = {"text": "", "kind": "unsupported_context", "reason": str(error)}, 0
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        result, status = {"kind": "native_runner_error", "error_type": type(error).__name__}, 2
+    print(json.dumps(result, ensure_ascii=False))
+    return status
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

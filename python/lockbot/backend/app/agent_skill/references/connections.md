@@ -1,17 +1,42 @@
 # Bundled CLI
 
-From the project directory, invoke the bundled `scripts/lockbot_resource.py` beside the
+For usage questions, explain the workflow from the instructions. For “怎么绑定”,
+briefly explain: the Agent requests a confirmation command, the user sends it from
+their own account in the intended robot's chat, and the Agent resumes after
+confirmation. Explaining this needs no binding request or API probe. Give shell
+commands when the user asks how to use the CLI; otherwise guide the user through
+the chat step rather than handing them a setup script. For an actual setup or
+resource request, continue the authorized connection workflow below.
+
+From the project directory, invoke the bundled `scripts/lockbot_cli.py` beside the
 installed `SKILL.md` directly. In examples, replace `$LOCKBOT_CLI` with the script's
 absolute path and substitute the actual connection or enrollment paths before running.
 `--help` lists commands, and
 `<subcommand> --help` describes the arguments. Select an existing private connection
 with `--connection <file>` before the subcommand.
 
+Omit `--destination` and `--directory` for normal setup and recovery: the CLI uses
+the user's default catalog, which later sessions can discover. `--scope user`
+alone does not make an explicitly supplied project path a user-catalog location.
+The `/private/...` paths below illustrate an explicit operator-selected override,
+not a location to invent for an ordinary user. Use storage overrides only when
+the user requested isolation or selected a destination.
+
+Repeated recovery reuses an existing private connection only when origin, instance,
+bot, platform, account and Key material all match the verified recovery result.
+It preserves existing credentials and labels; different Keys remain separate records.
+`connections` lists physical records without reading their Keys. Within one
+`resources-all` call, an online-verified connection can represent exact local
+duplicates with the same identity and private Key. `equivalent_connections` retains
+their locators. This does not cache discovery across different bindings or calls;
+different or invalid credentials still require independent verification. Snapshot
+freshness is measured from the original observation, and no Key fingerprint is returned.
+
 ```sh
 python3 "$LOCKBOT_CLI" --help
 python3 "$LOCKBOT_CLI" command --help
 python3 "$LOCKBOT_CLI" connections
-python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
+python3 "$LOCKBOT_CLI" resource list --limit 5 --json node,unit,hardware,states
 ```
 
 | Goal | Subcommand |
@@ -21,16 +46,46 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
 | Request a binding and finish after the user confirms | `key-challenge`, then `finish-enrollment` |
 | Invalidate the old Key after explicit authorization and group confirmation | `key-challenge --purpose reset`, then `finish-enrollment` |
 | Restore additional bindings using a verified existing Key | `recover` |
-| Find or verify a saved connection | `connections` or `context` |
-| Read status or use an exact resource | `resources` or `command` |
+| Find saved access or inspect additional context capabilities | `connections` or `context` |
+| Find resources, inspect one, or act on it | `resource list`, `resource view REF`, or `command` |
 | Open the workbench or check utilization | `panel-link` or `metrics` |
+
+## Check for a Skill update
+
+For “Skill有新版吗”, use the approved `deployment_origin` in the installed
+`installation.json`: `python3 "$LOCKBOT_CLI" discover --origin "$ORIGIN"`.
+This reads the public manifest once without credentials and compares it with the
+verified local bundle. Report `update_check.status` (`current`, `update_available`
+or `unknown`); `update_required: null` means the local installation could not be
+verified. A mismatch identifies different published instructions, not chronological
+ordering or API compatibility. Older helpers
+without `update_check` need an explicit comparison of local installation metadata
+with the returned manifest; their default `update_required: false` is not evidence.
+An update inquiry authorizes inspection only; do not install, bind or query resources.
+
+Default snapshot JSON names the bot lifecycle field `bot_service_health` (formerly
+`health`), not machine or workload health. `--full` retains the raw snapshot schema.
+`update_check.source: cli` identifies the helper's comparison, not a server upgrade recommendation.
 
 ## Install the complete ZIP and use the fixed client
 
 <!-- LOCKBOT_DEPLOYMENT_API_ADDRESSES -->
 
+A link or pasted Skill alone authorizes inspection only: read the public manifest,
+explain the Skill, and wait for an explicit installation request. Use the full
+supplied URL, the complete installation ZIP named in pasted text, or one unambiguous
+approved connection. Ask for the original URL only if no approved origin is known;
+reference example hosts are placeholders. Verify the installed files and reload
+the Skill. For installation only, stop there without enrolling or allocating.
+
+For a bare ZIP, reading archive members without extracting or executing them may
+locate its manifest or discovery URL. That inspection is not an installation or
+an integrity check. Verify the advertised full-archive digest before extraction,
+execution or using credentials; never claim hash verification from a manifest
+read alone.
+
 For ongoing use, install the manifest's **`installation.download_url` ZIP**, not Markdown
-alone: it contains `SKILL.md`, `references/`, `scripts/lockbot_resource.py` and `installation.json`.
+alone: it contains `SKILL.md`, `references/`, `scripts/lockbot_cli.py` and `installation.json`.
 One installation can serve multiple independently approved connections when its verified
 `package_version` matches a service's declared package revision. Keep each connection's
 origin, instance, bot, actor and key reference separate. Different rendered deployment
@@ -39,17 +94,45 @@ URLs alone do not require replacing the package; old servers remain conservative
 A ZIP URL does not automatically install in every client. Use its installer or verify the
 manifest SHA-256 before extracting, then reload the Skill. Direct legacy API clients remain
 supported; the helper is the recommended fixed path, not a new server requirement.
+If a previously installed helper rejects the archive layout, use the client's
+installer for the checked ZIP, then use the helper in the new package. Failed or
+unavailable installation remains unverified.
+
+Install the Skill in the client's supported user-level Skill directory by default.
+Use project scope only on explicit request. Verify that the client actually discovers
+and loads the installed Skill; an unpacked ZIP in an arbitrary directory is not enough.
+Keep the client's existing authentication configuration while isolating LockBot test
+storage with `LOCKBOT_HOME`.
 
 Run the installed helper with Python 3.10 or newer. Use `--help` to find commands. If Python or the installed helper cannot run, report that limitation. Choose exact resource IDs from live inventory. The helper verifies mutations and reports when the result is uncertain. Reconcile uncertainty with a read and keep following the lease expiry rules.
 
+For an ordinary new-environment restore, use the approved origin from the verified
+installed package (`installation.json` `deployment_origin` or rendered deployment links).
+Run `connections` first. If none exists, use chat confirmation below rather than asking
+for an old Key path or an already-known service URL. Confirmation can restore the existing
+identity; report the returned `outcome`, not an assumption that a new account was created.
+
 If the user requests a resource on the identified service and has no valid saved Key, run
 `key-challenge --origin "$ORIGIN" --authorized` for chat confirmation on a
-server that advertises `chat_credential_challenges`. Use the confirmation sentence from
-[the setup workflow](../SKILL.md#install-or-connect). Use the saved `enrollment_dir` with
+server that advertises `chat_credential_challenges`. This requests a short-lived
+confirmation command. The user's chat action completes the sign-in.
+Quote the CLI's `user_instruction_zh` for Chinese or `user_instruction` for English
+verbatim. For other languages, translate `user_instruction` and preserve the exact
+`bind_command`. The verified chat confirmation identifies the bot.
+Use the saved `enrollment_dir` with
 `finish-enrollment` to verify and save the connection after confirmation. If no
 Key is active for that user and bot, the same confirmation creates one and
 reports `outcome: created`. If an active Key cannot be recovered, report that
 result and keep it valid.
+After confirmation, use the service's `outcome` to say the original sign-in was
+restored or a new connection was established. If omitted, say the account is connected.
+
+When a normal follow-up requests resources on that service, run `connections` and
+check its unfinished request with `enrollment-status`. The local `pending` label
+can remain after chat confirmation. When the server reports `confirmed`, run
+`finish-enrollment` using the SAME enrollment directory to verify and store that
+sign-in, then fulfill the current request. Do not require a special confirmation
+phrase from the user or request another code just because the local label is pending.
 
 Use `key-challenge --origin "$ORIGIN" --purpose reset --authorized` after the user
 explicitly chooses to invalidate the old Key and acknowledges that other Agents sharing
@@ -58,9 +141,9 @@ it will need the replacement. This works without a locally saved Key. Both paths
 `RST-` codes. Sending `bind RST-…` in the robot's group applies the reset.
 The local `pending` entry in `connections` does not show the current server
 status. Use its `next_command` to check whether the group already applied the reset.
-When `enrollment-status` reports `chat_action: reset_applied` and the user asks
-to continue, run its `next_command` to verify and save the current Key locally.
-The verified group confirmation already authorized and applied the reset.
+When `enrollment-status` reports `chat_action: reset_applied`, the user's group
+confirmation has already applied the reset. If the current request needs access to
+the same service, run `next_command` to verify and save the current sign-in locally.
 If a recovery code expired, request a new recovery code only
 with the user's approval. An unavailable recovery result never starts a reset.
 If a reset result expired or went missing, use fresh recovery proof to
@@ -94,9 +177,13 @@ requests with their group, service and `enrollment_dir`. Use that directory with
 `enrollment-status` to check current server state, even if the displayed code expiry
 has passed. A binding confirmed before expiry can still be finished. For an explicit
 enrollment directory outside the two catalogs, use `connections --directory <directory>`.
-Verify the live identity with `context`
-using the chosen record. By default, `init`, `key-challenge` and `recover` save under the
-current user's private `~/.config/lockbot/connections/` catalog. Select
+The next resource read verifies the live identity; a separate `context` call is only
+needed for additional capabilities or explicit diagnostics. By default, `init`,
+`key-challenge` and `recover` save under the
+current user's private `~/.lockbot/connections/` catalog. For isolated tests set
+`LOCKBOT_HOME` to an absolute directory. Default reads and writes use only its
+`connections/` catalog while the variable is set. Without the override, `connections`
+also discovers earlier user and project connection catalogs. Select
 `--scope project` to save under `.lockbot/connections/`, or give an explicit
 `--destination` for a separately managed path. `init` keeps an existing Key file at
 its supplied path; newly enrolled and recovered Keys stay beside their connection
@@ -107,12 +194,9 @@ Start with an already-approved service URL and an existing private personal-key 
 `init` command discovers the bot UUID through context; the user need not know a bot ID:
 
 ```sh
-python3 "$LOCKBOT_CLI" init --origin <approved-origin> --key-file /private/resource.key --destination /private/connection.json
-python3 "$LOCKBOT_CLI" --connection /private/connection.json context
-python3 "$LOCKBOT_CLI" --connection /private/connection.json resources
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation lock --node node-a --whole-node --duration 30m --metadata-file /private/task.json
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation renew --node node-a --whole-node --duration 30m
-python3 "$LOCKBOT_CLI" --connection /private/connection.json command --operation release --node node-a --whole-node
+python3 "$LOCKBOT_CLI" init --origin <approved-origin> --key-file /private/resource.key
+# If init returns result.next_command, run that exact command once before querying.
+python3 "$LOCKBOT_CLI" resource list --limit 5 --json node,unit,hardware,states
 ```
 
 Give each Agent installation a stable, recognizable label when you want to track its recent activity.
@@ -128,6 +212,14 @@ only `task_category`, `agent_label`, `purpose`; choose the category from current
 `init` saves metadata and a key-file reference, never rotates/rebinds or rewrites the key.
 Keep connection/key files outside the installation. Credentials/grants are redacted in output.
 
+Before authenticating, `init` checks existing standard catalog metadata for the selected
+Key file, including file aliases. A known different origin or changed service instance
+is refused; an incomplete catalog scan also stops initialization. This bounded check
+does not read other Keys or create a credential index. Separately managed connections
+outside those catalogs and independent copies of a Key cannot be recognized by this
+check: use their original approved connection instead of testing the Key on another
+service. A previously unrecorded seed still requires its already-approved service URL.
+
 ## Identify the service before using a saved credential
 
 This skill is for **Lockbot Resource API**, identified by
@@ -137,19 +229,39 @@ that it belongs here. Another Lockbot implementation can have a different authen
 protocol and permission scope. Check the advertised service identity and API version;
 never transfer credentials or assumptions such as one token authorizing every bot.
 
-Run `discover --origin <approved-service>` before setting up a connection. Use `init` for an existing Key or `key-challenge` with the user's approval when there is no valid local Key. In later sessions, run `connections` from the project and use `context` with the selected private connection. The CLI verifies the service, instance and Key's group. Ask for the address if it is missing and for the intended service if several match. Keep credentials scoped to the approved service and verified group.
+Use `init` for an existing Key or an authorized `key-challenge` when there is no valid
+local Key. Both verify the service before authentication; no preliminary `discover`
+is required. Use `discover` for anonymous inspection or explicitly saving a service.
+Later resource reads verify saved service, instance and principal directly. Run
+`connections` when locating saved access or unfinished sign-in, and `context` when
+additional capabilities are needed. Ask for the address only if it is unknown, or
+clarify the intended service when several match. Keep credentials scoped to the
+approved service and verified group.
 
 ## Keep credentials and resource assignments scoped
 
 ### Discover your existing bindings before enrolling again
 
-Run `recover` with a verified seed connection to find other current bindings. On Feishu, recovery requires the same verified application and tenant. Equal user IDs from different applications do not establish the same identity.
+For “看看我能申请什么资源” with a healthy saved catalog, start with `resource list`;
+ordinary queries do not require recovery first. When importing a private seed,
+`init` returns `result.next_command` only after verifying the recovery capability
+and same-origin endpoint. Run that exact command once before the initial resource
+query; use its returned seed path, not a guessed `seed.json`. Also use `recover`
+for an explicit restore/additional-binding request. Installation-only stops without
+recovery. Read recovered access through `resource list` and its continuation, rather
+than querying every group separately. Report actual hardware and availability;
+the user need not know group names.
+Keep the seed usable if another group cannot be recovered; report only the scope verified.
+On Feishu, recovery requires the same verified application and tenant. Equal user IDs from
+different applications do not establish the same identity.
 
-When the user asks to move their existing access to another Agent, give the receiving
-Agent **one existing active Key for the approved service via its private credential
-store or a private file**. Use mode `0600` on POSIX, or a local Windows file whose ACL grants
-access only to your account, SYSTEM, and local Administrators. Use `init` to verify it and create the seed connection
-on that Agent, unless the connection already exists. Then use the fixed CLI:
+For an explicitly requested credential-file transfer, give the receiving Agent
+**one existing active Key for the approved service via its private credential store
+or a private file**. This is an optional import path, not a requirement for normal
+new-environment restoration through chat confirmation. Use mode `0600` on POSIX, or a
+local Windows file whose ACL grants access only to your account, SYSTEM, and local
+Administrators. Use `init` to verify it and create the seed connection on that Agent,
+unless the connection already exists. Then use the fixed CLI:
 
 ```sh
 python3 "$LOCKBOT_CLI" --connection /private/seed.json recover --destination /private/recovered-groups
@@ -183,15 +295,18 @@ key operate on B. HTTP 503 `detail.code: credential_recovery_unavailable` means 
 service could not create a copy; retain the valid key/configuration and report the
 failure without retry loops, rotation or reset. A digest cannot reconstruct a key.
 
-Only genuinely lost credentials or suspected disclosure/compromised authorization
-justify considering revoke/re-enroll. First obtain explicit user confirmation of the
-service, bot and revocation scope, explaining that every Agent sharing the affected
+On an older service without chat credential recovery, only genuinely lost credentials
+or suspected disclosure/compromised authorization justify considering revoke/re-enroll.
+Ordinary restoration on a recovery-capable service uses chat confirmation and preserves
+the existing binding; having an active binding is not a reason to revoke it.
+Before revoking, obtain explicit user confirmation of the service, bot and revocation scope, explaining that every Agent sharing the affected
 key loses access and needs private reconfiguration. In the affected group, the verified
 human runs `bindings` to identify the old binding, then `unbind <short-id>` to revoke it.
 Wait for confirmed revocation before requesting a fresh enrollment code. The human then
-sends `bind <code>` in that same group. Sending only `bind <code>` while the old binding
-is active leaves the old Key valid and the new code's Key unusable. An authorized
-owner's revoke-all affects every personal binding on that bot. If revocation fails or
+sends `bind <code>` in that same group. In this older compatibility enrollment flow,
+sending only `bind <code>` while the old binding is active leaves the old Key valid and
+the new code's Key unusable; this does not describe the recovery-capable confirmation flow.
+An authorized owner's revoke-all affects every personal binding on that bot. If revocation fails or
 is denied, stop before enrollment. Existing locks and queues survive revocation.
 Discuss and authorize any
 resource changes separately. Never reset during a routine release, Skill update,

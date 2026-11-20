@@ -153,7 +153,7 @@ class DeviceBot(BaseLockBot):
             content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
         return self._query_reply(content, user_id)
 
-    def lock(self, user_id, command, *, acquisition_limit=None):
+    def lock(self, user_id, command):
         """
         Lock specified devices and record the current user's usage. Returns an error if
         the device is exclusively held by another user or in shared mode. If the device
@@ -181,7 +181,6 @@ class DeviceBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._state_guard():
-            self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
             policy_error = self._resource_policy_locked(user_id, targets)
             if policy_error:
@@ -247,7 +246,7 @@ class DeviceBot(BaseLockBot):
             self._save_and_notify()
             return completed_reply(reply, "lock")
 
-    def slock(self, user_id, command, *, acquisition_limit=None):
+    def slock(self, user_id, command):
         """
         slock command
         """
@@ -260,7 +259,6 @@ class DeviceBot(BaseLockBot):
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._state_guard():
-            self._check_acquisition_limit_locked(user_id, node_key_list, acquisition_limit)
             targets = [f"{node}:dev{dev}" for node, ids in zip(node_key_list, dev_ids_list, strict=True) for dev in ids]
             policy_error = self._resource_policy_locked(user_id, targets)
             if policy_error:

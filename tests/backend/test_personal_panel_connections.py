@@ -48,7 +48,7 @@ def test_current_binding_metadata_uses_approved_deployment_and_never_contains_ke
     caps = browser.get(PREFIX + "/capabilities").json()["connection_management"]
     assert caps["version"] == 1 and caps["credential_disclosure_supported"] is True
     assert caps["refresh_semantics"] == "revalidate_only"
-    assert caps["skill"]["bundle_url"] == ORIGIN + "/api/agent-skill/lockbot-resource-agent.zip"
+    assert caps["skill"]["bundle_url"] == ORIGIN + "/api/agent-skill/lockbot-agent.zip"
     response = browser.get(PREFIX + "/connections")
     assert response.status_code == 200, response.text
     data = response.json()
@@ -125,7 +125,7 @@ def test_invalid_binding_denies_metadata_and_provides_secret_free_recovery(env, 
     response = browser.get(PREFIX + "/connections")
     assert response.status_code == 401
     guide = response.json()["detail"]["recovery_instructions"]
-    assert ORIGIN + "/api/agent-skill/lockbot-resource-agent.zip" in guide
+    assert ORIGIN + "/api/agent-skill/lockbot-agent.zip" in guide
     assert "刷新仅检查状态" in guide and "保留仍有效的本地 Key" in guide
     assert api["headers"]["Authorization"][7:] not in response.text
     if change in {"expired", "revoked", "revision"}:

@@ -5,6 +5,7 @@ may never reach, that refusals happen before any bot method runs, and that the r
 platform-neutral text rather than a raw platform message dict.
 """
 
+import json
 from unittest.mock import patch
 
 import pytest
@@ -75,6 +76,20 @@ def _post(client, api, command):
     return client.post(f"/api/bots/{api['bot_id']}/commands", headers=api["headers"], json={"command": command})
 
 
+@pytest.mark.parametrize("bound_route", [False, True])
+def test_command_observations_and_errors_are_not_http_cacheable(client, api, bound_route):
+    path = "/api/agent/commands" if bound_route else f"/api/bots/{api['bot_id']}/commands"
+    denied = client.post(path, json={"command": "query"})
+    assert denied.status_code == 401
+    invalid = client.post(path, headers=api["headers"], json={"command": ""})
+    assert invalid.status_code == 422
+    success = client.post(path, headers=api["headers"], json={"command": "lock n1 1h"})
+    assert success.status_code == 200, success.text
+    assert success.json()["resource_snapshot"]["resources"]
+    for response in (denied, invalid, success):
+        assert response.headers["Cache-Control"] == "no-store"
+
+
 class TestAllowedOperations:
     def test_query_succeeds_and_returns_text(self, client, api):
         resp = _post(client, api, "query")
@@ -116,9 +131,46 @@ class TestAllowedOperations:
         assert body["command"] == "query"
 
     def test_no_raw_platform_message_dict_leaks(self, client, api):
-        raw = _post(client, api, "lock n1 1h").text
+        body = _post(client, api, "lock n1 1h").json()
+        context = body["resource_snapshot"].pop("context")
+        # A documented HTTP header name is not a platform reply envelope.
+        assert context["usage_privacy"]["conditional_cleanup"].pop("header") == "If-Match"
+        raw = json.dumps({**body, "context": context})
         for field in ("fromuserid", "atuserids", '"body"', '"header"', "toid"):
             assert field not in raw
+
+    def test_command_observation_is_copied_before_state_lock_release(self, client, api, monkeypatch):
+        from lockbot.backend.app.resource_api import commands
+        from lockbot.core import command_result
+
+        execute = commands.execute_text_command
+        observe = command_result.observe_locked_state
+        observations = []
+
+        def observed(state):
+            acquired = api["bot"]._lock.acquire(blocking=False)
+            if acquired:
+                api["bot"]._lock.release()
+            assert not acquired, "Capture must stay inside the original allocator critical section"
+            observe(state)
+            observations.append(True)
+
+        def execute_then_race(*args, **kwargs):
+            reply = execute(*args, **kwargs)
+            # Simulate a competing writer immediately after the original lock is
+            # released; the response must retain the command's detached copy.
+            with api["bot"]._lock:
+                api["bot"].state.bot_state["n1"]["current_users"] = []
+                api["bot"].state.bot_state["n1"]["status"] = "idle"
+            return reply
+
+        monkeypatch.setattr(command_result, "observe_locked_state", observed)
+        monkeypatch.setattr(commands, "execute_text_command", execute_then_race)
+        body = _post(client, api, "lock n1 1h").json()
+        assert observations
+        assert api["bot"].state.bot_state["n1"]["current_users"] == []
+        held = next(item for item in body["resource_snapshot"]["resources"] if item["id"] == "n1")
+        assert held["holders"][0]["external_user_id"] == ACTOR
 
 
 class TestRefusedOperations:

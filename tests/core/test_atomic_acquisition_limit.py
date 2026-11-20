@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
-from lockbot.core.base_bot import AcquisitionLimitExceeded
 from lockbot.core.device_bot import DeviceBot
 from lockbot.core.handler import execute_text_command
 from lockbot.core.node_bot import NodeBot
@@ -29,6 +28,7 @@ def test_competing_requests_cannot_exceed_cap(tmp_path, kind, cls, verb):
             "DATA_DIR": str(tmp_path),
             "CLUSTER_CONFIGS": {"a": ["gpu"], "b": ["gpu"]} if kind == "DEVICE" else ["a", "b"],
             "WEBHOOK_URL": "",
+            "MAX_RESOURCES_PER_USER": 1,
         }
     )
     barrier = Barrier(2)
@@ -42,11 +42,8 @@ def test_competing_requests_cannot_exceed_cap(tmp_path, kind, cls, verb):
     bot.parse_command = synchronized_parse
 
     def acquire(key):
-        try:
-            execute_text_command("alice", f"{verb} {key} 10m", bot, acquisition_limit=1)
-            return "accepted"
-        except AcquisitionLimitExceeded:
-            return "capped"
+        reply = execute_text_command("alice", f"{verb} {key} 10m", bot)
+        return "capped" if "❌" in bot.adapter.extract_reply_text(reply) else "accepted"
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(acquire, ["a", "b"]))
@@ -72,15 +69,14 @@ def test_multitarget_rejected_before_mutation_and_renewal_allowed(tmp_path, kind
             "DATA_DIR": str(tmp_path),
             "CLUSTER_CONFIGS": {"a": ["gpu"], "b": ["gpu"]} if kind == "DEVICE" else ["a", "b"],
             "WEBHOOK_URL": "",
+            "MAX_RESOURCES_PER_USER": 1,
         }
     )
     before = bot.state_snapshot()[1]
-    with pytest.raises(AcquisitionLimitExceeded):
-        bot.lock("alice", "lock a,b 10m", acquisition_limit=1)
+    assert "❌" in bot.adapter.extract_reply_text(bot.lock("alice", "lock a,b 10m"))
     assert bot.state_snapshot()[1] == before
     if kind == "QUEUE":
-        bot.book("alice", "book a 10m", acquisition_limit=1)
-    bot.lock("alice", "lock a 10m", acquisition_limit=1)
-    bot.lock("alice", "lock a 10m", acquisition_limit=1)
-    with pytest.raises(AcquisitionLimitExceeded):
-        bot.lock("alice", "lock b 10m", acquisition_limit=1)
+        bot.book("alice", "book a 10m")
+    bot.lock("alice", "lock a 10m")
+    bot.lock("alice", "lock a 10m")
+    assert "❌" in bot.adapter.extract_reply_text(bot.lock("alice", "lock b 10m"))

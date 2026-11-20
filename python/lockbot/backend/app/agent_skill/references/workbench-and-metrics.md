@@ -4,9 +4,21 @@
 
 Use the bundled CLI. If the provided Key has no saved connection yet, verify it with
 `init --key-file` and pass `--metrics-origin <origin>` only for the separately approved
-source. Then run `--connection <file> resources` for ownership and
-`--connection <file> metrics --node <node-id>` for utilization. The helper refreshes
-an expired grant once and reports valid percentages with `sample_age_seconds`.
+source. Reuse saved access thereafter. For a resource-and-load task, use
+`resource list --model <model> --with-metrics --json node,states,metrics`, or
+`resource view <ref> --with-metrics` for a selected node. Use
+`resource devices <ref> --with-metrics` for mapped card detail. The helper batches
+selected native nodes inside one invocation; telemetry failure does not erase the
+resource result. Compact readers return summaries with coverage and freshness;
+sources that only report percentages retain unknown hardware sample time. See
+[resource queries](resource-queries.md) for paging and field selection. The separate
+`metrics` command is available for explicit source diagnostics or detail absent from
+combined readers; repeat `--node` to query several nodes together. It refreshes an
+expired grant once and reports `sample_age_seconds` only for sources with a known
+sample time. Its default output contains
+normalized CPU/card percentages, available reported memory/filesystem readings, and
+per-reading health/freshness rather than a duplicate raw Prometheus vector. Use `metrics --full`
+only when debugging that vector. Missing memory readings are unknown, not zero.
 
 If authenticated context includes `utilization.configuration`, the bot administrator has
 configured a separate metrics data source. It is optional: resource acquisition never
@@ -38,7 +50,10 @@ Never copy detailed Agent task notes into public metric labels or group reports.
 If the user says they have signed in and bookmarked the workbench, open that fixed
 address directly. Use the bookmark or saved `home` value. If your tools cannot read
 bookmarks, use the selected connection's verified service origin followed by
-`/#/me`. Pass the full fixed URL on your first browser call. If several saved
+`/#/me`. A request to “open” the panel requires an actual browser call when that tool
+is available; an API resource read is not a browser-open action. Without browser access,
+provide the fixed address and say it was not opened. Pass the full fixed URL on your
+first browser call. If several saved
 services could match, ask the user which to open. Report what the page shows together
 with the full address. When you have no browser access, give the user the fixed
 address to open. Use a sign-in link only when there is an authorized sign-in task.
@@ -51,7 +66,11 @@ python3 "$LOCKBOT_CLI" --connection /private/connection.json panel-link
 ```
 
 Run this command once in a verified private one-to-one session with the bound user
-and their authorization to receive the link. That can include an authenticated private
+and their authorization to receive the link. A request such as “打开个人资源台”
+authorizes the necessary first-sign-in handoff in that verified private session;
+do not ask the user to repeat permission or recite a confirmation phrase. This does
+not authorize a public channel, another identity, consuming the ticket for the human,
+or browser-only identity merging. A verified private session can include an authenticated
 CLI or server-Agent session where the caller is proven to own the binding. If private
 delivery is unavailable, give the fixed workbench address and direct the user to a
 verified private chat.
@@ -61,7 +80,18 @@ channel. In your final reply, also tell the user to open the privately delivered
 in their browser, confirm the displayed account and bookmark the full `result.home`
 URL for future visits. End the turn while confirmation is pending. The one-use link
 contains a ticket and goes only into the private handoff. If issuance fails, report
-the error without retrying.
+the error without retrying. After a verified context, the CLI's error returns the
+same-origin fixed `home` and a `next_step`: open that address in the browser, or
+provide it for the human to open. Do not invoke `panel-link` again after a 403 or an
+unknown issuance result, and do not ask for a new ticket merely to inspect holdings.
+If the CLI cannot verify the context, it does not supply a home; do not guess a
+service address after authentication or identity failure. A browser-open claim needs
+a successful browser action; resource-query output alone is not browser evidence.
+Never open or consume this one-use URL for the user. If a private delivery tool is
+available, check its result before saying the link was sent; after confirmed private
+delivery, leave the sign-in URL out of the final reply. Otherwise provide it only
+inside the verified private handoff. Once the user confirms browser sign-in, a normal
+follow-up request is enough to open the fixed home and check holdings/bookings.
 
 When supported, the browser previews the groups recoverable from the verified account.
 The user can confirm all listed groups or only the group associated with the current Key.

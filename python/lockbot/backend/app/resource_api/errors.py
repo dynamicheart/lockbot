@@ -149,19 +149,6 @@ def rate_limited(retry_after: int) -> HTTPException:
     )
 
 
-def identity_cap_reached(cap: int) -> HTTPException:
-    """This identity already holds/books the maximum number of resources it may via the API.
-
-    Not a rate signal: free a resource (unlock) before acquiring another. Waiting will not help.
-    """
-    return api_error(
-        status.HTTP_409_CONFLICT,
-        "identity_cap_reached",
-        f"You already hold or have booked the maximum of {cap} resources via the API. "
-        f"Release one before acquiring another.",
-    )
-
-
 def may_have_executed(bot_id: int) -> HTTPException:
     return api_error(
         status.HTTP_503_SERVICE_UNAVAILABLE,

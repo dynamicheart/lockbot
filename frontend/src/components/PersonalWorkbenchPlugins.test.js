@@ -17,13 +17,8 @@ function renderPlugins(locale, props) {
 }
 
 it.each([
-  [
-    'en',
-    'Loaded plugins',
-    'The service has loaded 2 resource reporting plugins',
-    'Metrics A and Metrics B',
-  ],
-  ['zh-CN', '已加载插件', '服务已加载 2 个资源报表插件', 'Metrics A和Metrics B'],
+  ['en', 'Extensions', 'Enabled', 'Metrics A and Metrics B'],
+  ['zh-CN', '扩展功能', '已启用', 'Metrics A和Metrics B'],
 ])('renders scoped source names in %s', async (locale, title, count, metrics) => {
   const html = await renderPlugins(locale, {
     inventory: { resource_reporters: 2 },
@@ -47,9 +42,9 @@ it.each([
 it('distinguishes one reporter from an empty inventory', async () => {
   const props = { groups: [], metricSources: [] }
   const one = await renderPlugins('en', { ...props, inventory: { resource_reporters: 1 } })
-  expect(one).toContain('loaded 1 resource reporting plugin')
-  expect(one).not.toContain('loaded 1 resource reporting plugins')
+  expect(one).toContain('Enabled')
+  expect(one).not.toContain('reporting plugin')
   const empty = await renderPlugins('en', { ...props, inventory: { resource_reporters: 0 } })
-  expect(empty).toContain('The service has no resource reporting plugins')
-  expect(empty).toContain('No utilization source for resources you hold')
+  expect(empty).toContain('Not enabled')
+  expect(empty).toContain('No source available')
 })

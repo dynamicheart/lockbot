@@ -3,10 +3,12 @@
 import importlib.util
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from lockbot.backend.app.resource_api import skill
+from lockbot.backend.app.resource_api.snapshot import build_resources
 
 DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev"
 sys.path.insert(0, str(DIRECTORY))
@@ -21,7 +23,7 @@ def prepare(tmp_path, monkeypatch, scenario, instance_id=None):
     _, _, manifest = skill.skill_artifacts()
     artifact = tmp_path / "artifact"
     artifact.mkdir()
-    (artifact / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    (artifact / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     if instance_id is not None:
         manifest = {**manifest, "instance_id": instance_id}
     evaluation.base.save_json(artifact / "manifest.json", manifest)
@@ -31,11 +33,208 @@ def prepare(tmp_path, monkeypatch, scenario, instance_id=None):
 
 
 def install(fixture):
+    # Day-to-day tasks start with a verified, installed Skill. Do not add a
+    # simulated installation call just to satisfy the old test setup.
+    if fixture.installation.is_dir():
+        assert all(
+            (fixture.installation / name).read_bytes() == content
+            for name, content in fixture.artifact["contents"].items()
+        )
+        return {"installed": True}
     return fixture.call("install_lockbot", {"url": fixture.origin + evaluation.base.BUNDLE_PATH})
 
 
 def run(fixture, action, **kwargs):
     return fixture.call("run_lockbot", {"action": action, **kwargs})
+
+
+def test_preinstalled_catalog_uses_exact_verified_metadata_without_private_state(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-my-locks")
+    context = (fixture.root / "system.txt").read_text()
+    frontmatter = fixture.artifact["contents"]["SKILL.md"].decode().split("---", 2)[1].strip()
+    assert frontmatter in context
+    assert "read_lockbot_skill(offset=0)" in context
+    assert fixture.case["fixture_version"] == 18
+    for private in (str(fixture.workspace), fixture.origin, evaluation.GROUP, evaluation.base.KEY, "demo-user"):
+        assert private not in context
+    assert "# LockBot Resource Agent" not in context
+    assert not (fixture.root / "trace.jsonl").exists()
+    # Available tools remain usable without a forced-read gate, and nothing is
+    # automatically marked successful just because the catalog was supplied.
+    assert run(fixture, "resources", group=evaluation.intent.CARDS)["result"]["resources"]
+    assert not evaluation.score(fixture.root, "done")["observable_pass"]
+
+
+@pytest.mark.parametrize(
+    "relative", ["SKILL.md", "scripts/lockbot_cli.py", "installation.json", "references/connections.md"]
+)
+def test_catalog_rejects_modified_installed_package(tmp_path, monkeypatch, relative):
+    fixture = prepare(tmp_path, monkeypatch, "recover")
+    (fixture.installation / relative).write_text("unverified replacement")
+    with pytest.raises(ValueError, match="verified_installation_required_for_catalog"):
+        evaluation.installed_skill_catalog(fixture.installation, fixture.artifact)
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    ["link-only", "no-key", "install-from-link", "install-from-zip", "install-with-key", evaluation.COLD_REQUEST],
+)
+def test_uninstalled_cases_have_no_installed_skill_catalog(tmp_path, monkeypatch, scenario):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert not fixture.installation.exists()
+    assert "Available installed Skills" not in (fixture.root / "system.txt").read_text()
+    with pytest.raises(ValueError, match="verified_installation_required_for_catalog"):
+        evaluation.installed_skill_catalog(fixture.installation, fixture.artifact)
+    with pytest.raises(ValueError, match="verified_installation_required_for_catalog"):
+        evaluation.installed_skill_catalog(fixture.installation, None)
+
+
+def test_catalog_changes_no_user_prompt_bytes_across_cli_scenarios(tmp_path, monkeypatch):
+    for scenario in evaluation.SCENARIOS:
+        prepared = tmp_path / "with-catalog" / scenario
+        prepared.mkdir(parents=True)
+        fixture = prepare(prepared, monkeypatch, scenario)
+        original_prompt = (fixture.root / "prompt.txt").read_bytes()
+        if not fixture.installation.exists():
+            assert "Available installed Skills" not in (fixture.root / "system.txt").read_text(), scenario
+        with monkeypatch.context() as patch:
+            patch.setattr(evaluation, "installed_skill_catalog", lambda *_: "")
+            original = tmp_path / "without-catalog" / scenario
+            original.mkdir(parents=True)
+            without = prepare(original, patch, scenario)
+        assert (without.root / "prompt.txt").read_bytes() == original_prompt, scenario
+
+
+@pytest.mark.parametrize("historical", [False, True])
+def test_native_continuation_preserves_catalog_or_historical_context_bytes(tmp_path, monkeypatch, historical):
+    fixture = prepare(tmp_path, monkeypatch, "intent-context-lock-day")
+    if historical:
+        evaluation.base.save_json(fixture.root / "case.json", {**fixture.case, "fixture_version": 16})
+        (fixture.root / "system.txt").write_bytes(b"Original historical client context, unchanged.\n")
+    before = (fixture.root / "system.txt").read_bytes()
+    user = (fixture.root / "prompt.txt").read_text()
+    evaluation.base.save_json(fixture.root / "response.json", {"text": "The actual prior answer."})
+    destination = tmp_path / "followup"
+    evaluation.resume(fixture.root, destination)
+    assert (destination / "system.txt").read_bytes() == before
+    assert (destination / "prompt.txt").read_bytes() == "lock 一天".encode()
+    assert json.loads((destination / "conversation.json").read_text()) == [
+        {"role": "user", "content": user},
+        {"role": "assistant", "content": "The actual prior answer."},
+    ]
+    if historical:
+        assert evaluation.Fixture(destination).case["fixture_version"] == 16
+        assert "Available installed Skills" not in (destination / "system.txt").read_text()
+
+
+@pytest.mark.parametrize("bot", [7, 8])
+def test_booking_fixture_matches_public_api_without_lease_fields(tmp_path, monkeypatch, bot):
+    fixture = prepare(tmp_path, monkeypatch, "intent-my-books")
+    assert fixture.case["fixture_version"] == 18
+    result = run(fixture, "resources", group=evaluation.intent.CARDS if bot == 7 else evaluation.intent.MACHINES)
+    resources = result["result"]["resources"]
+    booked = resources[0]["devices"][2] if bot == 7 else resources[1]
+    now = datetime.now(timezone.utc)
+    # Actual allocator state may carry requested duration and notification time.
+    # Neither becomes an unclaimed booking's lease expiry in the public payload.
+    state = {
+        "status": "exclusive",
+        "current_users": [{"user_id": "neighbor", "start_time": int(now.timestamp()), "duration": 7200}],
+        "booking_list": [{"user_id": "demo-user", "start_time": int(now.timestamp()), "duration": 14400}],
+    }
+    actual = build_resources(
+        captured_at=now,
+        state={"machine": [{**state, "dev_id": 3}] if bot == 7 else state},
+        bot_type="QUEUE_DEVICE" if bot == 7 else "QUEUE",
+        platform="infoflow",
+        caller_id="demo-user",
+    )[0]
+    actual = actual["devices"][0] if bot == 7 else actual
+    assert booked["booking_list"] == actual["booking_list"]
+    own = resources[0]["devices"][1] if bot == 7 else resources[0]
+    assert own["holders"][0]["remaining_time"] == "2h"
+    assert set(booked["booking_list"][0]) == {"position", "external_user_id", "source", "notified"}
+
+
+@pytest.mark.parametrize(
+    ("scenario", "command"),
+    [
+        ("intent-book-tail", evaluation.intent.EXPECTED["intent-book-tail"][1]),
+        ("intent-model-p800-whole-machine", evaluation.intent.WHOLE_MACHINE_BOOKING),
+        ("intent-claim", ""),
+        ("intent-book", evaluation.intent.EXPECTED["intent-book"][1]),
+    ],
+)
+def test_all_intent_booking_builders_preserve_legacy_replay_without_fabricating_new_expiry(scenario, command):
+    historical = evaluation.intent.inventory(8, command, scenario=scenario, fixture_version=15)
+    current = evaluation.intent.inventory(8, command, scenario=scenario, fixture_version=16)
+    old_rows = [row for node in historical["resources"] for row in node.get("booking_list", [])]
+    new_rows = [row for node in current["resources"] for row in node.get("booking_list", [])]
+    assert old_rows and new_rows
+    assert all("remaining_seconds" in row and "expires_at" in row for row in old_rows)
+    assert all(set(row) == {"position", "external_user_id", "source", "notified"} for row in new_rows)
+    assert [row["external_user_id"] for row in old_rows] == [row["external_user_id"] for row in new_rows]
+
+
+def test_historical_cli_fixture_retains_old_booking_payload(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-my-books")
+    evaluation.base.save_json(fixture.root / "case.json", {**fixture.case, "fixture_version": 15})
+    replay = evaluation.Fixture(fixture.root)
+    snapshot = run(replay, "resources", group=evaluation.intent.MACHINES)["result"]
+    assert "expires_at" in snapshot["resources"][1]["booking_list"][0]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "operation", "nodes", "duration", "final"),
+    [
+        ("intent-lock-tail", "lock", ["node-19"], None, "19 已锁三小时。"),
+        (
+            "intent-lock-tail-list",
+            "lock",
+            ["node-22", "node-21", "node-20", "node-19"],
+            "3h",
+            "四台机器都已锁三小时。",
+        ),
+        (
+            "intent-lock-tail-list-4h",
+            "lock",
+            ["node-11", "node-12", "node-13", "node-14"],
+            "240m",
+            "四台机器都已锁四小时。",
+        ),
+        ("intent-book-tail", "book", ["node-19"], "4h", "已预约 19，使用四小时。"),
+        ("intent-shared-tail", "slock", ["node-19"], "4h", "19 的 0 号卡已共享锁定四小时。"),
+        ("intent-lock-duration-only", None, [], None, "你要锁哪台机器？"),
+        ("intent-find-p800", None, [], None, "node-23 是空闲的 P800 整机。"),
+        ("intent-ambiguous-tail", None, [], None, "加速卡群还是整机队列群，你想锁哪个群里的机器？"),
+    ],
+)
+def test_short_prompts_use_saved_environment(tmp_path, monkeypatch, scenario, operation, nodes, duration, final):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    prompt = (fixture.root / "prompt.txt").read_text()
+    assert prompt == evaluation.intent.SHORT_PROMPTS[scenario]
+    assert not (fixture.root / "cli-http.jsonl").exists()
+    catalog = run(fixture, "connections")["result"]
+    assert len(catalog["connections"]) == 2
+    groups = evaluation.intent.group_ids(scenario)
+    for group in groups:
+        assert run(fixture, "resources", group=group)["result"]["resources"]
+
+    if operation:
+        group = evaluation.intent.CARDS if operation == "slock" else evaluation.intent.MACHINES
+        kwargs = {"devices": ["0"]} if operation == "slock" else {"whole_node": True}
+        if duration is not None:
+            kwargs["duration"] = duration
+        if scenario == "intent-lock-tail-list":
+            rules = run(fixture, "context", group=group)["result"]["bot_rules"]
+            assert rules["default_duration_seconds"] == 10_800
+        response = run(fixture, "command", group=group, operation=operation, nodes=nodes, **kwargs)
+        assert response.get("result", {}).get("verified"), response
+        if duration is None:
+            assert response["result"]["duration_source"] == "group-default"
+
+    grade = evaluation.score(fixture.root, final)
+    assert grade["observable_pass"], grade["checks"]
 
 
 def test_ordinary_user_installs_and_requests_a_machine_without_key_instructions(tmp_path, monkeypatch):
@@ -77,7 +276,10 @@ def test_packaged_cli_remembers_service_without_requesting_binding(tmp_path, mon
     assert run(fixture, "discover")["result"]["instance_id"] == evaluation.base.INSTANCE
     assert run(fixture, "enroll", group=evaluation.GROUP)["error"] == "invalid_cli_arguments"
     assert fixture.binding_status() == "expired"
-    assert evaluation.score(fixture.root, "在资源群发送 bind 命令。")["observable_pass"]
+    grade = evaluation.score(fixture.root, "装好了。下次告诉我需要哪台机器，需要确认身份时我会提示你。")
+    assert grade["observable_pass"]
+    assert grade["manual_review_required"]
+    assert not evaluation.score(fixture.root, "")["observable_pass"]
 
 
 def test_inspecting_link_does_not_authorize_installation(tmp_path, monkeypatch):
@@ -101,12 +303,32 @@ def test_installer_verifies_the_manifest_without_a_separate_model_call(tmp_path,
         (fixture.origin + "/api/agent-skill", False),
         (fixture.origin + evaluation.base.BUNDLE_PATH, False),
     ]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"][0]["connection"].endswith("/connection.json")
+    events = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
+    assert "argv" not in events[0]
+    assert events[-1]["args"] == {"action": "connections"}
+    assert Path(events[-1]["argv"][0]).name == "lockbot_cli.py"
+    assert events[-1]["argv"][1:] == ["connections"]
     assert run(fixture, "resources")["result"]["resources"]
-    assert evaluation.score(fixture.root, "已安装并查询资源。")["observable_pass"]
+    final = "已安装并查询资源。"
+    assert evaluation.score(fixture.root, final)["observable_pass"]
+    assert not evaluation.score(fixture.root, final + " private/connections/connection.json")["observable_pass"]
 
 
-@pytest.mark.parametrize("scenario", ["install-from-link", "install-from-zip", "install-with-key"])
+def test_zip_only_install_needs_no_separate_service_record(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "install-from-zip")
+    assert not evaluation.score(fixture.root, "已安装。")["observable_pass"]
+    assert install(fixture)["installed"]
+    assert not (fixture.workspace / "private/service.json").exists()
+    grade = evaluation.score(fixture.root, "已安装。")
+    assert grade["observable_pass"], grade["checks"]
+    assert grade["checks"]["installation_verified"] and grade["checks"]["no_authenticated_calls"]
+
+    run(fixture, "enroll", group=evaluation.GROUP, authorized=True)
+    assert not evaluation.score(fixture.root, "已安装。")["checks"]["no_extra_writes"]
+
+
+@pytest.mark.parametrize("scenario", ["install-from-link", "install-with-key"])
 @pytest.mark.parametrize("instance_id", [evaluation.base.INSTANCE, "d709dca8-cd10-4602-a415-f480a63349be"])
 def test_first_contact_requires_verified_install_and_complete_private_connection(
     tmp_path, monkeypatch, scenario, instance_id
@@ -116,17 +338,20 @@ def test_first_contact_requires_verified_install_and_complete_private_connection
     path = "/api/agent-skill" if scenario == "install-from-link" else evaluation.base.BUNDLE_PATH
     assert "manifest" in fixture.call("inspect_lockbot", {"url": evaluation.base.ORIGIN + path})
     assert install(fixture)["installed"]
-    assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
+    checks = evaluation.score(fixture.root, "已安装。")["checks"]
     if scenario == "install-with-key":
-        assert run(fixture, "init")["result"]["connection_created"]
+        assert checks["service_saved"] and not checks["resource_read"]
+        assert run(fixture, "connections")["result"]["connections"][0]["instance_id"] == instance_id
         assert run(fixture, "resources")["result"]["resources"]
     else:
+        assert checks["service_saved"]
         assert run(fixture, "discover")["result"]["instance_id"] == instance_id
     grade = evaluation.score(fixture.root, "已安装、验证并保存连接。")
     assert grade["observable_pass"], grade["checks"]
 
-    filename = "seed.json" if scenario == "install-with-key" else "service.json"
-    saved_path = fixture.workspace / "private" / filename
+    saved_path = (
+        fixture.saved_connection if scenario == "install-with-key" else fixture.workspace / "private/service.json"
+    )
     saved = json.loads(saved_path.read_text())
     evaluation.base.save_json(saved_path, {**saved, "instance_id": "wrong-instance"})
     assert not evaluation.score(fixture.root, "已安装。")["checks"]["service_saved"]
@@ -140,9 +365,11 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
     tools = {tool["name"]: tool for tool in evaluation.tools(fixture.root)}
     assert {"install_lockbot", "run_lockbot", "deliver_private_link", "browser_home"} <= tools.keys()
     assert "local-state" in tools["browser_home"]["description"]
-    assert fixture.case["fixture_version"] == evaluation.PANEL_FIXTURE_VERSION
+    assert fixture.case["fixture_version"] == max(
+        evaluation.PANEL_FIXTURE_VERSION, evaluation.SKILL_CATALOG_FIXTURE_VERSION
+    )
     assert install(fixture)["installed"]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "local-state")["result"]["browser_bookmarks"] == []
     with pytest.raises(ValueError, match="confirm browser consent"):
         evaluation.resume(fixture.root, tmp_path / "too-early")
@@ -181,12 +408,14 @@ def test_panel_link_cli_delivers_once_and_new_session_reads_fixed_home(tmp_path,
 def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tmp_path, monkeypatch):
     fixture = prepare(tmp_path, monkeypatch, "telemetry")
     assert install(fixture)["installed"]
-    assert run(fixture, "init")["result"]["connection_created"]
+    assert run(fixture, "connections")["result"]["connections"]
     assert run(fixture, "resources")["result"]["resources"][0]["holders"]
     result = run(fixture, "metrics", nodes=["node-a"])["result"]
     assert result["verification"] == "query_response_only"
-    samples = result["data"]["data"]["result"]
-    assert any(sample["value"][1] == "42" for sample in samples)
+    assert "data" not in result  # Default output is normalized, not a duplicate Prometheus vector.
+    reading = result["utilization"][0]["cards"][0]
+    assert reading["status"] == "ok" and reading["percent"] == 42
+    assert 7 <= reading["sample_age_seconds"] < 10
     final = "node-a 的卡利用率为 42%，样本约 8 秒前采集。"
     grade = evaluation.score(fixture.root, final)
     assert grade["observable_pass"], grade["checks"]
@@ -198,13 +427,21 @@ def test_telemetry_retries_once_with_replacement_grant_and_reports_sample_age(tm
     assert not evaluation.score(fixture.root, final)["checks"]["one_retry_with_same_selector"]
 
 
-def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch):
-    fixture = prepare(tmp_path, monkeypatch, "intent-model-whole-machine")
+def test_installed_main_fits_one_read_and_verified_references_remain_pageable(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "no-key")
     assert fixture.call("read_lockbot_skill", {"offset": 0})["error"] == "verified_package_required"
     first = install(fixture)
-    second = fixture.call("read_lockbot_skill", {"offset": first["next_offset"]})
     markdown = (fixture.installation / "SKILL.md").read_text()
-    assert first["content"] + second["content"] == markdown[: second["next_offset"]]
+    assert first["content"] == markdown
+    assert first["next_offset"] is None
+    reference = "references/resource-operations.md"
+    page = fixture.call("read_lockbot_skill", {"offset": 0, "reference": reference})
+    assert page["next_offset"] is not None
+    text = page["content"]
+    while page["next_offset"] is not None:
+        page = fixture.call("read_lockbot_skill", {"offset": page["next_offset"], "reference": reference})
+        text += page["content"]
+    assert text == (fixture.installation / reference).read_text()
 
 
 @pytest.mark.parametrize(
@@ -213,6 +450,14 @@ def test_model_can_read_past_first_page_of_verified_skill(tmp_path, monkeypatch)
 def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch, scenario):
     fixture = prepare(tmp_path, monkeypatch, scenario)
     assert install(fixture)["installed"]
+    if scenario == "reset-personal-key":
+        warning = "重置后其他 Agent 会失效，需要重新配置。确认重置吗？"
+        assert evaluation.score(fixture.root, warning)["observable_pass"]
+        evaluation.base.save_json(fixture.root / "response.json", {"text": warning})
+        acknowledged = tmp_path / "reset-acknowledgment"
+        evaluation.resume(fixture.root, acknowledged)
+        fixture = evaluation.Fixture(acknowledged)
+        assert (acknowledged / "prompt.txt").read_text() == "行，重置吧"
     options = {"purpose": fixture.challenge_purpose} if fixture.uses_challenge else {"group": evaluation.GROUP}
     action = "key-challenge" if fixture.uses_challenge else "enroll"
     issued = run(fixture, action, authorized=True, **options)["result"]
@@ -249,8 +494,9 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
     if scenario == "reset-personal-key":
         assert issued["bind_command"].startswith("bind RST-") and result["chat_action"] == "reset_applied"
         assert resumed.http(original_request)["status"] == 403
-        assert "确认刚才的重置" in (destination / "prompt.txt").read_text()
+        assert (destination / "prompt.txt").read_text() == "帮我看看有哪些资源。"
     if scenario == "recover-original-key":
+        assert result["outcome"] == "recovered"
         assert resumed.http(original_request)["status"] == 200
     assert run(resumed, "resources")["result"]["resources"][0]["id"] == "node-a"
     assert evaluation.score(destination, "node-a")["observable_pass"]
@@ -258,7 +504,7 @@ def test_packaged_cli_enrollment_persists_between_sessions(tmp_path, monkeypatch
         later = tmp_path / "later-session"
         evaluation.resume(destination, later)
         reader = evaluation.Fixture(later)
-        assert reader.case["phase"] == 3
+        assert reader.case["phase"] == (4 if scenario == "reset-personal-key" else 3)
         assert not evaluation.score(later, "node-a")["observable_pass"]
         assert run(reader, "resources")["error"] == "private_connection_required"
         (record,) = run(reader, "connections")["result"]["connections"]
@@ -401,14 +647,24 @@ def test_intent_cases_grade_actual_cli_targets(tmp_path, monkeypatch, scenario, 
         ("node-20 是整机，node-10 可锁卡。您要排队预约整机，还是改锁空闲卡？", True),
         ("整机队列群有 node-20，加速卡群有 node-10。请告诉我你指哪一个，以及怎么处理。", True),
         ("node-20 可排队，node-10 可选择空闲卡。你想怎么处理?", True),
+        ("整机队列群有 node-20，加速卡群有 node-10。你要哪一个？若选加速卡群，请指定卡号。", True),
+        ("19 matches resources in both 加速卡群 and 整机队列群. Which group should I use for the 4-hour lock?", True),
+        ("Which group should I use?", True),
+        ("Which node do you want?", True),
+        ("你要哪一个？", False),
         ("node-20 正被占用，你想怎么处理？", False),
         ("已确认整机队列群和加速卡群都有训练节点。", False),
         ("我已经决定用哪个群了。", False),
+        ("Both 加速卡群 and 整机队列群 contain matching resources.", False),
+        ("I know which group I should use.", False),
+        ("I already decided which group I should use. Is that clear?", False),
+        ("整机队列群有 node-20，加速卡群有 node-10。你要哪一个，我已经知道了。", False),
         ("请确认。", False),
     ],
 )
-def test_ambiguous_target_accepts_explicit_options_without_keyword(reply, asks):
-    assert evaluation.intent.score("intent-ambiguous", [], [], reply)["asks_which_target"] is asks
+@pytest.mark.parametrize("scenario", ["intent-ambiguous", "intent-ambiguous-tail"])
+def test_ambiguous_target_accepts_explicit_options_without_keyword(reply, asks, scenario):
+    assert evaluation.intent.score(scenario, [], [], reply)["asks_which_target"] is asks
 
 
 def test_stale_inventory_requires_an_actual_freshness_warning():
@@ -451,7 +707,7 @@ def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path,
     fixture = prepare(tmp_path, monkeypatch, "intent-choose")
     assert install(fixture)["installed"]
     trace = fixture.root / "cli-http.jsonl"
-    before = trace.read_bytes()
+    before = trace.read_bytes() if trace.is_file() else b""
     result = run(
         fixture,
         "command",
@@ -464,7 +720,7 @@ def test_explicit_card_count_rejects_partial_selection_without_network(tmp_path,
         device_count=2,
     )
     assert result["error"] == "selected_device_count_does_not_match_request"
-    assert trace.read_bytes() == before
+    assert (trace.read_bytes() if trace.is_file() else b"") == before
 
 
 @pytest.mark.parametrize(
@@ -495,7 +751,9 @@ def test_held_resource_operations_verify_the_exact_change(tmp_path, monkeypatch,
         assert not target["devices"][2]["holders"]
         assert target["devices"][3]["holders"][0]["external_user_id"] == "demo-user"
     else:
-        assert target["holders"][0]["remaining_seconds"] == 9000
+        holder = target["holders"][0]
+        assert holder["remaining_time"] == "2h 30m"
+        assert not {"remaining_seconds", "expires_at"} & holder.keys()
     assert evaluation.score(fixture.root, verdict)["observable_pass"]
 
 
@@ -599,3 +857,600 @@ def test_model_only_request_does_not_pass_without_checking_both_groups(tmp_path,
     grade = evaluation.score(fixture.root, "已申请 node-20 的 2 号 P900")
     assert not grade["observable_pass"]
     assert not grade["checks"]["both_candidate_groups_examined"]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "reply"),
+    [
+        ("intent-my-locks", "你当前占用 node-10 的 2 号卡，以及 node-20 整机。"),
+        ("intent-my-books", "你预约了 node-10 的 3 号卡，以及 node-21 整机。"),
+        ("intent-reminder-configured", "node-19 已有群内提前提醒；我没有新增提醒或修改群设置。"),
+        ("intent-reminder-unavailable", "当前只能查看到期状态，不能通过此接口新建提醒；我没有设置提醒。"),
+    ],
+)
+def test_own_resources_and_reminder_requests_are_read_only(tmp_path, monkeypatch, scenario, reply):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert (fixture.root / "prompt.txt").read_text() == evaluation.intent.OWN_RESOURCE_PROMPTS[scenario]
+    for group in evaluation.intent.GROUP_IDS:
+        assert run(fixture, "resources", group=group)["result"]["actor"]["external_user_id"] == "demo-user"
+    grade = evaluation.score(fixture.root, reply)
+    assert grade["observable_pass"], grade
+    if scenario.startswith("intent-reminder-"):
+        assert grade["manual_review_required"]
+    if scenario == "intent-my-locks":
+        assert not evaluation.score(fixture.root, "你占用了 node-10、node-20、node-21 和 node-22。2 号卡也在用。")[
+            "observable_pass"
+        ]
+    if scenario == "intent-my-books":
+        assert not evaluation.score(fixture.root, "你预约了 node-10 的3号卡、node-20 和 node-21。")["observable_pass"]
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        s
+        for s in evaluation.intent.CONVERSATIONAL_PROMPTS
+        if s not in evaluation.intent.INSTALL_FOLLOWUPS and s not in evaluation.intent.CONTEXT_REMINDERS
+    ],
+)
+def test_contextual_followup_preserves_observed_conversation(tmp_path, monkeypatch, scenario):
+    first = prepare(tmp_path, monkeypatch, scenario)
+    for group in evaluation.intent.GROUP_IDS:
+        assert run(first, "resources", group=group)["result"]
+    expected = evaluation.intent.task_expectation(scenario, 1)
+    first_reply = "node-23 是空闲的 P800 整机。"
+    if expected:
+        assert run(
+            first,
+            "command",
+            group=evaluation.intent.MACHINES,
+            operation="lock",
+            nodes=["node-19"],
+            whole_node=True,
+            duration="2h",
+        )["result"]["verified"]
+        first_reply = "node-19 已锁两小时。"
+    assert evaluation.score(first.root, first_reply)["observable_pass"]
+    evaluation.base.save_json(first.root / "response.json", {"text": first_reply})
+    second_path = tmp_path / "followup"
+    evaluation.resume(first.root, second_path)
+    second = evaluation.Fixture(second_path)
+    prompt = (second_path / "prompt.txt").read_text()
+    assert prompt == evaluation.intent.CONVERSATIONAL_PROMPTS[scenario][1]
+    assert "node-" not in prompt and "19" not in prompt and "23" not in prompt
+    assert json.loads((second_path / "conversation.json").read_text()) == [
+        {"role": "user", "content": (first.root / "prompt.txt").read_text()},
+        {"role": "assistant", "content": first_reply},
+    ]
+    for group in evaluation.intent.GROUP_IDS:
+        assert run(second, "resources", group=group)["result"]
+    bot, command, operation = evaluation.intent.task_expectation(scenario, 2)
+    node = command.split()[1]
+    kwargs = {} if operation == "release" else {"duration": "1d" if scenario.endswith("lock-day") else "2h"}
+    result = run(
+        second,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation=operation,
+        nodes=[node],
+        whole_node=True,
+        **kwargs,
+    )
+    assert result["result"]["verified"], result
+    assert evaluation.score(second_path, node + " 操作完成。")["observable_pass"]
+    # The other resource owned by this user is not the target of the follow-up.
+    if not scenario.endswith("lock-day"):
+        snapshot = run(second, "resources", group=evaluation.intent.MACHINES)["result"]
+        other = next(row for row in snapshot["resources"] if row["id"] == "node-20")
+        assert other["holders"][0]["external_user_id"] == "demo-user"
+
+
+@pytest.mark.parametrize("target", ["node-20", "node-21"])
+def test_contextual_renew_rejects_another_target(tmp_path, monkeypatch, target):
+    fixture = prepare(tmp_path, monkeypatch, "intent-context-renew")
+    for group in evaluation.intent.GROUP_IDS:
+        run(fixture, "resources", group=group)
+    run(
+        fixture,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation="lock",
+        nodes=["node-19"],
+        whole_node=True,
+        duration="2h",
+    )
+    evaluation.base.save_json(fixture.root / "response.json", {"text": "node-19 已锁两小时。"})
+    second_path = tmp_path / "followup"
+    evaluation.resume(fixture.root, second_path)
+    second = evaluation.Fixture(second_path)
+    for group in evaluation.intent.GROUP_IDS:
+        run(second, "resources", group=group)
+    result = run(
+        second,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation="renew",
+        nodes=[target],
+        whole_node=True,
+        duration="2h",
+    )
+    assert not result.get("result", {}).get("verified")
+    assert not evaluation.score(second.root, target + " 已续期。")["observable_pass"]
+
+
+def test_runner_must_acknowledge_native_prior_turns(tmp_path):
+    root = tmp_path / "phase"
+    root.mkdir()
+    evaluation.base.save_json(
+        root / "conversation.json",
+        [
+            {"role": "user", "content": "帮我找台P800的机器"},
+            {"role": "assistant", "content": "node-23 是空闲的P800整机。"},
+        ],
+    )
+    (root / "prompt.txt").write_text("lock 一天")
+    (root / "system.txt").write_text("Synthetic test")
+    evaluation.base.save_json(root / "mcp.json", {"mcpServers": {}})
+    runner = tmp_path / "adapter.py"
+    runner.write_text("import json,sys; r=json.load(sys.stdin); print(json.dumps({'text':'完成'}))")
+
+    def grade(*_):
+        return {"observable_pass": True}
+
+    result = evaluation.base.evaluate(root, [sys.executable, str(runner)], "synthetic", grade, timeout=5)
+    assert result["status"] == "unsupported_context" and not result["observable_pass"]
+    runner.write_text(
+        "import json,sys; r=json.load(sys.stdin); "
+        "assert json.load(open(r['conversation_file']))[0]['role']=='user'; "
+        "print(json.dumps({'text':'完成','conversation_sha256':r['conversation_sha256']}))"
+    )
+    result = evaluation.base.evaluate(root, [sys.executable, str(runner)], "synthetic", grade, timeout=5)
+    assert result["observable_pass"]
+
+
+@pytest.mark.parametrize("coherent", [True, False])
+def test_frozen_cli_exercises_coherent_and_legacy_service_protocols(tmp_path, monkeypatch, coherent):
+    fixture = prepare(tmp_path, monkeypatch, "intent-lock-tail")
+    assert "coherent_resource_snapshot" not in fixture.artifact["manifest"].get("capabilities", [])
+    fixture.case["coherent_snapshot"] = coherent
+    evaluation.base.save_json(fixture.root / "case.json", fixture.case)
+    assert ("coherent_resource_snapshot" in fixture.manifest()["capabilities"]) is coherent
+    trace = fixture.root / "cli-http.jsonl"
+    for group in evaluation.intent.GROUP_IDS:
+        before = len(trace.read_text().splitlines()) if trace.exists() else 0
+        assert run(fixture, "resources", group=group)["result"]["resources"]
+        requests = [json.loads(line) for line in trace.read_text().splitlines()][before:]
+        assert len(requests) == (2 if coherent else 3)
+        assert sum(row["url"].endswith("/api/agent/context") for row in requests) == (0 if coherent else 1)
+    before = len(trace.read_text().splitlines())
+    result = run(
+        fixture, "command", group=evaluation.intent.MACHINES, operation="lock", nodes=["node-19"], whole_node=True
+    )
+    assert result["result"]["verified"], result
+    requests = [json.loads(line) for line in trace.read_text().splitlines()][before:]
+    assert len(requests) == (3 if coherent else 5)
+    post = next(index for index, row in enumerate(requests) if row["method"] == "POST")
+    assert bool(requests[post].get("resource_observation")) is coherent
+    assert sum(row["method"] == "GET" for row in requests[post + 1 :]) == (0 if coherent else 1)
+    grade = evaluation.score(fixture.root, "node-19 已锁三小时。")
+    assert grade["observable_pass"], grade
+    if coherent:
+        # An arbitrary CLI claim is insufficient: it must match the response actually served.
+        rows = [json.loads(line) for line in trace.read_text().splitlines()]
+        next(row for row in rows if row["method"] == "POST")["resource_observation"]["captured_at"] = "forged"
+        trace.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        assert not evaluation.score(fixture.root, "node-19 已锁三小时。")["checks"]["verified_before_and_after"]
+
+
+def test_advertised_coherent_fixture_does_not_downgrade_missing_observation(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-lock-tail")
+    original = fixture.http
+
+    def missing(args):
+        result = original(args)
+        if args["method"] == "POST" and args["url"].endswith("/commands") and result["status"] == 200:
+            result["body"].pop("resource_snapshot", None)
+        return result
+
+    monkeypatch.setattr(fixture, "http", missing)
+    result = run(
+        fixture, "command", group=evaluation.intent.MACHINES, operation="lock", nodes=["node-19"], whole_node=True
+    )
+    assert result["error"] == "mutation_not_confirmed_read_resources_do_not_replay"
+    requests = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
+    post = next(index for index, row in enumerate(requests) if row["method"] == "POST")
+    assert not any(row["method"] == "GET" for row in requests[post + 1 :])
+
+
+def test_reset_cannot_issue_challenge_or_simulate_ack_before_warning(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "reset-personal-key")
+    assert not fixture.case.get("reset_impact_acknowledged")
+    assert not run(fixture, "key-challenge", purpose="reset", authorized=True).get("result")
+    assert not (fixture.workspace / "private/binding/enrollment.json").exists()
+    assert not evaluation.score(fixture.root, "已申请重置码。")["observable_pass"]
+    evaluation.base.save_json(fixture.root / "response.json", {"text": "好，我来重置。"})
+    with pytest.raises(ValueError, match="impact"):
+        evaluation.resume(fixture.root, tmp_path / "bad-ack")
+
+
+@pytest.mark.parametrize(
+    ("warning", "accepted"),
+    [
+        ("可以。重置后旧 Key 将失效，其他共用该 Key 的 Agent 也必须更换。确认要重置吗？", True),
+        ("旧key将作废，其他Agent需要换成新Key。确定吗？", True),
+        ("旧Key将立即失效，其他共用Key的Agent需要重新接入。确认重置吗？", True),
+        ("旧Key将失效，其他Agent无需重新接入。确认重置吗？", False),
+        ("重置后其他 Agent 会失效，需要重新配置。确认重置吗？", True),
+        ("其他共用该Key的Agent也必须更换。确认要重置吗？", False),
+        ("重置后旧Key将失效。确认要重置吗？", False),
+        ("旧Key不会失效，其他Agent无需重新配置。确认要重置吗？", False),
+    ],
+)
+def test_reset_impact_accepts_plain_replacement_wording_without_omitting_consequences(warning, accepted):
+    checks = evaluation.reset_impact_checks(warning)
+    assert checks["reset_impact_explained"] is accepted
+    assert checks["asks_reset_confirmation"]
+
+
+@pytest.mark.parametrize(
+    ("scenario", "wrong"),
+    [
+        ("intent-my-locks", "你占用 node-10 的3号卡和 node-20。"),
+        ("intent-my-locks", "你占用 node-10 的4号卡和 node-20。"),
+        ("intent-my-locks", "你占用 node-10 dev4 和 node-20。"),
+        ("intent-my-locks", "你占用 node-100 和 node-200。"),
+        ("intent-my-books", "你预约了 node-10 的2号卡和 node-21。"),
+        ("intent-my-books", "你预约了 node-10 的4号卡和 node-21。"),
+    ],
+)
+def test_personal_resource_grading_rejects_wrong_explicit_card_or_node_prefix(tmp_path, monkeypatch, scenario, wrong):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    for group in evaluation.intent.GROUP_IDS:
+        run(fixture, "resources", group=group)
+    result = evaluation.score(fixture.root, wrong)
+    assert not result["observable_pass"]
+    assert result["manual_review_required"]
+    correct = "你占用 node-10 和 node-20。" if scenario == "intent-my-locks" else "你预约了 node-10 和 node-21。"
+    assert evaluation.score(fixture.root, correct)["observable_pass"]
+
+
+@pytest.mark.parametrize("scenario", list(evaluation.intent.INSTALL_FOLLOWUPS))
+def test_install_only_then_next_task_reuses_the_actual_installation(tmp_path, monkeypatch, scenario):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert not fixture.installation.exists()
+    assert (fixture.root / "prompt.txt").read_text() == "安装Skill: " + fixture.origin + "/api/agent-skill"
+    assert install(fixture)["installed"]
+    first = evaluation.score(fixture.root, "已安装。")
+    assert first["observable_pass"], first
+    evaluation.base.save_json(fixture.root / "response.json", {"text": "已安装。"})
+    destination = tmp_path / "next-task"
+    evaluation.resume(fixture.root, destination)
+    second = evaluation.Fixture(destination)
+    assert (destination / "prompt.txt").read_text() == evaluation.intent.INSTALL_FOLLOWUPS[scenario][1]
+    assert json.loads((destination / "conversation.json").read_text())[-1]["content"] == "已安装。"
+    assert all((second.installation / name).read_bytes() == data for name, data in second.artifact["contents"].items())
+    if scenario != "intent-install-then-how-use":
+        for group in evaluation.intent.GROUP_IDS:
+            assert run(second, "resources", group=group)["result"]
+    if scenario == "intent-install-then-lock":
+        assert run(
+            second,
+            "command",
+            group=evaluation.intent.MACHINES,
+            operation="lock",
+            nodes=["node-19"],
+            whole_node=True,
+            duration="2h",
+        )["result"]["verified"]
+    result = evaluation.score(
+        destination, "node-19 操作完成。" if scenario.endswith("lock") else "可查询资源，使用lock申请机器。"
+    )
+    assert result["observable_pass"], result
+    trace = (destination / "trace.jsonl").read_text() if (destination / "trace.jsonl").is_file() else ""
+    assert '"tool": "install_lockbot"' not in trace
+
+
+def test_minimal_shared_lock_does_not_require_a_card_number_in_the_user_prompt(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-shared-minimal")
+    assert (fixture.root / "prompt.txt").read_text() == "slock 19 4h"
+    snapshots = {group: run(fixture, "resources", group=group)["result"] for group in evaluation.intent.GROUP_IDS}
+    target = next(node for node in snapshots[evaluation.intent.CARDS]["resources"] if node["id"] == "node-19")
+    result = run(
+        fixture,
+        "command",
+        group=evaluation.intent.CARDS,
+        operation="slock",
+        nodes=[target["id"]],
+        devices=[str(card["id"]) for card in target["devices"]],
+        duration="4h",
+    )
+    assert result.get("result", {}).get("verified"), result
+    assert evaluation.score(fixture.root, "19 已共享四小时。")["observable_pass"]
+
+
+@pytest.mark.parametrize(
+    "scenario", [s for s in evaluation.intent.IP_TAIL_PROMPTS if s not in evaluation.intent.PUBLIC_IP_ALIAS_PROMPTS]
+)
+def test_ip_tail_cases_use_only_current_authorized_address_evidence(tmp_path, monkeypatch, scenario):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    snapshots = {group: run(fixture, "resources", group=group)["result"] for group in evaluation.intent.GROUP_IDS}
+    nodes = [node for snapshot in snapshots.values() for node in snapshot["resources"]]
+    assert all("19" not in node["id"] and "19" not in node["alias"] for node in nodes)
+    if scenario == "intent-ip-tail-unavailable":
+        assert all(not node["holders"] and "node_access" not in node for node in nodes)
+        result = evaluation.score(fixture.root, "当前没有可授权的IP映射，无法确定19是哪台，请提供节点名。")
+    elif scenario == "intent-ip-tail-ambiguous":
+        assert all(node["node_access"]["ip"].split(".")[-1] == "19" for node in nodes)
+        result = evaluation.score(fixture.root, "两个授权群都有IP尾号19，你指哪台？")
+    else:
+        match = [node for node in nodes if node["node_access"]["ip"].split(".")[-1] == "19"]
+        assert [node["id"] for node in match] == ["raven"]
+        assert all(node["holders"][0]["external_user_id"] == "demo-user" for node in nodes)
+        assert run(
+            fixture,
+            "command",
+            group=evaluation.intent.MACHINES,
+            operation="renew",
+            nodes=[match[0]["id"]],
+            whole_node=True,
+            duration="4h",
+        )["result"]["verified"]
+        result = evaluation.score(fixture.root, "raven 已续四小时。")
+    assert result["observable_pass"], result
+
+
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_idle_ip_tail_uses_public_ipv4_alias_without_private_node_access(tmp_path, monkeypatch, ambiguous):
+    scenario = "intent-public-ip-alias-ambiguous" if ambiguous else "intent-public-ip-alias"
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    assert (fixture.root / "prompt.txt").read_text() == "lock 19"
+    snapshots = {group: run(fixture, "resources", group=group)["result"] for group in evaluation.intent.GROUP_IDS}
+    nodes = [(group, node) for group, snapshot in snapshots.items() for node in snapshot["resources"]]
+    assert all("19" not in node["id"] and not node["holders"] and "node_access" not in node for _, node in nodes)
+    assert all(node["alias"].count(".") == 3 for _, node in nodes)
+    matches = [(group, node) for group, node in nodes if node["alias"].split(".")[-1] == "19"]
+    if ambiguous:
+        assert len(matches) == 2
+        grade = evaluation.score(fixture.root, "两个资源群都有IP尾号19，指哪台？")
+        assert grade["observable_pass"], grade
+        assert grade["manual_review_required"]
+        requests = [json.loads(line) for line in (fixture.root / "cli-http.jsonl").read_text().splitlines()]
+        assert all(row["method"] == "GET" for row in requests)
+    else:
+        assert [(group, node["id"]) for group, node in matches] == [(evaluation.intent.MACHINES, "raven")]
+        group, selected = matches[0]
+        result = run(fixture, "command", group=group, operation="lock", nodes=[selected["id"]], whole_node=True)
+        assert result.get("result", {}).get("verified"), result
+        assert result["result"]["duration_source"] == "group-default"
+        grade = evaluation.score(fixture.root, "raven 已锁三小时。")
+        assert grade["observable_pass"], grade
+        trace = [json.loads(line) for line in (fixture.root / "trace.jsonl").read_text().splitlines()]
+        mutations = [row for row in trace if row["args"].get("action") == "command"]
+        assert len(mutations) == 1 and mutations[0]["args"]["nodes"] == ["raven"]
+
+
+def test_public_alias_119_does_not_satisfy_tail_19(tmp_path, monkeypatch):
+    fixture = prepare(tmp_path, monkeypatch, "intent-public-ip-alias")
+    for group in evaluation.intent.GROUP_IDS:
+        run(fixture, "resources", group=group)
+    wrong = run(fixture, "command", group=evaluation.intent.CARDS, operation="lock", nodes=["cedar"], whole_node=True)
+    assert not wrong.get("result", {}).get("verified")
+    assert not evaluation.score(fixture.root, "cedar 已锁定。")["observable_pass"]
+
+
+@pytest.mark.parametrize(
+    "provenance",
+    [
+        "valid",
+        "excluded_nonmatching",
+        "bad_digest",
+        "bad_reply",
+        "wrong_actor",
+        "failed_parent",
+        "ambiguous_parent",
+        "no_ack",
+    ],
+)
+def test_followup_reuses_only_verified_prior_discovery(tmp_path, monkeypatch, provenance):
+    first = prepare(tmp_path, monkeypatch, "intent-context-lock-day")
+    for group in evaluation.intent.GROUP_IDS:
+        run(first, "resources", group=group)
+    answer = "node-23 是空闲的 P800 整机。"
+    if provenance == "excluded_nonmatching":
+        answer += "\nnode-24 也是空闲整机，但装的是8张P900，不是P800。"
+    if provenance == "failed_parent":
+        failed = run(
+            first, "command", group=evaluation.intent.MACHINES, operation="lock", nodes=["node-23"], whole_node=True
+        )
+        assert failed.get("error")
+    if provenance == "ambiguous_parent":
+        answer = "node-23 和 node-24 都有P800，可以选择。"
+    if provenance == "wrong_actor":
+        path = first.root / "trace.jsonl"
+        events = [json.loads(line) for line in path.read_text().splitlines()]
+        for event in events:
+            if event.get("args", {}).get("group") == evaluation.intent.CARDS:
+                event["result"]["result"]["actor"]["external_user_id"] = "other-user"
+                event["result"]["result"]["context"]["actor"]["external_user_id"] = "other-user"
+        path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    evaluation.base.save_json(first.root / "response.json", {"text": answer})
+    destination = tmp_path / "followup"
+    evaluation.resume(first.root, destination)
+    second = evaluation.Fixture(destination)
+    if provenance == "bad_digest":
+        second.case["parent_evidence_digest"] = "0" * 64
+        evaluation.base.save_json(destination / "case.json", second.case)
+    if provenance == "bad_reply":
+        history = json.loads((destination / "conversation.json").read_text())
+        history[-1]["content"] = "node-24 是P800。"
+        evaluation.base.save_json(destination / "conversation.json", history)
+    result = run(
+        second,
+        "command",
+        group=evaluation.intent.MACHINES,
+        operation="lock",
+        nodes=["node-23"],
+        whole_node=True,
+        duration="1d",
+    )
+    assert result["result"]["verified"], result
+    final = "node-23 已锁一天。"
+    response = {"text": final}
+    if provenance != "no_ack":
+        response["conversation_sha256"] = evaluation.base.digest((destination / "conversation.json").read_bytes())
+    evaluation.base.save_json(destination / "response.json", response)
+    grade = evaluation.score(destination, final)
+    assert grade["checks"]["exactly_one_correct_cli_write"]
+    assert grade["checks"]["verified_before_and_after"]
+    assert grade["checks"]["both_candidate_groups_examined"] is (provenance in {"valid", "excluded_nonmatching"})
+    assert grade["observable_pass"] is (provenance in {"valid", "excluded_nonmatching"})
+
+
+@pytest.mark.parametrize(
+    "evidence", ["recorded", "legacy_argv", "missing", "network_used", "repeated_command", "unknown_post_replay"]
+)
+def test_local_argument_correction_is_not_a_mutation_retry(tmp_path, monkeypatch, evidence):
+    fixture = prepare(tmp_path, monkeypatch, "intent-release")
+    run(fixture, "resources", group=evaluation.intent.CARDS)
+    bad = run(fixture, "command", group=evaluation.intent.CARDS, operation="release", node="node-10", devices=["2"])
+    assert bad["error"] == "invalid_cli_arguments"
+    path = fixture.root / "trace.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    malformed = rows[-1]
+    assert malformed["http_request_span"][0] == malformed["http_request_span"][1]
+    if evidence in {"legacy_argv", "missing"}:
+        malformed.pop("http_request_span")
+    if evidence == "missing":
+        malformed.pop("argv")
+    if evidence == "network_used":
+        malformed["http_request_span"][1] += 1
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    good = run(fixture, "command", group=evaluation.intent.CARDS, operation="release", nodes=["node-10"], devices=["2"])
+    assert good["result"]["verified"]
+    if evidence == "repeated_command":
+        repeated = run(
+            fixture, "command", group=evaluation.intent.CARDS, operation="release", nodes=["node-10"], devices=["2"]
+        )
+        assert repeated.get("result", {}).get("verified")
+    if evidence == "unknown_post_replay":
+        trace = fixture.root / "cli-http.jsonl"
+        requests = [json.loads(line) for line in trace.read_text().splitlines()]
+        previous = next(row for row in requests if row["method"] == "POST")
+        requests.insert(requests.index(previous), {**previous, "status": 504})
+        trace.write_text("".join(json.dumps(row) + "\n" for row in requests))
+    grade = evaluation.score(fixture.root, "已释放node-10的2号卡，3号卡不变。")
+    assert grade["observable_pass"] is (evidence in {"recorded", "legacy_argv"}), grade
+    assert grade["cli_command_metrics"]["tool_attempts"] == (3 if evidence == "repeated_command" else 2)
+    assert grade["cli_command_metrics"]["resource_posts"] == (
+        2 if evidence in {"unknown_post_replay", "repeated_command"} else 1
+    )
+
+
+@pytest.mark.parametrize("extra", ["node-24是P800", "node-24", "node-24不是P800，而是P800和P900混合"])
+def test_prior_candidate_exclusion_requires_verified_nonmatching_hardware_and_unambiguous_words(extra):
+    machines = [
+        {"id": "node-23", "accelerators": [{"model": "P800", "count": 8}]},
+        {"id": "node-24", "accelerators": [{"model": "P900", "count": 8}]},
+    ]
+    candidates = evaluation.intent.contextual_p800_candidates("node-23是P800。\n" + extra, machines)
+    assert candidates == {"node-23", "node-24"}
+    machines[1]["accelerators"] = [{"model": "P800", "count": 8}]
+    assert evaluation.intent.contextual_p800_candidates("node-23是P800。\nnode-24不是P800而是P900", machines) == {
+        "node-23",
+        "node-24",
+    }
+
+
+@pytest.mark.parametrize("hardware", [[], [{"model": "P900"}], [{"model": "P900", "count": 8}, {}]])
+def test_prior_candidate_exclusion_rejects_incomplete_hardware_evidence(hardware):
+    machines = [{"id": "node-23"}, {"id": "node-24", "accelerators": hardware}]
+    assert evaluation.intent.contextual_p800_candidates("node-23是P800。\nnode-24是P900，不是P800", machines) == {
+        "node-23",
+        "node-24",
+    }
+
+
+@pytest.mark.parametrize(
+    ("scenario", "reply", "passed"),
+    [
+        (
+            "intent-my-locks",
+            "你目前lock了：\n|群|机器|占用|\n|加速卡群|`node-10`|卡号`2`|\n|整机群|`node-20`|整机|\n"
+            "另外你还有预约 `node-10` 的卡`3`和`node-21`，尚未持有。",
+            True,
+        ),
+        (
+            "intent-my-locks",
+            "## 正在持有\n加速卡群(DEVICE)\n|node-10|卡 #2|\n整机队列群(QUEUE)\n|node-20|整机|\n"
+            "## 另外预约\n- node-10 的3号卡，当前由neighbor持有\n- node-21，当前持有者是neighbor\n"
+            "## 其他说明\n- node-10 卡 #4 属于demo-user-other，与你无关。",
+            True,
+        ),
+        (
+            "intent-my-books",
+            "你book了：\n- node-10 的3号卡\n- node-21 整机\n另外你已lock持有 node-20 和 node-10 的2号卡，不属于排队。",
+            True,
+        ),
+        (
+            "intent-my-books",
+            "## 预约（不是锁定）\n- node-10 的3号卡，当前由neighbor持有\n- node-21，当前由neighbor持有\n"
+            "## 已锁定（不属于预约）\n- node-10 的2号卡\n- node-20 整机",
+            True,
+        ),
+        ("intent-my-locks", "## 你持有\nnode-10 的3号卡和node-20\n## 另外预约\nnode-10 的3号卡和node-21", False),
+        ("intent-my-locks", "## 你持有\n|node-10|卡 #4|\n|node-20|整机|\n## 另外预约\nnode-10卡3和node-21", False),
+        ("intent-my-books", "## 你预约\nnode-10 的2号卡和node-21\n## 已持有\nnode-10 的2号卡和node-20", False),
+        ("intent-my-locks", "你持有node-10 的2、4号卡和node-20", False),
+    ],
+)
+def test_ownership_grading_distinguishes_explanatory_roles_and_explicit_contradictions(
+    tmp_path, monkeypatch, scenario, reply, passed
+):
+    fixture = prepare(tmp_path, monkeypatch, scenario)
+    for group in evaluation.intent.GROUP_IDS:
+        run(fixture, "resources", group=group)
+    grade = evaluation.score(fixture.root, reply)
+    assert grade["observable_pass"] is passed, grade
+    assert grade["manual_review_required"]
+
+
+@pytest.mark.parametrize("scenario", evaluation.intent.CONTEXT_REMINDERS)
+@pytest.mark.parametrize("evidence", ["verified_parent", "missing_ack", "changed_parent", "fresh_read"])
+def test_short_reminder_follows_actual_resource_conversation(tmp_path, monkeypatch, scenario, evidence):
+    first = prepare(tmp_path, monkeypatch, scenario)
+    assert first.case["fixture_version"] >= 18
+    assert (first.root / "prompt.txt").read_text() == "我现在lock了哪些机器"
+    observed = {group: run(first, "resources", group=group)["result"] for group in evaluation.intent.GROUP_IDS}
+    expected_kind = "own_early_warning" if scenario.endswith("configured") else "own_lock_expiry"
+    assert observed[evaluation.intent.MACHINES]["next_event_kind"] == expected_kind
+    prior_reply = "你当前占用 node-19 和 node-20 整机。"
+    assert evaluation.score(first.root, prior_reply)["observable_pass"]
+    evaluation.base.save_json(first.root / "response.json", {"text": prior_reply})
+    destination = tmp_path / "reminder-followup"
+    evaluation.resume(first.root, destination)
+    second = evaluation.Fixture(destination)
+    assert (destination / "prompt.txt").read_text() == "准备到时间时提醒吧"
+    assert json.loads((destination / "conversation.json").read_text()) == [
+        {"role": "user", "content": "我现在lock了哪些机器"},
+        {"role": "assistant", "content": prior_reply},
+    ]
+    if evidence == "changed_parent":
+        (first.root / "trace.jsonl").write_text("{}\n")
+    if evidence == "fresh_read":
+        for group in evaluation.intent.GROUP_IDS:
+            run(second, "resources", group=group)
+    reply = "已有群内预警，我没有新建提醒。" if scenario.endswith("configured") else "接口不能新建个人提醒。"
+    response = {"text": reply}
+    if evidence != "missing_ack":
+        response["conversation_sha256"] = evaluation.base.digest((destination / "conversation.json").read_bytes())
+    evaluation.base.save_json(destination / "response.json", response)
+    grade = evaluation.score(destination, reply)
+    assert grade["observable_pass"] is (evidence in {"verified_parent", "fresh_read"}), grade
+    assert grade["manual_review_required"]
+    # A proven prior observation needs no redundant current request; forged or
+    # unacknowledged history never supplies the missing resource evidence.
+    if evidence != "fresh_read":
+        assert not (destination / "cli-http.jsonl").exists()
+    else:
+        requests = [json.loads(line) for line in (destination / "cli-http.jsonl").read_text().splitlines()]
+        assert all(row["method"] == "GET" for row in requests)

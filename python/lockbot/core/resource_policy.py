@@ -1,4 +1,4 @@
-"""Bot-wide acquisition policy, independent from transport and API machine budgets."""
+"""Bot-wide acquisition policy shared by chat and Agent API commands."""
 
 import time
 

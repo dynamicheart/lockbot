@@ -173,7 +173,7 @@ def test_global_chat_revocation_waits_for_same_principal_on_another_bot(tmp_path
         with authority_guard(2, platform="fakeim", external_user_id="alice"):
             entered.set()
             assert release.wait(3)
-            bot.lock("alice", "lock n1 10m", acquisition_limit=1)
+            bot.lock("alice", "lock n1 10m")
 
     def revoke():
         revoking.set()

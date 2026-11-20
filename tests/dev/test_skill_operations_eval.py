@@ -305,7 +305,7 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     current.mkdir()
     markdown, _, manifest = skill.skill_artifacts()
     (current / "manifest.json").write_text(json.dumps(manifest))
-    (current / "lockbot-resource-agent.zip").write_bytes(skill.installation_bundle())
+    (current / "lockbot-agent.zip").write_bytes(skill.installation_bundle())
     previous = write_test_artifact(tmp_path / "previous", b"# Old Skill")
     source = tmp_path / "source.md"
     source.write_bytes(markdown)
@@ -320,16 +320,16 @@ def test_update_can_inspect_v2_references_without_replacing_local_installation(t
     latest = fixture.manifest()["version"]
     reference = "references/resource-operations.md"
     inspected = fixture.call("inspect_archive", {"path": path, "member": reference})
-    assert "lockbot-resource-agent/" + reference in inspected["members"]
+    assert "lockbot-agent/" + reference in inspected["members"]
     assert inspected["content"].startswith("# Resource operations and leases\n")
     assert inspected["archive_sha256"] == manifest["installation"]["sha256"]
-    qualified_member = "lockbot-resource-agent/" + reference
+    qualified_member = "lockbot-agent/" + reference
     assert fixture.call("inspect_archive", {"path": path, "member": qualified_member}) == inspected
     request(fixture, "/api/bots/7/resources", version=latest)
     final = "确认安装 " + base.BUNDLE_PATH
     assert not evaluation.score(fixture.root, final)["checks"]["latest_skill_read_after_hint"]
 
-    assert read_current_skill(fixture, path, member="lockbot-resource-agent/SKILL.md") == markdown.decode()
+    assert read_current_skill(fixture, path, member="lockbot-agent/SKILL.md") == markdown.decode()
     request(fixture, "/api/bots/7/resources", version=latest)
     assert evaluation.score(fixture.root, final)["observable_pass"]
     assert evaluation.score(fixture.root, f"是否授权安装已核验的 {path}？")["observable_pass"]

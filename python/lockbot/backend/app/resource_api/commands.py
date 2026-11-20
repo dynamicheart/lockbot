@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,14 +30,12 @@ from lockbot.backend.app.bots.manager import (
     bot_manager,
 )
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.config import RESOURCE_API_MAX_HELD_PER_IDENTITY
 from lockbot.backend.app.database import get_db
-from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
 from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, should_notify
 from lockbot.backend.app.resource_api.observability import record_api_command
 from lockbot.backend.app.resource_api.task_categories import TaskCategoryInput, TaskCategoryNotice
-from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
+from lockbot.backend.app.resource_api.traffic import credential_budget
 from lockbot.backend.app.resource_auth.authority import authority_guard
 from lockbot.backend.app.resource_auth.dependencies import (
     ResourceActor,
@@ -45,7 +43,6 @@ from lockbot.backend.app.resource_auth.dependencies import (
     require_resource_actor,
     reverify_actor,
 )
-from lockbot.core.base_bot import AcquisitionLimitExceeded
 from lockbot.core.command_result import capture_result
 from lockbot.core.handler import (
     BINDING_COMMANDS,
@@ -116,8 +113,9 @@ The examples below use placeholder resources; replace them with those returned b
   persistence or that your command caused the value. HTTP 200 alone is not success.
 - `take`, `kickout`, `kicklock` and chat binding commands are **not available to personal
   Agent keys**. Native chat/OP permissions do not imply permission through this API.
-- HTTP 200 only means the command was dispatched. Inspect `reply` and read `/resources`
-  to verify ownership or queue position. Repeating `lock` extends the lease; do not retry
+- HTTP 200 only means the command was dispatched. Inspect the returned `resource_snapshot`
+  to verify ownership or queue position. It is copied before the command releases its
+  allocator state lock. If absent, read `/resources` explicitly. Repeating `lock` extends the lease; do not retry
   it blindly after a timeout. Prefer structured GET `/resources` over parsing query replies.
 
 ### Example: two Agents sharing one user's key
@@ -165,10 +163,13 @@ response = session.post(
     timeout=15,
 )
 response.raise_for_status()
-# Honour Retry-After / next_event_at for subsequent checks; a POST reply is not proof.
-state = session.get(f"{base_url}/api/agent/resources", timeout=15)
-state.raise_for_status()
-# Match state.json()["actor"] against the resource's holders, then use the resource.
+# A POST reply is not proof; verify its detached resource observation.
+state = response.json().get("resource_snapshot")
+if state is None:
+    observed = session.get(f"{base_url}/api/agent/resources", timeout=15)
+    observed.raise_for_status()
+    state = observed.json()
+# Match state["actor"] against the resource's holders, then use the resource.
 ```
 """
 
@@ -235,6 +236,10 @@ class CommandActor(BaseModel):
 
 
 class CommandResponse(BaseModel):
+    resource_snapshot: dict | None = Field(
+        default=None,
+        description="Authorized state observed under the command allocator lock; not a structured command outcome.",
+    )
     skill_update: dict = Field(default_factory=dict)
     next_step: str | None = None
     task_category_notice: TaskCategoryNotice | None = None
@@ -246,7 +251,7 @@ class CommandResponse(BaseModel):
     reply: str = Field(
         description=(
             "The bot's reply as text. This reports what the bot said, not a structured "
-            "outcome: read GET /resources to verify what is actually true."
+            "outcome: verify resource_snapshot, or GET /resources when absent."
         )
     )
 
@@ -259,7 +264,6 @@ class CommandResponse(BaseModel):
     summary="Execute a personal resource command",
     description=COMMAND_GUIDE,
 )
-@limiter.limit("60/minute")
 def execute_command_via_api(
     bot_id: int,
     body: Annotated[CommandRequest, Body(openapi_examples=COMMAND_EXAMPLES)],
@@ -292,9 +296,9 @@ def execute_command_via_api(
     if word in PRE_REJECTED_COMMANDS:
         raise errors.command_not_allowed(word)
 
-    # Per-credential write budget, before admission: one credential cannot flood this bot's
-    # single state lock regardless of its source IP or the per-bot admission cap.
-    allowed, retry_after = credential_budget.check(actor.binding_record_id, "write")
+    # Match the operation classification: a legacy query command consumes the same read
+    # allowance as GET /resources, rather than using up mutation capacity.
+    allowed, retry_after = credential_budget.check(actor.binding_record_id, request.state.resource_activity_kind)
     if not allowed:
         raise errors.rate_limited(retry_after)
 
@@ -306,113 +310,123 @@ def execute_command_via_api(
         bot_application_config(bot_row, db)["_FEISHU_CLIENT"].warm_user_name(actor.external_user_id)
 
     try:
-        with (
-            bot_manager.admit(bot_id) as lease,
-            authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id),
-        ):
-            bot = lease.bot
+        with bot_manager.admit(bot_id) as lease:
+            notification = None
+            with authority_guard(bot_id, platform=actor.platform, external_user_id=actor.external_user_id):
+                bot = lease.bot
 
-            # Re-verify the credential against the FRESH binding now that the lease is held:
-            # a restore/delete/revoke may have committed between authentication (a dependency,
-            # before admission) and here. Without this, a just-revoked actor could still execute.
-            if not reverify_actor(db, request, actor):
-                raise errors.credential_invalid()
+                # Re-verify the credential against the FRESH binding now that the lease is held:
+                # a restore/delete/revoke may have committed between authentication (a dependency,
+                # before admission) and here. Without this, a just-revoked actor could still execute.
+                if not reverify_actor(db, request, actor):
+                    raise errors.credential_invalid()
 
-            if canonical_command(word) == "alias" and not bot.config.get_val("ALLOW_USER_ALIAS"):
-                # Distinguishable from command_not_allowed on purpose (AC-5.1): the caller
-                # is permitted, the deployment has the feature off.
-                raise errors.aliases_disabled()
+                if canonical_command(word) == "alias" and not bot.config.get_val("ALLOW_USER_ALIAS"):
+                    # Distinguishable from command_not_allowed on purpose (AC-5.1): the caller
+                    # is permitted, the deployment has the feature off.
+                    raise errors.aliases_disabled()
 
-            from lockbot.backend.app.resource_api.usage import (
-                prepare_command_usage,
-                prune_actor_usage,
-                register_command_usage,
-            )
+                from lockbot.backend.app.resource_api.usage import (
+                    prepare_command_usage,
+                    prune_actor_usage,
+                    register_command_usage,
+                )
 
-            before_usage = prepare_command_usage(bot, actor, canonical_command(word), text)
-            request.state.agent_event["requested_resources"] = describe_targets(bot, actor, word, text)
-            request.state.agent_event["all_owned_resources"] = text.lower() in {"free", "unlock"}
-            try:
-                request.state.agent_event["stage"] = "dispatching"
-                with capture_result() as result:
-                    raw_reply = execute_text_command(
-                        actor.external_user_id,
-                        text,
-                        bot,
-                        allowed_commands=AGENT_ALLOWED_COMMANDS,
-                        acquisition_limit=RESOURCE_API_MAX_HELD_PER_IDENTITY,
-                        source="api",
-                    )
-            except AcquisitionLimitExceeded:
-                request.state.agent_event["stage"] = "rejected"
-                raise errors.identity_cap_reached(RESOURCE_API_MAX_HELD_PER_IDENTITY) from None
-            except CommandNotAllowed:
-                request.state.agent_event["stage"] = "rejected"
-                raise errors.command_not_allowed(word) from None
-            except CommandNotSupported:
-                request.state.agent_event["stage"] = "rejected"
-                raise errors.command_not_supported(word, bot_row.bot_type) from None
+                before_usage = prepare_command_usage(bot, actor, canonical_command(word), text)
+                request.state.agent_event["requested_resources"] = describe_targets(bot, actor, word, text)
+                request.state.agent_event["all_owned_resources"] = text.lower() in {"free", "unlock"}
+                try:
+                    request.state.agent_event["stage"] = "dispatching"
+                    with capture_result(
+                        observe_state=canonical_command(word) in {"lock", "slock", "book", "unlock"}
+                    ) as result:
+                        raw_reply = execute_text_command(
+                            actor.external_user_id,
+                            text,
+                            bot,
+                            allowed_commands=AGENT_ALLOWED_COMMANDS,
+                            source="api",
+                        )
+                except CommandNotAllowed:
+                    request.state.agent_event["stage"] = "rejected"
+                    raise errors.command_not_allowed(word) from None
+                except CommandNotSupported:
+                    request.state.agent_event["stage"] = "rejected"
+                    raise errors.command_not_supported(word, bot_row.bot_type) from None
 
-            from lockbot.backend.app.resource_api.resources import snapshot_cache
+                from lockbot.backend.app.resource_api.resources import snapshot_cache
 
-            snapshot_cache.invalidate(bot_id)
-            if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
-                resource_tier_gate.invalidate(actor.binding_record_id)
-            reply_text = bot.adapter.extract_reply_text(raw_reply)
-            request.state.agent_event.update(
-                stage="dispatched", reply=reply_text[:2048], reply_truncated=len(reply_text) > 2048
-            )
-            request.state.agent_event["observed_state"] = observe_own_resources(
-                bot,
-                actor,
-                request.state.agent_event["requested_resources"],
-                all_owned=request.state.agent_event["all_owned_resources"],
-            )
-
-            if not bot_manager.lease_is_current(lease):
-                # Defensive post-check. It detects replacement but cannot undo a mutation
-                # that already persisted, so the honest answer is "may have executed".
-                logger.warning("Bot %d was replaced under an admitted command", bot_id)
-                raise errors.may_have_executed(bot_id)
-
-            try:
-                register_command_usage(
-                    db,
+                snapshot_cache.invalidate(bot_id)
+                reply_text = bot.adapter.extract_reply_text(raw_reply)
+                request.state.agent_event.update(
+                    stage="dispatched", reply=reply_text[:2048], reply_truncated=len(reply_text) > 2048
+                )
+                request.state.agent_event["observed_state"] = observe_own_resources(
                     bot,
                     actor,
-                    before_usage,
-                    agent_label=body.agent_label,
-                    purpose=body.purpose,
-                    task_category=body.task_category,
-                    task_category_provided="task_category" in body.model_fields_set,
+                    request.state.agent_event["requested_resources"],
+                    all_owned=request.state.agent_event["all_owned_resources"],
                 )
-                if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
-                    prune_actor_usage(db, bot, actor)
-            except Exception:
-                db.rollback()
-                logger.exception("Bot %s: usage registration failed after command admission", bot_id)
-                raise errors.may_have_executed(bot_id) from None
 
-            # The bot method has released the state lock by now, so this send cannot
-            # extend a critical section. Still inside the lease, so a drain waits for it.
-            if (
-                result.committed
-                and result.operation == canonical_command(word)
-                and result.affected_resources != ()
-                and should_notify(word)
-                and bot_row.resource_api_notify_enabled
-            ):
-                notify_group(
-                    bot,
-                    bot_id=bot_id,
-                    command=text,
-                    actor_id=actor.external_user_id,
-                    command_word=word,
-                    agent_label=body.agent_label,
-                    purpose=body.purpose,
-                    task_category=body.task_category,
-                    target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
-                )
+                if not bot_manager.lease_is_current(lease):
+                    # Defensive post-check. It detects replacement but cannot undo a mutation
+                    # that already persisted, so the honest answer is "may have executed".
+                    logger.warning("Bot %d was replaced under an admitted command", bot_id)
+                    raise errors.may_have_executed(bot_id)
+
+                try:
+                    register_command_usage(
+                        db,
+                        bot,
+                        actor,
+                        before_usage,
+                        agent_label=body.agent_label,
+                        purpose=body.purpose,
+                        task_category=body.task_category,
+                        task_category_provided="task_category" in body.model_fields_set,
+                    )
+                    if canonical_command(word) in {"lock", "slock", "book", "unlock", "alias"}:
+                        prune_actor_usage(db, bot, actor)
+                except Exception:
+                    db.rollback()
+                    logger.exception("Bot %s: usage registration failed after command admission", bot_id)
+                    raise errors.may_have_executed(bot_id) from None
+
+                # Reuse the command's own locked observation, never a cached pre-write
+                # snapshot. Alias/configuration commands without such an observation
+                # retain their existing explicit readback contract.
+                resource_snapshot = None
+                if result.observation is not None:
+                    from lockbot.backend.app.resource_api.resources import resource_payload
+
+                    resource_snapshot = resource_payload(
+                        bot_row, request, Response(), actor, db, lease, observation=result.observation
+                    )
+
+                # Capture immutable routing under the mutation's authorization barrier.
+                # Actual delivery revalidates it after this barrier is released.
+                if (
+                    result.committed
+                    and result.operation == canonical_command(word)
+                    and result.affected_resources != ()
+                    and should_notify(word)
+                    and bot_row.resource_api_notify_enabled
+                ):
+                    notification = dict(
+                        bot_id=bot_id,
+                        command=text,
+                        actor_id=actor.external_user_id,
+                        command_word=word,
+                        agent_label=body.agent_label,
+                        purpose=body.purpose,
+                        task_category=body.task_category,
+                        target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
+                    )
+
+            # Keep lifecycle admission through delivery, but no allocator, bot authority
+            # or principal serialization lock may cover outbound network IO.
+            if notification is not None:
+                notify_group(bot, **notification, lease=lease)
 
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
@@ -425,6 +439,7 @@ def execute_command_via_api(
     if notice is not None and notice.reason == "missing" and canonical_command(word) not in {"lock", "slock", "book"}:
         notice = None
     return CommandResponse(
+        resource_snapshot=resource_snapshot,
         task_category_notice=notice,
         skill_update=client_skill_notice(request),
         next_step=(

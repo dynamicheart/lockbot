@@ -200,7 +200,14 @@ def test_malformed_link_never_leaves_cli_or_triggers_reissue(handoff, change, ca
     assert helper.main(["--connection", str(connection), "panel-link"]) == 2
     output = capsys.readouterr()
     assert output.out == ""
-    assert json.loads(output.err) == {"error": "invalid_personal_panel_link", "retry_mutation": False}
+    result = json.loads(output.err)
+    assert result["error"] == "invalid_personal_panel_link"
+    assert result["retry_mutation"] is False
+    assert result["home"] == HOME  # Retain the validated capability, never the malformed reply's home.
+    assert isinstance(result["next_step"], str) and result["next_step"]
+    assert "login_url" not in result
+    assert "ticket=" not in output.err
+    assert "x" * 43 not in output.err
     assert sum(method == "POST" for _, method, _, _ in opener.requests) == 1
 
 

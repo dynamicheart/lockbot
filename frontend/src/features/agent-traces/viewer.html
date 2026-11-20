@@ -6,6 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none';__TRACE_CONNECT_SRC__">
 <title>LockBot · 轨迹浏览器</title>
 <style>
+__LOCKBOT_THEME__
 :root{color-scheme:light;--ink:#14243b;--muted:#52647e;--line:#dfe7f0;--canvas:#f3f6fa;--paper:#fff;--soft:#f6f8fc;--accent:#215bc0;--selected:#e9f2ff;--sans:system-ui,"PingFang SC",sans-serif;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
 *{box-sizing:border-box}
 body{margin:0;background:var(--canvas);color:var(--ink);font:14px/1.55 var(--sans)}
@@ -19,20 +20,27 @@ h1,h2,h3,p,pre{margin:0}
 .app-header{background:var(--paper);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:4}
 .brand{display:flex;gap:10px;align-items:center;min-width:0}
 .header-end{display:flex;align-items:center;gap:12px;flex:none}
+#dataset-picker{font-size:12px;color:var(--muted)}
+#dataset-select{max-width:min(34vw,320px);padding:5px;border:1px solid var(--line);border-radius:5px;background:var(--paper);color:var(--text)}
 .live-status{display:flex;align-items:center;gap:6px;color:var(--muted);white-space:nowrap;font-size:12px}
 .live-status::before{content:"";width:6px;height:6px;border-radius:50%;background:#3e9367}
 .live-status[hidden]{display:none}
 .mark{width:36px;height:36px;border-radius:10px;background:#edf5ff;display:grid;place-items:center;flex:none}
 .mark svg{width:26px;height:26px}
 h1{font-size:17px;letter-spacing:-.02em}
-.open-file,.quiet-button,.inspector-close,.chat-code button{border:1px solid #d5e0ee;background:white;border-radius:8px;font-size:12px;font-weight:650;padding:6px 10px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
-.open-file{color:#234d8f;padding:7px 11px}
+.quiet-button,.inspector-close,.chat-code button{border:1px solid #d5e0ee;background:white;border-radius:8px;font-size:12px;font-weight:650;padding:6px 10px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
 .icon{width:16px;height:16px;flex:none;display:inline-block;vertical-align:middle}
-.open-file:hover,.quiet-button:not(:disabled):hover,.inspector-close:hover,.chat-code button:hover{background:var(--selected);border-color:#c7daf5}
+.quiet-button:not(:disabled):hover,.inspector-close:hover,.chat-code button:hover{background:var(--selected);border-color:#c7daf5}
 .load-status{margin:0;padding:0 18px 8px;color:var(--muted);font-size:12px}
 .load-status[data-error=true]{color:#932d37}
 .load-status:empty{display:none}
-@media(max-width:420px){.header-end{gap:8px}.live-status{font-size:11px}.open-file{padding:6px 8px}}
+.loading-state{display:flex;align-items:center;justify-content:center;gap:10px;min-height:160px;color:var(--muted);font-size:13px}
+.loading-state::before{content:"";width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .8s linear infinite;flex:none}
+.load-status[data-loading=true]{display:flex;align-items:center;gap:8px;padding-top:24px;justify-content:center;min-height:100px}
+.load-status[data-loading=true]::before{content:"";width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:loading-spin .8s linear infinite}
+@keyframes loading-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.loading-state::before,.load-status[data-loading=true]::before{animation:none}}
+@media(max-width:420px){.header-end{gap:8px}.live-status{font-size:11px}}
 .layout{max-width:1568px;margin:auto;padding:20px 28px 44px;display:grid;grid-template-columns:230px minmax(0,1fr);gap:18px;align-items:start}
 .sidebar{position:sticky;top:86px;max-height:calc(100dvh - 106px);overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:14px;border:1px solid var(--line);background:var(--paper);border-radius:13px;padding:7px 7px 9px}
 .nav-heading{font-size:12px;font-weight:750;color:var(--ink);padding:9px 9px 5px}
@@ -58,6 +66,7 @@ h1{font-size:17px;letter-spacing:-.02em}
 .meta,.trace-ordinal,.trace-duration,.step-nav-count{font-variant-numeric:tabular-nums;white-space:nowrap}
 .meta{font-size:11px;color:var(--muted)}
 .badge{display:inline-flex;gap:4px;align-items:center;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:720;white-space:nowrap}
+.run-assessment{font-size:12px;color:var(--muted);margin:0 0 16px}.run-assessment summary{cursor:pointer}.run-assessment p{margin:6px 0}
 .pass{background:#e7f5ee;color:#146144}.timeout,.pending{background:#fff2da;color:#7b4b08}.blocked{background:#edf1f8;color:#365684}.fail{background:#fcebed;color:#952d38}
 .mobile-pick{display:none}
 #review{min-width:0;background:var(--paper);border:1px solid var(--line);border-radius:13px}
@@ -296,10 +305,11 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
 .chat-transcript .activity-failed summary{color:#963744}
 .activity-breakdown{color:var(--muted);font-size:11px;font-weight:500;overflow-wrap:anywhere}
 
+__REVIEW_STYLES__
 </style>
 </head>
 <body>
-<header class="app-header"><div class="head"><div class="brand"><div class="mark"><svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="32" height="32">
+<header class="app-header"><div class="head"><a class="brand" href="/#/bots" target="_top" aria-label="LockBot 轨迹浏览器，返回工作台"><div class="mark"><svg aria-hidden="true" focusable="false" viewBox="0 0 32 32" width="32" height="32">
   <rect x="1" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
   <rect x="27" y="13" width="4" height="6" rx="1.5" fill="#409eff" opacity="0.7"/>
   <rect x="5" y="8" width="22" height="19" rx="4" fill="#e6f0ff" stroke="#409eff" stroke-width="1.8"/>
@@ -310,11 +320,12 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
   <rect x="11" y="21.5" width="10" height="2" rx="1" fill="#409eff"/>
   <line x1="16" y1="8" x2="16" y2="3.5" stroke="#409eff" stroke-width="1.8" stroke-linecap="round"/>
   <circle cx="16" cy="2.5" r="2" fill="#67c23a"/>
-</svg></div><div><h1>LockBot 轨迹浏览器</h1></div></div><div class="header-end"><span id="live-status" class="live-status" hidden>自动更新</span><input type="file" id="trace-file" accept="application/json,.json" hidden><button class="open-file" id="load-file" type="button">打开本地 JSON</button></div></div><p id="load-status" class="load-status" role="status"></p></header>
+</svg></div><div><h1>LockBot<span class="brand-description"> 轨迹浏览器</span></h1></div></a><div class="header-end"><span id="live-status" class="live-status" hidden>自动更新</span></div></div><p id="load-status" class="load-status" role="status"></p></header>
 <div class="layout">
 <aside class="sidebar" tabindex="0" aria-label="轨迹导航"><section class="panel"><h2 class="nav-heading">测例</h2><nav id="case-nav" class="case-nav" aria-label="测例及模型结果"></nav></section></aside>
+<div id="sidebar-resize" class="sidebar-resize" role="separator" tabindex="0" aria-orientation="vertical" aria-label="调整测例侧栏宽度"></div>
 <div class="mobile-pick"><label>测例<select id="case-select"></select></label><label>所选测例的模型<select id="run-select"></select></label></div>
-<main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><details class="record-meta" id="record-meta"><summary>记录信息</summary><dl id="record-fields"></dl></details></div><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div><footer class="browse-footer" id="browse-footer"></footer></main>
+<main class="panel" id="review"><div class="run-overview"><div class="case-header"><h2 id="case-title"></h2><button id="review-case" class="quiet-button" type="button">评论</button></div><details class="case-spec" id="case-spec"><summary>测例与检查说明</summary><div id="case-description"></div></details><div class="run-header"><h3 id="run-title"></h3><p class="counts" id="counts"></p></div></div><nav class="tabs" aria-label="记录视图"><button class="tab" id="chat-tab" aria-pressed="true">对话</button><button class="tab" id="event-tab" aria-pressed="false">执行步骤</button></nav><div id="content" class="timeline"></div></main>
 </div>
 <dialog class="inspector" id="inspector" aria-labelledby="inspector-title"><div class="inspector-header"><div><h2 id="inspector-title"></h2><p id="inspector-meta"></p></div><button class="inspector-close" type="button" id="inspector-close" autofocus>关闭</button></div><div class="inspector-fields" id="inspector-fields"></div></dialog>
 <script>__JSON_VIEWER_BUNDLE__</script>
@@ -322,7 +333,8 @@ body.show-outline .chat-transcript{padding:12px 28px 40px}
 <script type="application/json" id="trace-data">__TRACE_PAYLOAD__</script>
 <script>
 let data = JSON.parse(document.getElementById('trace-data').textContent);
-const statusNames = {pass:'通过',timeout:'超时',blocked:'环境阻塞',fail:'行为失败'};
+let hydrateTrial = null;
+const statusNames = {pass:'检查通过',pending:'待核对',timeout:'超时',blocked:'环境阻塞',fail:'检查未通过'};
 const select = (id) => document.getElementById(id);
 const node = (tag, text, className) => {
   const el = document.createElement(tag);
@@ -331,7 +343,6 @@ const node = (tag, text, className) => {
   return el;
 };
 const icons = {
-  file:'M7 3h7l4 4v14H6V3h1m7 0v5h5M9 13h6m-6 4h6',
   chat:'M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l1.5-3A7.5 7.5 0 1 1 20 11.5Z',
   list:'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
   terminal:'m5 6 5 5-5 5m8 0h6',
@@ -368,16 +379,42 @@ function scenarioGroups() {
 }
 let cases = Object.keys(data.cases);
 let activeCase, activeIndex, activeTab, activeStep, failureOnly;
-let caseRunsOpen = true;
-let imported = false;
+const imported = false; // Private offline traces are embedded at build time.
 const online = location.pathname === '/dev/trace-review';
+function routeDataset(route) {
+  const value = route.get('dataset_id');
+  return /^[a-f0-9]{64}$/.test(value || '') ? value : null;
+}
+const legacyHistory = online && new URLSearchParams(location.hash.slice(1)).get('legacy') === '1';
+const datasetId = online ? routeDataset(new URLSearchParams(location.hash.slice(1))) : null; // Only explicit historical links select one immutable source.
+function switchDatasetRoute(route, notifyParent = true) {
+  if (notifyParent && parent !== window) {
+    parent.postMessage({type:'lockbot-trace-select-dataset', route:Object.fromEntries(route)}, location.origin);
+    return;
+  }
+  history.replaceState(null, '', '#' + route);
+  location.reload();
+}
+
+function historicalSourceMatches(record, route = new URLSearchParams(location.hash.slice(1))) {
+  const expected = route.get('review_run');
+  if (!expected) return true;
+  return /^[a-f0-9]{64}$/.test(expected) &&
+    record.review_runs?.[route.get('case')]?.[Number(route.get('run'))] === expected;
+}
+
 function defaultRun(key) {
-  return key==='create' ? Math.max(0,data.cases[key].findIndex(run=>run.direct)) : 0;
+  const runs = data.cases[key];
+  const direct = key === 'create' ? runs.findIndex(run => run.direct) : -1;
+  if (direct >= 0) return direct;
+  for (let index = runs.length - 1; index >= 0; index--) {
+    if (runs[index].source_run?.startsWith('matrix:')) return index;
+  }
+  return 0;
 }
 function readRoute() {
   const route = new URLSearchParams(location.hash.slice(1));
   const key = cases.includes(route.get('case')) ? route.get('case') : cases.includes('create') ? 'create' : cases[0];
-  if (activeCase !== key) caseRunsOpen = true;
   activeCase = key;
   activeIndex = Number(route.get('run') ?? defaultRun(activeCase));
   activeTab = route.get('view') === 'steps' ? 'events' : 'chat';
@@ -386,20 +423,133 @@ function readRoute() {
 }
 function writeRoute() {
   const route = new URLSearchParams({case:activeCase,run:activeIndex});
+  if (online && datasetId) route.set('dataset_id', datasetId);
+  if (legacyHistory) route.set('legacy', '1');
+  const expectedRun = new URLSearchParams(location.hash.slice(1)).get('review_run');
+  if (!userNavigation && /^[a-f0-9]{64}$/.test(expectedRun || '')) route.set('review_run', expectedRun);
   if (activeTab==='events') {
     route.set('view','steps');
     if (activeStep) route.set('step',activeStep);
   }
   history.replaceState(null,'','#'+route);
+  notifyReviewParent();
 }
 const caseName = key => data.labels && Object.hasOwn(data.labels,key) ? data.labels[key] || key : key;
 const sessionName = index => '会话 ' + String(index+1).padStart(2,'0');
-function badge(state) { return node('span',statusNames[state],'badge '+state); }
+function assessmentForTrial(trial) {
+  const value = typeof data === 'undefined' ? null : data.assessments?.[trial.source_run];
+  const cliCounts = {'approved-enrollment':2,'reset-personal-key':4,telemetry:1,'intent-shared-tail':1,
+    'intent-ambiguous-tail':1,'intent-my-locks':1,'intent-my-books':1,'intent-reminder-configured':1,
+    'intent-choose':1,'intent-whole':1,'intent-claim':1,'intent-model-p800-unknown-node':1};
+  const cli = value?.schema_version === 2 && value.target?.suite === 'cli';
+  const validTarget = cli ? value.target.phase_scope === 'all' && value.adapter?.family === 'cli' &&
+    [35,36].includes(value.adapter.version) && Object.hasOwn(cliCounts,value.target.scenario) &&
+    Array.isArray(value.phase_evidence) && value.phase_evidence.length === cliCounts[value.target.scenario] &&
+    value.phase_evidence.every((phase,index) => phase.phase === index+1 && typeof phase.observed === 'boolean' &&
+      typeof phase.completed === 'boolean') && ['completed','incomplete'].includes(value.execution) &&
+    ['pass','fail','unknown'].includes(value.behavior) : value?.schema_version === 1 && value.target?.phase === 1 &&
+    ['resource-cli','consultation','cli-release'].includes(value.adapter?.family) &&
+    value.target?.suite === value.adapter?.family &&
+    ({consultation:[1,2,3],'resource-cli':[1,2],'cli-release':[3,4,5,6]})[value.adapter?.family].includes(value.adapter?.version) &&
+    value.execution === 'completed' && ['pass','fail'].includes(value.behavior);
+  if (!value || !validTarget || value.target?.source_run !== trial.source_run || value.human_gate !== 'not_required' ||
+      !['not_reviewed','pass','findings','uncertain'].includes(value.semantic) ||
+      !Array.isArray(value.reviews) || value.reviews.length > 16 || value.reviews.some(review =>
+        (cli && (review.schema_version !== 2 || !Array.isArray(review.reviewed_phases) || !review.reviewed_phases.length ||
+          review.reviewed_phases.some((phase,index,phases) => !Number.isInteger(phase) ||
+            !value.phase_evidence[phase-1]?.observed || (index > 0 && phase <= phases[index-1])) ||
+          (review.status === 'pass' && (value.execution !== 'completed' ||
+            value.phase_evidence.some(phase => !phase.completed || !review.reviewed_phases.includes(phase.phase)))))) ||
+        review.reviewer?.kind !== 'model' || typeof review.reviewer?.name !== 'string' ||
+        typeof review.reviewer?.requested_model !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(review.review_id || '') || !/^[a-f0-9]{64}$/.test(review.report_sha256 || '') ||
+        !['pass','findings','uncertain'].includes(review.status) || !Array.isArray(review.findings) ||
+        review.findings.length > 4 || review.findings.some(finding => typeof finding.text !== 'string' ||
+          finding.text.length > 600 || typeof finding.blocking !== 'boolean' || !/^P[0-3]$/.test(finding.severity)))) return null;
+  const replaced = new Set(value.reviews.map(review => review.supersedes).filter(Boolean));
+  const active = value.reviews.filter(review => !replaced.has(review.review_id));
+  const statuses = new Set(active.map(review => review.status));
+  let semantic = !statuses.size ? 'not_reviewed' : statuses.size === 1 ? [...statuses][0] : 'uncertain';
+  if (cli && statuses.size && new Set(active.flatMap(review => review.reviewed_phases)).size !== value.phase_evidence.length) semantic = 'uncertain';
+  return semantic === value.semantic ? value : null;
+}
+function assessmentBadge(trial) {
+  const assessment = assessmentForTrial(trial);
+  if (!assessment || assessment.execution !== 'completed' || assessment.behavior === 'unknown') return null;
+  if (['fail','timeout','blocked'].includes(trial.state)) return null;
+  if (assessment.behavior === 'fail') return {label:'未通过',tone:'fail'};
+  if (assessment.semantic === 'pass') return {label:'通过',tone:'pass'};
+  if (assessment.semantic === 'findings') {
+    const replaced = new Set(assessment.reviews.map(review => review.supersedes).filter(Boolean));
+    const blocking = assessment.reviews.filter(review => !replaced.has(review.review_id))
+      .some(review => review.findings.some(finding => finding.blocking));
+    return {label:blocking ? '有问题' : '有建议',tone:blocking ? 'fail' : 'pending'};
+  }
+  return {label:assessment.semantic === 'uncertain' ? '存疑' : '待复核',tone:'blocked'};
+}
+function assessmentPanel(trial) {
+  const assessment = assessmentForTrial(trial);
+  if (!assessment) return null;
+  const panel = node('details',null,'run-assessment');
+  panel.append(node('summary','检查与复核'));
+  panel.append(node('p','自动行为：'+({pass:'通过',fail:'未通过',unknown:'未判定'}[assessment.behavior])));
+  const replaced = new Set(assessment.reviews.map(review => review.supersedes).filter(Boolean));
+  const activeReviews = assessment.reviews.filter(review => !replaced.has(review.review_id));
+  const blocking = activeReviews.some(review => review.findings.some(finding => finding.blocking));
+  const labels = {not_reviewed:'未复核',pass:'通过',findings:blocking ? '有问题' : '有建议',uncertain:'存疑'};
+  const authors = [...new Set(assessment.reviews.map(review => review.reviewer.name))];
+  panel.append(node('p','模型复核：'+labels[assessment.semantic]+(authors.length ? '（'+authors.join('、')+'）' : '')));
+  panel.append(node('p','人工确认：不需要'));
+  for (const review of activeReviews) {
+    for (const finding of review.findings) panel.append(node('p',finding.severity+' · '+finding.text));
+  }
+  const provenance = node('details');
+  provenance.append(node('summary','复核依据'));
+  provenance.append(node('p','原始导出状态：'+({pass:'通过',fail:'未通过',pending:'待确认',timeout:'超时',blocked:'受阻'}[trial.state] || '未知')));
+  provenance.append(node('p','仅覆盖合成夹具记录；不代表线上验收。'+assessment.adapter.family+' v'+assessment.adapter.version+(assessment.target.phase_scope === 'all' ? ' · 全部阶段' : ' · 阶段 '+assessment.target.phase)));
+  for (const review of assessment.reviews) {
+    provenance.append(node('p',review.reviewer.name+' · 请求模型 '+review.reviewer.requested_model+(replaced.has(review.review_id) ? ' · 已被更正' : '')));
+    if (assessment.schema_version === 2) provenance.append(node('p','已复核阶段：'+review.reviewed_phases.join('、')+' / '+assessment.phase_evidence.length));
+    provenance.append(node('p','报告 SHA-256：'+review.report_sha256));
+    provenance.append(node('p','证据绑定时间：'+review.bound_at));
+  }
+  panel.append(provenance);
+  panel.title = '保留原始结果和评论；这里记录模型复核，不是人工批准。';
+  return panel;
+}
+function trialStatus(trial) {
+  const assessed = assessmentBadge(trial);
+  if (assessed) return assessed.label;
+  if (trial.source_run?.startsWith('semantic:')) {
+    if (trial.state === 'fail') return '未通过';
+    return trial.semantic_status === 'uncertain' ? '待确认' : trial.semantic_status === 'pass' ? '通过' : '已复核';
+  }
+  return {pass:'通过', fail:'未通过', pending:'待确认', timeout:'超时', blocked:'受阻'}[trial.state] || '';
+}
+function badge(trial) {
+  const assessed = assessmentBadge(trial);
+  if (assessed) {
+    const result = node('span',assessed.label,'badge '+assessed.tone);
+    result.title = '自动行为与模型语义复核分别记录；无需人工确认。原始结果保留。';
+    return result;
+  }
+  const partial = trial.source_run?.startsWith('semantic:') && trial.state !== 'fail' && trial.semantic_status !== 'pass';
+  const state = partial || trial.state === 'pending' ? 'blocked' : trial.state;
+  const tone = trial.source_run?.startsWith('semantic:') && trial.state !== 'fail' && trial.semantic_status === 'pass' ? 'pass' : state;
+  const result = node('span',trialStatus(trial),'badge '+tone);
+  result.title = trial.source_run?.startsWith('semantic:') ? '阶段复核：'+(trial.semantic_reason || trialStatus(trial)) :
+    '自动检查：'+trialStatus(trial)+'；完整验收还需查看实际对话与独立复核。';
+  return result;
+}
 function resetSelection() { activeStep = 0; failureOnly = false; }
-function pickCase(key, animate = false) { activeCase = key; activeIndex = 0; caseRunsOpen = true; resetSelection(); draw(animate); }
-function pickRun(index) { activeIndex = index; resetSelection(); draw(); }
+function pickCase(key) { if(activeCase===key) return; activeCase = key; activeIndex = selectedRuns.get(key) ?? defaultRun(key); resetSelection(); userNavigation=true; draw(); }
+function pickRun(index) { activeIndex = index; selectedRuns.set(activeCase,index); resetSelection(); userNavigation=true; draw(); }
 readRoute();
-addEventListener('hashchange',()=>{readRoute(); draw();});
+addEventListener('hashchange',()=>{
+  if (online && !imported && document.querySelector('.layout').hidden) return;
+  readRoute();
+  draw();
+});
 function choice(text, meta, pressed, action) {
   const button = node('button',null,'choice');
   button.type = 'button';
@@ -409,8 +559,13 @@ function choice(text, meta, pressed, action) {
   button.addEventListener('click',action);
   return button;
 }
-function modelLabel(trial,index) {
-  return trial.model || '运行 '+String(index+1).padStart(2,'0');
+__MODEL_LABELS__
+function modelLabel(trial,index,key=activeCase) {
+  const label = displayModelName(trial.model)?.replace(/ · 阶段 (\d+) 语义复核$/, ' · 复核 $1') || '运行 '+String(index+1).padStart(2,'0');
+  const runs = data.cases[key] || [];
+  if (!trial.model || runs.filter(run => displayModelName(run.model) === label).length < 2) return label;
+  const number = runs.slice(0,index+1).filter(run => displayModelName(run.model) === label).length;
+  return label + ' · 记录 ' + number;
 }
 function jsonPreview(value) {
   if (value && typeof value === 'object') return JSON.stringify(value,null,2);
@@ -493,10 +648,11 @@ function evidenceField(label,value) {
       }
       body.scrollTop = 0;
     };
-    const options = [...(reading ? [['text','文本']] : []),...(formatted ? [['json','结构']] : []),['raw','原文']];
+    const options = [...(reading ? [['text','返回文本']] : []),...(formatted ? [['json','展开 JSON']] : []),['raw','JSON 文本']];
     for (const [mode,title] of options) {
       const button = node('button',title);
       button.type = 'button';
+      button.dataset.reviewAnchor='ui:payload-tab'; button.dataset.reviewField='数据展示切换按钮';
       button.onclick = ()=>render(mode);
       buttons.set(mode,button);
       formats.append(button);
@@ -506,36 +662,57 @@ function evidenceField(label,value) {
     body.append(node('pre',raw));
     formats.append(node('span',json===null?'文本':'JSON','format-label'));
   }
-  const copy = node('button','复制');
+  const copy = node('button','复制完整'+label);
   copy.type = 'button';
-  copy.setAttribute('aria-label','复制'+label);
+  copy.setAttribute('aria-label','复制完整'+label);
   copy.onclick = ()=>copyText(raw,copy);
   actions.append(formats,copy);
   box.append(body,actions);
   field.append(box);
   return field;
 }
-function renderStepEvidence(container,info) {
+function renderStepEvidence(container,step,info) {
+  const fields = [];
+  if (Array.isArray(info?.argv)) {
+    fields.push(evidenceField('实际执行参数（argv）',info.argv));
+  } else if (step[0]==='run_lockbot') {
+    const command = node('section',null,'evidence-section');
+    command.append(node('p','CLI 子命令','payload-text-key'),node('code',step[1] || '未采集'));
+    command.append(node('p','该记录未采集实际执行参数。','payload-empty'));
+    fields.push(command);
+  }
   if (!info) {
-    container.replaceChildren(node('p','这条记录只保存了步骤概要。','payload-empty'));
+    container.replaceChildren(...fields,node('p','这条记录只保存了步骤概要。','payload-empty'));
     return;
   }
-  const fields = [evidenceField('输入',info.input),evidenceField('输出',info.output)];
+  fields.push(evidenceField('输入',info.input),evidenceField('输出',info.output));
+  for (const [key,label] of [['raw_result','CLI 原始结果'],['stdout','标准输出'],['stderr','标准错误']]) {
+    if (Object.hasOwn(info,key)) fields.push(evidenceField(label,info[key]));
+  }
+  if (info.output?.artifact) fields.push(diagnosticDownload(info.output.artifact));
   if (info.error != null) {
     const error = evidenceField('错误',info.error);
     error.classList.add('payload-error');
     fields.push(error);
   }
   container.replaceChildren(...fields);
+  const base = container.dataset.reviewAnchor;
+  if(base?.startsWith('tool:')) {
+    for(const field of fields) {
+      const label = field.querySelector('summary')?.textContent;
+      const suffix = label==='输出'?'output':label==='错误'?'error':'input';
+      field.dataset.reviewAnchor = base.replace(/:[^:]+$/,':'+suffix);
+      field.dataset.reviewField = '工具'+(label||'输入');
+    }
+  }
 }
 function isFailed(step,info) {
-  return !!info?.error || /失败|错误|拒绝|拦截|超时|未成功/.test(step[3]);
+  const output = info?.output;
+  const code = output?.exit_code ?? info?.exit_code;
+  return !!info?.error || !!output?.error || (Number.isInteger(code) && code!==0) ||
+    /失败|错误|拒绝|拦截|超时|未成功|failed|error/i.test(step[3]);
 }
-function statusChip(step,info) {
-  const status = step[3];
-  return node('span',status || '异常','badge '+(isFailed(step,info) ? 'fail' :
-    /待|进行/.test(status) ? 'pending' : 'blocked'));
-}
+function statusChip(step,info) { return callStatusDot(step,info); }
 function duration(info) {
   const ms = info?.duration_ms;
   if (!Number.isFinite(ms)) return null;
@@ -552,44 +729,39 @@ const actionNames = new Map([
   ['panel-link','生成资源台登录链接'], ['command','执行资源命令'],
 ]);
 function stepLabel(step) { return actionNames.get(step[1]) || step[1] || toolNames.get(step[0]) || step[0] || '工具调用'; }
-function stepGlyph(step,info) {
-  const failed = isFailed(step,info);
-  const glyph = /CLI|终端|Shell/i.test(step[0]) ? 'terminal' : /文档/.test(step[0]) ? 'file' : 'tool';
-  const tile = node('span',null,'trace-icon '+(failed ? 'step-error' : glyph));
-  tile.append(icon(failed ? 'error' : glyph));
-  return tile;
-}
-function activityBreakdown(steps) {
-  const types = new Map();
-  for (const [tool] of steps) {
-    const label = toolNames.get(tool) || tool || '其他';
-    types.set(label,(types.get(label) ?? 0)+1);
-  }
-  return [...types].map(([tool,count])=>tool+' '+count).join(' · ');
-}
-function openStep(step,info) {
+function stepGlyph(step,info) { return callStatusDot(step,info); }
+function openStep(step,info,anchor) {
   const [tool,,stage,status] = step;
   const inspector = select('inspector');
-  select('inspector-title').textContent = stepLabel(step);
+  inspector.dataset.reviewAnchor = anchor || 'run';
+  inspector.dataset.reviewField = '工具名称';
+  select('inspector-title').textContent = toolTitle(step,info);
+  select('inspector-fields').dataset.reviewAnchor = anchor || 'run';
+  select('inspector-fields').dataset.reviewField = '工具调用';
   const meta = select('inspector-meta');
   meta.replaceChildren();
   if (stage) meta.append(node('span',stage));
   if (tool) meta.append(node('span',tool));
   if (status || isFailed(step,info)) meta.append(statusChip(step,info));
   if (duration(info)) meta.append(node('span',duration(info),'trace-duration'));
-  renderStepEvidence(select('inspector-fields'),info);
+  renderStepEvidence(select('inspector-fields'),step,info);
   select('inspector-fields').scrollTop = 0;
   inspector.showModal();
 }
-function stepList(steps,evidence=[]) {
+function stepList(steps,evidence=[],base="") {
   const list = node('ol');
   for (const [index,step] of steps.entries()) {
     const [tool,,,status] = step;
     const line = node('li',null,'operation');
     const failed = isFailed(step,evidence[index]);
     const label = node('span',null,'activity-action');
-    label.append(node('span',failed ? '!' : '·','activity-dot'),node('span',stepLabel(step)),
-      node('span',[toolNames.has(tool) ? '' : tool,status].filter(Boolean).join(' · '),'tool-status'));
+    const anchor = base ? base+':'+index+':name' : 'run';
+    const description=node('span',stepLabel(step),'tool-description');
+    description.dataset.reviewAnchor=anchor.replace(/:name$/,':label');
+    description.dataset.reviewField='工具说明';
+    label.append(callStatusDot(step,evidence[index]),node('code',toolTitle(step,evidence[index]),'tool-name'),description);
+    line.dataset.reviewAnchor = anchor;
+    line.dataset.reviewField = '工具名称';
     const info = evidence[index];
     if (info) {
       const button = node('button',null,'inspect-step');
@@ -597,7 +769,7 @@ function stepList(steps,evidence=[]) {
       if (failed) button.classList.add('step-failed');
       button.setAttribute('aria-haspopup','dialog');
       button.append(label,node('span','详情 ›','step-open'));
-      button.onclick = ()=>openStep(step,info);
+      button.onclick = ()=>openStep(step,info,anchor);
       line.append(button);
     } else {
       line.append(label);
@@ -702,16 +874,15 @@ function messageBody(text) {
   bubble.append(markdown);
   return bubble;
 }
-function renderEntry(entry) {
+function renderEntry(entry,base) {
   if (entry.role === 'tools') {
     const failures = entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i]));
-    const details = node('details',null,'tool-box activity-group'+(failures.length ? ' activity-failed' : ''));
+    const details = node('details',null,'tool-box activity-group');
     const summary = node('summary');
-    const caption = node('span',entry.steps.length+' 次工具调用','activity-summary');
+    const caption = node('span',toolActivityLabel(entry.steps,entry.evidence),'activity-summary');
     if (failures.length) caption.append(node('span',failures.length+' 项异常','badge fail'));
-    caption.append(node('span',activityBreakdown(entry.steps),'activity-breakdown'));
     summary.append(caption,node('span','展开','activity-hint'));
-    details.append(summary,stepList(entry.steps,entry.evidence));
+    details.append(summary,stepList(entry.steps,entry.evidence,base));
     details.open = failures.length > 0;
     const updateHint = ()=>{summary.querySelector('.activity-hint').textContent=details.open?'收起':'展开';};
     details.addEventListener('toggle',updateHint);
@@ -731,55 +902,31 @@ function renderEntry(entry) {
   return message;
 }
 function chatView(content,trial) {
-  const outline = node('nav',null,'chat-outline');
-  outline.setAttribute('aria-label','对话目录');
-  outline.append(node('div','对话目录','trace-toolbar'));
   const transcript = node('div',null,'chat-transcript');
-  const pairs = [];
-  let order = 0;
-  function appendEntry(entry) {
-    const rendered = renderEntry(entry);
-    transcript.append(rendered);
-    const button = node('button',null,'outline-row outline-'+entry.role);
-    button.type = 'button';
-    button.setAttribute('aria-current','false');
-    const label = entry.role==='tools' ? '工具调用 · '+entry.steps.length : roleNames[entry.role] || entry.label || '事件';
-    const excerpt = entry.role==='tools' ? entry.steps.map(stepLabel).join(' · ') : entry.text;
-    const words = node('span');
-    words.append(node('b',label),node('small',excerpt));
-    button.append(node('span',entry.role==='tools' ? '›_' : entry.role==='user' ? 'U' : entry.role==='assistant' ? 'A' : '·','outline-glyph'),words);
-    outline.append(button);
-    rendered.dataset.entry = ++order;
-    button.onclick = ()=>{
-      for (const pair of pairs) pair.button.setAttribute('aria-current',String(pair.button===button));
-      transcript.scrollTop += rendered.getBoundingClientRect().top - transcript.getBoundingClientRect().top - 14;
-      rendered.tabIndex = -1;
-      rendered.focus({preventScroll:true});
-    };
-    pairs.push({rendered,button});
-  }
-  trial.sessions.forEach((session,index) => {
-    if(index && trial.confirmed) appendEntry({role:'human',label:'群内确认',text:'由测试程序模拟 · 一次群操作'});
-    transcript.append(node('p',sessionName(index),'session-label'));
-    outline.append(node('p',sessionName(index),'outline-session'));
-    for (const entry of session) appendEntry(entry);
-  });
-  if (trial.confirmed && trial.sessions.length===1) transcript.append(node('p','已记录模拟群内确认。新会话对话未采集。','human'));
-  if (!pairs.length) transcript.append(node('p','没有对话记录','evidence-note'));
-  content.classList.add('chat-workspace');
-  content.append(outline,transcript);
-  pairs[0]?.button.setAttribute('aria-current','true');
-  let scheduled = false;
-  transcript.addEventListener('scroll',()=>{
-    if (scheduled) return;
-    scheduled = true;
-    requestAnimationFrame(()=>{
-      scheduled = false;
-      const edge = transcript.getBoundingClientRect().top+32;
-      const current = pairs.find(pair=>pair.rendered.getBoundingClientRect().bottom>edge) ?? pairs.at(-1);
-      for (const pair of pairs) pair.button.setAttribute('aria-current',String(pair===current));
+  trial.sessions.forEach((session,sessionIndex)=>{
+    if(trial.sessions.length>1) transcript.append(node('p',sessionName(sessionIndex),'session-label'));
+    const logs = node('details', null, 'run-logs');
+    logs.append(node('summary','运行日志'));
+    session.forEach((entry,entryIndex)=>{
+      const base = [entry.role==='tools'?'tool':'message',sessionIndex,entryIndex].join(':');
+      const diagnostic = entry.role === 'tools' && entry.steps.length && entry.steps.every(step =>
+        /^native_client_(diagnostic|protocol|stderr)$/.test(step[0]));
+      const rendered = diagnostic ? stepList(entry.steps,entry.evidence,base) : renderEntry(entry,base);
+      if(entry.role!=='tools') {
+        rendered.dataset.reviewAnchor = base+':text';
+        rendered.dataset.reviewField = entry.role==='assistant'?'Agent 回答':entry.role==='user'?'用户提示词':'记录说明';
+        const feedback = node('button','评论','entry-comment quiet-button');
+        feedback.type='button';
+        feedback.onclick=()=>requestReview(base+':text','',rendered.dataset.reviewField);
+        rendered.append(feedback);
+      }
+      if (diagnostic) logs.append(rendered); else transcript.append(rendered);
     });
-  },{passive:true});
+    if (logs.childNodes.length > 1) transcript.append(logs);
+  });
+  if(!trial.sessions.length) transcript.append(node('p','没有对话记录','evidence-note'));
+  content.classList.add('chat-workspace');
+  content.append(transcript);
 }
 function eventsView(content,trial) {
   const workspace = node('div',null,'trace-workspace');
@@ -803,11 +950,14 @@ function eventsView(content,trial) {
   content.append(workspace);
   content.classList.add('trace-view');
   let id = 0;
-  const sessions = trial.sessions.map(session=>session.flatMap(entry=>
-    entry.role==='tools' ? entry.steps.map((step,i)=>({id:++id,step,info:entry.evidence?.[i]})) : []));
+  const sessions = trial.sessions.map((session,s)=>session.flatMap((entry,e)=>
+    entry.role==='tools' ? entry.steps.map((step,i)=>({id:++id,step,info:entry.evidence?.[i],anchor:'tool:'+s+':'+e+':'+i+':name'})) : []));
   const steps = sessions.flat();
   const errors = steps.filter(item=>isFailed(item.step,item.info));
-  heading.textContent = '工具调用 · '+steps.length;
+  const activityLabel = steps.some(item=>item.info?.source === 'packaged_cli' ||
+    ['native_client_diagnostic','native_client_protocol','native_client_stderr'].includes(item.step[0])) ?
+    toolActivityLabel(steps.map(item=>item.step),steps.map(item=>item.info)) : '工具调用 · '+steps.length;
+  heading.textContent = activityLabel;
   const only = node('button','仅异常 '+errors.length,'quiet-button trace-toggle');
   only.type = 'button';
   if (errors.length) toolbar.append(only);
@@ -838,6 +988,7 @@ function eventsView(content,trial) {
       return;
     }
     activeStep = item.id;
+    if(origin) userNavigation=true;
     const row = rows.get(item.id);
     row.setAttribute('aria-pressed','true');
     const [tool,,phase,status] = item.step;
@@ -847,14 +998,17 @@ function eventsView(content,trial) {
     if (phase) meta.append(node('span',phase));
     if (status || isFailed(item.step,item.info)) meta.append(statusChip(item.step,item.info));
     if (duration(item.info)) meta.append(node('span',duration(item.info),'trace-duration'));
-    header.append(node('h3',stepLabel(item.step)));
+    header.append(node('h3',toolTitle(item.step,item.info)),node('p',stepLabel(item.step)));
     if (meta.childNodes.length) header.append(meta);
     name.replaceChildren(stepGlyph(item.step,item.info),header);
     const index = visible.indexOf(item);
     position.textContent = (index+1)+' / '+visible.length;
     prev.disabled = index===0;
     next.disabled = index===visible.length-1;
-    renderStepEvidence(fields,item.info);
+    panel.dataset.reviewAnchor = item.anchor;
+    panel.dataset.reviewField = '工具调用';
+    fields.dataset.reviewAnchor = item.anchor;
+    renderStepEvidence(fields,item.step,item.info);
     if (!banner.isConnected) panel.replaceChildren(banner,fields);
     panel.scrollTop = 0;
     if (origin==='arrow') {
@@ -884,7 +1038,7 @@ function eventsView(content,trial) {
   });
   function renderList() {
     visible = (failureOnly ? errors : steps).filter(item=>!query || searchable.get(item).includes(query));
-    heading.textContent = query ? '匹配 '+visible.length+' / '+steps.length : '工具调用 · '+steps.length;
+    heading.textContent = query ? '匹配 '+visible.length+' / '+steps.length : activityLabel;
     const eligible = new Set(visible);
     only.setAttribute('aria-pressed',failureOnly);
     groups.replaceChildren();
@@ -895,8 +1049,10 @@ function eventsView(content,trial) {
         const {step,info} = item;
         const text = node('span');
         const time = duration(info);
-        text.append(node('b',stepLabel(step)),node('small',[step[0],step[3]].filter(Boolean).join(' · ')));
+        text.append(node('b',toolTitle(step,info)),node('small',stepLabel(step)));
         const button = node('button',null,'trace-row');
+        button.dataset.reviewAnchor = item.anchor;
+        button.dataset.reviewField = '工具名称';
         button.type = 'button';
         button.setAttribute('aria-pressed','false');
         button.append(stepGlyph(step,info),text,node('span',time ?? String(item.id).padStart(2,'0'),'trace-ordinal'));
@@ -916,88 +1072,11 @@ function eventsView(content,trial) {
   only.onclick = ()=>{failureOnly = !failureOnly; renderList();};
   renderList();
 }
-function renderRecord(trial) {
-  const items = [
-    ['来源',imported ? '本地 JSON' : online ? '在线合成测例' : '',null],
-    ['名称',data.title,'data-title'],
-    ['版本',data.version,'version'],
-    ['测例说明',data.criteria?.[activeCase],'criterion'],
-    ['运行备注',trial.note,null],
-  ].filter(([,text])=>typeof text==='string' && text.trim());
-  const fields = select('record-fields');
-  fields.replaceChildren();
-  for (const [label,text,id] of items) {
-    const dd = node('dd',text);
-    if (id) dd.id = id;
-    fields.append(node('dt',label),dd);
-  }
-  select('record-meta').hidden = !items.length;
-}
 function draw(animateCase = false) {
   const all = data.cases[activeCase];
-  if(!all[activeIndex]) activeIndex = 0;
+  if(!all[activeIndex]) activeIndex = defaultRun(activeCase);
   const trial = all[activeIndex];
-  renderRecord(trial);
-  const entries = trial.sessions.flat();
-  const tools = entries.filter(entry=>entry.role==='tools');
-  const captured = tools.reduce((total,entry)=>total+entry.steps.length,0);
-  const messages = entries.filter(entry=>['user','assistant'].includes(entry.role)).length;
-  const footer = select('browse-footer');
-  footer.replaceChildren(node('span',trial.sessions.length+' 个会话'),node('span',messages+' 条消息'),node('span',captured+' 次工具调用'));
-  const failures = tools.reduce((total,entry)=>total+entry.steps.filter((step,i)=>isFailed(step,entry.evidence?.[i])).length,0);
-  if (failures) footer.append(node('span',failures+' 次调用异常'));
-
-  const focusedNav = document.activeElement?.closest('#case-nav button')?.dataset.navKind;
-  select('case-nav').replaceChildren(...scenarioGroups().map(([label,keys]) => {
-    const group = node('div',null,'case-group');
-    if (label) group.append(node('h3',label));
-    for (const key of keys) {
-      const scope = data.cases[key].filter(run=>run.state);
-      const count = scope.length ? node('span',scope.filter(run=>run.state==='pass').length+'/'+scope.length,'meta') : null;
-      if (count) count.title = '通过 / 已判定';
-      const selected = activeCase === key;
-      const item = node('div');
-      const panel = selected ? node('div',null,'case-run-panel') : null;
-      const button = choice(caseName(key),count,selected,()=>{
-        if (!panel) {
-          pickCase(key,true);
-          return;
-        }
-        caseRunsOpen = !caseRunsOpen;
-        panel.removeAttribute('data-enter');
-        panel.dataset.expanded = caseRunsOpen;
-        panel.inert = !caseRunsOpen;
-        button.setAttribute('aria-expanded',caseRunsOpen);
-      });
-      button.classList.add('case-choice');
-      button.prepend(icon('right'));
-      button.setAttribute('aria-expanded',selected && caseRunsOpen);
-      button.dataset.navKind = 'case';
-      item.append(button);
-      if (panel) {
-        const runs = node('div',null,'case-runs');
-        panel.id = 'run-nav';
-        panel.dataset.expanded = caseRunsOpen;
-        panel.inert = !caseRunsOpen;
-        if (animateCase) panel.setAttribute('data-enter','');
-        runs.setAttribute('role','group');
-        runs.setAttribute('aria-label',caseName(key)+'的模型结果');
-        button.setAttribute('aria-controls',panel.id);
-        runs.append(node('p','模型结果','case-runs-heading'),...all.map((row,index)=>{
-          const model = choice(modelLabel(row,index),row.state ? badge(row.state) : null,activeIndex===index,()=>pickRun(index));
-          model.dataset.navKind = 'run';
-          return model;
-        }));
-        const clip = node('div',null,'case-run-clip');
-        clip.append(runs);
-        panel.append(clip);
-        item.append(panel);
-      }
-      group.append(item);
-    }
-    return group;
-  }));
-  if (focusedNav) select('case-nav').querySelector(`[data-nav-kind="${focusedNav}"][aria-pressed="true"]`)?.focus({preventScroll:true});
+  renderCaseNavigation();
   select('case-select').replaceChildren(...scenarioGroups().flatMap(([label,keys])=>{
     const options = keys.map(key=>new Option(caseName(key),key,false,key===activeCase));
     if (!label) return options;
@@ -1006,35 +1085,42 @@ function draw(animateCase = false) {
     group.append(...options);
     return [group];
   }));
-  select('run-select').replaceChildren(...all.map((row,index)=>new Option([modelLabel(row,index),statusNames[row.state]].filter(Boolean).join(' · '),index,false,index===activeIndex)));
+  select('run-select').replaceChildren(...all.map((row,index)=>{
+    const option = new Option([modelLabel(row,index),trialStatus(row)].filter(Boolean).join(' · '),index,false,index===activeIndex);
+    option.title = row.model || '';
+    return option;
+  }));
   select('run-select').setAttribute('aria-label',caseName(activeCase)+'的模型与结果');
   select('case-title').textContent = caseName(activeCase);
+  select('case-spec').hidden = true;
   const runTitle = select('run-title');
-  runTitle.replaceChildren(node('span',modelLabel(trial,activeIndex)));
-  if (trial.state) runTitle.append(badge(trial.state));
-  const externalActions = trial.sessions.flat().filter(entry=>entry.role==='human').length;
-  const confirmed = externalActions ? ' · '+externalActions+' 次模拟人工操作' :
-    trial.confirmed ? ' · 1 次模拟确认' : '';
-  const elapsed = Number.isFinite(trial.elapsed_seconds) ? ' · '+trial.elapsed_seconds.toFixed(1)+' 秒' : '';
-  const toolCount = Number.isInteger(trial.count) ? ' · '+trial.count+' 次工具事件' : '';
+  const modelTitle = node('span',modelLabel(trial,activeIndex));
+  modelTitle.title = trial.model || '';
+  runTitle.replaceChildren(modelTitle);
+  if (trial.state) runTitle.append(badge(trial));
+  const source = data.review_targets?.[activeCase]?.[activeIndex];
+  if (source) modelTitle.title += '\n来源：'+source.title;
+  if (source?.title?.includes('未部署')) runTitle.append(node('span','候选','badge blocked'));
   const phases = Array.isArray(trial.metrics?.phases) ? trial.metrics.phases : [];
-  const turns = phases.map(row=>Number.isInteger(row.turns) ? row.turns : '—').join(' / ');
-  const simulated = phases.reduce((count,row)=>count+(Number.isInteger(row.simulated_user_actions) ? row.simulated_user_actions : 0),0);
-  const timings = phases.filter(row=>Number.isFinite(row.duration_seconds));
-  const duration = timings.reduce((seconds,row)=>seconds+row.duration_seconds,0);
-  const summary = [turns && '各阶段轮数 '+turns, timings.length && duration.toFixed(1)+' 秒',
-    simulated && simulated+' 次模拟人工操作'].filter(Boolean).join(' · ');
   const isSummary = trial.sessions.length === 0;
-  select('counts').textContent = isSummary ? summary :
-    trial.sessions.length+' 个会话'+toolCount+confirmed+elapsed;
+  select('counts').textContent = runEfficiency(trial);
   select('chat-tab').setAttribute('aria-pressed',activeTab==='chat');
   select('event-tab').setAttribute('aria-pressed',activeTab==='events');
   const content = select('content');
   content.classList.remove('trace-view','chat-workspace');
   content.replaceChildren();
-  document.querySelector('.tabs').hidden = isSummary;
+  if (trial.lazy) {
+    const pending = node('div','正在加载轨迹…','loading-state');
+    pending.setAttribute('role','status');
+    content.append(pending);
+    select('expand-tools').hidden = true;
+    writeRoute();
+    hydrateTrial?.(activeCase,activeIndex);
+    return;
+  }
+  document.querySelector('.tabs').hidden = false;
+  select('chat-tab').hidden=isSummary; select('event-tab').hidden=isSummary;
   select('expand-tools').hidden = activeTab!=='chat';
-  select('outline-toggle').hidden = activeTab!=='chat';
   select('expand-tools').textContent = '展开调用';
   if (isSummary) {
     const report = node('section',null,'run-summary');
@@ -1050,13 +1136,15 @@ function draw(animateCase = false) {
     content.append(report);
   }
   else if (activeTab==='chat') chatView(content,trial); else eventsView(content,trial);
+  const assessment = assessmentPanel(trial);
+  if (assessment) content.prepend(assessment);
   if (!content.childNodes.length) content.append(node('p','没有对话记录','evidence-note'));
   writeRoute();
 }
 select('case-select').onchange = event=>pickCase(event.target.value);
 select('run-select').onchange = event=>pickRun(Number(event.target.value));
-select('chat-tab').onclick = ()=>{if (activeTab!=='chat') {activeTab='chat'; draw();}};
-select('event-tab').onclick = ()=>{if (activeTab!=='events') {activeTab='events'; draw();}};
+select('chat-tab').onclick = ()=>{if (activeTab!=='chat') {activeTab='chat'; userNavigation=true; draw();}};
+select('event-tab').onclick = ()=>{if (activeTab!=='events') {activeTab='events'; userNavigation=true; draw();}};
 const viewActions = node('div',null,'view-actions');
 const expandTools = node('button','展开调用','quiet-button');
 expandTools.type = 'button';
@@ -1067,19 +1155,8 @@ expandTools.onclick = ()=>{
   for (const group of groups) group.open = open;
   expandTools.textContent = open ? '收起调用' : '展开调用';
 };
-const outlineToggle = node('button','目录','quiet-button');
-outlineToggle.id = 'outline-toggle'; outlineToggle.type = 'button';
-outlineToggle.setAttribute('aria-pressed','false');
-outlineToggle.onclick = ()=>{
-  const on = document.body.classList.toggle('show-outline');
-  outlineToggle.setAttribute('aria-pressed',on);
-  outlineToggle.textContent = on ? '收起目录' : '目录';
-};
-viewActions.append(outlineToggle,expandTools);
+viewActions.append(expandTools);
 document.querySelector('.tabs').append(viewActions);
-select('load-file').prepend(icon('file'));
-select('chat-tab').prepend(icon('chat'));
-select('event-tab').prepend(icon('list'));
 function validRecord(record) {
   const optionalText = value => value == null || typeof value==='string';
   const optionalMap = value => value === undefined || (!!value && typeof value==='object' &&
@@ -1107,99 +1184,223 @@ inspector.addEventListener('click',event=>{
     inspector.close();
   }
 });
-select('load-file').onclick = ()=> select('trace-file').click();
 function reportStatus(message, isError = false) {
   const status = select('load-status');
   status.textContent = message;
   status.dataset.error = String(isError);
+  status.dataset.loading = String(!isError && message === '正在加载测例目录…');
   select('live-status').hidden = true;
 }
-select('trace-file').onchange = async (event)=>{
-  const file = event.target.files[0];
-  if (!file) return;
-  try {
-    if (file.size > 32 * 1024 * 1024) throw new Error('请选择 32 MB 以内的轨迹 JSON。');
-    const candidate = JSON.parse(await file.text());
-    if (!validRecord(candidate)) throw new Error('这个文件不符合 LockBot 轨迹 JSON v1 格式。');
-    data = candidate;
-    imported = true;
-    document.querySelector('.layout').hidden = false;
-    activeTab = 'chat';
-    select('record-meta').open = false;
-    cases = Object.keys(data.cases);
-    reportStatus('');
-    pickCase(cases[0]);
-  } catch(error) {
-    reportStatus(error instanceof SyntaxError ? '无法读取这个 JSON 文件。' : error.message,true);
-  } finally {
-    event.target.value = '';
-  }
-};
-draw();
+async function loadDatasets(token) {
+  const response = await fetch('/api/dev/trace-review/datasets', {
+    headers:{Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error', signal:AbortSignal.timeout(6000)
+  });
+  if (!response.ok) return {response};
+  const payload = await response.json();
+  if (!Array.isArray(payload.datasets) || !payload.datasets.every(item =>
+    /^[a-f0-9]{64}$/.test(item?.dataset_id || '') && typeof item.title === 'string' &&
+    Number.isInteger(item.case_count) && item.case_count > 0)) throw new Error('Invalid result index');
+  if (!payload.datasets.length) return {datasets:[]};
+  // Start from the latest broadest run, then replace only the models actually retested.
+  const widest = Math.max(...payload.datasets.map(item => item.case_count));
+  const base = payload.datasets.findLastIndex(item => item.case_count === widest);
+  return {datasets:payload.datasets.slice(base)};
+}
+__REVIEW_BUNDLE__
+if (!online) draw();
 if (online) {
   const layout = document.querySelector('.layout');
+  const raw = new URLSearchParams(location.search).get('raw') === 'true';
+  const snapshotParams = new URLSearchParams();
+  if (raw) snapshotParams.set('raw', 'true');
+  if (datasetId) snapshotParams.set('dataset_id', datasetId);
+  const snapshotUrl = '/api/dev/trace-review/catalog?' + snapshotParams;
+  const snapshotCache = new Map();
+  const trialCache = new Map();
+  const pendingTrials = new Map();
+
   layout.hidden = true;
   let lastSnapshot = '';
   let currentToken = '';
+  let tokenRevision = 0;
   function hideSnapshot() {
     lastSnapshot = '';
+    trialCache.clear();
     layout.hidden = true;
     if (inspector.open) inspector.close();
   }
-  async function pollSnapshot() {
-    if (imported) return;
+  function synchronizeToken() {
     const token = localStorage.getItem('lockbot_token');
     if (currentToken !== token) {
       hideSnapshot();
       currentToken = token;
+      tokenRevision++;
+      snapshotCache.clear();
     }
+    return token;
+  }
+  function authStorageChanged(event) {
+    if (imported || (event.key !== 'lockbot_token' && event.key !== null)) return;
+    if (event.storageArea && event.storageArea !== localStorage) return;
+    if (event.url && new URL(event.url, location.href).origin !== location.origin) return;
+    const previous = currentToken;
+    synchronizeToken();
+    if (currentToken !== previous) void pollSnapshot();
+  }
+  addEventListener('storage', authStorageChanged);
+  hydrateTrial = async (caseId,index) => {
+    const token = localStorage.getItem('lockbot_token');
+    const revision = tokenRevision;
+    const runId = data.review_runs?.[caseId]?.[index];
+    const target = data.review_targets?.[caseId]?.[index];
+    const sourceId = target?.dataset_id ?? datasetId;
+    const key = JSON.stringify([token,revision,sourceId,caseId,runId]);
+    if (!token || pendingTrials.has(key)) return;
+    const params = new URLSearchParams(snapshotParams);
+    if (sourceId) params.set('dataset_id',sourceId);
+    params.set('case_id',caseId);
+    params.set('run_index',String(target?.run_index ?? index));
+    if (runId) params.set('run_id',runId);
+    const stillSelected = () => !imported && tokenRevision === revision && localStorage.getItem('lockbot_token') === token &&
+      activeCase === caseId && data.review_runs?.[caseId]?.[activeIndex] === runId &&
+      (data.review_targets?.[caseId]?.[activeIndex]?.dataset_id ?? datasetId) === sourceId &&
+      (data.review_targets?.[caseId]?.[activeIndex]?.run_index ?? activeIndex) === (target?.run_index ?? index);
+    pendingTrials.set(key,true);
+    try {
+      let trial = trialCache.get(key);
+      if (!trial) {
+        const response = await fetch('/api/dev/trace-review/trial?' + params, {
+          headers:{Authorization:'Bearer ' + token},cache:'no-store',redirect:'error',signal:AbortSignal.timeout(30000)
+        });
+        if (response.status === 401 || response.status === 403) {
+          if (!imported && tokenRevision === revision && localStorage.getItem('lockbot_token') === token) {
+            hideSnapshot();
+            reportStatus('仅已登录的超级管理员可查看在线结果。',true);
+          }
+          return;
+        }
+        if (response.status === 409) {
+          if (stillSelected()) select('content').replaceChildren(node('p','原记录已变化，无法定位当时的原文。','evidence-note'));
+          return;
+        }
+        if (!response.ok) throw new Error();
+        const payload = await response.json();
+        if (payload.case_id !== caseId || payload.run_index !== (target?.run_index ?? index) ||
+            payload.run_id !== runId || (payload.dataset_id ?? null) !== sourceId ||
+            !validRecord({schema:1,cases:{[caseId]:[payload.trial]}}) || payload.trial.lazy) throw new Error();
+        trial = payload.trial;
+        if (tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token || imported) return;
+        trialCache.set(key,trial);
+        if (trialCache.size > 16) trialCache.delete(trialCache.keys().next().value);
+      }
+      if (!stillSelected()) return;
+      // Replace the merged display row, preserving immutable source catalogs and comment IDs.
+      data.cases[caseId] = data.cases[caseId].map((row,i) => i === activeIndex ? trial : row);
+      draw();
+    } catch {
+      if (!stillSelected()) return;
+      const content = select('content');
+      const message = node('p','轨迹加载失败，请重试。','evidence-note');
+      const retry = node('button','重试','quiet-button');
+      retry.type = 'button';
+      retry.onclick = () => draw();
+      content.replaceChildren(message,retry);
+    } finally {
+      pendingTrials.delete(key);
+    }
+  };
+  async function pollSnapshot() {
+    if (imported) return;
+    const token = synchronizeToken();
+    const revision = tokenRevision;
     if (!token) {
       reportStatus('请先登录 LockBot 超级管理员，再打开此页面。');
       return;
     }
+    if (!layout.hidden && (reviewBusy || !window.getSelection()?.isCollapsed || inspector.open)) return;
+    if (layout.hidden) reportStatus('正在加载测例目录…');
     try {
-      const response = await fetch('/api/dev/trace-review/snapshot', {
-        headers: {Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error',
-        signal:AbortSignal.timeout(6000)
-      });
-      if (imported || localStorage.getItem('lockbot_token') !== token) return;
-      if (response.status === 401 || response.status === 403) {
+      const catalog = datasetId || legacyHistory ? {datasets:[]} : await loadDatasets(token);
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
+      let response = catalog.response;
+      let assembled;
+      if (!response && catalog.datasets.length) {
+        const retained = new Set(catalog.datasets.map(item => item.dataset_id));
+        for (const id of snapshotCache.keys()) if (!retained.has(id)) snapshotCache.delete(id);
+        const inputs = [];
+        for (const metadata of catalog.datasets) {
+          let source = snapshotCache.get(metadata.dataset_id);
+          if (!source) {
+            const params = new URLSearchParams(snapshotParams);
+            params.set('dataset_id',metadata.dataset_id);
+            const fetched = await fetch('/api/dev/trace-review/catalog?' + params, {
+              headers:{Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error', signal:AbortSignal.timeout(30000)
+            });
+            if (!fetched.ok) { response = fetched; break; }
+            source = await fetched.json();
+            if (!validRecord(source) || source.dataset_id !== metadata.dataset_id || (raw && source.visibility !== 'raw')) throw new Error();
+            if (tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
+            snapshotCache.set(metadata.dataset_id,source);
+          }
+          inputs.push({data:source, metadata});
+        }
+        if (!response) assembled = buildCurrentBoard(inputs);
+      } else if (!response) {
+        response = await fetch(snapshotUrl, {
+          headers:{Authorization:'Bearer ' + token}, cache:'no-store', redirect:'error', signal:AbortSignal.timeout(30000)
+        });
+      }
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
+      if (response?.status === 401 || response?.status === 403) {
         hideSnapshot();
         reportStatus('仅已登录的超级管理员可查看在线结果。',true);
         return;
       }
-      if (response.status === 404) {
+      if (response?.status === 404) {
         hideSnapshot();
-        reportStatus('等待首个测例结果。');
+        reportStatus(raw ? '尚未上传原始轨迹。' : '等待首个测例结果。');
         return;
       }
-      if (!response.ok) throw new Error();
-      const snapshot = await response.text();
-      if (imported || localStorage.getItem('lockbot_token') !== token) return;
+      if (response && !response.ok) throw new Error();
+      const snapshot = assembled ? JSON.stringify(assembled) : await response.text();
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
+      if (!layout.hidden && (reviewBusy || !window.getSelection()?.isCollapsed || inspector.open)) return;
       if (snapshot !== lastSnapshot) {
         const candidate = JSON.parse(snapshot);
-        if (!validRecord(candidate)) throw new Error();
+        if (!validRecord(candidate) || (raw && candidate.visibility !== 'raw') || (candidate.dataset_id ?? null) !== datasetId) throw new Error();
+        if (!historicalSourceMatches(candidate)) {
+          hideSnapshot();
+          reportStatus('原记录已变化，无法打开当时记录。',true);
+          return;
+        }
+        const firstSnapshot = !lastSnapshot;
         lastSnapshot = snapshot;
-        const selectedModel = data.cases[activeCase]?.[activeIndex]?.model;
+        const selectedIndex = activeIndex;
+        const selectedRunId = data.review_runs?.[activeCase]?.[activeIndex];
         data = candidate;
         cases = Object.keys(data.cases);
-        if (!cases.includes(activeCase)) {
-          activeCase = cases[0];
-          caseRunsOpen = true;
+        if (firstSnapshot) {
+          readRoute();
+        } else {
+          if (!cases.includes(activeCase)) {
+            activeCase = cases[0];
+          }
+          const matching = selectedRunId ? data.review_runs?.[activeCase]?.indexOf(selectedRunId) : -1;
+          activeIndex = matching >= 0 ? matching : Math.min(selectedIndex,data.cases[activeCase].length-1);
         }
-        activeIndex = Math.max(0, data.cases[activeCase].findIndex(run=>run.model===selectedModel));
         draw();
       }
       layout.hidden = false;
       reportStatus('');
-      select('live-status').hidden = false;
+      select('live-status').hidden = true;
     } catch {
+      if (imported || tokenRevision !== revision || localStorage.getItem('lockbot_token') !== token) return;
       reportStatus('暂时无法读取在线结果，稍后重试。',true);
     }
   }
   async function refreshSnapshot() {
     await pollSnapshot();
-    if (!imported) setTimeout(refreshSnapshot, 8000);
+    if (!imported) setTimeout(refreshSnapshot, raw ? 60000 : 8000);
   }
   refreshSnapshot();
 }

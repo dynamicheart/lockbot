@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+from lockbot.backend.app.agent_skill.scripts.lockbot_cli import (
     BUNDLE_FORMAT,
     REFERENCE_PATHS,
     SCRIPT_PATH,
@@ -24,11 +24,16 @@ from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 
 router = APIRouter(prefix="/api/agent-skill", tags=["Public API"])
+# Every packaged-CLI invocation checks this cached public identity before sending
+# a Key. Allow shared NATs to carry many independent credential budgets; keep a
+# finite anonymous bound and a separate, lower allowance for archive downloads.
+PUBLIC_MANIFEST_RATE_LIMIT = "6000/minute"
 INSTALLATION_INSTRUCTIONS = (
     "A shared manifest or ZIP link is not an installation request. If the user only shared a link, "
     "explain what the Skill does and wait for an explicit request before downloading the ZIP, "
     "writing files, or binding an account. For an authorized installation, download the same-origin ZIP once "
-    "to a writable location in the requested scope and verify it against installation.sha256. Stop if the "
+    "to a writable location and verify it against installation.sha256. Install in the client's supported "
+    "user-level Skill directory by default; use project scope only when the user explicitly requests it. Stop if the "
     "checksum does not match. Reuse the verified local ZIP for inspection, the client's installer and any "
     "manual installation step instead of fetching it again. "
     "Verify the installed files and whether the client loads the Skill. If the supported location is protected, "
@@ -70,7 +75,7 @@ def skill_artifacts():
 @lru_cache(maxsize=4)
 def _skill_artifacts(origin):
     folder = "agent_skill"
-    skill_id = "lockbot-resource-agent"
+    skill_id = "lockbot-agent"
     download_url = f"/api/agent-skill/{skill_id}.zip"
     markdown = files("lockbot.backend.app").joinpath(f"{folder}/SKILL.md").read_bytes()
     canonical_markdown = markdown
@@ -178,7 +183,7 @@ def installation_bundle():
 
 
 @router.get("")
-@limiter.limit("60/minute")
+@limiter.limit(PUBLIC_MANIFEST_RATE_LIMIT)
 def skill_manifest(request: Request, response: Response, db: Session = Depends(get_db)):
     """Discover the skill version, relative URLs and ZIP SHA-256; no API key required."""
     return public_skill_manifest(request, response, db)
@@ -194,8 +199,8 @@ def _download(request, content, media_type, filename=None):
     return Response(content=content, media_type=media_type, headers=headers)
 
 
-@router.get("/lockbot-resource-agent.zip", response_class=Response)
+@router.get("/lockbot-agent.zip", response_class=Response)
 @limiter.limit("60/minute")
 def namespaced_skill_zip(request: Request):
     """Install alongside other Lockbot implementations without replacing their skill."""
-    return _download(request, installation_bundle(), "application/zip", "lockbot-resource-agent.zip")
+    return _download(request, installation_bundle(), "application/zip", "lockbot-agent.zip")
