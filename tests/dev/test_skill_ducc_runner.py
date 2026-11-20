@@ -3,9 +3,13 @@
 import hashlib
 import importlib.util
 import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -27,6 +31,19 @@ root=Path(sys.argv[sys.argv.index("--mcp-config")+1]).parent
 print(json.dumps({"type":"assistant","message":{"content":[{"type":"tool_use","id":"call-1","name":"mcp__fixture__run_lockbot","input":{"action":"resources"}}]}}))
 session="b335b64d-df43-4b21-81e4-8b604f8f4444" if "--resume" in sys.argv else "b335b64d-df43-4b21-81e4-8b604f8f3333"
 print(json.dumps({"type":"result","result":"node-19操作完成。","session_id":session,"num_turns":3,"is_error":False}))
+"""
+STREAM_FAKE = """#!/usr/bin/env python3
+import json,os,sys,time
+from pathlib import Path
+root=Path(sys.argv[sys.argv.index("--mcp-config")+1]).parent
+sys.stdin.read()
+print(json.dumps({"type":"system","subtype":"init","session_id":"b335b64d-df43-4b21-81e4-8b604f8f3333"}),flush=True)
+sys.stderr.write("early native diagnostic without newline")
+sys.stderr.flush()
+(root/"native-ready").write_text(str(os.getpid()))
+while not (root/"release-native").exists():
+    time.sleep(0.01)
+print(json.dumps({"type":"result","result":"done","session_id":"b335b64d-df43-4b21-81e4-8b604f8f3333","num_turns":1,"is_error":False,"usage":{"input_tokens":11,"output_tokens":7}}),flush=True)
 """
 
 
@@ -79,6 +96,131 @@ def execute(root, executable, request):
         timeout=5,
     )
     return process.returncode, json.loads(process.stdout)
+
+
+def start_streaming(root, executable, request):
+    executable.write_text(STREAM_FAKE)
+    process = subprocess.Popen(
+        [sys.executable, str(SCRIPT), "--ducc", str(executable)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=root,
+        start_new_session=True,
+    )
+    process.stdin.write(json.dumps(request))
+    process.stdin.close()
+    process.stdin = None
+    return process
+
+
+def wait_for_native_diagnostics(root, process):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        output, errors = root / "native-ducc.jsonl", root / "native-ducc.stderr"
+        if (
+            (root / "native-ready").exists()
+            and output.exists()
+            and errors.exists()
+            and output.read_bytes().endswith(b"\n")
+            and errors.read_bytes() == b"early native diagnostic without newline"
+        ):
+            assert process.poll() is None, "native diagnostics must be visible before exit"
+            return
+        assert process.poll() is None, "runner exited before early diagnostics became visible"
+        time.sleep(0.01)
+    pytest.fail("native diagnostics were buffered until process completion")
+
+
+def stop_streaming(process):
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    process.communicate(timeout=5)
+
+
+def test_native_diagnostics_are_visible_before_exit_and_success_contract_is_preserved(tmp_path):
+    root, executable, request = prepare(tmp_path)
+    process = start_streaming(root, executable, request)
+    try:
+        wait_for_native_diagnostics(root, process)
+        for name in ("native-ducc.jsonl", "native-ducc.stderr"):
+            assert (root / name).stat().st_mode & 0o777 == 0o600
+        init = json.loads((root / "native-ducc.jsonl").read_text())
+        assert init["subtype"] == "init" and init["session_id"] == SESSION
+        assert not (root / "native-session.json").exists()
+        (root / "release-native").touch()
+        stdout, stderr = process.communicate(timeout=5)
+        assert process.returncode == 0 and not stderr
+        result = json.loads(stdout)
+        assert result["text"] == "done" and result["turns"] == 1
+        assert result["native_session_id"] == SESSION and result["native_evidence"] == "native-ducc.jsonl"
+        assert "early native diagnostic" not in stdout
+        events = [json.loads(line) for line in (root / "native-ducc.jsonl").read_text().splitlines()]
+        assert events[-1]["usage"] == {"input_tokens": 11, "output_tokens": 7}
+        state = json.loads((root / "native-session.json").read_text())
+        assert state["session_id"] == SESSION and state["answer_sha256"] == runner.digest(b"done")
+    finally:
+        stop_streaming(process)
+
+
+@pytest.mark.parametrize("termination", [signal.SIGTERM, signal.SIGKILL])
+def test_native_diagnostics_survive_external_process_group_termination(tmp_path, termination):
+    root, executable, request = prepare(tmp_path)
+    process = start_streaming(root, executable, request)
+    try:
+        wait_for_native_diagnostics(root, process)
+        saved = {name: (root / name).read_bytes() for name in ("native-ducc.jsonl", "native-ducc.stderr")}
+        os.killpg(process.pid, termination)
+        stdout, stderr = process.communicate(timeout=5)
+        assert process.returncode == -termination and not stdout and not stderr
+        assert saved == {name: (root / name).read_bytes() for name in saved}
+        assert json.loads(saved["native-ducc.jsonl"])["session_id"] == SESSION
+        assert not (root / "native-session.json").exists()
+    finally:
+        stop_streaming(process)
+
+
+@pytest.mark.parametrize("final_error", [False, True])
+def test_native_nonzero_exit_retains_diagnostics_without_forwarding_stderr(tmp_path, final_error):
+    root, executable, request = prepare(tmp_path)
+    executable.write_text(
+        "#!/usr/bin/env python3\nimport json,sys\n"
+        "sys.stdin.read()\n"
+        'print(json.dumps({"type":"system","subtype":"init"}),flush=True)\n'
+        'sys.stderr.write("private native failure")\n'
+        + (
+            'print(json.dumps({"type":"result","is_error":True,"subtype":"synthetic_failure","result":"failed"}),flush=True)\n'
+            if final_error
+            else ""
+        )
+        + "sys.exit(7)\n"
+    )
+    code, result = execute(root, executable, request)
+    assert code == 7
+    assert result["kind"] == ("synthetic_failure" if final_error else "native_client_failed")
+    assert "private native failure" not in json.dumps(result)
+    assert (root / "native-ducc.stderr").read_text() == "private native failure"
+    assert '"subtype": "init"' in (root / "native-ducc.jsonl").read_text()
+    assert not (root / "native-session.json").exists()
+
+
+@pytest.mark.parametrize("output", ["native-ducc.jsonl", "native-ducc.stderr"])
+@pytest.mark.parametrize("unsafe", ["symlink", "hardlink", "fifo"])
+def test_unsafe_native_output_path_cannot_start_client_or_modify_target(tmp_path, output, unsafe):
+    root, executable, request = prepare(tmp_path)
+    target = tmp_path / "private-target"
+    target.write_text("untouched")
+    path = root / output
+    if unsafe == "symlink":
+        path.symlink_to(target)
+    elif unsafe == "hardlink":
+        os.link(target, path)
+    else:
+        os.mkfifo(path)
+    code, result = execute(root, executable, request)
+    assert code == 2 and result["kind"] == "native_runner_error"
+    assert target.read_text() == "untouched" and not (root / "observed.json").exists()
 
 
 def continuation(tmp_path):

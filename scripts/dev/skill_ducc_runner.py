@@ -28,6 +28,21 @@ def private_write(path, text):
     path.chmod(0o600)
 
 
+def private_output(path):
+    """Open native diagnostics privately before the child can emit any bytes."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise ValueError("private_native_output_required")
+        os.fchmod(descriptor, 0o600)
+        os.ftruncate(descriptor, 0)
+        return os.fdopen(descriptor, "wb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def private_metadata(path):
     """Read only a private regular metadata file, never a symlink or device."""
     descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -257,18 +272,29 @@ def run_ducc(request, executable, managed_settings=None):
     )
     environment = {**os.environ, "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(request["output_tokens"])}
     # Inherit the matrix's process group: its timeout must kill the client and MCP children together.
-    result = subprocess.run(
-        command, input=prompt, text=True, capture_output=True, env=environment, cwd=native_cwd, check=False
-    )
-    private_write(root / "native-ducc.jsonl", result.stdout)
-    private_write(root / "native-ducc.stderr", result.stderr)
+    # Give the child file descriptors directly: already emitted diagnostics must
+    # survive even when the external timeout terminates this entire group before
+    # subprocess.run returns. No native output is forwarded to runner stdout.
+    output_path = root / "native-ducc.jsonl"
+    with private_output(output_path) as output, private_output(root / "native-ducc.stderr") as errors:
+        result = subprocess.run(
+            command,
+            input=prompt,
+            text=True,
+            stdout=output,
+            stderr=errors,
+            env=environment,
+            cwd=native_cwd,
+            check=False,
+        )
+    stdout = output_path.read_text()
     if result.returncode:
         try:
-            error, _ = parse_ducc(result.stdout)
+            error, _ = parse_ducc(stdout)
         except (ValueError, KeyError, TypeError):
             error = {"kind": "native_client_failed"}
         return error, result.returncode
-    response, created = parse_ducc(result.stdout)
+    response, created = parse_ducc(stdout)
     if not created:
         return response, 2
     if session and created == session:
