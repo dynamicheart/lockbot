@@ -355,7 +355,7 @@ export default {
     hostStatus: '主机状态',
     profile: '指标协议',
     profileLockbot: 'Lockbot 统一指标（XPU / GPU / 主机）',
-    deviceQueryExact: '已确认源支持按卡查询（exact-v1）',
+    deviceQueryExact: '数据源支持按卡查询',
     hostMemory: '内存',
     disk: '磁盘',
     processCount: '{count} 个进程',
