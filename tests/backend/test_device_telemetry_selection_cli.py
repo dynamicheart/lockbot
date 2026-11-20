@@ -349,3 +349,16 @@ def test_capability_does_not_narrow_list_node_aggregates(aggregate, source):
     new = listing(aggregate)
     assert all("query" in event["fields"] and "device_selection" not in event["fields"] for event in source.events)
     assert old["rows"][0]["metrics"]["accelerator"] == new["rows"][0]["metrics"]["accelerator"]
+
+
+def test_management_openapi_keeps_device_query_optional_nonnull(client):
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    schemas = response.json()["components"]["schemas"]
+    configurations = [value for name, value in schemas.items() if name.startswith("UtilizationConfig")]
+    assert configurations
+    for schema in configurations:
+        field = schema["properties"]["deviceQuery"]
+        assert field["type"] == "string" and field["const"] == "exact-v1"
+        assert "anyOf" not in field and "default" not in field
+        assert "deviceQuery" not in schema.get("required", [])

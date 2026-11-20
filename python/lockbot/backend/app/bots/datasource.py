@@ -8,6 +8,13 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
+def _device_query_schema(schema):
+    # None is only the internal absent default; it is never an accepted input.
+    schema.pop("anyOf", None)
+    schema.pop("default", None)
+    schema.update(type="string", const="exact-v1")
+
+
 class UtilizationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -15,7 +22,7 @@ class UtilizationConfig(BaseModel):
     name: str = Field(default="Prometheus", min_length=1, max_length=64)
     type: str = "prometheus"
     profile: str = "custom"
-    deviceQuery: Literal["exact-v1"] | None = None
+    deviceQuery: Literal["exact-v1"] | None = Field(default=None, json_schema_extra=_device_query_schema)
     accessMode: str = "independent"
     endpoint: str = Field(max_length=2048)
     nodeLabel: str = "instance"

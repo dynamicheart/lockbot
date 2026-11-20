@@ -168,6 +168,18 @@ def test_datasource_old_roundtrip_and_new_profile_are_explicit():
     assert UtilizationConfig.model_validate_json(current.model_dump_json()).deviceQuery == "exact-v1"
 
 
+def test_datasource_schema_advertises_optional_but_nonnull_capability():
+    from lockbot.backend.app.bots.schemas import BotCreate, BotUpdate
+
+    schemas = [UtilizationConfig.model_json_schema()]
+    schemas.extend(model.model_json_schema()["$defs"]["UtilizationConfig"] for model in (BotCreate, BotUpdate))
+    for schema in schemas:
+        field = schema["properties"]["deviceQuery"]
+        assert field["type"] == "string" and field["const"] == "exact-v1"
+        assert "anyOf" not in field and "default" not in field
+        assert "deviceQuery" not in schema.get("required", [])
+
+
 def test_selection_strips_unrequested_process_labels():
     gateway = Gateway(config())
     result = vector()
