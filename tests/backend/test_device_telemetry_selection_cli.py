@@ -6,7 +6,9 @@ import importlib.util
 import json
 import re
 import threading
+import urllib.error
 from copy import deepcopy
+from email.message import Message
 from io import BytesIO
 from types import SimpleNamespace
 from urllib.parse import parse_qs
@@ -362,3 +364,40 @@ def test_management_openapi_keeps_device_query_optional_nonnull(client):
         assert field["type"] == "string" and field["const"] == "exact-v1"
         assert "anyOf" not in field and "default" not in field
         assert "deviceQuery" not in schema.get("required", [])
+
+
+@pytest.mark.parametrize("retry_after", [None, "0", "1", "30", "31"])
+@pytest.mark.parametrize("selected", [True, False])
+def test_selected_rate_limit_never_retries_and_legacy_policy_is_unchanged(aggregate, source, retry_after, selected):
+    state, config, reference = configured(aggregate, source)
+    if selected:
+        config["deviceQuery"] = "exact-v1"
+    module, client = installed_client(aggregate, state)
+    original = client.opener.open
+    attempts, sleeps = [], []
+    client.sleep = sleeps.append
+
+    def refuse(request, **kwargs):
+        if request.full_url == source.origin + "/api/v1/query":
+            attempts.append(parse_qs(request.data.decode()))
+            headers = Message()
+            if retry_after is not None:
+                headers["Retry-After"] = retry_after
+            raise urllib.error.HTTPError(request.full_url, 429, "synthetic limit", headers, BytesIO(b"{}"))
+        return original(request, **kwargs)
+
+    client.opener.open = refuse
+    result = json.loads(
+        module.resource_devices(
+            client, reference, query=module.resource_devices_query(with_metrics=True, fields=["id", "metrics"])
+        )
+    )["result"]
+    expected_retry = None if retry_after is None else int(retry_after)
+    legacy_retries = not selected and expected_retry is not None and expected_retry <= 30
+    assert len(result["rows"]) == 20 and not result["metrics_read_complete"]
+    assert result["metrics_retry_after_seconds"] == expected_retry
+    assert "http_429" in result["metrics_unread_reasons"]
+    assert "mutation_outcome_unknown" not in result["metrics_unread_reasons"]
+    assert all(("device_selection" in fields) is selected for fields in attempts)
+    assert len(attempts) == (2 if legacy_retries else 1)
+    assert sleeps == ([expected_retry] if legacy_retries else [])

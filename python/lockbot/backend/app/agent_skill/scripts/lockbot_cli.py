@@ -1804,6 +1804,7 @@ class Client:
         _response_headers=None,
         _max_response_bytes=MAX_BYTES,
         _query_errors=False,
+        _retry_rate_limit=True,
     ):
         if self.legacy_read and (
             method != "GET"
@@ -1937,6 +1938,7 @@ class Client:
                 delay = self._retry_after(retry) if status == 429 else None
                 if (
                     readonly
+                    and _retry_rate_limit
                     and attempt == 0
                     and delay is not None
                     and delay <= 30
@@ -3703,6 +3705,7 @@ class Client:
                     method="POST",
                     form=True,
                     body=request_body,
+                    _retry_rate_limit=selection is None,
                 )
                 if selection is not None:
                     echo = data.get("lockbot_device_selection")
