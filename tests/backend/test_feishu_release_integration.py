@@ -8,7 +8,7 @@ from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.resource_auth import service
 from lockbot.core.platforms.feishu import FeishuAdapter, FeishuClient
 
-from backend.test_resource_api_resources import api  # noqa: F401
+from backend.test_resource_api_resources import api, running_api  # noqa: F401
 
 
 @pytest.fixture
@@ -23,8 +23,9 @@ def notification_queue():
 
 
 def test_feishu_api_notifications_and_history_keep_identity_and_task_privacy(
-    client, api, db_session, monkeypatch, notification_queue
+    client, running_api, db_session, monkeypatch, notification_queue
 ):
+    api = running_api
     bot_id, bot = api["bot_id"], api["bot"]
     stored = db_session.get(Bot, bot_id)
     stored.platform, stored.group_id, stored.api_key = "Feishu", "oc_demo", "lbk_test_release_integration"

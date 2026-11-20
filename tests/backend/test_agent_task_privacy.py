@@ -6,7 +6,7 @@ import json
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from backend.test_resource_api_resources import api  # noqa: F401
+from backend.test_resource_api_resources import api, running_api  # noqa: F401
 
 
 @pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"], indirect=True)
@@ -108,9 +108,10 @@ def test_non_agent_validation_retains_its_existing_contract(client):
     assert any("input" in error for error in response.json()["detail"])
 
 
-def test_group_notifications_never_publish_private_fields_even_on_release(client, api, monkeypatch):
+def test_group_notifications_never_publish_private_fields_even_on_release(client, running_api, monkeypatch):
     from lockbot.backend.app.resource_api.notifications import notification_budget
 
+    api = running_api
     sent = []
     monkeypatch.setattr(
         api["bot"].adapter, "send_notification", lambda message: sent.append(message) or ("accepted", "ok")
