@@ -57,6 +57,11 @@ LABELS = {
     "collector",
 }
 COLLECTOR_METRICS = {"lockbot_collector_success", "lockbot_sample_timestamp_seconds"}
+DEVICE_METRICS = {
+    "lockbot_accelerator_utilization_percent",
+    "lockbot_accelerator_memory_used_bytes",
+    "lockbot_accelerator_memory_total_bytes",
+}
 
 
 class Rejected(Exception):
@@ -99,6 +104,65 @@ def validate_query(query, allowed_nodes):
     except (ValueError, TypeError):
         raise Rejected(400, "invalid_query") from None
     return names, nodes
+
+
+def device_selection(raw, scope):
+    """Validate a typed narrowing, never caller-supplied PromQL."""
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = value
+        return result
+
+    def label(value):
+        return isinstance(value, str) and value.isprintable() and 1 <= len(value.encode("utf-8")) <= 256
+
+    try:
+        if not isinstance(raw, str) or len(raw.encode("utf-8")) > 16384:
+            raise ValueError
+        value = json.loads(raw, object_pairs_hook=unique)
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"version", "node", "devices"}
+            or type(value["version"]) is not int
+            or value["version"] != 1
+            or not label(value["node"])
+            or not isinstance(value["devices"], list)
+            or not 1 <= len(value["devices"]) <= 64
+            or not all(label(item) for item in value["devices"])
+            or len(set(value["devices"])) != len(value["devices"])
+        ):
+            raise ValueError
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        raise Rejected(400, "invalid_device_selection") from None
+    node, devices = value["node"], sorted(value["devices"])
+    if node not in scope or isinstance(scope, dict) and scope[node] is not None and not set(devices) <= scope[node]:
+        raise Rejected(403, "datasource_scope_denied")
+    return {"version": 1, "node": node, "devices": devices}
+
+
+def device_selection_query(selection):
+    def members(values):
+        return json.dumps("^(?:" + "|".join(regex_escape(value) for value in sorted(values)) + ")$")
+
+    node = json.dumps(selection["node"])
+    return (
+        "{__name__=~"
+        + members(DEVICE_METRICS)
+        + ",node="
+        + node
+        + ",device=~"
+        + members(selection["devices"])
+        + "} or "
+        + "{__name__=~"
+        + members(COLLECTOR_METRICS)
+        + ",node="
+        + node
+        + ',collector="accelerator"}'
+    )
 
 
 def grant_scope(claims):
@@ -268,7 +332,9 @@ class Gateway:
         except (ValueError, UnicodeError):
             raise Rejected(400, "invalid_parameters") from None
         params = dict(pairs)
-        if len(params) != len(pairs) or set(params) - {"query", "time", "timeout"} or not params.get("query"):
+        selected_mode = "device_selection" in params
+        query_field = "device_selection" if selected_mode else "query"
+        if len(params) != len(pairs) or set(params) - {query_field, "time", "timeout"} or not params.get(query_field):
             raise Rejected(400, "invalid_parameters")
         if params.get("timeout", "4s") != "4s":
             raise Rejected(400, "invalid_timeout")
@@ -278,16 +344,22 @@ class Gateway:
                 raise ValueError
         except ValueError:
             raise Rejected(400, "invalid_time") from None
-        names, nodes = validate_query(params["query"], scope)
+        selection = device_selection(params[query_field], scope) if selected_mode else None
+        if selection is None:
+            query = params["query"]
+            names, nodes = validate_query(query, scope)
+        else:
+            query = device_selection_query(selection)
+            names, nodes = DEVICE_METRICS | COLLECTOR_METRICS, {selection["node"]}
         self.budget(reader)
         resources = scope if isinstance(scope, dict) else None
         scope_key = frozenset(resources.items()) if resources is not None else scope
-        key = (reader, scope_key, params["query"], int(evaluation // 15))
+        key = (reader, scope_key, "device-v1" if selection else "query", query, int(evaluation // 15))
         with self.lock:
             cached = self.cache.get(key)
             if cached and self.clock() - cached[0] < 15:
                 return cached[1]
-        payload = urllib.parse.urlencode({"query": params["query"], "time": str(evaluation), "timeout": "4s"}).encode()
+        payload = urllib.parse.urlencode({"query": query, "time": str(evaluation), "timeout": "4s"}).encode()
         request = urllib.request.Request(
             self.endpoint + "/api/v1/query",
             data=payload,
@@ -299,7 +371,7 @@ class Gateway:
                 raw = response.read(MAX_RESPONSE + 1)
             if len(raw) > MAX_RESPONSE:
                 raise Rejected(502, "upstream_too_large")
-            result = self.filter_response(json.loads(raw), names, nodes, resources)
+            result = self.filter_response(json.loads(raw), names, nodes, resources, selection=selection)
         except (OSError, ValueError, urllib.error.URLError):
             raise Rejected(502, "datasource_unavailable") from None
         with self.lock:
@@ -310,7 +382,7 @@ class Gateway:
         return result
 
     @staticmethod
-    def filter_response(body, names, nodes, resources=None):
+    def filter_response(body, names, nodes, resources=None, *, selection=None):
         if not isinstance(body, dict) or not isinstance(body.get("data"), dict):
             raise Rejected(502, "invalid_upstream_response")
         result = body["data"].get("result")
@@ -329,7 +401,18 @@ class Gateway:
                 raise Rejected(502, "invalid_upstream_response")
             if metric.get("node") not in nodes or metric.get("__name__") not in names:
                 raise Rejected(502, "invalid_upstream_scope")
+            if selection is not None:
+                name = metric["__name__"]
+                if (
+                    name in DEVICE_METRICS
+                    and metric.get("device") not in selection["devices"]
+                    or name in COLLECTOR_METRICS
+                    and (metric.get("collector") != "accelerator" or "device" in metric)
+                ):
+                    raise Rejected(502, "invalid_upstream_scope")
             if resources is not None and not allowed_resource(metric, resources):
+                if selection is not None:
+                    raise Rejected(502, "invalid_upstream_scope")
                 continue
             if not isinstance(item.get("value"), list) or len(item["value"]) != 2:
                 raise Rejected(502, "invalid_upstream_response")
@@ -342,10 +425,23 @@ class Gateway:
             except (ValueError, TypeError):
                 raise Rejected(502, "invalid_upstream_response") from None
             cleaned.append(
-                {"metric": {key: value for key, value in metric.items() if key in LABELS}, "value": item["value"]}
+                {
+                    "metric": {
+                        key: value
+                        for key, value in metric.items()
+                        if key
+                        in ({"__name__", "node", "device", "vendor", "collector"} if selection is not None else LABELS)
+                    },
+                    "value": item["value"],
+                }
             )
         return json.dumps(
-            {"status": "success", "data": {"resultType": "vector", "result": cleaned}}, separators=(",", ":")
+            {
+                "status": "success",
+                "data": {"resultType": "vector", "result": cleaned},
+                **({"lockbot_device_selection": selection} if selection is not None else {}),
+            },
+            separators=(",", ":"),
         ).encode()
 
 

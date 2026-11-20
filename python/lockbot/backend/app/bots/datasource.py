@@ -2,9 +2,10 @@
 
 import json
 import re
+from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 
 class UtilizationConfig(BaseModel):
@@ -14,6 +15,7 @@ class UtilizationConfig(BaseModel):
     name: str = Field(default="Prometheus", min_length=1, max_length=64)
     type: str = "prometheus"
     profile: str = "custom"
+    deviceQuery: Literal["exact-v1"] | None = None
     accessMode: str = "independent"
     endpoint: str = Field(max_length=2048)
     nodeLabel: str = "instance"
@@ -26,6 +28,20 @@ class UtilizationConfig(BaseModel):
     deviceMapping: dict[str, str] = Field(default_factory=dict, max_length=512)
     intervalSeconds: int = Field(default=30, ge=30, le=3600)
     staleSeconds: int = Field(default=90, ge=30, le=3600)
+
+    @field_validator("deviceQuery", mode="before")
+    @classmethod
+    def validate_device_query(cls, value):
+        if value != "exact-v1":
+            raise ValueError("Unsupported device query mode")
+        return value
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler):
+        result = handler(self)
+        if self.deviceQuery is None:
+            result.pop("deviceQuery", None)
+        return result
 
     @field_validator("endpoint")
     @classmethod
@@ -52,6 +68,8 @@ class UtilizationConfig(BaseModel):
             raise ValueError("Unsupported metrics access mode")
         if self.profile not in {"custom", "lockbot-v1"}:
             raise ValueError("Unsupported telemetry profile")
+        if self.deviceQuery is not None and self.profile != "lockbot-v1":
+            raise ValueError("Device queries require the lockbot-v1 profile")
         if self.profile == "lockbot-v1":
             self.nodeLabel, self.deviceLabel, self.memoryUnit = "node", "device", "B"
             self.utilizationMetric = "lockbot_accelerator_utilization_percent"

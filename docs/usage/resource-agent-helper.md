@@ -329,9 +329,18 @@ resource rows and report separate `metrics_read_complete`,
 request does not prove every card was mapped or sampled. Selecting the `metrics`
 field alone does not query the source; bare `--json` remains local discovery.
 
-Device pagination currently limits output, while the existing gateway still
-queries the selected node. Oversized source responses retain explicit failure;
-no device-level network pagination is claimed. Mixed lists support native
+For a source explicitly configured with `deviceQuery: "exact-v1"`, the device
+pager requests only a bounded candidate page's mapped cards and their collector
+status/time. It reports `metrics_scope: "selected_devices"` and queried/returned
+counts. Final byte packing can trim queried cards; continuation starts after the
+last emitted inventory ID, so those cards can be read again on the next page.
+Unmapped, ambiguous or unqueried cards stay unknown. This does not change list/view
+whole-node means or make metrics an allocation grant.
+
+Without that source declaration, the pager uses the existing whole-node metrics
+query and reports `metrics_scope: "selected_node"`. An advertised mode that fails
+does not fall back to a broader query. Oversized responses retain explicit failure.
+The source capability is independent of v2 grant authorization. Mixed lists support native
 telemetry and explicitly capable read-only providers. See the
 [candidate contract](../design/cli-resource-contract-draft.md#optional-utilization-in-the-same-invocation)
 for coverage and continuation details.

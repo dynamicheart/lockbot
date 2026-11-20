@@ -3518,7 +3518,7 @@ class Client:
             raise ClientError("metrics_context_not_verified") from exc
         return latest  # A preceding batch may already have refreshed a short grant.
 
-    def metrics(self, nodes, *, context=None):
+    def metrics(self, nodes, *, context=None, device_ids=None):
         context = self.context() if context is None else self._metrics_context(context)
         identity = self._metrics_identity(context)
         for attempt in range(2):
@@ -3527,6 +3527,9 @@ class Client:
             source = (context.get("utilization") or {}).get("configuration") or {}
             if source.get("type") != "prometheus" or source.get("profile") != "lockbot-v1":
                 raise ClientError("unsupported_metrics_profile")
+            if "deviceQuery" in source and source["deviceQuery"] != "exact-v1":
+                raise ClientError("invalid_metrics_device_query")
+            selective = device_ids is not None and source.get("deviceQuery") == "exact-v1"
             endpoint = source.get("endpoint", "").rstrip("/")
             parsed = urllib.parse.urlsplit(endpoint)
             target_origin = origin(f"{parsed.scheme}://{parsed.netloc}")
@@ -3605,6 +3608,63 @@ class Client:
                     ),
                     "does_not_authorize_resources": True,
                 }
+            selection, selected_mapping, device_errors = None, device_mapping, {}
+            selected_ids = []
+            if selective:
+                if len(nodes) != 1 or resource_type not in {"DEVICE", "QUEUE_DEVICE"}:
+                    raise ClientError("invalid_metrics_device_selection")
+                node = nodes[0]
+                local_mapping = {
+                    key: value for key, value in device_mapping.items() if key.rpartition(":dev")[0] == node
+                }
+                collisions = Counter(local_mapping.values())
+                selected_mapping = {}
+                selection = {"version": 1, "node": targets[0], "devices": []}
+                if len(targets[0].encode("utf-8")) > 256:
+                    raise ClientError("invalid_metrics_device_selection")
+                for raw_id in device_ids:
+                    identifier = metrics_resource_device(raw_id)
+                    key = node + ":dev" + identifier if identifier is not None else None
+                    label = local_mapping.get(key)
+                    error = (
+                        "unsupported_id"
+                        if identifier is None
+                        else "missing"
+                        if label is None
+                        else "ambiguous"
+                        if collisions[label] != 1
+                        else None
+                    )
+                    if error is None:
+                        proposed = {**selection, "devices": sorted([*selection["devices"], label])}
+                        raw = json.dumps(proposed, ensure_ascii=True, separators=(",", ":"))
+                        body_size = len(
+                            urllib.parse.urlencode(
+                                {"device_selection": raw, "time": "0" * 32, "timeout": "4s"}
+                            ).encode()
+                        )
+                        if (
+                            len(label.encode("utf-8")) > 256
+                            or len(raw.encode()) > 16384
+                            or body_size > 16384  # Preserve the SDK's existing encoded-request cap.
+                            or len(proposed["devices"]) > 64
+                        ):
+                            error = "selection_budget"
+                        else:
+                            selection = proposed
+                            selected_mapping[key] = label
+                            selected_ids.append(identifier)
+                    if error is not None:
+                        device_errors[str(raw_id)] = error
+                if not selection["devices"]:
+                    return {
+                        "best_effort": True,
+                        "does_not_authorize_resources": True,
+                        "verification": "mapping_only_no_source_query",
+                        "utilization": [],
+                        "queried_device_ids": [],
+                        "device_read_errors": device_errors,
+                    }
             if source.get("accessMode") == "short_lived":
                 access = (context.get("utilization") or {}).get("access") or {}
                 credential = access.get("token")
@@ -3633,13 +3693,21 @@ class Client:
                 + "}"
             )
             try:
+                request_body = {"query": selector, "time": str(time.time()), "timeout": "4s"}
+                if selection is not None:
+                    request_body.pop("query")
+                    request_body["device_selection"] = json.dumps(selection, ensure_ascii=True, separators=(",", ":"))
                 data = self._request(
                     url,
                     token=credential,
                     method="POST",
                     form=True,
-                    body={"query": selector, "time": str(time.time()), "timeout": "4s"},
+                    body=request_body,
                 )
+                if selection is not None:
+                    echo = data.get("lockbot_device_selection")
+                    if not isinstance(echo, dict) or type(echo.get("version")) is not int or echo != selection:
+                        raise ClientError("invalid_metrics_device_selection_response")
                 source_data = data.get("data")
                 vector = source_data.get("result") if isinstance(source_data, dict) else None
                 if (
@@ -3658,6 +3726,18 @@ class Client:
                         or labels.get("__name__") not in METRICS
                     ):
                         raise ClientError("metrics_scope_mismatch")
+                    if selection is not None:
+                        name = labels["__name__"]
+                        if name in METRICS[:3]:
+                            valid = labels.get("device") in selection["devices"]
+                        else:
+                            valid = (
+                                name in METRICS[-2:]
+                                and labels.get("collector") == "accelerator"
+                                and "device" not in labels
+                            )
+                        if not valid:
+                            raise ClientError("metrics_scope_mismatch")
                 return {
                     "best_effort": True,
                     "verification": "query_response_only",
@@ -3667,14 +3747,19 @@ class Client:
                         mappings,
                         time.time(),
                         stale_seconds,
-                        device_mapping=device_mapping,
+                        device_mapping=selected_mapping,
                         resource_type=resource_type,
                         ambiguous_nodes=ambiguous_nodes,
                     ),
                     "does_not_authorize_resources": True,
+                    **({"queried_device_ids": selected_ids, "device_read_errors": device_errors} if selective else {}),
                 }
             except ClientError as exc:
-                if exc.status not in (401, 403) or attempt or source.get("accessMode") != "short_lived":
+                if (
+                    exc.status not in ((401,) if selective else (401, 403))
+                    or attempt
+                    or source.get("accessMode") != "short_lived"
+                ):
                     raise
                 context = self.context()  # refresh a short grant once; never send the resource key to the source
         raise ClientError("metrics_authentication_failed")
@@ -5019,7 +5104,7 @@ def merge_summary_metrics(rows, metrics, *, device_limit=20):
     return result
 
 
-def attach_metrics(client, snapshot, *, full=False, context=None, _sample_clocks=None):
+def attach_metrics(client, snapshot, *, full=False, context=None, _sample_clocks=None, device_ids=None):
     """Batch only selected nodes; optional telemetry failure never erases ownership."""
     rows = snapshot.get("resources", snapshot.get("holdings", []) + snapshot.get("bookings", []))
     nodes = list(dict.fromkeys(str(row.get("id", row.get("node"))) for row in rows))
@@ -5030,11 +5115,14 @@ def attach_metrics(client, snapshot, *, full=False, context=None, _sample_clocks
         batch = nodes[offset : offset + 64]
         try:
             reading = (
-                client.metrics(batch, context=context)
+                client.metrics(batch, context=context, **({"device_ids": device_ids} if device_ids is not None else {}))
                 if context is not None and isinstance(client, Client)
                 else client.metrics(batch)
             )
             result["utilization"].extend(reading["utilization"])
+            if device_ids is not None:
+                result["queried_device_ids"] = reading.get("queried_device_ids", [])
+                result["device_read_errors"] = reading.get("device_read_errors", {})
             if _sample_clocks is not None:
                 config = ((context or {}).get("utilization") or {}).get("configuration") or {}
                 for node in batch:
@@ -7022,6 +7110,11 @@ def device_summary_metrics(rows, metrics, *, node):
             reading["status"] = "invalid"
         if metrics_resource_device(str(row["id"])) is None:
             reading["mapping_status"] = "unsupported_id"
+        if "queried_device_ids" in metrics and str(row["id"]) not in metrics["queried_device_ids"]:
+            reason = metrics.get("device_read_errors", {}).get(str(row["id"]), "not_queried")
+            reading.update(status="missing", percent=None, sample_age_seconds=None, read_status=reason)
+            if reason in {"missing", "ambiguous", "unsupported_id"}:
+                reading["mapping_status"] = reason
         result.append({**row, "metrics": reading})
     return result
 
@@ -7122,6 +7215,9 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
     client.node_access = None
     snapshot = client.inventory()
     sample_clocks = {}
+    source_configuration = (snapshot["context"].get("utilization") or {}).get("configuration") or {}
+    selected_metrics = query.get("with_metrics") and source_configuration.get("deviceQuery") == "exact-v1"
+    planned_ids = []
     if redacted_values(node, client.secrets) != node:
         raise ClientError("secret_in_resource_identifier")
 
@@ -7149,12 +7245,24 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
     if query.get("with_metrics") and any(
         after is None or device_summary_sort_key(row["id"]) > device_summary_sort_key(after) for row in preview["rows"]
     ):
+        if selected_metrics:
+            # Plan a bounded candidate prefix before optional I/O. Final packing
+            # may trim it, but only the last emitted ID advances the cursor.
+            planned_ids = [
+                row["id"]
+                for row in preview["rows"]
+                if after is None or device_summary_sort_key(row["id"]) > device_summary_sort_key(after)
+            ][: query["limit"]]
         selected = {**snapshot, "resources": [row for row in snapshot["resources"] if row.get("id") == node]}
         snapshot = {
             **snapshot,
-            "metrics": attach_metrics(client, selected, context=snapshot["context"], _sample_clocks=sample_clocks)[
-                "metrics"
-            ],
+            "metrics": attach_metrics(
+                client,
+                selected,
+                context=snapshot["context"],
+                _sample_clocks=sample_clocks,
+                device_ids=planned_ids if selected_metrics else None,
+            )["metrics"],
         }
 
     def encoded(selected, *, more, observed, projected):
@@ -7211,7 +7319,7 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
             result.update(
                 metrics_requested=True,
                 metrics_read_complete=metrics.get("complete") is True,
-                metrics_scope="selected_node",
+                metrics_scope="selected_devices" if selected_metrics else "selected_node",
                 metrics_unread_reasons=sorted({error["error"] for error in errors})[:8],
                 metrics_retry_after_seconds=max(
                     (error["retry_after_seconds"] for error in errors if error.get("retry_after_seconds") is not None),
@@ -7219,6 +7327,20 @@ def resource_devices(client, reference, *, query, cursor=None, connection=None, 
                 ),
                 metrics_does_not_authorize_resources=True,
             )
+            if selected_metrics:
+                queried = set(metrics.get("queried_device_ids", []))
+                emitted = {str(row["id"]) for row in selected}
+                unread = emitted - queried
+                result.update(
+                    metrics_candidate_devices=len(planned_ids),
+                    metrics_queried_devices=len(queried),
+                    metrics_returned_queried_devices=len(emitted & queried),
+                    metrics_read_complete=metrics.get("complete") is True and not unread,
+                )
+                if unread:
+                    result["metrics_unread_reasons"] = sorted(
+                        set(result["metrics_unread_reasons"]) | {"device_metrics_not_queried"}
+                    )[:8]
         if next_cursor is not None:
             result["next_command"] = command(next_cursor)
 
