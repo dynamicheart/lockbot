@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import fcntl
+import ipaddress
 import json
+import logging
 import math
 import os
 import pwd
@@ -13,18 +15,22 @@ import random
 import re
 import shlex
 import signal
+import socket
 import subprocess
 import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 MAX_XML_BYTES = 4 * 1024 * 1024
 MIN_INTERVAL = 60
+logger = logging.getLogger(__name__)
 
 
 def number(value, *, percent=False):
@@ -69,6 +75,9 @@ class Card:
     memory_used: float | None
     memory_total: float | None
     processes: tuple[int, ...] | None
+    model: str | None = None
+    pci_bus: str | None = None
+    uuid: str | None = None
 
 
 def parse_xml(raw: str) -> list[Card]:
@@ -115,6 +124,9 @@ def parse_xml(raw: str) -> list[Card]:
                 used,
                 total,
                 processes,
+                text_at(element, "product_name", "device_name"),
+                text_at(element, "pci/pci_bus_id"),
+                text_at(element, "uuid"),
             )
         )
     return sorted(cards, key=lambda card: int(card.device))
@@ -281,6 +293,152 @@ def sample(name, value, tags, observed_at=None):
     return f"{name}{labels(tags)} {encoded}\n"
 
 
+def _hardware_command(*args):
+    try:
+        result = subprocess.run(
+            args, capture_output=True, check=True, text=True, timeout=2, env={**os.environ, "LC_ALL": "C"}
+        )
+        return result.stdout if len(result.stdout) <= 128 * 1024 else ""
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return ""
+
+
+def _hardware_network():
+    hostname = socket.gethostname()
+    resolved = _hardware_command("hostname", "-f").strip().rstrip(".")
+    labels = resolved.split(".")
+    fqdn = (
+        resolved
+        if (
+            len(labels) > 1
+            and len(resolved) <= 253
+            and not labels[-1].isdigit()
+            and all(re.fullmatch(r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?", label) for label in labels)
+        )
+        else None
+    )
+    try:
+        interfaces = json.loads(_hardware_command("ip", "-j", "address", "show"))
+    except ValueError:
+        interfaces = None
+    addresses = [] if isinstance(interfaces, list) else None
+    for interface in (interfaces if isinstance(interfaces, list) else [])[:64]:
+        if not isinstance(interface, dict) or not isinstance(interface.get("ifname"), str):
+            continue
+        entries = interface.get("addr_info", [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries[:32]:
+            if not isinstance(entry, dict):
+                continue
+            try:
+                address = ipaddress.ip_address(entry["local"])
+                prefix = entry["prefixlen"]
+            except (KeyError, ValueError):
+                continue
+            if address.is_loopback or type(prefix) is not int or not 0 <= prefix <= address.max_prefixlen:
+                continue
+            addresses.append(
+                {
+                    "interface": interface["ifname"],
+                    "ip": str(address),
+                    "prefix_bits": prefix,
+                    "scope": entry.get("scope"),
+                }
+            )
+    return {"hostname": hostname, "fqdn": fqdn, "addresses": addresses}
+
+
+def _pci_address(bus):
+    match = re.fullmatch(r"(?:0000)?([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7])", (bus or "").lower())
+    return match[1] if match else None
+
+
+def _hardware_topology(bus):
+    if not bus:
+        return {}
+    device = Path("/sys/bus/pci/devices") / bus
+    topology = {}
+    for field, filename in (
+        ("numa_node", "numa_node"),
+        ("pcie_speed", "current_link_speed"),
+        ("pcie_width", "current_link_width"),
+    ):
+        try:
+            value = (device / filename).read_text().strip()
+            topology[field] = (
+                int(value) if field != "pcie_speed" and value.isdecimal() else value if field == "pcie_speed" else None
+            )
+        except OSError:
+            continue
+    return topology
+
+
+def _hardware_device(card, vendor):
+    bus = _pci_address(card.pci_bus)
+    identifier = card.uuid if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{2,127}", card.uuid or "") else None
+    if identifier and identifier.lower() in {"unknown", "none", "null"}:
+        identifier = None
+    return {
+        "index": card.device,
+        "vendor": vendor,
+        "model": card.model,
+        "memory_total_bytes": int(card.memory_total) if card.memory_total is not None else None,
+        "device_uuid": identifier,
+        "pci_bus": bus,
+        **_hardware_topology(bus),
+    }
+
+
+def hardware_inventory(config, proc_root, cards, observed_at):
+    """Private facts from one sampling scope, separate from metrics and allocatable resource IDs."""
+    try:
+        cpu = {
+            item["field"].rstrip(":"): item["data"] for item in json.loads(_hardware_command("lscpu", "-J"))["lscpu"]
+        }
+    except (ValueError, KeyError, TypeError):
+        cpu = {}
+    try:
+        _, memory_total = host_memory(proc_root)
+    except (OSError, ValueError, KeyError, IndexError):
+        memory_total = None
+
+    def count(key):
+        value = str(cpu.get(key, "")).strip()
+        return int(value) if value.isdecimal() else None
+
+    return {
+        "schema_version": 1,
+        "source_id": config["node"],
+        "collector": "lockbot-exporter",
+        "node": config["node"],
+        "observed_at": datetime.fromtimestamp(observed_at, timezone.utc).isoformat(),
+        "scope": config.get("inventory_scope", "unknown"),
+        "coverage": "visible" if cards else "unavailable",
+        "network": _hardware_network(),
+        "cpu": {
+            "arch": cpu.get("Architecture"),
+            "model": cpu.get("Model name"),
+            "logical_cpus": count("CPU(s)"),
+            "sockets": count("Socket(s)"),
+            "cores_per_socket": count("Core(s) per socket"),
+        },
+        "memory_total_bytes": memory_total,
+        "devices": [_hardware_device(card, config["vendor"]) for card in cards],
+    }
+
+
+def _store_hardware_inventory(output, data):
+    path = Path(output)
+    fd, temp = tempfile.mkstemp(dir=path.parent, prefix=".hardware-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False)
+        os.replace(temp, path)
+    finally:
+        Path(temp).unlink(missing_ok=True)
+
+
 class Collector:
     def __init__(self, config, *, clock=time.time, monotonic=time.monotonic):
         self.config, self.clock, self.monotonic = config, clock, monotonic
@@ -359,6 +517,10 @@ class Collector:
             self._update("accelerator", body, True, start, observed_at)
         except (OSError, ValueError, ET.ParseError, subprocess.TimeoutExpired):
             self._update("accelerator", "", False, start, observed_at)
+            return
+        if output := self.config.get("inventory_output"):
+            with suppress(OSError, ValueError, TypeError, KeyError):
+                _store_hardware_inventory(output, hardware_inventory(self.config, self.proc_root, cards, observed_at))
 
     def render(self):
         """Scrapes read cached memory only; never invoke commands or procfs here."""
@@ -392,6 +554,11 @@ def validate_config(config):
         raise ValueError("node must be an explicit non-sensitive resource label")
     if config.get("vendor") not in {"xpu", "nvidia"}:
         raise ValueError("vendor must be xpu or nvidia")
+    inventory = config.get("inventory_output")
+    if inventory is not None and (not isinstance(inventory, str) or not Path(inventory).is_absolute()):
+        raise ValueError("inventory_output must be an absolute file path")
+    if config.get("inventory_scope", "unknown") not in {"unknown", "host", "container"}:
+        raise ValueError("invalid inventory_scope")
     command = config.get("command")
     if not isinstance(command, list) or not command or any(not isinstance(v, str) or not v for v in command):
         raise ValueError("command must be an explicit argument list; no shell")
@@ -439,6 +606,7 @@ def probe(config):
         pass
     result["host_duration"] = time.monotonic() - started
     started = time.monotonic()
+    observed_at, cards = time.time(), []
     try:
         lock_path = config.get("probe_lock", "/tmp/lockbot-telemetry-probe.lock")
         flags = os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0)
@@ -457,12 +625,18 @@ def probe(config):
                 card.processes and (len(card.processes) > 128 or any(pid not in details for pid in card.processes))
             )
             item.pop("processes", None)
+            item.pop("model", None)
+            item.pop("pci_bus", None)
+            item.pop("uuid", None)
             result["cards"].append(item)
         result["accelerator_observed_at"] = observed_at
         result["accelerator_success"] = True
     except (OSError, ValueError, ET.ParseError, subprocess.TimeoutExpired):
         pass
     result["accelerator_duration"] = time.monotonic() - started
+    if config.get("collect_inventory") and result["accelerator_success"]:
+        with suppress(OSError, ValueError, TypeError, KeyError):
+            result["hardware_inventory"] = hardware_inventory(config, proc, cards, observed_at)
     return result
 
 
@@ -487,6 +661,13 @@ class FleetCollector:
                 for key, value in target.items()
                 if key in {"command", "timeout_seconds", "filesystems", "proc_root", "probe_lock"}
             }
+            if target.get("inventory_output"):
+                remote_config.update(
+                    collect_inventory=True,
+                    node=node,
+                    vendor=target["vendor"],
+                    inventory_scope=target.get("inventory_scope", "unknown"),
+                )
             if target.get("ssh_target"):
                 source = self.probe_source + "\nprint(json.dumps(probe(" + repr(remote_config) + ")))"
                 remote = "python3 -c " + shlex.quote(source)
@@ -516,18 +697,39 @@ class FleetCollector:
                 data = json.loads(run_xml(command, 25))
             else:
                 data = probe(remote_config)
-            for kind in ("host", "accelerator"):
-                if data.get(kind + "_success"):
-                    body = self.render_data(target, data, kind)
-                    stamp = data[kind + "_observed_at"]
-                    with self.lock:
-                        self.bodies[node, kind] = body
-                        self.statuses[node, kind] = (1, data[kind + "_duration"], stamp)
-                else:
-                    self.failure(node, kind, data.get(kind + "_duration", 0))
+            if not isinstance(data, dict):
+                raise ValueError("invalid probe response")
         except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
             for kind in ("host", "accelerator"):
                 self.failure(node, kind, 0)
+            return False
+        host_ok = self.record_sample(target, data, "host")
+        accelerator_ok = self.record_sample(target, data, "accelerator")
+        if accelerator_ok and target.get("inventory_output") and data.get("hardware_inventory"):
+            with suppress(OSError, ValueError, TypeError, KeyError):
+                _store_hardware_inventory(target["inventory_output"], data["hardware_inventory"])
+        return host_ok or accelerator_ok
+
+    def record_sample(self, target, data, kind):
+        node = target["node"]
+        duration = data.get(kind + "_duration", 0)
+        if type(duration) not in (int, float) or not math.isfinite(duration) or duration < 0:
+            duration = 0
+        if data.get(kind + "_success") is True:
+            try:
+                stamp = data[kind + "_observed_at"]
+                if type(stamp) not in (int, float) or not math.isfinite(stamp) or stamp <= 0:
+                    raise ValueError("invalid observation time")
+                body = self.render_data(target, data, kind)
+            except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+                pass
+            else:
+                with self.lock:
+                    self.bodies[node, kind] = body
+                    self.statuses[node, kind] = (1, duration, stamp)
+                return True
+        self.failure(node, kind, duration)
+        return False
 
     def failure(self, node, kind, duration):
         with self.lock:
@@ -583,21 +785,35 @@ class FleetCollector:
 
     def run(self, stop):
         interval = self.config.get("interval_seconds", 300)
+        workers = min(2, self.config.get("max_workers", 2))
         # Spread the first acquisition across the interval, then preserve per-target cadence.
         deadlines = {
             target["node"]: time.monotonic() + (random.uniform(0, interval) if target.get("ssh_target") else 0)
             for target in self.targets
         }
-        futures = {}
-        with ThreadPoolExecutor(max_workers=min(2, self.config.get("max_workers", 2))) as executor:
+        futures, consecutive_failures = {}, {}
+        with ThreadPoolExecutor(max_workers=workers) as executor:
             while not stop.is_set():
                 now = time.monotonic()
-                for target in self.targets:
+                for node, future in list(futures.items()):
+                    if not future.done():
+                        continue
+                    del futures[node]
+                    try:
+                        success = future.result()
+                    except Exception as error:
+                        logger.warning("Probe failed for %s (%s)", node, type(error).__name__)
+                        for kind in ("host", "accelerator"):
+                            self.failure(node, kind, 0)
+                        success = False
+                    failures = 0 if success else min(consecutive_failures.get(node, 0) + 1, 2)
+                    consecutive_failures[node] = failures
+                    deadlines[node] = now + interval * (2**failures) + random.uniform(0, interval * 0.1)
+                for target in sorted(self.targets, key=lambda target: deadlines[target["node"]]):
                     node = target["node"]
-                    if node in futures and futures[node].done():
-                        futures.pop(node)
-                        deadlines[node] = now + interval + random.uniform(0, interval * 0.1)
-                    if node not in futures and now >= deadlines[node] and len(futures) < 2:
+                    if len(futures) >= workers or deadlines[node] > now:
+                        break
+                    if node not in futures:
                         futures[node] = executor.submit(self.collect, target)
                 stop.wait(0.5)
 
@@ -610,6 +826,8 @@ def validate_fleet(config):
         raise ValueError("node labels must be unique")
     if not isinstance(config.get("interval_seconds", 300), int) or config.get("interval_seconds", 300) < MIN_INTERVAL:
         raise ValueError("sampling interval must be at least 60 seconds")
+    if type(config.get("max_workers", 2)) is not int or config.get("max_workers", 2) < 1:
+        raise ValueError("max_workers must be a positive integer")
     for target in targets:
         validate_config(target)
         ssh_target = target.get("ssh_target")

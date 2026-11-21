@@ -12,6 +12,8 @@
 
 SMI 默认超时 10 秒，SSH 总超时 25 秒，超时终止对应子进程组。每台探针有文件锁，避免本工具重复采样；不能限制其他软件的 SMI。CPU 利用率是相邻 `/proc/stat` 差值的周期平均值，首个样本不输出假 0；主机内存为 `MemTotal - MemAvailable`。磁盘仅按配置路径采容量，使用非敏感别名，不表示 I/O 性能。
 
+多机采集按各目标的到期时间排队。完全失败的节点按采样间隔的 2 倍、4 倍退避，恢复后回到正常间隔。单台加速卡采集失败时，主机指标仍可更新，硬件清单保留上次成功的结果和采样时间。
+
 ## 指标协议 v1
 
 采用标准 Prometheus 文本指标和 HTTP 查询 API。`node` 是数据源配置的机器身份，`device` 是 SMI 明确设备索引，通过管理员映射对应 Lockbot 资源；不同厂家共用名称、单位。
@@ -54,6 +56,8 @@ python -m lockbot.metrics.exporter --config /private/path/fleet.json \
 也可将 `python/lockbot/metrics/exporter.py` 作为独立标准库脚本部署，无须导入或启动 Lockbot 后端。建议 Python 3.10+。目标需要 Python 3 和对应 SMI，部署权限尽量限制为只读采集；网页不能提交命令或目标地址。
 
 Prometheus 每 60 秒抓内存缓存，不增加 SMI 调用。建议独立 TSDB、7 天/1 GB 上限，示例 service 替换实际安装路径、配置、权限后使用，不覆盖现有 Prometheus。配置文件与 SSH 身份保持私有。
+
+需要硬件盘点时，在单机配置或各 SSH 目标中设置绝对路径 `inventory_output`，并填写 `inventory_scope`（`host`、`container` 或 `unknown`）。采集器按原有设备采样周期更新权限为 `0600` 的 JSON 文件。SSH 模式的文件保存在采集器所在机器。文件记录主机名、可解析的完整域名、各网卡的非回环 IPv4/IPv6 地址及前缀，并附带可见设备、CPU、内存和采集时间。驱动提供的设备 UUID 和 PCI 地址可辅助确认换卡及索引重排。缺少 `ip`、域名或设备标识时，对应字段为空。网络字段、设备 UUID 和 PCI 地址只写入私有硬件文件，登录入口由管理员配置和验证。
 
 Prometheus 和 exporter 绑定 loopback。浏览器使用独立受保护的只读入口，限制机器与指标，精确配置 CORS；不能开放完整查询/管理/写入接口。CORS 不是授权。数据源认证独立于 Lockbot，不向数据源发送 Lockbot JWT、个人 key、OP key 或网页只读码。
 
