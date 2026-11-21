@@ -83,13 +83,13 @@ def test_hardware_inventory_keeps_network_facts_in_the_private_export(tmp_path):
                 {
                     "ifname": "eth0",
                     "addr_info": [
-                        {"local": "192.0.2.19", "prefixlen": 24, "scope": "global"},
-                        {"local": "2001:db8::19", "prefixlen": 64, "scope": "global"},
+                        {"local": "192.0.2.42", "prefixlen": 24, "scope": "global"},
+                        {"local": "2001:db8::42", "prefixlen": 64, "scope": "global"},
                     ],
                 }
             ]
         ),
-        "lscpu": json.dumps({"lscpu": [{"field": "CPU(s):", "data": "192"}]}),
+        "lscpu": json.dumps({"lscpu": [{"field": "CPU(s):", "data": "12"}]}),
     }
     collector = Collector(
         config(
@@ -102,8 +102,8 @@ def test_hardware_inventory_keeps_network_facts_in_the_private_export(tmp_path):
     )
     xml = XML.replace(
         "<minor_number>2</minor_number>",
-        "<minor_number>2</minor_number><product_name>P900</product_name>"
-        "<uuid>XPU-fixture</uuid><pci><pci_bus_id>00000000:1A:03.0</pci_bus_id></pci>",
+        "<minor_number>2</minor_number><product_name>Example Accelerator</product_name>"
+        "<uuid>fixture-device-a</uuid><pci><pci_bus_id>00000000:7E:00.0</pci_bus_id></pci>",
     )
     with (
         patch("lockbot.metrics.exporter.run_xml", return_value=xml),
@@ -112,16 +112,17 @@ def test_hardware_inventory_keeps_network_facts_in_the_private_export(tmp_path):
     ):
         collector.collect_accelerator()
     exported = json.loads(output.read_text())
-    assert exported["scope"] == "container" and exported["cpu"]["logical_cpus"] == 192
+    assert exported["scope"] == "container" and exported["cpu"]["logical_cpus"] == 12
     assert exported["network"]["hostname"] == "node" and exported["network"]["fqdn"] == "node.example.test"
-    assert {item["ip"] for item in exported["network"]["addresses"]} == {"192.0.2.19", "2001:db8::19"}
-    assert exported["devices"][1]["model"] == "P900" and exported["devices"][1]["memory_total_bytes"] == 8 * 1024**3
-    assert exported["devices"][1]["device_uuid"] == "XPU-fixture"
-    assert exported["devices"][1]["pci_bus"] == "0000:1a:03.0"
+    assert {item["ip"] for item in exported["network"]["addresses"]} == {"192.0.2.42", "2001:db8::42"}
+    assert exported["devices"][1]["model"] == "Example Accelerator"
+    assert exported["devices"][1]["memory_total_bytes"] == 8 * 1024**3
+    assert exported["devices"][1]["device_uuid"] == "fixture-device-a"
+    assert exported["devices"][1]["pci_bus"] == "0000:7e:00.0"
     assert exported["devices"][0]["device_uuid"] is None
     assert output.stat().st_mode & 0o777 == 0o600
-    assert b"node.example.test" not in collector.render() and b"192.0.2.19" not in collector.render()
-    assert b"XPU-fixture" not in collector.render() and b"0000:1a:03.0" not in collector.render()
+    assert b"node.example.test" not in collector.render() and b"192.0.2.42" not in collector.render()
+    assert b"fixture-device-a" not in collector.render() and b"0000:7e:00.0" not in collector.render()
 
 
 def test_proc_memory_uses_available_not_just_free(tmp_path):
@@ -212,7 +213,7 @@ def test_fleet_preserves_host_sample_and_inventory_when_accelerator_fails(tmp_pa
     from lockbot.metrics.exporter import FleetCollector
 
     inventory = tmp_path / "inventory.json"
-    inventory.write_text('{"devices":[{"device":"0","model":"P800"}]}')
+    inventory.write_text('{"devices":[{"device":"0","model":"Example Accelerator"}]}')
     target = config(ssh_target="monitor@node-a.example.invalid", inventory_output=str(inventory))
     fleet = FleetCollector({"targets": [target]})
     with patch(
@@ -235,7 +236,7 @@ def test_fleet_preserves_host_sample_and_inventory_when_accelerator_fails(tmp_pa
     body = fleet.render().decode()
     assert 'lockbot_host_memory_used_bytes{node="node-a"} 30' in body
     assert 'lockbot_collector_success{node="node-a",collector="accelerator"} 0' in body
-    assert json.loads(inventory.read_text())["devices"][0]["model"] == "P800"
+    assert json.loads(inventory.read_text())["devices"][0]["model"] == "Example Accelerator"
 
 
 def test_fleet_backs_off_failed_nodes_without_delaying_healthy_nodes(monkeypatch):
