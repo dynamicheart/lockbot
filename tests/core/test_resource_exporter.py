@@ -1,6 +1,8 @@
 """Exporter acquisition is independent of Prometheus scraping and Lockbot scheduling."""
 
 import json
+import subprocess
+from concurrent.futures import Future
 from unittest.mock import patch
 
 import pytest
@@ -71,6 +73,58 @@ def test_scrapes_only_read_cache_and_failures_do_not_forge_freshness(tmp_path):
     assert all(len(line.rsplit(" ", 1)) == 2 for line in body.splitlines())
 
 
+def test_hardware_inventory_keeps_network_facts_in_the_private_export(tmp_path):
+    output = tmp_path / "hardware.json"
+    (tmp_path / "meminfo").write_text("MemTotal: 1000 kB\nMemAvailable: 600 kB\n")
+    commands = {
+        "hostname": "node.example.test\n",
+        "ip": json.dumps(
+            [
+                {
+                    "ifname": "eth0",
+                    "addr_info": [
+                        {"local": "192.0.2.42", "prefixlen": 24, "scope": "global"},
+                        {"local": "2001:db8::42", "prefixlen": 64, "scope": "global"},
+                    ],
+                }
+            ]
+        ),
+        "lscpu": json.dumps({"lscpu": [{"field": "CPU(s):", "data": "12"}]}),
+    }
+    collector = Collector(
+        config(
+            proc_root=str(tmp_path),
+            inventory_output=str(output),
+            inventory_scope="container",
+        ),
+        clock=lambda: 1000,
+        monotonic=lambda: 1,
+    )
+    xml = XML.replace(
+        "<minor_number>2</minor_number>",
+        "<minor_number>2</minor_number><product_name>Example Accelerator</product_name>"
+        "<uuid>fixture-device-a</uuid><pci><pci_bus_id>00000000:7E:00.0</pci_bus_id></pci>",
+    )
+    with (
+        patch("lockbot.metrics.exporter.run_xml", return_value=xml),
+        patch("lockbot.metrics.exporter._hardware_command", side_effect=lambda command, *_: commands[command]),
+        patch("lockbot.metrics.exporter.socket.gethostname", return_value="node"),
+    ):
+        collector.collect_accelerator()
+    exported = json.loads(output.read_text())
+    assert exported["scope"] == "container" and exported["cpu"]["logical_cpus"] == 12
+    assert exported["network"]["hostname"] == "node" and exported["network"]["fqdn"] == "node.example.test"
+    assert {item["ip"] for item in exported["network"]["addresses"]} == {"192.0.2.42", "2001:db8::42"}
+    assert exported["devices"][1]["model"] == "Example Accelerator"
+    assert exported["devices"][1]["memory_total_bytes"] == 8 * 1024**3
+    assert exported["devices"][1]["device_uuid"] == "fixture-device-a"
+    assert exported["devices"][1]["pci_bus"] == "0000:7e:00.0"
+    assert exported["devices"][0]["device_uuid"] is None
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert b"node.example.test" not in collector.render() and b"192.0.2.42" not in collector.render()
+    assert b"fixture-device-a" not in collector.render() and b"0000:7e:00.0" not in collector.render()
+
+
 def test_proc_memory_uses_available_not_just_free(tmp_path):
     (tmp_path / "meminfo").write_text("MemTotal: 1000 kB\nMemAvailable: 600 kB\nMemFree: 10 kB\n")
     assert host_memory(tmp_path) == (400 * 1024, 1000 * 1024)
@@ -125,7 +179,7 @@ def test_fleet_probe_emits_normalized_all_card_data_without_raw_process_ids(tmp_
     assert [item["device"] for item in value["cards"]] == ["0", "2"]
     assert value["cards"][1]["process_count"] == 2
     assert value["cards"][1]["process_info_truncated"] is True
-    assert "processes" not in value["cards"][1]
+    assert {"processes", "uuid", "pci_bus"}.isdisjoint(value["cards"][1])
 
 
 def test_fleet_failure_keeps_old_source_time_and_queries_only_explicit_target(tmp_path):
@@ -153,6 +207,88 @@ def test_fleet_failure_keeps_old_source_time_and_queries_only_explicit_target(tm
     body = fleet.render().decode()
     assert 'lockbot_sample_timestamp_seconds{node="node-a",collector="accelerator"} 1234' in body
     assert 'lockbot_collector_success{node="node-a",collector="accelerator"} 0' in body
+
+
+def test_fleet_preserves_host_sample_and_inventory_when_accelerator_fails(tmp_path):
+    from lockbot.metrics.exporter import FleetCollector
+
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text('{"devices":[{"device":"0","model":"Example Accelerator"}]}')
+    target = config(ssh_target="monitor@node-a.example.invalid", inventory_output=str(inventory))
+    fleet = FleetCollector({"targets": [target]})
+    with patch(
+        "lockbot.metrics.exporter.run_xml",
+        return_value=json.dumps(
+            {
+                "host_success": True,
+                "host_observed_at": 1234,
+                "cpu": [100, 20],
+                "memory": [30, 100],
+                "filesystems": {},
+                "accelerator_success": True,
+                "accelerator_observed_at": 1234,
+                "cards": None,
+                "hardware_inventory": {"devices": []},
+            }
+        ),
+    ):
+        assert fleet.collect(target)
+    body = fleet.render().decode()
+    assert 'lockbot_host_memory_used_bytes{node="node-a"} 30' in body
+    assert 'lockbot_collector_success{node="node-a",collector="accelerator"} 0' in body
+    assert json.loads(inventory.read_text())["devices"][0]["model"] == "Example Accelerator"
+
+
+def test_fleet_backs_off_failed_nodes_without_delaying_healthy_nodes(monkeypatch):
+    from lockbot.metrics import exporter
+
+    class Clock:
+        now = 0
+
+        def is_set(self):
+            return self.now > 540
+
+        def wait(self, seconds):
+            self.now += 30
+
+    class Executor:
+        def __init__(self, *, max_workers):
+            assert max_workers == 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *error):
+            return False
+
+        def submit(self, collect, target):
+            future = Future()
+            try:
+                future.set_result(collect(target))
+            except Exception as error:
+                future.set_exception(error)
+            return future
+
+    clock = Clock()
+    offline = config(ssh_target="monitor@offline.example.invalid")
+    healthy = config(node="node-b", ssh_target="monitor@healthy.example.invalid")
+    fleet = exporter.FleetCollector({"targets": [offline, healthy], "interval_seconds": 60, "max_workers": 1})
+    calls = {"node-a": [], "node-b": []}
+
+    def collect(target):
+        node = target["node"]
+        calls[node].append(clock.now)
+        if node == "node-a" and clock.now < 420:
+            raise subprocess.TimeoutExpired("ssh", 25)
+        return True
+
+    monkeypatch.setattr(fleet, "collect", collect)
+    monkeypatch.setattr(exporter.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(exporter.random, "uniform", lambda *_: 0)
+    monkeypatch.setattr(exporter, "ThreadPoolExecutor", Executor)
+    fleet.run(clock)
+    assert calls["node-a"] == [0, 150, 420, 510]
+    assert calls["node-b"] == [30, 120, 210, 300, 390, 480]
 
 
 def test_xpu_xml_uses_identical_metric_units_and_explicit_indices():
