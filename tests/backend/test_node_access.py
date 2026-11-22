@@ -11,7 +11,7 @@ from lockbot.backend.app.audit.models import AuditLog
 from lockbot.backend.app.personal_panel.router import create_panel
 
 from backend.test_personal_panel_native import panel  # noqa: F401
-from backend.test_resource_api_resources import _get, _hold, api  # noqa: F401
+from backend.test_resource_api_resources import _get, _hold, _persist, api  # noqa: F401
 
 HOST = "ssh-host.example.invalid"
 
@@ -109,7 +109,7 @@ def test_removed_inventory_cannot_reattach_saved_address(client, api):
     assert client.get(path, headers=owner).json()["nodes"] == {}
 
 
-def test_holder_access_checks_live_snapshot_even_on_cache_hit(client, api):
+def test_holder_access_checks_the_latest_committed_snapshot(client, api):
     _, path = _routes(api)
     assert client.put(path, headers=api["auth_header"], json=_mapping(n1={"host": HOST})).status_code == 200
     assert HOST not in _get(client, api).text
@@ -119,9 +119,30 @@ def test_holder_access_checks_live_snapshot_even_on_cache_hit(client, api):
     assert active.headers["Cache-Control"] == "no-store"
     assert active.json()["resources"][0]["node_access"] == {"host": HOST, "port": 22}
     api["bot"].state.bot_state["n1"]["current_users"].clear()
+    _persist(api)
     assert HOST not in _get(client, api).text
     _hold(api, "n1", "alice", duration=1, started=int(datetime.now(timezone.utc).timestamp()) - 10)
     assert HOST not in _get(client, api).text
+
+
+def test_changed_snapshot_does_not_disclose_address_from_old_holding(client, api, monkeypatch):
+    from lockbot.backend.app.resource_api import resources
+
+    _, path = _routes(api)
+    assert client.put(path, headers=api["auth_header"], json=_mapping(n1={"host": HOST})).status_code == 200
+    api["bot"].lock("alice", "lock n1 10m")
+    project = resources.build_resources
+
+    def project_then_release(**kwargs):
+        result = project(**kwargs)
+        api["bot"].unlock("alice", "free n1")
+        return result
+
+    monkeypatch.setattr(resources, "build_resources", project_then_release)
+    response = _get(client, api)
+    assert response.status_code == 200
+    assert response.json()["resources"][0]["holders"][0]["external_user_id"] == "alice"
+    assert HOST not in response.text
 
 
 def test_dual_address_document_preserves_omitted_legacy_nodes(client, api):
@@ -154,6 +175,7 @@ def test_native_browser_and_agent_project_only_held_cards(client, api, panel):
     )
     if "booking_list" in cards[1]:
         cards[1]["booking_list"].append({"user_id": "alice", "start_time": 1, "duration": 600})
+    _persist(api)
     snapshot = _get(client, api).json()["resources"][0]
     assert "node_access" not in snapshot
     assert snapshot["devices"][0]["node_access"] == address
