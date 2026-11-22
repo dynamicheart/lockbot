@@ -316,10 +316,11 @@ class BaseLockBot:
         return t("error.whitelist_hint", config=self.config, owner=owner)
 
     # ------------------------------------------------------ _msg_with_usage
-    def _msg_with_usage(self, msg_key, *, node_key=None, sep="", **kwargs):
+    def _msg_with_usage(self, msg_key, *, node_key=None, sep="", usage=None, **kwargs):
         """Build usage text, or message parts when a successful request includes a link."""
         message = t(msg_key, config=self.config, **kwargs)
-        usage = self._current_usage(node_key)
+        if usage is None:
+            usage = self._current_usage(node_key)
         if msg_key == "success.resource_locked":
             # Separate the title, resource list and user mention with one blank line.
             content = message.rstrip() + "\n\n" + usage.strip()

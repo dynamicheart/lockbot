@@ -103,3 +103,44 @@ def test_resource_reminder_messages_match_original(tmp_path, case, bot_class, bo
     expected = json.loads(MESSAGES.read_text(encoding="utf-8"))
     actual = capture_message(tmp_path, case, bot_class, bot_type, adapter_name, lang)
     assert actual == expected[f"{case}/{adapter_name}/{lang}"]
+
+
+@pytest.mark.parametrize("operation", ["lock", "take"])
+def test_queue_replies_render_after_the_state_is_saved(tmp_path, monkeypatch, operation):
+    from lockbot.core.io import _bot_dir
+
+    adapter = InfoflowAdapter()
+    bot = QueueBot(
+        config_dict={
+            "BOT_TYPE": "QUEUE",
+            "BOT_ID": "fixture",
+            "DATA_DIR": str(tmp_path),
+            "CLUSTER_CONFIGS": ["node1", "node2"],
+            "LANGUAGE": "en",
+        },
+        adapter=adapter,
+    )
+    execute_text_command("prior-user", "lock node2 1h", bot)
+    if operation == "take":
+        execute_text_command("prior-user", "lock node1 1h", bot)
+    original = adapter.build_reply
+    monkeypatch.setattr(bot, "_get_site_value", lambda key: "true" if key == "agent_promotion_enabled" else "")
+    monkeypatch.setattr(bot, "_agent_skill_url", lambda: "https://example.invalid/skill")
+
+    def build_reply(content, users, group_id=None):
+        assert not bot._lock.locked()
+        saved = json.loads((Path(_bot_dir(bot.config)) / "bot_state.json").read_text())
+        assert saved["bot_state"]["node1"]["current_users"][0]["user_id"] == "actor"
+        return original(content, users, group_id)
+
+    monkeypatch.setattr(adapter, "build_reply", build_reply)
+    payload = execute_text_command("actor", f"{operation} node1 30m", bot)
+    parts = payload["message"]["body"]
+    if operation == "lock":
+        assert [item["type"] for item in parts] == ["TEXT", "TEXT", "LINK", "TEXT", "TEXT", "AT"]
+        assert parts[0]["content"].endswith("\n\n")
+        assert parts[2]["href"] == "https://example.invalid/skill"
+        assert parts[3]["content"] == parts[4]["content"] == "\n"
+    else:
+        assert "node2" not in parts[0]["content"]
+        assert set(parts[1]["atuserids"]) == {"actor", "prior-user"}
