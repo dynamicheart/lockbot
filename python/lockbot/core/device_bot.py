@@ -149,8 +149,9 @@ class DeviceBot(BaseLockBot):
         """
         query current usage
         """
-        with self._state_guard():
-            content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
+        snapshot = self.published_snapshot()
+        usage = self._current_usage(node_key, state=snapshot.state)
+        content = self._msg_with_usage("query.cluster_usage_title", usage=usage)
         return self._query_reply(content, user_id)
 
     def lock(self, user_id, command, *, acquisition_limit=None):
@@ -614,10 +615,14 @@ class DeviceBot(BaseLockBot):
 
         return max(1.0, min_next) if min_next != float("inf") else None
 
-    def _current_usage(self, node_filter=None):
+    def _current_usage(self, node_filter=None, *, state=None):
         """
         Get a text description of the current cluster device usage (supports merged display and heterogeneous hints).
         """
         return get_current_usage(
-            node_filter, self.state.bot_state, {}, config=self.config, display_node=self._display_node
+            node_filter,
+            self.state.bot_state if state is None else state,
+            {},
+            config=self.config,
+            display_node=self._display_node,
         )

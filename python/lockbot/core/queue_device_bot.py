@@ -23,11 +23,10 @@ class QueueDeviceBot(QueueBot):
 
     _node_list_pattern = r"([\w-]+)((\s*[,，、]\s*([\w-])+)*)"
 
-    def _resource_state(self):
+    def _resource_state(self, state=None):
         # References, not copies: the shared queue engine mutates the persisted card entries.
-        return {
-            f"{node}:dev{card['dev_id']}": card for node, devices in self.state.bot_state.items() for card in devices
-        }
+        state = self.state.bot_state if state is None else state
+        return {f"{node}:dev{card['dev_id']}": card for node, devices in state.items() for card in devices}
 
     def parse_command(self, user_id, command_key, command, parsing_duration=False):
         ok, error, nodes, devices, duration = DeviceBot.parse_command(

@@ -9,10 +9,12 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version as _pkg_version
+from types import MappingProxyType
 from uuid import uuid4
 
 from lockbot.core.config import Config
@@ -35,6 +37,20 @@ class AcquisitionLimitExceeded(ValueError):
 
 class HoldingVersionConflict(ValueError):
     """The exact exclusive holding is no longer the one observed by an operator."""
+
+
+def _freeze_state(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_state(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_state(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceSnapshot:
+    revision: int
+    state: Mapping
 
 
 class BotState:
@@ -98,8 +114,18 @@ class BaseLockBot:
         # core/ owns no database, so the backend injects this. None means the commands
         # report themselves as unavailable.
         self.binding_hook: Callable[..., str] | None = None
+        self._snapshot = ResourceSnapshot(0, _freeze_state(self.state.bot_state))
+        self.config._publish_resource_snapshot = self._publish_resource_snapshot
 
         self._notify_clamped_users()
+
+    def _publish_resource_snapshot(self, state):
+        """Publish one complete state after its write succeeds, under the writer's lock."""
+        self._snapshot = ResourceSnapshot(self._snapshot.revision + 1, _freeze_state(state))
+
+    def published_snapshot(self) -> ResourceSnapshot:
+        """Return the latest committed snapshot without entering the allocator lock."""
+        return self._snapshot
 
     def _notify_clamped_users(self):
         """Send notification to users whose locks were shortened by max_duration reduction."""

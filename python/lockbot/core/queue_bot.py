@@ -598,8 +598,8 @@ class QueueBot(NodeBot):
             for key, node in self._usage_rows(resources)
         )
 
-    def _current_usage(self, node_filter=None):
-        rows = self._capture_usage_rows(self._resource_state())
+    def _current_usage(self, node_filter=None, *, state=None):
+        rows = self._capture_usage_rows(self._resource_state(state))
         return self._render_usage(rows, node_filter)
 
     def _render_usage(self, rows, node_filter=None, *, observed_at=None):

@@ -282,7 +282,10 @@ def _save_bot_state_atomically(data, config=None, *, evidence=None):
 
 
 def observe_state_persistence(config, data, *, successful):
-    """Optional local evidence hook. It must never replace the allocator's result."""
+    """Publish committed state and notify the optional local evidence observer."""
+    publish = getattr(config, "_publish_resource_snapshot", None)
+    if successful and publish is not None:
+        publish(data)
     observer = getattr(config, "_lifecycle_observer", None)
     if observer is not None:
         try:
