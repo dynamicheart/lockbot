@@ -28,8 +28,10 @@ Set `PLATFORM_URL` to the actual address Agents use to reach this deployment, su
 `http://192.0.2.10:8155` with the example IP replaced by the server's IP. Use the public
 origin of the reverse proxy when applicable. Include the scheme and published port.
 Compose passes this value to the service. A direct `docker run` can pass it through
-`--env-file` or `-e PLATFORM_URL=...`. The Agent Skill embeds the full download URL from
-this deployment value so it survives copying the Markdown.
+`--env-file` or `-e PLATFORM_URL=...`. The Agent API v2 manifest at
+`/api/agent/v2/manifest` links to the Markdown Skill and publishes its SHA-256.
+The Skill includes this deployment address and the Go `lb` commands for selecting
+it. Confirm the address and digest on the upgraded service after startup.
 
 When the user asks you to run a read-only preflight and provides the paths, run the matching helper below first. Report the checks and limits from the JSON it actually returned, along with the process exit status. If the helper did not run or did not return a report, say what blocked it and leave those checks unverified. Reading the guide or checking that the files exist does not verify the deployment.
 

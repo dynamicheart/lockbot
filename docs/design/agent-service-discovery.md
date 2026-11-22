@@ -1,5 +1,7 @@
 # Agent 接入：先认平台，再使用凭据
 
+本文记录 Agent API v1 的接入设计和历史 Skill。新部署提供 Agent API v2 与 Go `lb`，使用方式见 [当前 Skill 接入指南](../usage/resource-agent-helper.md)。
+
 多个平台都叫 Lockbot，也可能提供相同的命令 URL。Agent 如果只记住“Lockbot 的 token”，就容易把另一套系统的接口、权限和凭据带过来。本平台需要明确自己的身份，并让 Agent 在不扫描机器人编号的情况下完成接入。
 
 ## 用户需要提供什么
