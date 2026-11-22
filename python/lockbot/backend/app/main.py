@@ -538,16 +538,24 @@ async def lifespan(app: FastAPI):
     backup_scheduler.start()
 
     from lockbot.backend.app.broadcast.service import broadcast_worker
+    from lockbot.backend.app.resource_api.idle_observation import configured_observer
     from lockbot.backend.app.resource_api.notifications import notification_budget
     from lockbot.backend.app.resource_api.usage_cleanup import usage_cleanup_loop
 
     notification_budget.start()
     broadcast_worker.start()
     usage_cleanup = asyncio.create_task(usage_cleanup_loop())
+    observer = configured_observer(bot_manager)
+    app.state.idle_observer = observer
+    idle_observation = asyncio.create_task(observer.run()) if observer else None
     app.state.service_history.start()
     try:
         yield
     finally:
+        if idle_observation is not None:
+            idle_observation.cancel()
+            with suppress(asyncio.CancelledError):
+                await idle_observation
         usage_cleanup.cancel()
         with suppress(asyncio.CancelledError):
             await usage_cleanup
