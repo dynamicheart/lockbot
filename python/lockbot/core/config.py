@@ -67,6 +67,10 @@ _CONFIG_SCHEMA = {
         "default": False,
         "description": "Include API holdings and bookings in automatic group reminders",
     },
+    "QUEUE_AUTO_LOCK": {
+        "default": False,
+        "description": "Automatically lock an available resource for the first booking",
+    },
     "LANGUAGE": {
         "default": "zh",
         "description": "Bot display language: zh (Chinese) or en (English)",
@@ -119,6 +123,8 @@ class Config:
             raise ValueError("FEISHU_REACTION_REPLIES must be a boolean")
         if not isinstance(self.get_val("FORBID_RELOCK", False), bool):
             raise ValueError("FORBID_RELOCK must be a boolean")
+        if not isinstance(self.get_val("QUEUE_AUTO_LOCK"), bool):
+            raise ValueError("QUEUE_AUTO_LOCK must be a boolean")
 
     def _normalize(self):
         """Normalize config values (e.g. list -> dict for CLUSTER_CONFIGS)."""

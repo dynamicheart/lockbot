@@ -419,8 +419,8 @@ class QueueBot(NodeBot):
 
     def _check_and_notify(self) -> float | None:
         """
-        Check resource expiration and booking timeouts, release expired resources,
-        and send notifications. Persist state only when changes occur.
+        Process resource expiration and advance or notify the first booking.
+        Persist state only when changes occur.
 
         Returns: seconds until next interesting event, or None if no active locks/bookings.
         """
@@ -430,6 +430,8 @@ class QueueBot(NodeBot):
         user_ids = set()
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
+        auto_lock = self.config.get_val("QUEUE_AUTO_LOCK")
+        max_duration = self.config.get_val("MAX_LOCK_DURATION")
 
         TIME_TO_LOCK = 5 * 60
 
@@ -487,23 +489,33 @@ class QueueBot(NodeBot):
 
                     if len(node["current_users"]) == 0:
                         node["status"] = "idle"
-                # === 2. If node is idle, check if any booked user needs notification ===
+                # === 2. If the resource is idle, advance its queue ===
                 if node["status"] == "idle" and node["booking_list"]:
                     first_book_user = node["booking_list"][0]
                     now = int(time.time())
 
-                    # Not notified yet, notify directly
-                    if not first_book_user.get("is_notified", False):
+                    if first_book_user.get("is_notified") and now - first_book_user["start_time"] >= TIME_TO_LOCK:
+                        node["booking_list"].pop(0)
+                        if self._include_group_reminder(first_book_user):
+                            expired_users.append((first_book_user["user_id"], node_key))
+                            user_ids.add(first_book_user["user_id"])
+                        state_changed = True
+                    if not node["booking_list"]:
+                        continue
+                    first_book_user = node["booking_list"][0]
+                    if auto_lock:
+                        user_id = first_book_user["user_id"]
+                        duration = first_book_user["duration"]
+                        if max_duration > 0 and user_id not in self._duration_whitelist:
+                            duration = min(duration, max_duration)
+                        holding = create_user_info(user_id, duration, now, config=self.config)
+                        holding["source"] = first_book_user.get("source", "chat")
+                        node["booking_list"].pop(0)
+                        node["current_users"] = [holding]
+                        node["status"] = "exclusive"
+                        state_changed = True
+                    elif not first_book_user.get("is_notified"):
                         notify_first_booking_user(node_key, node, now)
-                    else:
-                        # Already notified but timed out without response -> remove and notify next
-                        if now - first_book_user["start_time"] >= TIME_TO_LOCK:
-                            remove_user_info(node["booking_list"], first_book_user["user_id"])
-                            if self._include_group_reminder(first_book_user):
-                                expired_users.append((first_book_user["user_id"], node_key))
-                                user_ids.add(first_book_user["user_id"])
-                            state_changed = True
-                            notify_first_booking_user(node_key, node, now)
 
             pending = self._pending_booking_rows(pending_keys)
             if state_changed:
@@ -526,7 +538,7 @@ class QueueBot(NodeBot):
                         min_next = min(min_next, next_event)
                 # Booking list: first notified user may time out after TIME_TO_LOCK
                 booking_list = node.get("booking_list", [])
-                if booking_list:
+                if booking_list and (not auto_lock or node["status"] == "idle"):
                     first = booking_list[0]
                     if first.get("is_notified") and first.get("start_time"):
                         until_timeout = TIME_TO_LOCK - (now_ts - first["start_time"])

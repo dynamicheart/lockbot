@@ -46,6 +46,8 @@ def _validate_config_overrides(v: dict | None) -> dict | None:
         errors.append("FORBID_RELOCK must be a boolean")
     if "GROUP_REMIND_API_RESOURCES" in v and not isinstance(v["GROUP_REMIND_API_RESOURCES"], bool):
         errors.append("GROUP_REMIND_API_RESOURCES must be a boolean")
+    if "QUEUE_AUTO_LOCK" in v and not isinstance(v["QUEUE_AUTO_LOCK"], bool):
+        errors.append("QUEUE_AUTO_LOCK must be a boolean")
     if "FEISHU_QUERY_PANEL" in v and not isinstance(v["FEISHU_QUERY_PANEL"], bool):
         errors.append("FEISHU_QUERY_PANEL must be a boolean")
     if "RESOURCE_VIEW_LINK_DAYS" in v:
