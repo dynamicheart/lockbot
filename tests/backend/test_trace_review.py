@@ -6,12 +6,23 @@ from sqlalchemy import select
 
 
 def test_trace_review_routes_are_opt_in(request, monkeypatch):
+    monkeypatch.setenv("DEV_MODE", "true")
     monkeypatch.delenv("LOCKBOT_TRACE_REVIEW_DIR", raising=False)
     client = request.getfixturevalue("client")
     assert client.get("/api/dev/trace-review/snapshot").status_code == 404
 
 
+def test_trace_review_routes_are_disabled_in_production(request, tmp_path, monkeypatch):
+    monkeypatch.setenv("DEV_MODE", "false")
+    monkeypatch.setenv("LOCKBOT_TRACE_REVIEW_DIR", str(tmp_path))
+    (tmp_path / "viewer.html").write_text("<title>Trace review</title>")
+    client = request.getfixturevalue("client")
+    assert client.get("/dev/trace-review").status_code == 404
+    assert client.get("/api/dev/trace-review/snapshot").status_code == 404
+
+
 def test_trace_snapshot_requires_current_super_admin(request, tmp_path, monkeypatch, db_session):
+    monkeypatch.setenv("DEV_MODE", "true")
     monkeypatch.setenv("LOCKBOT_TRACE_REVIEW_DIR", str(tmp_path))
     (tmp_path / "viewer.html").write_text("<title>Trace review</title>")
     client = request.getfixturevalue("client")

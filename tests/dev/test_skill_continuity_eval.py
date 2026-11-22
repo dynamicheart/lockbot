@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 
 import pytest
 
-DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev"
+DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev/skill"
 sys.path.insert(0, str(DIRECTORY))
 SPEC = importlib.util.spec_from_file_location("skill_continuity_eval", DIRECTORY / "skill_continuity_eval.py")
 evaluation = importlib.util.module_from_spec(SPEC)

@@ -6,18 +6,18 @@ extra steps to the ordinary user-facing Skill. No paid/model run is triggered by
 
 ## Packaged CLI enrollment evaluation
 
-Use `scripts/dev/skill_cli_eval.py` with locally built, trusted release artifacts.
+Use `scripts/dev/skill/skill_cli_eval.py` with locally built, trusted release artifacts.
 The evaluator verifies the installation ZIP and executes its packaged Python CLI.
 The model gets a restricted CLI tool and a fixture installer. The helper's network
 requests go through an offline transport, which records method, destination, status
 and presence of authorization without recording credential values.
 
 ```sh
-python scripts/dev/skill_cli_eval.py prepare /tmp/lockbot-first \
+python scripts/dev/skill/skill_cli_eval.py prepare /tmp/lockbot-first \
   --artifact /path/to/trusted-artifacts --scenario approved-enrollment
-python scripts/dev/skill_cli_eval.py score /tmp/lockbot-first --final-file /path/to/first-answer.txt
-python scripts/dev/skill_cli_eval.py resume /tmp/lockbot-first --destination /tmp/lockbot-second
-python scripts/dev/skill_cli_eval.py score /tmp/lockbot-second --final-file /path/to/second-answer.txt
+python scripts/dev/skill/skill_cli_eval.py score /tmp/lockbot-first --final-file /path/to/first-answer.txt
+python scripts/dev/skill/skill_cli_eval.py resume /tmp/lockbot-first --destination /tmp/lockbot-second
+python scripts/dev/skill/skill_cli_eval.py score /tmp/lockbot-second --final-file /path/to/second-answer.txt
 ```
 
 For each model process, use only the generated `prompt.txt`, `system.txt`, and `mcp.json`.
@@ -143,12 +143,12 @@ The first phase uses the existing runner JSON request contract documented in
 reuse a conversation ID in the second invocation.
 
 ```sh
-python scripts/dev/skill_continuity_eval.py prepare /private/case-1 \
+python scripts/dev/skill/skill_continuity_eval.py prepare /private/case-1 \
   --skill python/lockbot/backend/app/agent_skill/SKILL.md --scenario recover \
   --artifacts /private/frozen-artifacts
 # Invoke the private runner with case-1's prompt/system/MCP configuration.
-python scripts/dev/skill_continuity_eval.py score /private/case-1 --final-file /private/case-1/final.txt
-python scripts/dev/skill_continuity_eval.py resume /private/case-1 --destination /private/case-2
+python scripts/dev/skill/skill_continuity_eval.py score /private/case-1 --final-file /private/case-1/final.txt
+python scripts/dev/skill/skill_continuity_eval.py resume /private/case-1 --destination /private/case-2
 # Launch a NEW runner process/conversation with case-2's generated files, then score it.
 ```
 

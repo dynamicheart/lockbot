@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from lockbot.backend.app.resource_api import skill
 
-DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev"
+DIRECTORY = Path(__file__).resolve().parents[2] / "scripts/dev/skill"
 sys.path.insert(0, str(DIRECTORY))
 SPEC = importlib.util.spec_from_file_location("skill_cli_eval", DIRECTORY / "skill_cli_eval.py")
 evaluation = importlib.util.module_from_spec(SPEC)

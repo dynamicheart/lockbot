@@ -1039,7 +1039,7 @@ def create_app() -> FastAPI:
     mount_if_configured(app)
 
     trace_review_directory = os.environ.get("LOCKBOT_TRACE_REVIEW_DIR")
-    if trace_review_directory:
+    if _dev_mode and trace_review_directory:
         from pathlib import Path
 
         from lockbot.backend.app.trace_review import trace_review_router

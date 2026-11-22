@@ -9,7 +9,7 @@ from pathlib import Path
 from lockbot.backend.app.resource_api import skill
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts/dev/skill_eval_matrix.py"
+SCRIPT = ROOT / "scripts/dev/skill/skill_eval_matrix.py"
 ORIGIN = "http://192.0.2.10:8155"
 
 ADAPTER = """

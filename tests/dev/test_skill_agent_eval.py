@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts/dev/skill_agent_eval.py"
+SCRIPT = Path(__file__).resolve().parents[2] / "scripts/dev/skill/skill_agent_eval.py"
 sys.path.insert(0, str(SCRIPT.parent))
 SPEC = importlib.util.spec_from_file_location("skill_agent_eval", SCRIPT)
 evaluation = importlib.util.module_from_spec(SPEC)

@@ -109,7 +109,7 @@ DeepSeek 额外检查了四个本地 Skill 或连接位置，均未找到已批�
 
 首轮曾由 Python 3.9 启动夹具，包内 CLI 因最低版本要求未执行。修正为 Python 3.12 后重新准备工作区，以上结果只统计重跑。评分器现在也检查恢复出的第二把 Key 是否出现在最终答复里。
 
-Codex CLI `0.167.0` 使用相同安装包、用例、夹具和评分器，在工作区沙箱中经本地命令调用夹具。Claude 经 MCP 调用。Codex 的这次结果覆盖本地命令路径。复现时可运行 `python3 scripts/dev/skill_cli_eval.py call CASE` 列出夹具工具，再用 `--tool NAME --arguments JSON` 调用。
+Codex CLI `0.167.0` 使用相同安装包、用例、夹具和评分器，在工作区沙箱中经本地命令调用夹具。Claude 经 MCP 调用。Codex 的这次结果覆盖本地命令路径。复现时可运行 `python3 scripts/dev/skill/skill_cli_eval.py call CASE` 列出夹具工具，再用 `--tool NAME --arguments JSON` 调用。
 
 #### Agent 生成的同一条链接在 Chrome 里打开
 
@@ -202,7 +202,7 @@ flowchart LR
     Review --> Report
 ```
 
-实现入口：[skill_agent_eval.py](../../scripts/dev/skill_agent_eval.py)。运行方法和客户端协议见 [英文执行指南](agent-skill-evaluation.md)。
+实现入口：[skill_agent_eval.py](../../scripts/dev/skill/skill_agent_eval.py)。运行方法和客户端协议见 [英文执行指南](agent-skill-evaluation.md)。
 
 - 每个模型、每个用例使用全新会话和目录，关闭环境中的其他 Skill、记忆、hook 和通用工具。
 - 受测模型只有模拟 HTTP、分页读文件、写文件、检查已知 ZIP、受支持安装器这些工具。没有任意网络或 shell 执行能力。

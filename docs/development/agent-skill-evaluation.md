@@ -5,7 +5,7 @@ deployment-rendered Markdown. An Agent should identify the service, recommend lo
 installation for ongoing use, verify an authorized installation, and keep credentials
 scoped to the verified service and bot. Saying “installed” is not evidence of installation.
 
-`scripts/dev/skill_agent_eval.py` supplies an isolated MCP fixture for opt-in model tests.
+`scripts/dev/skill/skill_agent_eval.py` supplies an isolated MCP fixture for opt-in model tests.
 It never connects to production resources. The fixture regression tests run offline and can run in ordinary CI. Model evaluations
 are manual local runs; no workflow launches a model client or requires model credentials.
 
@@ -78,7 +78,7 @@ provider and private connection setup are unnecessary for interpreting the resul
 Example invocation (replace paths and model name):
 
 ```sh
-python scripts/dev/skill_agent_eval.py run \
+python scripts/dev/skill/skill_agent_eval.py run \
   --skill python/lockbot/backend/app/agent_skill/SKILL.md \
   --runner /private/evaluation/runner.json \
   --model MODEL_NAME --scenario body \
@@ -96,12 +96,12 @@ reload require separate integration tests.
 
 ## Run a parallel client and model matrix
 
-List the `suite:scenario` selections with `python scripts/dev/skill_eval_matrix.py list`.
+List the `suite:scenario` selections with `python scripts/dev/skill/skill_eval_matrix.py list`.
 Register each client and model pair with `--runner CLIENT MODEL ARGV_JSON` using the
 adapter protocol above. Run from an installed development environment on macOS or Linux.
 
 ```sh
-python scripts/dev/skill_eval_matrix.py run \
+python scripts/dev/skill/skill_eval_matrix.py run \
   --artifacts /private/evaluation/frozen-release \
   --runner Codex MODEL_NAME /private/evaluation/codex-runner.json \
   --runner Claude MODEL_NAME /private/evaluation/claude-runner.json \
