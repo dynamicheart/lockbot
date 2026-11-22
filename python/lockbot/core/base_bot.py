@@ -118,7 +118,6 @@ class BaseLockBot:
         self.idle_confirmation_hook: Callable[..., str] | None = None
         self._on_resource_snapshot: Callable[..., None] | None = None
         self._snapshot = ResourceSnapshot(0, datetime.now(timezone.utc), _freeze_state(self.state.bot_state))
-        self.config._publish_resource_snapshot = self._publish_resource_snapshot
 
         self._notify_clamped_users()
 
@@ -187,7 +186,8 @@ class BaseLockBot:
         transaction = resource_command_transaction.get()
         if transaction is not None:
             transaction.before_save(state)
-        save_bot_state_to_file(state, config=self.config, ended=ended)
+        save_bot_state_to_file(state, config=self.config)
+        self._publish_resource_snapshot(state, ended=ended)
 
     def _save_and_notify(self, *, ended=()) -> None:
         """Persist a command's state change and wake the scheduler (if wired)."""

@@ -1,6 +1,4 @@
 # ruff: noqa: F811
-import io
-import zipfile
 from datetime import datetime
 
 import pytest
@@ -91,14 +89,12 @@ def test_public_command_docs_have_named_examples_and_grammar(client):
     op = client.get("/api/public-openapi.json").json()["paths"]["/api/agent/commands"]["post"]
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"node_lock", "device_lock", "queue_book", "release_or_cancel"} <= examples.keys()
-    bundle = client.get("/api/agent-skill/lockbot-resource-agent.zip").content
-    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-        instructions = "\n".join(archive.read(name).decode() for name in archive.namelist() if name.endswith(".md"))
+    instructions = client.get("/api/agent/v2/skill/SKILL.md")
+    assert instructions.status_code == 200
     for word in ["free node1", "book node1 2h", "dev0-3", "queue_claim_window_seconds"]:
         assert word in op["description"]
-    assert "command --operation lock" in instructions
-    assert "command --operation release" in instructions
-    assert "POST `/api/agent/commands`" not in instructions
+    assert "`lb lock <node> 30m`" in instructions.text
+    assert "`lb free`" in instructions.text
 
 
 def test_active_authorizations_paginate_without_hiding_unseen_keys(api, client, db_session):
@@ -162,7 +158,7 @@ def test_summary_counts_only_live_task_declarations_and_updates_after_release(ap
 def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
     schema = client.get("/api/public-openapi.json").json()
     groups = {item["name"] for item in schema["tags"]}
-    assert groups == {"Agent API", "OP API", "Configuration API", "Agent 绑定", "Skill 下载"}
+    assert groups == {"Agent API", "OP API", "Configuration API", "Agent 绑定"}
     paths = schema["paths"]
     assert paths["/api/agent/commands"]["post"]["security"] == [{"AgentKey": []}]
     assert paths["/api/agent/resources"]["get"]["tags"] == ["Agent API"]
@@ -170,8 +166,7 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
         assert paths[path][method]["tags"] == ["OP API"]
         assert paths[path][method]["security"] == [{"OpApiKey": []}]
     assert paths["/api/resource-auth/bindings"]["post"]["security"] == []
-    assert "/api/agent-skill/SKILL.md" not in paths
-    assert paths["/api/agent-skill/lockbot-resource-agent.zip"]["get"]["security"] == []
+    assert not any(path.startswith("/api/agent-skill") for path in paths)
     configuration = "/api/bots/{bot_id}/configuration-access"
     for path, method in [(configuration, "get"), (configuration, "put"), (configuration + "/preview", "post")]:
         assert paths[path][method]["tags"] == ["Configuration API"]

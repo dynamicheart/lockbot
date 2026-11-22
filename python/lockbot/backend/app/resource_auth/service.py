@@ -656,8 +656,8 @@ def credential_challenge_result(db: Session, challenge_id: str, proof: str) -> d
         if key is None:
             return {"status": "unavailable"}
         result = {"status": "confirmed", "credential": key}
-        if record.purpose == "recover":
-            result["outcome"] = "created" if receipt.created else "recovered"
+        if receipt.created:
+            result["outcome"] = "created"
         return result
 
 

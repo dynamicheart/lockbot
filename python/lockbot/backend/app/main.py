@@ -930,10 +930,6 @@ def create_app() -> FastAPI:
                         "按选定的机器人和权限读取、预览并提交节点连接或数据源配置。"
                     ),
                 },
-                {
-                    "name": "Skill 下载",
-                    "description": ("公开下载入口，无需 API key。先把 skill 链接交给 Agent，再由用户完成绑定。"),
-                },
             ],
             "paths": public_paths,
             "components": {
