@@ -3,7 +3,6 @@
 import re
 import time
 from contextlib import suppress
-from copy import deepcopy
 
 from lockbot.core.command_result import completed_reply
 from lockbot.core.i18n import t
@@ -122,9 +121,9 @@ class QueueBot(NodeBot):
             observed_at = int(time.time())
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            snapshot = deepcopy(self._resource_state())
+            snapshot = self._capture_usage_rows(self._resource_state())
 
-        usage = self._current_usage(resources=snapshot, observed_at=observed_at)
+        usage = self._render_usage(snapshot, observed_at=observed_at)
         content = self._msg_with_usage("success.resource_locked", usage=usage)
         users_to_notify = {user_id, *group_recipients}
         if len(users_to_notify) > 1:
@@ -220,7 +219,7 @@ class QueueBot(NodeBot):
 
             requested = set(node_keys)
             affected_resources = {key: node for key, node in resources.items() if key in requested}
-            before = deepcopy(affected_resources)
+            before = self._capture_usage_rows(affected_resources)
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -254,15 +253,11 @@ class QueueBot(NodeBot):
             observed_at = int(time.time())
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            after = deepcopy(affected_resources)
+            after = self._capture_usage_rows(affected_resources)
 
         content = t("success.take_success_by", config=self.config, user_id=user_id)
-        content += t("label.before_take", config=self.config) + self._current_usage(
-            resources=before, observed_at=timestamp
-        )
-        content += t("label.after_take", config=self.config) + self._current_usage(
-            resources=after, observed_at=observed_at
-        )
+        content += t("label.before_take", config=self.config) + self._render_usage(before, observed_at=timestamp)
+        content += t("label.after_take", config=self.config) + self._render_usage(after, observed_at=observed_at)
         return self.adapter.build_reply(content, list(users_to_notify))
 
     def kicklock(self, user_id, command):
@@ -587,64 +582,57 @@ class QueueBot(NodeBot):
     def _usage_labels(self, resource_key):
         return None, self._display_node(resource_key)
 
-    def _current_usage(self, node_filter=None, *, resources=None, observed_at=None):
-        """
-        _current_usage
-        """
+    def _capture_usage_rows(self, resources):
+        """Group the display rows and detach only the fields used by the reply."""
+        return tuple(
+            (
+                key,
+                node["status"],
+                tuple(
+                    (user["user_id"], user["start_time"], user["duration"]) for user in node.get("current_users", ())
+                ),
+                tuple((user["user_id"], user["duration"]) for user in node.get("booking_list", ())),
+            )
+            for key, node in self._usage_rows(resources)
+        )
 
-        def _get_current_usage(nodes):
-            """
-            _get_current_usage
-            """
-            usage_info = ""
-            previous_group = None
-            for node_key, node_status in self._usage_rows(nodes):
-                if self._resource_matches_filter(node_key, node_filter):
-                    group, display_name = self._usage_labels(node_key)
-                    indent = "  " if group else ""
-                    if group and group != previous_group:
-                        usage_info += f"{group}\n"
-                    previous_group = group
-                    if node_status["status"] == "idle":
-                        usage_info += "{}{} {}\n".format(indent, display_name, t("status.idle", config=self.config))
-                    else:
-                        for user_idx, user_info in enumerate(node_status["current_users"]):
-                            node_name = f"{display_name}" if user_idx == 0 else ""
-                            uid = user_info["user_id"]
-                            duration = format_duration(
-                                remaining_duration(user_info["start_time"], user_info["duration"], now=observed_at),
-                                config=self.config,
-                            )
-                            usage_info += f"{indent}{node_name} {uid}  {duration}\n"
+    def _current_usage(self, node_filter=None):
+        rows = self._capture_usage_rows(self._resource_state())
+        return self._render_usage(rows, node_filter)
 
-                    # Show queue info (booking_list)
-                    booking_list = node_status.get("booking_list", [])
-                    if booking_list:
-                        queue_indent = indent + "  " if group else ""
-                        usage_info += queue_indent + t("label.queue_list", config=self.config)
-                        # Calculate estimated wait time based on max remaining lock time
-                        current_locked_time = 0
-                        for user_info in node_status.get("current_users", []):
-                            remain = remaining_duration(user_info["start_time"], user_info["duration"], now=observed_at)
-                            if remain > current_locked_time:
-                                current_locked_time = remain
+    def _render_usage(self, rows, node_filter=None, *, observed_at=None):
+        usage_info = ""
+        previous_group = None
+        for node_key, status, holders, bookings in rows:
+            if not self._resource_matches_filter(node_key, node_filter):
+                continue
+            group, display_name = self._usage_labels(node_key)
+            indent = "  " if group else ""
+            if group and group != previous_group:
+                usage_info += f"{group}\n"
+            previous_group = group
+            if status == "idle":
+                usage_info += f"{indent}{display_name} {t('status.idle', config=self.config)}\n"
+            else:
+                for user_idx, (user_id, start, seconds) in enumerate(holders):
+                    node_name = display_name if user_idx == 0 else ""
+                    duration = format_duration(remaining_duration(start, seconds, now=observed_at), config=self.config)
+                    usage_info += f"{indent}{node_name} {user_id}  {duration}\n"
 
-                        # Accumulated wait time
-                        accumulated_wait = current_locked_time
-                        for idx, booking_user in enumerate(booking_list):
-                            uid = booking_user["user_id"]
-                            dur_sec = booking_user["duration"]
-                            wait_time_str = format_duration(accumulated_wait, config=self.config)
-                            usage_info += queue_indent + t(
-                                "label.queue_item",
-                                config=self.config,
-                                index=idx + 1,
-                                user_id=uid,
-                                duration=format_duration(dur_sec, config=self.config),
-                                wait_time=wait_time_str,
-                            )
-                            accumulated_wait += dur_sec
-            usage_info += "\n"
-            return usage_info
-
-        return _get_current_usage(self._resource_state() if resources is None else resources)
+            if bookings:
+                queue_indent = indent + "  " if group else ""
+                usage_info += queue_indent + t("label.queue_list", config=self.config)
+                accumulated_wait = max(
+                    (remaining_duration(start, seconds, now=observed_at) for _, start, seconds in holders), default=0
+                )
+                for index, (user_id, seconds) in enumerate(bookings, start=1):
+                    usage_info += queue_indent + t(
+                        "label.queue_item",
+                        config=self.config,
+                        index=index,
+                        user_id=user_id,
+                        duration=format_duration(seconds, config=self.config),
+                        wait_time=format_duration(accumulated_wait, config=self.config),
+                    )
+                    accumulated_wait += seconds
+        return usage_info + "\n"
