@@ -73,6 +73,28 @@ def test_scrapes_only_read_cache_and_failures_do_not_forge_freshness(tmp_path):
     assert all(len(line.rsplit(" ", 1)) == 2 for line in body.splitlines())
 
 
+@pytest.mark.parametrize(
+    ("interval_override", "expected_samples"), [({}, [0, 180, 360]), ({"interval_seconds": 240}, [0, 240])]
+)
+def test_single_collector_accelerator_sampling_interval(monkeypatch, interval_override, expected_samples):
+    class Clock:
+        now = 0
+
+        def is_set(self):
+            return self.now > 360
+
+        def wait(self, seconds):
+            self.now += seconds
+
+    clock = Clock()
+    samples = []
+    collector = Collector(config(**interval_override), monotonic=lambda: clock.now)
+    monkeypatch.setattr(collector, "collect_host", lambda: None)
+    monkeypatch.setattr(collector, "collect_accelerator", lambda: samples.append(clock.now))
+    collector.run(clock)
+    assert samples == expected_samples
+
+
 def test_hardware_inventory_keeps_network_facts_in_the_private_export(tmp_path):
     output = tmp_path / "hardware.json"
     (tmp_path / "meminfo").write_text("MemTotal: 1000 kB\nMemAvailable: 600 kB\n")
@@ -239,7 +261,16 @@ def test_fleet_preserves_host_sample_and_inventory_when_accelerator_fails(tmp_pa
     assert json.loads(inventory.read_text())["devices"][0]["model"] == "Example Accelerator"
 
 
-def test_fleet_backs_off_failed_nodes_without_delaying_healthy_nodes(monkeypatch):
+@pytest.mark.parametrize(
+    ("interval_override", "offline_calls", "healthy_calls"),
+    [
+        ({}, [0, 390], [30, 240, 450]),
+        ({"interval_seconds": 60}, [0, 150, 420, 510], [30, 120, 210, 300, 390, 480]),
+    ],
+)
+def test_fleet_backs_off_failed_nodes_without_delaying_healthy_nodes(
+    monkeypatch, interval_override, offline_calls, healthy_calls
+):
     from lockbot.metrics import exporter
 
     class Clock:
@@ -272,7 +303,7 @@ def test_fleet_backs_off_failed_nodes_without_delaying_healthy_nodes(monkeypatch
     clock = Clock()
     offline = config(ssh_target="monitor@offline.example.invalid")
     healthy = config(node="node-b", ssh_target="monitor@healthy.example.invalid")
-    fleet = exporter.FleetCollector({"targets": [offline, healthy], "interval_seconds": 60, "max_workers": 1})
+    fleet = exporter.FleetCollector({"targets": [offline, healthy], "max_workers": 1, **interval_override})
     calls = {"node-a": [], "node-b": []}
 
     def collect(target):
@@ -287,8 +318,8 @@ def test_fleet_backs_off_failed_nodes_without_delaying_healthy_nodes(monkeypatch
     monkeypatch.setattr(exporter.random, "uniform", lambda *_: 0)
     monkeypatch.setattr(exporter, "ThreadPoolExecutor", Executor)
     fleet.run(clock)
-    assert calls["node-a"] == [0, 150, 420, 510]
-    assert calls["node-b"] == [30, 120, 210, 300, 390, 480]
+    assert calls["node-a"] == offline_calls
+    assert calls["node-b"] == healthy_calls
 
 
 def test_xpu_xml_uses_identical_metric_units_and_explicit_indices():
