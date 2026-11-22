@@ -108,7 +108,9 @@ def _dispatch_binding_command(user_id, text, bot, cmd, config):
     return adapter.build_reply(reply_text.rstrip() + "\n\n", [user_id])
 
 
-def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisition_limit=None, source="chat"):
+def execute_text_command(
+    user_id, text, bot, allowed_commands=None, *, acquisition_limit=None, source="chat", group_id=None
+):
     """Set a server-controlled origin while the shared dispatcher executes."""
     import uuid
 
@@ -137,6 +139,13 @@ def execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisiti
     correlation_token = command_correlation.set(uuid.uuid4().hex)
     outcome = "dispatched"
     try:
+        keep = getattr(bot, "idle_confirmation_hook", None)
+        if operation == "keep" and source == "chat" and allowed_commands is None and group_id and callable(keep):
+            parts = text.split(None, 1)
+            if len(parts) == 2 and parts[0].lower() == "keep":
+                argument = parts[1]
+                reply = keep(bot, user_id, str(group_id), argument.strip())
+                return _resolve_adapter(bot).build_reply(reply + "\n\n", [user_id])
         return _execute_text_command(user_id, text, bot, allowed_commands, acquisition_limit=acquisition_limit)
     except CommandRejected:
         outcome = "rejected"
@@ -252,5 +261,5 @@ def _execute_text_command(user_id, text, bot, allowed_commands=None, *, acquisit
 def execute_command(msg_data, bot):
     """Extract the acting identity and command text from a platform message, then dispatch."""
     adapter = _resolve_adapter(bot)
-    user_id, _group_id, rcv_info = adapter.extract_command(msg_data)
-    return execute_text_command(user_id, rcv_info, bot)
+    user_id, group_id, rcv_info = adapter.extract_command(msg_data)
+    return execute_text_command(user_id, rcv_info, bot, group_id=group_id)

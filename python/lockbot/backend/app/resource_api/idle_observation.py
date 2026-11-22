@@ -1,4 +1,4 @@
-"""Observe low utilization for committed exclusive holdings, without changing them."""
+"""Observe low utilization for committed exclusive holdings and opt-in recovery."""
 
 import asyncio
 import json
@@ -16,6 +16,8 @@ import httpx
 from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from lockbot.backend.app.bots.manager import AdmissionFull, BotNotRunning, InstanceRetiring
+from lockbot.backend.app.resource_api.idle_notifications import IdleChat
+from lockbot.backend.app.resource_api.idle_recovery import IdleRecovery
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,7 @@ class Target(BaseModel):
     node: str = Field(min_length=1)
     source_node: SourceNode
     cards: dict[int, str] = Field(default_factory=dict)
+    recover_idle: bool = False
 
 
 class Source(BaseModel):
@@ -95,6 +98,9 @@ class IdleEvidence:
     version: str
     since: float
     observed_at: float
+    holder: str
+    channel: str
+    generation: int
 
     @property
     def candidate(self):
@@ -134,12 +140,12 @@ def _metric_values(payload, nodes):
     return values
 
 
-def _advance(previous, version, locked_at, now, metrics, devices, source):
+def _advance(previous, version, holder, now, metrics, devices, source, generation):
     observed_at = metrics.get((OBSERVED_AT, None))
     if (
         metrics.get((COLLECTOR_OK, None)) != 1
         or observed_at is None
-        or not locked_at <= observed_at <= now
+        or not holder["start_time"] <= observed_at <= now
         or now - observed_at > source.max_sample_age_seconds
     ):
         return None
@@ -153,7 +159,7 @@ def _advance(previous, version, locked_at, now, metrics, devices, source):
             return None
         if observed_at - previous.observed_at <= source.max_sample_age_seconds:
             since = previous.since
-    return IdleEvidence(version, since, observed_at)
+    return IdleEvidence(version, since, observed_at, holder["user_id"], holder.get("source", "unknown"), generation)
 
 
 def _scoped_holdings(bot, target, state, inventory, now):
@@ -174,7 +180,7 @@ def _scoped_holdings(bot, target, state, inventory, now):
             holder = holders[0]
             version = bot.op_holding_version(state, target.node, index, holder["user_id"], at=now)
             if version is not None:
-                yield (target.bot_id, target.node, index), version, holder["start_time"], devices
+                yield (target.bot_id, target.node, index), version, holder, devices
 
 
 class IdleObserver:
@@ -184,11 +190,19 @@ class IdleObserver:
         self.clock = clock
         self._windows = [{} for _ in self.sources]
         self._targets_by_bot = []
+        self._recovery_targets = []
         for source in self.sources:
             groups = defaultdict(list)
             for target in source.targets:
                 groups[target.bot_id].append(target)
             self._targets_by_bot.append(groups)
+            self._recovery_targets.append(
+                {(target.bot_id, target.node) for target in source.targets if target.recover_idle}
+            )
+        self.recovery = IdleRecovery(manager, clock=clock) if any(self._recovery_targets) else None
+        chat = IdleChat(manager, self.recovery, clock)
+        self.chat_notification = chat.send
+        self.confirm_chat = chat.confirm if self.recovery is not None else None
         self._network_slots = asyncio.Semaphore(4)
 
     @property
@@ -227,7 +241,7 @@ class IdleObserver:
                 try:
                     with self.manager.admit(bot_id, for_read=True) as lease:
                         if lease.health != "error":
-                            self._observe_bot(lease.bot, targets, source, metrics, now, previous, current)
+                            self._observe_bot(lease, targets, source, metrics, now, previous, current)
                 except (AdmissionFull, BotNotRunning, InstanceRetiring):
                     continue
         self._windows[index] = current
@@ -235,22 +249,37 @@ class IdleObserver:
             evidence.candidate for evidence in previous.values()
         ):
             logger.info("Low-utilization observation source %d has %d candidates", index + 1, count)
+        if self.recovery is not None and self._recovery_targets[index]:
+            evidence = {key: row for key, row in current.items() if key[:2] in self._recovery_targets[index]}
+            created = self.recovery.reconcile(index, evidence)
+            if self.chat_notification is not None:
+                for notice in created:
+                    if notice.channel == "chat" and await asyncio.to_thread(self.chat_notification, notice, "warning"):
+                        self.recovery.delivered(notice)
+            reclaimed = await asyncio.to_thread(self.recovery.reclaim_ready, evidence, source.max_sample_age_seconds)
+            if self.chat_notification is not None:
+                for notice in reclaimed:
+                    await asyncio.to_thread(self.chat_notification, notice, "released")
 
-    def _observe_bot(self, bot, targets, source, metrics, now, previous, current):
+    def _observe_bot(self, lease, targets, source, metrics, now, previous, current):
+        bot = lease.bot
         state = bot.published_snapshot().state
         bot_uuid = bot.config.get_val("_LIFECYCLE_BOT_UUID")
         for target in targets:
             samples = metrics.get(target.source_node)
             if not samples or bot_uuid != str(target.bot_uuid):
                 continue
-            for key, version, locked_at, devices in _scoped_holdings(
-                bot, target, state, source.nodes[target.source_node], now
+            inventory = source.nodes[target.source_node]
+            if target.recover_idle and any(
+                (value := samples.get((UTILIZATION, device))) is None or not 0 <= value <= 100 for device in inventory
             ):
+                continue
+            for key, version, holder, devices in _scoped_holdings(bot, target, state, inventory, now):
                 if key[2] is None and any(
                     metric == UTILIZATION and device not in devices for metric, device in samples
                 ):
                     continue
-                evidence = _advance(previous.get(key), version, locked_at, now, samples, devices, source)
+                evidence = _advance(previous.get(key), version, holder, now, samples, devices, source, lease.generation)
                 if evidence is not None:
                     current[key] = evidence
 
@@ -260,6 +289,8 @@ class IdleObserver:
                 await self.poll_source(index, client)
             except Exception as error:
                 self._windows[index] = {}
+                if self.recovery is not None:
+                    self.recovery.reconcile(index, {})
                 logger.error("Low-utilization observation source %d failed (%s)", index + 1, type(error).__name__)
             await asyncio.sleep(POLL_SECONDS)
 

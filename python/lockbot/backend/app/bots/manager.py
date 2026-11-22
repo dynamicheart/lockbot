@@ -110,6 +110,7 @@ class BotManager:
     """
 
     def __init__(self, max_inflight: int = DEFAULT_MAX_INFLIGHT, drain_timeout: float = DEFAULT_DRAIN_TIMEOUT):
+        self.idle_confirmation_hook = None
         self._bots: dict[int, BotInstance] = {}
         self._lock = threading.Lock()
         self._drained = threading.Condition(self._lock)
@@ -399,6 +400,7 @@ class BotManager:
                 scheduler=self._scheduler,  # managed mode: shared scheduler
             )
             instance.bot.binding_hook = self._make_binding_hook(bot_id, config_dict)
+            instance.bot.idle_confirmation_hook = self.idle_confirmation_hook
             from lockbot.backend.app.resource_api.lease_history import LeaseJournal
 
             try:

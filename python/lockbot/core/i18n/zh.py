@@ -174,6 +174,14 @@ MESSAGES = {
     "notify.take_preempt": "⚠️ {user_id} 抢占了节点 {node_key}\n",
     "notify.take_notify_all": "📋 节点 {node_key} 已被 {user_id} 抢占，当前使用情况:\n",
     "notify.wait_time_increased": "请注意等待时间已增加 \n\n",
+    "idle.warning": (
+        "❗【资源利用率偏低】\n\n"
+        "{resource} 已连续 20 分钟处于低利用率。\n"
+        "请在 10 分钟内恢复使用。如还需要时间，发送 `{command}`，可多保留 10 分钟。"
+    ),
+    "idle.confirmed": "✅【已确认保留】\n\n{resource} 将于 {time} 重新检查利用率。",
+    "idle.confirm_unavailable": "⚠️【无法保留资源】\n\n{resource} 当前没有你的待确认提醒。",
+    "idle.reclaimed": "🤖【机器人自动回收低利用率资源】\n\n用户：{holder}\n资源：{resource}\n操作：已释放锁定",
     "notify.resource_available_header": "📢【资源可用提醒】\n资源已空闲，请在 {timeout} 内lock:\n\n",
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
