@@ -526,10 +526,8 @@ class DeviceBot(BaseLockBot):
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
 
-        trigger_time_alert = False
         state_changed = False
         user_ids = set()
-        alert_info = self._build_alert_header()
 
         alert_tuples = []
 
@@ -548,8 +546,7 @@ class DeviceBot(BaseLockBot):
                                 # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
                                 # When EARLY_NOTIFY=False, is_notified is always False → always notify here.
                                 # Fallback: EARLY_NOTIFY=True but scheduler delayed past expiry → notify here instead.
-                                if not user_info.get("is_notified"):
-                                    trigger_time_alert = True
+                                if not user_info.get("is_notified") and self._include_group_reminder(user_info):
                                     user_ids.add(user_info["user_id"])
                                     alert_tuples.append(
                                         (
@@ -561,20 +558,20 @@ class DeviceBot(BaseLockBot):
                                         )
                                     )
                             if EARLY_NOTIFY and not user_info.get("is_notified") and 0 < remaining_time <= TIME_ALERT:
-                                trigger_time_alert = True
-                                user_ids.add(user_info["user_id"])
                                 user_info["is_notified"] = True
                                 state_changed = True
 
-                                alert_tuples.append(
-                                    (
-                                        user_info["user_id"],
-                                        node_key,
-                                        device["dev_id"],
-                                        device["status"],
-                                        remaining_time,
+                                if self._include_group_reminder(user_info):
+                                    user_ids.add(user_info["user_id"])
+                                    alert_tuples.append(
+                                        (
+                                            user_info["user_id"],
+                                            node_key,
+                                            device["dev_id"],
+                                            device["status"],
+                                            remaining_time,
+                                        )
                                     )
-                                )
 
                         for user_id in removed_users_id:
                             remove_user_info(device["current_users"], user_id)
@@ -600,11 +597,11 @@ class DeviceBot(BaseLockBot):
                                 next_event = remaining
                             min_next = min(min_next, next_event)
 
-        grouped_devices = group_devices_by_node_user_and_mode(alert_tuples)
-        for node_key, user_id, (dev_start, dev_end), status, remaining_time in grouped_devices:
-            alert_info += format_alert_info(node_key, user_id, dev_start, dev_end, status, remaining_time)
-
-        if trigger_time_alert:
+        if alert_tuples:
+            alert_info = self._build_alert_header()
+            grouped_devices = group_devices_by_node_user_and_mode(alert_tuples)
+            for node_key, user_id, (dev_start, dev_end), status, remaining_time in grouped_devices:
+                alert_info += format_alert_info(node_key, user_id, dev_start, dev_end, status, remaining_time)
             msg = self.adapter.build_reply(alert_info + "\n", list(user_ids))
             try:
                 self.adapter.send(msg)

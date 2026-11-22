@@ -406,10 +406,8 @@ class NodeBot(BaseLockBot):
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
 
-        trigger_time_alert = False
         state_changed = False
-        user_ids = set()
-        alert_info = self._build_alert_header()
+        alerts = []
 
         with self._state_guard():
             # Release expired resources
@@ -426,23 +424,14 @@ class NodeBot(BaseLockBot):
                             # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
                             # When EARLY_NOTIFY=False, is_notified is always False → always notify here.
                             # Fallback: EARLY_NOTIFY=True but scheduler delayed past expiry → notify here instead.
-                            if not user_info["is_notified"]:
-                                trigger_time_alert = True
-                                user_ids.add(user_info["user_id"])
-
-                                uid = user_info["user_id"] + format_access_mode(node["status"], config=self.config)
-                                duration = format_duration(remaining_time, config=self.config)
-                                alert_info += f"{self._display_node(node_key)} {uid}  {duration}\n"
+                            if not user_info["is_notified"] and self._include_group_reminder(user_info):
+                                alerts.append((user_info["user_id"], node_key, node["status"], remaining_time))
 
                         if EARLY_NOTIFY and not user_info["is_notified"] and 0 < remaining_time <= TIME_ALERT:
-                            trigger_time_alert = True
-                            user_ids.add(user_info["user_id"])
                             user_info["is_notified"] = True
                             state_changed = True
-
-                            uid = user_info["user_id"] + format_access_mode(node["status"], config=self.config)
-                            duration = format_duration(remaining_time, config=self.config)
-                            alert_info += f"{self._display_node(node_key)} {uid}  {duration}\n"
+                            if self._include_group_reminder(user_info):
+                                alerts.append((user_info["user_id"], node_key, node["status"], remaining_time))
 
                     for user_id in removed_users_id:
                         remove_user_info(node["current_users"], user_id)
@@ -467,8 +456,9 @@ class NodeBot(BaseLockBot):
                             next_event = remaining
                         min_next = min(min_next, next_event)
 
-        if trigger_time_alert:
-            msg = self.adapter.build_reply(alert_info + "\n", list(user_ids))
+        if alerts:
+            recipients = {user_id for user_id, _, _, _ in alerts}
+            msg = self.adapter.build_reply(self._render_lease_alerts(alerts, self._display_node), list(recipients))
             try:
                 self.adapter.send(msg)
             except Exception:

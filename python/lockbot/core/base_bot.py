@@ -15,7 +15,7 @@ from lockbot.core.config import Config
 from lockbot.core.i18n import t
 from lockbot.core.message_adapter import ReplyLink
 from lockbot.core.platforms.registry import create_adapter
-from lockbot.core.utils import format_duration
+from lockbot.core.utils import format_access_mode, format_duration
 
 
 def _get_version():
@@ -335,6 +335,18 @@ class BaseLockBot:
         return message + sep + usage
 
     # ------------------------------------------------- _build_alert_header
+    def _include_group_reminder(self, record):
+        # Existing records without an origin retain the original delivery rule.
+        return record.get("source") != "api" or self.config.get_val("GROUP_REMIND_API_RESOURCES") is True
+
+    def _render_lease_alerts(self, alerts, display_resource=str):
+        message = self._build_alert_header()
+        for user_id, resource, mode, remaining in alerts:
+            user = user_id + format_access_mode(mode, config=self.config)
+            duration = format_duration(remaining, config=self.config)
+            message += f"{display_resource(resource)} {user}  {duration}\n"
+        return message + "\n"
+
     def _build_alert_header(self):
         """Build the common alert header used by ``_check_and_notify``."""
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")

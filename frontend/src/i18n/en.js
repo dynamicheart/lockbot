@@ -880,6 +880,8 @@ export default {
       'On: warn before expiry without releasing; Off (default): release and notify on expiry',
     earlyNotifyOn: 'Early Warning',
     earlyNotifyOff: 'Release on Expiry',
+    groupRemindApiResources: 'Also send API resource reminders to the group',
+    groupRemindApiResourcesHelp: 'Applies to automatic renewal, expiry, and queue reminders.',
     durationWhitelist: 'Lock Duration Whitelist',
     durationWhitelistHelp: 'Users exempt from MAX_LOCK_DURATION.',
     durationWhitelistPlaceholder: 'Type a username and press Enter',

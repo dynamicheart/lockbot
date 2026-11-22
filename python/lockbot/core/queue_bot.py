@@ -14,7 +14,6 @@ from lockbot.core.node_bot import NodeBot
 from lockbot.core.utils import (
     create_user_info,
     find_user_info,
-    format_access_mode,
     format_duration,
     is_first_user,
     remaining_duration,
@@ -67,8 +66,8 @@ class QueueBot(NodeBot):
                 )
 
             timestamp = int(time.time())
-            users_to_notify = set()
-            users_to_notify.add(user_id)
+            delayed = set()
+            group_recipients = set()
 
             if max_dur > 0 and user_id not in whitelist:
                 for node in nodes:
@@ -104,23 +103,23 @@ class QueueBot(NodeBot):
                 else:
                     total_duration = duration
 
-                if booking_info and total_duration > booking_info["duration"]:
-                    for booking_user in node["booking_list"]:
-                        users_to_notify.add(booking_user["user_id"])
-
                 user_info = find_user_info(node["current_users"], user_id)
+                if user_info or (booking_info and total_duration > booking_info["duration"]):
+                    for booking_user in node["booking_list"]:
+                        delayed.add(booking_user["user_id"])
+                        if self._include_group_reminder(booking_user):
+                            group_recipients.add(booking_user["user_id"])
                 if not user_info:
                     user_info = create_user_info(user_id, total_duration, timestamp, config=self.config)
                 else:
                     total_duration += user_info["duration"]
-                    for booking_user in node["booking_list"]:
-                        users_to_notify.add(booking_user["user_id"])
 
                 user_info["duration"] = total_duration
                 user_info["is_notified"] = False
                 node["current_users"] = [user_info]
 
             content = self._msg_with_usage("success.resource_locked")
+            users_to_notify = {user_id, *group_recipients}
             if len(users_to_notify) > 1:
                 notice = t("notify.wait_time_increased", config=self.config)
                 if isinstance(content, list):
@@ -130,7 +129,9 @@ class QueueBot(NodeBot):
             reply = self.adapter.build_reply(content, list(users_to_notify))
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            return completed_reply(reply, "lock", reaction_safe=len(users_to_notify) == 1)
+            return completed_reply(
+                reply, "lock", reaction_safe=not delayed, queue_delay_recipients=sorted(group_recipients - {user_id})
+            )
 
     def slock(self, user_id, command):
         return self.show_error(user_id, t("error.slock_not_supported", config=self.config))
@@ -416,9 +417,9 @@ class QueueBot(NodeBot):
 
         Returns: seconds until next interesting event, or None if no active locks/bookings.
         """
-        trigger_time_alert = False
-        trigger_notify_alert = False
+        queue_advanced = False
         state_changed = False
+        alerts = []
         user_ids = set()
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
@@ -427,21 +428,11 @@ class QueueBot(NodeBot):
 
         expired_users = []
 
-        alert_info = self._build_alert_header()
-
-        # Build the base part of notify_info (resource available + time)
-        notify_info_header = t(
-            "notify.resource_available_header",
-            config=self.config,
-            timeout=format_duration(TIME_TO_LOCK, config=self.config),
-        )
-
-        expired_notify = ""  # Expired booking content
         pending_keys = []
 
         def notify_first_booking_user(node_key, node, timestamp):
             """Notify the first booked user for this node."""
-            nonlocal trigger_notify_alert, state_changed, user_ids
+            nonlocal queue_advanced, state_changed
 
             if not node["booking_list"]:
                 return
@@ -451,11 +442,11 @@ class QueueBot(NodeBot):
             first_user.setdefault("booked_start_time", first_user.get("start_time", 0))
             first_user["is_notified"] = True
             first_user["start_time"] = timestamp
-            trigger_notify_alert = True
+            queue_advanced = True
             state_changed = True
-            user_ids.add(first_user["user_id"])
-
-            pending_keys.append(node_key)
+            if self._include_group_reminder(first_user):
+                user_ids.add(first_user["user_id"])
+                pending_keys.append(node_key)
 
         with self._state_guard():
             # 1. Release resources
@@ -473,23 +464,16 @@ class QueueBot(NodeBot):
                             # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
                             # When EARLY_NOTIFY=False, is_notified is always False → always notify here.
                             # Fallback: EARLY_NOTIFY=True but scheduler delayed past expiry → notify here instead.
-                            if not user_info["is_notified"]:
-                                trigger_time_alert = True
+                            if not user_info["is_notified"] and self._include_group_reminder(user_info):
                                 user_ids.add(user_info["user_id"])
-
-                                uid = user_info["user_id"] + format_access_mode(node["status"], config=self.config)
-                                duration = format_duration(remaining_time, config=self.config)
-                                alert_info += f"{node_key} {uid}  {duration}\n"
+                                alerts.append((user_info["user_id"], node_key, node["status"], remaining_time))
 
                         if EARLY_NOTIFY and not user_info["is_notified"] and 0 < remaining_time <= TIME_ALERT:
-                            trigger_time_alert = True
-                            user_ids.add(user_info["user_id"])
                             user_info["is_notified"] = True
                             state_changed = True
-
-                            uid = user_info["user_id"] + format_access_mode(node["status"], config=self.config)
-                            duration = format_duration(remaining_time, config=self.config)
-                            alert_info += f"{node_key} {uid}  {duration}\n"
+                            if self._include_group_reminder(user_info):
+                                user_ids.add(user_info["user_id"])
+                                alerts.append((user_info["user_id"], node_key, node["status"], remaining_time))
 
                     for user_id in removed_users_id:
                         remove_user_info(node["current_users"], user_id)
@@ -508,12 +492,13 @@ class QueueBot(NodeBot):
                         # Already notified but timed out without response -> remove and notify next
                         if now - first_book_user["start_time"] >= TIME_TO_LOCK:
                             remove_user_info(node["booking_list"], first_book_user["user_id"])
-                            expired_users.append((first_book_user["user_id"], node_key))
-                            user_ids.add(first_book_user["user_id"])
+                            if self._include_group_reminder(first_book_user):
+                                expired_users.append((first_book_user["user_id"], node_key))
+                                user_ids.add(first_book_user["user_id"])
                             state_changed = True
                             notify_first_booking_user(node_key, node, now)
 
-            pending_notify = self._pending_booking_text(pending_keys)
+            pending = self._pending_booking_rows(pending_keys)
             if state_changed:
                 save_bot_state_to_file(self.state.bot_state, config=self.config)
 
@@ -542,29 +527,10 @@ class QueueBot(NodeBot):
                     else:
                         min_next = min(min_next, 1.0)  # unnotified booking → check soon
 
-        # Aggregate expired bookings into expired_notify
-        if expired_users:
-            expired_notify = t("notify.booking_expired_header", config=self.config)
-            for user_id, node_key in expired_users:
-                expired_notify += t(
-                    "notify.booking_timeout_cancelled", config=self.config, user_id=user_id, node_key=node_key
-                )
-            expired_notify += "\n"
-
-        # Assemble final notify_info in strict order
-        notify_info = notify_info_header
-        if expired_notify:
-            notify_info += expired_notify
-        if pending_notify:
-            notify_info += t("notify.pending_bookings_header", config=self.config) + pending_notify
-
-        # Send messages
-        if trigger_time_alert or trigger_notify_alert:
-            content = ""
-            if trigger_time_alert:
-                content += alert_info + "\n"
-            if trigger_notify_alert:
-                content += notify_info + "\n"
+        content = self._render_lease_alerts(alerts) if alerts else ""
+        if queue_advanced and (expired_users or pending):
+            content += self._render_booking_reminder(expired_users, pending, TIME_TO_LOCK)
+        if content:
             msg = self.adapter.build_reply(content, list(user_ids))
             try:
                 self.adapter.send(msg)
@@ -577,17 +543,34 @@ class QueueBot(NodeBot):
         """Display-only rows; stored resources and their queues remain independent."""
         return nodes.items()
 
-    def _pending_booking_text(self, keys):
+    def _pending_booking_rows(self, keys):
         if not keys:
-            return ""
+            return []
         nodes = self._resource_state()
         selected = {key: nodes[key] for key in keys}
-        text = ""
+        rows = []
         for key, node in self._usage_rows(selected):
             user = node["booking_list"][0]
-            duration = format_duration(user["duration"], config=self.config)
-            text += f"  - {self._display_node(key)} {user['user_id']} {duration}\n"
-        return text
+            rows.append((key, user["user_id"], user["duration"]))
+        return rows
+
+    def _render_booking_reminder(self, expired_users, pending, claim_seconds):
+        text = t(
+            "notify.resource_available_header",
+            config=self.config,
+            timeout=format_duration(claim_seconds, config=self.config),
+        )
+        if expired_users:
+            text += t("notify.booking_expired_header", config=self.config)
+            for user_id, node_key in expired_users:
+                text += t("notify.booking_timeout_cancelled", config=self.config, user_id=user_id, node_key=node_key)
+            text += "\n"
+        if pending:
+            text += t("notify.pending_bookings_header", config=self.config)
+            for key, user_id, seconds in pending:
+                duration = format_duration(seconds, config=self.config)
+                text += f"  - {self._display_node(key)} {user_id} {duration}\n"
+        return text + "\n"
 
     def _usage_labels(self, resource_key):
         return None, self._display_node(resource_key)

@@ -18,7 +18,7 @@ import logging
 import re
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -34,7 +34,12 @@ from lockbot.backend.app.config import RESOURCE_API_MAX_HELD_PER_IDENTITY
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 from lockbot.backend.app.resource_api import errors
-from lockbot.backend.app.resource_api.notifications import notification_target, notify_group, should_notify
+from lockbot.backend.app.resource_api.notifications import (
+    notification_target,
+    notify_group,
+    send_queue_delay,
+    should_notify,
+)
 from lockbot.backend.app.resource_api.observability import record_api_command
 from lockbot.backend.app.resource_api.task_categories import TaskCategoryInput, TaskCategoryNotice
 from lockbot.backend.app.resource_api.traffic import credential_budget, resource_tier_gate
@@ -264,6 +269,7 @@ def execute_command_via_api(
     bot_id: int,
     body: Annotated[CommandRequest, Body(openapi_examples=COMMAND_EXAMPLES)],
     request: Request,
+    background_tasks: BackgroundTasks,
     actor: ResourceActor = Depends(require_resource_actor),
     db: Session = Depends(get_db),
 ) -> CommandResponse:
@@ -414,6 +420,10 @@ def execute_command_via_api(
                     target=notification_target(bot_row, lease, bot_manager, sessionmaker(bind=db.get_bind())),
                 )
 
+            if result.queue_delay_recipients:
+                background_tasks.add_task(
+                    send_queue_delay, bot_manager, bot_id, lease.generation, result.queue_delay_recipients
+                )
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise errors.admission_http_error(exc, bot_id) from None
 
@@ -459,8 +469,11 @@ def _leading_word(text: str) -> str:
 def execute_agent_command(
     body: Annotated[CommandRequest, Body(openapi_examples=COMMAND_EXAMPLES)],
     request: Request,
+    background_tasks: BackgroundTasks,
     actor: ResourceActor = Depends(require_agent_resource_actor),
     db: Session = Depends(get_db),
 ) -> CommandResponse:
     """Execute as the bound identity without accepting a caller-selected bot."""
-    return execute_command_via_api(bot_id=actor.bot_id, body=body, request=request, actor=actor, db=db)
+    return execute_command_via_api(
+        bot_id=actor.bot_id, body=body, request=request, background_tasks=background_tasks, actor=actor, db=db
+    )

@@ -1,0 +1,1664 @@
+{
+  "node-expiry/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️【资源自动释放】\n\n已释放的资源列表:\nnode1 ou_holder(独占)  0 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "node-expiry/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️ Resource auto-released\n\nReleased resources:\nnode1 ou_holder(exclusive)  0 minutes\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "node-expiry/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️【资源自动释放】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "已释放的资源列表:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "node-expiry/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️ Resource auto-released"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Released resources:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder(exclusive)  0 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "node-warning/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️【资源可用时间少于5 分钟】\n\n如果还有资源需求, 请及时使用lock/slock命令增加时间, 以免资源自动释放\n\n即将被释放的资源:\nnode1 ou_holder(独占)  0 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "node-warning/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️ Resource time remaining is less than 5 minutes\n\nIf you still need the resource, use lock/slock to extend before it is auto-released\n\nResources about to be released:\nnode1 ou_holder(exclusive)  0 minutes\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "node-warning/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️【资源可用时间少于5 分钟】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "如果还有资源需求, 请及时使用lock/slock命令增加时间, 以免资源自动释放"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "即将被释放的资源:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "node-warning/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️ Resource time remaining is less than 5 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "If you still need the resource, use lock/slock to extend before it is auto-released"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Resources about to be released:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder(exclusive)  0 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "device-expiry/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️【资源自动释放】\n\n已释放的资源列表:\nnode1 dev0 ou_holder(独占)  0 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "device-expiry/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️ Resource auto-released\n\nReleased resources:\nnode1 dev0 ou_holder(独占)  0 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "device-expiry/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️【资源自动释放】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "已释放的资源列表:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 dev0 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "device-expiry/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️ Resource auto-released"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Released resources:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 dev0 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "device-warning/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️【资源可用时间少于5 分钟】\n\n如果还有资源需求, 请及时使用lock/slock命令增加时间, 以免资源自动释放\n\n即将被释放的资源:\nnode1 dev0 ou_holder(独占)  0 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "device-warning/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️ Resource time remaining is less than 5 minutes\n\nIf you still need the resource, use lock/slock to extend before it is auto-released\n\nResources about to be released:\nnode1 dev0 ou_holder(独占)  0 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "device-warning/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️【资源可用时间少于5 分钟】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "如果还有资源需求, 请及时使用lock/slock命令增加时间, 以免资源自动释放"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "即将被释放的资源:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 dev0 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "device-warning/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️ Resource time remaining is less than 5 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "If you still need the resource, use lock/slock to extend before it is auto-released"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Resources about to be released:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 dev0 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-combined/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️【资源自动释放】\n\n已释放的资源列表:\nnode1 ou_holder(独占)  0 分钟\n\n📢【资源可用提醒】\n资源已空闲，请在 5 分钟 内lock:\n\n⚠️ 以下预约已失效，请重新预约：\n⏰ ou_expired 排队超时，已自动取消\n\n🗓️ 目前待抢锁的预约：\n  - node1 ou_waiter 30 分钟\n  - node2 ou_next 30 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_expired",
+            "ou_holder",
+            "ou_next",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-combined/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️ Resource auto-released\n\nReleased resources:\nnode1 ou_holder(exclusive)  0 minutes\n\n📢 Resource available\nResource is idle, please lock within 5 minutes:\n\n⚠️ The following bookings have expired:\n⏰ ou_expired booking expired, auto-cancelled\n\n🗓️ Pending bookings:\n  - node1 ou_waiter 30 minutes\n  - node2 ou_next 30 minutes\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_expired",
+            "ou_holder",
+            "ou_next",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-combined/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️【资源自动释放】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "已释放的资源列表:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "📢【资源可用提醒】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "资源已空闲，请在 5 分钟 内lock:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⚠️ 以下预约已失效，请重新预约："
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⏰ ou_expired 排队超时，已自动取消"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "🗓️ 目前待抢锁的预约："
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node1 ou_waiter 30 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node2 ou_next 30 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_expired"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_next"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-combined/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️ Resource auto-released"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Released resources:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder(exclusive)  0 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "📢 Resource available"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Resource is idle, please lock within 5 minutes:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⚠️ The following bookings have expired:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⏰ ou_expired booking expired, auto-cancelled"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "🗓️ Pending bookings:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node1 ou_waiter 30 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node2 ou_next 30 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_expired"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_next"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-device-combined/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️【资源自动释放】\n\n已释放的资源列表:\nnode1:dev0 ou_holder(独占)  0 分钟\n\n📢【资源可用提醒】\n资源已空闲，请在 5 分钟 内lock:\n\n⚠️ 以下预约已失效，请重新预约：\n⏰ ou_expired 排队超时，已自动取消\n\n🗓️ 目前待抢锁的预约：\n  - node1 dev0 ou_waiter 30 分钟\n  - node2 dev0 ou_next 30 分钟\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_expired",
+            "ou_holder",
+            "ou_next",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-device-combined/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "❗️ Resource auto-released\n\nReleased resources:\nnode1:dev0 ou_holder(exclusive)  0 minutes\n\n📢 Resource available\nResource is idle, please lock within 5 minutes:\n\n⚠️ The following bookings have expired:\n⏰ ou_expired booking expired, auto-cancelled\n\n🗓️ Pending bookings:\n  - node1 dev0 ou_waiter 30 minutes\n  - node2 dev0 ou_next 30 minutes\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_expired",
+            "ou_holder",
+            "ou_next",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-device-combined/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️【资源自动释放】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "已释放的资源列表:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1:dev0 ou_holder(独占)  0 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "📢【资源可用提醒】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "资源已空闲，请在 5 分钟 内lock:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⚠️ 以下预约已失效，请重新预约："
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⏰ ou_expired 排队超时，已自动取消"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "🗓️ 目前待抢锁的预约："
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node1 dev0 ou_waiter 30 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node2 dev0 ou_next 30 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_expired"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_next"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-device-combined/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "❗️ Resource auto-released"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Released resources:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1:dev0 ou_holder(exclusive)  0 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "📢 Resource available"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Resource is idle, please lock within 5 minutes:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⚠️ The following bookings have expired:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⏰ ou_expired booking expired, auto-cancelled"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "🗓️ Pending bookings:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node1 dev0 ou_waiter 30 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  - node2 dev0 ou_next 30 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_expired"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_next"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-delay/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "✅【资源申请成功】\n\nnode1 ou_first  1.0 小时\n⌛️ 排队:\n  1. ou_waiter 30 分钟 预计等待 1.0 小时\nnode2 空闲\n\n请注意等待时间已增加 \n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_first",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-delay/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "✅ Resource locked successfully\n\nnode1 ou_first  1.0 hours\n⌛️ Queue:\n  1. ou_waiter 30 minutes est. wait 1.0 hours\nnode2 idle\n\nNote: wait times have been updated\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_first",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-delay/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "✅【资源申请成功】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_first  1.0 小时"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⌛️ 排队:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  1. ou_waiter 30 分钟 预计等待 1.0 小时"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node2 空闲"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "请注意等待时间已增加 "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_first"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-delay/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "✅ Resource locked successfully"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_first  1.0 hours"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⌛️ Queue:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  1. ou_waiter 30 minutes est. wait 1.0 hours"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node2 idle"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Note: wait times have been updated"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_first"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-take/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "🏁【资源抢占成功】by ou_operator\n\n【抢占前】：\nnode1 ou_holder  1.0 小时\n⌛️ 排队:\n  1. ou_waiter 30 分钟 预计等待 1.0 小时\n\n【抢占后】：\nnode1 ou_operator  30 分钟\n⌛️ 排队:\n  1. ou_holder 1.0 小时 预计等待 30 分钟\n  2. ou_waiter 30 分钟 预计等待 1.5 小时\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder",
+            "ou_operator",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-take/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "🏁 Resource taken by ou_operator\n\nBefore take:\nnode1 ou_holder  1.0 hours\n⌛️ Queue:\n  1. ou_waiter 30 minutes est. wait 1.0 hours\n\nAfter take:\nnode1 ou_operator  30 minutes\n⌛️ Queue:\n  1. ou_holder 1.0 hours est. wait 30 minutes\n  2. ou_waiter 30 minutes est. wait 1.5 hours\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder",
+            "ou_operator",
+            "ou_waiter"
+          ]
+        }
+      ]
+    }
+  },
+  "queue-take/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "🏁【资源抢占成功】by ou_operator"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "【抢占前】："
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder  1.0 小时"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⌛️ 排队:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  1. ou_waiter 30 分钟 预计等待 1.0 小时"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "【抢占后】："
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_operator  30 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⌛️ 排队:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  1. ou_holder 1.0 小时 预计等待 30 分钟"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  2. ou_waiter 30 分钟 预计等待 1.5 小时"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_operator"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "queue-take/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "🏁 Resource taken by ou_operator"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "Before take:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_holder  1.0 hours"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⌛️ Queue:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  1. ou_waiter 30 minutes est. wait 1.0 hours"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "After take:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "node1 ou_operator  30 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "⌛️ Queue:"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  1. ou_holder 1.0 hours est. wait 30 minutes"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "  2. ou_waiter 30 minutes est. wait 1.5 hours"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_operator"
+            },
+            {
+              "tag": "at",
+              "user_id": "ou_waiter"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "startup-clamp/infoflow/zh": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "⚠️【锁定时长调整通知】\n\n管理员已将最大锁定时长调整为 10 分钟，您的锁定剩余时长已被自动缩短，请知悉。\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "startup-clamp/infoflow/en": {
+    "message": {
+      "header": {},
+      "body": [
+        {
+          "type": "TEXT",
+          "content": "⚠️ [Lock Duration Adjusted]\n\nThe admin has set max lock duration to 10 minutes. Your remaining lock time has been automatically shortened.\n\n"
+        },
+        {
+          "type": "AT",
+          "atuserids": [
+            "ou_holder"
+          ]
+        }
+      ]
+    }
+  },
+  "startup-clamp/feishu/zh": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "⚠️【锁定时长调整通知】"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "管理员已将最大锁定时长调整为 10 分钟，您的锁定剩余时长已被自动缩短，请知悉。"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  },
+  "startup-clamp/feishu/en": {
+    "receive_id": "",
+    "msg_type": "post",
+    "content": {
+      "zh_cn": {
+        "title": "",
+        "content": [
+          [
+            {
+              "tag": "text",
+              "text": "⚠️ [Lock Duration Adjusted]"
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": "The admin has set max lock duration to 10 minutes. Your remaining lock time has been automatically shortened."
+            }
+          ],
+          [
+            {
+              "tag": "text",
+              "text": " "
+            }
+          ],
+          [
+            {
+              "tag": "at",
+              "user_id": "ou_holder"
+            }
+          ]
+        ]
+      }
+    }
+  }
+}
