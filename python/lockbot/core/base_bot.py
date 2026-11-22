@@ -3,13 +3,17 @@ lockbot - BaseLockBot
 """
 
 import copy
+import hashlib
+import json
 import logging
 import re
 import threading
+import time
 from collections.abc import Callable
 from contextlib import contextmanager, suppress
 from datetime import datetime, timezone
 from importlib.metadata import version as _pkg_version
+from uuid import uuid4
 
 from lockbot.core.config import Config
 from lockbot.core.i18n import t
@@ -27,6 +31,10 @@ def _get_version():
 
 class AcquisitionLimitExceeded(ValueError):
     """A request would increase this identity's holdings beyond its caller policy."""
+
+
+class HoldingVersionConflict(ValueError):
+    """The exact exclusive holding is no longer the one observed by an operator."""
 
 
 class BotState:
@@ -78,6 +86,7 @@ class BaseLockBot:
             self.state = self._state_class(config=self.config)
 
         self._lock = lock or threading.Lock()
+        self._holding_version_epoch = uuid4().hex
         # The platform is read from config so that an injected adapter stays authoritative
         # and a bot whose stored platform is unknown fails at construction rather than at
         # the first message.
@@ -205,7 +214,38 @@ class BaseLockBot:
             return datetime.now(timezone.utc), copy.deepcopy(self.state.bot_state)
 
     # ---------------------------------------------------------- do_opkick
-    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
+    def op_holding_version(self, state, node_key, device, target_user, *, at):
+        """Compare-only version for an exclusive holding in a detached or protected state."""
+        entry = state.get(node_key)
+        if device is not None:
+            entry = entry[device] if isinstance(entry, list) and 0 <= device < len(entry) else None
+        if not isinstance(entry, dict) or entry.get("status") != "exclusive":
+            return None
+        holders = entry.get("current_users") or []
+        if len(holders) != 1:
+            return None
+        holder = holders[0]
+        holding_id = holder.get("holding_id")
+        start = holder.get("start_time")
+        duration = holder.get("duration")
+        if (
+            holder.get("user_id") != target_user
+            or not isinstance(holding_id, str)
+            or not holding_id
+            or not isinstance(start, (int, float))
+            or not isinstance(duration, (int, float))
+            or start + duration <= at
+        ):
+            return None
+        value = [self._holding_version_epoch, node_key, device, target_user, holding_id, start, duration]
+        return hashlib.sha256(json.dumps(value, separators=(",", ":")).encode()).hexdigest()
+
+    def _check_op_holding_version(self, expected, node_key, device, target_user):
+        actual = self.op_holding_version(self.state.bot_state, node_key, device, target_user, at=time.time())
+        if actual is None or actual != expected:
+            raise HoldingVersionConflict("Holding changed since observation")
+
+    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason="", *, expected_holding_version=None):
         """API-driven operator kick. Returns {"ok": True, "freed": [...]} or raises ValueError."""
         raise NotImplementedError("Subclass must implement do_opkick")
 

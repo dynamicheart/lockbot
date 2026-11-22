@@ -5,7 +5,7 @@ Bot Pydantic schemas
 import json
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from lockbot.backend.app.bots.datasource import UtilizationConfig
 from lockbot.backend.app.managed_paths import protected_override_keys
@@ -251,6 +251,11 @@ class OpkickRequest(BaseModel):
     node_key: str | None = None
     dev: list[int] | None = None
     reason: str = ""
+    expected_holding_version: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Release only the exact exclusive holding version from OP resources.",
+    )
 
 
 class OpkickResponse(BaseModel):

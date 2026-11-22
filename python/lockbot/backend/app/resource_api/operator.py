@@ -186,6 +186,7 @@ def operator_resources(
     request: Request,
     usage_offset: int = Query(default=0, ge=0),
     usage_limit: int = Query(default=100, ge=1, le=500),
+    include_holding_versions: bool = Query(False, description="Include exclusive holding versions for OP release."),
     db: Session = Depends(get_db),
 ):
     """Fresh OP snapshot: operational state and public task categories, never detailed Agent task notes.
@@ -220,6 +221,23 @@ def operator_resources(
 
             strip_caller(resources)
             attach_declarations(resources, declarations)
+            if include_holding_versions:
+                for resource in resources:
+                    for unit in resource.get("devices", [resource]):
+                        holders = unit["holders"]
+                        if len(holders) != 1:
+                            continue
+                        device = unit["id"] if unit is not resource else None
+                        holder = holders[0]
+                        version = lease.bot.op_holding_version(
+                            state,
+                            resource["id"],
+                            device,
+                            holder["external_user_id"],
+                            at=captured_at.timestamp(),
+                        )
+                        if version is not None:
+                            holder["holding_version"] = version
             return {
                 "bot_id": bot.id,
                 "name": bot.name,
