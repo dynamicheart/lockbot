@@ -47,7 +47,7 @@ class NodeBot(BaseLockBot):
         return selected is None or key == selected
 
     def supported_commands(self):
-        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "alias"]
+        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "label", "alias"]
 
     def parse_command(self, user_id, command_key, command, parsing_duration=False):
         """
@@ -410,6 +410,7 @@ class NodeBot(BaseLockBot):
 
         state_changed = False
         alerts = []
+        ended = []
 
         with self._state_guard():
             # Release expired resources
@@ -421,6 +422,14 @@ class NodeBot(BaseLockBot):
                         if remaining_time <= 0:
                             removed_users_id.append(user_info["user_id"])
                             state_changed = True
+                            ended.append(
+                                (
+                                    node_key,
+                                    user_info["user_id"],
+                                    "holding_expired",
+                                    user_info["start_time"] + user_info["duration"],
+                                )
+                            )
 
                             # Send expiry notification only if early warning was never sent.
                             # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
@@ -442,7 +451,7 @@ class NodeBot(BaseLockBot):
                         node["status"] = "idle"
 
             if state_changed:
-                self._persist_state()
+                self._persist_state(ended=ended)
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")

@@ -28,9 +28,9 @@ const renderer = createRenderer({
   patchProp: (node, key, _previous, value) => (node.props[key] = value),
 })
 const skill = () => ({
-  skill_id: 'lockbot-resource-agent',
-  bundle_url: ORIGIN + '/api/agent-skill/lockbot-resource-agent.zip',
-  manifest_url: ORIGIN + '/api/agent-skill',
+  skill_id: 'lockbot',
+  bundle_url: ORIGIN + '/api/agent/v2/skill/SKILL.md',
+  manifest_url: ORIGIN + '/api/agent/v2/manifest',
 })
 const guide = () => `请先读取 ${skill().bundle_url}，保留有效原 Key；只检查状态。`
 const capabilities = () => ({
@@ -120,7 +120,7 @@ it('copies a deployment-pinned secret-free Skill instruction only on an explicit
   await state.copyInstructions(state.items[0])
   expect(clipboard).toHaveBeenCalledWith(row().instructions)
   expect(clipboard.mock.calls[0][0]).toContain(skill().bundle_url)
-  expect(clipboard.mock.calls[0][0]).not.toContain('/SKILL.md')
+  expect(clipboard.mock.calls[0][0]).not.toContain('/api/agent-skill')
   expect(clipboard.mock.calls[0][0]).not.toContain('not-an-installation-origin')
   for (const [, options] of fetchMock.mock.calls)
     expect(options).toMatchObject({
@@ -318,8 +318,8 @@ it('does not infer native credential authority when an identity provider lacks t
   expect(markup).not.toContain('Agent 凭证列表')
 })
 it.each([
-  'https://different.example.test/api/agent-skill/lockbot-resource-agent.zip',
-  'https://user:secret@panel.example.test/api/agent-skill/lockbot-resource-agent.zip',
+  'https://different.example.test/api/agent/v2/skill/SKILL.md',
+  'https://user:secret@panel.example.test/api/agent/v2/skill/SKILL.md',
 ])('rejects an unapproved installation URL %s', async (url) => {
   const caps = capabilities()
   caps.connection_management.skill.bundle_url = url
@@ -406,7 +406,7 @@ it('validates an authenticated metadata-only service pin and copies only its sou
   expect(help).not.toContain('刷新 Key')
   expect(help).not.toContain('复制查看请求')
   await state.copyInstructions(state.items[0])
-  expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(FOREIGN + '/api/agent-skill/lockbot-resource-agent.zip'))
+  expect(clipboard).toHaveBeenCalledWith(expect.stringContaining(FOREIGN + '/api/agent/v2/skill/SKILL.md'))
   expect(clipboard.mock.calls[0][0]).not.toContain(SECRET)
 })
 

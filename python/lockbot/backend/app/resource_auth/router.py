@@ -63,6 +63,15 @@ def create_binding(request: Request, body: BindingCreate | None = None) -> Bindi
     source = request.client.host if request.client else ""
     try:
         issued = service.create_binding(source=source, label=body.label if body else None)
+    except service.LegacyEnrollmentDisabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "v1_enrollment_disabled",
+                "message": "Use Agent API v2 to bind a new group.",
+                "binding_url": "/api/agent/v2/bindings",
+            },
+        ) from None
     except PendingCapExceeded as exc:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -95,7 +104,7 @@ class CredentialChallengeCreated(BaseModel):
 class CredentialChallengeResult(BaseModel):
     status: Literal["pending", "confirmed", "unavailable"]
     credential: str | None = None
-    outcome: Literal["created"] | None = None
+    outcome: Literal["created", "recovered"] | None = None
 
 
 _CHALLENGE_HEADERS = {"Cache-Control": "no-store", "Vary": "Authorization"}

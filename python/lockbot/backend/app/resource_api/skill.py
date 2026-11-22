@@ -136,7 +136,9 @@ def client_skill_notice(request):
     An absent/invalid report is unknown, not proof of an outdated installation.
     This is advisory and cannot verify a client's download or loaded instructions.
     """
-    metadata = skill_artifacts()[2]
+    from lockbot.backend.app.resource_api.v2.skill import MANIFEST_URL, skill_metadata
+
+    metadata = skill_metadata()
     current = metadata["version"]
     reported = request.headers.get("X-Lockbot-Client-Skill-Version", "")
     if not re.fullmatch(r"[a-f0-9]{16}", reported):
@@ -149,9 +151,13 @@ def client_skill_notice(request):
         "current_package_version": metadata["package_version"],
         "package_status": package_status,
         "reported_version": reported,
-        "manifest_url": "/api/agent-skill",
+        "manifest_url": MANIFEST_URL,
         "skill_url": metadata["skill_url"],
-        "instructions": None if status == "current" or package_status == "current" else SKILL_UPDATE_INSTRUCTIONS,
+        "instructions": (
+            None
+            if status == "current" or package_status == "current"
+            else "Use `lb skill install` to install the selected server's LockBot Skill."
+        ),
     }
 
 

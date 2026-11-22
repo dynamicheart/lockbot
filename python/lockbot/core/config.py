@@ -35,7 +35,7 @@ _CONFIG_SCHEMA = {
         "default": "NODE",
         "description": "Bot type: NODE / DEVICE / QUEUE",
     },
-    "FEISHU_QUERY_PANEL": {"default": False, "description": "Update own Feishu query panels", "env": False},
+    "FEISHU_QUERY_PANEL": {"default": False, "description": "Refresh the latest Feishu query on reply", "env": False},
     "FEISHU_MEMBERSHIP_NOTICES": {
         "default": False,
         "description": "Observe Feishu bot membership and warn administrators on removal",
@@ -71,6 +71,9 @@ _CONFIG_SCHEMA = {
         "default": "zh",
         "description": "Bot display language: zh (Chinese) or en (English)",
     },
+    "ALLOW_USER_LABEL": {"default": False, "description": "Allow users to set or clear shared node labels"},
+    "SHOW_NODE_LABEL": {"default": False, "description": "Show shared node labels in chat replies"},
+    "NODE_LABELS": {"default": {}, "description": "Shared labels by exact node name"},
     "ALLOWED_GROUP_IDS": {
         "default": [],
         "description": "List of group_ids where opkick is allowed. Empty = allow from any group.",
@@ -86,6 +89,20 @@ _INTERNAL_DEFAULTS = {
         "is_notified": False,
     },
 }
+
+_LEGACY_LABEL_KEYS = {
+    "ALLOW_USER_ALIAS": "ALLOW_USER_LABEL",
+    "SHOW_NODE_ALIAS": "SHOW_NODE_LABEL",
+    "NODE_ALIASES": "NODE_LABELS",
+}
+
+
+def normalize_label_settings(config):
+    values = config.copy()
+    for old, new in _LEGACY_LABEL_KEYS.items():
+        if old in values:
+            values.setdefault(new, values.pop(old))
+    return values
 
 
 class Config:
@@ -105,7 +122,7 @@ class Config:
         """
         self._data = copy.deepcopy(self._default_config)
         if config_dict:
-            self._data.update(config_dict)
+            self._data.update(normalize_label_settings(config_dict))
         self._normalize()
         cap = self.get_val("MAX_RESOURCES_PER_USER", -1)
         if isinstance(cap, bool) or not isinstance(cap, int) or (cap != -1 and cap < 1):
@@ -128,13 +145,14 @@ class Config:
 
     def get_val(self, key, default=None):
         """Read a value from this bot."""
+        key = _LEGACY_LABEL_KEYS.get(key, key)
         if key in self._data:
             return self._data[key]
         return self._derive_path(key, default)
 
     def set_val(self, key, value):
         """Instance-level set."""
-        self._data[key] = value
+        self._data[_LEGACY_LABEL_KEYS.get(key, key)] = value
 
     def _derive_path(self, key, default=None):
         """Derive computed path keys. Uses BOT_ID-based layout: {DATA_DIR}/bots/{bot_id}/."""

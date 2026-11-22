@@ -56,6 +56,13 @@ class CredentialReceipt:
 
 
 @dataclass(frozen=True)
+class PersonalBindingReceipt:
+    principal_id: str
+    grant_id: str
+    credential_generation: int
+
+
+@dataclass(frozen=True)
 class PendingBinding:
     """An issued-but-unconfirmed binding.
 
@@ -74,7 +81,9 @@ class PendingBinding:
     label: str | None = None
     credential_encrypted: str | None = None
     purpose: str = "bind"
-    receipt: CredentialReceipt | None = None
+    principal_id: str | None = None
+    principal_generation: int | None = None
+    receipt: CredentialReceipt | PersonalBindingReceipt | None = None
 
     def is_expired(self, now: datetime | None = None) -> bool:
         return (now or _utcnow()) >= self.bind_expires_at
@@ -94,6 +103,8 @@ class PendingBindingStore(ABC):
         source: str = "",
         label: str | None = None,
         purpose: str = "bind",
+        principal_id: str | None = None,
+        principal_generation: int | None = None,
         window_seconds: int,
         max_total: int,
         max_per_source: int,
@@ -128,7 +139,7 @@ class PendingBindingStore(ABC):
         """
 
     @abstractmethod
-    def finalize(self, token: str, *, receipt: CredentialReceipt | None = None) -> None:
+    def finalize(self, token: str, *, receipt: CredentialReceipt | PersonalBindingReceipt | None = None) -> None:
         """Consume a code after commit, retaining any receipt until the original deadline."""
 
     @abstractmethod
@@ -190,6 +201,8 @@ class InProcessPendingBindingStore(PendingBindingStore):
         source: str = "",
         label: str | None = None,
         purpose: str = "bind",
+        principal_id: str | None = None,
+        principal_generation: int | None = None,
         window_seconds: int,
         max_total: int,
         max_per_source: int,
@@ -206,6 +219,8 @@ class InProcessPendingBindingStore(PendingBindingStore):
             label=label,
             credential_encrypted=credential_encrypted,
             purpose=purpose,
+            principal_id=principal_id,
+            principal_generation=principal_generation,
         )
         with self._lock:
             self._prune_locked(now)
@@ -245,7 +260,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
             self._tokens[token] = binding_id
             return record, token
 
-    def finalize(self, token: str, *, receipt: CredentialReceipt | None = None) -> None:
+    def finalize(self, token: str, *, receipt: CredentialReceipt | PersonalBindingReceipt | None = None) -> None:
         with self._lock:
             binding_id = self._tokens.pop(token, None)
             if binding_id is None:

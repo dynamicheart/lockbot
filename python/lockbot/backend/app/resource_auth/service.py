@@ -12,6 +12,7 @@ reach ``platform``, ``external_user_id`` or ``bound_bot_id``.
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import threading
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,7 @@ from types import SimpleNamespace
 from sqlalchemy import exists, or_
 from sqlalchemy.orm import Session
 
+from lockbot.backend.app import config
 from lockbot.backend.app.config import (
     RESOURCE_AUTH_BIND_FAILURE_WINDOW_SECONDS,
     RESOURCE_AUTH_BIND_WINDOW_SECONDS,
@@ -91,16 +93,36 @@ def reset_bind_throttle() -> None:
 # ── Issuance (unauthenticated, no durable write) ──────────────────────────────
 
 
-def create_binding(*, source: str = "", label: str | None = None, purpose: str = "bind") -> dict:
+class LegacyEnrollmentDisabled(Exception):
+    """New grants must use Agent API v2."""
+
+
+def create_binding(
+    *,
+    source: str = "",
+    label: str | None = None,
+    purpose: str = "bind",
+    principal_id: str | None = None,
+    principal_generation: int | None = None,
+) -> dict:
     """Issue both keys in one call and record only an in-memory pending entry.
 
     Returns a dict with ``binding_id``, ``credential`` (inert until chat confirmation),
     ``bind_code`` and ``bind_expires_at``. Confirmed keys can subsequently be recovered
     by an Agent authenticated as the same verified principal on this instance.
     """
+    if purpose == "bind" and not config.RESOURCE_AUTH_V1_ENROLLMENT_ENABLED:
+        raise LegacyEnrollmentDisabled
     # Regenerate on the astronomically rare id/code collision rather than overwrite a live
     # pending entry. A handful of attempts is far more than the birthday maths ever needs.
-    prefix = {"bind": "", "recover": "REC-", "reset": "RST-"}[purpose]
+    prefix = {
+        "bind": "",
+        "recover": "REC-",
+        "reset": "RST-",
+        "personal": "V2-",
+        "personal_recover": "V2REC-",
+        "personal_reset": "V2R-",
+    }[purpose]
     for _ in range(_MAX_ISSUE_ATTEMPTS):
         binding_id = credentials.generate_public_id()
         credential = credentials.generate_credential() if purpose == "bind" else "lbp_" + secrets.token_urlsafe(32)
@@ -112,6 +134,8 @@ def create_binding(*, source: str = "", label: str | None = None, purpose: str =
                 credential_digest=credentials.digest_credential(credential),
                 credential_encrypted=credentials.seal_credential(binding_id, credential) if purpose == "bind" else None,
                 purpose=purpose,
+                principal_id=principal_id,
+                principal_generation=principal_generation,
                 source=source,
                 label=(label or None),
                 window_seconds=RESOURCE_AUTH_BIND_WINDOW_SECONDS,
@@ -142,7 +166,7 @@ def binding_status(db: Session, binding_id: str) -> str:
     if row is not None:
         return STATUS_REVOKED if row.revoked_at is not None else STATUS_CONFIRMED
     record = pending_store.get(binding_id)
-    if record is not None and record.purpose == "bind":
+    if record is not None and record.purpose == "bind" and config.RESOURCE_AUTH_V1_ENROLLMENT_ENABLED:
         return STATUS_PENDING
     return STATUS_EXPIRED
 
@@ -337,8 +361,20 @@ def _bot_language(bot) -> str:
     return lang
 
 
+def normalize_chat_id(platform, value):
+    if platform == "infoflow":
+        if type(value) is int and 0 < value < 10**128:
+            value = str(value)
+        pattern = r"[1-9][0-9]{0,127}"
+    elif platform == "feishu":
+        pattern = r"oc_[A-Za-z0-9_-]{1,125}"
+    else:
+        return None
+    return value if isinstance(value, str) and re.fullmatch(pattern, value) else None
+
+
 def handle_chat_binding(
-    *, platform: str, external_user_id: str, bot_id, action: str, argument: str, expected_revision=None
+    *, platform: str, external_user_id: str, bot_id, action: str, argument: str, expected_revision=None, chat_id=None
 ) -> str:
     from lockbot.backend.app.resource_auth.authority import authority_guard
 
@@ -350,11 +386,12 @@ def handle_chat_binding(
             action=action,
             argument=argument,
             expected_revision=expected_revision,
+            chat_id=chat_id,
         )
 
 
 def _handle_chat_binding(
-    *, platform: str, external_user_id: str, bot_id, action: str, argument: str, expected_revision=None
+    *, platform: str, external_user_id: str, bot_id, action: str, argument: str, expected_revision=None, chat_id=None
 ) -> str:
     """The hook injected into ``core/handler.py`` for `bind` / `unbind` / `bindings`.
 
@@ -378,7 +415,13 @@ def _handle_chat_binding(
             return t("binding.unavailable", lang=lang)
 
         if action == "bind":
-            reply, reserved_token, receipt = _chat_bind(db, platform, external_user_id, bot, lang, argument)
+            confirmed_chat = normalize_chat_id(platform, chat_id)
+            allowed = {value.strip() for value in (bot.group_id or "").split(",") if value.strip()}
+            if allowed and confirmed_chat not in allowed:
+                confirmed_chat = None
+            reply, reserved_token, receipt = _chat_bind(
+                db, platform, external_user_id, bot, lang, argument, confirmed_chat
+            )
         elif action == "bindings":
             reply = _chat_list(db, platform, external_user_id, bot, lang)
         elif action == "unbind":
@@ -435,7 +478,7 @@ def _with_agent_usage_hint(db, bot, lang, reply):
     return reply + "\n\n" + t("binding.agent_usage_hint", lang=lang, url=base + "/api/agent-skill")
 
 
-def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str, argument: str):
+def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str, argument: str, chat_id):
     """Confirm a bind code. Returns ``(reply, reservation_token, receipt)``.
 
     The pending record is *reserved* (hidden from other claimants but not yet destroyed)
@@ -467,21 +510,39 @@ def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str
         return _with_agent_usage_hint(db, bot, lang, t("binding.invalid_or_expired", lang=lang)), None, None
 
     try:
+        if record.purpose in {"personal", "personal_recover", "personal_reset"}:
+            from lockbot.backend.app.resource_api.v2.binding import confirm
+
+            receipt = confirm(db, bot, platform, external_user_id, record, chat_id)
+            if receipt is None:
+                pending_store.restore(token)
+                return t("binding.personal_unavailable", lang=lang), None, None
+            message = {
+                "personal": "binding.personal_confirmed",
+                "personal_recover": "binding.personal_recovered",
+                "personal_reset": "binding.personal_rotated",
+            }[record.purpose]
+            return t(message, lang=lang), token, receipt
         previous = _own_bindings(db, platform, external_user_id, bot.id)
         current = [row for row in previous if _binding_is_current(row, bot, now)]
+        if not config.RESOURCE_AUTH_V1_ENROLLMENT_ENABLED and (
+            record.purpose == "bind" or (record.purpose == "recover" and not current)
+        ):
+            receipt = CredentialReceipt(bot.id, None, None) if record.purpose == "recover" else None
+            return t("binding.legacy_enrollment_disabled", lang=lang), token, receipt
         if record.purpose == "recover" and not current:
             key = credentials.generate_credential()
-            row = _create_chat_binding(db, bot, previous, platform, external_user_id, now, record, key=key)
+            row = _create_chat_binding(db, bot, previous, platform, external_user_id, now, record, chat_id, key=key)
             receipt = CredentialReceipt(bot.id, row.public_id, row.credential_generation, created=True)
             return t("binding.challenge_created", lang=lang), token, receipt
         if record.purpose != "bind":
-            reply, receipt = _confirm_credential_challenge(db, bot, lang, record, current)
+            reply, receipt = _confirm_credential_challenge(db, bot, lang, record, current, chat_id)
             return reply, token, receipt
         if current:
             # Never rotate an existing shared credential as a side effect of another
             # Agent's enrollment. Consume this code; its credential remains inert.
             return t("binding.already_bound", lang=lang, bot_id=bot.id), token, None
-        _create_chat_binding(db, bot, previous, platform, external_user_id, now, record)
+        _create_chat_binding(db, bot, previous, platform, external_user_id, now, record, chat_id)
         reply = t(
             "binding.confirmed",
             lang=lang,
@@ -496,7 +557,7 @@ def _chat_bind(db: Session, platform: str, external_user_id: str, bot, lang: str
     return reply, token, None
 
 
-def _create_chat_binding(db, bot, previous, platform, external_user_id, now, record, *, key=None):
+def _create_chat_binding(db, bot, previous, platform, external_user_id, now, record, chat_id, *, key=None):
     for old in previous:
         old.revoked_at = _naive_utc(now)
     db.flush()
@@ -508,6 +569,7 @@ def _create_chat_binding(db, bot, previous, platform, external_user_id, now, rec
         bound_bot_id=bot.id,
         bound_bot_uuid=bot.uuid or "",
         bound_identity_revision=bot.identity_revision,
+        confirmed_chat_id=chat_id,
         credential_digest=credentials.digest_credential(key) if key is not None else record.credential_digest,
         credential_encrypted=(
             credentials.seal_credential(binding_id, key) if key is not None else record.credential_encrypted
@@ -528,7 +590,7 @@ def _create_chat_binding(db, bot, previous, platform, external_user_id, now, rec
     return row
 
 
-def _confirm_credential_challenge(db, bot, lang, record, current):
+def _confirm_credential_challenge(db, bot, lang, record, current, chat_id):
     unavailable = CredentialReceipt(bot.id, None, None)
     if len(current) != 1:
         return t("binding.challenge_unavailable", lang=lang), unavailable
@@ -549,6 +611,8 @@ def _confirm_credential_challenge(db, bot, lang, record, current):
         generation += 1
     elif credentials.recover_credential(row) is None:
         return t("binding.challenge_unavailable", lang=lang), unavailable
+    if chat_id is not None:
+        row.confirmed_chat_id = chat_id
     receipt = CredentialReceipt(bot.id, row.public_id, generation)
     return t(f"binding.challenge_{record.purpose}_confirmed", lang=lang), receipt
 
@@ -561,7 +625,7 @@ def credential_challenge_result(db: Session, challenge_id: str, proof: str) -> d
     record = pending_store.get(challenge_id)
     if (
         record is None
-        or record.purpose == "bind"
+        or record.purpose not in {"recover", "reset"}
         or not credentials.credential_matches(record.credential_digest, proof)
     ):
         return None
@@ -592,8 +656,8 @@ def credential_challenge_result(db: Session, challenge_id: str, proof: str) -> d
         if key is None:
             return {"status": "unavailable"}
         result = {"status": "confirmed", "credential": key}
-        if receipt.created:
-            result["outcome"] = "created"
+        if record.purpose == "recover":
+            result["outcome"] = "created" if receipt.created else "recovered"
         return result
 
 

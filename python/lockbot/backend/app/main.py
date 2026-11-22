@@ -40,7 +40,6 @@ from lockbot.backend.app.resource_api.commands import router as resource_command
 from lockbot.backend.app.resource_api.operator import router as operator_router
 from lockbot.backend.app.resource_api.resources import agent_router as agent_resources_router
 from lockbot.backend.app.resource_api.resources import router as resources_router
-from lockbot.backend.app.resource_api.skill import router as skill_router
 from lockbot.backend.app.resource_api.usage import agent_router as agent_usage_router
 from lockbot.backend.app.resource_api.usage import router as usage_router
 from lockbot.backend.app.resource_auth.router import router as resource_auth_router
@@ -703,9 +702,10 @@ def create_app() -> FastAPI:
     from lockbot.backend.app.deployment import install_health_endpoint
 
     install_activity_middleware(app)
-    from lockbot.backend.app.resource_api.ingress import AgentIngressMiddleware
+    from lockbot.backend.app.resource_api.ingress import AgentIngressMiddleware, IngressBudget
 
-    app.add_middleware(AgentIngressMiddleware)
+    app.state.agent_ingress_budget = IngressBudget()
+    app.add_middleware(AgentIngressMiddleware, budget=app.state.agent_ingress_budget)
     install_health_endpoint(app)
     from lockbot.backend.app.resource_api.errors import install_agent_validation_errors
     from lockbot.backend.app.resource_api.versioning import AgentVersionMiddleware
@@ -786,8 +786,12 @@ def create_app() -> FastAPI:
     app.include_router(configuration_delegation_router)
     app.include_router(backup_router)
     from lockbot.backend.app.resource_api.discovery import router as discovery_router
+    from lockbot.backend.app.resource_api.rate_contract import describe_agent_rate
+    from lockbot.backend.app.resource_api.v2 import commands, metrics, resources, watch  # noqa: F401
+    from lockbot.backend.app.resource_api.v2.binding import router as agent_v2_router
 
     app.include_router(discovery_router)
+    app.include_router(agent_v2_router)
     app.include_router(resource_auth_router)
     app.include_router(agent_resources_router)
     app.include_router(agent_commands_router)
@@ -796,7 +800,6 @@ def create_app() -> FastAPI:
     app.include_router(resources_router)
     app.include_router(usage_router)
     app.include_router(activity_router)
-    app.include_router(skill_router)
     app.include_router(operator_router)
     from lockbot.backend.app.resource_api.views import router as view_router
 
@@ -828,7 +831,6 @@ def create_app() -> FastAPI:
                 "Agent 绑定": "binding",
                 "OP API": "op",
                 "Configuration API": "configuration",
-                "Skill 下载": "agent_download",
             }
             if scope is not None
             else {}
@@ -851,8 +853,6 @@ def create_app() -> FastAPI:
                         section, group, scheme = "op", "OP API", "OpApiKey"
                     elif path.startswith("/api/resource-auth/"):
                         section, group, scheme = "agent", "Agent 绑定", None
-                    elif path.startswith("/api/agent-skill"):
-                        section, group, scheme = "agent", "Skill 下载", None
                     else:
                         section, group, scheme = "agent", "Agent API", "AgentKey"
                     if scope is not None and section != scope:
@@ -862,6 +862,8 @@ def create_app() -> FastAPI:
                         used_schemes.add(scheme)
                     detail["tags"] = [localized_titles.get(group, group)]
                     detail["security"] = [{scheme: []}] if scheme else []
+                    if section == "agent":
+                        describe_agent_rate(path, method, detail, lang=lang)
                     if path == "/api/agent/resources" and method == "get":
                         commands = (
                             "```sh\n"
@@ -986,9 +988,10 @@ def create_app() -> FastAPI:
 
         lang = public_docs_language(request)
         title = escape(t("public_docs.title", lang=lang))
-        entries = []
+        v2_description = "Bind, query and operate resources." if lang == "en" else "绑定、查询和操作资源。"
+        entries = [f'<li><a href="/api/public-docs/agent-v2">Agent API v2</a><p>{v2_description}</p></li>']
         for scope in public_doc_sections:
-            label = escape(t(f"public_docs.{scope}.title", lang=lang))
+            label = "Agent API v1" if scope == "agent" else escape(t(f"public_docs.{scope}.title", lang=lang))
             description = escape(t(f"public_docs.{scope}.description", lang=lang))
             entries.append(f'<li><a href="/api/public-docs/{scope}">{label}</a><p>{description}</p></li>')
         schema_label = escape(t("public_docs.schema", lang=lang))
@@ -1006,12 +1009,13 @@ def create_app() -> FastAPI:
     def public_docs_section(request: Request, scope: str):
         from lockbot.core.i18n import t
 
-        if scope not in public_doc_sections:
+        if scope not in (*public_doc_sections, "agent-v2"):
             raise HTTPException(status_code=404)
         lang = public_docs_language(request)
+        is_v2 = scope == "agent-v2"
         page = get_swagger_ui_html(
-            openapi_url=f"/api/public-openapi.json?scope={scope}",
-            title=t(f"public_docs.{scope}.title", lang=lang),
+            openapi_url="/api/agent/v2/openapi.json" if is_v2 else f"/api/public-openapi.json?scope={scope}",
+            title="Agent API v2" if is_v2 else t(f"public_docs.{scope}.title", lang=lang),
             swagger_ui_parameters={"defaultModelsExpandDepth": -1},
         )
         compact_style = """
@@ -1029,8 +1033,26 @@ def create_app() -> FastAPI:
           #swagger-ui .opblock-tag > small p { margin: 4px 0; }
         </style>
         """
+        document = page.body.decode("utf-8").replace("</head>", compact_style + "</head>", 1)
+        if is_v2:
+            quickstart = "HTTP quickstart" if lang == "en" else "HTTP 快速开始"
+            link = f'<a href="/api/public-docs/agent-v2/quickstart">{quickstart}</a>'
+            navigation = f'<nav style="margin:1rem auto;max-width:1320px">{link}</nav>'
+            document = document.replace("<body>", f"<body>{navigation}", 1)
+        return HTMLResponse(document, headers=localized_doc_headers(lang))
+
+    @app.get("/api/public-docs/agent-v2/quickstart", include_in_schema=False)
+    def agent_v2_quickstart(request: Request):
+        from lockbot.backend.app.resource_api.public_tutorials import TUTORIAL_STYLE, agent_tutorial
+
+        lang = public_docs_language(request)
+        reference = "API reference" if lang == "en" else "API 文档"
         return HTMLResponse(
-            page.body.decode("utf-8").replace("</head>", compact_style + "</head>", 1),
+            f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f"<title>LockBot Agent API v2</title>{TUTORIAL_STYLE}</head>"
+            f'<body><main><nav class="agent-tutorial"><a href="/api/public-docs/agent-v2">{reference}</a></nav>'
+            f"{agent_tutorial(2, lang)}</main></body></html>",
             headers=localized_doc_headers(lang),
         )
 

@@ -172,6 +172,7 @@ def create_or_load_device_state(config=None):
                     device_status = old_by_id[dev_id]
                     _migrate_status_fields(device_status)
                     _migrate_user_info_fields(device_status["current_users"])
+                    _migrate_user_info_fields(device_status.get("booking_list", []))
                     clamped = apply_max_duration_limit(device_status["current_users"], max_duration, duration_whitelist)
                     clamped_user_ids.update(clamped)
                     default_device.update(**device_status)
@@ -281,8 +282,11 @@ def _save_bot_state_atomically(data, config=None, *, evidence=None):
         raise
 
 
-def observe_state_persistence(config, data, *, successful):
+def observe_state_persistence(config, data, *, successful, ended=()):
     """Optional local evidence hook. It must never replace the allocator's result."""
+    publish = getattr(config, "_publish_resource_snapshot", None)
+    if successful and publish is not None:
+        publish(data, ended=ended)
     observer = getattr(config, "_lifecycle_observer", None)
     if observer is not None:
         try:
@@ -293,10 +297,10 @@ def observe_state_persistence(config, data, *, successful):
             logger.warning("Lifecycle evidence callback failed")
 
 
-def save_bot_state_to_file(data, config=None):
+def save_bot_state_to_file(data, config=None, *, ended=()):
     try:
         _save_bot_state_atomically(data, config)
     except BaseException:
         observe_state_persistence(config, data, successful=False)
         raise
-    observe_state_persistence(config, data, successful=True)
+    observe_state_persistence(config, data, successful=True, ended=ended)
