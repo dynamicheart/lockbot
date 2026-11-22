@@ -30,6 +30,7 @@ from pathlib import Path
 
 MAX_XML_BYTES = 4 * 1024 * 1024
 MIN_INTERVAL = 60
+DEFAULT_ACCELERATOR_INTERVAL = 180
 logger = logging.getLogger(__name__)
 
 
@@ -543,7 +544,7 @@ class Collector:
                 next_host = self.monotonic() + self.config.get("host_interval_seconds", 60)
             if now >= next_accelerator:
                 self.collect_accelerator()
-                next_accelerator = self.monotonic() + self.config.get("interval_seconds", 300)
+                next_accelerator = self.monotonic() + self.config.get("interval_seconds", DEFAULT_ACCELERATOR_INTERVAL)
             stop.wait(max(0.1, min(next_host, next_accelerator) - self.monotonic()))
 
 
@@ -562,8 +563,9 @@ def validate_config(config):
     command = config.get("command")
     if not isinstance(command, list) or not command or any(not isinstance(v, str) or not v for v in command):
         raise ValueError("command must be an explicit argument list; no shell")
-    for name in ("interval_seconds", "host_interval_seconds"):
-        if not isinstance(config.get(name, 120), int) or config.get(name, 120) < MIN_INTERVAL:
+    for name, default in (("interval_seconds", DEFAULT_ACCELERATOR_INTERVAL), ("host_interval_seconds", 60)):
+        interval = config.get(name, default)
+        if not isinstance(interval, int) or interval < MIN_INTERVAL:
             raise ValueError("sampling interval must be at least 60 seconds")
     timeout = config.get("timeout_seconds", 10)
     if not isinstance(timeout, int | float) or not 0 < timeout <= 30:
@@ -784,7 +786,7 @@ class FleetCollector:
             return body.encode()
 
     def run(self, stop):
-        interval = self.config.get("interval_seconds", 300)
+        interval = self.config.get("interval_seconds", DEFAULT_ACCELERATOR_INTERVAL)
         workers = min(2, self.config.get("max_workers", 2))
         # Spread the first acquisition across the interval, then preserve per-target cadence.
         deadlines = {
@@ -824,7 +826,8 @@ def validate_fleet(config):
         raise ValueError("configure 1 to 64 explicit targets")
     if len({target.get("node") for target in targets}) != len(targets):
         raise ValueError("node labels must be unique")
-    if not isinstance(config.get("interval_seconds", 300), int) or config.get("interval_seconds", 300) < MIN_INTERVAL:
+    interval = config.get("interval_seconds", DEFAULT_ACCELERATOR_INTERVAL)
+    if not isinstance(interval, int) or interval < MIN_INTERVAL:
         raise ValueError("sampling interval must be at least 60 seconds")
     if type(config.get("max_workers", 2)) is not int or config.get("max_workers", 2) < 1:
         raise ValueError("max_workers must be a positive integer")

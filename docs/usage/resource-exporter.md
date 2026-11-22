@@ -6,7 +6,7 @@
 
 配置明确的机器清单，不扫描网络。支持本机及集中 SSH 模式；后者发送内置只读 Python 探针，不在每台机器安装常驻服务。使用已有 SSH 密钥/agent，不将密钥放 JSON。SSH 使用 BatchMode 与主机指纹校验；首次连接记录指纹，已知指纹变更时拒绝。
 
-默认每台机器 **300 秒**采集一次，完成后追加 0–30 秒随机错峰，首次分散在一个周期内。最多两台并发，同一台不重叠或堆积补采；高级配置硬下限 60 秒。多开网页或手动刷新不能提高 SMI 频率。XPU SMI 使用驱动全局锁，低频与超时降低干扰，但不保证零开销，需测实际驱动版本。
+默认每台机器 **180 秒**采集一次。批量采集的首次任务分散在一个周期内，每轮完成后再加 0 至 18 秒随机延迟。最多两台并发，同一台不重叠或堆积补采。高级配置硬下限 60 秒。多开网页或手动刷新不能提高 SMI 频率。XPU SMI 使用驱动全局锁，低频与超时降低干扰，但不保证零开销，需测实际驱动版本。
 
 昆仑芯 XPU 使用已核对支持的 `xpu-smi -q -x`，NVIDIA 使用 `nvidia-smi -q -x`。解析 XML 明确索引和字段，不按表格行号认卡，不把机器平均值替代逐卡值。NVIDIA 路径已有合成 XML 回归，仍需真实 GPU 验收。设备更换或索引重排后，管理员需重新核对资源映射。
 
@@ -107,7 +107,7 @@ key 文件必须是普通文件、0600、32–4096 字节，按原始 bytes 读�
 
 ### Host memory and cache
 
-The additive gauges `lockbot_host_memory_available_bytes` and `lockbot_host_memory_cache_bytes` use `/proc/meminfo` during the existing scheduled host probe (default 300 seconds). Available memory is `MemAvailable`; buffers/cache is `Buffers + Cached + SReclaimable`, in bytes. This is a documented counter definition, not a guarantee that every distribution's `free` release calculates its display identically. Existing used memory remains `MemTotal - MemAvailable`. Missing optional cache counters are omitted, never replaced with zero. Older exporters remain usable and the browser displays unknown supplemental counters.
+The additive gauges `lockbot_host_memory_available_bytes` and `lockbot_host_memory_cache_bytes` use `/proc/meminfo` during the scheduled host probe. Fleet collection includes the host probe in each 180-second sampling cycle by default. Available memory is `MemAvailable`; buffers/cache is `Buffers + Cached + SReclaimable`, in bytes. This is a documented counter definition, not a guarantee that every distribution's `free` release calculates its display identically. Existing used memory remains `MemTotal - MemAvailable`. Missing optional cache counters are omitted, never replaced with zero. Older exporters remain usable and the browser displays unknown supplemental counters.
 
 Cache size alone does not diagnose driver OOM or allocation failures. Inspect available memory alongside cache and investigate driver logs separately; Lockbot never drops caches or triggers additional SMI probes on refresh.
 
