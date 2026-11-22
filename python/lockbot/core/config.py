@@ -63,6 +63,10 @@ _CONFIG_SCHEMA = {
         "default": False,
         "description": "True: warn before expiry; False: release and notify on expiry",
     },
+    "GROUP_REMIND_API_RESOURCES": {
+        "default": False,
+        "description": "Include API holdings and bookings in automatic group reminders",
+    },
     "LANGUAGE": {
         "default": "zh",
         "description": "Bot display language: zh (Chinese) or en (English)",

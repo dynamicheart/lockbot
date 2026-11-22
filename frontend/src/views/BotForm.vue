@@ -468,6 +468,24 @@
             <el-col :xs="24">
               <el-form-item>
                 <template #label>
+                  {{ $t('botCreate.groupRemindApiResources') }}
+                  <el-tooltip
+                    :content="$t('botCreate.groupRemindApiResourcesHelp')"
+                    placement="top"
+                    effect="light"
+                  >
+                    <el-icon class="help-icon"><QuestionFilled /></el-icon>
+                  </el-tooltip>
+                </template>
+                <el-switch
+                  v-model="advancedConfig.GROUP_REMIND_API_RESOURCES"
+                  :aria-label="$t('botCreate.groupRemindApiResources')"
+                />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24">
+              <el-form-item>
+                <template #label>
                   {{ $t('botCreate.durationWhitelist') }}
                   <el-tooltip
                     :content="$t('botCreate.durationWhitelistHelp')"
@@ -668,6 +686,7 @@ const advancedConfig = reactive({
   MAX_RESOURCES_PER_USER: -1,
   TIME_ALERT: 300,
   EARLY_NOTIFY: false,
+  GROUP_REMIND_API_RESOURCES: false,
   FEISHU_MEMBERSHIP_NOTICES: false,
   FEISHU_REACTION_REPLIES: false,
   LANGUAGE: 'zh',
@@ -767,6 +786,7 @@ onMounted(async () => {
         if (overrides.FEISHU_REACTION_REPLIES === true)
           advancedConfig.FEISHU_REACTION_REPLIES = true
         if (overrides.EARLY_NOTIFY != null) advancedConfig.EARLY_NOTIFY = overrides.EARLY_NOTIFY
+        advancedConfig.GROUP_REMIND_API_RESOURCES = overrides.GROUP_REMIND_API_RESOURCES === true
         if (overrides.LANGUAGE != null) advancedConfig.LANGUAGE = overrides.LANGUAGE
         if (Array.isArray(overrides.DURATION_WHITELIST))
           advancedConfig.DURATION_WHITELIST = overrides.DURATION_WHITELIST

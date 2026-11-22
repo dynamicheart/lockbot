@@ -131,6 +131,20 @@ def should_notify(command_word):
     return canonical_command(command_word) in NOTIFIABLE_COMMANDS
 
 
+def send_queue_delay(manager, bot_id, generation, recipients):
+    """Use the normal group adapter after the resource command has completed."""
+    try:
+        with manager.admit(bot_id) as lease:
+            if lease.generation != generation:
+                return
+            bot = lease.bot
+            text = t("notify.wait_time_increased", config=bot.config)
+            bot.adapter.send(bot.adapter.build_reply(text, list(recipients)))
+    except Exception:
+        # Delivery is best effort. The command has already committed.
+        return
+
+
 def notify_group(
     bot,
     *,

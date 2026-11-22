@@ -74,6 +74,30 @@ def test_card_booking_notify_claim_carries_purpose_and_uses_claim_deadline(clien
     assert device["holders"][0]["usage"]["agent_label"] == "queue-agent"
 
 
+def test_v1_card_renewal_notifies_chat_waiter_even_when_hook_fails(client, cards, monkeypatch):
+    from lockbot.core.handler import execute_text_command
+
+    bot = cards["bot"]
+    sent = []
+
+    def send(reply):
+        assert not bot._lock.locked()
+        sent.append(reply)
+        raise OSError("fixture webhook failure")
+
+    monkeypatch.setattr(bot.adapter, "send", send)
+    command(client, cards, "lock n1 dev0 30m")
+    command(client, cards, "book n1 dev0 10m", other=True)
+    execute_text_command("chat-waiter", "book n1 dev0 15m", bot, source="chat")
+    command(client, cards, "lock n1 dev0 15m")
+    (notice,) = sent
+    mentions = [item["atuserids"] for item in notice["message"]["body"] if item["type"] == "AT"]
+    assert mentions == [["chat-waiter"]]
+    device = state(client, cards)["resources"][0]["devices"][0]
+    assert device["holders"][0]["duration_seconds"] == 2700
+    assert len(device["booking_list"]) == 2
+
+
 def test_op_card_release_keeps_sibling_holding_and_waiting_task(client, cards, operator):
     command(client, cards, "lock n1 dev0,1 1h", purpose="Development")
     command(client, cards, "book n1 dev0 30m", other=True, purpose="Regression")

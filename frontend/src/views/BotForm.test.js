@@ -96,6 +96,9 @@ it('switches platform without whole-form validation, clears credentials and vali
   const view = app._instance.setupState
   view.formRef = { clearValidate: model.clear, validate: model.validate }
   await flush()
+  expect(view.configPayload().config_overrides.GROUP_REMIND_API_RESOURCES).toBe(false)
+  view.advancedConfig.GROUP_REMIND_API_RESOURCES = true
+  expect(view.configPayload().config_overrides.GROUP_REMIND_API_RESOURCES).toBe(true)
   expect(view.resourceViewLinkDays).toBe('inherit')
   expect(view.configPayload().config_overrides).not.toHaveProperty('RESOURCE_VIEW_LINK_DAYS')
   view.resourceViewLinkDays = 0
