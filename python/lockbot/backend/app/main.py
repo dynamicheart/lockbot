@@ -365,6 +365,7 @@ def _migrate_identity_boundaries():
             "bound_identity_revision": "INTEGER NOT NULL DEFAULT 0",
             "credential_encrypted": "TEXT",
             "credential_generation": "INTEGER NOT NULL DEFAULT 0",
+            "confirmed_chat_id": "VARCHAR(128)",
         },
         "bot_migrations": {"metrics_wait_seconds": "INTEGER"},
     }

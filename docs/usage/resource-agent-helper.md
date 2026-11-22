@@ -23,7 +23,7 @@ resource's supported operations before locking, booking, or releasing it. Use
 the exact resource reference when node names overlap. Query the result after a
 write before reporting success.
 
-Set `RESOURCE_AUTH_V1_ENROLLMENT_ENABLED=false` to close new v1 enrollment.
+New v1 enrollment is disabled by default. New clients bind through Agent API v2.
 Existing v1 keys retain access to their existing API scopes. The published Skill
 uses v2 and is distributed as Markdown. See the
 [v3.3.3 release documentation](https://github.com/dynamicheart/lockbot/blob/v3.3.3/docs/usage/resource-agent-helper.md)

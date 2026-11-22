@@ -1071,6 +1071,26 @@ def test_v2_metrics_keeps_bot_and_card_scope_on_shared_source(
         manager.shutdown_all()
 
 
+def test_v1_enrollment_is_closed_in_a_fresh_process():
+    import os
+    import subprocess
+    import sys
+
+    env = os.environ.copy()
+    env.pop("RESOURCE_AUTH_V1_ENROLLMENT_ENABLED", None)
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from lockbot.backend.app.config import RESOURCE_AUTH_V1_ENROLLMENT_ENABLED; "
+            "assert not RESOURCE_AUTH_V1_ENROLLMENT_ENABLED",
+        ],
+        env=env,
+        check=True,
+        timeout=10,
+    )
+
+
 def test_disable_v1_enrollment_preserves_existing_keys_and_v2_binding(
     client, auth_header, session_factory, monkeypatch
 ):

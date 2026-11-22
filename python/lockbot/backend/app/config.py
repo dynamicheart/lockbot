@@ -45,7 +45,7 @@ DEV_ADMIN_EMAIL = os.environ.get("DEV_ADMIN_EMAIL", "admin@lockbot.dev")
 DEV_ADMIN_PASSWORD = os.environ.get("DEV_ADMIN_PASSWORD", "admin123")
 
 # ── Resource auth (agent-facing API identity binding) ──
-RESOURCE_AUTH_V1_ENROLLMENT_ENABLED = os.environ.get("RESOURCE_AUTH_V1_ENROLLMENT_ENABLED", "true").lower() in (
+RESOURCE_AUTH_V1_ENROLLMENT_ENABLED = os.environ.get("RESOURCE_AUTH_V1_ENROLLMENT_ENABLED", "false").lower() in (
     "true",
     "1",
     "yes",
