@@ -117,7 +117,7 @@ def _metric_values(payload, nodes):
             continue
         if metric == UTILIZATION:
             device = labels.get("device")
-            if not isinstance(device, str) or device not in nodes[node]:
+            if not isinstance(device, str) or not device:
                 continue
         elif metric in (OBSERVED_AT, COLLECTOR_OK) and labels.get("collector") == "accelerator":
             device = None
@@ -246,6 +246,10 @@ class IdleObserver:
             for key, version, locked_at, devices in _scoped_holdings(
                 bot, target, state, source.nodes[target.source_node], now
             ):
+                if key[2] is None and any(
+                    metric == UTILIZATION and device not in devices for metric, device in samples
+                ):
+                    continue
                 evidence = _advance(previous.get(key), version, locked_at, now, samples, devices, source)
                 if evidence is not None:
                     current[key] = evidence

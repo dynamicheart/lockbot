@@ -111,6 +111,15 @@ def test_shared_source_uses_fresh_producer_time_and_resets_unknown_evidence(inve
             await observer.poll_source(0, client)
             assert not observer.candidates
 
+            for offset in range(1981, 3062, 180):
+                now = collected = started + offset
+                await observer.poll_source(0, client)
+            assert set(observer.candidates) == {(1, "demo", None), (2, "demo", 0)}
+
+            sample_cards = {"dev-a": 0, "dev-b": 0, "unmapped": 30}
+            await observer.poll_source(0, client)
+            assert set(observer.candidates) == {(2, "demo", 0)}
+
     asyncio.run(exercise())
 
 
