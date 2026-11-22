@@ -152,7 +152,10 @@ def test_v1_recovery_and_reset_keep_existing_lease_after_enrollment_closes(clien
     def current_holder(headers):
         resources = client.get(f"/api/bots/{bot_id}/resources", headers=headers).raise_for_status().json()
         node = next(resource for resource in resources["resources"] if resource["id"] == "n1")
-        return node["holders"][0]
+        (holder,) = node["holders"]
+        # The countdown moves with wall time even when the lease is unchanged.
+        holder.pop("remaining_seconds")
+        return holder
 
     original_holder = current_holder(old_headers)
     assert original_holder["external_user_id"] == ACTOR
