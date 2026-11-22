@@ -1607,7 +1607,6 @@ def update_bot_state(
                 command_initiator,
                 command_source,
             )
-            from lockbot.core.io import _save_bot_state_atomically, observe_state_persistence
 
             lease.bot.state.bot_state = state
             source_token = command_source.set("admin")
@@ -1615,12 +1614,7 @@ def update_bot_state(
             actor_token = command_initiator.set({"kind": "management_user", "user_id": user.id})
             correlation_token = command_correlation.set(uuid.uuid4().hex)
             try:
-                try:
-                    _save_bot_state_atomically(state, lease.bot.config)
-                except BaseException:
-                    observe_state_persistence(lease.bot.config, state, successful=False)
-                    raise
-                observe_state_persistence(lease.bot.config, state, successful=True)
+                lease.bot._persist_state()
             finally:
                 command_source.reset(source_token)
                 command_action.reset(action_token)

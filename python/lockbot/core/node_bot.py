@@ -13,7 +13,6 @@ from lockbot.core.i18n import t
 from lockbot.core.io import (
     create_or_load_node_state,
     log_to_file,
-    save_bot_state_to_file,
 )
 from lockbot.core.utils import (
     create_user_info,
@@ -38,8 +37,8 @@ class NodeBot(BaseLockBot):
     class _state_class(BotState):
         _loader = staticmethod(create_or_load_node_state)
 
-    def _resource_state(self):
-        return self.state.bot_state
+    def _resource_state(self, state=None):
+        return self.state.bot_state if state is None else state
 
     def _parse_resource_command(self, *args, **kwargs):
         return self.parse_command(*args, **kwargs)
@@ -109,8 +108,9 @@ class NodeBot(BaseLockBot):
         """
         Query usage of a node
         """
-        with self._state_guard():
-            content = self._msg_with_usage("query.cluster_usage_title", node_key=node_key)
+        snapshot = self.published_snapshot()
+        usage = self._current_usage(node_key, state=snapshot.state)
+        content = self._msg_with_usage("query.cluster_usage_title", usage=usage)
         return self._query_reply(content, user_id)
 
     def lock(self, user_id, command, *, acquisition_limit=None):
@@ -442,7 +442,7 @@ class NodeBot(BaseLockBot):
                         node["status"] = "idle"
 
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state()
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")
@@ -468,7 +468,7 @@ class NodeBot(BaseLockBot):
 
         return max(1.0, min_next) if min_next != float("inf") else None
 
-    def _current_usage(self, node_filter=None):
+    def _current_usage(self, node_filter=None, *, state=None):
         """
         _current_usage
         """
@@ -495,6 +495,6 @@ class NodeBot(BaseLockBot):
             return usage_info
 
         usage_info = ""
-        usage_info += _get_current_usage({k: v for k, v in self._resource_state().items()})
+        usage_info += _get_current_usage(self._resource_state(state))
 
         return usage_info

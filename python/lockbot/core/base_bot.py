@@ -9,10 +9,12 @@ import logging
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager, suppress
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import version as _pkg_version
+from types import MappingProxyType
 from uuid import uuid4
 
 from lockbot.core.config import Config
@@ -35,6 +37,20 @@ class AcquisitionLimitExceeded(ValueError):
 
 class HoldingVersionConflict(ValueError):
     """The exact exclusive holding is no longer the one observed by an operator."""
+
+
+def _freeze_state(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_state(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_state(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceSnapshot:
+    revision: int
+    state: Mapping
 
 
 class BotState:
@@ -98,8 +114,13 @@ class BaseLockBot:
         # core/ owns no database, so the backend injects this. None means the commands
         # report themselves as unavailable.
         self.binding_hook: Callable[..., str] | None = None
+        self._snapshot = ResourceSnapshot(0, _freeze_state(self.state.bot_state))
 
         self._notify_clamped_users()
+
+    def published_snapshot(self) -> ResourceSnapshot:
+        """Return the latest committed snapshot without entering the allocator lock."""
+        return self._snapshot
 
     def _notify_clamped_users(self):
         """Send notification to users whose locks were shortened by max_duration reduction."""
@@ -133,17 +154,17 @@ class BaseLockBot:
         if self._on_state_changed is not None:
             self._on_state_changed()
 
-    def _save_and_notify(self) -> None:
-        """Persist bot state to disk and wake the scheduler (if wired).
-
-        Use this in every command handler that mutates state so it's
-        impossible to forget either step.  The scheduler's
-        ``_check_and_notify`` loop should still call ``save_bot_state_to_file``
-        directly to avoid an unwanted reschedule from the timer thread.
-        """
+    def _persist_state(self) -> None:
+        """Publish state after it is persisted. The caller owns the writer lock."""
         from lockbot.core.io import save_bot_state_to_file
 
-        save_bot_state_to_file(self.state.bot_state, config=self.config)
+        state = self.state.bot_state
+        save_bot_state_to_file(state, config=self.config)
+        self._snapshot = ResourceSnapshot(self._snapshot.revision + 1, _freeze_state(state))
+
+    def _save_and_notify(self) -> None:
+        """Persist a command's state change and wake the scheduler (if wired)."""
+        self._persist_state()
         self._notify_state_changed()
 
     def _check_acquisition_limit_locked(self, user_id, node_keys, limit):
