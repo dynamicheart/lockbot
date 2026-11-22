@@ -187,12 +187,11 @@ class QueueBot(NodeBot):
         if not parse_ok:
             return error_reply
 
-        content = t("success.take_success_by", config=self.config, user_id=user_id)
-        content += self._msg_with_usage("label.before_take")
         max_dur = self.config.get_val("MAX_LOCK_DURATION")
         whitelist = self._duration_whitelist
         with self._state_guard():
-            nodes = [self._resource_state()[node_key] for node_key in node_keys]
+            resources = self._resource_state()
+            nodes = [resources[node_key] for node_key in node_keys]
             policy_error = self._resource_policy_locked(user_id, node_keys, claim_duration=duration)
             if policy_error:
                 return policy_error
@@ -202,8 +201,6 @@ class QueueBot(NodeBot):
             timestamp = int(time.time())
             users_to_notify = set()
             users_to_notify.add(user_id)
-            nodes = [self._resource_state()[node_key] for node_key in node_keys]
-
             if max_dur > 0 and user_id not in whitelist and remaining_duration(timestamp, duration) > max_dur:
                 return self.show_error(
                     user_id,
@@ -214,6 +211,11 @@ class QueueBot(NodeBot):
                         whitelist_hint=self._whitelist_hint(),
                     ),
                 )
+
+            requested = set(node_keys)
+            affected_resources = {key: node for key, node in resources.items() if key in requested}
+            content = t("success.take_success_by", config=self.config, user_id=user_id)
+            content += t("label.before_take", config=self.config) + self._current_usage(resources=affected_resources)
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -244,7 +246,7 @@ class QueueBot(NodeBot):
                 user_info["is_notified"] = False
                 node["current_users"] = [user_info]
 
-            content += self._msg_with_usage("label.after_take")
+            content += t("label.after_take", config=self.config) + self._current_usage(resources=affected_resources)
             reply = self.adapter.build_reply(content, list(users_to_notify))
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
@@ -590,7 +592,7 @@ class QueueBot(NodeBot):
     def _usage_labels(self, resource_key):
         return None, self._display_node(resource_key)
 
-    def _current_usage(self, node_filter=None):
+    def _current_usage(self, node_filter=None, *, resources=None):
         """
         _current_usage
         """
@@ -650,7 +652,4 @@ class QueueBot(NodeBot):
             usage_info += "\n"
             return usage_info
 
-        usage_info = ""
-        usage_info += _get_current_usage({k: v for k, v in self._resource_state().items()})
-
-        return usage_info
+        return _get_current_usage(self._resource_state() if resources is None else resources)
