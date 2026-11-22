@@ -882,6 +882,7 @@ export default {
     earlyNotifyOff: 'Release on Expiry',
     groupRemindApiResources: 'Also send API resource reminders to the group',
     groupRemindApiResourcesHelp: 'Applies to automatic renewal, expiry, and queue reminders.',
+    queueAutoLock: 'Auto-lock when your turn arrives',
     durationWhitelist: 'Lock Duration Whitelist',
     durationWhitelistHelp: 'Users exempt from MAX_LOCK_DURATION.',
     durationWhitelistPlaceholder: 'Type a username and press Enter',

@@ -175,6 +175,7 @@ MESSAGES = {
     "notify.take_notify_all": "📋 节点 {node_key} 已被 {user_id} 抢占，当前使用情况:\n",
     "notify.wait_time_increased": "请注意等待时间已增加 \n\n",
     "notify.resource_available_header": "📢【资源可用提醒】\n资源已空闲，请在 {timeout} 内lock:\n\n",
+    "notify.queue_auto_locked_header": "📢【排队资源已自动锁定】\n\n",
     "notify.booking_expired_header": "⚠️ 以下预约已失效，请重新预约：\n",
     "notify.pending_bookings_header": "🗓️ 目前待抢锁的预约：\n",
     "notify.duration_clamped": (

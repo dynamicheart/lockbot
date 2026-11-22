@@ -427,6 +427,7 @@ class QueueBot(NodeBot):
         queue_advanced = False
         state_changed = False
         alerts = []
+        auto_locked = []
         user_ids = set()
         EARLY_NOTIFY = self.config.get_val("EARLY_NOTIFY")
         TIME_ALERT = self.config.get_val("TIME_ALERT")
@@ -509,11 +510,14 @@ class QueueBot(NodeBot):
                         if max_duration > 0 and user_id not in self._duration_whitelist:
                             duration = min(duration, max_duration)
                         holding = create_user_info(user_id, duration, now, config=self.config)
-                        holding["source"] = first_book_user.get("source", "chat")
+                        holding["source"] = first_book_user.get("source", "unknown")
                         node["booking_list"].pop(0)
                         node["current_users"] = [holding]
                         node["status"] = "exclusive"
                         state_changed = True
+                        if holding["source"] == "chat":
+                            auto_locked.append((node_key, user_id, duration))
+                            user_ids.add(user_id)
                     elif not first_book_user.get("is_notified"):
                         notify_first_booking_user(node_key, node, now)
 
@@ -547,6 +551,11 @@ class QueueBot(NodeBot):
                         min_next = min(min_next, 1.0)  # unnotified booking → check soon
 
         content = self._render_lease_alerts(alerts) if alerts else ""
+        if auto_locked:
+            content += t("notify.queue_auto_locked_header", config=self.config)
+            for node_key, user_id, duration in auto_locked:
+                content += f"{self._display_node(node_key)}  {user_id}  {format_duration(duration, self.config)}\n"
+            content += "\n"
         if queue_advanced and (expired_users or pending):
             content += self._render_booking_reminder(expired_users, pending, TIME_TO_LOCK)
         if content:

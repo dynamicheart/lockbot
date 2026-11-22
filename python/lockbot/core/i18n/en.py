@@ -191,6 +191,7 @@ MESSAGES = {
     "notify.take_notify_all": "📋 Node {node_key} taken by {user_id}, current usage:\n",
     "notify.wait_time_increased": "Note: wait times have been updated\n\n",
     "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
+    "notify.queue_auto_locked_header": "📢 Booked resources locked automatically\n\n",
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
     "notify.duration_clamped": (

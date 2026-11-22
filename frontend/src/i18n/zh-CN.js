@@ -851,6 +851,7 @@ export default {
     earlyNotifyOff: '到期释放',
     groupRemindApiResources: 'API 操作的资源提醒也发到群里',
     groupRemindApiResourcesHelp: '适用于续锁、到期和排队的自动提醒。',
+    queueAutoLock: '排到后自动锁定',
     durationWhitelist: '锁定时长白名单',
     durationWhitelistHelp: '白名单内的用户不受最大锁定时长限制',
     durationWhitelistPlaceholder: '输入用户名后按 Enter',

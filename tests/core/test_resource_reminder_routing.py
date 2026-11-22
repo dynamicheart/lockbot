@@ -145,6 +145,31 @@ def test_enabling_auto_lock_skips_an_expired_claim_and_obeys_duration_cap(tmp_pa
         assert holder["duration"] == 600
 
 
+@pytest.mark.parametrize("bot_class,bot_type", BOT_TYPES[2:])
+def test_auto_lock_group_notice_targets_only_group_bookings(tmp_path, bot_class, bot_type, monkeypatch):
+    bot = make_bot(tmp_path, bot_class, bot_type, group_api=True)
+    bot.config.set_val("QUEUE_AUTO_LOCK", True)
+    card = " dev0" if bot_type == "QUEUE_DEVICE" else ""
+    send = bot.adapter.send
+
+    def assert_committed(reply):
+        assert not bot._lock.locked()
+        restored = bot_class(config=bot.config, adapter=FakeAdapter())
+        assert all(entry["status"] == "exclusive" for entry in restored._resource_state().values())
+        send(reply)
+
+    monkeypatch.setattr(bot.adapter, "send", assert_committed)
+    with patch("time.time", return_value=100000):
+        run(bot, "agent-waiter", f"book first{card} 20m", source="api")
+        run(bot, "chat-waiter", f"book second{card} 15m")
+        bot._check_and_notify()
+
+    (notice,) = bot.adapter.sent
+    assert notice["envelope"]["notify"] == ["chat-waiter"]
+    text = bot.adapter.extract_reply_text(notice)
+    assert text == f"📢【排队资源已自动锁定】\n\nsecond{card}  chat-waiter  15 分钟\n\n"
+
+
 def test_delivery_failure_occurs_after_resource_release(tmp_path, monkeypatch):
     bot = make_bot(tmp_path, NodeBot, "NODE")
     calls = []
