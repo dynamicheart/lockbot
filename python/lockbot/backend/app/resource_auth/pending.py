@@ -226,7 +226,13 @@ class InProcessPendingBindingStore(PendingBindingStore):
             self._prune_locked(now)
             if len(self._by_id) >= max_total:
                 raise PendingCapExceeded("global")
-            if source and sum(1 for r in self._by_id.values() if r.source == source) >= max_per_source:
+            # Confirmed receipts stay retrievable and count toward the global memory bound.
+            # The source cap limits only codes that are still waiting for confirmation.
+            if (
+                source
+                and sum(item.source == source and item.receipt is None for item in self._by_id.values())
+                >= max_per_source
+            ):
                 raise PendingCapExceeded("per-source")
             if binding_id in self._by_id or code_digest in self._by_code:
                 raise PendingCollision()
@@ -265,8 +271,7 @@ class InProcessPendingBindingStore(PendingBindingStore):
             binding_id = self._tokens.pop(token, None)
             if binding_id is None:
                 return
-            # The durable row committed; the record is no longer outstanding, so drop it and
-            # free its cap slot and id/code reservation.
+            # The durable row committed. Keep only records whose receipt a client can read.
             self._reserved.discard(binding_id)
             if receipt is None:
                 self._drop_locked(binding_id)
