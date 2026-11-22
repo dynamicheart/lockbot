@@ -1,5 +1,5 @@
 {
-  "interval_seconds": 300,
+  "interval_seconds": 180,
   "max_workers": 2,
   "targets": [
     {
