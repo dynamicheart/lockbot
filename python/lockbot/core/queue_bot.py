@@ -3,6 +3,7 @@
 import re
 import time
 from contextlib import suppress
+from copy import deepcopy
 
 from lockbot.core.command_result import completed_reply
 from lockbot.core.i18n import t
@@ -118,20 +119,24 @@ class QueueBot(NodeBot):
                 user_info["is_notified"] = False
                 node["current_users"] = [user_info]
 
-            content = self._msg_with_usage("success.resource_locked")
-            users_to_notify = {user_id, *group_recipients}
-            if len(users_to_notify) > 1:
-                notice = t("notify.wait_time_increased", config=self.config)
-                if isinstance(content, list):
-                    content.append(notice)
-                else:
-                    content += notice
-            reply = self.adapter.build_reply(content, list(users_to_notify))
+            observed_at = int(time.time())
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            return completed_reply(
-                reply, "lock", reaction_safe=not delayed, queue_delay_recipients=sorted(group_recipients - {user_id})
-            )
+            snapshot = deepcopy(self._resource_state())
+
+        usage = self._current_usage(resources=snapshot, observed_at=observed_at)
+        content = self._msg_with_usage("success.resource_locked", usage=usage)
+        users_to_notify = {user_id, *group_recipients}
+        if len(users_to_notify) > 1:
+            notice = t("notify.wait_time_increased", config=self.config)
+            if isinstance(content, list):
+                content.append(notice)
+            else:
+                content += notice
+        reply = self.adapter.build_reply(content, list(users_to_notify))
+        return completed_reply(
+            reply, "lock", reaction_safe=not delayed, queue_delay_recipients=sorted(group_recipients - {user_id})
+        )
 
     def slock(self, user_id, command):
         return self.show_error(user_id, t("error.slock_not_supported", config=self.config))
@@ -215,8 +220,7 @@ class QueueBot(NodeBot):
 
             requested = set(node_keys)
             affected_resources = {key: node for key, node in resources.items() if key in requested}
-            content = t("success.take_success_by", config=self.config, user_id=user_id)
-            content += t("label.before_take", config=self.config) + self._current_usage(resources=affected_resources)
+            before = deepcopy(affected_resources)
 
             for node in nodes:
                 node["status"] = "exclusive"
@@ -247,11 +251,19 @@ class QueueBot(NodeBot):
                 user_info["is_notified"] = False
                 node["current_users"] = [user_info]
 
-            content += t("label.after_take", config=self.config) + self._current_usage(resources=affected_resources)
-            reply = self.adapter.build_reply(content, list(users_to_notify))
+            observed_at = int(time.time())
             log_to_file(user_id, "lock", node_keys, duration, config=self.config)
             self._save_and_notify()
-            return reply
+            after = deepcopy(affected_resources)
+
+        content = t("success.take_success_by", config=self.config, user_id=user_id)
+        content += t("label.before_take", config=self.config) + self._current_usage(
+            resources=before, observed_at=timestamp
+        )
+        content += t("label.after_take", config=self.config) + self._current_usage(
+            resources=after, observed_at=observed_at
+        )
+        return self.adapter.build_reply(content, list(users_to_notify))
 
     def kicklock(self, user_id, command):
         """
@@ -575,7 +587,7 @@ class QueueBot(NodeBot):
     def _usage_labels(self, resource_key):
         return None, self._display_node(resource_key)
 
-    def _current_usage(self, node_filter=None, *, resources=None):
+    def _current_usage(self, node_filter=None, *, resources=None, observed_at=None):
         """
         _current_usage
         """
@@ -600,7 +612,7 @@ class QueueBot(NodeBot):
                             node_name = f"{display_name}" if user_idx == 0 else ""
                             uid = user_info["user_id"]
                             duration = format_duration(
-                                remaining_duration(user_info["start_time"], user_info["duration"]),
+                                remaining_duration(user_info["start_time"], user_info["duration"], now=observed_at),
                                 config=self.config,
                             )
                             usage_info += f"{indent}{node_name} {uid}  {duration}\n"
@@ -613,7 +625,7 @@ class QueueBot(NodeBot):
                         # Calculate estimated wait time based on max remaining lock time
                         current_locked_time = 0
                         for user_info in node_status.get("current_users", []):
-                            remain = remaining_duration(user_info["start_time"], user_info["duration"])
+                            remain = remaining_duration(user_info["start_time"], user_info["duration"], now=observed_at)
                             if remain > current_locked_time:
                                 current_locked_time = remain
 

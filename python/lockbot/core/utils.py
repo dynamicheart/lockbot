@@ -68,9 +68,9 @@ def format_duration(duration, config=None):
         return t("duration.minutes", config=config, value=f"{duration / 60:.0f}")
 
 
-def remaining_duration(start_time, duration):
+def remaining_duration(start_time, duration, *, now=None):
     """Calculate remaining duration in seconds."""
-    current_timestamp = int(time.time())
+    current_timestamp = int(time.time()) if now is None else now
     assert current_timestamp >= start_time
     elapsed_duration = current_timestamp - start_time
     return max(duration - elapsed_duration, 0)
