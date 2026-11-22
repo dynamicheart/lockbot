@@ -115,13 +115,8 @@ class BaseLockBot:
         # report themselves as unavailable.
         self.binding_hook: Callable[..., str] | None = None
         self._snapshot = ResourceSnapshot(0, _freeze_state(self.state.bot_state))
-        self.config._publish_resource_snapshot = self._publish_resource_snapshot
 
         self._notify_clamped_users()
-
-    def _publish_resource_snapshot(self, state):
-        """Publish one complete state after its write succeeds, under the writer's lock."""
-        self._snapshot = ResourceSnapshot(self._snapshot.revision + 1, _freeze_state(state))
 
     def published_snapshot(self) -> ResourceSnapshot:
         """Return the latest committed snapshot without entering the allocator lock."""
@@ -159,17 +154,17 @@ class BaseLockBot:
         if self._on_state_changed is not None:
             self._on_state_changed()
 
-    def _save_and_notify(self) -> None:
-        """Persist bot state to disk and wake the scheduler (if wired).
-
-        Use this in every command handler that mutates state so it's
-        impossible to forget either step.  The scheduler's
-        ``_check_and_notify`` loop should still call ``save_bot_state_to_file``
-        directly to avoid an unwanted reschedule from the timer thread.
-        """
+    def _persist_state(self) -> None:
+        """Publish state after it is persisted. The caller owns the writer lock."""
         from lockbot.core.io import save_bot_state_to_file
 
-        save_bot_state_to_file(self.state.bot_state, config=self.config)
+        state = self.state.bot_state
+        save_bot_state_to_file(state, config=self.config)
+        self._snapshot = ResourceSnapshot(self._snapshot.revision + 1, _freeze_state(state))
+
+    def _save_and_notify(self) -> None:
+        """Persist a command's state change and wake the scheduler (if wired)."""
+        self._persist_state()
         self._notify_state_changed()
 
     def _check_acquisition_limit_locked(self, user_id, node_keys, limit):

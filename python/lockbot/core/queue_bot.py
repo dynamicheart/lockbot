@@ -6,10 +6,7 @@ from contextlib import suppress
 
 from lockbot.core.command_result import completed_reply
 from lockbot.core.i18n import t
-from lockbot.core.io import (
-    log_to_file,
-    save_bot_state_to_file,
-)
+from lockbot.core.io import log_to_file
 from lockbot.core.node_bot import NodeBot
 from lockbot.core.utils import (
     create_user_info,
@@ -509,7 +506,7 @@ class QueueBot(NodeBot):
 
             pending = self._pending_booking_rows(pending_keys)
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state()
 
             # Compute next wakeup after mutations
             min_next = float("inf")

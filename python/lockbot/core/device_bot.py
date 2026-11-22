@@ -15,7 +15,6 @@ from lockbot.core.i18n import t
 from lockbot.core.io import (
     create_or_load_device_state,
     log_to_file,
-    save_bot_state_to_file,
 )
 from lockbot.core.utils import (
     create_user_info,
@@ -585,7 +584,7 @@ class DeviceBot(BaseLockBot):
                             device["status"] = "idle"
 
             if state_changed:
-                save_bot_state_to_file(self.state.bot_state, config=self.config)
+                self._persist_state()
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")

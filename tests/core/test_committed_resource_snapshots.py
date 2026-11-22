@@ -93,3 +93,14 @@ def test_timer_publishes_expiry_and_queue_progress(resource_bot, monkeypatch):
     assert entry["status"] == "idle"
     if isinstance(bot, QueueBot):
         assert entry["booking_list"][0]["is_notified"]
+
+
+def test_publication_belongs_to_the_instance_that_persisted(resource_bot):
+    bot, target = resource_bot
+    restored = type(bot)(config=bot.config)
+    original = restored.published_snapshot()
+
+    bot.lock("alice", f"lock {target} 1h")
+
+    assert bot.published_snapshot().revision == 1
+    assert restored.published_snapshot() is original
