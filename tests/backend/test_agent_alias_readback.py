@@ -62,13 +62,17 @@ def test_agent_sets_changes_and_clears_alias_without_changing_holdings_or_task_n
         assert (note.purpose, note.agent_label, note.holding_proof) == before_note
 
 
-def test_current_alias_is_observed_even_when_lock_state_is_cached(client, api):
-    api["bot"].config.set_val("NODE_ALIASES", {"n1": "before"})
-    first = _get(client, api).json()
-    api["bot"].config.set_val("NODE_ALIASES", {"n1": "after"})
-    with patch.object(type(api["bot"]), "state_snapshot", side_effect=AssertionError("lock state must stay cached")):
-        second = _get(client, api).json()
-    assert second["captured_at"] == first["captured_at"]
+def test_current_alias_is_observed_without_rebuilding_committed_state(client, api):
+    bot = api["bot"]
+    snapshot = bot.published_snapshot()
+    with patch.object(type(bot), "state_snapshot", side_effect=AssertionError("query must read the published state")):
+        bot.config.set_val("NODE_ALIASES", {"n1": "before"})
+        first = _get(client, api).raise_for_status().json()
+        bot.config.set_val("NODE_ALIASES", {"n1": "after"})
+        second = _get(client, api).raise_for_status().json()
+
+    assert bot.published_snapshot() is snapshot
+    assert datetime.fromisoformat(second["captured_at"]) >= datetime.fromisoformat(first["captured_at"])
     assert second["resources"][0]["alias"] == "after"
     assert first["resources"][0]["alias"] == "before"
     assert datetime.fromisoformat(second["aliases_observed_at"]) >= datetime.fromisoformat(first["aliases_observed_at"])
