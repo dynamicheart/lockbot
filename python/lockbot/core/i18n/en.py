@@ -190,6 +190,16 @@ MESSAGES = {
     "notify.take_preempt": "⚠️ {user_id} preempted node {node_key}\n",
     "notify.take_notify_all": "📋 Node {node_key} taken by {user_id}, current usage:\n",
     "notify.wait_time_increased": "Note: wait times have been updated\n\n",
+    "idle.warning": (
+        "❗[Low resource utilization]\n\n"
+        "{resource} has been underutilized for 20 consecutive minutes.\n"
+        "Resume using the resource within 10 minutes. If you need more time, send `{command}` for 10 extra minutes."
+    ),
+    "idle.confirmed": "✅[Confirmed]\n\nUtilization for {resource} will be checked again at {time}.",
+    "idle.confirm_unavailable": "⚠️[Unable to keep resource]\n\nYou have no pending reminder for {resource}.",
+    "idle.reclaimed": (
+        "🤖[Low-utilization resource reclaimed]\n\nUser: {holder}\nResource: {resource}\nAction: Released"
+    ),
     "notify.resource_available_header": "📢 Resource available\nResource is idle, please lock within {timeout}:\n\n",
     "notify.booking_expired_header": "⚠️ The following bookings have expired:\n",
     "notify.pending_bookings_header": "🗓️ Pending bookings:\n",
