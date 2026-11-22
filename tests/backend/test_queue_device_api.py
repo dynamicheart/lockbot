@@ -138,7 +138,8 @@ def test_op_holding_version_refuses_release_after_renewal_or_reacquisition(clien
 
     def release(version, **target):
         return client.post(
-            base + "/opkick", headers=headers,
+            base + "/opkick",
+            headers=headers,
             json={**request, **target, "expected_holding_version": version},
         )
 

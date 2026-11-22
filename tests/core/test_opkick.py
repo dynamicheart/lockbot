@@ -102,11 +102,17 @@ class TestNodeBotOpkick:
         with pytest.raises(HoldingVersionConflict):
             replacement.do_opkick("victim", node_key="gpu01", expected_holding_version=version)
         current = replacement.op_holding_version(
-            replacement.state.bot_state, "gpu01", None, "victim", at=time.time(),
+            replacement.state.bot_state,
+            "gpu01",
+            None,
+            "victim",
+            at=time.time(),
         )
         assert current and current != version
         assert replacement.do_opkick(
-            "victim", node_key="gpu01", expected_holding_version=current,
+            "victim",
+            node_key="gpu01",
+            expected_holding_version=current,
         )["freed"] == ["gpu01"]
 
     def test_shared_lock_only_removes_target(self, bot):

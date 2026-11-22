@@ -86,7 +86,11 @@ class QueueDeviceBot(QueueBot):
     def do_opkick(self, target_user, node_key=None, dev_ids=None, reason="", *, expected_holding_version=None):
         # DeviceBot already targets exact cards and leaves booking_list untouched.
         return DeviceBot.do_opkick(
-            self, target_user, node_key=node_key, dev_ids=dev_ids, reason=reason,
+            self,
+            target_user,
+            node_key=node_key,
+            dev_ids=dev_ids,
+            reason=reason,
             expected_holding_version=expected_holding_version,
         )
 

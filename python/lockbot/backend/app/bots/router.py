@@ -2336,7 +2336,10 @@ def api_opkick(
 
             with operation_attempt(bot_id, "operator", "opkick"):
                 result = lease.bot.do_opkick(
-                    body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason,
+                    body.target_user,
+                    node_key=body.node_key,
+                    dev_ids=body.dev,
+                    reason=body.reason,
                     expected_holding_version=body.expected_holding_version,
                 )
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:

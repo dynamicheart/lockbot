@@ -230,7 +230,11 @@ def operator_resources(
                         device = unit["id"] if unit is not resource else None
                         holder = holders[0]
                         version = lease.bot.op_holding_version(
-                            state, resource["id"], device, holder["external_user_id"], at=captured_at.timestamp(),
+                            state,
+                            resource["id"],
+                            device,
+                            holder["external_user_id"],
+                            at=captured_at.timestamp(),
                         )
                         if version is not None:
                             holder["holding_version"] = version
