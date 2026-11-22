@@ -2,13 +2,12 @@
 full live generation returns the structured transient error instead of silently succeeding."""
 
 import os
-import threading
 from contextlib import contextmanager
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from lockbot.backend.app.bots.manager import AdmissionFull, InstanceRetiring
-from lockbot.core.config import Config
+from lockbot.core.node_bot import NodeBot
 
 
 def _create_node_bot(client, admin_header, tmp_path):
@@ -38,21 +37,19 @@ class TestUpdateStateHoldsLeaseThroughPersistence:
         bot_id = _create_node_bot(client, admin_header, tmp_path)
         state_file = os.path.join(str(tmp_path), "bots", str(bot_id), "bot_state.json")
         observed = {}
+        bot = NodeBot(
+            config_dict={"BOT_ID": bot_id, "DATA_DIR": str(tmp_path / "bots"), "CLUSTER_CONFIGS": ["n1", "n2"]}
+        )
 
         @contextmanager
         def admit(_bot_id, enforce_cap=True, for_read=False):
-            lease = MagicMock()
-            lease.bot._lock = threading.Lock()
-            lease.bot.state = SimpleNamespace(bot_state={})
-            # Persistence uses the admitted generation's real config, as in production.
-            # A MagicMock config invents an observer and is not a valid bot generation.
-            lease.bot.config = Config({"BOT_ID": bot_id, "DATA_DIR": str(tmp_path / "bots")})
             try:
-                yield lease
+                yield SimpleNamespace(bot=bot)
             finally:
                 # If the route released the lease before persisting (the B17 bug), the file
                 # would not exist yet. The fix writes it while the lease is still held.
                 observed["file_present_at_lease_exit"] = os.path.exists(state_file)
+                observed["snapshot_at_lease_exit"] = bot.published_snapshot().revision
 
         with patch("lockbot.backend.app.bots.router.bot_manager") as mock_mgr:
             mock_mgr.admit.side_effect = admit
@@ -60,6 +57,7 @@ class TestUpdateStateHoldsLeaseThroughPersistence:
 
         assert resp.status_code == 200, resp.text
         assert observed["file_present_at_lease_exit"] is True
+        assert observed["snapshot_at_lease_exit"] == 1
 
 
 class TestLiveEditRefusesRetiringOrFull:
