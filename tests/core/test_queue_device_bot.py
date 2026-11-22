@@ -88,7 +88,17 @@ def test_expiry_and_missed_claim_only_advance_the_affected_card(bot, monkeypatch
 def test_take_kicklock_and_kickout_have_per_card_semantics(bot):
     bot.lock("alice", "lock node1 dev0,1 1h")
     bot.book("bob", "book node1 dev0 30m")
-    bot.take("carol", "take node1 dev0 20m")
+    bot.book("other_waiter", "book node1 dev1 30m")
+    reply = bot.take("carol", "take node1 dev0 20m")
+    before, after = bot.adapter.extract_reply_text(reply).split("【抢占后】：")
+    for section in (before, after):
+        assert "dev0" in section
+        assert "dev1" not in section
+        assert "node2" not in section
+        assert "other_waiter" not in section
+    assert "dev0 alice" in before
+    assert "dev0 carol" in after
+    assert set(reply["envelope"]["notify"]) == {"alice", "bob", "carol"}
     assert users(card(bot)) == ["carol"]
     assert users(card(bot), "booking_list") == ["alice", "bob"]
     bot.kicklock("op", "kicklock node1 dev0")

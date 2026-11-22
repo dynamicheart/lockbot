@@ -499,6 +499,28 @@ def test_take_when_lock_exists_preempt_and_notify(bot):
     assert notified == expected, f"应通知锁定人和所有排队用户，实际通知: {notified}"
 
 
+def test_take_reply_shows_only_the_selected_nodes(bot):
+    bot.config.set_val("CLUSTER_CONFIGS", ["test", "related", "unrelated"])
+    for node in ("related", "unrelated"):
+        bot.state.bot_state[node] = {"status": "idle", "current_users": [], "booking_list": []}
+    bot.lock("previous_holder", "lock test,related 1h")
+    bot.lock("other_holder", "lock unrelated 1h")
+    bot.book("other_waiter", "book unrelated 30m")
+
+    reply = bot.take("new_holder", "take test,related 20m")
+
+    before, after = bot.adapter.extract_reply_text(reply).split("【抢占后】：")
+    for section in (before, after):
+        assert "test" in section
+        assert "related" in section
+        assert "unrelated" not in section
+        assert "other_holder" not in section
+        assert "other_waiter" not in section
+    assert "test previous_holder" in before
+    assert "test new_holder" in after
+    assert set(reply["message"]["body"][1]["atuserids"]) == {"previous_holder", "new_holder"}
+
+
 def test_locked_user_cannot_take(bot):
     """Test locked user cannot take."""
     bot.config.set_val("CLUSTER_CONFIGS", ["test"])
