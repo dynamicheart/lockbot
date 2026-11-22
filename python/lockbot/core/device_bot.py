@@ -433,13 +433,17 @@ class DeviceBot(BaseLockBot):
             self._save_and_notify()
             return reply
 
-    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
+    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason="", *, expected_holding_version=None):
         """API-driven operator kick: release target_user's device locks.
 
         Returns: {"ok": True, "freed": ["node/devN", ...]}
         Raises: ValueError if user not found.
         """
         with self._state_guard():
+            if expected_holding_version is not None:
+                if not dev_ids or len(dev_ids) != 1:
+                    raise ValueError("A holding version requires exactly one card")
+                self._check_op_holding_version(expected_holding_version, node_key, dev_ids[0], target_user)
             target_nodes = [node_key] if node_key else list(self.state.bot_state.keys())
             freed = []
             for nk in target_nodes:

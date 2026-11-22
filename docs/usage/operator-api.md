@@ -148,11 +148,30 @@ range. Omitting `node_key` can release that user's locks across the whole bot; o
 can release all their cards on the selected node. Do this only if that entire scope was authorized.
 `reason` explains the action to the affected user; it grants no permission.
 
-The response contains `ok` and `freed`. Query again to verify the result. After a timeout,
-query before considering another release: ownership may have changed. The current API has
-no compare-and-swap holding ID or idempotency key, so it cannot guarantee that a release
-matches the exact incarnation observed earlier. Use supervised maintenance for such races.
-A resource release does not terminate processes or run commands on the machine.
+The response contains `ok` and `freed`. Query again to verify the result. The manual form
+checks the current holder when it runs. Use a versioned request when the release decision
+depends on a particular observation.
+
+Call `GET /api/bots/{bot_id}/op/resources?include_holding_versions=true` and copy the
+target's `holders[].holding_version`. The field is present for current exclusive
+holdings with known identities. Send it with an explicit node, and one card index
+for card bots.
+
+```json
+{
+  "target_user": "alice",
+  "node_key": "node1",
+  "dev": [0],
+  "expected_holding_version": "<holding_version from the OP snapshot>",
+  "reason": "Approved release"
+}
+```
+
+The server compares the version inside the same state-lock section as the release.
+A renewal, a different holding, expiry, bot restart, or replay after a successful release
+returns `409 holding_version_conflict`. After a timeout or conflict, refresh and evaluate
+the decision again against current evidence. This operation releases the reservation
+and leaves machine processes running.
 
 ## Clear a QUEUE or QUEUE_DEVICE resource while retaining its queue
 

@@ -120,6 +120,43 @@ def test_op_card_release_keeps_sibling_holding_and_waiting_task(client, cards, o
     assert all("claimable_by_you" not in device for device in devices)
 
 
+def test_op_holding_version_refuses_release_after_renewal_or_reacquisition(client, cards, operator, monkeypatch):
+    monkeypatch.setattr("lockbot.backend.app.bots.router.bot_manager", cards["manager"])
+    command(client, cards, "lock n1 dev0,1 1h")
+    base = f"/api/bots/{cards['bot_id']}"
+    headers = operator["op_headers"]
+
+    def get_holdings(include_versions=False):
+        response = client.get(
+            base + "/op/resources", headers=headers, params={"include_holding_versions": include_versions}
+        ).raise_for_status()
+        return [device["holders"] for device in response.json()["resources"][0]["devices"]]
+
+    assert "holding_version" not in get_holdings()[0][0]
+    original, sibling = (holders[0] for holders in get_holdings(include_versions=True))
+    request = {"target_user": original["external_user_id"], "node_key": "n1", "dev": [0]}
+
+    def release(version, **target):
+        return client.post(
+            base + "/opkick",
+            headers=headers,
+            json={**request, **target, "expected_holding_version": version},
+        )
+
+    assert release(original["holding_version"], dev=[0, 1]).status_code == 422
+    assert release(sibling["holding_version"]).status_code == 409
+    command(client, cards, "lock n1 dev0 10m")
+    assert release(original["holding_version"]).json() == {"detail": {"code": "holding_version_conflict"}}
+    renewed = get_holdings(include_versions=True)[0][0]["holding_version"]
+    command(client, cards, "free n1 dev0")
+    command(client, cards, "lock n1 dev0 70m")
+    assert release(renewed).status_code == 409
+    current = get_holdings(include_versions=True)[0][0]["holding_version"]
+    assert release(current).json() == {"ok": True, "freed": ["n1/dev0"]}
+    assert release(current).status_code == 409
+    assert get_holdings(include_versions=True)[1][0]["holding_version"] == sibling["holding_version"]
+
+
 def test_manual_declarations_require_exact_canonical_card_ownership(client, cards, db_session):
     command(client, cards, "lock n1 dev0 1h", purpose="Original")
     path = f"/api/bots/{cards['bot_id']}/usage-declarations/"

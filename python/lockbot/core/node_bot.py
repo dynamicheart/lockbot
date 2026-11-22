@@ -306,13 +306,15 @@ class NodeBot(BaseLockBot):
             self._save_and_notify()
             return reply
 
-    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
+    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason="", *, expected_holding_version=None):
         """API-driven operator kick: release target_user's locks.
 
         Returns: {"ok": True, "freed": [node_keys]}
         Raises: ValueError if user not found.
         """
         with self._state_guard():
+            if expected_holding_version is not None:
+                self._check_op_holding_version(expected_holding_version, node_key, None, target_user)
             if node_key:
                 target_nodes = [node_key]
             else:

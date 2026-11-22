@@ -2307,6 +2307,7 @@ def api_opkick(
     - node_key: optional, if omitted kicks from all nodes
     - dev: optional, only for DEVICE bots (device indices)
     - reason: optional, shown in notification to kicked user
+    - expected_holding_version: optional, requires one explicit node or card and returns 409 if the holding changed
     """
     bot = db.get(Bot, bot_id)
     if not bot or bot.is_deleted:
@@ -2319,20 +2320,32 @@ def api_opkick(
         raise HTTPException(status_code=401, detail="Invalid API key")
     request.state.traffic_bot_id = bot_id
     request.state.traffic_operator = True
+    if body.expected_holding_version is not None:
+        cards = bot.bot_type in {"DEVICE", "QUEUE_DEVICE"}
+        if not body.node_key or (cards and len(body.dev or []) != 1) or (not cards and body.dev):
+            raise HTTPException(422, "A holding version requires one explicit node or card")
 
     # Run the kick under an admission lease, held across the whole mutation (which persists
     # state and may notify), so it cannot land on a retiring/replaced generation and a drain
     # waits for it.
+    from lockbot.core.base_bot import HoldingVersionConflict
+
     try:
         with bot_manager.admit(bot_id) as lease:
             from lockbot.core.command_context import operation_attempt
 
             with operation_attempt(bot_id, "operator", "opkick"):
                 result = lease.bot.do_opkick(
-                    body.target_user, node_key=body.node_key, dev_ids=body.dev, reason=body.reason
+                    body.target_user,
+                    node_key=body.node_key,
+                    dev_ids=body.dev,
+                    reason=body.reason,
+                    expected_holding_version=body.expected_holding_version,
                 )
     except (BotNotRunning, InstanceRetiring, AdmissionFull, MayHaveExecuted) as exc:
         raise api_errors.admission_http_error(exc, bot_id, legacy_not_running=True) from None
+    except HoldingVersionConflict:
+        raise HTTPException(409, detail={"code": "holding_version_conflict"}) from None
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from None
 
