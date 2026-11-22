@@ -3,6 +3,7 @@
 import time
 
 import pytest
+from lockbot.core.base_bot import HoldingVersionConflict
 from lockbot.core.device_bot import DeviceBot
 from lockbot.core.node_bot import NodeBot
 from lockbot.core.queue_bot import QueueBot
@@ -92,6 +93,21 @@ class TestNodeBotOpkick:
         bot.lock("victim", "lock gpu01 2h")
         with pytest.raises(ValueError):
             bot.do_opkick("victim", node_key="gpu02")
+
+    def test_holding_version_cannot_cross_a_bot_restart(self, bot):
+        bot.lock("victim", "lock gpu01 2h")
+        version = bot.op_holding_version(bot.state.bot_state, "gpu01", None, "victim", at=time.time())
+        replacement = NodeBot(config=bot.config)
+        assert replacement.state.bot_state["gpu01"] == bot.state.bot_state["gpu01"]
+        with pytest.raises(HoldingVersionConflict):
+            replacement.do_opkick("victim", node_key="gpu01", expected_holding_version=version)
+        current = replacement.op_holding_version(
+            replacement.state.bot_state, "gpu01", None, "victim", at=time.time(),
+        )
+        assert current and current != version
+        assert replacement.do_opkick(
+            "victim", node_key="gpu01", expected_holding_version=current,
+        )["freed"] == ["gpu01"]
 
     def test_shared_lock_only_removes_target(self, bot):
         """Shared lock: kicking one user doesn't affect others."""

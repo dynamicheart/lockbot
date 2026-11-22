@@ -83,9 +83,12 @@ class QueueDeviceBot(QueueBot):
         nodes = [key.rsplit(":dev", 1)[0] for key in node_keys]
         return BaseLockBot._check_acquisition_limit_locked(self, user_id, nodes, limit)
 
-    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason=""):
+    def do_opkick(self, target_user, node_key=None, dev_ids=None, reason="", *, expected_holding_version=None):
         # DeviceBot already targets exact cards and leaves booking_list untouched.
-        return DeviceBot.do_opkick(self, target_user, node_key=node_key, dev_ids=dev_ids, reason=reason)
+        return DeviceBot.do_opkick(
+            self, target_user, node_key=node_key, dev_ids=dev_ids, reason=reason,
+            expected_holding_version=expected_holding_version,
+        )
 
     def _help_commands(self):
         node = next(iter(self.config.get_val("CLUSTER_CONFIGS")))
