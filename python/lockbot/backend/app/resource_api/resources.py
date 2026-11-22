@@ -5,20 +5,17 @@ this route is how a client learns about state changes, which is why the payload 
 everything needed to schedule the next poll instead of guessing:
 
 - absolute ``expires_at`` per holder, alongside relative ``remaining_seconds``
-- ``age_seconds``, non-zero only when a cached copy was served, so a client can correct a
-  stale relative value explicitly rather than silently trusting it
+- ``age_seconds`` so clients can correct a relative value as time passes
 - a per-caller ``next_event_at`` with a ``next_event_kind`` saying how exact it is
 - the caller's own queue position and a server-computed head-of-queue flag
 - the bot's health, so "nothing has expired" is distinguishable from "nothing will ever
   expire because the bot is broken"
 
-A short-TTL cache sits in front of the locked deep copy, so a burst of rapid polls
-collapses into one critical section rather than one per request.
+Resource polls read the allocator's last complete committed state.
 """
 
 from __future__ import annotations
 
-import copy
 import logging
 import threading
 from datetime import datetime, timezone
@@ -207,8 +204,6 @@ def get_resources(
     if not allowed:
         raise errors.rate_limited(retry_after)
 
-    now = datetime.now(timezone.utc)
-
     try:
         with (
             bot_manager.admit(bot_id, for_read=True) as lease,
@@ -218,22 +213,13 @@ def get_resources(
             # restore/delete/revoke may have committed between authentication and here.
             if not reverify_actor(db, request, actor):
                 raise errors.credential_invalid()
-            # Node addresses require a current hold, so never authorize from cached state.
-            generation = lease.generation
-            # Single-flight: concurrent misses collapse onto one locked deep copy.
-            captured_at, raw_state, from_cache = snapshot_cache.get_or_compute(
-                bot_id, generation, now, lease.bot.state_snapshot
-            )
+            snapshot = lease.bot.published_snapshot()
+            captured_at, raw_state = datetime.now(timezone.utc), snapshot.state
             rows = active_declarations(db, bot_row, datetime.utcnow())
             # Authoritative health from the admitted generation. Addresses require a
             # running allocator and a fresh hold, including for chat releases.
             health = lease.health or bot_row.status
             access = saved_node_access(bot_row) if health == "running" else {}
-            if from_cache and (rows or access):
-                # A declaration may refer to a newer hold/booking than the cached state,
-                # or a release/reacquire may invalidate it. Join against a fresh instant.
-                captured_at, raw_state = lease.bot.state_snapshot()
-                from_cache = False
             declarations = declarations_for_state(rows, raw_state, captured_at)
             config = lease.bot.config
             # Alias writes use configuration rather than the state lock/cache.
@@ -251,7 +237,7 @@ def get_resources(
     platform = normalize_platform_name(bot_row.platform)
     resources = build_resources(
         captured_at=captured_at,
-        state=copy.deepcopy(raw_state) if from_cache else raw_state,
+        state=raw_state,
         bot_type=bot_row.bot_type,
         platform=platform,
         caller_id=actor.external_user_id,
@@ -261,7 +247,8 @@ def get_resources(
         if node["id"] in hardware:
             node["accelerators"] = hardware[node["id"]]
     attach_node_aliases(resources, aliases)
-    attach_node_access(resources, access, actor.external_user_id, datetime.now(timezone.utc))
+    if access and bot_manager.lease_is_current(lease) and lease.bot.published_snapshot() is snapshot:
+        attach_node_access(resources, access, actor.external_user_id, datetime.now(timezone.utc))
     response.headers["Cache-Control"] = "no-store"
     from lockbot.backend.app.resource_api.usage import visible_declarations
 
@@ -283,9 +270,7 @@ def get_resources(
     # caller's current stake (holder/head poll fastest, bystanders slowest).
     resource_tier_gate.record(actor.binding_record_id, next_event_kind)
 
-    # age_seconds is measured at response-assembly time (now, re-read here), not request start,
-    # so a client correcting a relative remaining_seconds by age_seconds uses the true staleness
-    # of the served snapshot. next_event/remaining are all anchored to captured_at.
+    # Remaining durations and the next event share the same capture time.
     age_seconds = max(0.0, round((datetime.now(timezone.utc) - captured_at).total_seconds(), 3))
 
     from lockbot.backend.app.resource_api.skill import client_skill_notice
@@ -329,10 +314,7 @@ def get_resources(
                 "at aliases_observed_at. This response does not attribute "
                 "state to any particular preceding command."
             ),
-            "staleness": (
-                "age_seconds > 0 means lock/queue state was served from a short-TTL cache. Correct "
-                "remaining_seconds by age_seconds, or prefer the absolute expires_at."
-            ),
+            "staleness": "Correct remaining_seconds by age_seconds, or use the absolute expires_at.",
             "delivery": (
                 "There is no push delivery: no callback, stream, or subscription. Polling "
                 "this route is how you learn about state changes."

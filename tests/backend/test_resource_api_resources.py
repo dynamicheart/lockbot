@@ -1,5 +1,6 @@
 """AC-6 / AC-16: the resource snapshot and its client-scheduling fields."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -96,6 +97,12 @@ def _hold(api, node_key, user_id, duration=3600, started=None, status="exclusive
             "is_notified": False,
         }
     )
+    _persist(api)
+
+
+def _persist(api):
+    with api["bot"]._lock:
+        api["bot"]._persist_state()
 
 
 class TestShape:
@@ -210,29 +217,32 @@ class TestNextEvent:
         assert theirs["next_event_at"] is not None
 
 
-class TestCache:
+class TestCommittedSnapshot:
     def test_a_fresh_response_reports_no_meaningful_staleness(self, client, api):
         snapshot_cache.clear()
         assert _get(client, api).json()["age_seconds"] < 1.0
 
-    def test_a_second_poll_is_served_from_cache(self, client, api):
+    def test_a_second_poll_reuses_the_published_state(self, client, api):
         first = _get(client, api).json()
+        snapshot = api["bot"].published_snapshot()
         second = _get(client, api).json()
-        assert second["captured_at"] == first["captured_at"], "the burst should collapse into one copy"
+        assert api["bot"].published_snapshot() is snapshot
+        assert second["resources"] == first["resources"]
 
-    def test_a_cached_response_carries_age_seconds(self, client, api):
-        _get(client, api)
+    def test_first_read_carries_age_seconds_without_copying_the_live_state(self, client, api):
         with patch.object(type(api["bot"]), "state_snapshot", autospec=True) as spy:
             body = _get(client, api).json()
-            spy.assert_not_called(), "a cache hit must not take the state lock again"
+            spy.assert_not_called()
         assert body["age_seconds"] >= 0
 
-    def test_the_cache_does_not_hand_out_shared_mutable_state(self, client, api):
-        _get(client, api)
-        api["bot"].state.bot_state["n1"]["status"] = "exclusive"
-        cached = _get(client, api).json()
-        resource = next(r for r in cached["resources"] if r["id"] == "n1")
-        assert resource["lock_status"] == "idle", "the cached copy must be detached from live state"
+    def test_uncommitted_state_is_not_visible_to_reads(self, client, api):
+        with ThreadPoolExecutor(max_workers=1) as pool, api["bot"]._lock:
+            node = api["bot"].state.bot_state["n1"]
+            node["status"] = "exclusive"
+            response = pool.submit(_get, client, api).result(timeout=5)
+            node["status"] = "idle"
+        resource = next(r for r in response.json()["resources"] if r["id"] == "n1")
+        assert resource["lock_status"] == "idle"
 
     def test_the_cache_is_keyed_on_generation(self, client, api, tmp_path):
         _get(client, api)
@@ -256,6 +266,7 @@ class TestQueueFields:
         node = api["bot"].state.bot_state["n1"]
         node["booking_list"].append({"user_id": OTHER, "start_time": 1, "duration": 60, "is_notified": False})
         node["booking_list"].append({"user_id": ACTOR, "start_time": 2, "duration": 60, "is_notified": False})
+        _persist(api)
 
         resource = next(r for r in _get(client, api).json()["resources"] if r["id"] == "n1")
         assert [b["external_user_id"] for b in resource["booking_list"]] == [OTHER, ACTOR]
@@ -265,6 +276,7 @@ class TestQueueFields:
     def test_head_of_queue_is_computed_server_side(self, client, api):
         node = api["bot"].state.bot_state["n1"]
         node["booking_list"].append({"user_id": ACTOR, "start_time": 2, "duration": 60, "is_notified": False})
+        _persist(api)
         resource = next(r for r in _get(client, api).json()["resources"] if r["id"] == "n1")
         assert resource["caller_queue_position"] == 0
         assert resource["caller_is_queue_head"] is True
@@ -272,6 +284,7 @@ class TestQueueFields:
     def test_a_caller_does_not_see_another_identitys_position_as_its_own(self, client, api):
         node = api["bot"].state.bot_state["n1"]
         node["booking_list"].append({"user_id": OTHER, "start_time": 1, "duration": 60, "is_notified": False})
+        _persist(api)
         resource = next(r for r in _get(client, api).json()["resources"] if r["id"] == "n1")
         assert resource["caller_queue_position"] is None
         assert resource["caller_is_queue_head"] is False
@@ -290,6 +303,7 @@ class TestQueueFields:
                 "is_notified": True,
             }
         )
+        _persist(api)
         body = _get(client, api).json()
         assert body["next_event_kind"] == "claim_window_end"
 
@@ -298,6 +312,7 @@ class TestQueueFields:
         _hold(api, "n1", "carol", duration=3600)
         node["booking_list"].append({"user_id": OTHER, "start_time": 1, "duration": 60, "is_notified": False})
         node["booking_list"].append({"user_id": ACTOR, "start_time": 2, "duration": 60, "is_notified": False})
+        _persist(api)
         body = _get(client, api).json()
         assert body["next_event_kind"] == "queue_estimate"
 
@@ -321,6 +336,7 @@ class TestDeviceFields:
                 "is_notified": False,
             }
         )
+        _persist(api)
         resource = next(r for r in _get(client, api).json()["resources"] if r["id"] == "n1")
         assert resource["devices"][0]["holders"][0]["external_user_id"] == ACTOR
         assert _get(client, api).json()["next_event_kind"] == "own_lock_expiry"

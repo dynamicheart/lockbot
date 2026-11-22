@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Request
@@ -90,7 +91,7 @@ def _resource_node(state, resource_id):
         and card.isascii()
         and card.isdecimal()
         and str(int(card)) == card
-        and isinstance(state.get(node_key), list)
+        and isinstance(state.get(node_key), (list, tuple))
     ):
         return next((entry for entry in state[node_key] if entry.get("dev_id") == int(card)), None)
     return None
@@ -101,7 +102,7 @@ def holding_proof(state, resource_id, user_id, *, now=None):
     node = _resource_node(state, resource_id)
     if node is None:
         return None
-    entries = [node] if isinstance(node, dict) else node
+    entries = [node] if isinstance(node, Mapping) else node
     evidence = []
     now = time.time() if now is None else now
     for index, entry in enumerate(entries):
