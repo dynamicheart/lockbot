@@ -3,15 +3,19 @@ export default {
     tabHint: 'Press Tab in an empty editor to insert an example',
     invalidSyntax: 'Invalid JSON. Check brackets, quotes, and commas.',
   },
+  nodeInformation: {
+    title: 'Node information',
+    open: 'Configure node information',
+  },
   nodeHardware: {
-    title: 'Node hardware',
-    open: 'Register hardware',
+    title: 'Hardware',
     help: 'Use an approved inventory to provide accelerator models and counts.',
     mapping: 'Hardware mapping JSON',
     saved: 'Registered hardware',
     review: 'Review changes before saving.',
     removed: 'Remove registered hardware',
-    unknownNode: 'The mapping contains an unknown node ID. Refresh the list and check the exact ID.',
+    unknownNode:
+      'The mapping contains an unknown node ID. Refresh the list and check the exact ID.',
     readFailed: 'Could not load the hardware inventory.',
     validateFailed: 'Use version 1, existing node IDs, unique models, and positive integer counts.',
     writeFailed: 'Could not save the hardware inventory.',
@@ -22,7 +26,6 @@ export default {
 
   nodeAccess: {
     title: 'Node access',
-    open: 'Configure addresses',
     loginAddress: 'Login address',
     sharedUnavailable: 'Login address unavailable.',
     workbenchAddress: 'Find login addresses in My Resources',
