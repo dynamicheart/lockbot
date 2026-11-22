@@ -33,12 +33,16 @@ QUERY = {
     "limit": 20,
     "fields": "node,device,status,hardware,available",
 }
+FAIRNESS = ("key-fairness", 20, 2, 20, 2)
+FAIRNESS_SOURCE_LIMIT = 80
+
 SCENARIOS = {
-    "smoke": [("mixed", 20, 4, 20, 2)],
+    "smoke": [("mixed", 20, 4, 20, 2), FAIRNESS],
     "weekly": [
         ("mixed", 500, 30, 1000, 5),
         ("poll-5s", 500, 5, 6000, 6),
         ("poll-1s", 500, 1, 30000, 6),
+        FAIRNESS,
     ],
 }
 
@@ -153,10 +157,7 @@ def simulated_sources(app, keys, count):
     """Assign synthetic client addresses at the ASGI boundary of the fixture."""
     if count == 1:
         return app
-    clients = {
-        ("Bearer " + key).encode(): f"192.0.2.{index % count + 1}"
-        for index, key in enumerate(keys)
-    }
+    clients = {("Bearer " + key).encode(): f"192.0.2.{index % count + 1}" for index, key in enumerate(keys)}
 
     async def fixture(scope, receive, send):
         client = scope.get("client")
@@ -279,6 +280,58 @@ async def mixed(base, keys, target, scenario):
     }
 
 
+async def check_fairness(base, keys, target, scenario, chat, probe_group):
+    """Run ordinary callers after a burst and while one key continues flooding."""
+    flood_outcomes = Counter()
+    flood_headers = headers(keys[-1])
+    peers = keys[: scenario[1]]
+    finished = asyncio.Event()
+    async with httpx.AsyncClient(base_url=base, trust_env=False, timeout=5) as client:
+
+        async def burst(count):
+            responses = await asyncio.gather(
+                *(client.get(API + "/resources", headers=flood_headers, params=QUERY) for _ in range(count))
+            )
+            flood_outcomes.update(str(response.status_code) for response in responses)
+
+        async def flood():
+            while not finished.is_set():
+                await burst(16)
+
+        # Exhaust the small fixture source bucket if per-key protection regresses.
+        for _ in range(10):
+            await burst(16)
+        continuing = asyncio.create_task(flood())
+        try:
+            result, group_reads = await asyncio.gather(
+                mixed(base, peers, target, scenario),
+                probe_group(base, chat),
+            )
+        finally:
+            finished.set()
+            await continuing
+
+    result.update(
+        {
+            "source_ips": 1,
+            "source_per_minute": FAIRNESS_SOURCE_LIMIT,
+            "flood_outcomes": dict(flood_outcomes),
+            "group_queries": {
+                key: {"replies": data["replies"], "p95_ms": p95(data["latency_ms"])}
+                for key, data in group_reads.items()
+            },
+        }
+    )
+    result["fairness_passed"] = (
+        result["outcomes"].get("complete") == result["offered"]
+        and bool(flood_outcomes["429"] or flood_outcomes["503"])
+        and all(outcome in {"200", "429", "503"} for outcome in flood_outcomes)
+        and group_reads.keys() == {"infoflow", "feishu"}
+        and all(group["replies"] == 3 for group in group_reads.values())
+    )
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server-root", type=Path, required=True)
@@ -313,25 +366,36 @@ def main():
         )
         from lockbot.backend.app.bots.manager import bot_manager
         from lockbot.backend.app.main import create_app
+        from lockbot.backend.app.resource_api.traffic import credential_budget
         from lockbot.backend.app.resource_api.v2 import resources
 
         assert Path(resources.__file__).resolve().is_relative_to(root)
-        keys, target, geometry = seed_runtime(work, max(item[1] for item in scenarios))
+        key_count = max(item[1] for item in scenarios) + int(FAIRNESS in scenarios)
+        keys, target, geometry = seed_runtime(work, key_count)
         results = []
         try:
             for scenario in scenarios:
-                app = simulated_sources(create_app(), keys, args.source_ips)
-                with service(app) as base:
-                    result = asyncio.run(mixed(base, keys, target, scenario))
+                credential_budget.reset()
+                app = create_app()
+                if scenario == FAIRNESS:
+                    from benchmark_group_queries import group_queries, probe_group
+
+                    app.state.agent_ingress_budget.resource_list_source_limit = FAIRNESS_SOURCE_LIMIT
+                    with group_queries(work) as chat, service(app) as base:
+                        result = asyncio.run(check_fairness(base, keys, target, scenario, chat, probe_group))
+                else:
+                    with service(simulated_sources(app, keys, args.source_ips)) as base:
+                        result = asyncio.run(mixed(base, keys, target, scenario))
                 print(json.dumps(result), flush=True)
                 results.append(result)
         finally:
             bot_manager.shutdown_all()
+            report = {"fixture": geometry, "profile": args.profile, "source_ips": args.source_ips, "results": results}
+            args.output.write_text(json.dumps(report, indent=2) + "\n")
 
-    report = {"fixture": geometry, "profile": args.profile, "source_ips": args.source_ips, "results": results}
-    args.output.write_text(json.dumps(report, indent=2) + "\n")
     success = all(
         item["write_invariants"]
+        and item.get("fairness_passed", True)
         and (item["scenario"] != "mixed" or item["outcomes"]["complete"] >= math.ceil(item["offered"] * 0.99))
         for item in results
     )
