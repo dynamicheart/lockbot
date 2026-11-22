@@ -13,13 +13,6 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
-from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
-    BUNDLE_FORMAT,
-    REFERENCE_PATHS,
-    SCRIPT_PATH,
-    content_version,
-    deployment_fragments,
-)
 from lockbot.backend.app.database import get_db
 from lockbot.backend.app.rate_limit import limiter
 
@@ -69,6 +62,15 @@ def skill_artifacts():
 
 @lru_cache(maxsize=4)
 def _skill_artifacts(origin):
+    # Source-checkout fixtures still exercise the retired Python Skill.
+    from lockbot.backend.app.agent_skill.scripts.lockbot_resource import (
+        BUNDLE_FORMAT,
+        REFERENCE_PATHS,
+        SCRIPT_PATH,
+        content_version,
+        deployment_fragments,
+    )
+
     folder = "agent_skill"
     skill_id = "lockbot-resource-agent"
     download_url = f"/api/agent-skill/{skill_id}.zip"
