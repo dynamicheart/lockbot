@@ -149,13 +149,33 @@ def headers(key):
     return {"Authorization": "Bearer " + key}
 
 
+def simulated_sources(app, keys, count):
+    """Assign synthetic client addresses at the ASGI boundary of the fixture."""
+    if count == 1:
+        return app
+    clients = {
+        ("Bearer " + key).encode(): f"192.0.2.{index % count + 1}"
+        for index, key in enumerate(keys)
+    }
+
+    async def fixture(scope, receive, send):
+        client = scope.get("client")
+        if scope["type"] == "http" and client and client[0] == "127.0.0.1":
+            address = clients.get(dict(scope["headers"]).get(b"authorization"))
+            if address is not None:
+                scope = {**scope, "client": (address, client[1])}
+        await app(scope, receive, send)
+
+    return fixture
+
+
 def p95(values):
     return round(sorted(values)[math.ceil(0.95 * len(values)) - 1], 1) if values else None
 
 
 async def mixed(base, keys, target, scenario):
     name, audience, interval, offered, command_rounds = scenario
-    outcomes, write_outcomes = Counter(), Counter()
+    outcomes, write_outcomes, rate_limit_codes = Counter(), Counter(), Counter()
     read_times, write_times, bytes_read = [], [], []
     queue = asyncio.Queue(maxsize=128)
     limits = httpx.Limits(max_connections=68, max_keepalive_connections=68)
@@ -170,6 +190,10 @@ async def mixed(base, keys, target, scenario):
                 try:
                     reply = await reads.get(API + "/resources", headers=headers(key), params=QUERY)
                     label = str(reply.status_code)
+                    if reply.status_code == 429:
+                        detail = reply.json().get("detail")
+                        code = detail.get("code") if isinstance(detail, dict) else None
+                        rate_limit_codes[code or "unspecified"] += 1
                     if reply.status_code == 200:
                         page = reply.json()
                         correct = page["rows"] and all(
@@ -246,6 +270,7 @@ async def mixed(base, keys, target, scenario):
         "offered": offered,
         "interval_seconds": interval,
         "outcomes": outcomes,
+        "rate_limit_codes": rate_limit_codes,
         "read_p95_ms": p95(read_times),
         "reply_p95_bytes": p95(bytes_read),
         "write_outcomes": write_outcomes,
@@ -258,8 +283,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server-root", type=Path, required=True)
     parser.add_argument("--profile", choices=SCENARIOS, default="smoke")
+    parser.add_argument("--scenario", action="append", help="Run only the named scenarios from the selected profile.")
+    parser.add_argument("--source-ips", type=int, default=1, help="Number of simulated fixture egress IPs (1–64).")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if not 1 <= args.source_ips <= 64:
+        parser.error("--source-ips must be between 1 and 64")
+    scenarios = SCENARIOS[args.profile]
+    if args.scenario:
+        known = {item[0] for item in scenarios}
+        if not set(args.scenario) <= known:
+            parser.error("--scenario must name a scenario from the selected profile")
+        scenarios = [item for item in scenarios if item[0] in args.scenario]
     root = args.server_root.resolve()
     sys.path.insert(0, str(root / "python"))
     with tempfile.TemporaryDirectory(prefix="lockbot-benchmark-") as work:
@@ -281,22 +316,24 @@ def main():
         from lockbot.backend.app.resource_api.v2 import resources
 
         assert Path(resources.__file__).resolve().is_relative_to(root)
-        scenarios = SCENARIOS[args.profile]
         keys, target, geometry = seed_runtime(work, max(item[1] for item in scenarios))
         results = []
         try:
             for scenario in scenarios:
-                with service(create_app()) as base:
+                app = simulated_sources(create_app(), keys, args.source_ips)
+                with service(app) as base:
                     result = asyncio.run(mixed(base, keys, target, scenario))
                 print(json.dumps(result), flush=True)
                 results.append(result)
         finally:
             bot_manager.shutdown_all()
 
-    report = {"fixture": geometry, "profile": args.profile, "results": results}
+    report = {"fixture": geometry, "profile": args.profile, "source_ips": args.source_ips, "results": results}
     args.output.write_text(json.dumps(report, indent=2) + "\n")
-    success = all(item["write_invariants"] for item in results) and results[0]["outcomes"]["complete"] >= math.ceil(
-        results[0]["offered"] * 0.99
+    success = all(
+        item["write_invariants"]
+        and (item["scenario"] != "mixed" or item["outcomes"]["complete"] >= math.ceil(item["offered"] * 0.99))
+        for item in results
     )
     return 0 if success else 1
 

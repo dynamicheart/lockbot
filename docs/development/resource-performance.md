@@ -16,3 +16,10 @@ python scripts/dev/benchmark_resource_api.py --server-root . --profile weekly --
 Both profiles require at least 99% complete and valid responses in the first phase and check write results in every phase. The five- and one-second phases record 429s, 503s, and client backlog as measured outcomes. Read p95 measures elapsed time from the scheduled request time to receipt of a valid response, including the client queue. The JSON report also records response sizes and write latency. Compare revisions on the same runner under the same profile. The fixture covers a repeatable workload, and deployment capacity depends on hardware, ingress settings, and traffic patterns.
 
 The GitHub Actions workflow runs the weekly profile at 20:23 UTC on Saturdays and offers both profiles on manual dispatch. Each run uploads its JSON report.
+
+For an egress comparison, assign the same synthetic identities to several source addresses at the fixture's ASGI boundary. The listener stays on loopback and the backend keeps its normal limits. Keep other parameters fixed when comparing the results.
+
+```sh
+python scripts/dev/benchmark_resource_api.py --server-root . --profile weekly \
+  --scenario poll-5s --scenario poll-1s --source-ips 8 --output /tmp/resource-eight-egresses.json
+```
