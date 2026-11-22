@@ -1,7 +1,7 @@
 """Bot-scoped operational snapshots and queue lock releases using OP credentials."""
 
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -199,7 +199,8 @@ def operator_resources(
     try:
         with bot_manager.admit(bot_id, for_read=True) as lease:
             bot = _require_operator(db, request, bot_id, fresh=True)
-            captured_at, state = lease.bot.state_snapshot()
+            state = lease.bot.published_snapshot().state
+            captured_at = datetime.now(timezone.utc)
             rows = active_declarations(db, bot, datetime.utcnow(), limit=usage_limit + 1, offset=usage_offset)
             has_more = len(rows) > usage_limit
             declarations = visible_declarations(declarations_for_state(rows[:usage_limit], state, captured_at))
