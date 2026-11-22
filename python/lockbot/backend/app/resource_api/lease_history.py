@@ -38,6 +38,7 @@ ACTIONS = {
     "kickout",
     "kicklock",
     "opkick",
+    "idle_reclaim",
     "alias",
     "state_edit",
     "query",

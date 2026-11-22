@@ -114,6 +114,7 @@ class BaseLockBot:
         # core/ owns no database, so the backend injects this. None means the commands
         # report themselves as unavailable.
         self.binding_hook: Callable[..., str] | None = None
+        self.idle_confirmation_hook: Callable[..., str] | None = None
         self._snapshot = ResourceSnapshot(0, _freeze_state(self.state.bot_state))
 
         self._notify_clamped_users()
@@ -265,6 +266,20 @@ class BaseLockBot:
         actual = self.op_holding_version(self.state.bot_state, node_key, device, target_user, at=time.time())
         if actual is None or actual != expected:
             raise HoldingVersionConflict("Holding changed since observation")
+
+    def reclaim_idle_holding(self, node, device, holder, version, *, permit):
+        """Release one confirmed incarnation, preserving its queue and waking the scheduler."""
+        with self._state_guard():
+            self._check_op_holding_version(version, node, device, holder)
+            if not permit():
+                return False
+            entry = self.state.bot_state[node]
+            if device is not None:
+                entry = entry[device]
+            entry["current_users"].clear()
+            entry["status"] = "idle"
+            self._save_and_notify()
+            return True
 
     def do_opkick(self, target_user, node_key=None, dev_ids=None, reason="", *, expected_holding_version=None):
         """API-driven operator kick. Returns {"ok": True, "freed": [...]} or raises ValueError."""
