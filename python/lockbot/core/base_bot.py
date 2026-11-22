@@ -239,8 +239,8 @@ class BaseLockBot:
         """Compare-only version for an exclusive holding in a detached or protected state."""
         entry = state.get(node_key)
         if device is not None:
-            entry = entry[device] if isinstance(entry, list) and 0 <= device < len(entry) else None
-        if not isinstance(entry, dict) or entry.get("status") != "exclusive":
+            entry = entry[device] if isinstance(entry, (list, tuple)) and 0 <= device < len(entry) else None
+        if not isinstance(entry, Mapping) or entry.get("status") != "exclusive":
             return None
         holders = entry.get("current_users") or []
         if len(holders) != 1:
