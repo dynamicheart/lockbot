@@ -122,7 +122,13 @@ def test_matching_node_ids_keep_inventory_and_availability_separate_across_bots(
     first_after = _get(client, api).raise_for_status().json()
     first_node_after = next(node for node in first_after["resources"] if node["id"] == "n1")
     assert "accelerators" not in first_node_after
-    assert first_node_after["holders"] == first_node["holders"]
+    assert first_node_after["lock_status"] == first_node["lock_status"]
+    (holder_before,) = first_node["holders"]
+    (holder_after,) = first_node_after["holders"]
+    assert {k: v for k, v in holder_after.items() if k != "remaining_seconds"} == {
+        k: v for k, v in holder_before.items() if k != "remaining_seconds"
+    }
+    assert 0 < holder_after["remaining_seconds"] <= holder_before["remaining_seconds"]
     (second_node_after,) = (
         client.get(second + "/resources", headers=second_headers).raise_for_status().json()["resources"]
     )
