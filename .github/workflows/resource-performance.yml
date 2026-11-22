@@ -1,0 +1,50 @@
+name: LockBot resource performance
+
+on:
+  schedule:
+    # Sunday at 04:23 in Beijing.
+    - cron: '23 20 * * 6'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Benchmark workload
+        type: choice
+        options: [smoke, weekly]
+        default: smoke
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lockbot-resource-performance
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      BENCHMARK_PROFILE: ${{ inputs.profile || 'weekly' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install backend dependencies
+        run: python -m pip install .
+
+      - name: Benchmark the isolated backend
+        run: |
+          python scripts/dev/benchmark_resource_api.py --server-root . --profile "$BENCHMARK_PROFILE" \
+            --output resource-performance.json
+
+      - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('resource-performance.json') != ''
+        with:
+          name: lockbot-resource-performance
+          path: resource-performance.json
+          retention-days: 14
