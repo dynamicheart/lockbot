@@ -95,9 +95,6 @@
           />
         </el-col>
       </el-row>
-      <el-checkbox v-model="filters.includeReadEvents" @change="onFilterChange">
-        {{ $t('audit.includeReadEvents') }}
-      </el-checkbox>
     </el-card>
 
     <!-- Table -->
@@ -275,7 +272,6 @@ const filters = ref({
   action: '',
   result: '',
   operator: '',
-  includeReadEvents: false,
 })
 const dateRange = ref(null)
 
@@ -312,7 +308,6 @@ function fetchLogs() {
   const params = {
     page: page.value,
     limit: pageSize.value,
-    include_read_events: filters.value.includeReadEvents,
   }
   if (filters.value.action) params.action = filters.value.action
   if (filters.value.result) params.result = filters.value.result

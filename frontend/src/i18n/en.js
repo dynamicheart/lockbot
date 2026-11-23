@@ -347,7 +347,6 @@ export default {
   },
   agentHistory: {
     agentLabel: 'Agent:',
-    noteLabel: 'Note:',
     operations: {
       command: 'Command',
       usage: { update: 'Update purpose', delete: 'Remove purpose' },
@@ -976,8 +975,6 @@ export default {
     agentAccessStats: 'Access statistics',
     agentOperations: 'Operation history',
     agentAuthorizations: 'Authorization records',
-    notesScopeHelp:
-      'Super administrators only. Temporarily shows detailed Agent notes in this operation history. Reads are audited; leaving this view turns it off.',
     authorizationAudit: 'Authorization audit',
     config: 'Configuration',
     status: 'Status',
@@ -1363,7 +1360,6 @@ export default {
 
   // === Audit Logs ===
   audit: {
-    includeReadEvents: 'Include read audits',
     title: 'Audit Logs',
     operator: 'Operator',
     role: 'Role',
@@ -1388,9 +1384,6 @@ export default {
     dispatched: 'Dispatched',
     dispatchedNote:
       'The command was dispatched; this does not prove the resource operation succeeded. Read resource state to verify.',
-    privateView: 'Show Agent task notes',
-    privateViewHelp:
-      'Notes are submitted by the Agent and are visible only to the same user and super administrators.',
     targetTypes: {
       bot: 'Bot',
       user: 'User',

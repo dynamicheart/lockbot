@@ -332,7 +332,6 @@ export default {
   },
   agentHistory: {
     agentLabel: 'Agent：',
-    noteLabel: '备注：',
     operations: { command: '执行命令', usage: { update: '更新用途', delete: '删除用途' } },
 
     resource: '资源',
@@ -940,8 +939,6 @@ export default {
     agentAccessStats: '访问统计',
     agentOperations: '操作历史',
     agentAuthorizations: '授权记录',
-    notesScopeHelp:
-      '仅超级管理员可开启。临时展示当前操作历史中的 Agent 详细备注，读取会记录审计；离开此页后自动关闭。',
     authorizationAudit: '授权审计',
     config: '配置信息',
     status: '状态',
@@ -1319,7 +1316,6 @@ export default {
 
   // === Audit Logs ===
   audit: {
-    includeReadEvents: '包含读取审计',
     title: '审计日志',
     operator: '操作人',
     role: '角色',
@@ -1343,8 +1339,6 @@ export default {
       '近期检测到 {count} 次登录失败，来自 IP：{ips}。如非本人操作，建议立即修改密码。',
     dispatched: '已分派',
     dispatchedNote: '命令已分派，不代表资源操作成功。请查询资源状态核实。',
-    privateView: '查看 Agent 详细任务备注',
-    privateViewHelp: '这里展示 Agent 主动提交的详细备注，仅本人及超级管理员可见。',
     targetTypes: {
       bot: '机器人',
       user: '用户',

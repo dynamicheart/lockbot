@@ -643,24 +643,8 @@
                   <el-option value="history" :label="$t('botDetail.agentOperations')" />
                   <el-option value="audit" :label="$t('botDetail.agentAuthorizations')" />
                 </el-select>
-                <el-tooltip
-                  v-if="agentTab === 'history' && authStore.isSuperAdmin"
-                  :content="$t('botDetail.notesScopeHelp')"
-                  placement="top"
-                >
-                  <el-switch
-                    v-model="showPrivateTasks"
-                    :active-text="$t('audit.privateView')"
-                    :aria-label="$t('audit.privateView')"
-                    size="small"
-                  />
-                </el-tooltip>
               </div>
-              <AgentHistory
-                v-if="agentTab === 'history'"
-                :bot-id="bot.id"
-                :include-private="privateTaskView"
-              />
+              <AgentHistory v-if="agentTab === 'history'" :bot-id="bot.id" />
               <BotAudit v-else :bot-id="bot.id" />
             </template>
           </el-tab-pane>
@@ -929,14 +913,6 @@ const viewJson = ref(false)
 const stateText = ref('')
 const stateData = ref(null)
 const stateUsage = ref([])
-const showPrivateTasks = ref(false)
-const privateTaskView = computed(
-  () =>
-    authStore.isSuperAdmin &&
-    activityTab.value === 'agents' &&
-    agentTab.value === 'history' &&
-    showPrivateTasks.value
-)
 const stateSaving = ref(false)
 
 // Secret field visibility
@@ -1561,21 +1537,6 @@ async function handleDelete() {
 }
 
 watch(
-  [activityTab, agentTab],
-  ([section, tab]) => {
-    if (section !== 'agents' || tab !== 'history') showPrivateTasks.value = false
-  },
-  { flush: 'sync' }
-)
-watch(
-  () => authStore.isSuperAdmin,
-  (allowed) => {
-    if (!allowed) showPrivateTasks.value = false
-  },
-  { flush: 'sync' }
-)
-
-watch(
   [canEdit, () => authStore.user?.id, () => bot.value?.id],
   ([allowed]) => {
     nodeAddresses.value = new Map()
@@ -1589,7 +1550,6 @@ watch(
   () => String(route.params.id || ''),
   (id) => {
     detailScope.enter(id)
-    showPrivateTasks.value = false
     routeGeneration.value++
     bot.value = null
     stateData.value = null
@@ -1639,11 +1599,6 @@ function formatDate(d) {
   gap: 8px 20px;
 }
 .agent-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
   margin-bottom: 18px;
 }
 .agent-sections {
