@@ -290,7 +290,7 @@ def test_live_notes_fail_explicitly_when_state_unavailable(client, setup, monkey
 
 
 @pytest.mark.parametrize("api", ["NODE", "DEVICE", "QUEUE", "QUEUE_DEVICE"], indirect=True)
-def test_live_notes_match_current_resource_incarnation(client, db_session, api, monkeypatch):
+def test_live_notes_match_current_resource_incarnation(client, db_session, api, monkeypatch, seed_legacy_task_details):
     user = db_session.query(User).filter_by(username="testuser").one()
     user.role = "super_admin"
     db_session.commit()
@@ -303,13 +303,13 @@ def test_live_notes_match_current_resource_incarnation(client, db_session, api, 
             headers=api["headers"],
             json={
                 "command": command,
-                "purpose": "NOTE_CANARY",
-                "agent_label": "AGENT_CANARY",
                 "task_category": "operator_testing",
             },
         )
 
     assert post(f"lock {target} 1h").status_code == 200
+    resource = "n1:dev0" if api["bot"].config.get_val("BOT_TYPE") == "QUEUE_DEVICE" else "n1"
+    seed_legacy_task_details(api, "NOTE_CANARY", "AGENT_CANARY", resource_id=resource, task_category="operator_testing")
     grant = client.post(
         "/api/admin/audit-credentials",
         headers=api["auth_header"],

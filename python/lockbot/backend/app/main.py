@@ -40,8 +40,6 @@ from lockbot.backend.app.resource_api.commands import router as resource_command
 from lockbot.backend.app.resource_api.operator import router as operator_router
 from lockbot.backend.app.resource_api.resources import agent_router as agent_resources_router
 from lockbot.backend.app.resource_api.resources import router as resources_router
-from lockbot.backend.app.resource_api.usage import agent_router as agent_usage_router
-from lockbot.backend.app.resource_api.usage import router as usage_router
 from lockbot.backend.app.resource_auth.router import router as resource_auth_router
 from lockbot.backend.app.settings.router import router as settings_router
 from lockbot.backend.app.static import SPAStaticFiles
@@ -796,10 +794,8 @@ def create_app() -> FastAPI:
     app.include_router(resource_auth_router)
     app.include_router(agent_resources_router)
     app.include_router(agent_commands_router)
-    app.include_router(agent_usage_router)
     app.include_router(resource_commands_router)
     app.include_router(resources_router)
-    app.include_router(usage_router)
     app.include_router(activity_router)
     app.include_router(operator_router)
     from lockbot.backend.app.resource_api.views import router as view_router

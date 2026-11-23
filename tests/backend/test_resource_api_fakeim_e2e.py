@@ -89,6 +89,9 @@ def test_fakeim_bind_command_notify_and_snapshot(client, fakeim_api, db_session)
 
     status = client.get(f"/api/resource-auth/bindings/{issued['binding_id']}").json()
     assert status["status"] == "confirmed"
+    from lockbot.backend.app.resource_auth.models import ResourceBinding
+
+    assert db_session.query(ResourceBinding).filter_by(public_id=issued["binding_id"]).one().label is None
 
     # 2. The credential, inert until that confirmation, now runs an allowlisted command.
     headers = {"Authorization": f"Bearer {issued['credential']}"}

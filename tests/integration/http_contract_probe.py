@@ -205,11 +205,24 @@ def probe(output):
                 )
                 # Independent HTTP clients can share the original credential.
                 with httpx.Client(base_url=f"http://127.0.0.1:{port}", timeout=15, trust_env=False) as second_agent:
-                    shared = second_agent.get(usage, headers=alice)
+                    shared = second_agent.get(resources, headers=alice)
                     assert shared.status_code == 200
-                    evidence.append({"method": "GET", "path": usage, "status": 200, "client": "second-agent"})
+                    evidence.append({"method": "GET", "path": resources, "status": 200, "client": "second-agent"})
                 request("GET", resources, expected=401)
-                request("POST", commands, headers=alice, json={"command": "lock n1 10m"})
+                legacy_purpose = "temporary HTTP contract experiment"
+                legacy_label = "synthetic-agent-label"
+                category = "functional_testing"
+                request(
+                    "POST",
+                    commands,
+                    headers={**alice, "X-Lockbot-Agent-Label": legacy_label},
+                    json={
+                        "command": "lock n1 10m",
+                        "purpose": legacy_purpose,
+                        "agent_label": legacy_label,
+                        "task_category": category,
+                    },
+                )
                 snapshot = request("GET", resources, headers=alice).json()
                 assert any(
                     h["external_user_id"] == "synthetic-alice"
@@ -225,15 +238,7 @@ def probe(output):
                 request("GET", f"/api/bots/{bot_id}/locked-users", headers={"Authorization": "Bearer " + op_key})
                 request("PUT", f"/api/bots/{bot_id}/resource-auth", headers=admin, json={"enabled": True})
                 request("POST", commands, headers=alice, json={"command": "query"})
-                purpose = "temporary HTTP contract experiment"
-                category = "functional_testing"
-                request("PUT", usage + "/n1", headers=alice, json={"purpose": purpose, "task_category": category})
-                declaration = request("GET", usage, headers=bob).json()["items"][0]
-                assert (
-                    declaration["actor"]["external_user_id"] == "synthetic-alice"
-                    and declaration["task_category"] == category
-                    and "purpose" not in declaration
-                )
+                request("PUT", usage + "/n1", expected=404, headers=alice, json={"purpose": legacy_purpose})
                 shared_resources = request("GET", resources, headers=bob).json()
                 embedded = next(r for r in shared_resources["resources"] if r["id"] == "n1")["holders"][0]["usage"]
                 assert embedded["task_category"] == category and "purpose" not in embedded
@@ -267,13 +272,12 @@ def probe(output):
                     if r["id"] == "n1"
                     for h in r["holders"]
                 )
-                assert (
-                    next(r for r in restored["resources"] if r["id"] == "n1")["holders"][0]["usage"]["purpose"]
-                    == purpose
-                )
-                public_declaration = request("GET", usage, headers=bob).json()["items"][0]
-                assert public_declaration["task_category"] == category and "purpose" not in public_declaration
-                request("PUT", usage + "/n1", expected=409, headers=bob, json={"purpose": "unauthorized holder"})
+                own_usage = next(r for r in restored["resources"] if r["id"] == "n1")["holders"][0]["usage"]
+                assert own_usage["task_category"] == category
+                assert own_usage["purpose"] == "" and own_usage["agent_label"] is None
+                assert own_usage["authorization_label"] is None
+                assert legacy_purpose not in json.dumps(restored) and legacy_label not in json.dumps(restored)
+                request("GET", usage, expected=404, headers=bob)
                 request("POST", commands, expected=403, headers=alice, json={"command": "kickout n1"})
                 request("POST", commands, headers=alice, json={"command": "unlock n1"})
                 # A resource change permits an immediate refreshed snapshot.
@@ -285,7 +289,6 @@ def probe(output):
                 time.sleep(retry + 0.2)
                 snapshot = request("GET", resources, headers=alice).json()
                 assert next(r for r in snapshot["resources"] if r["id"] == "n1")["holders"] == []
-                assert request("GET", usage, headers=bob).json()["items"] == []
                 request(
                     "POST",
                     f"/api/bots/webhook/{bot_id}?signature=fake-valid-signature",
@@ -308,11 +311,11 @@ def probe(output):
                     "production_adapter_registered": False,
                     "shared_key_and_plain_unbind_verified": True,
                     "public_skill_verified": True,
-                    "embedded_purpose_verified": True,
+                    "task_category_and_discarded_legacy_details_verified": True,
                     "skill_sha256": skill["sha256"],
                     "agent_access_switch_verified": True,
                     "op_key_independent_verified": True,
-                    "restart_persistence_verified": ["credential", "holding", "purpose", "statistics"],
+                    "restart_persistence_verified": ["credential", "holding", "task_category", "statistics"],
                 }
                 Path(output).write_text(json.dumps(result, indent=2, ensure_ascii=False, default=str))
                 print(json.dumps({"passed": True, "requests": len(evidence), "output": output}))

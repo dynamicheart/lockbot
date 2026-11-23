@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from lockbot.backend.app.database import get_db
@@ -39,7 +39,12 @@ class BindingCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    label: str | None = Field(default=None, max_length=64, description="Free-text note shown in chat listings")
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_label(cls, data):
+        if isinstance(data, dict):
+            return {key: value for key, value in data.items() if key != "label"}
+        return data
 
 
 class BindingCreated(BaseModel):
@@ -62,7 +67,7 @@ def create_binding(request: Request, body: BindingCreate | None = None) -> Bindi
     """Issue an inert credential and a single-use bind code. Writes nothing to the database."""
     source = request.client.host if request.client else ""
     try:
-        issued = service.create_binding(source=source, label=body.label if body else None)
+        issued = service.create_binding(source=source)
     except service.LegacyEnrollmentDisabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

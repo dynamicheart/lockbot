@@ -71,7 +71,7 @@ def test_feishu_api_notifications_and_history_keep_identity_and_task_privacy(
     assert "Example user" in sent[0]["content"]
     assert "private-test" not in json.dumps(sent)
     own = client.get(f"/api/bots/{bot_id}/resources", headers=owner)
-    assert own.status_code == 200 and "private-test-note" in own.text
+    assert own.status_code == 200 and "private-test" not in own.text
     other = client.get(f"/api/bots/{bot_id}/resources", headers=observer)
     assert other.status_code == 200 and "private-test" not in other.text
     holder = other.json()["resources"][0]["holders"][0]

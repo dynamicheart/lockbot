@@ -136,18 +136,14 @@ def test_active_authorizations_paginate_without_hiding_unseen_keys(api, client, 
 
 
 def test_summary_counts_only_live_task_declarations_and_updates_after_release(api, client, db_session, monkeypatch):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
     monkeypatch.setattr("lockbot.backend.app.bots.manager.bot_manager", api["manager"])
     row = db_session.get(Bot, api["bot_id"])
     row.status = "running"
     db_session.commit()
     base = f"/api/bots/{api['bot_id']}"
-    assert client.post(base + "/commands", headers=api["headers"], json={"command": "lock n1 1h"}).status_code == 200
     assert (
-        client.put(
-            base + "/usage-declarations/n1",
-            headers=api["headers"],
-            json={"purpose": "feature work", "agent_label": "dev"},
+        client.post(
+            base + "/commands", headers=api["headers"], json={"command": "lock n1 1h", "task_category": "debugging"}
         ).status_code
         == 200
     )

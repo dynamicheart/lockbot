@@ -152,8 +152,6 @@ def notify_group(
     command,
     actor_id,
     command_word,
-    agent_label=None,
-    purpose=None,
     task_category=None,
     target=None,
     defer=False,

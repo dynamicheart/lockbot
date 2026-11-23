@@ -211,12 +211,6 @@ def _context_payload(request, response, db, row):
         if public_datasource(bot)
         else None,
         "usage_privacy": {
-            "conditional_cleanup": {
-                "header": "If-Match",
-                "revision_field": "revision",
-                "mismatch_status": 412,
-                "lease_required": True,
-            },
             "private_fields": ["purpose", "agent_label", "authorization_label", "binding_id", "revision"],
             "policy_version": 2,
             "private_readers": ["same_verified_actor", "super_administrator"],
@@ -225,14 +219,12 @@ def _context_payload(request, response, db, row):
             "ordinary_operator_private_access": False,
             "delegated_private_access_supported": False,
             "public_task_categories": TASK_CATEGORIES,
-            "legacy_purpose_visibility": "private",
         },
         "links": {
             "bindings": "/api/agent/bindings",
             "binding_recovery": "/api/agent/bindings/recover",
             "resources": "/api/agent/resources",
             "commands": "/api/agent/commands",
-            "usage_declarations": "/api/agent/usage-declarations",
             "skill_manifest": MANIFEST_URL,
         },
         "skill": skill_metadata(),

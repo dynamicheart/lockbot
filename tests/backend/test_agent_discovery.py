@@ -106,26 +106,16 @@ def command(client, case, text, headers=None):
     assert response.status_code == 200, response.text
 
 
-def declare(client, case, purpose, headers=None):
-    response = client.put(
-        f"/api/bots/{case['bot_id']}/usage-declarations/n1",
-        headers=headers or case["headers"],
-        json={"purpose": purpose},
-    )
-    assert response.status_code == 200, response.text
-
-
 def snapshot(client, case, headers=None):
     response = client.get(f"/api/bots/{case['bot_id']}/resources", headers=headers or case["headers"])
     assert response.status_code == 200, response.text
     return response.json()["resources"][0]
 
 
-def test_purpose_changes_are_visible_on_cached_hold_and_not_after_reacquire(client, api, monkeypatch):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
+def test_purpose_changes_are_visible_on_cached_hold_and_not_after_reacquire(client, api, seed_legacy_task_details):
     command(client, api, "lock n1 1h")
     assert snapshot(client, api)["holders"][0]["usage"] is None
-    declare(client, api, "<script>ignored()</script> train model A")
+    seed_legacy_task_details(api, "<script>ignored()</script> train model A")
     usage = snapshot(client, api)["holders"][0]["usage"]
     assert usage["purpose"] == "<script>ignored()</script> train model A"
     assert usage["untrusted_text"] is True and usage["actor"]["external_user_id"] == "alice"
@@ -133,17 +123,16 @@ def test_purpose_changes_are_visible_on_cached_hold_and_not_after_reacquire(clie
     api["bot"].unlock("alice", "unlock n1")
     api["bot"].lock("alice", "lock n1 1h")
     assert snapshot(client, api)["holders"][0]["usage"] is None
-    declare(client, api, "new task")
+    seed_legacy_task_details(api, "new task")
     assert snapshot(client, api)["holders"][0]["usage"]["purpose"] == "new task"
 
 
 @pytest.mark.parametrize("api", ["QUEUE"], indirect=True)
-def test_holder_and_waiting_user_get_separate_purposes(client, api, monkeypatch):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
+def test_holder_and_waiting_user_get_separate_purposes(client, api, seed_legacy_task_details):
     command(client, api, "lock n1 1h")
     command(client, api, "book n1", api["other_headers"])
-    declare(client, api, "training")
-    declare(client, api, "benchmark after training", api["other_headers"])
+    seed_legacy_task_details(api, "training")
+    seed_legacy_task_details(api, "benchmark after training", user="bob")
     resource = snapshot(client, api)
     assert resource["holders"][0]["usage"]["purpose"] == "training"
     booking = resource["booking_list"][0]
@@ -155,26 +144,24 @@ def test_holder_and_waiting_user_get_separate_purposes(client, api, monkeypatch)
 
 
 @pytest.mark.parametrize("api", ["DEVICE"], indirect=True)
-def test_device_purpose_is_attached_only_to_its_owner(client, api, monkeypatch):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
+def test_device_purpose_is_attached_only_to_its_owner(client, api, seed_legacy_task_details):
     command(client, api, "lock n1 dev0 1h")
     command(client, api, "lock n1 dev1 1h", api["other_headers"])
-    declare(client, api, "GPU experiment")
+    seed_legacy_task_details(api, "GPU experiment")
     resource = snapshot(client, api)
     assert resource["devices"][0]["holders"][0]["usage"]["purpose"] == "GPU experiment"
     assert resource["devices"][1]["holders"][0]["usage"] is None
 
 
-def test_expired_revoked_and_wrong_bot_declarations_are_hidden(client, api, monkeypatch, db_session):
-    monkeypatch.setattr("lockbot.backend.app.resource_api.usage.bot_manager", api["manager"])
+def test_expired_revoked_and_wrong_bot_declarations_are_hidden(client, api, seed_legacy_task_details, db_session):
     command(client, api, "lock n1 1h")
-    declare(client, api, "private until authorized")
+    seed_legacy_task_details(api, "private until authorized")
     assert snapshot(client, api)["holders"][0]["usage"]
     row = db_session.query(UsageDeclaration).one()
     row.expires_at = datetime.utcnow() - timedelta(seconds=1)
     db_session.commit()
     assert snapshot(client, api)["holders"][0]["usage"] is None
-    declare(client, api, "new declaration")
+    seed_legacy_task_details(api, "new declaration")
     binding = db_session.get(ResourceBinding, row.binding_id)
     binding.revoked_at = datetime.utcnow()
     db_session.commit()

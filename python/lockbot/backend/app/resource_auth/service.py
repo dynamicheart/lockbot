@@ -100,7 +100,6 @@ class LegacyEnrollmentDisabled(Exception):
 def create_binding(
     *,
     source: str = "",
-    label: str | None = None,
     purpose: str = "bind",
     principal_id: str | None = None,
     principal_generation: int | None = None,
@@ -142,7 +141,6 @@ def create_binding(
                 principal_id=principal_id,
                 principal_generation=principal_generation,
                 source=source,
-                label=(label or None),
                 window_seconds=RESOURCE_AUTH_BIND_WINDOW_SECONDS,
                 max_total=RESOURCE_AUTH_MAX_PENDING_TOTAL,
                 max_per_source=max_per_source,
@@ -580,7 +578,6 @@ def _create_chat_binding(db, bot, previous, platform, external_user_id, now, rec
         credential_encrypted=(
             credentials.seal_credential(binding_id, key) if key is not None else record.credential_encrypted
         ),
-        label=record.label,
         issued_at=_naive_utc(now),
         credential_expires_at=_credential_expiry(now),
     )

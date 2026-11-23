@@ -40,7 +40,6 @@ def test_every_personal_api_response_signals_revision_even_on_errors(client, api
     endpoints = [
         "/api/agent/context",
         f"/api/bots/{api['bot_id']}/resources",
-        f"/api/bots/{api['bot_id']}/usage-declarations",
         "/api/resource-auth/bindings",
     ]
     for supplied, status in [(revision, "current"), ("0" * 16, "update_available"), ("bad", "unknown")]:
