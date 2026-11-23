@@ -81,15 +81,23 @@ const controller = new AbortController()
 onBeforeUnmount(() => controller.abort())
 const path = computed(() => `/bots/${props.botId}/node-inventory`)
 const example = computed(() => {
-  const node = {
-    host: 'node-01.example.test',
-    ip: '192.0.2.41',
-    port: 22,
-    method: t('nodeInformation.exampleLoginMethod'),
-    note: t('nodeInformation.exampleLoginNote'),
+  const method = JSON.stringify(t('nodeInformation.exampleLoginMethod'))
+  const note = JSON.stringify(t('nodeInformation.exampleLoginNote'))
+  const hardware = props.canEditHardware
+    ? ',\n      "hardware": [{ "model": "P900", "count": 4 }]'
+    : ''
+  return `{
+  "version": 1,
+  "nodes": {
+    "node-01": {
+      "host": "node-01.example.test",
+      "ip": "192.0.2.41",
+      "port": 22,
+      "method": ${method},
+      "note": ${note}${hardware}
+    }
   }
-  if (props.canEditHardware) node.hardware = [{ model: 'P900', count: 4 }]
-  return JSON.stringify({ version: 1, nodes: { 'node-01': node } }, null, 2)
+}`
 })
 
 function loginText(login) {

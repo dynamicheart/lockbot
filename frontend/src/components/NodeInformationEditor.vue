@@ -15,19 +15,20 @@
     />
     <NodeInventorySummary v-else-if="visible" :bot-id="botId" />
     <template v-if="!editing" #footer>
-      <el-button @click="editing = true">{{ t('nodeInformation.manualImport') }}</el-button>
-      <router-link
-        v-slot="{ href, navigate }"
-        custom
-        :to="{
-          name: 'ApiCredentials',
-          query: { bot: String(botId), scope: 'node_inventory:write,node_access:write' },
-        }"
-      >
-        <el-button tag="a" type="primary" :href="href" @click="navigate">
+      <div class="node-information-actions">
+        <router-link
+          class="agent-registration-link"
+          :to="{
+            name: 'ApiCredentials',
+            query: { bot: String(botId), scope: 'node_inventory:write,node_access:write' },
+          }"
+        >
           {{ t('nodeInformation.configureCollector') }}
+        </router-link>
+        <el-button type="primary" @click="editing = true">
+          {{ t('nodeInformation.manualImport') }}
         </el-button>
-      </router-link>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -49,3 +50,24 @@ function open() {
   visible.value = true
 }
 </script>
+
+<style scoped>
+.node-information-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.agent-registration-link {
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  text-underline-offset: 2px;
+}
+
+.agent-registration-link:hover,
+.agent-registration-link:focus-visible {
+  color: var(--el-color-primary);
+}
+</style>
