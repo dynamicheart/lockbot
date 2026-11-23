@@ -1,4 +1,4 @@
-"""Project deidentified dialogue from the local, synthetic CLI test harness."""
+"""Project dialogue from the local, synthetic CLI test harness."""
 
 import json
 import re
@@ -88,14 +88,15 @@ def skill_page_metadata(result):
     return metadata
 
 
-def tool_steps(lines: str, phase: int):
+def tool_steps(lines: str, phase: int, *, raw=False):
     steps, evidence = [], []
-    for line in lines.splitlines()[:20]:
+    records = lines.splitlines()
+    for line in records if raw else records[:20]:
         event = json.loads(line)
         if not isinstance(event, dict):
             raise ValueError("Invalid tool event")
         name = event.get("tool")
-        if name not in TOOL_LABELS:
+        if name not in TOOL_LABELS and not raw:
             continue
         params = event.get("args", {})
         result = event.get("result", {})
@@ -105,7 +106,17 @@ def tool_steps(lines: str, phase: int):
         status = "失败" if failed else "已返回"
         arguments = {}
         output = {"status": status}
-        label = TOOL_LABELS[name]
+        label = TOOL_LABELS.get(name, name)
+        if raw:
+            action = params.get("action")
+            if isinstance(action, str):
+                label = action
+            details = {"input": params, "output": result}
+            if "argv" in event:
+                details["argv"] = event["argv"]
+            steps.append([name, label, f"会话 {phase}", status])
+            evidence.append(details)
+            continue
         if name == "read_lockbot_skill":
             reference = params.get("reference")
             if reference is None:
@@ -135,8 +146,8 @@ def tool_steps(lines: str, phase: int):
     return {"role": "tools", "steps": steps, "evidence": evidence}
 
 
-def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict]) -> list[list[dict]]:
-    """Only use the expected CLI evidence files. Never project raw tool inputs or outputs."""
+def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict], *, raw=False) -> list[list[dict]]:
+    """Use the expected synthetic evidence files and redact by default."""
     root = root.resolve()
     sessions = []
     try:
@@ -157,16 +168,17 @@ def synthetic_sessions(root: Path, case: str, runner: int, rows: list[dict]) -> 
                 or sha256(subject.encode()).hexdigest() != meta["skill_sha256"]
             ):
                 raise ValueError("Unexpected synthetic fixture")
-            session = [{"role": "user", "text": clean_text(read_local(directory / "prompt.txt", root, 32_768))}]
+            prompt = read_local(directory / "prompt.txt", root, 32_768)
+            session = [{"role": "user", "text": prompt if raw else clean_text(prompt)}]
             trace = directory / "trace.jsonl"
             if trace.is_file():
-                calls = tool_steps(read_local(trace, root, 524_288), phase)
+                calls = tool_steps(read_local(trace, root, 524_288), phase, raw=raw)
                 if calls["steps"]:
                     session.append(calls)
             response = directory / "response.json"
             if response.is_file():
                 final = json.loads(read_local(response, root, 65_536))["text"]
-                session.append({"role": "assistant", "text": clean_text(final)})
+                session.append({"role": "assistant", "text": final if raw else clean_text(final)})
             if index + 1 < len(rows):
                 actions = rows[index + 1].get("simulated_user_actions", [])
                 if isinstance(actions, list):

@@ -29,9 +29,12 @@ def test_link_only_publishes_available_synthetic_dialogue_without_raw_urls(tmp_p
     url = "https://private.example.test/api/agent-skill"
     (folder / "prompt.txt").write_text(f"请看这个链接 {url}")
     (folder / "response.json").write_text(json.dumps({"text": "这是 Skill 下载入口。"}, ensure_ascii=False))
-    (folder / "trace.jsonl").write_text(
-        json.dumps({"tool": "inspect_lockbot", "args": {"url": url}, "result": {"url": url}}) + "\n"
-    )
+    actual_args = ["/fixture/lockbot_resource.py", "connections"]
+    tool_events = [
+        {"tool": "inspect_lockbot", "args": {"url": url}, "result": {"url": url}},
+        {"tool": "run_lockbot", "args": {"action": "connections"}, "result": {}, "argv": actual_args},
+    ]
+    (folder / "trace.jsonl").write_text("".join(json.dumps(event) + "\n" for event in tool_events))
     (tmp_path / "progress.jsonl").write_text(
         json.dumps(
             {**row, **runner, "suite": "cli", "evidence": location, "status": "completed", "observable_pass": True}
@@ -46,6 +49,17 @@ def test_link_only_publishes_available_synthetic_dialogue_without_raw_urls(tmp_p
     assert session[1]["steps"][0][0] == "inspect_lockbot"
     assert session[2]["text"] == "这是 Skill 下载入口。"
     assert url not in raw
+    assert actual_args[0] not in raw
+
+    original = tmp_path / "raw.json"
+    subprocess.run([sys.executable, str(SCRIPT), str(tmp_path), str(original), "--raw-local"], check=True)
+    private = json.loads(original.read_text())
+    assert original.stat().st_mode & 0o777 == 0o600
+    assert private["visibility"] == "raw"
+    (raw_session,) = private["cases"][scenario][0]["sessions"]
+    assert raw_session[0]["text"] == f"请看这个链接 {url}"
+    assert raw_session[1]["evidence"][0]["input"]["url"] == url
+    assert raw_session[1]["evidence"][1]["argv"] == actual_args
 
 
 def test_snapshot_waits_for_complete_case_and_excludes_private_input(tmp_path):

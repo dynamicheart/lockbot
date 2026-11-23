@@ -23,17 +23,21 @@ grants out of replies, command arguments, Skill files and shared memory.
 
 **First connection or missing Key.** If the user asks to use an identified LockBot
 service (for example, to request a machine), look for a saved connection first. If
-none exists, run `key-challenge --origin "$ORIGIN" --authorized` and give the user
-the single chat confirmation step returned by the CLI. The request to use the
-service authorizes this step even when the user does not mention a Key or a code.
-Chat confirmation identifies the bot and restores the existing Key or creates a
-first Key. For an installation-only request, stop after verifying the installation.
+none exists, use `key-challenge --origin "$ORIGIN" --authorized` to obtain the
+single chat confirmation command. This prepares a short-lived request. The service
+connects the account only when the user sends the command from their own chat account
+in their chosen group. Give that command directly when the user asks to check or
+request resources on the service. For installation only, stop after verifying the
+installation. After confirmation, use the service's `outcome` to say the original
+sign-in was restored or a new connection was established. If the service omits the
+outcome, say the account is connected.
 
-**When the user returns from the group.** Use `connections` to find the unfinished
-request, then run `enrollment-status` with its enrollment directory. The local
-`pending` label can remain after the user has confirmed in chat. If the service
-reports `confirmed`, run `finish-enrollment` with the same directory and continue
-the original task. The group confirmation already provided authorization.
+**Continue after group confirmation.** If the user asks to use the same service
+(for example, “帮我看看资源”), use `connections` and check its unfinished request
+with `enrollment-status`. The local `pending` label can remain after chat confirmation.
+When the service reports `confirmed`, `finish-enrollment` verifies and stores the
+already-confirmed sign-in locally. Use the same enrollment directory, then fulfill the
+current request. If the user only asks for resources, respond with the resource status.
 
 **Explicit Key reset.** Once the user requests invalidation and acknowledges that other
 Agents sharing the old Key must replace it, run
@@ -56,20 +60,28 @@ Use the matching private file listed by `connections`. Replace the
 example node and cards with the exact IDs from the inventory. For a status question,
 stop after `resources`. Use `command --help` for all write arguments.
 
+Use the CLI's formatted `remaining_time` for status, acquisition, claim and renewal
+(for example, `2h 30m` becomes “约 2 小时 30 分钟后到期”). State each shared deadline once.
+Use `resources --exact-lease-times` for an exact deadline or a timed stop or renewal.
+
 - **Already signed into the workbench:** open the bookmarked fixed URL in one step.
   If the bookmark is not available to your tools, append `/#/me` to the selected
   connection's verified service origin. Pass the full URL on the first browser call
   and include it with the page findings in your reply. Skip `panel-link`.
 - **Needs to sign into the workbench:** use `panel-link` once with authorization for private
-  delivery. In your final reply, give the user the private login link or confirm its private
-  delivery. Tell them to open it and confirm the account, then bookmark `result.home`
+  delivery. If a private delivery tool is available, use it and check its result before
+  saying the link was sent. Otherwise provide the link only within the verified private
+  handoff. Tell the user to open it and confirm the account, then bookmark `result.home`
   (include its full address). Wait for their confirmation before using the workbench.
   For this handoff, read only the instructions relevant to sign-in and the selected
   connection. Use a saved connection, or run `init` directly when the user already
   supplied an approved origin and a private Key file. `init` verifies the service.
-  Check holdings and bookings in the browser after the user confirms.
-- **Acquire now:** use `lock` on an idle match with an empty queue. If none qualifies,
-  report what is unavailable. Use `book` only when the user requests or accepts a queue.
+  When the browser session is authenticated at the fixed entry, check holdings and
+  bookings there. A normal follow-up request is enough to resume.
+- **Acquire now:** a request such as “申请一台 P800 用两小时” asks for a lease now.
+  Use `lock` on an idle match with an empty queue. If no match qualifies, report that
+  and ask if the user wants to queue. Send `book` only after the user requests or
+  accepts a queue.
 - **Claim a booking:** use `command --operation claim --node <id>` when the user's
   booking is claimable. Pass `--device` for a queued card or `--whole-node` for an entire
   node. The booking sets the duration.
@@ -105,14 +117,14 @@ stop after `resources`. Use `command --help` for all write arguments.
    A failed or unavailable installation remains unverified.
 3. Use Python 3.10+ and the bundled CLI. Resolve `scripts/lockbot_resource.py`
    relative to this `SKILL.md` and run it by absolute path from the project directory.
-   Run `--help` or `<subcommand> --help` for arguments and examples. With authorization to
-   save the service, run `discover --destination <new-private-file>`. When the user gives
-   you a Key file, run `init --key-file` first to save a verified connection, then pass
-   that connection to resource commands. The service resolves the bot from the Key.
-4. If the user asks to save a credential in this project, run from the project root and
-   select `--scope project` for `init`, `key-challenge` or `recover`. Use only the project's
-   catalog for a project-only setup. Default writes go to the system user's private
-   catalog. Choose the command options yourself and report where the connection was saved.
+   Run `connections` to find the user's existing sign-in. With authorization to save
+   the service, run `discover --destination <new-private-file>`. During an explicit
+   credential import, use `init --key-file` with the privately supplied file.
+4. Save connections in the current user's private catalog by default. Respect
+   `LOCKBOT_HOME` when set. Use `--scope project` only for a requested project-only setup.
+   Handle credential locations internally. In ordinary replies, say what is connected
+   and what the user needs to do. Ask the user to confirm in their group or browser
+   when needed.
 5. To restore access, first look for an existing connection or personal Key on the
    approved service. Use it to recover other eligible groups without asking for names.
    A failed recovery stops at reporting the result. For an explicitly authorized reset,
@@ -121,12 +133,12 @@ stop after `resources`. Use `command --help` for all write arguments.
    verbatim. For other languages, translate `user_instruction` and preserve the exact
    `bind_command`. The verified chat confirmation identifies the bot.
    After chat confirmation, run `finish-enrollment --enrollment-dir "$ENROLLMENT_DIR"`.
-   A confirmed reset has already taken effect. If the user asks to continue in a new
-   session, their request and `chat_action: reset_applied` authorize saving the result.
-   Run `finish-enrollment` directly without asking them to confirm the reset again.
-6. In a new session run `connections` from the project root. Prefer the project catalog
-   `.lockbot/connections/` over `~/.config/lockbot/connections/`. For project-only lookup,
-   use `connections --directory .lockbot/connections`.
+   `chat_action: reset_applied` confirms the group has already applied the reset.
+   A request that needs access to the same service, including a read-only resource
+   query in a new session, can use `finish-enrollment` to save that sign-in locally.
+6. In a new session run `connections` to reuse saved sign-ins. With `LOCKBOT_HOME`,
+   the default lookup reads only that catalog. For explicit project-only lookup, use
+   `connections --directory .lockbot/connections`.
    - For a status request, run `resources` with the matching path from `result.connections`.
      If multiple services match and the user has not selected one, show their addresses
      and ask which to use.
@@ -147,9 +159,19 @@ the matching instructions are loaded. Readbacks of earlier writes may continue.
    **Stop without calling `command`** if the snapshot stays stale, the target is ambiguous,
    or the requested hardware model cannot be verified. A node alias or group title does
    not prove its model. Pass `--model` so the CLI rechecks the chosen hardware before writing.
-   If a name may refer to multiple groups or the user asks you to
-   choose, check each eligible authorized group's live resources before asking or choosing.
-3. An idle match with an empty queue supports `lock` even if `claimable_by_you` is false.
+   Find the environment through saved, verified connections. If the user gives a short
+   identifier such as `lock 19`, match it against the exact node ID, registered alias,
+   or the last octet of an IPv4 address reported in authorized inventory. Resolve each
+   identifier in a comma-separated list. Check eligible groups and ask only about
+   candidates that remain ambiguous.
+3. Preserve the requested operation (`lock`, `slock`, or `book`). A direct command such
+   as `lock 19` requests the lock once the live inventory resolves the exact node.
+   In a group that allocates whole nodes, a node target with no requested cards selects
+   that whole node. Pass `--whole-node` for it. If the request omits duration, omit
+   `--duration` for `lock`, `slock`, or `book` and let the CLI verify and use the group's
+   current default. Ask for duration if the service cannot supply a usable default.
+   When the user gives only a duration, use a uniquely selected resource from the
+   current conversation or ask which resource they mean. An idle match with an empty queue supports `lock` even if `claimable_by_you` is false.
    A booking is a queue position. A lock or claim creates a lease.
    For a claim, match a booking marked `claimable_by_you` and omit the
    duration. For a renewal, pass the time to add to the existing lease. Release only the

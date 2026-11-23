@@ -44,7 +44,8 @@ Run the installed helper with Python 3.10 or newer. Use `--help` to find command
 
 If the user requests a resource on the identified service and has no valid saved Key, run
 `key-challenge --origin "$ORIGIN" --authorized` for chat confirmation on a
-server that advertises `chat_credential_challenges`. Use the confirmation sentence from
+server that advertises `chat_credential_challenges`. This requests a short-lived
+confirmation command. The user's chat action completes the sign-in. Use the confirmation sentence from
 [the setup workflow](../SKILL.md#install-or-connect). Use the saved `enrollment_dir` with
 `finish-enrollment` to verify and save the connection after confirmation. If no
 Key is active for that user and bot, the same confirmation creates one and
@@ -58,9 +59,9 @@ it will need the replacement. This works without a locally saved Key. Both paths
 `RST-` codes. Sending `bind RST-…` in the robot's group applies the reset.
 The local `pending` entry in `connections` does not show the current server
 status. Use its `next_command` to check whether the group already applied the reset.
-When `enrollment-status` reports `chat_action: reset_applied` and the user asks
-to continue, run its `next_command` to verify and save the current Key locally.
-The verified group confirmation already authorized and applied the reset.
+When `enrollment-status` reports `chat_action: reset_applied`, the user's group
+confirmation has already applied the reset. If the current request needs access to
+the same service, run `next_command` to verify and save the current sign-in locally.
 If a recovery code expired, request a new recovery code only
 with the user's approval. An unavailable recovery result never starts a reset.
 If a reset result expired or went missing, use fresh recovery proof to
@@ -96,7 +97,10 @@ has passed. A binding confirmed before expiry can still be finished. For an expl
 enrollment directory outside the two catalogs, use `connections --directory <directory>`.
 Verify the live identity with `context`
 using the chosen record. By default, `init`, `key-challenge` and `recover` save under the
-current user's private `~/.config/lockbot/connections/` catalog. Select
+current user's private `~/.lockbot/connections/` catalog. For isolated tests set
+`LOCKBOT_HOME` to an absolute directory. Default reads and writes use only its
+`connections/` catalog while the variable is set. Without the override, `connections`
+also discovers earlier user and project connection catalogs. Select
 `--scope project` to save under `.lockbot/connections/`, or give an explicit
 `--destination` for a separately managed path. `init` keeps an existing Key file at
 its supplied path; newly enrolled and recovered Keys stay beside their connection

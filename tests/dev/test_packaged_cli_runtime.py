@@ -98,8 +98,8 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
                 status, body = 200, {"status": "pending"}
                 if binding_confirmed:
                     body = {"status": "confirmed", "credential": fixture_key}
-                    if scenario == "create":
-                        body["outcome"] = "created"
+                    if scenario in {"create", "recover"}:
+                        body["outcome"] = {"create": "created", "recover": "recovered"}[scenario]
             elif self.path == manifest["enrollment_url"] + "/" + enrollment_id and not authorization:
                 status, body = (
                     200,
@@ -196,7 +196,7 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
             finished = cli(script, "finish-enrollment", "--enrollment-dir", directory)
             assert finished["connection_created"]
             assert finished["bot"]["name"] == "运行环境测例"
-            assert (finished.get("outcome") == "created") == (scenario == "create")
+            assert finished.get("outcome") == {"create": "created", "recover": "recovered"}.get(scenario)
             assert (finished.get("chat_action") == "reset_applied") == (scenario == "reset")
             assert challenge_requests == ([] if scenario == "legacy" else [{"purpose": purpose}])
             listed = cli(script, "connections", "--directory", ".lockbot/connections")
@@ -217,7 +217,14 @@ def test_portable_package_and_private_key_boundary(tmp_path, scenario):
                 "2m",
             )
             assert operation["verified"] and commands == ["lock runtime-node 2m"]
-            assert operation["verified_snapshot"]["resources"][0]["holders"][0]["external_user_id"] == "fixture-user"
+            summary = operation["verified_snapshot"]["resources"][0]["holders"][0]
+            assert summary["external_user_id"] == "fixture-user"
+            assert summary["remaining_time"] == "2m"
+            assert not {"remaining_seconds", "expires_at"} & summary.keys()
+            exact = cli(script, "--connection", finished["connection"], "resources", "--exact-lease-times")
+            exact_holder = exact["resources"][0]["holders"][0]
+            assert exact_holder["remaining_seconds"] == 120 and exact_holder["expires_at"]
+            assert "remaining_time" not in exact_holder
 
             key = tmp_path / "fixture.key"
             key.write_text(fixture_key)
