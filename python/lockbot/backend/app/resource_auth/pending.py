@@ -56,6 +56,13 @@ class CredentialReceipt:
 
 
 @dataclass(frozen=True)
+class PersonalBindingReceipt:
+    principal_id: str
+    grant_id: str
+    credential_generation: int
+
+
+@dataclass(frozen=True)
 class PendingBinding:
     """An issued-but-unconfirmed binding.
 
@@ -74,7 +81,9 @@ class PendingBinding:
     label: str | None = None
     credential_encrypted: str | None = None
     purpose: str = "bind"
-    receipt: CredentialReceipt | None = None
+    principal_id: str | None = None
+    principal_generation: int | None = None
+    receipt: CredentialReceipt | PersonalBindingReceipt | None = None
 
     def is_expired(self, now: datetime | None = None) -> bool:
         return (now or _utcnow()) >= self.bind_expires_at
@@ -94,6 +103,8 @@ class PendingBindingStore(ABC):
         source: str = "",
         label: str | None = None,
         purpose: str = "bind",
+        principal_id: str | None = None,
+        principal_generation: int | None = None,
         window_seconds: int,
         max_total: int,
         max_per_source: int,
@@ -128,7 +139,7 @@ class PendingBindingStore(ABC):
         """
 
     @abstractmethod
-    def finalize(self, token: str, *, receipt: CredentialReceipt | None = None) -> None:
+    def finalize(self, token: str, *, receipt: CredentialReceipt | PersonalBindingReceipt | None = None) -> None:
         """Consume a code after commit, retaining any receipt until the original deadline."""
 
     @abstractmethod
@@ -190,6 +201,8 @@ class InProcessPendingBindingStore(PendingBindingStore):
         source: str = "",
         label: str | None = None,
         purpose: str = "bind",
+        principal_id: str | None = None,
+        principal_generation: int | None = None,
         window_seconds: int,
         max_total: int,
         max_per_source: int,
@@ -206,12 +219,20 @@ class InProcessPendingBindingStore(PendingBindingStore):
             label=label,
             credential_encrypted=credential_encrypted,
             purpose=purpose,
+            principal_id=principal_id,
+            principal_generation=principal_generation,
         )
         with self._lock:
             self._prune_locked(now)
             if len(self._by_id) >= max_total:
                 raise PendingCapExceeded("global")
-            if source and sum(1 for r in self._by_id.values() if r.source == source) >= max_per_source:
+            # Confirmed receipts stay retrievable and count toward the global memory bound.
+            # The source cap limits only codes that are still waiting for confirmation.
+            if (
+                source
+                and sum(item.source == source and item.receipt is None for item in self._by_id.values())
+                >= max_per_source
+            ):
                 raise PendingCapExceeded("per-source")
             if binding_id in self._by_id or code_digest in self._by_code:
                 raise PendingCollision()
@@ -245,13 +266,12 @@ class InProcessPendingBindingStore(PendingBindingStore):
             self._tokens[token] = binding_id
             return record, token
 
-    def finalize(self, token: str, *, receipt: CredentialReceipt | None = None) -> None:
+    def finalize(self, token: str, *, receipt: CredentialReceipt | PersonalBindingReceipt | None = None) -> None:
         with self._lock:
             binding_id = self._tokens.pop(token, None)
             if binding_id is None:
                 return
-            # The durable row committed; the record is no longer outstanding, so drop it and
-            # free its cap slot and id/code reservation.
+            # The durable row committed. Keep only records whose receipt a client can read.
             self._reserved.discard(binding_id)
             if receipt is None:
                 self._drop_locked(binding_id)

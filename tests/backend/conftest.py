@@ -47,7 +47,7 @@ def _managed_deployment(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _setup_db(tmp_path, _managed_deployment):
+def _setup_db(tmp_path, _managed_deployment, monkeypatch):
     """Create tables before each test, drop after; all managed IO uses the test root."""
     from unittest.mock import patch
 
@@ -55,6 +55,9 @@ def _setup_db(tmp_path, _managed_deployment):
     import lockbot.backend.app.auth.models  # noqa: F401
     import lockbot.backend.app.bots.models  # noqa: F401
     import lockbot.backend.app.resource_auth.models  # noqa: F401
+
+    # Compatibility fixtures issue v1 credentials before exercising their lifecycle.
+    monkeypatch.setattr(_config, "RESOURCE_AUTH_V1_ENROLLMENT_ENABLED", True)
 
     # The periodic backup loop opens its own DB connection during startup.
     # Leave it off in request tests, which create and drop the schema per test.

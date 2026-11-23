@@ -13,7 +13,9 @@ import sys
 import tempfile
 import time
 from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZipFile
 
 
 def serve(port, private_file):
@@ -56,8 +58,6 @@ def serve(port, private_file):
 
 def probe(output):
     import hashlib
-    import io
-    import zipfile
 
     import httpx
     from cryptography.fernet import Fernet
@@ -80,6 +80,8 @@ def probe(output):
             DATA_DIR=str(directory / "data"),
             DEV_MODE="false",
             ALLOW_REGISTER="false",
+            PLATFORM_URL=f"http://127.0.0.1:{port}",
+            RESOURCE_AUTH_V1_ENROLLMENT_ENABLED="true",
             RESOURCE_API_TIER_DISCOVERY_SECONDS="3",
         )
         env.pop("DATABASE_URL", None)
@@ -116,16 +118,17 @@ def probe(output):
                     evidence.append({"method": method, "path": path, "status": response.status_code})
                     return response
 
-                skill = request("GET", "/api/agent-skill").json()
-                installation = skill["installation"]
-                assert skill["skill_url"] == installation["download_url"]
-                skill_zip = request("GET", installation["download_url"]).content
-                assert hashlib.sha256(skill_zip).hexdigest() == installation["sha256"]
-                with zipfile.ZipFile(io.BytesIO(skill_zip)) as archive:
-                    skill_text = archive.read(f"{installation['name']}/SKILL.md")
-                    assert hashlib.sha256(skill_text).hexdigest() == skill["skill_sha256"]
-                response = request("GET", "/api/agent-skill/SKILL.md", expected=404)
-                assert "location" not in response.headers
+                skill = request("GET", "/api/agent/v2/manifest").json()["skill"]
+                skill_zip = request("GET", skill["download_url"])
+                assert skill_zip.headers["content-type"] == "application/zip"
+                assert hashlib.sha256(skill_zip.content).hexdigest() == skill["sha256"]
+                with ZipFile(BytesIO(skill_zip.content)) as bundle:
+                    assert set(bundle.namelist()) == {"lockbot/SKILL.md", "lockbot/agents/openai.yaml"}
+                    skill_text = bundle.read("lockbot/SKILL.md")
+                assert f"lb login http://127.0.0.1:{port}".encode() in skill_text
+                for obsolete in ("/api/agent-skill", "/api/agent-skill/lockbot-resource-agent.zip"):
+                    response = request("GET", obsolete, expected=404)
+                    assert "location" not in response.headers
 
                 login = request(
                     "POST", "/api/auth/login", json={"username": "probe-admin", "password": settings["password"]}
@@ -304,9 +307,9 @@ def probe(output):
                     "agent_statistics": stats,
                     "production_adapter_registered": False,
                     "shared_key_and_plain_unbind_verified": True,
-                    "public_skill_zip_verified": True,
+                    "public_skill_verified": True,
                     "embedded_purpose_verified": True,
-                    "skill_sha256": installation["sha256"],
+                    "skill_sha256": skill["sha256"],
                     "agent_access_switch_verified": True,
                     "op_key_independent_verified": True,
                     "restart_persistence_verified": ["credential", "holding", "purpose", "statistics"],

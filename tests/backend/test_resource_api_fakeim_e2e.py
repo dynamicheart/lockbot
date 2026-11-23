@@ -6,30 +6,15 @@ group, and the resource snapshot reflects it — with no Infoflow payload shape 
 Infoflow field name anywhere in any response or anything the adapter sent.
 """
 
-import hashlib
-import io
 import json
 import logging
-import re
-import socket
-import sqlite3
-import subprocess
-import sys
-import threading
-import time
-from contextlib import closing
 from unittest.mock import patch
-from zipfile import ZipFile
 
 import pytest
-import uvicorn
 from fake_adapter import VALID_SIGNATURE, FakeAdapter, encode_message
 from lockbot.backend.app.bots.manager import BotManager
 from lockbot.backend.app.bots.models import Bot
-from lockbot.backend.app.database import get_db
 from lockbot.core.platforms.registry import register_adapter, unregister_adapter
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 ACTOR = "alice"
 INFOFLOW_FIELDS = ("fromuserid", "atuserids", '"body"', '"header"', "toid", "message")
@@ -153,127 +138,54 @@ def _all_sinks(resp, bot, tmp_path, bot_id, caplog, db_session):
     return [resp.text, _command_log(tmp_path, bot_id), caplog.text, json.dumps(bot.adapter.sent), audit]
 
 
-@pytest.fixture
-def published_cli_app(client, fakeim_api, db_session, tmp_path, monkeypatch):
-    # The loopback Uvicorn server and TestClient share the app but run on different
-    # threads. A file-backed database lets overlapping requests use separate
-    # SQLite connections while keeping the state seeded by the fake IM fixture.
-    path = tmp_path / "published-cli.sqlite3"
-    with closing(sqlite3.connect(path)) as snapshot:
-        db_session.connection().connection.driver_connection.backup(snapshot)
+def test_v1_recovery_and_reset_keep_existing_lease_after_enrollment_closes(client, fakeim_api, monkeypatch):
+    bot_id = fakeim_api["bot_id"]
+    bot = fakeim_api["bot"]
+    bindings = "/api/resource-auth/bindings"
+    challenges = "/api/resource-auth/credential-challenges"
+    issued = client.post(bindings).raise_for_status().json()
+    _confirm_via_webhook(client, bot_id, issued["bind_code"]).raise_for_status()
+    old_key = issued["credential"]
+    old_headers = {"Authorization": f"Bearer {old_key}"}
+    client.post(f"/api/bots/{bot_id}/commands", headers=old_headers, json={"command": "lock n1 1h"}).raise_for_status()
 
-    engine = create_engine(f"sqlite:///{path}")
-    sessions = sessionmaker(bind=engine, autoflush=False)
+    def current_holder(headers):
+        resources = client.get(f"/api/bots/{bot_id}/resources", headers=headers).raise_for_status().json()
+        node = next(resource for resource in resources["resources"] if resource["id"] == "n1")
+        (holder,) = node["holders"]
+        # The countdown moves with wall time even when the lease is unchanged.
+        holder.pop("remaining_seconds")
+        return holder
 
-    def override_get_db():
-        with sessions() as session:
-            yield session
+    original_holder = current_holder(old_headers)
+    assert original_holder["external_user_id"] == ACTOR
+    monkeypatch.setattr("lockbot.backend.app.config.RESOURCE_AUTH_V1_ENROLLMENT_ENABLED", False)
+    assert client.post(bindings).status_code == 403
 
-    monkeypatch.setitem(client.app.dependency_overrides, get_db, override_get_db)
-    monkeypatch.setattr("lockbot.backend.app.database.SessionLocal", sessions)
-    try:
-        yield client, fakeim_api
-    finally:
-        engine.dispose()
+    for purpose, prefix in (("recover", "REC-"), ("reset", "RST-")):
+        challenge = client.post(challenges, json={"purpose": purpose}).raise_for_status().json()
+        code = challenge["bind_code"]
+        assert code.startswith(prefix)
+        path = challenges + "/" + challenge["challenge_id"]
+        proof = {"Authorization": f"Bearer {challenge['proof']}"}
+        assert client.get(path, headers=proof).json() == {"status": "pending"}
+        assert client.get(path, headers=old_headers).status_code == 404
+        assert current_holder(old_headers) == original_holder
 
+        webhook = _confirm_via_webhook(client, bot_id, code).raise_for_status()
+        result = client.get(path, headers=proof).raise_for_status().json()
+        assert result["status"] == "confirmed"
+        key = result["credential"]
+        assert (key == old_key) == (purpose == "recover")
+        assert "outcome" not in result
+        assert key not in webhook.text + json.dumps(bot.adapter.sent)
+        assert code not in webhook.text + json.dumps(bot.adapter.sent)
+        headers = {"Authorization": f"Bearer {key}"}
+        context = client.get("/api/agent/context", headers=headers).raise_for_status().json()
+        assert context["bot"]["id"] == bot_id and context["actor"]["external_user_id"] == ACTOR
+        assert current_holder(headers) == original_holder
 
-def test_published_cli_creates_recovers_and_resets_through_the_same_bind_command(
-    published_cli_app, tmp_path, monkeypatch
-):
-    client, fakeim_api = published_cli_app
-    bot_id, bot = fakeim_api["bot_id"], fakeim_api["bot"]
-
-    installation = client.get("/api/agent-skill").raise_for_status().json()["installation"]
-    bundle = client.get(installation["download_url"]).raise_for_status().content
-    assert hashlib.sha256(bundle).hexdigest() == installation["sha256"]
-    with ZipFile(io.BytesIO(bundle)) as archive:
-        archive.extractall(tmp_path)
-    script = tmp_path / "lockbot-resource-agent/scripts/lockbot_resource.py"
-    project = tmp_path / "project"
-    project.mkdir()
-    monkeypatch.setenv("no_proxy", "127.0.0.1")
-
-    def cli(*args):
-        completed = subprocess.run(
-            [sys.executable, "-I", "-S", str(script), *args],
-            cwd=project,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        assert not re.search(r"\b(?:lbr|lbp)_[A-Za-z0-9_-]{32,}", completed.stdout + completed.stderr)
-        return json.loads(completed.stdout)["result"]
-
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        origin = f"http://127.0.0.1:{listener.getsockname()[1]}"
-        server = uvicorn.Server(uvicorn.Config(client.app, lifespan="off", access_log=False, log_level="warning"))
-        thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
-        thread.start()
-        try:
-            for _ in range(50):
-                if server.started:
-                    break
-                assert thread.is_alive()
-                time.sleep(0.05)
-            assert server.started
-
-            old_key = None
-            old_auth = None
-            for creates_key, extra in [(True, ()), (False, ()), (False, ("--purpose", "reset"))]:
-                purpose, prefix = ("reset", "RST-") if extra else ("recover", "REC-")
-                issued = cli("key-challenge", "--origin", origin, "--authorized", "--scope", "project", *extra)
-                assert issued["purpose"] == purpose and issued["target_group"] is None
-                command, code = issued["bind_command"].split()
-                assert command == "bind" and code.startswith(prefix)
-                pending = cli("connections", "--directory", ".lockbot/connections")["pending_enrollments"]
-                assert [entry["purpose"] for entry in pending] == [purpose]
-                directory = project / pending[0]["enrollment_dir"]
-                finish = ("finish-enrollment", "--enrollment-dir", str(directory))
-                assert cli(*finish)["status"] == "pending"
-                assert not (directory / "key").exists()
-                if old_auth is not None:
-                    assert client.get("/api/agent/context", headers=old_auth).status_code == 200
-
-                resp = _confirm_via_webhook(client, bot_id, code).raise_for_status()
-                if purpose == "reset":
-                    assert client.get("/api/agent/context", headers=old_auth).status_code == 401
-                    status = cli("enrollment-status", *finish[1:])
-                    assert status["chat_action"] == "reset_applied"
-                    assert status["next_command"] == list(finish)
-                    assert not (directory / "key").exists()
-                finished = cli(*finish)
-                assert finished["connection_created"]
-                assert finished.get("outcome") == ("created" if creates_key else None)
-                key = (directory / "key").read_text()
-                assert key not in resp.text + json.dumps(bot.adapter.sent)
-                assert code not in resp.text + json.dumps(bot.adapter.sent)
-                assert (directory / "key").stat().st_mode & 0o777 == 0o600
-                connection = ("--connection", str(directory / "connection.json"))
-                context = cli(*connection, "context")
-                assert context["bot"]["id"] == bot_id and context["actor"]["external_user_id"] == ACTOR
-                if creates_key:
-                    old_key = key
-                    old_auth = {"Authorization": f"Bearer {old_key}"}
-                    client.post(
-                        f"/api/bots/{bot_id}/commands", headers=old_auth, json={"command": "lock n1 1h"}
-                    ).raise_for_status()
-                else:
-                    assert (key == old_key) == (purpose == "recover")
-                snapshot = cli(*connection, "resources")
-                holder = next(resource for resource in snapshot["resources"] if resource["id"] == "n1")["holders"][0]
-                assert holder["external_user_id"] == ACTOR
-                if creates_key:
-                    original_expiry = holder["expires_at"]
-                else:
-                    assert holder["expires_at"] == original_expiry
-
-            assert client.get("/api/agent/context", headers=old_auth).status_code == 401
-        finally:
-            server.should_exit = True
-            thread.join(timeout=10)
-            assert not thread.is_alive()
+    assert client.get("/api/agent/context", headers=old_headers).status_code == 401
 
 
 # PLACEHOLDER_REDACTION

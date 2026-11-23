@@ -55,7 +55,7 @@ def test_agent_sets_changes_and_clears_alias_without_changing_holdings_or_task_n
         assert node(client, api)["alias"] == value
         assert node(client, api, api["other_headers"])["alias"] == value
         db_session.expire_all()
-        configured = json.loads(db_session.get(Bot, api["bot_id"]).config_overrides)["NODE_ALIASES"]
+        configured = json.loads(db_session.get(Bot, api["bot_id"]).config_overrides)["NODE_LABELS"]
         assert configured.get("n1", "") == value
         assert api["bot"].state.bot_state == before
         note = db_session.query(UsageDeclaration).one()

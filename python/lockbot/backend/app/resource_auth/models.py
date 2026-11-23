@@ -53,6 +53,8 @@ class ResourceBinding(Base):
     #: that reuse of a database row id cannot transfer this credential to a different bot.
     bound_identity_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     bound_bot_uuid: Mapped[str] = mapped_column(String(36), nullable=False)
+    #: Last conversation where this principal successfully confirmed a chat credential.
+    confirmed_chat_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     #: Hex sha256 of the credential. The plaintext is never stored.
     credential_digest: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

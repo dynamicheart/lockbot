@@ -86,7 +86,7 @@ def test_anonymous_caps_do_not_disclose_pins_or_upstream_and_cookie_reads_only_p
     assert body["schema_version"] == 2
     assert [pin["origin"] for pin in body["service_pins"]] == [SOURCE]
     row = body["connections"][0]
-    assert row["skill"]["bundle_url"] == SOURCE + "/api/agent-skill/lockbot-resource-agent.zip"
+    assert row["skill"]["bundle_url"] == SOURCE + "/api/agent/v2/skill/lockbot.zip"
     assert SOURCE in row["instructions"] and "unused-instance" not in response.text
     assert all(secret not in response.text for secret in ("a-secret", '"ref"', '"credential"', '"digest"'))
     assert adapter.calls[0]["ref"] == "a"  # Trusted local adapter input, never HTTP output.

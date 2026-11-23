@@ -34,7 +34,9 @@ import os
 import threading
 import time
 from contextlib import contextmanager
+from functools import partial
 
+from lockbot.backend.app.resource_api.resource_changes import resource_changes
 from lockbot.backend.app.resource_auth.service import handle_chat_binding
 from lockbot.core.bot_instance import BotInstance
 from lockbot.core.platforms.registry import normalize_platform_name
@@ -118,6 +120,7 @@ class BotManager:
         # Admission bookkeeping, all guarded by self._lock.
         self._retiring: set[int] = set()
         self._inflight: dict[int, int] = {}
+        self._query_inflight: dict[int, int] = {}
         self._generations: dict[int, int] = {}
         # Generations that failed their sweep budget. Retained read-only (instance kept) so
         # /resources can still report health=error with the last state, until an operator
@@ -233,6 +236,7 @@ class BotManager:
         for_read: bool = False,
         expected_generation: int | None = None,
         expected_instance=None,
+        separate_read_capacity: bool = False,
     ):
         """Admit one operation against the current live instance, or refuse it.
 
@@ -280,18 +284,19 @@ class BotManager:
                 raise InstanceRetiring(f"Bot {bot_id} generation is no longer {expected_generation}")
             if expected_instance is not None and instance is not expected_instance:
                 raise InstanceRetiring(f"Bot {bot_id} instance was replaced")
-            current = self._inflight.get(bot_id, 0)
+            counter = self._query_inflight if separate_read_capacity else self._inflight
+            current = counter.get(bot_id, 0)
             # Every admitted operation (live or failed-read) honours the cap unless the caller
             # reserved capacity (enforce_cap=False, used only by the bot's own expiry sweep).
             if enforce_cap and current >= self._max_inflight:
                 raise AdmissionFull(f"Bot {bot_id} has {current} operations outstanding")
-            self._inflight[bot_id] = current + 1
+            counter[bot_id] = current + 1
             generation = self._generations.get(bot_id, 0)
 
         try:
             yield Lease(bot_id, instance, generation, health=health)
         finally:
-            self._release_obligation(self._inflight, bot_id)
+            self._release_obligation(counter, bot_id)
 
     def _release_obligation(self, counter: dict[int, int], bot_id: int) -> None:
         """Decrement a counted drain obligation under ``self._lock`` and wake any drainers.
@@ -350,7 +355,7 @@ class BotManager:
         On timeout the bot stays retiring and nothing is replaced: a worker that may still
         mutate and persist state makes replacement unsafe, so reporting uncertainty is correct.
         """
-        while self._inflight.get(bot_id, 0) > 0 or self._fatal_pending.get(bot_id, 0) > 0:
+        while any(counter.get(bot_id, 0) for counter in (self._inflight, self._query_inflight, self._fatal_pending)):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise MayHaveExecuted(bot_id)
@@ -401,6 +406,7 @@ class BotManager:
             )
             instance.bot.binding_hook = self._make_binding_hook(bot_id, config_dict)
             instance.bot.idle_confirmation_hook = self.idle_confirmation_hook
+            instance.bot._on_resource_snapshot = partial(resource_changes.publish, bot_id)
             from lockbot.backend.app.resource_api.lease_history import LeaseJournal
 
             try:
@@ -471,6 +477,7 @@ class BotManager:
         # admission-refused during the staged→active window (between add and this clear) is retried
         # promptly rather than waiting out the idle interval.
         self._scheduler.reschedule_soon(bot_id)
+        resource_changes.publish(bot_id)
 
     def _make_binding_hook(self, bot_id: int, config_dict: dict):
         """Build the identity-binding hook for a bot.
@@ -481,6 +488,8 @@ class BotManager:
         resolved at start, never the mutable config the dispatcher reads from. The dispatcher
         still passes the adapter's platform; we only use it to assert it agrees with ours.
         """
+        from lockbot.core.command_context import command_chat_id
+
         authoritative_bot_id = bot_id
         authoritative_revision = config_dict.get("_IDENTITY_REVISION")
         authoritative_platform = normalize_platform_name(config_dict.get("PLATFORM"))
@@ -504,6 +513,7 @@ class BotManager:
                 action=action,
                 argument=argument,
                 expected_revision=authoritative_revision,
+                chat_id=command_chat_id.get(),
             )
 
         return binding_hook
@@ -651,6 +661,7 @@ class BotManager:
             # Final retirement: let generation-keyed caches evict (outside the lock).
             if fire_hook:
                 self._fire_retire_hooks(bot_id, generation)
+                resource_changes.publish(bot_id)
             if not fire_hook:
                 raise InstanceRetiring(f"Bot {bot_id} generation changed during retirement")
             logger.info("Stopped bot %d", bot_id)

@@ -114,6 +114,7 @@ def probe(output):
             "DATA_DIR": str(root / "data"),
             "ALLOW_REGISTER": "true",
             "DEV_MODE": "false",
+            "RESOURCE_AUTH_V1_ENROLLMENT_ENABLED": "true",
             "RESOURCE_API_WRITE_BUDGET_PER_MINUTE": "120",
         }
         client = requests.Session()

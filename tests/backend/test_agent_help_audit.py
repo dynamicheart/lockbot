@@ -1,7 +1,7 @@
 # ruff: noqa: F811
-import io
-import zipfile
 from datetime import datetime
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from lockbot.backend.app.audit.models import AuditLog
@@ -22,7 +22,7 @@ def test_binding_noop_hints_use_trusted_site_url_and_saved_gate(action, argument
     db_session.merge(SiteSetting(key="platform_url", value="https://trusted.example"))
     db_session.commit()
     text = chat_hook(action, argument, bot_id=bot_id)
-    assert "https://trusted.example/api/agent-skill\n" in text
+    assert "https://trusted.example/api/agent/v2/skill/lockbot.zip\n" in text
     assert ("明确请你的 Agent" if lang == "zh" else "ask your Agent to verify") in text
     row.resource_auth_enabled = False
     db_session.commit()
@@ -91,14 +91,14 @@ def test_public_command_docs_have_named_examples_and_grammar(client):
     op = client.get("/api/public-openapi.json").json()["paths"]["/api/agent/commands"]["post"]
     examples = op["requestBody"]["content"]["application/json"]["examples"]
     assert {"node_lock", "device_lock", "queue_book", "release_or_cancel"} <= examples.keys()
-    bundle = client.get("/api/agent-skill/lockbot-resource-agent.zip").content
-    with zipfile.ZipFile(io.BytesIO(bundle)) as archive:
-        instructions = "\n".join(archive.read(name).decode() for name in archive.namelist() if name.endswith(".md"))
+    instructions = client.get("/api/agent/v2/skill/lockbot.zip")
+    assert instructions.status_code == 200
+    with ZipFile(BytesIO(instructions.content)) as bundle:
+        markdown = bundle.read("lockbot/SKILL.md").decode()
     for word in ["free node1", "book node1 2h", "dev0-3", "queue_claim_window_seconds"]:
         assert word in op["description"]
-    assert "command --operation lock" in instructions
-    assert "command --operation release" in instructions
-    assert "POST `/api/agent/commands`" not in instructions
+    assert "`lb lock <node> 30m`" in markdown
+    assert "`lb free`" in markdown
 
 
 def test_active_authorizations_paginate_without_hiding_unseen_keys(api, client, db_session):
@@ -162,7 +162,7 @@ def test_summary_counts_only_live_task_declarations_and_updates_after_release(ap
 def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
     schema = client.get("/api/public-openapi.json").json()
     groups = {item["name"] for item in schema["tags"]}
-    assert groups == {"Agent API", "OP API", "Configuration API", "Agent 绑定", "Skill 下载"}
+    assert groups == {"Agent API", "OP API", "Configuration API", "Agent 绑定"}
     paths = schema["paths"]
     assert paths["/api/agent/commands"]["post"]["security"] == [{"AgentKey": []}]
     assert paths["/api/agent/resources"]["get"]["tags"] == ["Agent API"]
@@ -170,8 +170,7 @@ def test_public_docs_separate_operator_personal_and_anonymous_endpoints(client):
         assert paths[path][method]["tags"] == ["OP API"]
         assert paths[path][method]["security"] == [{"OpApiKey": []}]
     assert paths["/api/resource-auth/bindings"]["post"]["security"] == []
-    assert "/api/agent-skill/SKILL.md" not in paths
-    assert paths["/api/agent-skill/lockbot-resource-agent.zip"]["get"]["security"] == []
+    assert not any(path.startswith("/api/agent-skill") for path in paths)
     configuration = "/api/bots/{bot_id}/configuration-access"
     for path, method in [(configuration, "get"), (configuration, "put"), (configuration + "/preview", "post")]:
         assert paths[path][method]["tags"] == ["Configuration API"]

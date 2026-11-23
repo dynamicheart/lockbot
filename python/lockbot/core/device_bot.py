@@ -26,7 +26,7 @@ from lockbot.core.utils import (
 )
 
 # Regex building blocks for command parsing
-_DEV_NODE_LIST = r"([\w\d]+)((\s*[,，、]\s*([\w\d])+)*)"  # node1,node2,...
+_DEV_NODE_LIST = r"([\w-]+)((\s*[,，、]\s*([\w-])+)*)"  # node-1,node-2,...
 _DEV_SPEC = r"(\s+dev\s*((([0-9]+(\s*[,，、]\s*[0-9]+)*)|([0-9]+-[0-9]+))))"  # dev 0,1,2 or dev 0-3
 _DURATION = r"([0-9]+\.?[0-9]*)([dhm])"  # e.g. 3d, 2.5h, 30m
 
@@ -42,7 +42,7 @@ class DeviceBot(BaseLockBot):
     _node_list_pattern = _DEV_NODE_LIST
 
     def supported_commands(self):
-        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "alias"]
+        return ["lock", "slock", "unlock", "free", "kickout", "help", "h", "query", "label", "alias"]
 
     def parse_command(self, user_id, command_key, command, parsing_duration=False):
         """
@@ -79,7 +79,13 @@ class DeviceBot(BaseLockBot):
         if m[3]:
             node_key_str += m[3]
 
-        node_key_list = list(dict.fromkeys(node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)))
+        from lockbot.core.command_context import resource_command_transaction
+
+        transaction = resource_command_transaction.get()
+        if transaction is not None:
+            node_key_list = list(transaction.cards_by_node)
+        else:
+            node_key_list = list(dict.fromkeys(node_key.strip() for node_key in re.split(r"[,，、]", node_key_str)))
 
         for node_key in node_key_list:
             if node_key not in cluster_configs:
@@ -94,7 +100,9 @@ class DeviceBot(BaseLockBot):
                 )
                 return _get_return_values()
 
-        if m[7]:
+        if transaction is not None:
+            dev_ids_list = [transaction.cards_by_node[node] for node in node_key_list]
+        elif m[7]:
             dev_str = m[7].strip()
             if "-" in dev_str:
                 dev_min_max = dev_str.split("-")
@@ -534,6 +542,7 @@ class DeviceBot(BaseLockBot):
         user_ids = set()
 
         alert_tuples = []
+        ended = []
 
         with self._state_guard():
             for node_key, devices in self.state.bot_state.items():
@@ -545,6 +554,14 @@ class DeviceBot(BaseLockBot):
                             if remaining_time <= 0:
                                 removed_users_id.append(user_info["user_id"])
                                 state_changed = True
+                                ended.append(
+                                    (
+                                        f"{node_key}:dev{device['dev_id']}",
+                                        user_info["user_id"],
+                                        "holding_expired",
+                                        user_info["start_time"] + user_info["duration"],
+                                    )
+                                )
 
                                 # Send expiry notification only if early warning was never sent.
                                 # When EARLY_NOTIFY=True and warning fired on time, is_notified=True → silent release.
@@ -584,7 +601,7 @@ class DeviceBot(BaseLockBot):
                             device["status"] = "idle"
 
             if state_changed:
-                self._persist_state()
+                self._persist_state(ended=ended)
 
             # Compute next wakeup: scan remaining active users after mutations
             min_next = float("inf")

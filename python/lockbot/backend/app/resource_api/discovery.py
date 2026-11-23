@@ -173,8 +173,9 @@ def _context_payload(request, response, db, row):
     db.refresh(bot)
     from lockbot.backend.app.bots.datasource import public_datasource
     from lockbot.backend.app.bots.metrics_access import issue_metrics_access
-    from lockbot.backend.app.resource_api.skill import client_skill_notice, skill_artifacts
+    from lockbot.backend.app.resource_api.skill import client_skill_notice
     from lockbot.backend.app.resource_api.usage import TASK_CATEGORIES
+    from lockbot.backend.app.resource_api.v2.skill import MANIFEST_URL, skill_metadata
     from lockbot.backend.app.resource_api.view_links import view_link
 
     response.headers["Cache-Control"] = "no-store"
@@ -232,9 +233,9 @@ def _context_payload(request, response, db, row):
             "resources": "/api/agent/resources",
             "commands": "/api/agent/commands",
             "usage_declarations": "/api/agent/usage-declarations",
-            "skill_manifest": "/api/agent-skill",
+            "skill_manifest": MANIFEST_URL,
         },
-        "skill": skill_artifacts()[2],
+        "skill": skill_metadata(),
         "skill_update": client_skill_notice(request),
         "view_url": view.get("view_url"),
         "view_expires_at": view.get("view_expires_at"),

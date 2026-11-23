@@ -736,8 +736,8 @@ export default {
     installHint: 'Agent 还没安装 LockBot Skill？',
     installDetail: '把安装指令发给你的 Agent。',
     copyInstall: '复制安装指令',
-    installPackage: '下载 ZIP',
-    installRequest: '请按清单验证 ZIP，安装 LockBot Skill，并确认安装成功。\n{url}',
+    installPackage: '下载 Skill',
+    installRequest: '请用这个 ZIP 安装 LockBot Skill，再确认安装成功。\n{url}',
   },
   personalCredentialActions: {
     copyAllStatus: '复制全部状态',

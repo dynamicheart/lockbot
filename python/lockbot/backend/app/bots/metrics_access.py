@@ -4,6 +4,7 @@ import json
 import time
 from collections import Counter
 from datetime import timezone
+from secrets import token_urlsafe
 
 import jwt
 from sqlalchemy import select
@@ -103,7 +104,7 @@ def issue_metrics_access(db, bot, source=None, *, expires_at=None, holdings=None
                 return None
             # Older gateways require "nodes" and ignore unknown JWT claims.
             # Omit it entirely so the restricted grant can never widen there.
-            scope = {"scope_version": 2, "resources": labels}
+            scope = {"scope_version": 2, "resources": labels, "jti": token_urlsafe(16)}
             descriptor = {
                 "scope_version": 2,
                 "node_ids": sorted(node for node, label in mapping.items() if label in labels),

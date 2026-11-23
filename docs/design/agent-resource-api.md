@@ -1,5 +1,7 @@
 # Lockbot Agent 资源访问设计
 
+本文记录 Agent API v1 的授权和资源接口设计。已有 v1 Key 的兼容行为与 v2 新接入见 [当前 Skill 接入指南](../usage/resource-agent-helper.md)。
+
 ## 1. 解决什么问题
 
 Lockbot 原本通过群消息管理资源的占用、预约和释放。Agent API 让自动化程序使用同一套规则，并让团队看见资源由谁使用、正在做什么。

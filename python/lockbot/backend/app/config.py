@@ -45,14 +45,21 @@ DEV_ADMIN_EMAIL = os.environ.get("DEV_ADMIN_EMAIL", "admin@lockbot.dev")
 DEV_ADMIN_PASSWORD = os.environ.get("DEV_ADMIN_PASSWORD", "admin123")
 
 # ── Resource auth (agent-facing API identity binding) ──
+RESOURCE_AUTH_V1_ENROLLMENT_ENABLED = os.environ.get("RESOURCE_AUTH_V1_ENROLLMENT_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 # How long a bind code stays claimable. Only the binding PROCESS expires; the credential
 # it issues does not. Enforced at claim time, never by a background sweep.
 RESOURCE_AUTH_BIND_WINDOW_SECONDS = int(os.environ.get("RESOURCE_AUTH_BIND_WINDOW_SECONDS", 10 * 60))
 
-# Caps on outstanding unconfirmed bindings. Because unconfirmed bindings live in memory
-# rather than in the database, these caps are what bound the flood target.
+# The total cap bounds all in-memory binding records, including confirmed receipts.
+# Source caps count only codes still awaiting confirmation.
 RESOURCE_AUTH_MAX_PENDING_TOTAL = int(os.environ.get("RESOURCE_AUTH_MAX_PENDING_TOTAL", 200))
 RESOURCE_AUTH_MAX_PENDING_PER_SOURCE = int(os.environ.get("RESOURCE_AUTH_MAX_PENDING_PER_SOURCE", 5))
+RESOURCE_AUTH_V2_MAX_PENDING_PER_SOURCE = int(os.environ.get("RESOURCE_AUTH_MAX_PENDING_PER_SOURCE", 10))
+RESOURCE_AUTH_V2_BIND_START_RATE = "60/hour"
 
 # Optional bounded credential lifetime. 0 means "no expiry", which is the default:
 # revocation is then the only invalidation path.

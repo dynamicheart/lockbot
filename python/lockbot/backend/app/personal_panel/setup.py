@@ -36,9 +36,22 @@ def mount_if_configured(app):
 
     config = json.loads(Path(config_file).read_text())
     item = config["provider"]
-    provider = (
-        _load_plugin(item, "lockbot_identity_provider", "create_provider") if "file" in item else NativeProvider(item)
-    )
+    v2_credentials = config.get("v2_credentials", False)
+    if type(v2_credentials) is not bool:
+        raise ValueError("v2_credentials must be a boolean")
+    native_v2 = None
+    if v2_credentials:
+        from .native_v2 import NativeV2Provider
+
+        native_v2 = NativeV2Provider(config["origin"])
+    if "file" in item:
+        provider = _load_plugin(item, "lockbot_identity_provider", "create_provider")
+    elif native_v2 is not None:
+        if item.get("issuer") != config["origin"]:
+            raise ValueError("V2 credentials require the same-origin issuer")
+        provider = native_v2
+    else:
+        provider = NativeProvider(item)
     if "resource_guidance" in config:
         from .guidance import Guidance, mount_agent_guidance
 
@@ -94,6 +107,8 @@ def mount_if_configured(app):
     local_key_handoff = config.get("local_key_handoff", False)
     if type(local_key_handoff) is not bool:
         raise ValueError("local_key_handoff must be a boolean")
+    if local_key_handoff and native_v2 is not None:
+        raise ValueError("Select v2_credentials or local_key_handoff")
     if local_key_handoff:
         native_handoff = NativeProvider({"issuer": config["origin"], "local_key_handoff": True})
     app.mount(
@@ -109,6 +124,7 @@ def mount_if_configured(app):
             metadata_adapter=metadata_adapter,
             metadata_pins=metadata_pins,
             native_handoff=native_handoff,
+            native_v2=native_v2,
         ),
     )
 
