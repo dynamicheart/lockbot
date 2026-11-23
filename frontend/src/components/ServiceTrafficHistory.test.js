@@ -1,4 +1,3 @@
-/* eslint-disable vue/one-component-per-file -- minimal host stubs exercise actual SFC bindings */
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Vue from 'vue'
 import { createRenderer, defineComponent, h, nextTick, reactive } from 'vue'
@@ -67,14 +66,13 @@ const flush = async () => {
   await nextTick()
 }
 function mount() {
-  const props = reactive({ botId: 4, admin: false })
+  const props = reactive({ botId: 4, admin: false, preset: '24h' })
   const root = { children: [] }
   app = renderer.createApp({ render: () => h(Panel, props) })
   app.provide(Vue.ssrContextKey, {})
   app.config.globalProperties.$t = (key, values) =>
     key === 'trafficHistory.inputZone' ? values.zone : key
   for (const name of [
-    'el-radio-button',
     'el-button',
     'el-date-picker',
     'el-alert',
@@ -84,24 +82,6 @@ function mount() {
     'el-icon',
   ])
     app.component(name, shell)
-  app.component(
-    'ElRadioGroup',
-    defineComponent({
-      name: 'HistoryRangeStub',
-      emits: ['update:modelValue'],
-      setup:
-        (_props, { emit, slots }) =>
-        () =>
-          h('section', {}, [
-            h(
-              'button',
-              { 'data-custom': true, onClick: () => emit('update:modelValue', 'custom') },
-              'custom'
-            ),
-            slots.default?.(),
-          ]),
-    })
-  )
   app.mount(root)
   return { props, root }
 }
@@ -170,11 +150,9 @@ it('clears old results immediately on a bot switch and never publishes a late re
 
 it('shows the custom input browser timezone and clears the previous range', async () => {
   api.get.mockResolvedValueOnce({ data: payload(12) })
-  const { root } = mount()
+  const { root, props } = mount()
   await flush()
-  all(root)
-    .find((node) => node.props?.['data-custom'])
-    .props.onClick()
+  props.preset = 'custom'
   await flush()
   const inputZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   expect(all(root).some((node) => node.props?.['aria-label'] === inputZone)).toBe(true)

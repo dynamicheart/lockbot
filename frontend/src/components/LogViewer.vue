@@ -1,11 +1,17 @@
 <template>
   <div>
     <div class="log-header">
-      <el-radio-group v-model="category" size="small">
-        <el-radio-button value="">{{ $t('log.all') }}</el-radio-button>
-        <el-radio-button value="command">{{ $t('log.commandLog') }}</el-radio-button>
-        <el-radio-button value="system">{{ $t('log.systemLog') }}</el-radio-button>
-      </el-radio-group>
+      <el-select
+        v-model="category"
+        :aria-label="$t('log.category')"
+        :empty-values="[null, undefined]"
+        size="small"
+        class="log-category"
+      >
+        <el-option value="" :label="$t('log.allCategories')" />
+        <el-option value="command" :label="$t('log.commandLog')" />
+        <el-option value="system" :label="$t('log.systemLog')" />
+      </el-select>
       <el-select
         v-model="level"
         :placeholder="$t('log.allLevels')"
@@ -52,11 +58,18 @@
         >
           <span class="log-time">{{ formatTime(log.created_at) }}</span>
           <span :class="'log-level log-level-' + log.level.toLowerCase()">{{ log.level }}</span>
-          <span v-if="log.category === 'command'" class="log-cmd">CMD</span>
+          <span v-if="log.category === 'command'" class="log-cmd">{{
+            $t('log.operationBadge')
+          }}</span>
           <span v-if="logDisplay(log)" class="log-msg"
             ><el-tooltip :content="logDisplay(log).id"
               ><span>[{{ logDisplay(log).name }}]</span></el-tooltip
             >{{ logDisplay(log).rest }}</span
+          >
+          <span
+            v-else-if="log.details_restricted && log.message === '—'"
+            class="log-msg log-summary-missing"
+            >{{ $t('log.summaryUnavailable') }}</span
           >
           <span v-else class="log-msg">{{ log.message }}</span>
         </div>
@@ -180,6 +193,12 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
+}
+.log-category {
+  width: 138px;
+}
+.log-summary-missing {
+  color: var(--el-text-color-secondary);
 }
 .log-container {
   max-height: 400px;

@@ -1,8 +1,5 @@
 <template>
   <section ref="container" class="configuration-credentials">
-    <a class="configuration-guide-link" href="/api/public-docs/configuration/AGENTS.md">
-      {{ $t('configurationCredentials.agentGuide') }}
-    </a>
     <header v-if="!showGuide" class="credential-toolbar">
       <div class="credential-actions">
         <el-button :loading="loading" @click="load(offset)">{{ $t('common.refresh') }}</el-button>
@@ -183,15 +180,15 @@
           </div>
         </el-form-item>
         <el-form-item :label="$t('auditCredentials.scope')">
-          <el-checkbox-group v-model="form.scopes" class="credential-permissions">
+          <el-checkbox-group v-model="form.permissions" class="credential-permissions">
             <el-checkbox
-              v-for="(label, permission) in scopeLabels"
+              v-for="(option, permission) in permissionOptions"
               :key="permission"
               :value="permission"
             >
               <span class="credential-permission">
-                <span>{{ $t(label) }}</span>
-                <span class="credential-field-hint">{{ $t(label + 'Hint') }}</span>
+                <span>{{ $t(option.label) }}</span>
+                <span class="credential-field-hint">{{ $t(option.label + 'Hint') }}</span>
               </span>
             </el-checkbox>
           </el-checkbox-group>
@@ -262,6 +259,13 @@
         readonly
         autocomplete="off"
       />
+      <a
+        class="configuration-guide-link"
+        href="/api/public-docs/configuration/AGENTS.md"
+        download="AGENTS.md"
+      >
+        {{ $t('configurationCredentials.agentGuide') }}
+      </a>
       <template #footer>
         <el-button :disabled="!secret" @click="copyText(secret)">{{ $t('common.copy') }}</el-button>
         <el-button type="primary" @click="showSecret = false">{{
@@ -294,6 +298,16 @@ const scopeLabels = {
   'node_access:write': 'configurationCredentials.nodeAccess',
   'datasource:write': 'configurationCredentials.datasource',
   'node_inventory:write': 'configurationCredentials.nodeInventory',
+}
+const permissionOptions = {
+  nodes: {
+    label: 'configurationCredentials.nodeInformation',
+    scopes: ['node_access:write', 'node_inventory:write'],
+  },
+  datasource: {
+    label: 'configurationCredentials.datasource',
+    scopes: ['datasource:write'],
+  },
 }
 const lifetimes = [600, 3600, 86400, 604800]
 const pageSize = 50
@@ -331,7 +345,7 @@ const canCreate = computed(
     form.value.bot_ids.length > 0 &&
     form.value.bot_ids.length <= botLimit &&
     form.value.bot_ids.every((id) => botsById.value.has(id)) &&
-    form.value.scopes.length > 0
+    form.value.permissions.length > 0
 )
 const actionLabels = {
   rotate: 'configurationCredentials.rotate',
@@ -350,7 +364,7 @@ function selectAllBots() {
 }
 
 function emptyForm() {
-  return { label: '', bot_ids: [], scopes: [], expires_in_seconds: defaultLifetime }
+  return { label: '', bot_ids: [], permissions: [], expires_in_seconds: defaultLifetime }
 }
 
 function botLabel(bot) {
@@ -365,7 +379,13 @@ function botNames(row) {
 }
 
 function scopeText(row) {
-  return row.scopes.map((permission) => t(scopeLabels[permission])).join(' · ')
+  const labels = []
+  for (const option of Object.values(permissionOptions)) {
+    const granted = option.scopes.filter((permission) => row.scopes.includes(permission))
+    if (granted.length === option.scopes.length) labels.push(t(option.label))
+    else labels.push(...granted.map((permission) => t(scopeLabels[permission])))
+  }
+  return labels.join(' · ')
 }
 
 function status(row) {
@@ -425,7 +445,9 @@ watch(
     if (botsById.value.has(Number(bot))) {
       openCreate()
       form.value.bot_ids = [Number(bot)]
-      form.value.scopes = permissions
+      form.value.permissions = Object.keys(permissionOptions).filter((key) =>
+        permissionOptions[key].scopes.every((permission) => permissions.includes(permission))
+      )
     }
     emit('prefill-consumed')
   }
@@ -452,7 +474,12 @@ async function mutate(send, after) {
 
 function create() {
   if (!canCreate.value) return
-  const body = { ...form.value, label: form.value.label.trim() }
+  const { label, permissions, ...settings } = form.value
+  const body = {
+    ...settings,
+    label: label.trim(),
+    scopes: permissions.flatMap((permission) => permissionOptions[permission].scopes),
+  }
   return mutate(
     (config) => api.post(endpoint, body, config),
     (data) => {
@@ -517,7 +544,15 @@ onBeforeUnmount(() => {
 <style scoped>
 .configuration-guide-link {
   display: inline-block;
-  margin-bottom: 12px;
+  margin-top: 12px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  text-underline-offset: 2px;
+}
+
+.configuration-guide-link:hover,
+.configuration-guide-link:focus-visible {
+  color: var(--el-color-primary);
 }
 
 .credential-toolbar,

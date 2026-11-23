@@ -1,11 +1,6 @@
 <template>
   <section class="traffic-history">
     <div class="history-controls">
-      <el-radio-group v-model="preset" :aria-label="$t('trafficHistory.range')">
-        <el-radio-button v-for="item in historyPresets" :key="item" :value="item">{{
-          $t('trafficHistory.presets.' + item)
-        }}</el-radio-button>
-      </el-radio-group>
       <div v-if="preset === 'custom'" class="history-custom-range">
         <el-date-picker
           v-model="customRange"
@@ -205,15 +200,17 @@ import { trafficBarReference } from '../utils/trafficBarReference'
 import {
   createTrafficHistoryLoader,
   historyEndpoint,
-  historyPresets,
   historyRange,
   historyRows,
   operationCount,
 } from '../utils/serviceTrafficHistory'
-const props = defineProps({ botId: { type: [Number, String], default: null }, admin: Boolean })
+const props = defineProps({
+  botId: { type: [Number, String], default: null },
+  admin: Boolean,
+  preset: { type: String, required: true },
+})
 const { t, locale } = useI18n()
 const inputZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-const preset = ref('24h')
 const httpSource = ref('')
 const customRange = ref([])
 const range = ref(null)
@@ -323,7 +320,7 @@ const loader = createTrafficHistoryLoader({
   },
 })
 function refresh() {
-  range.value = historyRange(preset.value, customRange.value || [])
+  range.value = historyRange(props.preset, customRange.value || [])
   if (!range.value) {
     // A changed invalid range must also cancel and clear the previous authorized result.
     loader.setScope(null)
@@ -336,10 +333,14 @@ function refresh() {
     ...range.value,
   })
 }
-watch([() => props.botId, () => props.admin, preset, customRange, httpSource], refresh, {
-  immediate: true,
-  flush: 'sync',
-})
+watch(
+  [() => props.botId, () => props.admin, () => props.preset, customRange, httpSource],
+  refresh,
+  {
+    immediate: true,
+    flush: 'sync',
+  }
+)
 onBeforeUnmount(() => loader.dispose())
 const number = (value) =>
   Number.isFinite(value)

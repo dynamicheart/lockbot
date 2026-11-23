@@ -72,8 +72,9 @@ export default {
   configurationCredentials: {
     agentGuide: '采集与上传指南（AGENTS.md）',
     configureWithAgent: '让 Agent 配置',
+    nodeInformation: '登记节点信息',
+    nodeInformationHint: '允许登记登录信息和上传硬件盘点。',
     nodeInventory: '上传节点硬件',
-    nodeInventoryHint: '允许上传节点硬件盘点和采集时间。',
     title: '配置凭证',
     guideSelectTitle: '机器人管理员',
     guideSelect: '选好授权范围，私发凭证。',
@@ -86,7 +87,6 @@ export default {
     selectAllBots: '全选',
     clearBots: '清空选择',
     botLimitHint: '每个凭证最多授权 {count} 个机器人，请分批选择。',
-    nodeAccessHint: '允许登记节点的域名、IP 和 SSH 端口。',
     datasourceHint: '允许配置用于展示利用率的数据源和节点映射。',
     create: '创建配置凭证',
     empty: '暂无配置凭证',
@@ -391,7 +391,6 @@ export default {
     notConfigured: '未配置',
     remove: '移除',
     setupGuide: '接入文档',
-    agentSetupGuide: '交给 Agent 配置',
     adminHint:
       '为当前机器人统一配置。请准备数据源地址、指标名、标签及节点／设备映射；在当前浏览器验证并保存。不要保存共享数据源密钥。',
     testSave: '验证并保存',
@@ -450,7 +449,6 @@ export default {
     httpSource: 'HTTP 请求入口',
     allSources: '全部 HTTP 入口',
     live: '实时',
-    history: '历史',
     range: '时间范围',
     start: '开始时间',
     end: '结束时间',
@@ -487,6 +485,7 @@ export default {
 
     allBots: '全部有已验证请求的机器人',
     byCredential: '按凭证',
+    groupBy: '分组方式',
     credential: '用户 / 调用类型',
     credentialKinds: {
       agent: 'Agent API',
@@ -1088,6 +1087,10 @@ export default {
 
   // === Log Viewer ===
   log: {
+    category: '日志类型',
+    allCategories: '全部类型',
+    operationBadge: '操作',
+    summaryUnavailable: '无可显示的摘要',
     privateDetailsRestricted: '当前显示操作摘要。',
     all: '全部',
     commandLog: '操作记录',

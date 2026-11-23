@@ -3,13 +3,13 @@
     <div class="page-heading">
       <div>
         <h2>{{ $t('serviceTraffic.title') }}</h2>
-        <p v-if="snapshot && mode === 'live'">
+        <p v-if="snapshot && live">
           {{ $t('serviceTraffic.since') }} {{ localTime(snapshot.started_at) }}
           <el-tooltip :content="$t('serviceTraffic.scopeHelp')"
             ><span tabindex="0"> ⓘ</span></el-tooltip
           >
         </p>
-        <p v-if="recentAgents && mode === 'live'" class="agent-activity-summary">
+        <p v-if="recentAgents && live" class="agent-activity-summary">
           {{
             t('serviceTraffic.recentAgents', {
               minutes: recentAgents.minutes,
@@ -18,41 +18,50 @@
           }}
         </p>
       </div>
-      <el-button v-if="mode === 'live'" :loading="loading" @click="refresh"
+      <el-button v-if="live" :loading="loading" @click="refresh"
         ><el-icon><Refresh /></el-icon>{{ $t('common.refresh') }}</el-button
       >
     </div>
-    <el-select
-      v-if="!props.botId"
-      v-model="selectedBot"
-      :disabled="loading"
-      clearable
-      :placeholder="$t('serviceTraffic.allBots')"
-      class="bot-filter"
-    >
-      <el-option
-        v-for="row in botOptions"
-        :key="row.bot_id"
-        :label="row.name ? `${row.name} (#${row.bot_id})` : `#${row.bot_id}`"
-        :value="row.bot_id"
-      />
-    </el-select>
-    <el-tabs v-model="mode" class="traffic-mode-tabs">
-      <el-tab-pane :label="$t('trafficHistory.live')" name="live" />
-      <el-tab-pane :label="$t('trafficHistory.history')" name="history" />
-    </el-tabs>
+    <div class="traffic-filters">
+      <el-select
+        v-if="!props.botId"
+        v-model="selectedBot"
+        :disabled="loading"
+        clearable
+        :placeholder="$t('serviceTraffic.allBots')"
+        :aria-label="$t('serviceTraffic.allBots')"
+        class="bot-filter"
+      >
+        <el-option
+          v-for="row in botOptions"
+          :key="row.bot_id"
+          :label="row.name ? `${row.name} (#${row.bot_id})` : `#${row.bot_id}`"
+          :value="row.bot_id"
+        />
+      </el-select>
+      <el-select v-model="period" :aria-label="$t('trafficHistory.range')" class="time-filter">
+        <el-option value="live" :label="$t('trafficHistory.live')" />
+        <el-option
+          v-for="preset in historyPresets"
+          :key="preset"
+          :value="preset"
+          :label="$t('trafficHistory.presets.' + preset)"
+        />
+      </el-select>
+    </div>
     <ServiceTrafficHistory
-      v-if="mode === 'history'"
+      v-if="!live"
+      :preset="period"
       :bot-id="props.botId || selectedBot"
       :admin="!props.botId"
     />
     <el-alert
-      v-if="failed && mode === 'live'"
+      v-if="failed && live"
       :title="$t('serviceTraffic.unavailable')"
       type="warning"
       :closable="false"
     />
-    <template v-if="snapshot && mode === 'live'">
+    <template v-if="snapshot && live">
       <h3 class="http-heading">{{ $t('serviceTraffic.httpTitle') }}</h3>
       <div class="traffic-stats">
         <div>
@@ -244,13 +253,17 @@
         </details>
       </el-card>
       <el-card shadow="never" class="traffic-panel">
-        <el-tabs v-model="grouping"
-          ><el-tab-pane :label="$t('serviceTraffic.bySource')" name="sources" /><el-tab-pane
-            :label="$t('serviceTraffic.byRoute')"
-            name="routes" /><el-tab-pane
-            :label="$t('serviceTraffic.byCredential')"
-            name="credentials"
-        /></el-tabs>
+        <template #header>
+          <el-select
+            v-model="grouping"
+            :aria-label="$t('serviceTraffic.groupBy')"
+            class="grouping-filter"
+          >
+            <el-option value="sources" :label="$t('serviceTraffic.bySource')" />
+            <el-option value="routes" :label="$t('serviceTraffic.byRoute')" />
+            <el-option value="credentials" :label="$t('serviceTraffic.byCredential')" />
+          </el-select>
+        </template>
         <el-table :data="rows" size="default">
           <el-table-column
             :label="
@@ -322,7 +335,7 @@
         </div>
       </el-card>
     </template>
-    <el-empty v-else-if="!loading && mode === 'live'" :description="$t('common.noData')" />
+    <el-empty v-else-if="!loading && live" :description="$t('common.noData')" />
   </div>
 </template>
 
@@ -335,6 +348,7 @@ const sourceIcons = { chat: ChatDotRound, agent: Cpu, operator: Setting }
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
 import { createServiceTrafficLoader } from '../utils/serviceTrafficLoader'
+import { historyPresets } from '../utils/serviceTrafficHistory'
 import { buildOperationTrend, operationSources } from '../utils/operationTrend'
 import { trafficBarReference } from '../utils/trafficBarReference'
 import { agentActivitySummary } from '../utils/agentActivity'
@@ -343,7 +357,8 @@ const props = defineProps({
   includePrivate: { type: Boolean, default: false },
 })
 const { locale, t } = useI18n()
-const mode = ref('live')
+const period = ref('live')
+const live = computed(() => period.value === 'live')
 const selectedBot = ref(null)
 const botOptions = ref([])
 const snapshot = ref(null)
@@ -449,7 +464,7 @@ const scope = () => ({
   includePrivate: false,
 })
 const loader = createServiceTrafficLoader({
-  canRequest: () => !document.hidden && mode.value === 'live',
+  canRequest: () => !document.hidden && live.value,
   request: async ({ botId, filterBot, includePrivate }, signal) => {
     const endpoint = botId ? `/bots/${botId}/service-traffic` : '/admin/service-traffic'
     const { data } = await api.get(endpoint, {
@@ -473,9 +488,9 @@ const refresh = () => {
   return loader.refresh()
 }
 watch(grouping, clearMinute)
-watch(mode, () => {
+watch(live, (showLive) => {
   clearMinute()
-  if (mode.value === 'live') refresh()
+  if (showLive) refresh()
 })
 watch(
   [() => props.botId, selectedBot],
@@ -568,7 +583,17 @@ function bytes(value) {
 }
 .bot-filter {
   width: min(100%, 280px);
+}
+.traffic-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 12px;
+}
+.time-filter,
+.grouping-filter {
+  width: min(100%, 150px);
 }
 .is-embedded h2 {
   font-size: 16px;

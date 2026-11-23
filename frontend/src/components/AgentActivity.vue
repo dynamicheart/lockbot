@@ -5,9 +5,22 @@
         <h3 v-if="!hideHeading">{{ t('agentActivity.title') }}</h3>
         <p>{{ t('agentActivity.description') }}</p>
       </div>
-      <el-button size="small" :loading="loading" @click="refresh">
-        <el-icon><Refresh /></el-icon> {{ t('common.refresh') }}
-      </el-button>
+      <div class="activity-controls">
+        <el-select
+          v-model="status"
+          size="small"
+          class="authorization-filter"
+          :aria-label="t('agentActivity.authorization')"
+          @change="changeFilter"
+        >
+          <el-option value="active" :label="t('agentActivity.active')" />
+          <el-option value="history" :label="t('agentActivity.history')" />
+          <el-option value="all" :label="t('agentActivity.all')" />
+        </el-select>
+        <el-button size="small" :loading="loading" @click="refresh">
+          <el-icon><Refresh /></el-icon> {{ t('common.refresh') }}
+        </el-button>
+      </div>
     </div>
     <el-alert
       v-if="error"
@@ -18,16 +31,6 @@
       class="activity-error"
     />
     <div v-loading="loading" :aria-busy="loading">
-      <el-radio-group
-        v-model="status"
-        size="small"
-        style="margin-bottom: 16px"
-        @change="changeFilter"
-      >
-        <el-radio-button value="active">{{ t('agentActivity.active') }}</el-radio-button>
-        <el-radio-button value="history">{{ t('agentActivity.history') }}</el-radio-button>
-        <el-radio-button value="all">{{ t('agentActivity.all') }}</el-radio-button>
-      </el-radio-group>
       <el-table
         :data="items"
         :empty-text="t('agentActivity.empty')"
@@ -191,7 +194,16 @@ onBeforeUnmount(() => generation++)
   gap: 16px;
 }
 .activity-toolbar {
+  flex-wrap: wrap;
   margin: 6px 0 20px;
+}
+.activity-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.authorization-filter {
+  width: 126px;
 }
 .activity-toolbar h3 {
   margin: 0 0 6px;

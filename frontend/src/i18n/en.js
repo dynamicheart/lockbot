@@ -74,8 +74,9 @@ export default {
   configurationCredentials: {
     agentGuide: 'Collection and upload guide (AGENTS.md)',
     configureWithAgent: 'Configure with an agent',
+    nodeInformation: 'Register node information',
+    nodeInformationHint: 'Allows registering login information and uploading hardware inventory.',
     nodeInventory: 'Upload node hardware',
-    nodeInventoryHint: 'Allows uploading a node hardware inventory and its observation time.',
     title: 'Configuration credentials',
     guideSelectTitle: 'Bot administrator',
     guideSelect: 'Choose the bots and permissions, then share the credential privately.',
@@ -89,7 +90,6 @@ export default {
     selectAllBots: 'Select all',
     clearBots: 'Clear selection',
     botLimitHint: 'Each credential can cover up to {count} bots. Select them in separate batches.',
-    nodeAccessHint: 'Allow the Agent to register node hostnames, IP addresses, and SSH ports.',
     datasourceHint: 'Allow the Agent to set the utilization data source and its node mapping.',
     create: 'Create configuration credential',
     empty: 'No configuration credentials yet',
@@ -410,7 +410,6 @@ export default {
     notConfigured: 'Not configured',
     remove: 'Remove',
     setupGuide: 'Setup guide',
-    agentSetupGuide: 'Set up with your Agent',
     adminHint:
       'Configure once for this bot. Prepare the source URL, metric names, labels and node/device mappings. Test from this browser, then save the bot. Never save shared source secrets.',
     testSave: 'Test and save',
@@ -472,7 +471,6 @@ export default {
     httpSource: 'HTTP entry source',
     allSources: 'All HTTP sources',
     live: 'Live',
-    history: 'History',
     range: 'Time range',
     start: 'Start time',
     end: 'End time',
@@ -509,6 +507,7 @@ export default {
 
     allBots: 'All bots with verified traffic',
     byCredential: 'By credential',
+    groupBy: 'Group by',
     credential: 'User / caller type',
     credentialKinds: {
       agent: 'Agent API',
@@ -1128,6 +1127,10 @@ export default {
 
   // === Log Viewer ===
   log: {
+    category: 'Log type',
+    allCategories: 'All types',
+    operationBadge: 'Action',
+    summaryUnavailable: 'No displayable summary',
     privateDetailsRestricted: 'Showing operation summaries.',
     all: 'All',
     commandLog: 'Command Log',

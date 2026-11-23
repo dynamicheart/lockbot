@@ -418,16 +418,19 @@
               :device-resources="['DEVICE', 'QUEUE_DEVICE'].includes(botType)"
               :save="datasourceActions.save"
               :authorize="datasourceActions.authorize"
-            />
-            <el-button
-              v-if="canEdit"
-              size="small"
-              link
-              type="primary"
-              @click="openDatasourceCredential"
             >
-              {{ $t('configurationCredentials.configureWithAgent') }}
-            </el-button>
+              <template #credential>
+                <router-link
+                  class="datasource-credential-link"
+                  :to="{
+                    name: 'ApiCredentials',
+                    query: { bot: String(bot.id), scope: 'datasource:write' },
+                  }"
+                >
+                  {{ $t('configurationCredentials.configureWithAgent') }}
+                </router-link>
+              </template>
+            </ResourceDatasourceEditor>
             <span v-if="!canEdit">{{
               datasourceConfig?.name || $t('utilization.notConfigured')
             }}</span>
@@ -654,17 +657,16 @@
           <el-tab-pane v-if="canEdit" label="Agent" name="agents">
             <template v-if="activityTab === 'agents'">
               <div class="agent-toolbar">
-                <el-radio-group v-model="agentTab" size="small" class="agent-sections">
-                  <el-radio-button value="access">{{
-                    $t('botDetail.agentAccessStats')
-                  }}</el-radio-button>
-                  <el-radio-button value="history">{{
-                    $t('botDetail.agentOperations')
-                  }}</el-radio-button>
-                  <el-radio-button value="audit">{{
-                    $t('botDetail.agentAuthorizations')
-                  }}</el-radio-button>
-                </el-radio-group>
+                <el-select
+                  v-model="agentTab"
+                  size="small"
+                  class="agent-sections"
+                  aria-label="Agent"
+                >
+                  <el-option value="access" :label="$t('botDetail.agentAccessStats')" />
+                  <el-option value="history" :label="$t('botDetail.agentOperations')" />
+                  <el-option value="audit" :label="$t('botDetail.agentAuthorizations')" />
+                </el-select>
                 <el-tooltip
                   v-if="agentTab === 'history' && authStore.isSuperAdmin"
                   :content="$t('botDetail.notesScopeHelp')"
@@ -1101,12 +1103,6 @@ function formatDuration(seconds) {
 // - user: can only operate own bots, no transfer
 const canEdit = computed(() => authStore.canEditBot(bot.value))
 
-function openDatasourceCredential() {
-  router.push({
-    name: 'ApiCredentials',
-    query: { bot: String(bot.value.id), scope: 'datasource:write' },
-  })
-}
 async function loadAgentSummary() {
   const target = captureBot()
   if (!target || (!canEdit.value && !authStore.isAdmin)) return
@@ -1716,6 +1712,9 @@ function formatDate(d) {
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 18px;
+}
+.agent-sections {
+  width: min(100%, 152px);
 }
 .help-icon {
   margin-left: 5px;
