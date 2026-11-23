@@ -1,12 +1,7 @@
 <template>
   <div>
     <template v-if="!changes">
-      <div class="import-toolbar">
-        <span>{{ t('nodeInformation.importHint') }}</span>
-        <el-button size="small" :disabled="Boolean(input.trim()) || busy" @click="input = example">
-          {{ t('nodeInformation.insertExample') }}
-        </el-button>
-      </div>
+      <p class="import-hint">{{ t('nodeInformation.importHint') }}</p>
       <JsonMappingEditor
         v-model="input"
         :label="t('nodeInformation.mapping')"
@@ -15,7 +10,7 @@
         @update:model-value="error = ''"
       />
     </template>
-    <p v-if="error" role="alert">{{ t(error) }}</p>
+    <p v-if="error" role="alert" class="import-error">{{ t(error, errorParams) }}</p>
     <p v-if="changes && !Object.keys(changes).length" role="status">
       {{ t('nodeAccess.noChanges') }}
     </p>
@@ -44,7 +39,7 @@
         v-if="!changes"
         type="primary"
         :loading="busy"
-        :disabled="!input.trim()"
+        :disabled="!input.trim() || input.trim() === example"
         @click="validate"
       >
         {{ t('nodeInformation.previewChanges') }}
@@ -72,10 +67,10 @@ import { formatNodeAccess } from '../utils/nodeAccess'
 const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const props = defineProps({ botId: { type: Number, required: true }, canEditHardware: Boolean })
 const emit = defineEmits(['changed', 'close'])
-const { t } = useI18n()
-const input = ref('')
+const { t, te } = useI18n()
 const busy = ref(false)
 const error = ref('')
+const errorParams = ref({})
 const changes = ref(null)
 const controller = new AbortController()
 onBeforeUnmount(() => controller.abort())
@@ -99,6 +94,7 @@ const example = computed(() => {
   }
 }`
 })
+const input = ref(example.value)
 
 function loginText(login) {
   return login
@@ -141,9 +137,17 @@ async function submit(saveChanges) {
       const { data } = await api.post(path.value + '/preview', input.value, options)
       changes.value = data.changes
     }
-  } catch {
+  } catch (failure) {
     if (!controller.signal.aborted) {
-      error.value = saveChanges ? 'nodeAccess.writeFailed' : 'nodeInformation.validationFailed'
+      const detail = failure.response?.data?.detail
+      const fieldKey = `nodeInformation.errors.${detail?.field}`
+      errorParams.value = { node: detail?.node ?? '' }
+      if (detail?.code === 'invalid_node_metadata_mapping' && te(fieldKey)) error.value = fieldKey
+      else if (detail?.code === 'node_hardware_requires_whole_machine')
+        error.value = 'nodeInformation.errors.cardHardware'
+      else if (detail?.code === 'configuration_invalid')
+        error.value = 'nodeInformation.errors.format'
+      else error.value = saveChanges ? 'nodeAccess.writeFailed' : 'nodeInformation.validationFailed'
     }
   } finally {
     busy.value = false
@@ -155,12 +159,12 @@ const save = () => submit(true)
 </script>
 
 <style scoped>
-.import-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+.import-hint {
+  margin: 0 0 10px;
+}
+.import-error {
+  color: var(--el-color-danger-dark-2);
+  overflow-wrap: anywhere;
 }
 
 .import-review {

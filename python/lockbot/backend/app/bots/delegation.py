@@ -24,6 +24,7 @@ from lockbot.backend.app.auth.models import User
 from lockbot.backend.app.bots.datasource import UtilizationConfig, public_datasource, serialized_datasource
 from lockbot.backend.app.bots.models import Bot
 from lockbot.backend.app.bots.node_access import (
+    NodeAccessError,
     _unique_object,
     mapping_version,
     merge_login_metadata,
@@ -509,13 +510,23 @@ def _manual_node_changes(bot, document):
     nodes = document.nodes
     ids = set(_inventory(bot)["node_ids"])
     address_fields = {"host", "ip", "port", "method", "note"}
-    if set(nodes) - ids:
-        _deny(422, "invalid_node_metadata_mapping")
+
+    def invalid(node, field):
+        raise HTTPException(
+            422,
+            {"code": "invalid_node_metadata_mapping", "node": node[:256], "field": field},
+            headers={"Cache-Control": "no-store"},
+        )
+
     login = {}
     for node, entry in nodes.items():
+        if node not in ids:
+            invalid(node, "node")
         flat_login = entry.keys() & address_fields
-        if not entry or entry.keys() - address_fields - {"login", "hardware"} or ("login" in entry and flat_login):
-            _deny(422, "invalid_node_metadata_mapping")
+        if "login" in entry and flat_login:
+            invalid(node, "mixedLogin")
+        if not entry or entry.keys() - address_fields - {"login", "hardware"}:
+            invalid(node, "fields")
         if "login" in entry:
             login[node] = entry["login"]
         elif flat_login:
@@ -532,9 +543,16 @@ def _manual_node_changes(bot, document):
             json.dumps({"version": 2, "nodes": {node: entry for node, entry in login.items() if entry is not None}}),
             ids,
         )
-        parsed_hardware = parse_node_hardware(json.dumps({"version": 1, "nodes": hardware}))
+    except NodeAccessError as error:
+        invalid(error.node, error.field)
     except (ValueError, TypeError, RecursionError):
         _deny(422, "invalid_node_metadata_mapping")
+    parsed_hardware = {}
+    for node, accelerators in hardware.items():
+        try:
+            parsed_hardware.update(parse_node_hardware(json.dumps({"version": 1, "nodes": {node: accelerators}})))
+        except (ValueError, TypeError, RecursionError):
+            invalid(node, "hardware")
     current_login, current_hardware = saved_node_access(bot), saved_node_hardware(bot)
     parsed_login = merge_login_metadata(current_login, parsed_login)
     changes = {}

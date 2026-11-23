@@ -108,7 +108,11 @@ def test_manual_node_json_saves_login_and_hardware_together(client, auth_header,
     invalid = {"version": 1, "nodes": {"node1": {"login": login, "hardware": [{"model": "bad", "count": 0}]}}}
     assert client.patch(path, headers=auth_header, json=invalid).status_code == 422
     mixed = {"version": 1, "nodes": {"node1": login | {"login": login}}}
-    assert client.patch(path, headers=auth_header, json=mixed).status_code == 422
+    response = client.patch(path, headers=auth_header, json=mixed)
+    assert response.status_code == 422 and response.json()["detail"]["field"] == "mixedLogin"
+    bad_port = {"version": 1, "nodes": {"node1": login | {"port": 65536}}}
+    response = client.post(path + "/preview", headers=auth_header, json=bad_port)
+    assert response.status_code == 422 and response.json()["detail"]["field"] == "port"
     assert client.get(path, headers=auth_header).raise_for_status().json()["login_addresses"] == {}
     assert client.patch(path, headers=auth_header, json=mapping).raise_for_status().json() == {"changed_nodes": 1}
     document = client.get(path, headers=auth_header).raise_for_status().json()

@@ -14,6 +14,13 @@ _LOGIN_TEXT_LIMITS = {"method": 120, "note": 256}
 _HOST_LABEL = re.compile(r"[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?")
 
 
+class NodeAccessError(ValueError):
+    def __init__(self, node, field, message):
+        super().__init__(message)
+        self.node = node
+        self.field = field
+
+
 def node_ids(cluster_config):
     """Use the canonical node keys presented by the allocator."""
     if isinstance(cluster_config, dict):
@@ -66,33 +73,33 @@ def parse_access_mapping(raw, allowed_nodes=None):
     for node, entry in data["nodes"].items():
         if not node or len(node) > 256 or (allowed_nodes is not None and node not in allowed_nodes):
             raise ValueError(f"Unknown node ID: {node[:256]!r}")
-        if not isinstance(entry, dict) or not {"host"} <= entry.keys() <= fields:
-            raise ValueError(f"Invalid address fields for node {node!r}")
+        if not isinstance(entry, dict) or entry.keys() - fields:
+            raise NodeAccessError(node, "login", f"Invalid address fields for node {node!r}")
         port = entry.get("port", 22)
         if type(port) is not int or not 1 <= port <= 65535:
-            raise ValueError(f"Invalid SSH port for node {node!r}")
+            raise NodeAccessError(node, "port", f"Invalid SSH port for node {node!r}")
         try:
-            host = _host(entry["host"])
+            host = _host(entry.get("host"))
         except ValueError:
-            raise ValueError(f"Invalid SSH host for node {node!r}") from None
+            raise NodeAccessError(node, "host", f"Invalid SSH host for node {node!r}") from None
         access = {"host": host, "port": port}
         if "ip" in entry:
             if not _is_hostname(host):
-                raise ValueError(f"Enter a hostname in host when setting ip for node {node!r}")
+                raise NodeAccessError(node, "hostForIp", f"Enter a hostname in host when setting ip for node {node!r}")
             ip = entry["ip"]
             if not isinstance(ip, str):
-                raise ValueError(f"Invalid IPv4 address for node {node!r}")
+                raise NodeAccessError(node, "ip", f"Invalid IPv4 address for node {node!r}")
             try:
                 access["ip"] = str(ipaddress.IPv4Address(ip))
             except ipaddress.AddressValueError:
-                raise ValueError(f"Invalid IPv4 address for node {node!r}") from None
+                raise NodeAccessError(node, "ip", f"Invalid IPv4 address for node {node!r}") from None
         for field, limit in _LOGIN_TEXT_LIMITS.items():
             if field not in entry:
                 continue
             value = entry[field]
             if value is not None:
                 if not isinstance(value, str) or len(value) > limit or not value.isprintable() or not value.strip():
-                    raise ValueError(f"Invalid login {field} for node {node!r}")
+                    raise NodeAccessError(node, field, f"Invalid login {field} for node {node!r}")
                 value = value.strip()
             access[field] = value
         nodes[node] = access
