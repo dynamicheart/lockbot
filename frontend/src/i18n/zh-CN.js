@@ -3,9 +3,12 @@ export default {
     tabHint: '空白时按 Tab 填入样例',
     invalidSyntax: 'JSON 格式有误，请检查括号、引号和逗号。',
   },
+  nodeInformation: {
+    title: '节点信息',
+    open: '配置节点信息',
+  },
   nodeHardware: {
-    title: '节点硬件',
-    open: '登记硬件',
+    title: '硬件信息',
     help: '根据已确认的清单登记卡型和数量。',
     mapping: '硬件映射 JSON',
     saved: '已登记硬件',
@@ -22,7 +25,6 @@ export default {
 
   nodeAccess: {
     title: '节点连接',
-    open: '配置登录地址',
     loginAddress: '登录地址',
     sharedUnavailable: '暂时无法查看登录地址。',
     workbenchAddress: '前往个人资源台查看登录地址',

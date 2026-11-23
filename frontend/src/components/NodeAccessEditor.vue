@@ -1,11 +1,6 @@
 <template>
-  <el-button size="small" @click="open">{{ t('nodeAccess.open') }}</el-button>
-  <el-dialog
-    v-model="visible"
-    destroy-on-close
-    :title="t('nodeAccess.title')"
-    width="min(620px, calc(100vw - 32px))"
-  >
+  <section>
+    <p>{{ t('nodeAccess.purpose') }}</p>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <template v-if="inventory">
       <div class="mapping-header">
@@ -15,7 +10,6 @@
       <div class="mapping">
         <span>{{ t('nodeAccess.mapping') }}</span>
         <JsonMappingEditor
-          v-if="visible"
           v-model="input"
           :label="t('nodeAccess.mapping')"
           :disabled="busy"
@@ -50,8 +44,8 @@
         </ul>
       </details>
     </template>
-    <template #footer>
-      <el-button :disabled="busy" @click="visible = false">{{ t('common.cancel') }}</el-button>
+    <div class="actions">
+      <el-button :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
       <el-button
         v-if="!preview"
         type="primary"
@@ -64,12 +58,12 @@
       <el-button v-else type="primary" :loading="busy" :disabled="!changed" @click="save">
         {{ t('nodeAccess.save') }}
       </el-button>
-    </template>
-  </el-dialog>
+    </div>
+  </section>
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
@@ -77,11 +71,10 @@ import { useHelpers } from '../utils/helpers'
 import { formatNodeAccess } from '../utils/nodeAccess'
 
 const props = defineProps({ botId: { type: Number, required: true } })
-const emit = defineEmits(['changed'])
+const emit = defineEmits(['changed', 'close'])
 const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const { t } = useI18n()
 const { copyText } = useHelpers()
-const visible = ref(false)
 const busy = ref(false)
 const error = ref('')
 const input = ref('')
@@ -133,12 +126,7 @@ async function load() {
   inventory.value = (await api.get(path.value, requestOptions)).data
 }
 
-function open() {
-  input.value = ''
-  inventory.value = preview.value = null
-  visible.value = true
-  return run(load, 'nodeAccess.readFailed')
-}
+onMounted(() => run(load, 'nodeAccess.readFailed'))
 
 function validate() {
   try {
@@ -160,10 +148,8 @@ function onEdit() {
 function save() {
   return run(async () => {
     await api.put(path.value, input.value, mappingOptions)
-    visible.value = false
-    input.value = ''
-    preview.value = null
     emit('changed')
+    emit('close')
     ElMessage.success(t('nodeAccess.saveSuccess'))
   }, 'nodeAccess.writeFailed')
 }
@@ -188,6 +174,10 @@ async function remove(node) {
 </script>
 
 <style scoped>
+.actions {
+  margin-top: 20px;
+  text-align: right;
+}
 .mapping {
   display: grid;
   gap: 8px;

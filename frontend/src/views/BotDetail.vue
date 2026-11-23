@@ -423,27 +423,13 @@
               datasourceConfig?.name || $t('utilization.notConfigured')
             }}</span>
           </el-descriptions-item>
-          <el-descriptions-item v-if="canEdit" :span="2">
-            <template #label>
-              {{ $t('nodeAccess.title') }}
-              <el-tooltip
-                :content="$t('nodeAccess.purpose')"
-                :trigger="['hover', 'focus']"
-                placement="top"
-              >
-                <el-icon class="help-icon" tabindex="0" :aria-label="$t('nodeAccess.purpose')">
-                  <QuestionFilled />
-                </el-icon>
-              </el-tooltip>
-            </template>
-            <NodeAccessEditor :key="bot.id" :bot-id="bot.id" @changed="fetchNodeAddresses" />
-          </el-descriptions-item>
-          <el-descriptions-item
-            v-if="canEdit && ['NODE', 'QUEUE'].includes(botType)"
-            :span="2"
-            :label="$t('nodeHardware.title')"
-          >
-            <NodeHardwareEditor :key="bot.id" :bot-id="bot.id" />
+          <el-descriptions-item v-if="canEdit" :span="2" :label="$t('nodeInformation.title')">
+            <NodeInformationEditor
+              :key="bot.id"
+              :bot-id="bot.id"
+              :can-edit-hardware="['NODE', 'QUEUE'].includes(botType)"
+              @changed="fetchNodeAddresses"
+            />
           </el-descriptions-item>
         </el-descriptions>
       </el-card>
@@ -743,8 +729,7 @@ import { platformLabel } from '../utils/platformDisplay'
 import FeishuGroupInfo from '../components/FeishuGroupInfo.vue'
 import BotMigrationPreflight from '../components/BotMigrationPreflight.vue'
 import ResourceDatasourceEditor from '../components/ResourceDatasourceEditor.vue'
-import NodeAccessEditor from '../components/NodeAccessEditor.vue'
-import NodeHardwareEditor from '../components/NodeHardwareEditor.vue'
+import NodeInformationEditor from '../components/NodeInformationEditor.vue'
 import { formatNodeAccess } from '../utils/nodeAccess'
 import ResourceUtilization from '../components/ResourceUtilization.vue'
 import ResourceMetricsCell from '../components/ResourceMetricsCell.vue'

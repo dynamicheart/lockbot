@@ -1,11 +1,5 @@
 <template>
-  <el-button size="small" :disabled="busy" @click="open">{{ t('nodeHardware.open') }}</el-button>
-  <el-dialog
-    v-model="visible"
-    destroy-on-close
-    :title="t('nodeHardware.title')"
-    width="min(620px, calc(100vw - 32px))"
-  >
+  <section>
     <p v-if="errorKey" role="alert">{{ t(errorKey) }}</p>
     <template v-if="inventory">
       <div class="hardware-toolbar">
@@ -38,8 +32,8 @@
         </ul>
       </details>
     </template>
-    <template #footer>
-      <el-button :disabled="busy" @click="visible = false">{{ t('common.cancel') }}</el-button>
+    <div class="actions">
+      <el-button :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</el-button>
       <el-button
         v-if="!preview"
         type="primary"
@@ -51,12 +45,12 @@
       <el-button v-else type="primary" :loading="busy" :disabled="!changed" @click="save">
         {{ t('nodeAccess.save') }}
       </el-button>
-    </template>
-  </el-dialog>
+    </div>
+  </section>
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import api from '../utils/api'
@@ -64,9 +58,9 @@ import { useHelpers } from '../utils/helpers'
 
 const JsonMappingEditor = defineAsyncComponent(() => import('./JsonMappingEditor.vue'))
 const props = defineProps({ botId: { type: Number, required: true } })
+const emit = defineEmits(['close'])
 const { t } = useI18n()
 const { copyText } = useHelpers()
-const visible = ref(false)
 const busy = ref(false)
 const errorKey = ref('')
 const input = ref('')
@@ -111,15 +105,11 @@ async function run(action, fallback) {
   }
 }
 
-function open() {
-  resetPreview()
-  input.value = ''
-  inventory.value = null
-  visible.value = true
-  return run(async () => {
+onMounted(() =>
+  run(async () => {
     inventory.value = (await api.get(path.value, requestOptions)).data
   }, 'nodeHardware.readFailed')
-}
+)
 
 function copyPrompt() {
   copyText(t('nodeHardware.prompt', { nodeIds: JSON.stringify(inventory.value.node_ids), example }))
@@ -133,20 +123,26 @@ function validate() {
     return
   }
   return run(async () => {
-    preview.value = (await api.post(`${path.value}/preview`, input.value, mappingOptions)).data.changes
+    preview.value = (
+      await api.post(`${path.value}/preview`, input.value, mappingOptions)
+    ).data.changes
   }, 'nodeHardware.validateFailed')
 }
 
 function save() {
   return run(async () => {
     await api.patch(path.value, input.value, mappingOptions)
-    visible.value = false
+    emit('close')
     ElMessage.success(t('nodeHardware.saveSuccess'))
   }, 'nodeHardware.writeFailed')
 }
 </script>
 
 <style scoped>
+.actions {
+  margin-top: 20px;
+  text-align: right;
+}
 .hardware-toolbar {
   display: flex;
   flex-wrap: wrap;
